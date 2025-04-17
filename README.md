@@ -17,6 +17,24 @@ No more guessing. See which services are passing DMARC, which are failing, and h
 
 ---
 
+## 🚀 Current Status - Milestone 1 Completed
+
+We have achieved **Milestone 1: Basic DMARC Monitoring**. This milestone includes:
+
+- ✅ DMARC XML report parsing (supports XML, ZIP, and GZIP formats)
+- ✅ In-memory storage of report data for up to 5 domains
+- ✅ Simple dashboard UI showing DMARC compliance statistics
+- ✅ Support for uploading and processing DMARC aggregate reports
+- ✅ Domain overview with compliance rates and email statistics
+
+You can now:
+1. Upload DMARC aggregate reports via the web interface
+2. View summary statistics across all monitored domains
+3. Drill down into domain-specific details and reports
+4. Track compliance rates and authentication failures
+
+---
+
 ## ✨ Key Features
 
 ### 📊 Dashboard & Reports
@@ -66,28 +84,37 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Then visit [http://localhost:8000](http://localhost:8000) to launch the config wizard and connect your inbox & Cloudflare account.
+Then visit [http://localhost](http://localhost) to access the dashboard and upload your DMARC reports.
+
+### Development Setup
+
+For development without Docker:
+
+```bash
+cd backend
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8080
+```
+
+Then visit [http://localhost:8080](http://localhost:8080)
 
 ---
 
 ## 📦 Requirements
 
-- IMAP inbox for DMARC reports (e.g. `dmarc@yourdomain.com`)
-- Cloudflare API token (read access to zones and DNS)
-- Docker + Docker Compose
-- DMARC reporting enabled for your domain (via `rua=` and `ruf=`)
+- DMARC aggregate reports (XML, ZIP, or GZIP format)
+- Docker + Docker Compose (for production deployment)
+- Python 3.10+ (for development)
 
 ---
 
-## 🧪 Status
+## 🧪 Development Roadmap
 
-- ✅ DMARC aggregate & forensic report ingestion
-- ✅ Dashboard & alerting
-- ✅ Web-based config wizard
-- ✅ Docker-based deployment
-- 🔜 Rule-based alerts
-- 🔜 Multi-tenant support
-- 🔜 Self-updating DNS snapshot history
+- ✅ **Milestone 1**: Basic DMARC Monitoring (up to 5 domains)
+- 🔄 **Milestone 2**: Enhanced Visualization & Analysis
+- 🔜 **Milestone 3**: Database Persistence & User Management
+- 🔜 **Milestone 4**: Email Integration & Automated Processing
+- 🔜 **Milestone 5**: DNS Health & Configuration Suggestions
 
 ---
 
@@ -111,4 +138,4 @@ Unlike most commercial DMARC tools, DMARQ gives you:
 - 🎨 A beautiful, intuitive dashboard with real-time insights
 - 💻 Self-hosted flexibility with modern developer practices
 
-Let’s build better email security — together.
+Let's build better email security — together.

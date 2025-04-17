@@ -1,0 +1,161 @@
+/**
+ * DMARQ Integrated Frontend Styles
+ */
+
+/* Setup Wizard Styles */
+.setup-progress {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 2rem;
+    position: relative;
+}
+
+.setup-step {
+    position: relative;
+    padding: 0.5rem 1rem;
+    background-color: #f3f4f6;
+    border-radius: 0.25rem;
+    font-weight: 500;
+    z-index: 1;
+}
+
+.setup-step.active {
+    background-color: #3b82f6;
+    color: white;
+}
+
+.setup-step.completed {
+    background-color: #10b981;
+    color: white;
+}
+
+.setup-progress:after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background-color: #e5e7eb;
+    z-index: 0;
+}
+
+/* Form Styles */
+input, select, textarea {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid #d1d5db;
+    border-radius: 0.25rem;
+    margin-bottom: 1rem;
+}
+
+button {
+    background-color: #3b82f6;
+    color: white;
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 0.25rem;
+    cursor: pointer;
+    font-weight: 500;
+}
+
+button:hover {
+    background-color: #2563eb;
+}
+
+button:disabled {
+    background-color: #9ca3af;
+    cursor: not-allowed;
+}
+
+/* Stats and Dashboard Styles */
+.stat {
+    font-size: 2rem;
+    font-weight: 700;
+    color: #3b82f6;
+}
+
+.dashboard-stats .card {
+    text-align: center;
+}
+
+/* Additional Utility Classes */
+.text-center {
+    text-align: center;
+}
+
+.flex {
+    display: flex;
+}
+
+.flex-col {
+    flex-direction: column;
+}
+
+.items-center {
+    align-items: center;
+}
+
+.justify-center {
+    justify-content: center;
+}
+
+.justify-between {
+    justify-content: space-between;
+}
+
+.mt-4 {
+    margin-top: 1rem;
+}
+
+.mb-4 {
+    margin-bottom: 1rem;
+}
+
+/* Navigation Styles */
+.sidebar ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.sidebar ul li {
+    margin-bottom: 0.5rem;
+}
+
+.sidebar ul li a {
+    display: block;
+    padding: 0.5rem;
+    border-radius: 0.25rem;
+    text-decoration: none;
+    color: var(--text-color);
+}
+
+.sidebar ul li a:hover {
+    background-color: #f3f4f6;
+}
+
+.sidebar ul li a.active {
+    background-color: #3b82f6;
+    color: white;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .sidebar {
+        width: 100%;
+        height: auto;
+        position: static;
+        border-right: none;
+        border-bottom: 1px solid #e2e8f0;
+        margin-bottom: 1rem;
+    }
+    
+    .main-content {
+        margin-left: 0;
+    }
+    
+    .dashboard-stats {
+        grid-template-columns: 1fr;
+    }
+}
