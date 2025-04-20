@@ -1,0 +1,44 @@
+{% macro alert(variant='info', dismissible=False, id='') %}
+<div 
+    class="alert alert-{{ variant }} shadow-lg mb-4" 
+    {% if id %}id="{{ id }}"{% endif %}
+    {% if dismissible %}x-data="{ open: true }" x-show="open"{% endif %}
+>
+    {% if variant == 'info' %}
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-info flex-shrink-0 w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+    {% elif variant == 'success' %}
+    <svg xmlns="http://www.w3.org/2000/svg" class="stroke-success flex-shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+    {% elif variant == 'warning' %}
+    <svg xmlns="http://www.w3.org/2000/svg" class="stroke-warning flex-shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+    {% elif variant == 'error' %}
+    <svg xmlns="http://www.w3.org/2000/svg" class="stroke-error flex-shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+    {% endif %}
+    
+    <div>
+        {{ caller() }}
+    </div>
+    
+    {% if dismissible %}
+    <button 
+        type="button" 
+        class="btn btn-ghost btn-sm btn-square"
+        x-on:click="open = false"
+        aria-label="Close"
+    >
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+    </button>
+    {% endif %}
+</div>
+{% endmacro %}
+
+{% macro alert_title() %}
+<h5 class="font-medium text-base">
+    {{ caller() }}
+</h5>
+{% endmacro %}
+
+{% macro alert_description() %}
+<div class="text-sm">
+    {{ caller() }}
+</div>
+{% endmacro %}

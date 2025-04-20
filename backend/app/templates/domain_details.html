@@ -1,0 +1,490 @@
+{% extends "layouts/base.html" %}
+{% from "components/ui/card.html" import card, card_header, card_title, card_description, card_content, card_footer %}
+{% from "components/ui/button.html" import button, button_link %}
+{% from "components/ui/table.html" import table, thead, tbody, tr, th, td %}
+
+{% block title %}DMARQ - {{ domain.name }} Details{% endblock %}
+
+{% block content %}
+<div class="container mx-auto py-4" x-data="domainDetailsApp({{ domain_id }})">
+    <nav class="mb-4 text-sm">
+        <ol class="flex items-center space-x-2">
+            <li><a href="/" class="hover:text-primary">Dashboard</a></li>
+            <li><span class="text-muted-foreground px-2">/</span></li>
+            <li><a href="/domains" class="hover:text-primary">Domains</a></li>
+            <li><span class="text-muted-foreground px-2">/</span></li>
+            <li><span class="font-medium">{{ domain.name }}</span></li>
+        </ol>
+    </nav>
+
+    <div class="grid grid-cols-1 gap-6">
+        <!-- Domain Overview -->
+        <div class="flex justify-between items-start">
+            <div>
+                <h1 class="text-2xl font-bold mb-1">{{ domain.name }}</h1>
+                <p class="text-muted-foreground">{{ domain.description or "Domain monitored by DMARQ" }}</p>
+            </div>
+            <div class="flex space-x-2">
+                {% call button(variant="outline", size="sm") %}
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path><path d="m15 5 4 4"></path></svg>
+                    Edit Domain
+                {% endcall %}
+                {% call button(variant="outline", size="sm") %}
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M12 2v7.5"></path><path d="m4.24 10.37 6.58-3.79"></path><path d="m3.24 16.98 7.5-1.01"></path><path d="m13.24 15.97 7.5 1.01"></path><path d="m13.24 3.79 6.58 3.79"></path><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Z"></path><path d="M12 12a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z"></path></svg>
+                    Check DNS
+                {% endcall %}
+            </div>
+        </div>
+
+        <!-- Domain Stats -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <!-- DMARC Compliance Card -->
+            {% call card() %}
+                {% call card_header() %}
+                    <div class="flex items-center justify-between">
+                        {% call card_title() %}DMARC Compliance{% endcall %}
+                        <div class="p-2 bg-primary/10 rounded-full">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-primary"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                        </div>
+                    </div>
+                {% endcall %}
+                {% call card_content() %}
+                    <div class="stat-card">
+                        <div id="compliance-rate" class="stat-value" x-text="stats.complianceRate + '%'">-</div>
+                        <p class="stat-description">Emails passing DMARC</p>
+                    </div>
+                {% endcall %}
+            {% endcall %}
+            
+            <!-- Total Emails Card -->
+            {% call card() %}
+                {% call card_header() %}
+                    <div class="flex items-center justify-between">
+                        {% call card_title() %}Total Emails{% endcall %}
+                        <div class="p-2 bg-secondary/10 rounded-full">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-secondary"><rect width="20" height="16" x="2" y="4" rx="2"></rect><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"></path></svg>
+                        </div>
+                    </div>
+                {% endcall %}
+                {% call card_content() %}
+                    <div class="stat-card">
+                        <div id="total-emails" class="stat-value" x-text="stats.totalEmails">-</div>
+                        <p class="stat-description">Total emails processed</p>
+                    </div>
+                {% endcall %}
+            {% endcall %}
+            
+            <!-- Failed Emails Card -->
+            {% call card() %}
+                {% call card_header() %}
+                    <div class="flex items-center justify-between">
+                        {% call card_title() %}Failed Emails{% endcall %}
+                        <div class="p-2 bg-red-500/10 rounded-full">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-red-500"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
+                        </div>
+                    </div>
+                {% endcall %}
+                {% call card_content() %}
+                    <div class="stat-card">
+                        <div id="failed-emails" class="stat-value" x-text="stats.failedEmails">-</div>
+                        <p class="stat-description">Emails failing DMARC</p>
+                    </div>
+                {% endcall %}
+            {% endcall %}
+            
+            <!-- Reports Card -->
+            {% call card() %}
+                {% call card_header() %}
+                    <div class="flex items-center justify-between">
+                        {% call card_title() %}Reports{% endcall %}
+                        <div class="p-2 bg-accent/10 rounded-full">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+                        </div>
+                    </div>
+                {% endcall %}
+                {% call card_content() %}
+                    <div class="stat-card">
+                        <div id="report-count" class="stat-value" x-text="stats.reportCount">-</div>
+                        <p class="stat-description">DMARC reports received</p>
+                    </div>
+                {% endcall %}
+            {% endcall %}
+        </div>
+
+        <!-- Compliance Chart -->
+        {% call card() %}
+            {% call card_header() %}
+                {% call card_title() %}Compliance Over Time{% endcall %}
+                {% call card_description() %}
+                    DMARC pass rate for the past 30 days
+                {% endcall %}
+            {% endcall %}
+            {% call card_content() %}
+                <div class="h-64">
+                    <canvas id="compliance-chart"></canvas>
+                </div>
+            {% endcall %}
+        {% endcall %}
+
+        <!-- DNS Records -->
+        {% call card() %}
+            {% call card_header() %}
+                {% call card_title() %}DNS Records{% endcall %}
+                {% call card_description() %}
+                    Email authentication DNS records for this domain
+                {% endcall %}
+            {% endcall %}
+            {% call card_content() %}
+                <div class="grid gap-4">
+                    <div>
+                        <h3 class="font-semibold mb-1 flex items-center">
+                            <span class="mr-2">DMARC Record</span>
+                            <span x-show="dns.dmarc" class="inline-flex h-2 w-2 rounded-full bg-green-500"></span>
+                            <span x-show="!dns.dmarc" class="inline-flex h-2 w-2 rounded-full bg-red-500"></span>
+                        </h3>
+                        <div class="bg-muted p-2 rounded text-sm overflow-x-auto font-mono" x-text="dns.dmarcRecord || 'No DMARC record found'">-</div>
+                    </div>
+                    <div>
+                        <h3 class="font-semibold mb-1 flex items-center">
+                            <span class="mr-2">SPF Record</span>
+                            <span x-show="dns.spf" class="inline-flex h-2 w-2 rounded-full bg-green-500"></span>
+                            <span x-show="!dns.spf" class="inline-flex h-2 w-2 rounded-full bg-red-500"></span>
+                        </h3>
+                        <div class="bg-muted p-2 rounded text-sm overflow-x-auto font-mono" x-text="dns.spfRecord || 'No SPF record found'">-</div>
+                    </div>
+                    <div>
+                        <h3 class="font-semibold mb-1 flex items-center">
+                            <span class="mr-2">DKIM Selectors</span>
+                            <span x-show="dns.dkim && dns.dkim.length > 0" class="inline-flex h-2 w-2 rounded-full bg-green-500"></span>
+                            <span x-show="!dns.dkim || dns.dkim.length === 0" class="inline-flex h-2 w-2 rounded-full bg-red-500"></span>
+                        </h3>
+                        <div class="bg-muted p-2 rounded text-sm overflow-x-auto font-mono" x-text="dns.dkimSelectors || 'No DKIM selectors configured'">-</div>
+                    </div>
+                </div>
+            {% endcall %}
+        {% endcall %}
+
+        <!-- Source Report Table -->
+        {% call card() %}
+            {% call card_header() %}
+                <div class="flex items-center justify-between">
+                    {% call card_title() %}Sending Sources{% endcall %}
+                    <div class="space-x-2">
+                        <select x-model="filters.dateRange" class="select select-sm select-bordered">
+                            <option value="7">Last 7 days</option>
+                            <option value="30">Last 30 days</option>
+                            <option value="90">Last 90 days</option>
+                            <option value="all">All time</option>
+                        </select>
+                        <input 
+                            x-model="filters.sourceFilter" 
+                            type="text" 
+                            placeholder="Filter sources..." 
+                            class="input input-sm input-bordered max-w-xs"
+                        >
+                    </div>
+                </div>
+                {% call card_description() %}
+                    IP addresses and servers sending email as this domain
+                {% endcall %}
+            {% endcall %}
+            {% call card_content() %}
+                {% call table() %}
+                    {% call thead() %}
+                        {% call tr() %}
+                            {% call th() %}Source IP{% endcall %}
+                            {% call th() %}Total Emails{% endcall %}
+                            {% call th() %}SPF{% endcall %}
+                            {% call th() %}DKIM{% endcall %}
+                            {% call th() %}DMARC{% endcall %}
+                            {% call th() %}Disposition{% endcall %}
+                        {% endcall %}
+                    {% endcall %}
+                    {% call tbody() %}
+                        <template x-if="sources.length === 0">
+                            <tr>
+                                <td colspan="6" class="text-center py-4">
+                                    <div class="text-muted-foreground">No data available for this time period</div>
+                                </td>
+                            </tr>
+                        </template>
+                        <template x-for="source in filteredSources" :key="source.ip">
+                            {% call tr() %}
+                                {% call td() %}
+                                    <span x-text="source.ip"></span>
+                                {% endcall %}
+                                {% call td() %}
+                                    <span x-text="source.count"></span>
+                                {% endcall %}
+                                {% call td() %}
+                                    <template x-if="source.spf === 'pass'">
+                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">Pass</span>
+                                    </template>
+                                    <template x-if="source.spf === 'fail'">
+                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-red-100 text-red-800">Fail</span>
+                                    </template>
+                                    <template x-if="source.spf === 'neutral' || source.spf === 'none'">
+                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-800" x-text="source.spf"></span>
+                                    </template>
+                                {% endcall %}
+                                {% call td() %}
+                                    <template x-if="source.dkim === 'pass'">
+                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">Pass</span>
+                                    </template>
+                                    <template x-if="source.dkim === 'fail'">
+                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-red-100 text-red-800">Fail</span>
+                                    </template>
+                                    <template x-if="source.dkim === 'neutral' || source.dkim === 'none'">
+                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-800" x-text="source.dkim"></span>
+                                    </template>
+                                {% endcall %}
+                                {% call td() %}
+                                    <template x-if="source.dmarc === 'pass'">
+                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">Pass</span>
+                                    </template>
+                                    <template x-if="source.dmarc === 'fail'">
+                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-red-100 text-red-800">Fail</span>
+                                    </template>
+                                {% endcall %}
+                                {% call td() %}
+                                    <template x-if="source.disposition === 'none'">
+                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">None</span>
+                                    </template>
+                                    <template x-if="source.disposition === 'quarantine'">
+                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-yellow-100 text-yellow-800">Quarantine</span>
+                                    </template>
+                                    <template x-if="source.disposition === 'reject'">
+                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-red-100 text-red-800">Reject</span>
+                                    </template>
+                                {% endcall %}
+                            {% endcall %}
+                        </template>
+                    {% endcall %}
+                {% endcall %}
+            {% endcall %}
+        {% endcall %}
+
+        <!-- Recent Reports -->
+        {% call card() %}
+            {% call card_header() %}
+                {% call card_title() %}Recent Reports{% endcall %}
+                {% call card_description() %}
+                    Latest DMARC reports received for this domain
+                {% endcall %}
+            {% endcall %}
+            {% call card_content() %}
+                {% call table() %}
+                    {% call thead() %}
+                        {% call tr() %}
+                            {% call th() %}Date{% endcall %}
+                            {% call th() %}Organization{% endcall %}
+                            {% call th() %}Emails{% endcall %}
+                            {% call th() %}Pass Rate{% endcall %}
+                            {% call th() %}Policy{% endcall %}
+                            {% call th() %}Actions{% endcall %}
+                        {% endcall %}
+                    {% endcall %}
+                    {% call tbody() %}
+                        <template x-if="reports.length === 0">
+                            <tr>
+                                <td colspan="6" class="text-center py-4">
+                                    <div class="text-muted-foreground">No reports available</div>
+                                </td>
+                            </tr>
+                        </template>
+                        <template x-for="report in reports" :key="report.id">
+                            {% call tr() %}
+                                {% call td() %}
+                                    <span x-text="formatDate(report.begin_date)"></span>
+                                {% endcall %}
+                                {% call td() %}
+                                    <span x-text="report.org_name"></span>
+                                {% endcall %}
+                                {% call td() %}
+                                    <span x-text="report.total_emails"></span>
+                                {% endcall %}
+                                {% call td() %}
+                                    <span class="inline-flex items-center px-2 py-1 rounded text-xs"
+                                          :class="getPassRateClass(report.pass_rate)">
+                                        <span x-text="report.pass_rate + '%'"></span>
+                                    </span>
+                                {% endcall %}
+                                {% call td() %}
+                                    <span x-text="report.policy"></span>
+                                {% endcall %}
+                                {% call td() %}
+                                    <a :href="'/reports/' + report.id" class="btn btn-sm btn-outline">
+                                        View
+                                    </a>
+                                {% endcall %}
+                            {% endcall %}
+                        </template>
+                    {% endcall %}
+                {% endcall %}
+            {% endcall %}
+        {% endcall %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js"></script>
+<script>
+function domainDetailsApp(domainId) {
+    return {
+        domainId: domainId,
+        stats: {
+            complianceRate: '-',
+            totalEmails: '-',
+            failedEmails: '-',
+            reportCount: '-'
+        },
+        dns: {
+            dmarc: false,
+            dmarcRecord: '',
+            spf: false,
+            spfRecord: '',
+            dkim: false,
+            dkimSelectors: ''
+        },
+        reports: [],
+        sources: [],
+        complianceChart: null,
+        filters: {
+            dateRange: '30',
+            sourceFilter: ''
+        },
+        
+        init() {
+            this.fetchDomainStats();
+            this.fetchDNSRecords();
+            this.fetchReports();
+            this.fetchSources();
+            
+            this.$watch('filters.dateRange', () => {
+                this.fetchSources();
+            });
+        },
+        
+        get filteredSources() {
+            if (!this.sources) return [];
+            
+            return this.sources.filter(source => {
+                if (!this.filters.sourceFilter) return true;
+                return source.ip.toLowerCase().includes(this.filters.sourceFilter.toLowerCase());
+            });
+        },
+        
+        async fetchDomainStats() {
+            try {
+                const response = await fetch(`/api/v1/domains/${this.domainId}/stats`);
+                if (response.ok) {
+                    const data = await response.json();
+                    this.stats = data;
+                }
+            } catch (error) {
+                console.error('Error fetching domain stats:', error);
+            }
+        },
+        
+        async fetchDNSRecords() {
+            try {
+                const response = await fetch(`/api/v1/domains/${this.domainId}/dns`);
+                if (response.ok) {
+                    const data = await response.json();
+                    this.dns = data;
+                }
+            } catch (error) {
+                console.error('Error fetching DNS records:', error);
+            }
+        },
+        
+        async fetchReports() {
+            try {
+                const response = await fetch(`/api/v1/domains/${this.domainId}/reports?limit=10`);
+                if (response.ok) {
+                    const data = await response.json();
+                    this.reports = data.reports;
+                    this.initComplianceChart(data.compliance_timeline);
+                }
+            } catch (error) {
+                console.error('Error fetching reports:', error);
+            }
+        },
+        
+        async fetchSources() {
+            try {
+                const response = await fetch(`/api/v1/domains/${this.domainId}/sources?days=${this.filters.dateRange}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    this.sources = data.sources;
+                }
+            } catch (error) {
+                console.error('Error fetching sources:', error);
+            }
+        },
+        
+        initComplianceChart(timelineData) {
+            if (!timelineData) return;
+            
+            const ctx = document.getElementById('compliance-chart').getContext('2d');
+            
+            if (this.complianceChart) {
+                this.complianceChart.destroy();
+            }
+            
+            const labels = timelineData.map(item => item.date);
+            const complianceData = timelineData.map(item => item.compliance_rate);
+            
+            this.complianceChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Compliance Rate',
+                        data: complianceData,
+                        borderColor: '#1A237E',
+                        backgroundColor: 'rgba(26, 35, 126, 0.1)',
+                        tension: 0.3,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            ticks: {
+                                callback: value => value + '%'
+                            }
+                        }
+                    },
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.parsed.y + '%';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        },
+        
+        formatDate(timestamp) {
+            const date = new Date(timestamp * 1000);
+            return date.toLocaleDateString();
+        },
+        
+        getPassRateClass(rate) {
+            if (rate >= 90) return 'bg-green-100 text-green-800';
+            if (rate >= 50) return 'bg-yellow-100 text-yellow-800';
+            return 'bg-red-100 text-red-800';
+        }
+    };
+}
+</script>
+{% endblock %}

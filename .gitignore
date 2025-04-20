@@ -172,3 +172,17 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+/node_modules
+
+/backend/node_modules
+
+# Tailwind build artifacts
+/backend/app/static/css/output.css
+/backend/app/static/css/output.css.map
+
+# NPM log files and cache
+/backend/npm-debug.log*
+/backend/yarn-debug.log*
+/backend/yarn-error.log*
+/backend/.npm/

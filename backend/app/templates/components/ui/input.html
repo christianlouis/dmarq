@@ -1,0 +1,44 @@
+{% macro input(
+    type='text',
+    name='',
+    id='',
+    value='',
+    placeholder='',
+    required=False,
+    disabled=False,
+    readonly=False,
+    class='',
+    min='',
+    max='',
+    step=''
+) %}
+<input
+    type="{{ type }}"
+    name="{{ name }}"
+    id="{{ id or name }}"
+    value="{{ value }}"
+    placeholder="{{ placeholder }}"
+    class="input input-bordered w-full {{ class }}"
+    {% if required %}required{% endif %}
+    {% if disabled %}disabled{% endif %}
+    {% if readonly %}readonly{% endif %}
+    {% if min %}min="{{ min }}"{% endif %}
+    {% if max %}max="{{ max }}"{% endif %}
+    {% if step %}step="{{ step }}"{% endif %}
+>
+{% endmacro %}
+
+{% macro label(for='', required=False, class='') %}
+<label 
+    for="{{ for }}" 
+    class="label"
+>
+    <span class="label-text {{ class }}">{{ caller() }}{% if required %} <span class="text-error">*</span>{% endif %}</span>
+</label>
+{% endmacro %}
+
+{% macro form_group() %}
+<div class="form-control w-full mb-4">
+    {{ caller() }}
+</div>
+{% endmacro %}

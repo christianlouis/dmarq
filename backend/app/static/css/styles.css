@@ -1,161 +1,249 @@
 /**
- * DMARQ Integrated Frontend Styles
+ * DMARQ Frontend Styles with DaisyUI
  */
 
-/* Setup Wizard Styles */
+/* Base style imports */
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Open+Sans:wght@400;500;600&display=swap');
+
+/* Include Tailwind layers */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Load DaisyUI plugins */
+@plugin "./daisyui.js";
+@plugin "./daisyui-theme.js";
+
+/* Base styles */
+body {
+  font-family: 'Open Sans', sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Montserrat', sans-serif;
+}
+
+/* Theme initialization */
+:root {
+  color-scheme: light;
+  --rounded-box: 0.5rem;
+  --rounded-btn: 0.25rem;
+  --rounded-badge: 1.9rem;
+}
+
+.dark {
+  color-scheme: dark;
+}
+
+/* Custom component overrides and extensions */
+
+/* Updated color scheme based on DMARQ branding */
+:root {
+  --color-primary: #1A237E; /* Deep Blue */
+  --color-secondary: #00ACC1; /* Vibrant Teal */
+  --color-accent: #FF7043; /* Bright Orange */
+  --color-neutral-light: #F5F5F5; /* Light Gray */
+  --color-neutral-dark: #212121; /* Dark Gray */
+}
+
+/* Apply colors to DaisyUI components */
+.btn-primary {
+  background-color: var(--color-primary);
+  color: var(--color-neutral-light);
+}
+
+.btn-secondary {
+  background-color: var(--color-secondary);
+  color: var(--color-neutral-light);
+}
+
+.alert-success {
+  background-color: var(--color-secondary);
+  color: var(--color-neutral-light);
+}
+
+.alert-error {
+  background-color: var(--color-accent);
+  color: var(--color-neutral-light);
+}
+
+.card {
+  background-color: var(--color-neutral-light);
+  color: var(--color-neutral-dark);
+}
+
+/* Override default DaisyUI styles */
+.bg-primary {
+  background-color: var(--color-primary) !important;
+}
+
+.text-primary {
+  color: var(--color-primary) !important;
+}
+
+.bg-secondary {
+  background-color: var(--color-secondary) !important;
+}
+
+.text-secondary {
+  color: var(--color-secondary) !important;
+}
+
+.bg-accent {
+  background-color: var(--color-accent) !important;
+}
+
+.text-accent {
+  color: var(--color-accent) !important;
+}
+
+/* Sidebar */
+.sidebar {
+  background-color: #FFFFFF; /* bg-base-100 */
+  position: fixed;
+  left: 0;
+  top: 0;
+  overflow-y: auto;
+  border-right: 1px solid #E0E0E0; /* border-r border-base-300 */
+  width: 16rem;
+  height: 100vh;
+  z-index: 10;
+}
+
+.sidebar-header {
+  @apply p-4 border-b border-base-300;
+}
+
+.sidebar-nav {
+  @apply space-y-1 p-2;
+}
+
+.sidebar-nav-item {
+  @apply flex items-center gap-2 px-3 py-2 text-sm font-medium transition-colors hover:bg-base-200;
+}
+
+.sidebar-nav-item-active {
+  @apply bg-primary text-primary-content;
+}
+
+/* Dashboard stats */
+.stat-card {
+  @apply card bg-base-100 shadow-sm;
+}
+
+.stat-title {
+  @apply text-sm font-medium opacity-70;
+}
+
+.stat-value {
+  @apply text-3xl font-bold;
+}
+
+.stat-description {
+  @apply text-xs opacity-70;
+}
+
+/* Setup Wizard Progress */
 .setup-progress {
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 2rem;
-    position: relative;
+  @apply flex items-center mb-8;
 }
 
 .setup-step {
-    position: relative;
-    padding: 0.5rem 1rem;
-    background-color: #f3f4f6;
-    border-radius: 0.25rem;
-    font-weight: 500;
-    z-index: 1;
+  @apply flex items-center;
 }
 
-.setup-step.active {
-    background-color: #3b82f6;
-    color: white;
+.setup-step-circle {
+  @apply w-8 h-8 rounded-full bg-base-300 flex items-center justify-center opacity-70;
 }
 
-.setup-step.completed {
-    background-color: #10b981;
-    color: white;
+.setup-step-active .setup-step-circle {
+  @apply bg-primary text-primary-content;
 }
 
-.setup-progress:after {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 0;
-    right: 0;
-    height: 2px;
-    background-color: #e5e7eb;
-    z-index: 0;
+.setup-step-completed .setup-step-circle {
+  @apply bg-success text-success-content;
 }
 
-/* Form Styles */
-input, select, textarea {
-    width: 100%;
-    padding: 0.5rem;
-    border: 1px solid #d1d5db;
-    border-radius: 0.25rem;
-    margin-bottom: 1rem;
+.setup-step-line {
+  @apply w-16 h-1 bg-base-300;
 }
 
-button {
-    background-color: #3b82f6;
-    color: white;
-    border: none;
-    padding: 0.5rem 1rem;
-    border-radius: 0.25rem;
-    cursor: pointer;
-    font-weight: 500;
+.setup-step-completed .setup-step-line {
+  @apply bg-success;
 }
 
-button:hover {
-    background-color: #2563eb;
-}
-
-button:disabled {
-    background-color: #9ca3af;
-    cursor: not-allowed;
-}
-
-/* Stats and Dashboard Styles */
-.stat {
-    font-size: 2rem;
-    font-weight: 700;
-    color: #3b82f6;
-}
-
-.dashboard-stats .card {
-    text-align: center;
-}
-
-/* Additional Utility Classes */
-.text-center {
-    text-align: center;
-}
-
-.flex {
-    display: flex;
-}
-
-.flex-col {
-    flex-direction: column;
-}
-
-.items-center {
-    align-items: center;
-}
-
-.justify-center {
-    justify-content: center;
-}
-
-.justify-between {
-    justify-content: space-between;
-}
-
-.mt-4 {
-    margin-top: 1rem;
-}
-
-.mb-4 {
-    margin-bottom: 1rem;
-}
-
-/* Navigation Styles */
-.sidebar ul {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-}
-
-.sidebar ul li {
-    margin-bottom: 0.5rem;
-}
-
-.sidebar ul li a {
-    display: block;
-    padding: 0.5rem;
-    border-radius: 0.25rem;
-    text-decoration: none;
-    color: var(--text-color);
-}
-
-.sidebar ul li a:hover {
-    background-color: #f3f4f6;
-}
-
-.sidebar ul li a.active {
-    background-color: #3b82f6;
-    color: white;
-}
-
-/* Responsive adjustments */
+/* Responsive layout */
 @media (max-width: 768px) {
-    .sidebar {
-        width: 100%;
-        height: auto;
-        position: static;
-        border-right: none;
-        border-bottom: 1px solid #e2e8f0;
-        margin-bottom: 1rem;
-    }
-    
-    .main-content {
-        margin-left: 0;
-    }
-    
-    .dashboard-stats {
-        grid-template-columns: 1fr;
-    }
+  .sidebar {
+    display: none;
+  }
+  
+  .main-content {
+    margin-left: 0;
+  }
+}
+
+.main-content {
+  margin-left: 16rem; /* ml-64 */
+  padding: 1.5rem; /* p-6 */
+}
+
+/* Dashboard specific styles */
+.dashboard-header {
+  @apply flex items-center justify-between mb-6;
+}
+
+.dashboard-title {
+  @apply text-3xl font-bold;
+}
+
+/* Dashboard statistics styling */
+.stats-grid {
+  @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6;
+}
+
+/* Domain Compliance table */
+.domain-compliance-table {
+  @apply table table-zebra w-full rounded-lg overflow-hidden;
+}
+
+/* IMAP status indicator */
+.status-indicator {
+  @apply inline-flex items-center gap-2;
+}
+
+.status-dot {
+  @apply w-2.5 h-2.5 rounded-full;
+}
+
+.status-dot.running {
+  @apply bg-success;
+}
+
+.status-dot.stopped {
+  @apply bg-error;
+}
+
+/* Rating status colors */
+.pass-rate-high {
+  @apply badge badge-success;
+}
+
+.pass-rate-medium {
+  @apply badge badge-warning;
+}
+
+.pass-rate-low {
+  @apply badge badge-error;
+}
+
+/* Toggle theme button */
+.toggle-theme {
+  @apply btn btn-ghost btn-circle;
+}
+
+/* Dashboard chart containers */
+.chart-container {
+  height: 16rem; /* h-64 */
+  @apply w-full;
 }
