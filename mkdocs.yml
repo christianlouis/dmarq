@@ -1,0 +1,74 @@
+site_name: DMARQ Documentation
+site_description: Documentation for DMARQ - DMARC reporting and analysis tool
+site_author: DMARQ Team
+copyright: Copyright &copy; 2025 DMARQ
+
+repo_url: https://github.com/yourusername/dmarq
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  logo: backend/app/static/img/monogram_light.png
+  favicon: backend/app/static/img/monogram_light.png
+  palette:
+    primary: indigo
+    accent: teal
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - content.code.annotate
+    - search.highlight
+
+extra_css:
+  - css/extra.css
+
+nav:
+  - Home: index.md
+  - User Guide:
+    - Getting Started: user_guide/getting_started.md
+    - Dashboard: user_guide/dashboard.md
+    - Managing Domains: user_guide/domains.md
+    - DMARC Reports: user_guide/reports.md
+    - IMAP Integration: user_guide/imap.md
+    - Settings: user_guide/settings.md
+  - Installation:
+    - Docker Setup: deployment/docker.md
+    - Manual Installation: deployment/manual.md
+    - Configuration: deployment/configuration.md
+  - Technical Reference:
+    - API Reference: reference/api.md
+    - Architecture: reference/architecture.md
+    - Database Schema: reference/database.md
+  - Development:
+    - Contributing: development/contributing.md
+    - Testing: development/testing.md
+    - Roadmap: development/roadmap.md
+  - FAQ: faq.md
+  - Changelog: changelog.md
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          rendering:
+            show_source: true
+  - git-revision-date-localized:
+      type: date
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true

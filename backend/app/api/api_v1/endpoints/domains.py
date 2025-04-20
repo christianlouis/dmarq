@@ -316,3 +316,81 @@ async def get_domain_sources(
     return DomainSourcesResponse(
         sources=source_entries
     )
+
+@router.delete("/{domain_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_domain(domain_id: str = Path(..., title="The domain ID or name")):
+    """
+    Delete a domain and all associated data.
+    This performs a full cleanup of all reports and records related to this domain.
+    """
+    store = ReportStore.get_instance()
+    domains = store.get_domains()
+    
+    if domain_id not in domains:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Domain not found",
+        )
+    
+    # Perform deletion with cleanup
+    deleted = store.delete_domain_with_cleanup(domain_id)
+    
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete domain",
+        )
+    
+    # Return 204 No Content on success
+    return None
+
+@router.get("/search", response_model=List[DomainResponse])
+async def search_domains(
+    q: Optional[str] = Query(None, title="Search query for domain name or description"),
+    policy: Optional[str] = Query(None, title="Filter by DMARC policy"),
+    page: int = Query(1, title="Page number", ge=1),
+    limit: int = Query(10, title="Number of domains per page", ge=1, le=100)
+):
+    """
+    Search domains with filtering and pagination.
+    This supports searching by domain name/description and filtering by DMARC policy.
+    
+    Args:
+        q: Optional search query for domain name or description
+        policy: Optional filter by DMARC policy (none, quarantine, reject)
+        page: Page number (1-based)
+        limit: Number of domains per page (max 100)
+    """
+    store = ReportStore.get_instance()
+    domains = store.get_domains()
+    summaries = store.get_all_domain_summaries()
+    
+    # Apply search filter if provided
+    filtered_domains = []
+    for domain_name in domains:
+        summary = summaries.get(domain_name, {})
+        
+        # Skip domain if it doesn't match the search query
+        if q and q.lower() not in domain_name.lower():
+            continue
+        
+        # Skip domain if it doesn't match the policy filter
+        if policy and summary.get("policy") != policy:
+            continue
+        
+        # Domain passed all filters
+        filtered_domains.append({
+            "name": domain_name,
+            "description": "",  # No description in in-memory store
+            "policy": summary.get("policy", "unknown"),
+            "reports_count": summary.get("reports_processed", 0),
+            "emails_count": summary.get("total_count", 0),
+            "compliance_rate": summary.get("compliance_rate", 0.0)
+        })
+    
+    # Apply pagination
+    start_idx = (page - 1) * limit
+    end_idx = start_idx + limit
+    paginated_domains = filtered_domains[start_idx:end_idx]
+    
+    return [DomainResponse(**domain) for domain in paginated_domains]
