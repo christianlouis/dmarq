@@ -11,6 +11,3 @@ mkdocs:
 python:
   install:
     - requirements: docs/readthedocs/requirements.txt
-
-sphinx:
-  fail_on_warning: true
