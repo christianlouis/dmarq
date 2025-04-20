@@ -1,0 +1,135 @@
+{% extends "layouts/base.html" %}
+{% from "components/ui/card.html" import card, card_header, card_title, card_description, card_content, card_footer %}
+{% from "components/ui/button.html" import button, button_link %}
+{% from "components/ui/table.html" import table, thead, tbody, tr, th, td %}
+
+{% block title %}DMARQ - Domains{% endblock %}
+
+{% block content %}
+<div class="container mx-auto py-4" x-data="domainsApp()">
+    <h1 class="text-2xl font-bold mb-6">Domain Management</h1>
+    
+    {% if error %}
+    <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6" role="alert">
+        <p>{{ error }}</p>
+    </div>
+    {% endif %}
+    
+    <!-- Domain List -->
+    <div class="mb-8">
+        {% call card() %}
+            {% call card_header() %}
+                <div class="flex items-center justify-between">
+                    {% call card_title() %}Monitored Domains{% endcall %}
+                    {% call button(variant="outline", size="sm") %}
+                        <span class="mr-1">+</span> Add Domain
+                    {% endcall %}
+                </div>
+                {% call card_description() %}
+                    Domains currently being monitored for DMARC compliance
+                {% endcall %}
+            {% endcall %}
+            {% call card_content() %}
+                {% call table() %}
+                    {% call thead() %}
+                        {% call tr() %}
+                            {% call th() %}Domain{% endcall %}
+                            {% call th() %}DMARC Status{% endcall %}
+                            {% call th() %}SPF Status{% endcall %}
+                            {% call th() %}DKIM Status{% endcall %}
+                            {% call th("text-right") %}Actions{% endcall %}
+                        {% endcall %}
+                    {% endcall %}
+                    {% call tbody() %}
+                        <template x-if="domains.length === 0">
+                            {% call tr() %}
+                                {% call td(colspan="5", class="text-center") %}
+                                    <p class="py-4 text-muted-foreground">No domains found. Add a domain to get started.</p>
+                                {% endcall %}
+                            {% endcall %}
+                        </template>
+                        <template x-for="(domain, index) in domains" :key="index">
+                            {% call tr() %}
+                                {% call td() %}
+                                    <div class="font-medium" x-text="domain.name"></div>
+                                {% endcall %}
+                                {% call td() %}
+                                    <div class="flex items-center">
+                                        <span class="w-2 h-2 rounded-full" 
+                                            :class="domain.dmarc_status ? 'bg-green-500' : 'bg-red-500'"></span>
+                                        <span class="ml-2" x-text="domain.dmarc_policy || 'Not configured'"></span>
+                                    </div>
+                                {% endcall %}
+                                {% call td() %}
+                                    <div class="flex items-center">
+                                        <span class="w-2 h-2 rounded-full"
+                                            :class="domain.spf_status ? 'bg-green-500' : 'bg-red-500'"></span>
+                                        <span class="ml-2" x-text="domain.spf_status ? 'Configured' : 'Missing'"></span>
+                                    </div>
+                                {% endcall %}
+                                {% call td() %}
+                                    <div class="flex items-center">
+                                        <span class="w-2 h-2 rounded-full"
+                                            :class="domain.dkim_status ? 'bg-green-500' : 'bg-red-500'"></span>
+                                        <span class="ml-2" x-text="domain.dkim_status ? 'Configured' : 'Missing'"></span>
+                                    </div>
+                                {% endcall %}
+                                {% call td("text-right") %}
+                                    <div class="flex justify-end space-x-2">
+                                        <a :href="'/domain/' + domain.name" class="btn btn-sm btn-outline">
+                                            Details
+                                        </a>
+                                        {% call button(variant="outline", size="sm") %}
+                                            Edit
+                                        {% endcall %}
+                                    </div>
+                                {% endcall %}
+                            {% endcall %}
+                        </template>
+                    {% endcall %}
+                {% endcall %}
+            {% endcall %}
+        {% endcall %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function domainsApp() {
+    return {
+        domains: [],
+        
+        init() {
+            // Fetch domains from server
+            this.fetchDomains();
+        },
+        
+        async fetchDomains() {
+            try {
+                const response = await fetch('/api/v1/domains/summary');
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    // Format domains for display
+                    this.domains = data.domains.map(domain => ({
+                        name: domain.domain_name,
+                        dmarc_status: true, // In Milestone 1, assume DMARC is configured if we have reports
+                        dmarc_policy: domain.policy || 'p=none',
+                        spf_status: true, // In future milestones, this will come from DNS checks
+                        dkim_status: true, // In future milestones, this will come from DNS checks
+                        reports_count: domain.report_count,
+                        emails_count: domain.total_emails,
+                        compliance_rate: domain.pass_rate
+                    }));
+                } else {
+                    console.error('Error fetching domains:', response.status);
+                }
+            } catch (error) {
+                console.error('Error fetching domains:', error);
+            }
+        }
+    }
+}
+</script>
+{% endblock %}

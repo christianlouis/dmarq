@@ -1,0 +1,408 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}DMARQ - DaisyUI Components Demo{% endblock %}
+{% block page_title %}DaisyUI Components Demo{% endblock %}
+
+{% block content %}
+<div class="space-y-12">
+    <!-- Introduction -->
+    <section>
+        <div class="card bg-base-100 shadow-lg">
+            <div class="card-body">
+                <h2 class="card-title text-2xl">DaisyUI Components for DMARQ</h2>
+                <p class="text-lg mt-2">
+                    This page demonstrates all the available DaisyUI components that can be used in the DMARQ application.
+                    All components are styled using the custom DMARQ theme.
+                </p>
+                <div class="mt-4 flex gap-2">
+                    <button class="btn btn-primary">Primary</button>
+                    <button class="btn btn-secondary">Secondary</button>
+                    <button class="btn btn-accent">Accent</button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Theme Colors -->
+    <section>
+        <h2 class="text-2xl font-semibold mb-4">Theme Colors</h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="p-4 bg-primary text-primary-content rounded-lg">primary</div>
+            <div class="p-4 bg-secondary text-secondary-content rounded-lg">secondary</div>
+            <div class="p-4 bg-accent text-accent-content rounded-lg">accent</div>
+            <div class="p-4 bg-neutral text-neutral-content rounded-lg">neutral</div>
+            <div class="p-4 bg-base-100 border border-base-300 rounded-lg">base-100</div>
+            <div class="p-4 bg-base-200 rounded-lg">base-200</div>
+            <div class="p-4 bg-base-300 rounded-lg">base-300</div>
+            <div class="p-4 bg-info text-info-content rounded-lg">info</div>
+            <div class="p-4 bg-success text-success-content rounded-lg">success</div>
+            <div class="p-4 bg-warning text-warning-content rounded-lg">warning</div>
+            <div class="p-4 bg-error text-error-content rounded-lg">error</div>
+        </div>
+    </section>
+
+    <!-- Buttons -->
+    <section>
+        <h2 class="text-2xl font-semibold mb-4">Buttons</h2>
+        <div class="card bg-base-100 shadow">
+            <div class="card-body">
+                <h3 class="text-xl font-medium mb-4">Button Variants</h3>
+                <div class="flex flex-wrap gap-2 mb-8">
+                    <button class="btn">Default</button>
+                    <button class="btn btn-neutral">Neutral</button>
+                    <button class="btn btn-primary">Primary</button>
+                    <button class="btn btn-secondary">Secondary</button>
+                    <button class="btn btn-accent">Accent</button>
+                    <button class="btn btn-ghost">Ghost</button>
+                    <button class="btn btn-link">Link</button>
+                </div>
+                
+                <h3 class="text-xl font-medium mb-4">Button States</h3>
+                <div class="flex flex-wrap gap-2 mb-8">
+                    <button class="btn btn-primary">Normal</button>
+                    <button class="btn btn-primary btn-outline">Outline</button>
+                    <button class="btn btn-primary" disabled>Disabled</button>
+                    <button class="btn btn-primary loading">Loading</button>
+                </div>
+
+                <h3 class="text-xl font-medium mb-4">Button Sizes</h3>
+                <div class="flex flex-wrap items-center gap-2">
+                    <button class="btn btn-primary btn-xs">Extra Small</button>
+                    <button class="btn btn-primary btn-sm">Small</button>
+                    <button class="btn btn-primary">Normal</button>
+                    <button class="btn btn-primary btn-lg">Large</button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Alerts -->
+    <section>
+        <h2 class="text-2xl font-semibold mb-4">Alerts</h2>
+        <div class="space-y-4">
+            <div class="alert alert-info">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-info flex-shrink-0 w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <div>
+                    <h5 class="font-medium text-base">Information</h5>
+                    <div class="text-sm">This is an informational alert.</div>
+                </div>
+            </div>
+            <div class="alert alert-success">
+                <svg xmlns="http://www.w3.org/2000/svg" class="stroke-success flex-shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <div>
+                    <h5 class="font-medium text-base">Success!</h5>
+                    <div class="text-sm">Your action was completed successfully.</div>
+                </div>
+            </div>
+            <div class="alert alert-warning">
+                <svg xmlns="http://www.w3.org/2000/svg" class="stroke-warning flex-shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                <div>
+                    <h5 class="font-medium text-base">Warning!</h5>
+                    <div class="text-sm">This action requires your attention.</div>
+                </div>
+            </div>
+            <div class="alert alert-error">
+                <svg xmlns="http://www.w3.org/2000/svg" class="stroke-error flex-shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <div>
+                    <h5 class="font-medium text-base">Error!</h5>
+                    <div class="text-sm">There was an error processing your request.</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Forms -->
+    <section>
+        <h2 class="text-2xl font-semibold mb-4">Forms</h2>
+        <div class="card bg-base-100 shadow">
+            <div class="card-body">
+                <form>
+                    <div class="grid gap-6 mb-6 md:grid-cols-2">
+                        <div class="form-control w-full">
+                            <label class="label">
+                                <span class="label-text">First name</span>
+                                <span class="label-text-alt">Required</span>
+                            </label>
+                            <input type="text" placeholder="John" class="input input-bordered w-full" />
+                        </div>
+                        <div class="form-control w-full">
+                            <label class="label">
+                                <span class="label-text">Last name</span>
+                            </label>
+                            <input type="text" placeholder="Doe" class="input input-bordered w-full" />
+                        </div>
+                    </div>
+                    <div class="grid gap-6 mb-6 md:grid-cols-2">
+                        <div class="form-control w-full">
+                            <label class="label">
+                                <span class="label-text">Email</span>
+                            </label>
+                            <input type="email" placeholder="john.doe@example.com" class="input input-bordered w-full" />
+                        </div>
+                        <div class="form-control w-full">
+                            <label class="label">
+                                <span class="label-text">Phone</span>
+                            </label>
+                            <input type="tel" placeholder="123-456-7890" class="input input-bordered w-full" />
+                        </div>
+                    </div>
+                    <div class="mb-6">
+                        <div class="form-control">
+                            <label class="label">
+                                <span class="label-text">Message</span>
+                            </label>
+                            <textarea class="textarea textarea-bordered h-24" placeholder="Your message here"></textarea>
+                        </div>
+                    </div>
+                    <div class="mb-6">
+                        <div class="form-control">
+                            <label class="label cursor-pointer">
+                                <span class="label-text">Agree to terms and conditions</span> 
+                                <input type="checkbox" class="checkbox checkbox-primary" />
+                            </label>
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-end space-x-4">
+                        <button type="button" class="btn btn-ghost">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Submit</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </section>
+
+    <!-- Tables -->
+    <section>
+        <h2 class="text-2xl font-semibold mb-4">Tables</h2>
+        <div class="card bg-base-100 shadow">
+            <div class="card-body">
+                <div class="overflow-x-auto">
+                    <table class="table table-zebra w-full">
+                        <!-- head -->
+                        <thead>
+                            <tr>
+                                <th></th>
+                                <th>Name</th>
+                                <th>Email</th>
+                                <th>Role</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- rows -->
+                            <tr>
+                                <th>1</th>
+                                <td>John Doe</td>
+                                <td>john@example.com</td>
+                                <td>Admin</td>
+                                <td><span class="badge badge-success">Active</span></td>
+                                <td>
+                                    <div class="flex gap-2">
+                                        <button class="btn btn-xs">Edit</button>
+                                        <button class="btn btn-error btn-xs">Delete</button>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th>2</th>
+                                <td>Jane Smith</td>
+                                <td>jane@example.com</td>
+                                <td>User</td>
+                                <td><span class="badge badge-warning">Pending</span></td>
+                                <td>
+                                    <div class="flex gap-2">
+                                        <button class="btn btn-xs">Edit</button>
+                                        <button class="btn btn-error btn-xs">Delete</button>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th>3</th>
+                                <td>Robert Johnson</td>
+                                <td>robert@example.com</td>
+                                <td>User</td>
+                                <td><span class="badge badge-error">Inactive</span></td>
+                                <td>
+                                    <div class="flex gap-2">
+                                        <button class="btn btn-xs">Edit</button>
+                                        <button class="btn btn-error btn-xs">Delete</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Badges and Tags -->
+    <section>
+        <h2 class="text-2xl font-semibold mb-4">Badges and Tags</h2>
+        <div class="card bg-base-100 shadow">
+            <div class="card-body">
+                <h3 class="text-xl font-medium mb-4">Badge Variants</h3>
+                <div class="flex flex-wrap gap-2 mb-8">
+                    <span class="badge">Neutral</span>
+                    <span class="badge badge-primary">Primary</span>
+                    <span class="badge badge-secondary">Secondary</span>
+                    <span class="badge badge-accent">Accent</span>
+                    <span class="badge badge-info">Info</span>
+                    <span class="badge badge-success">Success</span>
+                    <span class="badge badge-warning">Warning</span>
+                    <span class="badge badge-error">Error</span>
+                </div>
+
+                <h3 class="text-xl font-medium mb-4">Badge Sizes</h3>
+                <div class="flex flex-wrap items-center gap-2">
+                    <span class="badge badge-xs">Extra Small</span>
+                    <span class="badge badge-sm">Small</span>
+                    <span class="badge">Normal</span>
+                    <span class="badge badge-lg">Large</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Modals -->
+    <section>
+        <h2 class="text-2xl font-semibold mb-4">Modals</h2>
+        <div class="card bg-base-100 shadow">
+            <div class="card-body">
+                <!-- Open the modal using the button -->
+                <button class="btn btn-primary" onclick="demo_modal.showModal()">Open Modal</button>
+                <dialog id="demo_modal" class="modal">
+                    <div class="modal-box">
+                        <h3 class="font-bold text-lg">Hello!</h3>
+                        <p class="py-4">This is a modal example using DaisyUI.</p>
+                        <div class="modal-action">
+                            <form method="dialog">
+                                <!-- if there is a button in form, it will close the modal -->
+                                <button class="btn">Close</button>
+                            </form>
+                        </div>
+                    </div>
+                </dialog>
+            </div>
+        </div>
+    </section>
+
+    <!-- Progress -->
+    <section>
+        <h2 class="text-2xl font-semibold mb-4">Progress</h2>
+        <div class="card bg-base-100 shadow">
+            <div class="card-body space-y-4">
+                <div>
+                    <div class="text-sm mb-1">Default Progress (75%)</div>
+                    <progress class="progress w-full" value="75" max="100"></progress>
+                </div>
+                <div>
+                    <div class="text-sm mb-1">Primary Progress (45%)</div>
+                    <progress class="progress progress-primary w-full" value="45" max="100"></progress>
+                </div>
+                <div>
+                    <div class="text-sm mb-1">Secondary Progress (60%)</div>
+                    <progress class="progress progress-secondary w-full" value="60" max="100"></progress>
+                </div>
+                <div>
+                    <div class="text-sm mb-1">Success Progress (90%)</div>
+                    <progress class="progress progress-success w-full" value="90" max="100"></progress>
+                </div>
+                <div>
+                    <div class="text-sm mb-1">Warning Progress (50%)</div>
+                    <progress class="progress progress-warning w-full" value="50" max="100"></progress>
+                </div>
+                <div>
+                    <div class="text-sm mb-1">Error Progress (25%)</div>
+                    <progress class="progress progress-error w-full" value="25" max="100"></progress>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Tabs -->
+    <section>
+        <h2 class="text-2xl font-semibold mb-4">Tabs</h2>
+        <div class="card bg-base-100 shadow">
+            <div class="card-body">
+                <div role="tablist" class="tabs tabs-bordered">
+                    <input type="radio" name="my_tabs" role="tab" class="tab" aria-label="Overview" checked />
+                    <div role="tabpanel" class="tab-content p-6">
+                        <p>This is the Overview tab content. Tabs are useful for organizing content into different sections.</p>
+                    </div>
+                    
+                    <input type="radio" name="my_tabs" role="tab" class="tab" aria-label="Details" />
+                    <div role="tabpanel" class="tab-content p-6">
+                        <p>This is the Details tab content. You can include any type of content here, including forms, tables, or other components.</p>
+                    </div>
+                    
+                    <input type="radio" name="my_tabs" role="tab" class="tab" aria-label="Stats" />
+                    <div role="tabpanel" class="tab-content p-6">
+                        <p>This is the Stats tab content. Tabs help keep your interface clean and organized.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Accordion -->
+    <section>
+        <h2 class="text-2xl font-semibold mb-4">Accordion</h2>
+        <div class="card bg-base-100 shadow">
+            <div class="card-body">
+                <div class="collapse collapse-arrow bg-base-200 mb-2">
+                    <input type="radio" name="accordion-1" checked="checked" /> 
+                    <div class="collapse-title font-medium">
+                        What is DMARQ?
+                    </div>
+                    <div class="collapse-content"> 
+                        <p>DMARQ is a DMARC monitoring tool that helps organizations track and analyze their email authentication compliance.</p>
+                    </div>
+                </div>
+                <div class="collapse collapse-arrow bg-base-200 mb-2">
+                    <input type="radio" name="accordion-1" /> 
+                    <div class="collapse-title font-medium">
+                        How does DMARC work?
+                    </div>
+                    <div class="collapse-content"> 
+                        <p>DMARC (Domain-based Message Authentication, Reporting and Conformance) is an email authentication protocol that builds upon SPF and DKIM to help prevent email spoofing.</p>
+                    </div>
+                </div>
+                <div class="collapse collapse-arrow bg-base-200">
+                    <input type="radio" name="accordion-1" /> 
+                    <div class="collapse-title font-medium">
+                        What are the benefits of using DMARQ?
+                    </div>
+                    <div class="collapse-content"> 
+                        <p>DMARQ provides insights into email authentication failures, helps identify legitimate sources that may be failing authentication, and offers recommendations to improve email deliverability and security.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Tooltips -->
+    <section>
+        <h2 class="text-2xl font-semibold mb-4">Tooltips</h2>
+        <div class="card bg-base-100 shadow">
+            <div class="card-body">
+                <div class="flex justify-center gap-6">
+                    <div class="tooltip" data-tip="Top tooltip">
+                        <button class="btn">Top</button>
+                    </div>
+                    <div class="tooltip tooltip-bottom" data-tip="Bottom tooltip">
+                        <button class="btn">Bottom</button>
+                    </div>
+                    <div class="tooltip tooltip-left" data-tip="Left tooltip">
+                        <button class="btn">Left</button>
+                    </div>
+                    <div class="tooltip tooltip-right" data-tip="Right tooltip">
+                        <button class="btn">Right</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+</div>
+{% endblock %}

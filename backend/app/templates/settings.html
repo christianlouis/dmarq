@@ -1,0 +1,336 @@
+{% extends "layouts/base.html" %}
+{% from "components/ui/card.html" import card, card_header, card_title, card_description, card_content, card_footer %}
+{% from "components/ui/button.html" import button %}
+{% from "components/ui/alert.html" import alert, alert_title, alert_description %}
+{% from "components/ui/input.html" import input, label, form_group %}
+
+{% block title %}Settings - DMARQ{% endblock %}
+
+{% block page_title %}Settings{% endblock %}
+
+{% block content %}
+<div class="grid gap-4 md:gap-8 py-4">
+    <!-- IMAP Configuration -->
+    {% call card() %}
+        {% call card_header() %}
+            {% call card_title() %}IMAP Configuration{% endcall %}
+            {% call card_description() %}
+                Configure the IMAP connection to automatically retrieve DMARC reports from your email
+            {% endcall %}
+        {% endcall %}
+        {% call card_content() %}
+            <form id="imap-form" class="space-y-6" x-data="imapForm()">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="space-y-4">
+                        {% call form_group() %}
+                            {% call label(for="imap_server", required=True) %}IMAP Server{% endcall %}
+                            {{ input(type="text", name="imap_server", id="imap_server", placeholder="mail.example.com", required=True) }}
+                        {% endcall %}
+
+                        {% call form_group() %}
+                            {% call label(for="imap_port", required=True) %}IMAP Port{% endcall %}
+                            {{ input(type="number", name="imap_port", id="imap_port", value="993", required=True) }}
+                        {% endcall %}
+                        
+                        {% call form_group() %}
+                            {% call label(for="imap_ssl") %}Use SSL{% endcall %}
+                            <div class="flex items-center space-x-2">
+                                <input type="checkbox" id="imap_ssl" name="imap_ssl" class="h-4 w-4 rounded border-border text-primary focus:ring-primary" checked />
+                                <label for="imap_ssl" class="text-sm text-muted-foreground">Enable SSL/TLS connection (recommended)</label>
+                            </div>
+                        {% endcall %}
+                    </div>
+
+                    <div class="space-y-4">
+                        {% call form_group() %}
+                            {% call label(for="imap_username", required=True) %}IMAP Username{% endcall %}
+                            {{ input(type="text", name="imap_username", id="imap_username", placeholder="dmarc-reports@example.com", required=True) }}
+                        {% endcall %}
+
+                        {% call form_group() %}
+                            {% call label(for="imap_password", required=True) %}IMAP Password{% endcall %}
+                            <div class="relative">
+                                {{ input(type="password", name="imap_password", id="imap_password", required=True) }}
+                                <button 
+                                    type="button" 
+                                    class="absolute right-2 top-2.5 text-muted-foreground hover:text-foreground"
+                                    x-on:click="togglePassword"
+                                >
+                                    <svg x-show="!showPassword" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"></path><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"></path><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"></path><line x1="2" x2="22" y1="2" y2="22"></line></svg>
+                                    <svg x-show="showPassword" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" x-cloak><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                                </button>
+                            </div>
+                        {% endcall %}
+                        
+                        {% call form_group() %}
+                            {% call label(for="polling_interval") %}Polling Interval (minutes){% endcall %}
+                            {{ input(type="number", name="polling_interval", id="polling_interval", value="60", min="15", max="1440") }}
+                            <p class="text-xs text-muted-foreground mt-1">How often to check for new reports (minimum 15 minutes)</p>
+                        {% endcall %}
+                    </div>
+                </div>
+
+                <div id="test-connection-result" x-show="testResult" x-cloak>
+                    <template x-if="testStatus === 'success'">
+                        {% call alert(variant="success") %}
+                            {% call alert_title() %}Connection Successful{% endcall %}
+                            {% call alert_description() %}
+                                <p x-text="testResult"></p>
+                            {% endcall %}
+                        {% endcall %}
+                    </template>
+                    
+                    <template x-if="testStatus === 'error'">
+                        {% call alert(variant="error") %}
+                            {% call alert_title() %}Connection Failed{% endcall %}
+                            {% call alert_description() %}
+                                <p x-text="testResult"></p>
+                            {% endcall %}
+                        {% endcall %}
+                    </template>
+                </div>
+                
+                <div id="save-result" x-show="saveResult" x-cloak>
+                    <template x-if="saveStatus === 'success'">
+                        {% call alert(variant="success") %}
+                            {% call alert_title() %}Settings Saved{% endcall %}
+                            {% call alert_description() %}
+                                <p x-text="saveResult"></p>
+                            {% endcall %}
+                        {% endcall %}
+                    </template>
+                    
+                    <template x-if="saveStatus === 'error'">
+                        {% call alert(variant="error") %}
+                            {% call alert_title() %}Save Failed{% endcall %}
+                            {% call alert_description() %}
+                                <p x-text="saveResult"></p>
+                            {% endcall %}
+                        {% endcall %}
+                    </template>
+                </div>
+
+                <div class="flex items-center justify-end space-x-4">
+                    <button 
+                        type="button" 
+                        class="btn btn-outline btn-md"
+                        x-on:click="testConnection"
+                        x-bind:disabled="isTesting || isSaving"
+                    >
+                        <span x-show="!isTesting">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                            Test Connection
+                        </span>
+                        <span x-show="isTesting" class="flex items-center" x-cloak>
+                            <svg class="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            Testing...
+                        </span>
+                    </button>
+                    <button 
+                        type="submit" 
+                        class="btn btn-default btn-md"
+                        x-bind:disabled="isTesting || isSaving"
+                    >
+                        <span x-show="!isSaving">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                            Save Configuration
+                        </span>
+                        <span x-show="isSaving" class="flex items-center" x-cloak>
+                            <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            Saving...
+                        </span>
+                    </button>
+                </div>
+            </form>
+        {% endcall %}
+    {% endcall %}
+
+    <!-- DMARC Policy Management -->
+    {% call card() %}
+        {% call card_header() %}
+            {% call card_title() %}DMARC Policy Management{% endcall %}
+            {% call card_description() %}
+                Configure default DMARC policy settings for newly added domains
+            {% endcall %}
+        {% endcall %}
+        {% call card_content() %}
+            <form id="dmarc-policy-form" class="space-y-6" x-data="{isUpdating: false, updateResult: ''}">
+                <div class="space-y-4">
+                    {% call form_group() %}
+                        {% call label(for="default_policy") %}Default DMARC Policy{% endcall %}
+                        <select id="default_policy" name="default_policy" class="input w-full">
+                            <option value="none">None (monitoring only)</option>
+                            <option value="quarantine">Quarantine (send to spam)</option>
+                            <option value="reject">Reject (block delivery)</option>
+                        </select>
+                        <p class="text-xs text-muted-foreground mt-1">Policy applied to new domains when no specific policy is set</p>
+                    {% endcall %}
+
+                    {% call form_group() %}
+                        {% call label(for="percent") %}Percentage{% endcall %}
+                        <div class="flex items-center">
+                            <input type="range" id="percent" name="percent" min="0" max="100" value="100" class="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer" />
+                            <span class="ml-2 text-sm font-medium w-10" id="percent-display">100%</span>
+                        </div>
+                        <p class="text-xs text-muted-foreground mt-1">Percentage of messages to which the DMARC policy is applied</p>
+                    {% endcall %}
+                </div>
+
+                <div class="flex justify-end">
+                    <button type="submit" class="btn btn-default btn-md">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                        Save Policy Settings
+                    </button>
+                </div>
+            </form>
+        {% endcall %}
+    {% endcall %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function imapForm() {
+    return {
+        showPassword: false,
+        isTesting: false,
+        isSaving: false,
+        testResult: '',
+        testStatus: '',
+        saveResult: '',
+        saveStatus: '',
+        
+        togglePassword() {
+            this.showPassword = !this.showPassword;
+            const passwordInput = document.getElementById('imap_password');
+            passwordInput.type = this.showPassword ? 'text' : 'password';
+        },
+        
+        async testConnection() {
+            this.isTesting = true;
+            this.testResult = '';
+            
+            const formData = new FormData(document.getElementById('imap-form'));
+            const data = Object.fromEntries(formData.entries());
+            data.imap_ssl = formData.get('imap_ssl') === 'on';
+            
+            try {
+                const response = await fetch('/api/v1/admin/test-imap', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    this.testStatus = 'success';
+                    this.testResult = 'Successfully connected to the IMAP server. Found ' + (result.message_count || 0) + ' messages in the inbox.';
+                } else {
+                    throw new Error(result.detail || 'Failed to connect to the IMAP server');
+                }
+            } catch (error) {
+                this.testStatus = 'error';
+                this.testResult = `Connection failed: ${error.message}`;
+            } finally {
+                this.isTesting = false;
+            }
+        },
+        
+        init() {
+            // Load existing IMAP settings
+            this.loadImapSettings();
+            
+            // Update percent display
+            const percentInput = document.getElementById('percent');
+            const percentDisplay = document.getElementById('percent-display');
+            if (percentInput && percentDisplay) {
+                percentInput.addEventListener('input', function() {
+                    percentDisplay.textContent = this.value + '%';
+                });
+            }
+            
+            // Handle form submission
+            const form = document.getElementById('imap-form');
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                await this.saveImapSettings();
+            });
+        },
+        
+        async loadImapSettings() {
+            try {
+                const response = await fetch('/api/v1/admin/imap-settings');
+                
+                if (response.ok) {
+                    const settings = await response.json();
+                    
+                    document.getElementById('imap_server').value = settings.imap_server || '';
+                    document.getElementById('imap_port').value = settings.imap_port || 993;
+                    document.getElementById('imap_username').value = settings.imap_username || '';
+                    document.getElementById('imap_password').value = settings.imap_password || '';
+                    document.getElementById('imap_ssl').checked = settings.imap_ssl !== false;
+                    document.getElementById('polling_interval').value = settings.polling_interval || 60;
+                }
+            } catch (error) {
+                console.error('Failed to load IMAP settings:', error);
+            }
+        },
+        
+        async saveImapSettings() {
+            this.isSaving = true;
+            this.saveResult = '';
+            
+            const formData = new FormData(document.getElementById('imap-form'));
+            const data = Object.fromEntries(formData.entries());
+            data.imap_ssl = formData.get('imap_ssl') === 'on';
+            
+            try {
+                const response = await fetch('/api/v1/admin/imap-settings', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    this.saveStatus = 'success';
+                    this.saveResult = 'IMAP settings saved successfully. The system will now check for new DMARC reports based on your settings.';
+                } else {
+                    throw new Error(result.detail || 'Failed to save IMAP settings');
+                }
+            } catch (error) {
+                this.saveStatus = 'error';
+                this.saveResult = `Save failed: ${error.message}`;
+            } finally {
+                this.isSaving = false;
+            }
+        }
+    };
+}
+
+// Initialize any scripts after DOM load
+document.addEventListener('DOMContentLoaded', function() {
+    // DMARC policy form handling
+    const policyForm = document.getElementById('dmarc-policy-form');
+    if (policyForm) {
+        policyForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            // In a real app, you would save the policy settings here
+            alert('DMARC policy settings saved');
+        });
+    }
+});
+</script>
+{% endblock %}

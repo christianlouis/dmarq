@@ -1,0 +1,219 @@
+{% extends "layouts/base.html" %}
+{% from "components/ui/card.html" import card, card_header, card_title, card_description, card_content, card_footer %}
+{% from "components/ui/button.html" import button, button_link %}
+{% from "components/ui/table.html" import table, thead, tbody, tr, th, td %}
+
+{% block title %}DMARQ - Reports{% endblock %}
+
+{% block content %}
+<div class="container mx-auto py-4" x-data="reportsApp()">
+    <h1 class="text-2xl font-bold mb-6">DMARC Reports</h1>
+
+    <!-- Report Filters -->
+    <div class="mb-6">
+        {% call card() %}
+            {% call card_content() %}
+                <div class="flex flex-wrap gap-4">
+                    <div class="w-full sm:w-auto">
+                        <label class="block text-sm font-medium mb-1">Domain</label>
+                        <select class="select select-bordered w-full" x-model="filters.domain">
+                            <option value="">All Domains</option>
+                            <template x-for="domain in domains" :key="domain">
+                                <option x-text="domain" :value="domain"></option>
+                            </template>
+                        </select>
+                    </div>
+                    <div class="w-full sm:w-auto">
+                        <label class="block text-sm font-medium mb-1">Report Type</label>
+                        <select class="select select-bordered w-full" x-model="filters.reportType">
+                            <option value="">All Types</option>
+                            <option value="aggregate">Aggregate (RUA)</option>
+                            <option value="forensic">Forensic (RUF)</option>
+                        </select>
+                    </div>
+                    <div class="w-full sm:w-auto">
+                        <label class="block text-sm font-medium mb-1">Date Range</label>
+                        <select class="select select-bordered w-full" x-model="filters.dateRange">
+                            <option value="7">Last 7 days</option>
+                            <option value="14">Last 14 days</option>
+                            <option value="30">Last 30 days</option>
+                            <option value="90">Last 90 days</option>
+                            <option value="all">All time</option>
+                        </select>
+                    </div>
+                    <div class="w-full sm:w-auto flex items-end">
+                        {% call button(variant="outline") %}
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+                            Reset Filters
+                        {% endcall %}
+                    </div>
+                </div>
+            {% endcall %}
+        {% endcall %}
+    </div>
+
+    <!-- Reports Table -->
+    <div class="mb-8">
+        {% call card() %}
+            {% call card_header() %}
+                <div class="flex items-center justify-between">
+                    {% call card_title() %}DMARC Reports{% endcall %}
+                </div>
+                {% call card_description() %}
+                    Showing <span x-text="filteredReports.length"></span> reports
+                {% endcall %}
+            {% endcall %}
+            {% call card_content() %}
+                {% call table() %}
+                    {% call thead() %}
+                        {% call tr() %}
+                            {% call th() %}Date{% endcall %}
+                            {% call th() %}Type{% endcall %}
+                            {% call th() %}Domain{% endcall %}
+                            {% call th() %}Organization{% endcall %}
+                            {% call th() %}Messages{% endcall %}
+                            {% call th() %}Pass Rate{% endcall %}
+                            {% call th("text-right") %}Actions{% endcall %}
+                        {% endcall %}
+                    {% endcall %}
+                    {% call tbody() %}
+                        <template x-for="(report, index) in filteredReports" :key="index">
+                            {% call tr() %}
+                                {% call td() %}
+                                    <div x-text="formatDate(report.date)"></div>
+                                {% endcall %}
+                                {% call td() %}
+                                    <div class="inline-flex items-center px-2 py-1 rounded text-xs" 
+                                         :class="report.type === 'aggregate' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'">
+                                        <span x-text="report.type === 'aggregate' ? 'Aggregate' : 'Forensic'"></span>
+                                    </div>
+                                {% endcall %}
+                                {% call td() %}
+                                    <div class="font-medium" x-text="report.domain"></div>
+                                {% endcall %}
+                                {% call td() %}
+                                    <div x-text="report.organization"></div>
+                                {% endcall %}
+                                {% call td() %}
+                                    <div x-text="report.messages"></div>
+                                {% endcall %}
+                                {% call td() %}
+                                    <div class="inline-flex items-center px-2 py-1 rounded" 
+                                         :class="getPassRateColor(report.passRate)">
+                                        <span x-text="report.passRate + '%'"></span>
+                                    </div>
+                                {% endcall %}
+                                {% call td("text-right") %}
+                                    {% call button(variant="outline", size="sm") %}
+                                        View Details
+                                    {% endcall %}
+                                {% endcall %}
+                            {% endcall %}
+                        </template>
+                    {% endcall %}
+                {% endcall %}
+            {% endcall %}
+        {% endcall %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function reportsApp() {
+    return {
+        filters: {
+            domain: '',
+            reportType: '',
+            dateRange: '30'
+        },
+        domains: ['example.com', 'mydomain.com'],
+        reports: [
+            {
+                id: 1,
+                date: '2023-04-15',
+                type: 'aggregate',
+                domain: 'example.com',
+                organization: 'Google',
+                messages: 128,
+                passRate: 96
+            },
+            {
+                id: 2,
+                date: '2023-04-15',
+                type: 'aggregate',
+                domain: 'mydomain.com',
+                organization: 'Microsoft',
+                messages: 64,
+                passRate: 100
+            },
+            {
+                id: 3,
+                date: '2023-04-14',
+                type: 'forensic',
+                domain: 'example.com',
+                organization: 'Yahoo',
+                messages: 1,
+                passRate: 0
+            }
+        ],
+        
+        init() {
+            // When API is ready, fetch reports from server
+            // this.fetchReports();
+        },
+        
+        get filteredReports() {
+            return this.reports.filter(report => {
+                // Filter by domain
+                if (this.filters.domain && report.domain !== this.filters.domain) {
+                    return false;
+                }
+                
+                // Filter by report type
+                if (this.filters.reportType && report.type !== this.filters.reportType) {
+                    return false;
+                }
+                
+                // Filter by date range
+                if (this.filters.dateRange !== 'all') {
+                    const days = parseInt(this.filters.dateRange);
+                    const cutoff = new Date();
+                    cutoff.setDate(cutoff.getDate() - days);
+                    
+                    const reportDate = new Date(report.date);
+                    if (reportDate < cutoff) {
+                        return false;
+                    }
+                }
+                
+                return true;
+            });
+        },
+        
+        formatDate(dateStr) {
+            const date = new Date(dateStr);
+            return date.toLocaleDateString();
+        },
+        
+        getPassRateColor(rate) {
+            if (rate >= 90) return 'bg-green-100 text-green-800';
+            if (rate >= 50) return 'bg-yellow-100 text-yellow-800';
+            return 'bg-red-100 text-red-800';
+        },
+        
+        async fetchReports() {
+            try {
+                const response = await fetch('/api/v1/reports');
+                this.reports = await response.json();
+                
+                // Extract unique domains
+                this.domains = [...new Set(this.reports.map(r => r.domain))];
+            } catch (error) {
+                console.error('Error fetching reports:', error);
+            }
+        }
+    }
+}
+</script>
+{% endblock %}

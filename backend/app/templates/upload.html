@@ -1,0 +1,203 @@
+{% extends "layouts/base.html" %}
+{% from "components/ui/card.html" import card, card_header, card_title, card_description, card_content, card_footer %}
+{% from "components/ui/button.html" import button %}
+{% from "components/ui/alert.html" import alert, alert_title, alert_description %}
+
+{% block title %}Upload DMARC Reports - DMARQ{% endblock %}
+
+{% block page_title %}Upload DMARC Reports{% endblock %}
+
+{% block content %}
+<div class="grid gap-4 md:gap-8 py-4">
+    <!-- Upload Card -->
+    {% call card() %}
+        {% call card_header() %}
+            {% call card_title() %}Upload DMARC Reports{% endcall %}
+            {% call card_description() %}
+                Upload your DMARC aggregate report files (XML, ZIP, or GZIP)
+            {% endcall %}
+        {% endcall %}
+        {% call card_content() %}
+            <form id="upload-form" enctype="multipart/form-data" class="space-y-6" x-data="uploadForm()">
+                <div 
+                    class="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center hover:bg-muted/50 transition-colors cursor-pointer relative"
+                    x-on:dragover.prevent="dragover = true"
+                    x-on:dragleave.prevent="dragover = false"
+                    x-on:drop.prevent="handleDrop($event)"
+                    x-bind:class="{'border-primary/50 bg-primary/5': dragover}"
+                >
+                    <div class="mb-4 text-muted-foreground">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mx-auto"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" x2="12" y1="3" y2="15"></line></svg>
+                    </div>
+                    <p class="mb-2 text-base font-medium">
+                        <span class="text-primary">Click to upload</span> or drag and drop
+                    </p>
+                    <p class="text-sm text-muted-foreground">
+                        XML, ZIP, or GZIP files only
+                    </p>
+                    <input id="report-file" type="file" name="file" accept=".xml,.zip,.gz,.gzip" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" x-on:change="handleFileSelect" />
+                </div>
+                
+                <div id="file-selected" x-show="selectedFile" class="p-3 bg-muted rounded-md" x-cloak>
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center space-x-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-primary"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+                            <span id="file-name" class="text-sm font-medium" x-text="selectedFile"></span>
+                        </div>
+                        <button type="button" id="remove-file" class="text-muted-foreground hover:text-foreground" x-on:click="clearFile">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+                        </button>
+                    </div>
+                </div>
+                
+                <div id="upload-result" x-show="uploadResult" x-cloak>
+                    <template x-if="uploadStatus === 'success'">
+                        {% call alert(variant="success") %}
+                            {% call alert_title() %}Upload Successful{% endcall %}
+                            {% call alert_description() %}
+                                <p x-text="uploadResult"></p>
+                            {% endcall %}
+                        {% endcall %}
+                    </template>
+                    
+                    <template x-if="uploadStatus === 'error'">
+                        {% call alert(variant="error") %}
+                            {% call alert_title() %}Upload Failed{% endcall %}
+                            {% call alert_description() %}
+                                <p x-text="uploadResult"></p>
+                            {% endcall %}
+                        {% endcall %}
+                    </template>
+
+                    <template x-if="uploadStatus === 'processing'">
+                        {% call alert(variant="info") %}
+                            {% call alert_title() %}Processing{% endcall %}
+                            {% call alert_description() %}
+                                <div class="flex items-center space-x-2">
+                                    <svg class="animate-spin h-5 w-5 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    <span>Uploading and processing your DMARC report...</span>
+                                </div>
+                            {% endcall %}
+                        {% endcall %}
+                    </template>
+                </div>
+                
+                <div class="flex justify-end">
+                    <button 
+                        type="submit" 
+                        class="btn btn-default btn-md"
+                        x-bind:disabled="!selectedFile || isUploading"
+                    >
+                        <span x-show="!isUploading">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" x2="12" y1="3" y2="15"></line></svg>
+                            Upload Report
+                        </span>
+                        <span x-show="isUploading" class="flex items-center">
+                            <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            Uploading...
+                        </span>
+                    </button>
+                </div>
+            </form>
+        {% endcall %}
+    {% endcall %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function uploadForm() {
+    return {
+        selectedFile: '',
+        isUploading: false,
+        dragover: false,
+        uploadResult: '',
+        uploadStatus: '',
+        
+        handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (file) {
+                this.selectedFile = file.name;
+            }
+        },
+        
+        handleDrop(event) {
+            this.dragover = false;
+            
+            const file = event.dataTransfer.files[0];
+            if (file && (file.name.endsWith('.xml') || file.name.endsWith('.zip') || file.name.endsWith('.gz') || file.name.endsWith('.gzip'))) {
+                document.getElementById('report-file').files = event.dataTransfer.files;
+                this.selectedFile = file.name;
+            } else {
+                this.uploadStatus = 'error';
+                this.uploadResult = 'Invalid file type. Please upload XML, ZIP, or GZIP files only.';
+            }
+        },
+        
+        clearFile() {
+            this.selectedFile = '';
+            this.uploadStatus = '';
+            this.uploadResult = '';
+            document.getElementById('report-file').value = '';
+        },
+        
+        init() {
+            const form = document.getElementById('upload-form');
+            
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                
+                const fileInput = document.getElementById('report-file');
+                
+                if (!fileInput.files.length) {
+                    this.uploadStatus = 'error';
+                    this.uploadResult = 'Please select a file to upload.';
+                    return;
+                }
+                
+                this.isUploading = true;
+                this.uploadStatus = 'processing';
+                this.uploadResult = 'Uploading and processing report...';
+                
+                const formData = new FormData();
+                formData.append('file', fileInput.files[0]);
+                
+                try {
+                    const response = await fetch('/api/v1/reports/upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (response.ok) {
+                        this.uploadStatus = 'success';
+                        this.uploadResult = `Report processed successfully. Found ${data.processed_records || 0} records for domain ${data.domain || ''}.`;
+                        this.selectedFile = '';
+                        fileInput.value = '';
+                        
+                        // Refresh dashboard data after 1 second
+                        setTimeout(() => {
+                            window.dispatchEvent(new CustomEvent('dmarq:refresh-data'));
+                        }, 1000);
+                    } else {
+                        throw new Error(data.detail || 'Unknown error');
+                    }
+                } catch (error) {
+                    this.uploadStatus = 'error';
+                    this.uploadResult = `Upload failed: ${error.message}`;
+                } finally {
+                    this.isUploading = false;
+                }
+            });
+        }
+    };
+}
+</script>
+{% endblock %}

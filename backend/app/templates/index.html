@@ -1,866 +1,299 @@
-<!DOCTYPE html>
-<html lang="en" class="dark">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DMARQ - DMARC Monitoring</title>
-    
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- Font Awesome for icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css">
-    
-    <!-- Inter font -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    
-    <!-- Custom CSS -->
-    <link rel="stylesheet" href="/static/css/styles.css">
-    
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                container: {
-                    center: true,
-                    padding: "2rem",
-                    screens: {
-                        "2xl": "1400px",
-                    },
-                },
-                extend: {
-                    colors: {
-                        border: "hsl(var(--border))",
-                        input: "hsl(var(--input))",
-                        ring: "hsl(var(--ring))",
-                        background: "hsl(var(--background))",
-                        foreground: "hsl(var(--foreground))",
-                        primary: {
-                            DEFAULT: "hsl(var(--primary))",
-                            foreground: "hsl(var(--primary-foreground))",
-                        },
-                        secondary: {
-                            DEFAULT: "hsl(var(--secondary))",
-                            foreground: "hsl(var(--secondary-foreground))",
-                        },
-                        destructive: {
-                            DEFAULT: "hsl(var(--destructive))",
-                            foreground: "hsl(var(--destructive-foreground))",
-                        },
-                        muted: {
-                            DEFAULT: "hsl(var(--muted))",
-                            foreground: "hsl(var(--muted-foreground))",
-                        },
-                        accent: {
-                            DEFAULT: "hsl(var(--accent))",
-                            foreground: "hsl(var(--accent-foreground))",
-                        },
-                        popover: {
-                            DEFAULT: "hsl(var(--popover))",
-                            foreground: "hsl(var(--popover-foreground))",
-                        },
-                        card: {
-                            DEFAULT: "hsl(var(--card))",
-                            foreground: "hsl(var(--card-foreground))",
-                        },
-                    },
-                    borderRadius: {
-                        lg: "var(--radius)",
-                        md: "calc(var(--radius) - 2px)",
-                        sm: "calc(var(--radius) - 4px)",
-                    },
-                    fontFamily: {
-                        sans: ["Inter", "sans-serif"],
-                    },
-                }
-            }
-        }
-    </script>
-    
-    <style>
-        [x-cloak] { display: none !important; }
+{% extends "layouts/base.html" %}
+{% from "components/ui/card.html" import card, card_header, card_title, card_description, card_content, card_footer %}
+{% from "components/ui/button.html" import button, button_link %}
+{% from "components/ui/alert.html" import alert, alert_title, alert_description %}
+{% from "components/ui/table.html" import table, thead, tbody, tr, th, td %}
+
+{% block title %}DMARQ - Dashboard{% endblock %}
+
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="grid gap-4 md:gap-8 py-4" x-data="dashboardApp()">
+    <!-- Overview Stats -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <!-- Total Domains Card -->
+        {% call card() %}
+            {% call card_header() %}
+                <div class="flex items-center justify-between">
+                    {% call card_title() %}Total Domains{% endcall %}
+                    <div class="p-2 bg-primary/10 rounded-full">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-primary"><circle cx="12" cy="12" r="10"></circle><line x1="2" x2="22" y1="12" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+                    </div>
+                </div>
+            {% endcall %}
+            {% call card_content() %}
+                <div class="stat-card">
+                    <div id="total-domains" class="stat-value">0</div>
+                    <p class="stat-description">Active domains being monitored</p>
+                </div>
+            {% endcall %}
+        {% endcall %}
         
-        :root {
-            --background: 0 0% 100%;
-            --foreground: 240 10% 3.9%;
-            --card: 0 0% 100%;
-            --card-foreground: 240 10% 3.9%;
-            --popover: 0 0% 100%;
-            --popover-foreground: 240 10% 3.9%;
-            --primary: 232 47% 49%;
-            --primary-foreground: 0 0% 98%;
-            --secondary: 187 100% 42%;
-            --secondary-foreground: 240 5.9% 10%;
-            --muted: 240 4.8% 95.9%;
-            --muted-foreground: 240 3.8% 46.1%;
-            --accent: 240 4.8% 95.9%;
-            --accent-foreground: 240 5.9% 10%;
-            --destructive: 0 84.2% 60.2%;
-            --destructive-foreground: 0 0% 98%;
-            --border: 240 5.9% 90%;
-            --input: 240 5.9% 90%;
-            --ring: 232 47% 49%;
-            --radius: 0.5rem;
-        }
+        <!-- Emails Analyzed Card -->
+        {% call card() %}
+            {% call card_header() %}
+                <div class="flex items-center justify-between">
+                    {% call card_title() %}Emails Analyzed{% endcall %}
+                    <div class="p-2 bg-secondary/10 rounded-full">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-secondary"><rect width="20" height="16" x="2" y="4" rx="2"></rect><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"></path></svg>
+                    </div>
+                </div>
+            {% endcall %}
+            {% call card_content() %}
+                <div class="stat-card">
+                    <div id="total-emails" class="stat-value">0</div>
+                    <p class="stat-description">Total emails processed</p>
+                </div>
+            {% endcall %}
+        {% endcall %}
         
-        .dark {
-            --background: 240 10% 3.9%;
-            --foreground: 0 0% 98%;
-            --card: 240 10% 3.9%;
-            --card-foreground: 0 0% 98%;
-            --popover: 240 10% 3.9%;
-            --popover-foreground: 0 0% 98%;
-            --primary: 232 47% 49%;
-            --primary-foreground: 0 0% 98%;
-            --secondary: 187 100% 42%;
-            --secondary-foreground: 0 0% 98%;
-            --muted: 240 3.7% 15.9%;
-            --muted-foreground: 240 5% 64.9%;
-            --accent: 240 3.7% 15.9%;
-            --accent-foreground: 0 0% 98%;
-            --destructive: 0 62.8% 30.6%;
-            --destructive-foreground: 0 0% 98%;
-            --border: 240 3.7% 15.9%;
-            --input: 240 3.7% 15.9%;
-            --ring: 232 47% 49%;
-        }
-    </style>
-</head>
-<body class="min-h-screen bg-background font-sans antialiased">
-    <!-- Alpine.js for reactivity -->
-    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-
-    <div x-data="dashboardApp()">
-        <!-- Sidebar -->
-        <div class="fixed inset-y-0 left-0 z-20 w-64 bg-card border-r border-border shadow-sm transform transition-transform duration-300 lg:translate-x-0"
-             :class="{'translate-x-0': sidebarOpen, '-translate-x-full': !sidebarOpen}">
-            
-            <!-- Logo -->
-            <div class="flex items-center justify-between p-4 border-b border-border">
-                <div class="flex items-center space-x-2">
-                    <svg class="w-8 h-8 text-primary" fill="currentColor" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                        <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14h-2V9h2v8zm4 0h-2v-4h2v4zm0-6h-2V9h2v2zm-8 2H6v4h2v-4zm0-4H6v2h2V9z"/>
-                    </svg>
-                    <div class="text-xl font-bold text-foreground">DMARQ</div>
-                </div>
-                <button @click="sidebarOpen = false" type="button" class="p-1 text-muted-foreground rounded-md lg:hidden hover:bg-accent hover:text-accent-foreground">
-                    <span class="sr-only">Close sidebar</span>
-                    <svg class="w-6 h-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                </button>
-            </div>
-            
-            <!-- Navigation -->
-            <nav class="flex-1 p-2 overflow-y-auto">
-                <ul class="space-y-1">
-                    <li>
-                        <a href="#" @click.prevent="activeTab = 'dashboard'" 
-                          class="flex items-center w-full px-3 py-2 transition-colors rounded-md text-sm font-medium"
-                          :class="activeTab === 'dashboard' ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-accent hover:text-accent-foreground'">
-                            <i class="fas fa-tachometer-alt w-4 h-4 mr-2"></i>
-                            <span>Dashboard</span>
-                        </a>
-                    </li>
-                    <li>
-                        <a href="#" @click.prevent="activeTab = 'upload'" 
-                          class="flex items-center w-full px-3 py-2 transition-colors rounded-md text-sm font-medium"
-                          :class="activeTab === 'upload' ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-accent hover:text-accent-foreground'">
-                            <i class="fas fa-upload w-4 h-4 mr-2"></i>
-                            <span>Upload Reports</span>
-                        </a>
-                    </li>
-                    <li>
-                        <a href="#" @click.prevent="activeTab = 'domains'" 
-                          class="flex items-center w-full px-3 py-2 transition-colors rounded-md text-sm font-medium"
-                          :class="activeTab === 'domains' ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-accent hover:text-accent-foreground'">
-                            <i class="fas fa-globe w-4 h-4 mr-2"></i>
-                            <span>Domains</span>
-                        </a>
-                    </li>
-                    <li>
-                        <a href="#" @click.prevent="activeTab = 'reports'" 
-                          class="flex items-center w-full px-3 py-2 transition-colors rounded-md text-sm font-medium"
-                          :class="activeTab === 'reports' ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-accent hover:text-accent-foreground'">
-                            <i class="fas fa-chart-bar w-4 h-4 mr-2"></i>
-                            <span>Reports</span>
-                        </a>
-                    </li>
-                    <li>
-                        <a href="#" @click.prevent="activeTab = 'settings'" 
-                          class="flex items-center w-full px-3 py-2 transition-colors rounded-md text-sm font-medium"
-                          :class="activeTab === 'settings' ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-accent hover:text-accent-foreground'">
-                            <i class="fas fa-cog w-4 h-4 mr-2"></i>
-                            <span>Settings</span>
-                        </a>
-                    </li>
-                </ul>
-            </nav>
-            
-            <div class="p-4 text-xs text-center text-muted-foreground">
-                <div>DMARQ v0.1.0</div>
-                <div>DMARC Monitoring Platform</div>
-            </div>
-        </div>
-
-        <!-- Main Content -->
-        <div class="lg:pl-64">
-            <!-- Top Navigation -->
-            <header class="sticky top-0 z-10 w-full bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-border">
-                <div class="flex items-center justify-between h-14 px-4">
-                    <!-- Mobile menu button -->
-                    <div class="flex items-center lg:hidden">
-                        <button type="button" @click="sidebarOpen = true" class="p-2 text-muted-foreground rounded-md hover:bg-accent hover:text-accent-foreground">
-                            <span class="sr-only">Open sidebar</span>
-                            <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
-                            </svg>
-                        </button>
-                    </div>
-                    
-                    <!-- Page title -->
-                    <div class="flex-1 px-2 mx-2">
-                        <h1 class="text-lg font-semibold" x-text="getActiveTabTitle()"></h1>
-                    </div>
-                    
-                    <!-- Theme toggle and user profile -->
-                    <div class="flex items-center space-x-2">
-                        <button @click="toggleTheme()" class="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring h-9 w-9 bg-transparent hover:bg-accent hover:text-accent-foreground">
-                            <svg x-show="!isDarkMode" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-moon">
-                                <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>
-                            </svg>
-                            <svg x-show="isDarkMode" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-sun">
-                                <circle cx="12" cy="12" r="4"></circle>
-                                <path d="M12 2v2"></path>
-                                <path d="M12 20v2"></path>
-                                <path d="m4.93 4.93 1.41 1.41"></path>
-                                <path d="m17.66 17.66 1.41 1.41"></path>
-                                <path d="M2 12h2"></path>
-                                <path d="M20 12h2"></path>
-                                <path d="m6.34 17.66-1.41 1.41"></path>
-                                <path d="m19.07 4.93-1.41 1.41"></path>
-                            </svg>
-                        </button>
-                        
-                        <button type="button" class="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-9 w-9">
-                            <i class="fas fa-user-circle text-lg"></i>
-                        </button>
+        <!-- Pass Rate Card -->
+        {% call card() %}
+            {% call card_header() %}
+                <div class="flex items-center justify-between">
+                    {% call card_title() %}Pass Rate{% endcall %}
+                    <div class="p-2 bg-green-500/10 rounded-full">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-green-500"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
                     </div>
                 </div>
-            </header>
-
-            <!-- Page Content -->
-            <main class="p-6">
-                <!-- Dashboard Tab -->
-                <div x-show="activeTab === 'dashboard'" x-transition>
-                    <!-- No Data Message -->
-                    <div x-show="!hasDomainData" class="flex flex-col items-center justify-center p-8 rounded-lg border border-border bg-card text-card-foreground shadow">
-                        <div class="flex flex-col items-center max-w-md text-center">
-                            <div class="rounded-full p-4 bg-muted mb-4">
-                                <i class="fas fa-chart-line text-4xl text-muted-foreground"></i>
-                            </div>
-                            <h3 class="text-lg font-semibold mb-2">No DMARC reports have been uploaded yet</h3>
-                            <p class="text-muted-foreground mb-4">Upload a report to see statistics and gain insights into your domain's email authentication.</p>
-                            <button @click="activeTab = 'upload'" class="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 h-9 px-4 py-2">
-                                <i class="fas fa-upload mr-2"></i> Upload Report
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- Dashboard Content (when data is available) -->
-                    <div x-show="hasDomainData">
-                        <!-- Stats Overview -->
-                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                            <!-- Total Domains -->
-                            <div class="rounded-lg border border-border bg-card text-card-foreground shadow">
-                                <div class="p-6 flex flex-row items-center justify-between space-y-0 pb-2">
-                                    <h3 class="tracking-tight text-sm font-medium">Total Domains</h3>
-                                    <div class="p-2 bg-primary/10 rounded-full">
-                                        <i class="fas fa-globe text-primary"></i>
-                                    </div>
-                                </div>
-                                <div class="p-6 pt-0">
-                                    <div id="total-domains" class="text-2xl font-bold">0</div>
-                                    <p class="text-xs text-muted-foreground">Active domains being monitored</p>
-                                </div>
-                            </div>
-                            
-                            <!-- Total Emails -->
-                            <div class="rounded-lg border border-border bg-card text-card-foreground shadow">
-                                <div class="p-6 flex flex-row items-center justify-between space-y-0 pb-2">
-                                    <h3 class="tracking-tight text-sm font-medium">Emails Analyzed</h3>
-                                    <div class="p-2 bg-blue-500/10 rounded-full">
-                                        <i class="fas fa-envelope text-blue-500"></i>
-                                    </div>
-                                </div>
-                                <div class="p-6 pt-0">
-                                    <div id="total-emails" class="text-2xl font-bold">0</div>
-                                    <p class="text-xs text-muted-foreground">Total emails processed</p>
-                                </div>
-                            </div>
-                            
-                            <!-- Pass Rate -->
-                            <div class="rounded-lg border border-border bg-card text-card-foreground shadow">
-                                <div class="p-6 flex flex-row items-center justify-between space-y-0 pb-2">
-                                    <h3 class="tracking-tight text-sm font-medium">Pass Rate</h3>
-                                    <div class="p-2 bg-green-500/10 rounded-full">
-                                        <i class="fas fa-check-circle text-green-500"></i>
-                                    </div>
-                                </div>
-                                <div class="p-6 pt-0">
-                                    <div id="overall-pass-rate" class="text-2xl font-bold text-green-500">0%</div>
-                                    <p class="text-xs text-muted-foreground">Overall DMARC compliance</p>
-                                </div>
-                            </div>
-                            
-                            <!-- Reports Processed -->
-                            <div class="rounded-lg border border-border bg-card text-card-foreground shadow">
-                                <div class="p-6 flex flex-row items-center justify-between space-y-0 pb-2">
-                                    <h3 class="tracking-tight text-sm font-medium">Reports Processed</h3>
-                                    <div class="p-2 bg-purple-500/10 rounded-full">
-                                        <i class="fas fa-file-alt text-purple-500"></i>
-                                    </div>
-                                </div>
-                                <div class="p-6 pt-0">
-                                    <div id="reports-processed" class="text-2xl font-bold">0</div>
-                                    <p class="text-xs text-muted-foreground">DMARC reports received</p>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- Domain Compliance Table -->
-                        <div class="rounded-lg border border-border bg-card text-card-foreground shadow">
-                            <div class="flex flex-col space-y-1.5 p-6">
-                                <div class="flex items-center justify-between">
-                                    <h3 class="text-lg font-semibold leading-none tracking-tight">Domain Compliance</h3>
-                                    <button @click="fetchDomainSummary" class="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-8 px-3">
-                                        <i class="fas fa-sync-alt mr-2"></i> Refresh
-                                    </button>
-                                </div>
-                            </div>
-                            <div class="p-0">
-                                <div class="w-full overflow-auto">
-                                    <table class="w-full caption-bottom text-sm">
-                                        <thead class="[&_tr]:border-b">
-                                            <tr class="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
-                                                <th class="h-10 px-4 text-left align-middle font-medium text-muted-foreground">Domain</th>
-                                                <th class="h-10 px-4 text-left align-middle font-medium text-muted-foreground">Emails</th>
-                                                <th class="h-10 px-4 text-left align-middle font-medium text-muted-foreground">Pass Rate</th>
-                                                <th class="h-10 px-4 text-left align-middle font-medium text-muted-foreground">Failed</th>
-                                                <th class="h-10 px-4 text-left align-middle font-medium text-muted-foreground">Reports</th>
-                                                <th class="h-10 px-4 text-right align-middle font-medium text-muted-foreground">Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="domains-table-body" class="[&_tr:last-child]:border-0">
-                                            <!-- Domains will be added here dynamically -->
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
+            {% endcall %}
+            {% call card_content() %}
+                <div class="stat-card">
+                    <div id="overall-pass-rate" class="stat-value text-green-500">0%</div>
+                    <p class="stat-description">Overall DMARC compliance</p>
+                </div>
+            {% endcall %}
+        {% endcall %}
+        
+        <!-- Reports Card -->
+        {% call card() %}
+            {% call card_header() %}
+                <div class="flex items-center justify-between">
+                    {% call card_title() %}Reports Processed{% endcall %}
+                    <div class="p-2 bg-accent/10 rounded-full">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
                     </div>
                 </div>
-
-                <!-- Upload Tab -->
-                <div x-show="activeTab === 'upload'" x-transition>
-                    <div class="rounded-lg border border-border bg-card text-card-foreground shadow">
-                        <div class="flex flex-col space-y-1.5 p-6">
-                            <h3 class="text-lg font-semibold leading-none tracking-tight">Upload DMARC Reports</h3>
-                            <p class="text-sm text-muted-foreground">Upload your DMARC aggregate report files (XML, ZIP, or GZIP)</p>
-                        </div>
-                        <div class="p-6 pt-0">
-                            <form id="upload-form" enctype="multipart/form-data">
-                                <div class="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-md p-6 text-center hover:bg-muted/50 transition-colors cursor-pointer relative">
-                                    <div class="mb-3 text-muted-foreground">
-                                        <i class="fas fa-cloud-upload-alt text-4xl"></i>
-                                    </div>
-                                    <p class="mb-2 text-sm">
-                                        <span class="font-semibold">Click to upload</span> or drag and drop
-                                    </p>
-                                    <p class="text-xs text-muted-foreground">
-                                        XML, ZIP, or GZIP files only
-                                    </p>
-                                    <input id="report-file" type="file" name="file" accept=".xml,.zip,.gz,.gzip" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
-                                </div>
-                                
-                                <div id="file-selected" class="hidden mt-4 p-3 bg-muted rounded-md">
-                                    <div class="flex items-center justify-between">
-                                        <div class="flex items-center space-x-2">
-                                            <i class="fas fa-file-code text-primary"></i>
-                                            <span id="file-name" class="text-sm font-medium"></span>
-                                        </div>
-                                        <button type="button" id="remove-file" class="text-muted-foreground hover:text-foreground">
-                                            <i class="fas fa-times"></i>
-                                        </button>
-                                    </div>
-                                </div>
-                                
-                                <div class="mt-6 flex justify-end">
-                                    <button type="submit" class="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 h-9 px-4 py-2">
-                                        <i class="fas fa-upload mr-2"></i> Upload Report
-                                    </button>
-                                </div>
-                            </form>
-                            <div id="upload-result" class="mt-4"></div>
-                        </div>
-                    </div>
+            {% endcall %}
+            {% call card_content() %}
+                <div class="stat-card">
+                    <div id="reports-processed" class="stat-value">0</div>
+                    <p class="stat-description">DMARC reports received</p>
                 </div>
-
-                <!-- Domains Tab -->
-                <div x-show="activeTab === 'domains'" x-transition>
-                    <div class="rounded-lg border border-border bg-card text-card-foreground shadow">
-                        <div class="flex flex-col space-y-1.5 p-6">
-                            <div class="flex items-center justify-between">
-                                <h3 class="text-lg font-semibold leading-none tracking-tight">Domain Management</h3>
-                                <button @click="fetchDomainSummary" class="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-8 px-3">
-                                    <i class="fas fa-sync-alt mr-2"></i> Refresh
-                                </button>
-                            </div>
-                            <p class="text-sm text-muted-foreground">View and manage domains with DMARC reports</p>
-                        </div>
-                        <div class="p-6 pt-0">
-                            <p id="domains-message" class="text-center text-muted-foreground py-6">Loading domains...</p>
-                            <div id="domains-list" class="hidden">
-                                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                    <!-- Domain cards will be added here dynamically -->
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Domain Details Container -->
-                <div id="domain-details-container" x-show="activeTab === 'domain-details'" x-transition class="hidden">
-                    <div class="mb-4">
-                        <button id="back-to-summary" class="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-8 px-3">
-                            <i class="fas fa-arrow-left mr-2"></i> Back to Summary
-                        </button>
-                    </div>
-                    
-                    <div class="rounded-lg border border-border bg-card text-card-foreground shadow mb-6">
-                        <div class="flex flex-col space-y-1.5 p-6">
-                            <h3 id="domain-details-title" class="text-lg font-semibold leading-none tracking-tight">Domain Details</h3>
-                        </div>
-                        <div class="p-6 pt-0">
-                            <div id="domain-details-content">
-                                <!-- Domain details will be loaded here -->
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Reports Tab -->
-                <div x-show="activeTab === 'reports'" x-transition>
-                    <div class="rounded-lg border border-border bg-card text-card-foreground shadow">
-                        <div class="flex flex-col space-y-1.5 p-6">
-                            <h3 class="text-lg font-semibold leading-none tracking-tight">Reports Summary</h3>
-                            <p class="text-sm text-muted-foreground">Advanced report visualization and analysis</p>
-                        </div>
-                        <div class="p-6 pt-0">
-                            <div class="flex flex-col items-center justify-center p-8">
-                                <div class="rounded-full p-3 bg-muted">
-                                    <i class="fas fa-chart-line text-2xl text-muted-foreground"></i>
-                                </div>
-                                <h3 class="mt-4 text-lg font-medium">Coming Soon</h3>
-                                <p class="text-sm text-center text-muted-foreground mt-2 max-w-md">
-                                    Advanced report visualization and analysis features will be available in future milestones.
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Settings Tab -->
-                <div x-show="activeTab === 'settings'" x-transition>
-                    <div class="rounded-lg border border-border bg-card text-card-foreground shadow">
-                        <div class="flex flex-col space-y-1.5 p-6">
-                            <h3 class="text-lg font-semibold leading-none tracking-tight">Settings</h3>
-                            <p class="text-sm text-muted-foreground">User preferences and system configuration</p>
-                        </div>
-                        <div class="p-6 pt-0">
-                            <div class="flex flex-col items-center justify-center p-8">
-                                <div class="rounded-full p-3 bg-muted">
-                                    <i class="fas fa-cog text-2xl text-muted-foreground"></i>
-                                </div>
-                                <h3 class="mt-4 text-lg font-medium">Coming Soon</h3>
-                                <p class="text-sm text-center text-muted-foreground mt-2 max-w-md">
-                                    User preferences and system configuration will be available in future milestones.
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </main>
-        </div>
+            {% endcall %}
+        {% endcall %}
     </div>
+    
+    <!-- Domain Compliance Table -->
+    <div x-show="hasDomainData" x-cloak>
+        {% call card() %}
+            {% call card_header() %}
+                <div class="flex items-center justify-between">
+                    {% call card_title() %}Domain Compliance{% endcall %}
+                    {% call button(variant="outline", size="sm") %}
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path></svg>
+                        Refresh
+                    {% endcall %}
+                </div>
+                {% call card_description() %}
+                    Overview of domains and their DMARC compliance status
+                {% endcall %}
+            {% endcall %}
+            {% call card_content() %}
+                {% call table() %}
+                    {% call thead() %}
+                        {% call tr() %}
+                            {% call th() %}Domain{% endcall %}
+                            {% call th() %}Emails{% endcall %}
+                            {% call th() %}Pass Rate{% endcall %}
+                            {% call th() %}Failed{% endcall %}
+                            {% call th() %}Reports{% endcall %}
+                            {% call th("text-right") %}Actions{% endcall %}
+                        {% endcall %}
+                    {% endcall %}
+                    {% call tbody() %}
+                        <tbody id="domains-table-body">
+                            <!-- Domain data will be populated here via JavaScript -->
+                        </tbody>
+                    {% endcall %}
+                {% endcall %}
+            {% endcall %}
+        {% endcall %}
+    </div>
+    
+    <!-- No Data Message -->
+    <div x-show="!hasDomainData" x-cloak>
+        {% call card() %}
+            {% call card_content() %}
+                <div class="flex flex-col items-center justify-center py-12 text-center">
+                    <div class="rounded-full p-4 bg-muted mb-4">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-muted-foreground"><circle cx="12" cy="12" r="10"></circle><path d="m8 12 4 0"></path><path d="m16 12 0 .01"></path><path d="M12 16v-4"></path></svg>
+                    </div>
+                    <h3 class="text-lg font-semibold mb-2">No DMARC reports have been uploaded yet</h3>
+                    <p class="text-muted-foreground mb-4 max-w-md">Upload a report or configure IMAP integration to see statistics and gain insights into your domain's email authentication.</p>
+                    <div class="flex gap-2">
+                        {% call button_link(href="/upload") %}
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" x2="12" y1="3" y2="15"></line></svg>
+                            Upload Report
+                        {% endcall %}
+                        {% call button_link(href="/settings", variant="outline") %}
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                            Configure IMAP
+                        {% endcall %}
+                    </div>
+                </div>
+            {% endcall %}
+        {% endcall %}
+    </div>
+    
+    <!-- IMAP Status -->
+    <div>
+        {% call card() %}
+            {% call card_header() %}
+                <div class="flex items-center justify-between">
+                    {% call card_title() %}IMAP Integration Status{% endcall %}
+                    {% call button_link(href="/api/v1/admin/trigger-poll", variant="outline", size="sm") %}
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="m3 2 2 4h8L7 14h2l-4 8 1-6H4l2-8H3z"></path></svg>
+                        Trigger Poll Now
+                    {% endcall %}
+                </div>
+            {% endcall %}
+            {% call card_content() %}
+                <div class="flex flex-col gap-4">
+                    <div class="flex items-center">
+                        <span class="w-40 text-sm text-muted-foreground">Status:</span>
+                        <span class="inline-flex items-center gap-1.5">
+                            <span id="imap-status-icon" class="h-2.5 w-2.5 rounded-full bg-green-500"></span>
+                            <span id="imap-status-text">Running</span>
+                        </span>
+                    </div>
+                    <div class="flex items-center">
+                        <span class="w-40 text-sm text-muted-foreground">Last Check:</span>
+                        <span id="imap-last-check">Never</span>
+                    </div>
+                    <div class="flex items-center">
+                        <span class="w-40 text-sm text-muted-foreground">Mailbox:</span>
+                        <span id="imap-mailbox">dmarc-reports@hosterra.net</span>
+                    </div>
+                </div>
+            {% endcall %}
+        {% endcall %}
+    </div>
+</div>
+{% endblock %}
 
-    <script>
-        function dashboardApp() {
-            return {
-                activeTab: 'dashboard',
-                sidebarOpen: false,
-                isDarkMode: true,
-                hasDomainData: false, // Will be set true when data is loaded
+{% block scripts %}
+<script>
+function dashboardApp() {
+    return {
+        hasDomainData: false,
+        
+        init() {
+            // Fetch domain summary on page load
+            this.fetchDomainSummary();
+            
+            // Check IMAP status
+            this.getImapStatus();
+        },
+        
+        async getImapStatus() {
+            try {
+                const response = await fetch('/api/v1/admin/poll-status');
+                const data = await response.json();
                 
-                init() {
-                    // Check if we have any domains with data
-                    this.fetchDomainSummary();
-                    
-                    // Check system preferences for dark mode
-                    const savedTheme = localStorage.getItem('dmarq-theme');
-                    if (savedTheme) {
-                        this.isDarkMode = savedTheme === 'dark';
-                        this.applyTheme();
-                    }
-
-                    // Watch for tab changes to refresh data
-                    this.$watch('activeTab', (tab) => {
-                        if (tab === 'dashboard' || tab === 'domains') {
-                            this.fetchDomainSummary();
-                        }
-                    });
-
-                    // Listen for custom event to refresh data
-                    document.addEventListener('dmarq:refresh-data', () => {
-                        this.fetchDomainSummary();
-                    });
-                },
+                const statusIcon = document.getElementById('imap-status-icon');
+                const statusText = document.getElementById('imap-status-text');
+                const lastCheck = document.getElementById('imap-last-check');
                 
-                getActiveTabTitle() {
-                    switch (this.activeTab) {
-                        case 'dashboard': return 'Dashboard';
-                        case 'upload': return 'Upload Reports';
-                        case 'domains': return 'Domain Management';
-                        case 'reports': return 'Reports Analysis';
-                        case 'settings': return 'Settings';
-                        case 'domain-details': return 'Domain Details';
-                        default: return 'DMARQ';
-                    }
-                },
-                
-                toggleTheme() {
-                    this.isDarkMode = !this.isDarkMode;
-                    localStorage.setItem('dmarq-theme', this.isDarkMode ? 'dark' : 'light');
-                    this.applyTheme();
-                },
-                
-                applyTheme() {
-                    if (this.isDarkMode) {
-                        document.documentElement.classList.add('dark');
-                    } else {
-                        document.documentElement.classList.remove('dark');
-                    }
-                },
-                
-                async fetchDomainSummary() {
-                    try {
-                        const response = await fetch('/api/v1/domains/summary');
-                        const data = await response.json();
-                        
-                        if (data && data.domains && data.domains.length > 0) {
-                            this.hasDomainData = true;
-                            this.updateDashboardStats(data);
-                            this.populateDomainsTable(data.domains);
-                            this.populateDomainsList(data.domains);
-                        } else {
-                            this.hasDomainData = false;
-                        }
-                    } catch (error) {
-                        console.error('Error fetching domain summary:', error);
-                        this.hasDomainData = false;
-                    }
-                },
-                
-                updateDashboardStats(data) {
-                    if (!data) return;
-                    
-                    const totalDomains = document.getElementById('total-domains');
-                    const totalEmails = document.getElementById('total-emails');
-                    const passRate = document.getElementById('overall-pass-rate');
-                    const reportsProcessed = document.getElementById('reports-processed');
-                    
-                    if (totalDomains) totalDomains.textContent = data.total_domains || 0;
-                    if (totalEmails) totalEmails.textContent = data.total_emails || 0;
-                    if (passRate) passRate.textContent = `${data.overall_pass_rate || 0}%`;
-                    if (reportsProcessed) reportsProcessed.textContent = data.reports_processed || 0;
-                },
-                
-                populateDomainsTable(domains) {
-                    if (!domains || !domains.length) return;
-                    
-                    const tableBody = document.getElementById('domains-table-body');
-                    if (!tableBody) return;
-                    
-                    tableBody.innerHTML = '';
-                    
-                    domains.forEach(domain => {
-                        const row = document.createElement('tr');
-                        row.className = 'border-b transition-colors hover:bg-muted/50';
-                        
-                        row.innerHTML = `
-                            <td class="p-4 align-middle">
-                                <div class="font-medium">${domain.domain_name}</div>
-                            </td>
-                            <td class="p-4 align-middle">${domain.total_emails || 0}</td>
-                            <td class="p-4 align-middle">
-                                <span class="inline-flex items-center rounded-md bg-green-50 dark:bg-green-900/20 px-2 py-1 text-xs font-medium text-green-700 dark:text-green-300">
-                                    ${domain.pass_rate || 0}%
-                                </span>
-                            </td>
-                            <td class="p-4 align-middle">${domain.failed_count || 0}</td>
-                            <td class="p-4 align-middle">${domain.report_count || 0}</td>
-                            <td class="p-4 align-middle text-right">
-                                <button data-domain-id="${domain.id}" class="view-domain-details inline-flex items-center justify-center rounded-md text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-8 px-3">
-                                    <i class="fas fa-chart-bar mr-1"></i> Details
-                                </button>
-                            </td>
-                        `;
-                        
-                        tableBody.appendChild(row);
-                    });
-                    
-                    // Add event listeners to the view details buttons
-                    document.querySelectorAll('.view-domain-details').forEach(button => {
-                        button.addEventListener('click', () => {
-                            const domainId = button.getAttribute('data-domain-id');
-                            this.viewDomainDetails(domainId);
-                        });
-                    });
-                },
-                
-                populateDomainsList(domains) {
-                    if (!domains || !domains.length) return;
-                    
-                    const domainsMessage = document.getElementById('domains-message');
-                    const domainsList = document.getElementById('domains-list');
-                    const domainsGrid = domainsList.querySelector('.grid');
-                    
-                    if (domainsMessage && domainsList && domainsGrid) {
-                        // Hide loading message, show domain list
-                        domainsMessage.classList.add('hidden');
-                        domainsList.classList.remove('hidden');
-                        
-                        domainsGrid.innerHTML = '';
-                        
-                        domains.forEach(domain => {
-                            const card = document.createElement('div');
-                            card.className = 'rounded-lg border border-border bg-card text-card-foreground shadow';
-                            
-                            card.innerHTML = `
-                                <div class="p-6">
-                                    <h4 class="text-lg font-semibold mb-2">${domain.domain_name}</h4>
-                                    <div class="space-y-2">
-                                        <div class="flex justify-between items-center text-sm">
-                                            <span class="text-muted-foreground">Emails:</span>
-                                            <span>${domain.total_emails || 0}</span>
-                                        </div>
-                                        <div class="flex justify-between items-center text-sm">
-                                            <span class="text-muted-foreground">Pass Rate:</span>
-                                            <span class="inline-flex items-center rounded-md bg-green-50 dark:bg-green-900/20 px-2 py-1 text-xs font-medium text-green-700 dark:text-green-300">
-                                                ${domain.pass_rate || 0}%
-                                            </span>
-                                        </div>
-                                        <div class="flex justify-between items-center text-sm">
-                                            <span class="text-muted-foreground">Failed:</span>
-                                            <span>${domain.failed_count || 0}</span>
-                                        </div>
-                                        <div class="flex justify-between items-center text-sm">
-                                            <span class="text-muted-foreground">Reports:</span>
-                                            <span>${domain.report_count || 0}</span>
-                                        </div>
-                                    </div>
-                                    <div class="mt-4 pt-4 border-t border-border flex justify-end">
-                                        <button data-domain-id="${domain.id}" class="view-domain-details inline-flex items-center justify-center rounded-md text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-8 px-3">
-                                            <i class="fas fa-chart-bar mr-1"></i> Details
-                                        </button>
-                                    </div>
-                                </div>
-                            `;
-                            
-                            domainsGrid.appendChild(card);
-                        });
-                        
-                        // Add event listeners to the view details buttons
-                        domainsList.querySelectorAll('.view-domain-details').forEach(button => {
-                            button.addEventListener('click', () => {
-                                const domainId = button.getAttribute('data-domain-id');
-                                this.viewDomainDetails(domainId);
-                            });
-                        });
-                    }
-                },
-                
-                async viewDomainDetails(domainId) {
-                    try {
-                        const response = await fetch(`/api/v1/domains/${domainId}`);
-                        const domain = await response.json();
-                        
-                        // Update the domain details section
-                        const detailsTitle = document.getElementById('domain-details-title');
-                        const detailsContent = document.getElementById('domain-details-content');
-                        
-                        if (detailsTitle) {
-                            detailsTitle.textContent = `Domain: ${domain.domain_name}`;
-                        }
-                        
-                        if (detailsContent) {
-                            // Populate the details content here
-                            detailsContent.innerHTML = `
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                                    <div>
-                                        <h4 class="text-sm font-medium mb-2">Domain Information</h4>
-                                        <dl class="grid grid-cols-[100px_1fr] gap-1">
-                                            <dt class="text-xs text-muted-foreground">Name:</dt>
-                                            <dd class="text-sm">${domain.domain_name}</dd>
-                                            <dt class="text-xs text-muted-foreground">Reports:</dt>
-                                            <dd class="text-sm">${domain.report_count || 0}</dd>
-                                            <dt class="text-xs text-muted-foreground">Emails:</dt>
-                                            <dd class="text-sm">${domain.total_emails || 0}</dd>
-                                        </dl>
-                                    </div>
-                                    <div>
-                                        <h4 class="text-sm font-medium mb-2">Compliance Summary</h4>
-                                        <dl class="grid grid-cols-[100px_1fr] gap-1">
-                                            <dt class="text-xs text-muted-foreground">Pass Rate:</dt>
-                                            <dd class="text-sm">${domain.pass_rate || 0}%</dd>
-                                            <dt class="text-xs text-muted-foreground">Failed:</dt>
-                                            <dd class="text-sm">${domain.failed_count || 0}</dd>
-                                            <dt class="text-xs text-muted-foreground">DKIM:</dt>
-                                            <dd class="text-sm">${domain.dkim_pass_count || 0} passed</dd>
-                                            <dt class="text-xs text-muted-foreground">SPF:</dt>
-                                            <dd class="text-sm">${domain.spf_pass_count || 0} passed</dd>
-                                        </dl>
-                                    </div>
-                                </div>
-                                
-                                <div class="mb-6">
-                                    <h4 class="text-sm font-medium mb-2">Recent Reports</h4>
-                                    <div class="border rounded-md overflow-hidden">
-                                        <table class="w-full text-sm">
-                                            <thead class="bg-muted">
-                                                <tr>
-                                                    <th class="p-2 text-left font-medium text-muted-foreground">Report ID</th>
-                                                    <th class="p-2 text-left font-medium text-muted-foreground">Date</th>
-                                                    <th class="p-2 text-left font-medium text-muted-foreground">Source</th>
-                                                    <th class="p-2 text-left font-medium text-muted-foreground">Emails</th>
-                                                    <th class="p-2 text-left font-medium text-muted-foreground">Pass Rate</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                <tr class="border-t">
-                                                    <td colspan="5" class="p-4 text-center text-muted-foreground">
-                                                        Report details will be available in future milestones.
-                                                    </td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                            `;
-                        }
-                        
-                        // Show the domain details container and hide others
-                        this.activeTab = 'domain-details';
-                        document.getElementById('domain-details-container').classList.remove('hidden');
-                        
-                    } catch (error) {
-                        console.error('Error fetching domain details:', error);
-                    }
+                if (data.is_running) {
+                    statusIcon.classList.remove('bg-red-500');
+                    statusIcon.classList.add('bg-green-500');
+                    statusText.textContent = 'Running';
+                } else {
+                    statusIcon.classList.remove('bg-green-500');
+                    statusIcon.classList.add('bg-red-500');
+                    statusText.textContent = 'Stopped';
                 }
+                
+                if (data.last_check) {
+                    lastCheck.textContent = new Date(data.last_check).toLocaleString();
+                } else {
+                    lastCheck.textContent = 'Never';
+                }
+            } catch (error) {
+                console.error('Error checking IMAP status:', error);
             }
+        },
+        
+        async fetchDomainSummary() {
+            try {
+                const response = await fetch('/api/v1/domains/summary');
+                const data = await response.json();
+                
+                if (data && data.domains && data.domains.length > 0) {
+                    this.hasDomainData = true;
+                    this.updateDashboardStats(data);
+                    this.populateDomainsTable(data.domains);
+                } else {
+                    this.hasDomainData = false;
+                }
+            } catch (error) {
+                console.error('Error fetching domain summary:', error);
+                this.hasDomainData = false;
+            }
+        },
+        
+        updateDashboardStats(data) {
+            if (!data) return;
+            
+            const totalDomains = document.getElementById('total-domains');
+            const totalEmails = document.getElementById('total-emails');
+            const passRate = document.getElementById('overall-pass-rate');
+            const reportsProcessed = document.getElementById('reports-processed');
+            
+            if (totalDomains) totalDomains.textContent = data.total_domains || 0;
+            if (totalEmails) totalEmails.textContent = data.total_emails || 0;
+            if (passRate) passRate.textContent = `${data.overall_pass_rate || 0}%`;
+            if (reportsProcessed) reportsProcessed.textContent = data.reports_processed || 0;
+        },
+        
+        populateDomainsTable(domains) {
+            if (!domains || !domains.length) return;
+            
+            const tableBody = document.getElementById('domains-table-body');
+            if (!tableBody) return;
+            
+            tableBody.innerHTML = '';
+            
+            domains.forEach(domain => {
+                const row = document.createElement('tr');
+                row.className = 'table-row';
+                
+                row.innerHTML = `
+                    <td class="table-cell">
+                        <div class="font-medium">${domain.domain_name}</div>
+                    </td>
+                    <td class="table-cell">${domain.total_emails || 0}</td>
+                    <td class="table-cell">
+                        <span class="inline-flex items-center rounded-md bg-green-50 dark:bg-green-900/20 px-2 py-1 text-xs font-medium text-green-700 dark:text-green-300">
+                            ${domain.pass_rate || 0}%
+                        </span>
+                    </td>
+                    <td class="table-cell">${domain.failed_count || 0}</td>
+                    <td class="table-cell">${domain.report_count || 0}</td>
+                    <td class="table-cell text-right">
+                        <a href="/domains/${domain.id}" class="btn btn-outline btn-sm">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-1"><path d="M3 3v18h18"></path><path d="m19 9-5 5-4-4-3 3"></path></svg>
+                            Details
+                        </a>
+                    </td>
+                `;
+                
+                tableBody.appendChild(row);
+            });
         }
-
-        // Handle file upload preview
-        document.addEventListener('DOMContentLoaded', () => {
-            const fileInput = document.getElementById('report-file');
-            const fileSelected = document.getElementById('file-selected');
-            const fileName = document.getElementById('file-name');
-            const removeFile = document.getElementById('remove-file');
-            const uploadForm = document.getElementById('upload-form');
-            const uploadResult = document.getElementById('upload-result');
-            const backToSummary = document.getElementById('back-to-summary');
-
-            if (fileInput && fileSelected && fileName && removeFile) {
-                fileInput.addEventListener('change', (e) => {
-                    if (e.target.files.length > 0) {
-                        fileName.textContent = e.target.files[0].name;
-                        fileSelected.classList.remove('hidden');
-                    }
-                });
-
-                removeFile.addEventListener('click', () => {
-                    fileInput.value = '';
-                    fileSelected.classList.add('hidden');
-                });
-            }
-
-            if (uploadForm) {
-                uploadForm.addEventListener('submit', async (e) => {
-                    e.preventDefault();
-                    
-                    if (!fileInput.files.length) {
-                        uploadResult.innerHTML = `
-                            <div class="p-3 bg-destructive/20 text-destructive rounded-md">
-                                Please select a file to upload
-                            </div>
-                        `;
-                        return;
-                    }
-                    
-                    const formData = new FormData();
-                    formData.append('file', fileInput.files[0]);
-                    
-                    uploadResult.innerHTML = `
-                        <div class="p-3 bg-muted rounded-md flex items-center">
-                            <i class="fas fa-spinner fa-spin mr-2"></i>
-                            <span>Uploading and processing report...</span>
-                        </div>
-                    `;
-                    
-                    try {
-                        const response = await fetch('/api/v1/reports/upload', {
-                            method: 'POST',
-                            body: formData
-                        });
-                        
-                        const data = await response.json();
-                        
-                        if (response.ok) {
-                            uploadResult.innerHTML = `
-                                <div class="p-3 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 rounded-md">
-                                    <p><i class="fas fa-check-circle mr-2"></i> Report uploaded successfully</p>
-                                    <p class="text-xs mt-1">Processed ${data.processed_records || 0} records for domain ${data.domain || ''}</p>
-                                </div>
-                            `;
-                            fileInput.value = '';
-                            fileSelected.classList.add('hidden');
-                            
-                            // Refresh the dashboard data after successful upload
-                            // Use a custom event to communicate with the Alpine component
-                            document.dispatchEvent(new CustomEvent('dmarq:refresh-data'));
-                        } else {
-                            throw new Error(data.detail || 'Upload failed');
-                        }
-                    } catch (error) {
-                        uploadResult.innerHTML = `
-                            <div class="p-3 bg-destructive/20 text-destructive rounded-md">
-                                <i class="fas fa-exclamation-circle mr-2"></i> 
-                                ${error.message || 'An error occurred during upload'}
-                            </div>
-                        `;
-                    }
-                });
-            }
-
-            // Back button in domain details view
-            if (backToSummary) {
-                backToSummary.addEventListener('click', () => {
-                    document.getElementById('domain-details-container').classList.add('hidden');
-                    const app = document.querySelector('[x-data="dashboardApp()"]').__x.$data;
-                    app.activeTab = 'domains';
-                });
-            }
-        });
-    </script>
-</body>
-</html>
+    }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,35 @@
+{% macro card() %}
+<div class="card bg-base-100 shadow">
+    {{ caller() }}
+</div>
+{% endmacro %}
+
+{% macro card_header() %}
+<div class="card-body pt-6 pb-2">
+    {{ caller() }}
+</div>
+{% endmacro %}
+
+{% macro card_title(text='') %}
+<h3 class="card-title text-lg font-bold">
+    {% if text %}{{ text }}{% else %}{{ caller() }}{% endif %}
+</h3>
+{% endmacro %}
+
+{% macro card_description(text='') %}
+<p class="text-sm opacity-70 mt-1">
+    {% if text %}{{ text }}{% else %}{{ caller() }}{% endif %}
+</p>
+{% endmacro %}
+
+{% macro card_content() %}
+<div class="card-body py-4">
+    {{ caller() }}
+</div>
+{% endmacro %}
+
+{% macro card_footer() %}
+<div class="card-actions justify-end p-4 pt-0">
+    {{ caller() }}
+</div>
+{% endmacro %}

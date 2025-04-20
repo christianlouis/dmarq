@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dmarqlight" class="dark:data-theme-dmarqdark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}DMARQ - DMARC Monitoring{% endblock %}</title>
+    
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Open+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS & DaisyUI via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.24/dist/full.css" rel="stylesheet" type="text/css"/>
+
+    <!-- Alpine.js for interactivity -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+    {% block head %}{% endblock %}
+</head>
+<body class="min-h-screen bg-base-100 font-body antialiased">
+    <!-- Updated Menu Bar -->
+    <header class="navbar bg-primary text-primary-content">
+        <div class="flex-1">
+            <a href="/" class="btn btn-ghost normal-case text-xl">
+                <img src="/static/img/monogram_light.png" alt="DMARQ Logo" class="w-8 h-8 mr-2">
+                DMARQ
+            </a>
+        </div>
+        <div class="flex-none">
+            <ul class="menu menu-horizontal px-1">
+                <li><a href="/">Dashboard</a></li>
+                <li><a href="/domains">Domains</a></li>
+                <li><a href="/reports">Reports</a></li>
+                <li><a href="/upload">Upload</a></li>
+                <li><a href="/settings">Settings</a></li>
+            </ul>
+        </div>
+    </header>
+
+    <!-- Updated Main Content Area with page-specific data initialization -->
+    <main class="p-4 md:p-6">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Scripts -->
+    {% block scripts %}{% endblock %}
+    
+    <!-- Initialize theme from localStorage -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const darkMode = localStorage.getItem('darkMode') === 'true';
+            if (darkMode) {
+                document.documentElement.classList.add('dark');
+                document.documentElement.setAttribute('data-theme', 'dmarqdark');
+            } else {
+                document.documentElement.classList.remove('dark');
+                document.documentElement.setAttribute('data-theme', 'dmarqlight');
+            }
+        });
+    </script>
+</body>
+</html>

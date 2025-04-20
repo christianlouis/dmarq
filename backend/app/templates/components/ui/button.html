@@ -1,0 +1,15 @@
+{% macro button(variant='default', size='md', class='', type='button', disabled=False) %}
+<button 
+    type="{{ type }}" 
+    class="btn btn-{{ variant }} btn-{{ size }} {{ class }}"
+    {% if disabled %}disabled{% endif %}
+>
+    {{ caller() }}
+</button>
+{% endmacro %}
+
+{% macro button_link(href='#', variant='default', size='md', class='') %}
+<a href="{{ href }}" class="btn btn-{{ variant }} btn-{{ size }} {{ class }}">
+    {{ caller() }}
+</a>
+{% endmacro %}

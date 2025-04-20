@@ -35,6 +35,8 @@ services:
       - SECRET_KEY=your_secret_key_change_in_production
       - DEBUG=True
       - ENVIRONMENT=development
+      # Add NODE_ENV for Tailwind
+      - NODE_ENV=production
     networks:
       - dmarq-network
     ports:

@@ -1,0 +1,37 @@
+{% macro table(class='', zebra=True) %}
+<div class="overflow-x-auto">
+    <table class="table {% if zebra %}table-zebra{% endif %} {{ class }}">
+        {{ caller() }}
+    </table>
+</div>
+{% endmacro %}
+
+{% macro thead() %}
+<thead>
+    {{ caller() }}
+</thead>
+{% endmacro %}
+
+{% macro tbody() %}
+<tbody>
+    {{ caller() }}
+</tbody>
+{% endmacro %}
+
+{% macro tr(class='') %}
+<tr class="{{ class }}">
+    {{ caller() }}
+</tr>
+{% endmacro %}
+
+{% macro th(class='') %}
+<th class="{{ class }}">
+    {{ caller() }}
+</th>
+{% endmacro %}
+
+{% macro td(class='', colspan='', rowspan='') %}
+<td class="{{ class }}" {% if colspan %}colspan="{{ colspan }}"{% endif %} {% if rowspan %}rowspan="{{ rowspan }}"{% endif %}>
+    {{ caller() }}
+</td>
+{% endmacro %}
