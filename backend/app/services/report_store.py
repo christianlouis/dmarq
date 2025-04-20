@@ -190,3 +190,26 @@ class ReportStore:
         self.domain_reports = {}
         self.domain_summary = {}
         self.domain_sources = {}
+    
+    def delete_domain_with_cleanup(self, domain: str) -> bool:
+        """
+        Delete a domain and all its associated data
+        
+        Args:
+            domain: Domain name to delete
+            
+        Returns:
+            True if domain was deleted, False otherwise
+        """
+        if domain not in self.domain_reports:
+            return False
+        
+        try:
+            # Remove all data for this domain
+            self.domain_reports.pop(domain, None)
+            self.domain_summary.pop(domain, None)
+            self.domain_sources.pop(domain, None)
+            return True
+        except Exception:
+            # If any exception occurs during deletion, return False
+            return False

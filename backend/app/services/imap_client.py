@@ -48,31 +48,82 @@ class IMAPClient:
         if not all([self.server, self.username, self.password]):
             logger.warning("IMAP credentials not fully configured")
     
-    def test_connection(self) -> Tuple[bool, str]:
+    def test_connection(self) -> Tuple[bool, str, Dict[str, Any]]:
         """
-        Test the IMAP connection
+        Test the IMAP connection and gather basic mailbox statistics
         
         Returns:
-            Tuple of (success, message)
+            Tuple of (success, message, stats)
+            - success: Boolean indicating if connection was successful
+            - message: String message describing the result
+            - stats: Dictionary with mailbox statistics (if successful)
         """
         if not all([self.server, self.username, self.password]):
-            return False, "IMAP credentials not fully configured"
+            return False, "IMAP credentials not fully configured", {}
             
         try:
             # Create IMAP4 connection
             mail = imaplib.IMAP4_SSL(self.server, self.port)
             # Login
             mail.login(self.username, self.password)
-            # List mailboxes
-            mail.list()
-            # Select inbox
-            mail.select('INBOX')
-            # Logout
+            
+            # List available mailboxes
+            status, mailbox_list = mail.list()
+            available_mailboxes = []
+            
+            if status == 'OK':
+                for mailbox in mailbox_list:
+                    if isinstance(mailbox, bytes):
+                        try:
+                            # Extract mailbox name from response
+                            mailbox_str = mailbox.decode('utf-8')
+                            # Extract the mailbox name (after the last quote)
+                            parts = mailbox_str.split('"')
+                            if len(parts) > 2:
+                                mailbox_name = parts[-1].strip()
+                                if mailbox_name.startswith(' '):
+                                    mailbox_name = mailbox_name[1:]
+                                available_mailboxes.append(mailbox_name)
+                        except Exception:
+                            pass
+            
+            # Select inbox and get message count
+            status, data = mail.select('INBOX')
+            message_count = 0
+            unread_count = 0
+            
+            if status == 'OK':
+                message_count = int(data[0])
+                
+                # Count unread messages
+                status, data = mail.search(None, 'UNSEEN')
+                if status == 'OK':
+                    unread_count = len(data[0].split())
+            
+            # Gather some stats about potential DMARC reports
+            dmarc_count = 0
+            status, data = mail.search(None, 'SUBJECT "DMARC"')
+            if status == 'OK':
+                dmarc_count = len(data[0].split())
+            
+            # Close connection
+            mail.close()
             mail.logout()
-            return True, "Connection successful"
+            
+            stats = {
+                "message_count": message_count,
+                "unread_count": unread_count,
+                "dmarc_count": dmarc_count,
+                "available_mailboxes": available_mailboxes,
+                "server": self.server,
+                "port": self.port,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            return True, "Connection successful", stats
         except Exception as e:
             logger.error(f"IMAP connection test failed: {str(e)}")
-            return False, f"Connection failed: {str(e)}"
+            return False, f"Connection failed: {str(e)}", {}
     
     def fetch_reports(self, days: int = 7) -> Dict[str, Any]:
         """

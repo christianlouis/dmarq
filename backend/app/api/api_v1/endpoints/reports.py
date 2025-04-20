@@ -33,6 +33,14 @@ class ReportSummary(BaseModel):
     passed_count: int
     failed_count: int
 
+class PaginatedReportResponse(BaseModel):
+    """Paginated reports response model"""
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+    reports: List[ReportSummary]
+
 @router.post("/upload", response_model=UploadResponse)
 async def upload_report(file: UploadFile = File(...)):
     """
@@ -133,3 +141,74 @@ async def get_domain_reports(domain: str):
         )
         for report in reports
     ]
+
+@router.get("/domain/{domain}/reports/paginated", response_model=PaginatedReportResponse)
+async def get_domain_reports_paginated(
+    domain: str,
+    page: int = 1,
+    page_size: int = 10,
+    sort_by: str = "end_date",
+    sort_order: str = "desc"
+):
+    """
+    Get paginated reports for a specific domain with sorting options
+    
+    Args:
+        domain: Domain name
+        page: Page number (1-based)
+        page_size: Number of reports per page
+        sort_by: Field to sort by (report_id, org_name, begin_date, end_date, total_count)
+        sort_order: Sort order (asc or desc)
+    """
+    store = ReportStore.get_instance()
+    all_reports = store.get_domain_reports(domain)
+    
+    if not all_reports:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No reports found for domain {domain}"
+        )
+    
+    # Apply sorting
+    valid_sort_fields = ["report_id", "org_name", "begin_date", "end_date", "total_count"]
+    sort_field = sort_by if sort_by in valid_sort_fields else "end_date"
+    
+    if sort_field == "total_count":
+        all_reports.sort(
+            key=lambda r: r.get("summary", {}).get("total_count", 0),
+            reverse=(sort_order == "desc")
+        )
+    else:
+        all_reports.sort(
+            key=lambda r: r.get(sort_field, ""),
+            reverse=(sort_order == "desc")
+        )
+    
+    # Apply pagination
+    total = len(all_reports)
+    total_pages = (total + page_size - 1) // page_size
+    start_idx = (page - 1) * page_size
+    end_idx = start_idx + page_size
+    paginated_reports = all_reports[start_idx:end_idx]
+    
+    # Format reports
+    report_entries = [
+        ReportSummary(
+            report_id=report.get("report_id", ""),
+            org_name=report.get("org_name", ""),
+            begin_date=report.get("begin_date", ""),
+            end_date=report.get("end_date", ""),
+            total_count=report.get("summary", {}).get("total_count", 0),
+            passed_count=report.get("summary", {}).get("passed_count", 0),
+            failed_count=report.get("summary", {}).get("failed_count", 0)
+        )
+        for report in paginated_reports
+    ]
+    
+    return PaginatedReportResponse(
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages,
+        reports=report_entries
+    )
