@@ -1,0 +1,592 @@
+[
+  {
+    "title": "[Security Sprint] Authentication & Authorization",
+    "body": "## Description\n\nPart of the **Security Remediation Sprint** - Priority: **CRITICAL**\n\n### Tasks\n\n- [ ] Add authentication middleware to all admin endpoints\n- [ ] Implement proper user authentication system\n- [ ] Add authorization checks on sensitive operations\n- [ ] Add rate limiting to prevent abuse\n\n### Files to Update\n\n- `backend/app/main.py`\n- `backend/app/api/api_v1/endpoints/imap.py`\n- `backend/app/api/api_v1/endpoints/domains.py`\n\n### Related Documentation\n\n- [SECURITY.md](../SECURITY.md)\n- [Security Remediation Sprint](../ROADMAP.md#security-remediation-sprint-priority---in-progress)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "security",
+      "priority: critical",
+      "security: critical"
+    ],
+    "milestone": "Security Remediation Sprint",
+    "assignees": []
+  },
+  {
+    "title": "[Security Sprint] Secret Management",
+    "body": "## Description\n\nPart of the **Security Remediation Sprint** - Priority: **CRITICAL**\n\n### Tasks\n\n- [ ] Remove default SECRET_KEY value\n- [ ] Add SECRET_KEY validation on startup\n- [ ] Document secret generation in deployment guide\n- [ ] Add warning if default secret is detected\n\n### Files to Update\n\n- `backend/app/core/config.py`\n\n### Related Documentation\n\n- [SECURITY.md](../SECURITY.md)\n- [Security Remediation Sprint](../ROADMAP.md#security-remediation-sprint-priority---in-progress)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "security",
+      "priority: critical",
+      "security: critical"
+    ],
+    "milestone": "Security Remediation Sprint",
+    "assignees": []
+  },
+  {
+    "title": "[Security Sprint] XML Parsing Security",
+    "body": "## Description\n\nPart of the **Security Remediation Sprint** - Priority: **HIGH**\n\n### Tasks\n\n- [ ] Replace ElementTree with defusedxml\n- [ ] Add file size limits for uploads\n- [ ] Implement zip bomb protection\n- [ ] Add malware scanning hooks (optional)\n\n### Files to Update\n\n- `backend/app/services/dmarc_parser.py`\n\n### Related Documentation\n\n- [SECURITY.md](../SECURITY.md)\n- [Security Remediation Sprint](../ROADMAP.md#security-remediation-sprint-priority---in-progress)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "security",
+      "priority: high",
+      "security: high"
+    ],
+    "milestone": "Security Remediation Sprint",
+    "assignees": []
+  },
+  {
+    "title": "[Security Sprint] Input Validation",
+    "body": "## Description\n\nPart of the **Security Remediation Sprint** - Priority: **HIGH**\n\n### Tasks\n\n- [ ] Add domain name validation regex\n- [ ] Implement file type validation (MIME + extension)\n- [ ] Add parameter validation on all endpoints\n- [ ] Sanitize error messages\n\n### Files to Update\n\n- `backend/app/api/api_v1/endpoints/domains.py`\n- `backend/app/api/api_v1/endpoints/reports.py`\n- `backend/app/utils/domain_validator.py`\n\n### Related Documentation\n\n- [SECURITY.md](../SECURITY.md)\n- [Security Remediation Sprint](../ROADMAP.md#security-remediation-sprint-priority---in-progress)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "security",
+      "priority: high",
+      "security: high"
+    ],
+    "milestone": "Security Remediation Sprint",
+    "assignees": []
+  },
+  {
+    "title": "[Security Sprint] Security Headers",
+    "body": "## Description\n\nPart of the **Security Remediation Sprint** - Priority: **MEDIUM**\n\n### Tasks\n\n- [ ] Add security headers middleware\n- [ ] Implement CSP (Content Security Policy)\n- [ ] Add X-Frame-Options, X-Content-Type-Options\n- [ ] Configure HSTS for production\n\n### Related Documentation\n\n- [SECURITY.md](../SECURITY.md)\n- [Security Remediation Sprint](../ROADMAP.md#security-remediation-sprint-priority---in-progress)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "security",
+      "priority: medium"
+    ],
+    "milestone": "Security Remediation Sprint",
+    "assignees": []
+  },
+  {
+    "title": "[Security Sprint] CORS Configuration",
+    "body": "## Description\n\nPart of the **Security Remediation Sprint** - Priority: **MEDIUM**\n\n### Tasks\n\n- [ ] Restrict CORS methods and headers\n- [ ] Remove wildcard configurations\n- [ ] Document CORS setup for deployments\n\n### Files to Update\n\n- `backend/app/main.py`\n\n### Related Documentation\n\n- [SECURITY.md](../SECURITY.md)\n- [Security Remediation Sprint](../ROADMAP.md#security-remediation-sprint-priority---in-progress)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "security",
+      "priority: medium"
+    ],
+    "milestone": "Security Remediation Sprint",
+    "assignees": []
+  },
+  {
+    "title": "[Security Sprint] Error Handling",
+    "body": "## Description\n\nPart of the **Security Remediation Sprint** - Priority: **MEDIUM**\n\n### Tasks\n\n- [ ] Implement centralized error handling\n- [ ] Remove sensitive data from error responses\n- [ ] Add error logging with request context\n- [ ] Create user-friendly error messages\n\n### Related Documentation\n\n- [SECURITY.md](../SECURITY.md)\n- [Security Remediation Sprint](../ROADMAP.md#security-remediation-sprint-priority---in-progress)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "security",
+      "priority: medium"
+    ],
+    "milestone": "Security Remediation Sprint",
+    "assignees": []
+  },
+  {
+    "title": "[M4] Historical trend charts (Chart.js integration)",
+    "body": "## Description\n\nFeature for **Milestone 4: Enhanced Dashboard & Visualization**\n\n**Timeline**: Next - 4-6 weeks\n\n### Feature\nHistorical trend charts (Chart.js integration)\n\n### Related Documentation\n\n- [Milestone 4](../ROADMAP.md#milestone-4-enhanced-dashboard--visualization)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-4",
+      "priority: high"
+    ],
+    "milestone": "Milestone 4: Enhanced Dashboard & Visualization",
+    "assignees": []
+  },
+  {
+    "title": "[M4] Compliance rate visualizations",
+    "body": "## Description\n\nFeature for **Milestone 4: Enhanced Dashboard & Visualization**\n\n**Timeline**: Next - 4-6 weeks\n\n### Feature\nCompliance rate visualizations\n\n### Related Documentation\n\n- [Milestone 4](../ROADMAP.md#milestone-4-enhanced-dashboard--visualization)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-4",
+      "priority: high"
+    ],
+    "milestone": "Milestone 4: Enhanced Dashboard & Visualization",
+    "assignees": []
+  },
+  {
+    "title": "[M4] Volume and sender analytics",
+    "body": "## Description\n\nFeature for **Milestone 4: Enhanced Dashboard & Visualization**\n\n**Timeline**: Next - 4-6 weeks\n\n### Feature\nVolume and sender analytics\n\n### Related Documentation\n\n- [Milestone 4](../ROADMAP.md#milestone-4-enhanced-dashboard--visualization)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-4",
+      "priority: high"
+    ],
+    "milestone": "Milestone 4: Enhanced Dashboard & Visualization",
+    "assignees": []
+  },
+  {
+    "title": "[M4] Time-series data displays",
+    "body": "## Description\n\nFeature for **Milestone 4: Enhanced Dashboard & Visualization**\n\n**Timeline**: Next - 4-6 weeks\n\n### Feature\nTime-series data displays\n\n### Related Documentation\n\n- [Milestone 4](../ROADMAP.md#milestone-4-enhanced-dashboard--visualization)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-4",
+      "priority: high"
+    ],
+    "milestone": "Milestone 4: Enhanced Dashboard & Visualization",
+    "assignees": []
+  },
+  {
+    "title": "[M4] Domain comparison views",
+    "body": "## Description\n\nFeature for **Milestone 4: Enhanced Dashboard & Visualization**\n\n**Timeline**: Next - 4-6 weeks\n\n### Feature\nDomain comparison views\n\n### Related Documentation\n\n- [Milestone 4](../ROADMAP.md#milestone-4-enhanced-dashboard--visualization)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-4",
+      "priority: high"
+    ],
+    "milestone": "Milestone 4: Enhanced Dashboard & Visualization",
+    "assignees": []
+  },
+  {
+    "title": "[M5] FastAPI Users integration",
+    "body": "## Description\n\nFeature for **Milestone 5: User Authentication & Multi-User Support**\n\n**Timeline**: 8-10 weeks\n\n### Feature\nFastAPI Users integration\n\n### Related Documentation\n\n- [Milestone 5](../ROADMAP.md#milestone-5-user-authentication--multi-user-support)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-5",
+      "priority: high"
+    ],
+    "milestone": "Milestone 5: User Authentication & Multi-User Support",
+    "assignees": []
+  },
+  {
+    "title": "[M5] User registration and management",
+    "body": "## Description\n\nFeature for **Milestone 5: User Authentication & Multi-User Support**\n\n**Timeline**: 8-10 weeks\n\n### Feature\nUser registration and management\n\n### Related Documentation\n\n- [Milestone 5](../ROADMAP.md#milestone-5-user-authentication--multi-user-support)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-5",
+      "priority: high"
+    ],
+    "milestone": "Milestone 5: User Authentication & Multi-User Support",
+    "assignees": []
+  },
+  {
+    "title": "[M5] JWT-based authentication",
+    "body": "## Description\n\nFeature for **Milestone 5: User Authentication & Multi-User Support**\n\n**Timeline**: 8-10 weeks\n\n### Feature\nJWT-based authentication\n\n### Related Documentation\n\n- [Milestone 5](../ROADMAP.md#milestone-5-user-authentication--multi-user-support)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-5",
+      "priority: high"
+    ],
+    "milestone": "Milestone 5: User Authentication & Multi-User Support",
+    "assignees": []
+  },
+  {
+    "title": "[M5] Role-based access control (RBAC)",
+    "body": "## Description\n\nFeature for **Milestone 5: User Authentication & Multi-User Support**\n\n**Timeline**: 8-10 weeks\n\n### Feature\nRole-based access control (RBAC)\n\n### Related Documentation\n\n- [Milestone 5](../ROADMAP.md#milestone-5-user-authentication--multi-user-support)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-5",
+      "priority: high"
+    ],
+    "milestone": "Milestone 5: User Authentication & Multi-User Support",
+    "assignees": []
+  },
+  {
+    "title": "[M5] Password reset functionality",
+    "body": "## Description\n\nFeature for **Milestone 5: User Authentication & Multi-User Support**\n\n**Timeline**: 8-10 weeks\n\n### Feature\nPassword reset functionality\n\n### Related Documentation\n\n- [Milestone 5](../ROADMAP.md#milestone-5-user-authentication--multi-user-support)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-5",
+      "priority: high"
+    ],
+    "milestone": "Milestone 5: User Authentication & Multi-User Support",
+    "assignees": []
+  },
+  {
+    "title": "[M5] Email verification (optional)",
+    "body": "## Description\n\nFeature for **Milestone 5: User Authentication & Multi-User Support**\n\n**Timeline**: 8-10 weeks\n\n### Feature\nEmail verification (optional)\n\n### Related Documentation\n\n- [Milestone 5](../ROADMAP.md#milestone-5-user-authentication--multi-user-support)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-5",
+      "priority: high"
+    ],
+    "milestone": "Milestone 5: User Authentication & Multi-User Support",
+    "assignees": []
+  },
+  {
+    "title": "[M6] Apprise integration",
+    "body": "## Description\n\nFeature for **Milestone 6: Alerting & Notifications**\n\n**Timeline**: 10-12 weeks\n\n### Feature\nApprise integration\n\n### Related Documentation\n\n- [Milestone 6](../ROADMAP.md#milestone-6-alerting--notifications)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-6",
+      "priority: medium"
+    ],
+    "milestone": "Milestone 6: Alerting & Notifications",
+    "assignees": []
+  },
+  {
+    "title": "[M6] Customizable alert rules",
+    "body": "## Description\n\nFeature for **Milestone 6: Alerting & Notifications**\n\n**Timeline**: 10-12 weeks\n\n### Feature\nCustomizable alert rules\n\n### Related Documentation\n\n- [Milestone 6](../ROADMAP.md#milestone-6-alerting--notifications)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-6",
+      "priority: medium"
+    ],
+    "milestone": "Milestone 6: Alerting & Notifications",
+    "assignees": []
+  },
+  {
+    "title": "[M6] Multi-channel notifications (Email, Slack, etc.)",
+    "body": "## Description\n\nFeature for **Milestone 6: Alerting & Notifications**\n\n**Timeline**: 10-12 weeks\n\n### Feature\nMulti-channel notifications (Email, Slack, etc.)\n\n### Related Documentation\n\n- [Milestone 6](../ROADMAP.md#milestone-6-alerting--notifications)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-6",
+      "priority: medium"
+    ],
+    "milestone": "Milestone 6: Alerting & Notifications",
+    "assignees": []
+  },
+  {
+    "title": "[M6] Alert history and management",
+    "body": "## Description\n\nFeature for **Milestone 6: Alerting & Notifications**\n\n**Timeline**: 10-12 weeks\n\n### Feature\nAlert history and management\n\n### Related Documentation\n\n- [Milestone 6](../ROADMAP.md#milestone-6-alerting--notifications)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-6",
+      "priority: medium"
+    ],
+    "milestone": "Milestone 6: Alerting & Notifications",
+    "assignees": []
+  },
+  {
+    "title": "[M6] Notification preferences per user",
+    "body": "## Description\n\nFeature for **Milestone 6: Alerting & Notifications**\n\n**Timeline**: 10-12 weeks\n\n### Feature\nNotification preferences per user\n\n### Related Documentation\n\n- [Milestone 6](../ROADMAP.md#milestone-6-alerting--notifications)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-6",
+      "priority: medium"
+    ],
+    "milestone": "Milestone 6: Alerting & Notifications",
+    "assignees": []
+  },
+  {
+    "title": "[M7] Custom alert conditions",
+    "body": "## Description\n\nFeature for **Milestone 7: Advanced Rule Engine**\n\n**Timeline**: 14-16 weeks\n\n### Feature\nCustom alert conditions\n\n### Related Documentation\n\n- [Milestone 7](../ROADMAP.md#milestone-7-advanced-rule-engine)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-7",
+      "priority: medium"
+    ],
+    "milestone": "Milestone 7: Advanced Rule Engine",
+    "assignees": []
+  },
+  {
+    "title": "[M7] Threshold-based triggers",
+    "body": "## Description\n\nFeature for **Milestone 7: Advanced Rule Engine**\n\n**Timeline**: 14-16 weeks\n\n### Feature\nThreshold-based triggers\n\n### Related Documentation\n\n- [Milestone 7](../ROADMAP.md#milestone-7-advanced-rule-engine)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-7",
+      "priority: medium"
+    ],
+    "milestone": "Milestone 7: Advanced Rule Engine",
+    "assignees": []
+  },
+  {
+    "title": "[M7] New sender detection",
+    "body": "## Description\n\nFeature for **Milestone 7: Advanced Rule Engine**\n\n**Timeline**: 14-16 weeks\n\n### Feature\nNew sender detection\n\n### Related Documentation\n\n- [Milestone 7](../ROADMAP.md#milestone-7-advanced-rule-engine)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-7",
+      "priority: medium"
+    ],
+    "milestone": "Milestone 7: Advanced Rule Engine",
+    "assignees": []
+  },
+  {
+    "title": "[M7] Anomaly detection",
+    "body": "## Description\n\nFeature for **Milestone 7: Advanced Rule Engine**\n\n**Timeline**: 14-16 weeks\n\n### Feature\nAnomaly detection\n\n### Related Documentation\n\n- [Milestone 7](../ROADMAP.md#milestone-7-advanced-rule-engine)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-7",
+      "priority: medium"
+    ],
+    "milestone": "Milestone 7: Advanced Rule Engine",
+    "assignees": []
+  },
+  {
+    "title": "[M7] Scheduled report summaries",
+    "body": "## Description\n\nFeature for **Milestone 7: Advanced Rule Engine**\n\n**Timeline**: 14-16 weeks\n\n### Feature\nScheduled report summaries\n\n### Related Documentation\n\n- [Milestone 7](../ROADMAP.md#milestone-7-advanced-rule-engine)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-7",
+      "priority: medium"
+    ],
+    "milestone": "Milestone 7: Advanced Rule Engine",
+    "assignees": []
+  },
+  {
+    "title": "[M8] DNS record health checks",
+    "body": "## Description\n\nFeature for **Milestone 8: DNS Health & Cloudflare Integration**\n\n**Timeline**: 16-18 weeks\n\n### Feature\nDNS record health checks\n\n### Related Documentation\n\n- [Milestone 8](../ROADMAP.md#milestone-8-dns-health--cloudflare-integration)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-8",
+      "priority: medium"
+    ],
+    "milestone": "Milestone 8: DNS Health & Cloudflare Integration",
+    "assignees": []
+  },
+  {
+    "title": "[M8] SPF/DKIM/DMARC validation",
+    "body": "## Description\n\nFeature for **Milestone 8: DNS Health & Cloudflare Integration**\n\n**Timeline**: 16-18 weeks\n\n### Feature\nSPF/DKIM/DMARC validation\n\n### Related Documentation\n\n- [Milestone 8](../ROADMAP.md#milestone-8-dns-health--cloudflare-integration)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-8",
+      "priority: medium"
+    ],
+    "milestone": "Milestone 8: DNS Health & Cloudflare Integration",
+    "assignees": []
+  },
+  {
+    "title": "[M8] Cloudflare API integration",
+    "body": "## Description\n\nFeature for **Milestone 8: DNS Health & Cloudflare Integration**\n\n**Timeline**: 16-18 weeks\n\n### Feature\nCloudflare API integration\n\n### Related Documentation\n\n- [Milestone 8](../ROADMAP.md#milestone-8-dns-health--cloudflare-integration)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-8",
+      "priority: medium"
+    ],
+    "milestone": "Milestone 8: DNS Health & Cloudflare Integration",
+    "assignees": []
+  },
+  {
+    "title": "[M8] Configuration recommendations",
+    "body": "## Description\n\nFeature for **Milestone 8: DNS Health & Cloudflare Integration**\n\n**Timeline**: 16-18 weeks\n\n### Feature\nConfiguration recommendations\n\n### Related Documentation\n\n- [Milestone 8](../ROADMAP.md#milestone-8-dns-health--cloudflare-integration)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-8",
+      "priority: medium"
+    ],
+    "milestone": "Milestone 8: DNS Health & Cloudflare Integration",
+    "assignees": []
+  },
+  {
+    "title": "[M8] DNS change tracking",
+    "body": "## Description\n\nFeature for **Milestone 8: DNS Health & Cloudflare Integration**\n\n**Timeline**: 16-18 weeks\n\n### Feature\nDNS change tracking\n\n### Related Documentation\n\n- [Milestone 8](../ROADMAP.md#milestone-8-dns-health--cloudflare-integration)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-8",
+      "priority: medium"
+    ],
+    "milestone": "Milestone 8: DNS Health & Cloudflare Integration",
+    "assignees": []
+  },
+  {
+    "title": "[M9] Forensic report parsing",
+    "body": "## Description\n\nFeature for **Milestone 9: Forensic Reports**\n\n**Timeline**: RUF) Support (20-22 weeks\n\n### Feature\nForensic report parsing\n\n### Related Documentation\n\n- [Milestone 9](../ROADMAP.md#milestone-9-forensic-reports)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-9",
+      "priority: low"
+    ],
+    "milestone": "Milestone 9: Forensic Reports",
+    "assignees": []
+  },
+  {
+    "title": "[M9] Failure sample analysis",
+    "body": "## Description\n\nFeature for **Milestone 9: Forensic Reports**\n\n**Timeline**: RUF) Support (20-22 weeks\n\n### Feature\nFailure sample analysis\n\n### Related Documentation\n\n- [Milestone 9](../ROADMAP.md#milestone-9-forensic-reports)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-9",
+      "priority: low"
+    ],
+    "milestone": "Milestone 9: Forensic Reports",
+    "assignees": []
+  },
+  {
+    "title": "[M9] PII redaction options",
+    "body": "## Description\n\nFeature for **Milestone 9: Forensic Reports**\n\n**Timeline**: RUF) Support (20-22 weeks\n\n### Feature\nPII redaction options\n\n### Related Documentation\n\n- [Milestone 9](../ROADMAP.md#milestone-9-forensic-reports)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-9",
+      "priority: low"
+    ],
+    "milestone": "Milestone 9: Forensic Reports",
+    "assignees": []
+  },
+  {
+    "title": "[M9] Detailed authentication failure views",
+    "body": "## Description\n\nFeature for **Milestone 9: Forensic Reports**\n\n**Timeline**: RUF) Support (20-22 weeks\n\n### Feature\nDetailed authentication failure views\n\n### Related Documentation\n\n- [Milestone 9](../ROADMAP.md#milestone-9-forensic-reports)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-9",
+      "priority: low"
+    ],
+    "milestone": "Milestone 9: Forensic Reports",
+    "assignees": []
+  },
+  {
+    "title": "[M9] Sample download/export",
+    "body": "## Description\n\nFeature for **Milestone 9: Forensic Reports**\n\n**Timeline**: RUF) Support (20-22 weeks\n\n### Feature\nSample download/export\n\n### Related Documentation\n\n- [Milestone 9](../ROADMAP.md#milestone-9-forensic-reports)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-9",
+      "priority: low"
+    ],
+    "milestone": "Milestone 9: Forensic Reports",
+    "assignees": []
+  },
+  {
+    "title": "[M10] Historical trend analysis",
+    "body": "## Description\n\nFeature for **Milestone 10: Advanced Analytics & Reporting**\n\n**Timeline**: 24-26 weeks\n\n### Feature\nHistorical trend analysis\n\n### Related Documentation\n\n- [Milestone 10](../ROADMAP.md#milestone-10-advanced-analytics--reporting)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-10",
+      "priority: low"
+    ],
+    "milestone": "Milestone 10: Advanced Analytics & Reporting",
+    "assignees": []
+  },
+  {
+    "title": "[M10] Comparative reporting",
+    "body": "## Description\n\nFeature for **Milestone 10: Advanced Analytics & Reporting**\n\n**Timeline**: 24-26 weeks\n\n### Feature\nComparative reporting\n\n### Related Documentation\n\n- [Milestone 10](../ROADMAP.md#milestone-10-advanced-analytics--reporting)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-10",
+      "priority: low"
+    ],
+    "milestone": "Milestone 10: Advanced Analytics & Reporting",
+    "assignees": []
+  },
+  {
+    "title": "[M10] Export capabilities (PDF, CSV)",
+    "body": "## Description\n\nFeature for **Milestone 10: Advanced Analytics & Reporting**\n\n**Timeline**: 24-26 weeks\n\n### Feature\nExport capabilities (PDF, CSV)\n\n### Related Documentation\n\n- [Milestone 10](../ROADMAP.md#milestone-10-advanced-analytics--reporting)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-10",
+      "priority: low"
+    ],
+    "milestone": "Milestone 10: Advanced Analytics & Reporting",
+    "assignees": []
+  },
+  {
+    "title": "[M10] Scheduled reports",
+    "body": "## Description\n\nFeature for **Milestone 10: Advanced Analytics & Reporting**\n\n**Timeline**: 24-26 weeks\n\n### Feature\nScheduled reports\n\n### Related Documentation\n\n- [Milestone 10](../ROADMAP.md#milestone-10-advanced-analytics--reporting)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-10",
+      "priority: low"
+    ],
+    "milestone": "Milestone 10: Advanced Analytics & Reporting",
+    "assignees": []
+  },
+  {
+    "title": "[M10] Custom dashboards",
+    "body": "## Description\n\nFeature for **Milestone 10: Advanced Analytics & Reporting**\n\n**Timeline**: 24-26 weeks\n\n### Feature\nCustom dashboards\n\n### Related Documentation\n\n- [Milestone 10](../ROADMAP.md#milestone-10-advanced-analytics--reporting)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-10",
+      "priority: low"
+    ],
+    "milestone": "Milestone 10: Advanced Analytics & Reporting",
+    "assignees": []
+  },
+  {
+    "title": "[M11] Multi-tenant architecture",
+    "body": "## Description\n\nFeature for **Milestone 11: Enterprise Features**\n\n**Timeline**: 28-30+ weeks\n\n### Feature\nMulti-tenant architecture\n\n### Related Documentation\n\n- [Milestone 11](../ROADMAP.md#milestone-11-enterprise-features)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-11",
+      "priority: low"
+    ],
+    "milestone": "Milestone 11: Enterprise Features",
+    "assignees": []
+  },
+  {
+    "title": "[M11] API rate limiting",
+    "body": "## Description\n\nFeature for **Milestone 11: Enterprise Features**\n\n**Timeline**: 28-30+ weeks\n\n### Feature\nAPI rate limiting\n\n### Related Documentation\n\n- [Milestone 11](../ROADMAP.md#milestone-11-enterprise-features)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-11",
+      "priority: low"
+    ],
+    "milestone": "Milestone 11: Enterprise Features",
+    "assignees": []
+  },
+  {
+    "title": "[M11] Advanced RBAC",
+    "body": "## Description\n\nFeature for **Milestone 11: Enterprise Features**\n\n**Timeline**: 28-30+ weeks\n\n### Feature\nAdvanced RBAC\n\n### Related Documentation\n\n- [Milestone 11](../ROADMAP.md#milestone-11-enterprise-features)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-11",
+      "priority: low"
+    ],
+    "milestone": "Milestone 11: Enterprise Features",
+    "assignees": []
+  },
+  {
+    "title": "[M11] SSO integration (SAML, OAuth)",
+    "body": "## Description\n\nFeature for **Milestone 11: Enterprise Features**\n\n**Timeline**: 28-30+ weeks\n\n### Feature\nSSO integration (SAML, OAuth)\n\n### Related Documentation\n\n- [Milestone 11](../ROADMAP.md#milestone-11-enterprise-features)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-11",
+      "priority: low"
+    ],
+    "milestone": "Milestone 11: Enterprise Features",
+    "assignees": []
+  },
+  {
+    "title": "[M11] Compliance reporting (SOC 2, GDPR)",
+    "body": "## Description\n\nFeature for **Milestone 11: Enterprise Features**\n\n**Timeline**: 28-30+ weeks\n\n### Feature\nCompliance reporting (SOC 2, GDPR)\n\n### Related Documentation\n\n- [Milestone 11](../ROADMAP.md#milestone-11-enterprise-features)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-11",
+      "priority: low"
+    ],
+    "milestone": "Milestone 11: Enterprise Features",
+    "assignees": []
+  },
+  {
+    "title": "[M11] High availability setup",
+    "body": "## Description\n\nFeature for **Milestone 11: Enterprise Features**\n\n**Timeline**: 28-30+ weeks\n\n### Feature\nHigh availability setup\n\n### Related Documentation\n\n- [Milestone 11](../ROADMAP.md#milestone-11-enterprise-features)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-11",
+      "priority: low"
+    ],
+    "milestone": "Milestone 11: Enterprise Features",
+    "assignees": []
+  },
+  {
+    "title": "[M11] Backup and disaster recovery",
+    "body": "## Description\n\nFeature for **Milestone 11: Enterprise Features**\n\n**Timeline**: 28-30+ weeks\n\n### Feature\nBackup and disaster recovery\n\n### Related Documentation\n\n- [Milestone 11](../ROADMAP.md#milestone-11-enterprise-features)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "enhancement",
+      "milestone-11",
+      "priority: low"
+    ],
+    "milestone": "Milestone 11: Enterprise Features",
+    "assignees": []
+  },
+  {
+    "title": "[Continuous] Code Quality Improvements",
+    "body": "## Description\n\nOngoing code quality tasks to maintain and improve DMARQ.\n\n### Tasks\n\n- [ ] Maintain >80% test coverage\n- [ ] Regular dependency updates\n- [ ] Code review for all changes\n- [ ] Performance optimization\n- [ ] Technical debt reduction\n\n### Related Documentation\n\n- [Continuous Improvements](../ROADMAP.md#continuous-improvements-ongoing)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "maintenance",
+      "continuous-improvement",
+      "code-quality"
+    ],
+    "milestone": "Continuous Improvements",
+    "assignees": []
+  },
+  {
+    "title": "[Continuous] Security Improvements",
+    "body": "## Description\n\nOngoing security tasks to maintain and improve DMARQ.\n\n### Tasks\n\n- [ ] Monthly security audits\n- [ ] Automated vulnerability scanning (GitHub Actions)\n- [ ] Dependency security monitoring\n- [ ] Regular penetration testing\n- [ ] Security training for contributors\n\n### Related Documentation\n\n- [Continuous Improvements](../ROADMAP.md#continuous-improvements-ongoing)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "maintenance",
+      "continuous-improvement",
+      "security"
+    ],
+    "milestone": "Continuous Improvements",
+    "assignees": []
+  },
+  {
+    "title": "[Continuous] Documentation Improvements",
+    "body": "## Description\n\nOngoing documentation tasks to maintain and improve DMARQ.\n\n### Tasks\n\n- [ ] Keep documentation current\n- [ ] API documentation completeness\n- [ ] Security best practices guide\n- [ ] Deployment playbooks\n- [ ] Troubleshooting guides\n\n### Related Documentation\n\n- [Continuous Improvements](../ROADMAP.md#continuous-improvements-ongoing)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "maintenance",
+      "continuous-improvement",
+      "documentation"
+    ],
+    "milestone": "Continuous Improvements",
+    "assignees": []
+  },
+  {
+    "title": "[Continuous] Community Improvements",
+    "body": "## Description\n\nOngoing community tasks to maintain and improve DMARQ.\n\n### Tasks\n\n- [ ] Issue triage and response\n- [ ] PR review and merging\n- [ ] Community engagement\n- [ ] Feature request evaluation\n- [ ] Bug fix prioritization\n\n### Related Documentation\n\n- [Continuous Improvements](../ROADMAP.md#continuous-improvements-ongoing)\n\n---\n*This issue was auto-generated from the DMARQ roadmap.*",
+    "labels": [
+      "maintenance",
+      "continuous-improvement"
+    ],
+    "milestone": "Continuous Improvements",
+    "assignees": []
+  }
+]
