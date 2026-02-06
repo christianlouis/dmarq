@@ -186,3 +186,34 @@ cython_debug/
 /backend/yarn-debug.log*
 /backend/yarn-error.log*
 /backend/.npm/
+
+# Security scan results
+.secrets.baseline
+bandit-report.json
+security-report.json
+
+# Database files
+*.db
+*.sqlite
+test.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.backup
+
+# Docker override
+docker-compose.override.yml
