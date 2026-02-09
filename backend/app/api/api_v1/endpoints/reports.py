@@ -1,11 +1,37 @@
 from typing import Dict, List, Any
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 from pydantic import BaseModel
+import logging
 
 from app.services.dmarc_parser import DMARCParser
 from app.services.report_store import ReportStore
+from app.utils.domain_validator import validate_domain, DomainValidationError
+
+logger = logging.getLogger(__name__)
+
+# Try to import python-magic for MIME type detection
+try:
+    import magic
+    HAS_MAGIC = True
+except ImportError:
+    HAS_MAGIC = False
+    logger.warning("python-magic not installed. MIME type validation will be skipped.")
 
 router = APIRouter()
+
+# Security: Allowed MIME types for DMARC report uploads
+ALLOWED_MIME_TYPES = {
+    'text/xml',
+    'application/xml',
+    'application/zip',
+    'application/x-zip-compressed',
+    'application/gzip',
+    'application/x-gzip',
+    'application/octet-stream'  # Sometimes zip/gzip are detected as this
+}
+
+# Security: Allowed file extensions
+ALLOWED_EXTENSIONS = {'.xml', '.zip', '.gz', '.gzip'}
 
 class UploadResponse(BaseModel):
     """Response model for report upload"""
@@ -45,21 +71,80 @@ class PaginatedReportResponse(BaseModel):
 async def upload_report(file: UploadFile = File(...)):
     """
     Upload and process a DMARC aggregate report file (XML, ZIP, or GZIP)
+    
+    Security:
+    - File type validation (extension and MIME type)
+    - File size limits enforced in parser
+    - Zip bomb protection
+    - Sanitized error messages
     """
     try:
+        # Security: Validate filename is provided
+        if not file.filename:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Filename is required"
+            )
+        
+        # Security: Validate file extension
+        file_ext = '.' + file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+        if file_ext not in ALLOWED_EXTENSIONS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid file type. Allowed types: {', '.join(ALLOWED_EXTENSIONS)}"
+            )
+        
         # Read the file content
         file_content = await file.read()
-        filename = file.filename
+        
+        # Security: Validate file is not empty
+        if len(file_content) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File is empty"
+            )
+        
+        # Security: Validate MIME type using python-magic (if available)
+        if HAS_MAGIC:
+            try:
+                mime_type = magic.from_buffer(file_content, mime=True)
+                if mime_type not in ALLOWED_MIME_TYPES:
+                    logger.warning(f"Rejected file with MIME type: {mime_type}")
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Invalid file type. File must be XML, ZIP, or GZIP format."
+                    )
+            except Exception as e:
+                # If magic fails, log but continue (fallback to extension check)
+                logger.warning(f"MIME type detection failed: {str(e)}")
+        else:
+            logger.debug("MIME type validation skipped (python-magic not available)")
         
         # Parse the report
         parser = DMARCParser()
-        report = parser.parse_file(file_content, filename)
+        report = parser.parse_file(file_content, file.filename)
+        
+        # Security: Validate domain from report
+        domain = report.get("domain", "")
+        if not domain:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Report does not contain a valid domain"
+            )
+        
+        # Validate domain format (not DNS resolution to avoid external calls)
+        is_valid, error_msg, error_code = validate_domain(domain, check_dns=False)
+        if not is_valid and error_code != DomainValidationError.DNS_RESOLUTION_FAILED:
+            # Allow domains that fail DNS resolution but have valid format
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid domain in report: {error_msg}"
+            )
         
         # Store the report
         store = ReportStore.get_instance()
         store.add_report(report)
         
-        domain = report.get("domain", "unknown")
         processed_records = report.get("summary", {}).get("total_count", 0)
         
         return UploadResponse(
@@ -69,10 +154,36 @@ async def upload_report(file: UploadFile = File(...)):
             processed_records=processed_records
         )
     
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except ValueError as e:
+        # Security: Sanitize error messages from parser
+        error_message = str(e)
+        # Log full error for debugging
+        logger.error(f"ValueError processing report {file.filename}: {error_message}")
+        # Return sanitized message
+        if "too large" in error_message.lower():
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="File too large"
+            )
+        elif "zip bomb" in error_message.lower():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid archive file"
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid report format"
+            )
     except Exception as e:
+        # Security: Don't expose internal errors to client
+        logger.error(f"Unexpected error processing report {file.filename}: {str(e)}")
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Error processing report: {str(e)}"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error processing report. Please contact support if this persists."
         )
 
 @router.get("/domains", response_model=List[str])

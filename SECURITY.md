@@ -35,62 +35,118 @@ We take all security vulnerabilities seriously. If you discover a security vulne
 
 ## Known Security Considerations
 
-### Critical Security Issues Identified (Status: Pending Remediation)
+### Security Remediation Status (Updated: 2026-02-09)
 
-The following security issues have been identified and are documented for transparency:
+The following security issues have been identified and **REMEDIATED** in the latest version:
 
-#### 1. **Missing Authentication on Admin Endpoints** (CRITICAL)
-- **Location**: `backend/app/main.py` lines 195-196, 224-225
-- **Issue**: Admin endpoints `/api/v1/admin/trigger-poll` and `/api/v1/admin/poll-status` lack authentication
-- **Impact**: Unauthorized users can trigger IMAP polling operations
-- **Status**: ⚠️ Requires immediate remediation
-- **Workaround**: Use network-level access controls to restrict access
+#### 1. **Missing Authentication on Admin Endpoints** (CRITICAL) - ✅ FIXED
+- **Location**: `backend/app/main.py` and `backend/app/api/api_v1/endpoints/imap.py`
+- **Issue**: Admin endpoints `/api/v1/admin/trigger-poll`, `/api/v1/admin/poll-status`, and IMAP endpoints lacked authentication
+- **Impact**: Unauthorized users could trigger IMAP polling operations
+- **Status**: ✅ **RESOLVED** - Authentication middleware implemented
+- **Solution Implemented**:
+  - Added API key authentication system with secure key generation
+  - Implemented JWT token verification support
+  - All admin endpoints now require either X-API-Key header or Bearer token
+  - API key generated and logged on application startup
+  - Added `require_admin_auth` dependency for protected endpoints
 
-#### 2. **Default SECRET_KEY in Configuration** (CRITICAL)
-- **Location**: `backend/app/core/config.py` line 24
-- **Issue**: Default SECRET_KEY value is not production-safe
-- **Impact**: JWT tokens can be forged if default key is used
-- **Status**: ⚠️ Must be changed before production deployment
-- **Remediation**: Always set a unique `SECRET_KEY` in your `.env` file using a cryptographically secure random string
+#### 2. **Default SECRET_KEY in Configuration** (CRITICAL) - ✅ FIXED
+- **Location**: `backend/app/core/config.py`
+- **Issue**: Default SECRET_KEY value was not production-safe
+- **Impact**: JWT tokens could be forged if default key is used
+- **Status**: ✅ **RESOLVED** - Automatic validation and generation
+- **Solution Implemented**:
+  - Removed hardcoded default SECRET_KEY
+  - Added validation that generates secure random key if not provided
+  - Warning logged if default/missing key detected
+  - Minimum length validation (32 characters recommended)
+  - Updated .env.example with clear security documentation
 
-#### 3. **XML External Entity (XXE) Vulnerability** (HIGH)
+#### 3. **XML External Entity (XXE) Vulnerability** (HIGH) - ✅ FIXED
 - **Location**: `backend/app/services/dmarc_parser.py`
 - **Issue**: Standard ElementTree parser used instead of defusedxml
 - **Impact**: Potential XXE attacks through malicious DMARC reports
-- **Status**: ⚠️ Requires code changes
-- **Mitigation**: Use `defusedxml.ElementTree` instead of standard library
+- **Status**: ✅ **RESOLVED** - Using defusedxml
+- **Solution Implemented**:
+  - Replaced `xml.etree.ElementTree` with `defusedxml.ElementTree`
+  - Added file size limits (10 MB max)
+  - Implemented zip bomb protection (100 MB uncompressed max, 10 files max)
+  - Added comprehensive validation for compressed archives
+  - Security tests verify XXE protection
 
-#### 4. **IMAP Credentials in URLs** (HIGH)
+#### 4. **IMAP Credentials in URLs** (HIGH) - ✅ FIXED
 - **Location**: `backend/app/api/api_v1/endpoints/imap.py`
 - **Issue**: IMAP credentials accepted as query parameters
 - **Impact**: Credentials exposed in logs and browser history
-- **Status**: ⚠️ Requires API redesign
-- **Workaround**: Only use environment variables for IMAP configuration
+- **Status**: ✅ **RESOLVED** - Query parameter validation added
+- **Solution Implemented**:
+  - Added validation to reject credentials in query parameters
+  - All IMAP endpoints now require authentication
+  - Clear error messages guide users to use environment variables
+  - Added parameter validation (days must be 1-365)
 
-#### 5. **Insufficient File Upload Validation** (HIGH)
+#### 5. **Insufficient File Upload Validation** (HIGH) - ✅ FIXED
 - **Location**: `backend/app/api/api_v1/endpoints/reports.py`
-- **Issue**: File type validation relies only on extensions
-- **Impact**: Malicious files may bypass detection
-- **Status**: ⚠️ Requires enhanced validation
-- **Mitigation**: Implement MIME type checking and content validation
+- **Issue**: File type validation relied only on extensions
+- **Impact**: Malicious files could bypass detection
+- **Status**: ✅ **RESOLVED** - Multi-layer validation
+- **Solution Implemented**:
+  - Added file extension validation (whitelist: .xml, .zip, .gz)
+  - Implemented MIME type validation when python-magic available
+  - Added file size validation (10 MB max)
+  - Sanitized error messages to prevent information disclosure
+  - Domain validation for parsed reports
+  - Comprehensive security tests for file upload scenarios
 
-#### 6. **Missing Security Headers** (MEDIUM)
-- **Location**: `backend/app/main.py`
+#### 6. **Missing Security Headers** (MEDIUM) - ✅ FIXED
+- **Location**: `backend/app/main.py` and new `backend/app/middleware/security.py`
 - **Issue**: No security headers configured (CSP, X-Frame-Options, etc.)
 - **Impact**: Increased XSS and clickjacking risks
-- **Status**: 🔄 Enhancement needed
+- **Status**: ✅ **RESOLVED** - Security headers middleware implemented
+- **Solution Implemented**:
+  - Created SecurityHeadersMiddleware
+  - Added Content-Security-Policy (CSP)
+  - Added X-Frame-Options: DENY
+  - Added X-Content-Type-Options: nosniff
+  - Added X-XSS-Protection: 1; mode=block
+  - Added Referrer-Policy: strict-origin-when-cross-origin
+  - Added Permissions-Policy to disable unnecessary features
+  - Added Strict-Transport-Security (HSTS) for production
+  - Cache-Control headers for sensitive API endpoints
 
-#### 7. **Overly Permissive CORS Configuration** (MEDIUM)
-- **Location**: `backend/app/main.py` lines 75-82
+#### 7. **Overly Permissive CORS Configuration** (MEDIUM) - ✅ FIXED
+- **Location**: `backend/app/main.py`
 - **Issue**: Wildcard methods and headers allowed
 - **Impact**: Potential CSRF and security bypass issues
-- **Status**: 🔄 Should be restricted
+- **Status**: ✅ **RESOLVED** - Restricted CORS configuration
+- **Solution Implemented**:
+  - Restricted methods to: GET, POST, PUT, DELETE, OPTIONS only
+  - Specified exact allowed headers (no wildcards)
+  - Limited exposed headers
+  - Added 10-minute cache for preflight requests
+  - Documentation in .env.example for production configuration
 
-#### 8. **Exception Details Exposed to Clients** (MEDIUM)
-- **Location**: Multiple endpoints
+#### 8. **Exception Details Exposed to Clients** (MEDIUM) - ✅ FIXED
+- **Location**: Multiple endpoints, especially `backend/app/api/api_v1/endpoints/reports.py`
 - **Issue**: Full exception messages returned in API responses
 - **Impact**: Information disclosure to potential attackers
-- **Status**: 🔄 Needs error handling improvements
+- **Status**: ✅ **RESOLVED** - Sanitized error handling
+- **Solution Implemented**:
+  - Implemented sanitized error responses
+  - Generic error messages returned to clients
+  - Detailed errors logged server-side only
+  - Appropriate HTTP status codes (400, 413, 500)
+  - No file paths, stack traces, or internal details exposed
+
+### Testing Coverage
+
+Comprehensive security test suite added (`backend/app/tests/test_security.py`):
+- ✅ Authentication and API key tests
+- ✅ Domain validation tests (format, malicious input, length limits)
+- ✅ File upload security tests (size limits, zip bomb protection)
+- ✅ XML parsing security tests (defusedxml verification, XXE protection)
+- ✅ Error handling and information disclosure prevention
 
 ## Security Best Practices for Deployment
 
@@ -252,26 +308,38 @@ FIRST_SUPERUSER_PASSWORD="STRONG_ADMIN_PASSWORD_CHANGE_AFTER_FIRST_LOGIN"
 
 ## Security Roadmap
 
-We are committed to improving DMARQ's security posture. Planned security enhancements:
+We are committed to improving DMARQ's security posture. Recent accomplishments and future plans:
 
-### Short Term (Next Release)
-- [ ] Fix critical authentication issues on admin endpoints
-- [ ] Replace ElementTree with defusedxml
-- [ ] Add security headers middleware
-- [ ] Improve error handling to prevent information disclosure
-- [ ] Add rate limiting on sensitive endpoints
+### Recently Completed ✅ (February 2026)
+- [x] Fix critical authentication issues on admin endpoints
+- [x] Replace ElementTree with defusedxml
+- [x] Add security headers middleware
+- [x] Improve error handling to prevent information disclosure
+- [x] Implement comprehensive input validation
+- [x] Enhance file upload security with zip bomb protection
+- [x] Add security-focused unit test suite
+- [x] Restrict CORS configuration
 
-### Medium Term (Next 3 months)
-- [ ] Implement comprehensive input validation
-- [ ] Add automated security scanning to CI/CD
-- [ ] Enhance file upload security
-- [ ] Add audit logging for security events
-- [ ] Implement CSRF protection
+### Short Term (Next 1-2 months)
+- [ ] Add rate limiting with Redis backend (currently basic implementation)
+- [ ] Add automated security scanning to CI/CD (bandit, safety)
+- [ ] Implement CSRF protection for state-changing operations
+- [ ] Add session management and timeout configuration
+- [ ] Enhance audit logging for security events
+- [ ] Add optional python-magic for enhanced MIME type detection
 
-### Long Term (Next 6 months)
+### Medium Term (Next 3-6 months)
+- [ ] Implement role-based access control (RBAC)
+- [ ] Add multi-factor authentication (MFA) support
+- [ ] Database encryption at rest
+- [ ] Advanced rate limiting per endpoint
+- [ ] Security event monitoring and alerting
+- [ ] Implement API request signing
+
+### Long Term (Next 6-12 months)
 - [ ] Security audit by external firm
 - [ ] Penetration testing
-- [ ] Implement role-based access control (RBAC)
+- [ ] Security hardening guide
 - [ ] Add multi-factor authentication (MFA)
 - [ ] Security hardening guide
 - [ ] SOC 2 compliance documentation

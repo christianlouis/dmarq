@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, BackgroundTasks
+from fastapi import FastAPI, Request, BackgroundTasks, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -10,6 +10,8 @@ from datetime import datetime
 
 from app.api.api_v1.api import api_router
 from app.core.config import get_settings
+from app.core.security import require_admin_auth, generate_api_key, add_api_key
+from app.middleware.security import SecurityHeadersMiddleware
 from app.services.imap_client import IMAPClient
 from app.services.report_store import ReportStore
 
@@ -70,15 +72,32 @@ def create_app() -> FastAPI:
         openapi_url=f"{settings.API_V1_STR}/openapi.json",
         version="0.1.0",
     )
+    
+    # Add security headers middleware
+    # Determine environment from settings or environment variable
+    environment = os.getenv("ENVIRONMENT", "development")
+    app.add_middleware(SecurityHeadersMiddleware, environment=environment)
 
-    # Set all CORS enabled origins
+    # Improved CORS configuration - restrict to specific methods and headers
     if settings.BACKEND_CORS_ORIGINS:
         app.add_middleware(
             CORSMiddleware,
             allow_origins=[str(origin) for origin in settings.BACKEND_CORS_ORIGINS],
             allow_credentials=True,
-            allow_methods=["*"],
-            allow_headers=["*"],
+            # Security: Restrict to only necessary HTTP methods
+            allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+            # Security: Specify allowed headers instead of wildcard
+            allow_headers=[
+                "Content-Type", 
+                "Authorization", 
+                "X-API-Key",
+                "Accept",
+                "Origin",
+                "X-Requested-With"
+            ],
+            # Security: Limit exposed headers
+            expose_headers=["Content-Length", "X-RateLimit-Limit"],
+            max_age=600,  # Cache preflight requests for 10 minutes
         )
 
     # Include API router
@@ -90,8 +109,28 @@ def create_app() -> FastAPI:
     # Set up event handlers for startup and shutdown
     @app.on_event("startup")
     async def startup_event():
-        """Initialize background tasks on application startup"""
+        """Initialize background tasks and security on application startup"""
         global background_task
+        
+        # Generate and provide admin API key
+        api_key = generate_api_key()
+        add_api_key(api_key)
+        
+        # Security: Log only last 8 characters for reference
+        logger.warning(
+            "=" * 80 + "\n"
+            "IMPORTANT: Admin API Key Generated\n"
+            f"API Key (last 8 chars): ...{api_key[-8:]}\n"
+            "Full key stored securely in memory.\n"
+            "For production, retrieve the key through secure configuration management.\n"
+            "Use this key in the X-API-Key header for admin endpoints.\n"
+            "=" * 80
+        )
+        
+        # In development, also log the full key for convenience
+        # This should be removed in production or controlled by environment variable
+        if os.getenv("ENVIRONMENT", "development") == "development":
+            logger.info(f"Development Mode - Full API Key: {api_key}")
         
         # Check if IMAP credentials are configured
         if all([settings.IMAP_SERVER, settings.IMAP_USERNAME, settings.IMAP_PASSWORD]):
@@ -193,8 +232,15 @@ async def upload_page(request: Request):
 
 # API endpoint to manually trigger IMAP polling
 @app.post("/api/v1/admin/trigger-poll")
-async def trigger_imap_poll(background_tasks: BackgroundTasks):
-    """Manually trigger IMAP polling (admin only)"""
+async def trigger_imap_poll(
+    background_tasks: BackgroundTasks,
+    auth: dict = Depends(require_admin_auth)
+):
+    """
+    Manually trigger IMAP polling (admin only - requires authentication)
+    
+    Security: Requires either X-API-Key header or Bearer token
+    """
     global last_check_time
     
     try:
@@ -210,23 +256,29 @@ async def trigger_imap_poll(background_tasks: BackgroundTasks):
             "timestamp": last_check_time.isoformat(),
             "processed": results["processed"],
             "reports_found": results["reports_found"],
-            "new_domains": results["new_domains"]
+            "new_domains": results["new_domains"],
+            "authenticated_by": auth.get("auth_type")
         }
     except Exception as e:
         logger.error(f"Error triggering IMAP poll: {str(e)}")
         return {
             "success": False,
-            "error": str(e)
+            "error": "Failed to trigger IMAP poll. Check server logs for details."
         }
 
 
 # API endpoint to check status of IMAP polling
 @app.get("/api/v1/admin/poll-status")
-async def get_poll_status():
-    """Get the status of IMAP polling"""
+async def get_poll_status(auth: dict = Depends(require_admin_auth)):
+    """
+    Get the status of IMAP polling (admin only - requires authentication)
+    
+    Security: Requires either X-API-Key header or Bearer token
+    """
     global last_check_time
     
     return {
         "is_running": background_task is not None and not background_task.done(),
-        "last_check": last_check_time.isoformat() if last_check_time else None
+        "last_check": last_check_time.isoformat() if last_check_time else None,
+        "authenticated_by": auth.get("auth_type")
     }

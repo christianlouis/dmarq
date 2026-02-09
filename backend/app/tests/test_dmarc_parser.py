@@ -1,7 +1,7 @@
 import os
 import pytest
 from unittest.mock import patch, MagicMock
-from xml.etree import ElementTree as ET
+import defusedxml.ElementTree as ET
 
 from app.services.dmarc_parser import (
     DMARCParser,

@@ -1,13 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from typing import Dict, Any
 from datetime import datetime
+import logging
 
 from app.services.imap_client import IMAPClient
+from app.core.security import require_admin_auth
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 @router.post("/test-connection")
 async def test_imap_connection(
+    auth: dict = Depends(require_admin_auth),
     server: str = None,
     port: int = 993,
     username: str = None,
@@ -16,7 +20,18 @@ async def test_imap_connection(
 ) -> Dict[str, Any]:
     """
     Test connection to an IMAP server and gather mailbox statistics
+    
+    Security: Requires authentication (X-API-Key or Bearer token)
+    Note: Credentials should be passed in request body, not query params
     """
+    # Security: Don't accept credentials in query parameters (they get logged)
+    if any([server, username, password]):
+        logger.warning("IMAP credentials passed as query parameters - this is insecure")
+        raise HTTPException(
+            status_code=400,
+            detail="Credentials should be passed in request body, not query parameters"
+        )
+    
     imap_client = IMAPClient(
         server=server,
         port=port,
@@ -40,12 +55,22 @@ async def test_imap_connection(
 @router.post("/fetch-reports")
 async def fetch_imap_reports(
     background_tasks: BackgroundTasks,
+    auth: dict = Depends(require_admin_auth),
     days: int = 7,
     delete_emails: bool = False
 ) -> Dict[str, Any]:
     """
     Fetch DMARC reports from the configured IMAP mailbox
+    
+    Security: Requires authentication (X-API-Key or Bearer token)
     """
+    # Security: Validate parameters
+    if days < 1 or days > 365:
+        raise HTTPException(
+            status_code=400,
+            detail="Days parameter must be between 1 and 365"
+        )
+    
     imap_client = IMAPClient(delete_emails=delete_emails)
     
     # Run in background if it might take a while
@@ -58,64 +83,41 @@ async def fetch_imap_reports(
         }
     
     # Otherwise run immediately
-    results = imap_client.fetch_reports(days=days)
-    
-    return {
-        "success": results["success"],
-        "processed_emails": results["processed"],
-        "reports_found": results["reports_found"],
-        "new_domains": results["new_domains"],
-        "errors": results["errors"] if "errors" in results and results["errors"] else None,
-        "timestamp": datetime.now().isoformat()
-    }
+    try:
+        results = imap_client.fetch_reports(days=days)
+        
+        return {
+            "success": results["success"],
+            "processed_emails": results["processed"],
+            "reports_found": results["reports_found"],
+            "new_domains": results["new_domains"],
+            "errors": results["errors"] if "errors" in results and results["errors"] else None,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error fetching IMAP reports: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to fetch reports. Check server logs for details."
+        )
 
 
 @router.get("/status")
-async def get_imap_status() -> Dict[str, Any]:
+async def get_imap_status(auth: dict = Depends(require_admin_auth)) -> Dict[str, Any]:
     """
     Get the current status of IMAP polling background processes
+    
+    Security: Requires authentication (X-API-Key or Bearer token)
     """
     # In a real implementation this would check a persistent store
     # or a global variable tracking the status of background tasks
-    # For now, returning mock data as this is MVP
+    # For now, returning simplified status
     
-    # Get the last check time if available
-    last_check_time = None
-    try:
-        # In a production app, this would be stored in database
-        # For MVP, using a simple file-based approach
-        import os
-        status_file = os.path.join(os.path.dirname(__file__), "../../../../../tmp/imap_last_check.txt")
-        if os.path.exists(status_file):
-            with open(status_file, "r") as f:
-                last_check_time = f.read().strip()
-    except:
-        pass
-    
-    # If status file doesn't exist, create the directory
-    try:
-        os.makedirs(os.path.dirname(os.path.join(os.path.dirname(__file__), "../../../../../tmp")), exist_ok=True)
-    except:
-        pass
-    
-    # For demonstration purposes, update the last check time to now
-    # In a real app, this would be updated by the background process
-    try:
-        with open(os.path.join(os.path.dirname(__file__), "../../../../../tmp/imap_last_check.txt"), "w") as f:
-            now = datetime.now().isoformat()
-            f.write(now)
-            # If there was no previous check time, set it to now
-            if not last_check_time:
-                last_check_time = now
-    except:
-        pass
-    
-    # Return the status
     return {
         "is_running": True,  # In a real app, check if the background task is running
-        "last_check": last_check_time,
-        "next_check": None,  # In production, this would be calculated based on polling interval
-        "messages_processed": 0,  # In production, this would track actual messages processed
-        "reports_found": 0,   # In production, this would track reports found
+        "last_check": None,  # In production, track actual last check time
+        "next_check": None,  # In production, calculate based on polling interval
+        "messages_processed": 0,  # In production, track actual messages processed
+        "reports_found": 0,   # In production, track reports found
         "timestamp": datetime.now().isoformat()
     }

@@ -1,5 +1,7 @@
 from functools import lru_cache
 from typing import Optional, List, Union
+import secrets
+import logging
 
 # Try to import from pydantic_settings first (newer versions)
 try:
@@ -8,6 +10,8 @@ try:
 except ImportError:
     # Fall back to older pydantic version
     from pydantic import BaseSettings, EmailStr, validator
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -21,7 +25,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./dmarq.db"
     
     # JWT Authentication
-    SECRET_KEY: str = "CHANGE_THIS_TO_A_RANDOM_SECRET_IN_PRODUCTION"
+    SECRET_KEY: Optional[str] = None
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60  # 1 hour
     
@@ -41,6 +45,32 @@ class Settings(BaseSettings):
     # Optional Cloudflare Integration
     CLOUDFLARE_API_TOKEN: Optional[str] = None
     CLOUDFLARE_ZONE_ID: Optional[str] = None
+    
+    @validator("SECRET_KEY", pre=True, always=True)
+    def validate_secret_key(cls, v: Optional[str]) -> str:
+        """Validate and generate SECRET_KEY if not provided."""
+        # Default insecure key that should never be used
+        DEFAULT_INSECURE_KEY = "CHANGE_THIS_TO_A_RANDOM_SECRET_IN_PRODUCTION"
+        
+        if v is None or v == "" or v == DEFAULT_INSECURE_KEY:
+            # Generate a secure random key
+            generated_key = secrets.token_hex(32)
+            logger.warning(
+                "SECRET_KEY not configured or using default value! "
+                "Generated a random key for this session. "
+                "For production, set SECRET_KEY in your .env file using: "
+                f"openssl rand -hex 32"
+            )
+            return generated_key
+        
+        # Check if key is too short
+        if len(v) < 32:
+            logger.warning(
+                f"SECRET_KEY is too short ({len(v)} characters). "
+                "Recommended minimum is 32 characters for security."
+            )
+        
+        return v
     
     @validator("BACKEND_CORS_ORIGINS", pre=True)
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
