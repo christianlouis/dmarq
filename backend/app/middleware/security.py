@@ -51,10 +51,14 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         
         # Content Security Policy (CSP)
         # Restricts sources of content that can be loaded
+        # TODO: Remove 'unsafe-inline' and 'unsafe-eval' and use nonces/hashes instead
         csp_directives = [
             "default-src 'self'",
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval'",  # Allow inline scripts for now
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+            # Note: 'unsafe-inline' and 'unsafe-eval' weaken XSS protection
+            # These should be removed and replaced with nonces or CSP hashes
+            # See: https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval'",  # TODO: Use nonces
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",  # TODO: Use nonces
             "font-src 'self' https://fonts.gstatic.com",
             "img-src 'self' data: https:",
             "connect-src 'self'",
@@ -110,53 +114,5 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
             response.headers["Pragma"] = "no-cache"
             response.headers["Expires"] = "0"
-        
-        return response
-
-
-class RateLimitMiddleware(BaseHTTPMiddleware):
-    """
-    Simple rate limiting middleware to prevent abuse.
-    For production, consider using a more robust solution like slowapi or Redis-based rate limiting.
-    """
-    
-    def __init__(self, app, requests_per_minute: int = 60):
-        """
-        Initialize rate limiting middleware.
-        
-        Args:
-            app: FastAPI application instance
-            requests_per_minute: Maximum requests allowed per minute per IP
-        """
-        super().__init__(app)
-        self.requests_per_minute = requests_per_minute
-        self.request_counts = {}  # Simple in-memory store (not production-ready)
-        logger.warning(
-            "Using in-memory rate limiting. "
-            "For production, use Redis or similar distributed storage."
-        )
-    
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        """
-        Check rate limit and process request.
-        
-        Args:
-            request: Incoming HTTP request
-            call_next: Next middleware/handler in the chain
-            
-        Returns:
-            HTTP response or 429 Too Many Requests if rate limit exceeded
-        """
-        # Get client IP
-        client_ip = request.client.host if request.client else "unknown"
-        
-        # For now, just log and pass through
-        # TODO: Implement actual rate limiting logic with time windows
-        # This is a placeholder for the actual implementation
-        
-        response = await call_next(request)
-        
-        # Add rate limit headers for transparency
-        response.headers["X-RateLimit-Limit"] = str(self.requests_per_minute)
         
         return response

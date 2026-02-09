@@ -5,7 +5,7 @@ import logging
 
 from app.services.dmarc_parser import DMARCParser
 from app.services.report_store import ReportStore
-from app.utils.domain_validator import validate_domain
+from app.utils.domain_validator import validate_domain, DomainValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -133,8 +133,8 @@ async def upload_report(file: UploadFile = File(...)):
             )
         
         # Validate domain format (not DNS resolution to avoid external calls)
-        is_valid, error_msg = validate_domain(domain)
-        if not is_valid and "could not be resolved" not in error_msg.lower():
+        is_valid, error_msg, error_code = validate_domain(domain, check_dns=False)
+        if not is_valid and error_code != DomainValidationError.DNS_RESOLUTION_FAILED:
             # Allow domains that fail DNS resolution but have valid format
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

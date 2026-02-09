@@ -112,17 +112,25 @@ def create_app() -> FastAPI:
         """Initialize background tasks and security on application startup"""
         global background_task
         
-        # Generate and log initial API key for admin access
+        # Generate and provide admin API key
         api_key = generate_api_key()
         add_api_key(api_key)
+        
+        # Security: Log only last 8 characters for reference
         logger.warning(
             "=" * 80 + "\n"
             "IMPORTANT: Admin API Key Generated\n"
-            f"API Key: {api_key}\n"
-            "Save this key securely - it will not be shown again.\n"
+            f"API Key (last 8 chars): ...{api_key[-8:]}\n"
+            "Full key stored securely in memory.\n"
+            "For production, retrieve the key through secure configuration management.\n"
             "Use this key in the X-API-Key header for admin endpoints.\n"
             "=" * 80
         )
+        
+        # In development, also log the full key for convenience
+        # This should be removed in production or controlled by environment variable
+        if os.getenv("ENVIRONMENT", "development") == "development":
+            logger.info(f"Development Mode - Full API Key: {api_key}")
         
         # Check if IMAP credentials are configured
         if all([settings.IMAP_SERVER, settings.IMAP_USERNAME, settings.IMAP_PASSWORD]):

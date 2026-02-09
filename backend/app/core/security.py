@@ -19,8 +19,29 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security_bearer = HTTPBearer(auto_error=False)
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
-# In-memory API keys storage (for MVP - should be moved to database in production)
+# In-memory API keys storage
+# ⚠️ WARNING: This is a simple in-memory implementation suitable for:
+# - Development and testing environments
+# - Single-instance deployments
+# - MVP/prototype applications
+# 
+# ⚠️ NOT SUITABLE FOR PRODUCTION when:
+# - Running multiple application instances (keys not shared)
+# - Requiring key persistence across restarts
+# - Needing key rotation and management
+#
+# For production, implement:
+# - Database-backed key storage (with encryption at rest)
+# - Redis or similar distributed cache for shared key storage
+# - Integration with external secret management (AWS Secrets Manager, HashiCorp Vault, etc.)
+# - Proper key rotation policies
 _api_keys = set()
+
+logger.warning(
+    "Using in-memory API key storage. "
+    "Keys will be lost on restart. "
+    "Not suitable for production multi-instance deployments."
+)
 
 
 def generate_api_key() -> str:

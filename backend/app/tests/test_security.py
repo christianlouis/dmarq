@@ -70,7 +70,7 @@ class TestDomainValidation:
         ]
         
         for domain in valid_domains:
-            is_valid, error = validate_domain(domain, check_dns=False)
+            is_valid, error, error_code = validate_domain(domain, check_dns=False)
             assert is_valid, f"Domain {domain} should be valid: {error}"
     
     def test_invalid_domain_format(self):
@@ -89,7 +89,7 @@ class TestDomainValidation:
         ]
         
         for domain in invalid_domains:
-            is_valid, error = validate_domain(domain, check_dns=False)
+            is_valid, error, error_code = validate_domain(domain, check_dns=False)
             assert not is_valid, f"Domain '{domain}' should be invalid"
             assert error is not None
     
@@ -107,21 +107,21 @@ class TestDomainValidation:
         ]
         
         for domain in malicious_domains:
-            is_valid, error = validate_domain(domain, check_dns=False)
+            is_valid, error, error_code = validate_domain(domain, check_dns=False)
             assert not is_valid, f"Malicious domain '{domain}' should be rejected"
     
     def test_domain_length_limits(self):
         """Test domain length validation."""
         # Max label is 63 characters - this should be caught by label length check
         long_label = "a" * 64 + ".example.com"
-        is_valid, error = validate_domain(long_label, check_dns=False)
+        is_valid, error, error_code = validate_domain(long_label, check_dns=False)
         assert not is_valid
         # Could be caught by format check or label length check
         assert error is not None
         
         # Max domain is 253 characters
         long_domain = "a" * 254  # 254 chars, no dot
-        is_valid, error = validate_domain(long_domain, check_dns=False)
+        is_valid, error, error_code = validate_domain(long_domain, check_dns=False)
         assert not is_valid
         assert "too long" in error.lower() or "invalid" in error.lower()
     
