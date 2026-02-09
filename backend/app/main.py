@@ -69,9 +69,6 @@ async def scheduled_imap_polling():
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application"""
-    # Task management for background jobs
-    background_task = None
-
     app = FastAPI(
         title=settings.PROJECT_NAME,
         openapi_url=f"{settings.API_V1_STR}/openapi.json",
@@ -119,7 +116,7 @@ def create_app() -> FastAPI:
     @app.on_event("startup")
     async def startup_event():
         """Initialize background tasks and security on application startup"""
-        nonlocal background_task
+        global background_task
 
         # Generate and provide admin API key
         api_key = generate_api_key()
@@ -151,7 +148,7 @@ def create_app() -> FastAPI:
     @app.on_event("shutdown")
     async def shutdown_event():
         """Clean up background tasks on application shutdown"""
-        nonlocal background_task  # noqa: F824
+        global background_task
         if background_task:
             logger.info("Cancelling IMAP polling background task")
             background_task.cancel()

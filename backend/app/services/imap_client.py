@@ -87,7 +87,10 @@ class IMAPClient:
                                 available_mailboxes.append(mailbox_name)
                         except Exception:
                             # Silently skip mailboxes that can't be parsed
-                            # This is expected for some IMAP server responses
+                            # Some IMAP servers return non-standard list responses or
+                            # use different delimiters/encodings that don't follow RFC 3501
+                            # Common cases: special characters, non-UTF8 encodings, malformed responses
+                            # This is expected behavior and not a critical error
                             pass  # nosec B110
 
             # Select inbox and get message count

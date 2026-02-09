@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
+import random  # Used for mock data generation - TODO: Replace with actual historical data
 
 from app.services.report_store import ReportStore
 from fastapi import APIRouter, HTTPException, Path, Query, status
@@ -298,11 +299,9 @@ async def get_domain_reports(
         date = datetime.now() - timedelta(days=i)
         date_str = date.strftime("%Y-%m-%d")
 
-        # For Milestone 1, generate some mock data with variation
-        # In future milestone, this will use actual historical data
-        import random
-
-        compliance_rate = random.uniform(80, 100)
+        # TODO: Replace with actual historical data in future milestone
+        # For now, generate mock data with variation for demonstration purposes
+        compliance_rate = random.uniform(80, 100)  # nosec B311 - Mock data only
 
         timeline.append(TimelinePoint(date=date_str, compliance_rate=round(compliance_rate, 1)))
 
