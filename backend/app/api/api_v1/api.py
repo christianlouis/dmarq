@@ -1,6 +1,5 @@
+from app.api.api_v1.endpoints import domains, health, imap, reports, setup, stats
 from fastapi import APIRouter
-
-from app.api.api_v1.endpoints import domains, health, reports, setup, imap, stats
 
 api_router = APIRouter()
 

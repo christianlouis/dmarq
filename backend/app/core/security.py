@@ -1,14 +1,14 @@
-from datetime import datetime, timedelta
-from typing import Any, Union, Optional
-import secrets
 import logging
-
-from fastapi import HTTPException, Security, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, APIKeyHeader
-from jose import jwt, JWTError
-from passlib.context import CryptContext
+import os
+import secrets
+from datetime import datetime, timedelta
+from typing import Any, Optional, Union
 
 from app.core.config import get_settings
+from fastapi import HTTPException, Security, status
+from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
+from jose import JWTError, jwt
+from passlib.context import CryptContext
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -24,7 +24,7 @@ api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 # - Development and testing environments
 # - Single-instance deployments
 # - MVP/prototype applications
-# 
+#
 # ⚠️ NOT SUITABLE FOR PRODUCTION when:
 # - Running multiple application instances (keys not shared)
 # - Requiring key persistence across restarts
@@ -44,7 +44,6 @@ logger.warning(
 )
 
 # Check if running in production mode and warn
-import os
 if os.getenv("ENVIRONMENT", "development").lower() == "production":
     logger.error(
         "CRITICAL: Running in PRODUCTION mode with in-memory API key storage! "
@@ -56,7 +55,7 @@ if os.getenv("ENVIRONMENT", "development").lower() == "production":
 def generate_api_key() -> str:
     """
     Generate a secure random API key.
-    
+
     Returns:
         A 32-character hexadecimal API key
     """
@@ -66,10 +65,10 @@ def generate_api_key() -> str:
 def add_api_key(api_key: str) -> bool:
     """
     Add an API key to the valid keys set.
-    
+
     Args:
         api_key: The API key to add
-        
+
     Returns:
         True if key was added, False if it already existed
     """
@@ -83,28 +82,26 @@ def add_api_key(api_key: str) -> bool:
 def verify_api_key(api_key: str) -> bool:
     """
     Verify an API key is valid.
-    
+
     Args:
         api_key: The API key to verify
-        
+
     Returns:
         True if key is valid, False otherwise
     """
     return api_key in _api_keys
 
 
-async def get_api_key(
-    api_key_header: Optional[str] = Security(api_key_header)
-) -> str:
+async def get_api_key(api_key_header: Optional[str] = Security(api_key_header)) -> str:
     """
     Dependency to verify API key authentication.
-    
+
     Args:
         api_key_header: API key from X-API-Key header
-        
+
     Returns:
         The validated API key
-        
+
     Raises:
         HTTPException: If API key is missing or invalid
     """
@@ -114,30 +111,32 @@ async def get_api_key(
             detail="Missing API key",
             headers={"WWW-Authenticate": "ApiKey"},
         )
-    
+
     if not verify_api_key(api_key_header):
-        logger.warning(f"Invalid API key attempt: ...{api_key_header[-8:] if len(api_key_header) >= 8 else 'invalid'}")
+        logger.warning(
+            f"Invalid API key attempt: ...{api_key_header[-8:] if len(api_key_header) >= 8 else 'invalid'}"
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid API key",
             headers={"WWW-Authenticate": "ApiKey"},
         )
-    
+
     return api_key_header
 
 
 async def verify_token(
-    credentials: Optional[HTTPAuthorizationCredentials] = Security(security_bearer)
+    credentials: Optional[HTTPAuthorizationCredentials] = Security(security_bearer),
 ) -> dict:
     """
     Dependency to verify JWT token authentication.
-    
+
     Args:
         credentials: Bearer token from Authorization header
-        
+
     Returns:
         Decoded token payload
-        
+
     Raises:
         HTTPException: If token is missing or invalid
     """
@@ -147,9 +146,9 @@ async def verify_token(
             detail="Missing authentication token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     token = credentials.credentials
-    
+
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         return payload
@@ -164,39 +163,37 @@ async def verify_token(
 
 async def require_admin_auth(
     api_key: Optional[str] = Security(api_key_header),
-    bearer: Optional[HTTPAuthorizationCredentials] = Security(security_bearer)
+    bearer: Optional[HTTPAuthorizationCredentials] = Security(security_bearer),
 ) -> dict:
     """
     Dependency to require either API key or JWT token authentication for admin endpoints.
-    
+
     Checks API key first, then falls back to JWT token.
-    
+
     Args:
         api_key: Optional API key from X-API-Key header
         bearer: Optional JWT token from Authorization header
-        
+
     Returns:
         Authentication context (api_key or token payload)
-        
+
     Raises:
         HTTPException: If no valid authentication is provided
     """
     # Try API key first
     if api_key and verify_api_key(api_key):
         return {"auth_type": "api_key", "api_key": api_key}
-    
+
     # Try JWT token
     if bearer:
         try:
             payload = jwt.decode(
-                bearer.credentials, 
-                settings.SECRET_KEY, 
-                algorithms=[settings.ALGORITHM]
+                bearer.credentials, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
             )
             return {"auth_type": "jwt", "payload": payload}
         except JWTError as e:
             logger.warning(f"Invalid JWT token: {str(e)}")
-    
+
     # No valid authentication provided
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -205,9 +202,7 @@ async def require_admin_auth(
     )
 
 
-def create_access_token(
-    subject: Union[str, Any], expires_delta: timedelta = None
-) -> str:
+def create_access_token(subject: Union[str, Any], expires_delta: timedelta = None) -> str:
     """
     Create a JWT access token for authentication
     """

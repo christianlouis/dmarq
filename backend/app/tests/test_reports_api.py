@@ -1,11 +1,9 @@
-import pytest
 import io
 import zipfile
-import os
-from fastapi.testclient import TestClient 
-from sqlalchemy.orm import Session
 
 from app.models.domain import Domain
+from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
 
 def test_read_reports_empty(client: TestClient):
@@ -65,19 +63,18 @@ def test_upload_report_no_domain(client: TestClient):
         </record>
     </feedback>
     """
-    
+
     # Create an in-memory zip file
     zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, 'w') as zip_file:
-        zip_file.writestr('report.xml', xml_content)
+    with zipfile.ZipFile(zip_buffer, "w") as zip_file:
+        zip_file.writestr("report.xml", xml_content)
     zip_buffer.seek(0)
-    
+
     # Upload the zip file
     response = client.post(
-        "/api/v1/reports/upload",
-        files={"file": ("report.zip", zip_buffer, "application/zip")}
+        "/api/v1/reports/upload", files={"file": ("report.zip", zip_buffer, "application/zip")}
     )
-    
+
     # Should return an error since domain doesn't exist
     assert response.status_code == 404
     data = response.json()
@@ -90,7 +87,7 @@ def test_upload_report_success(client: TestClient, db_session: Session):
     domain = Domain(name="example.com", active=True)
     db_session.add(domain)
     db_session.commit()
-    
+
     # Create a simple XML report
     xml_content = """<?xml version="1.0" encoding="UTF-8" ?>
     <feedback>
@@ -138,25 +135,24 @@ def test_upload_report_success(client: TestClient, db_session: Session):
         </record>
     </feedback>
     """
-    
+
     # Create an in-memory zip file
     zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, 'w') as zip_file:
-        zip_file.writestr('report.xml', xml_content)
+    with zipfile.ZipFile(zip_buffer, "w") as zip_file:
+        zip_file.writestr("report.xml", xml_content)
     zip_buffer.seek(0)
-    
+
     # Upload the zip file
     response = client.post(
-        "/api/v1/reports/upload",
-        files={"file": ("report.zip", zip_buffer, "application/zip")}
+        "/api/v1/reports/upload", files={"file": ("report.zip", zip_buffer, "application/zip")}
     )
-    
+
     # Should be successful
     assert response.status_code == 201
     data = response.json()
     assert data["success"] is True
     assert "report_id" in data
-    
+
     # Check that the report was actually created
     response = client.get("/api/v1/reports")
     assert response.status_code == 200
