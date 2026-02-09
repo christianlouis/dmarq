@@ -1,20 +1,15 @@
 import asyncio
-import os
-from typing import AsyncGenerator, Generator
 
 import pytest
 import pytest_asyncio
+from app.core.database import Base, get_db
+from app.core.security import get_password_hash
+from app.models.user import User
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from httpx import AsyncClient
 from sqlalchemy import create_engine
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
-
-from app.core.config import get_settings
-from app.core.database import Base, get_db
-from app.core.security import get_password_hash
-from app.models.user import User
 
 # Use in-memory SQLite database for tests
 TEST_DATABASE_URL = "sqlite:///./test.db"
@@ -32,7 +27,7 @@ def event_loop():
 def test_app() -> FastAPI:
     # Avoid circular import
     from app.main import create_app
-    
+
     app = create_app()
     return app
 
@@ -41,14 +36,14 @@ def test_app() -> FastAPI:
 def db_session():
     # Create the SQLite database engine
     engine = create_engine(TEST_DATABASE_URL)
-    
+
     # Create all tables
     Base.metadata.create_all(engine)
-    
+
     # Create a new session
     TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     db = TestingSessionLocal()
-    
+
     try:
         yield db
     finally:
@@ -65,9 +60,9 @@ def client(test_app: FastAPI, db_session):
             yield db_session
         finally:
             pass
-    
+
     test_app.dependency_overrides[get_db] = override_get_db
-    
+
     # Use the FastAPI TestClient
     with TestClient(test_app) as test_client:
         yield test_client
@@ -81,9 +76,9 @@ async def async_client(test_app: FastAPI, db_session):
             yield db_session
         finally:
             pass
-    
+
     test_app.dependency_overrides[get_db] = override_get_db
-    
+
     async with AsyncClient(app=test_app, base_url="http://testserver") as ac:
         yield ac
 
@@ -96,7 +91,7 @@ def test_user(db_session):
         hashed_password=get_password_hash("password"),
         is_active=True,
         is_superuser=False,
-        is_verified=True
+        is_verified=True,
     )
     db_session.add(user)
     db_session.commit()

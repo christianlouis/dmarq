@@ -1,17 +1,18 @@
-from typing import Dict, List, Any
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
-from pydantic import BaseModel
 import logging
+from typing import List
 
 from app.services.dmarc_parser import DMARCParser
 from app.services.report_store import ReportStore
-from app.utils.domain_validator import validate_domain, DomainValidationError
+from app.utils.domain_validator import DomainValidationError, validate_domain
+from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
 # Try to import python-magic for MIME type detection
 try:
     import magic
+
     HAS_MAGIC = True
 except ImportError:
     HAS_MAGIC = False
@@ -21,27 +22,31 @@ router = APIRouter()
 
 # Security: Allowed MIME types for DMARC report uploads
 ALLOWED_MIME_TYPES = {
-    'text/xml',
-    'application/xml',
-    'application/zip',
-    'application/x-zip-compressed',
-    'application/gzip',
-    'application/x-gzip',
-    'application/octet-stream'  # Sometimes zip/gzip are detected as this
+    "text/xml",
+    "application/xml",
+    "application/zip",
+    "application/x-zip-compressed",
+    "application/gzip",
+    "application/x-gzip",
+    "application/octet-stream",  # Sometimes zip/gzip are detected as this
 }
 
 # Security: Allowed file extensions
-ALLOWED_EXTENSIONS = {'.xml', '.zip', '.gz', '.gzip'}
+ALLOWED_EXTENSIONS = {".xml", ".zip", ".gz", ".gzip"}
+
 
 class UploadResponse(BaseModel):
     """Response model for report upload"""
+
     success: bool
     domain: str
     message: str
     processed_records: int = 0  # Added this field to track processed records
 
+
 class DomainSummary(BaseModel):
     """Domain summary response model"""
+
     domain: str
     total_count: int
     passed_count: int
@@ -49,8 +54,10 @@ class DomainSummary(BaseModel):
     reports_processed: int
     compliance_rate: float
 
+
 class ReportSummary(BaseModel):
     """DMARC report summary model"""
+
     report_id: str
     org_name: str
     begin_date: str
@@ -59,19 +66,22 @@ class ReportSummary(BaseModel):
     passed_count: int
     failed_count: int
 
+
 class PaginatedReportResponse(BaseModel):
     """Paginated reports response model"""
+
     total: int
     page: int
     page_size: int
     total_pages: int
     reports: List[ReportSummary]
 
+
 @router.post("/upload", response_model=UploadResponse)
 async def upload_report(file: UploadFile = File(...)):
     """
     Upload and process a DMARC aggregate report file (XML, ZIP, or GZIP)
-    
+
     Security:
     - File type validation (extension and MIME type)
     - File size limits enforced in parser
@@ -82,28 +92,24 @@ async def upload_report(file: UploadFile = File(...)):
         # Security: Validate filename is provided
         if not file.filename:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Filename is required"
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Filename is required"
             )
-        
+
         # Security: Validate file extension
-        file_ext = '.' + file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+        file_ext = "." + file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
         if file_ext not in ALLOWED_EXTENSIONS:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid file type. Allowed types: {', '.join(ALLOWED_EXTENSIONS)}"
+                detail=f"Invalid file type. Allowed types: {', '.join(ALLOWED_EXTENSIONS)}",
             )
-        
+
         # Read the file content
         file_content = await file.read()
-        
+
         # Security: Validate file is not empty
         if len(file_content) == 0:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="File is empty"
-            )
-        
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File is empty")
+
         # Security: Validate MIME type using python-magic (if available)
         if HAS_MAGIC:
             try:
@@ -112,48 +118,48 @@ async def upload_report(file: UploadFile = File(...)):
                     logger.warning(f"Rejected file with MIME type: {mime_type}")
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Invalid file type. File must be XML, ZIP, or GZIP format."
+                        detail="Invalid file type. File must be XML, ZIP, or GZIP format.",
                     )
             except Exception as e:
                 # If magic fails, log but continue (fallback to extension check)
                 logger.warning(f"MIME type detection failed: {str(e)}")
         else:
             logger.debug("MIME type validation skipped (python-magic not available)")
-        
+
         # Parse the report
         parser = DMARCParser()
         report = parser.parse_file(file_content, file.filename)
-        
+
         # Security: Validate domain from report
         domain = report.get("domain", "")
         if not domain:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Report does not contain a valid domain"
+                detail="Report does not contain a valid domain",
             )
-        
+
         # Validate domain format (not DNS resolution to avoid external calls)
         is_valid, error_msg, error_code = validate_domain(domain, check_dns=False)
         if not is_valid and error_code != DomainValidationError.DNS_RESOLUTION_FAILED:
             # Allow domains that fail DNS resolution but have valid format
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid domain in report: {error_msg}"
+                detail=f"Invalid domain in report: {error_msg}",
             )
-        
+
         # Store the report
         store = ReportStore.get_instance()
         store.add_report(report)
-        
+
         processed_records = report.get("summary", {}).get("total_count", 0)
-        
+
         return UploadResponse(
             success=True,
             domain=domain,
             message=f"Report processed successfully for domain {domain}",
-            processed_records=processed_records
+            processed_records=processed_records,
         )
-    
+
     except HTTPException:
         # Re-raise HTTP exceptions as-is
         raise
@@ -165,26 +171,24 @@ async def upload_report(file: UploadFile = File(...)):
         # Return sanitized message
         if "too large" in error_message.lower():
             raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail="File too large"
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File too large"
             )
         elif "zip bomb" in error_message.lower():
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid archive file"
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid archive file"
             )
         else:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid report format"
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid report format"
             )
     except Exception as e:
         # Security: Don't expose internal errors to client
         logger.error(f"Unexpected error processing report {file.filename}: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error processing report. Please contact support if this persists."
+            detail="Error processing report. Please contact support if this persists.",
         )
+
 
 @router.get("/domains", response_model=List[str])
 async def get_domains():
@@ -194,6 +198,7 @@ async def get_domains():
     store = ReportStore.get_instance()
     return store.get_domains()
 
+
 @router.get("/domain/{domain}/summary", response_model=DomainSummary)
 async def get_domain_summary(domain: str):
     """
@@ -201,17 +206,14 @@ async def get_domain_summary(domain: str):
     """
     store = ReportStore.get_instance()
     summary = store.get_domain_summary(domain)
-    
+
     if not summary:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No reports found for domain {domain}"
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"No reports found for domain {domain}"
         )
-    
-    return DomainSummary(
-        domain=domain,
-        **summary
-    )
+
+    return DomainSummary(domain=domain, **summary)
+
 
 @router.get("/summary", response_model=List[DomainSummary])
 async def get_all_summaries():
@@ -220,11 +222,9 @@ async def get_all_summaries():
     """
     store = ReportStore.get_instance()
     all_summaries = store.get_all_domain_summaries()
-    
-    return [
-        DomainSummary(domain=domain, **summary)
-        for domain, summary in all_summaries.items()
-    ]
+
+    return [DomainSummary(domain=domain, **summary) for domain, summary in all_summaries.items()]
+
 
 @router.get("/domain/{domain}/reports", response_model=List[ReportSummary])
 async def get_domain_reports(domain: str):
@@ -233,13 +233,12 @@ async def get_domain_reports(domain: str):
     """
     store = ReportStore.get_instance()
     reports = store.get_domain_reports(domain)
-    
+
     if not reports:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No reports found for domain {domain}"
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"No reports found for domain {domain}"
         )
-    
+
     return [
         ReportSummary(
             report_id=report.get("report_id", ""),
@@ -248,10 +247,11 @@ async def get_domain_reports(domain: str):
             end_date=report.get("end_date", ""),
             total_count=report.get("summary", {}).get("total_count", 0),
             passed_count=report.get("summary", {}).get("passed_count", 0),
-            failed_count=report.get("summary", {}).get("failed_count", 0)
+            failed_count=report.get("summary", {}).get("failed_count", 0),
         )
         for report in reports
     ]
+
 
 @router.get("/domain/{domain}/reports/paginated", response_model=PaginatedReportResponse)
 async def get_domain_reports_paginated(
@@ -259,11 +259,11 @@ async def get_domain_reports_paginated(
     page: int = 1,
     page_size: int = 10,
     sort_by: str = "end_date",
-    sort_order: str = "desc"
+    sort_order: str = "desc",
 ):
     """
     Get paginated reports for a specific domain with sorting options
-    
+
     Args:
         domain: Domain name
         page: Page number (1-based)
@@ -273,35 +273,30 @@ async def get_domain_reports_paginated(
     """
     store = ReportStore.get_instance()
     all_reports = store.get_domain_reports(domain)
-    
+
     if not all_reports:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No reports found for domain {domain}"
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"No reports found for domain {domain}"
         )
-    
+
     # Apply sorting
     valid_sort_fields = ["report_id", "org_name", "begin_date", "end_date", "total_count"]
     sort_field = sort_by if sort_by in valid_sort_fields else "end_date"
-    
+
     if sort_field == "total_count":
         all_reports.sort(
-            key=lambda r: r.get("summary", {}).get("total_count", 0),
-            reverse=(sort_order == "desc")
+            key=lambda r: r.get("summary", {}).get("total_count", 0), reverse=(sort_order == "desc")
         )
     else:
-        all_reports.sort(
-            key=lambda r: r.get(sort_field, ""),
-            reverse=(sort_order == "desc")
-        )
-    
+        all_reports.sort(key=lambda r: r.get(sort_field, ""), reverse=(sort_order == "desc"))
+
     # Apply pagination
     total = len(all_reports)
     total_pages = (total + page_size - 1) // page_size
     start_idx = (page - 1) * page_size
     end_idx = start_idx + page_size
     paginated_reports = all_reports[start_idx:end_idx]
-    
+
     # Format reports
     report_entries = [
         ReportSummary(
@@ -311,15 +306,11 @@ async def get_domain_reports_paginated(
             end_date=report.get("end_date", ""),
             total_count=report.get("summary", {}).get("total_count", 0),
             passed_count=report.get("summary", {}).get("passed_count", 0),
-            failed_count=report.get("summary", {}).get("failed_count", 0)
+            failed_count=report.get("summary", {}).get("failed_count", 0),
         )
         for report in paginated_reports
     ]
-    
+
     return PaginatedReportResponse(
-        total=total,
-        page=page,
-        page_size=page_size,
-        total_pages=total_pages,
-        reports=report_entries
+        total=total, page=page, page_size=page_size, total_pages=total_pages, reports=report_entries
     )
