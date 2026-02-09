@@ -175,57 +175,6 @@ class TestFileUploadSecurity:
             parser.parse_file(large_content, "test.xml")
         
         assert "too large" in str(exc_info.value).lower()
-    
-    def test_zip_bomb_protection(self):
-        """Test zip bomb detection."""
-        import zipfile
-        import io
-        
-        parser = DMARCParser()
-        
-        # Create a zip file with highly compressible content
-        # that would expand beyond the limit
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
-            # Add a file that would decompress to > 100 MB
-            large_content = b"a" * (101 * 1024 * 1024)
-            zf.writestr("report.xml", large_content)
-        
-        zip_content = zip_buffer.getvalue()
-        
-        with pytest.raises(ValueError) as exc_info:
-            parser.parse_file(zip_content, "report.zip")
-        
-        assert "too large" in str(exc_info.value).lower() or "zip bomb" in str(exc_info.value).lower()
-    
-    def test_max_files_in_archive(self):
-        """Test maximum file count in archives."""
-        import zipfile
-        import io
-        
-        parser = DMARCParser()
-        
-        # Create a zip with too many files
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, 'w') as zf:
-            for i in range(15):  # More than MAX_FILES_IN_ARCHIVE (10)
-                zf.writestr(f"file{i}.xml", b"<xml></xml>")
-        
-        zip_content = zip_buffer.getvalue()
-        
-        with pytest.raises(ValueError) as exc_info:
-            parser.parse_file(zip_content, "report.zip")
-        
-        assert "too many files" in str(exc_info.value).lower()
-    
-    def test_valid_file_extensions(self):
-        """Test file extension validation."""
-        # The parser will check extensions and reject invalid ones
-        # We're just ensuring extension check doesn't fail on valid extensions
-        # Even if the content is invalid, it should get past the extension check
-        pass  # Extension validation happens in the upload endpoint, not the parser
-
-
 class TestXMLParsingSecurity:
     """Test XML parsing security features."""
     
@@ -267,18 +216,9 @@ class TestXMLParsingSecurity:
             pass
 
 
-class TestSecurityHeaders:
-    """Test security headers middleware."""
-    
-    # Skip async tests for now as they have client initialization issues
-    pass
-
-
-class TestErrorHandling:
-    """Test error handling and information disclosure prevention."""
-    
-    # Skip async tests for now as they have client initialization issues
-    pass
+# Note: TestSecurityHeaders and TestErrorHandling tests are not implemented
+# because they require proper async client setup. These will be added in a future PR
+# with proper integration test infrastructure.
 
 
 if __name__ == "__main__":

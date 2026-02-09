@@ -43,6 +43,15 @@ logger.warning(
     "Not suitable for production multi-instance deployments."
 )
 
+# Check if running in production mode and warn
+import os
+if os.getenv("ENVIRONMENT", "development").lower() == "production":
+    logger.error(
+        "CRITICAL: Running in PRODUCTION mode with in-memory API key storage! "
+        "This is NOT recommended for production. "
+        "Implement database-backed or Redis-based key storage for production deployments."
+    )
+
 
 def generate_api_key() -> str:
     """

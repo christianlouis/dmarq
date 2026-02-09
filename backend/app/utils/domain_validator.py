@@ -1,5 +1,6 @@
 import re
 import socket
+import html
 from typing import Dict, Tuple, Union, Optional
 
 # Error codes for structured error handling
@@ -101,7 +102,6 @@ def validate_domain_config(domain_data: Dict) -> Dict[str, Union[bool, str]]:
         if len(domain_data["description"]) > 500:
             errors["description"] = "Description is too long (max 500 characters)"
         # Security: Use html.escape to prevent XSS
-        import html
         escaped = html.escape(domain_data["description"])
         if escaped != domain_data["description"]:
             errors["description"] = "Description contains potentially unsafe HTML content"
