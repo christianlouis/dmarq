@@ -4,12 +4,17 @@ import gzip
 import io
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET
 import logging
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Security constants for file upload protection
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+MAX_UNCOMPRESSED_SIZE = 100 * 1024 * 1024  # 100 MB for zip bomb protection
+MAX_FILES_IN_ARCHIVE = 10  # Maximum number of files in a zip archive
 
 class DMARCParser:
     """
@@ -27,11 +32,26 @@ class DMARCParser:
             
         Returns:
             Dict containing the parsed report data
+            
+        Raises:
+            ValueError: If file is invalid, too large, or potentially malicious
         """
+        # Security: Check file size
+        if len(file_content) > MAX_FILE_SIZE:
+            raise ValueError(f"File too large. Maximum size is {MAX_FILE_SIZE / (1024*1024):.1f} MB")
+        
         # Determine file type and extract XML content
         xml_content = DMARCParser._extract_xml_content(file_content, filename)
         if not xml_content:
             raise ValueError("Could not extract XML content from file")
+        
+        # Security: Check uncompressed XML size
+        if len(xml_content) > MAX_UNCOMPRESSED_SIZE:
+            raise ValueError(
+                f"Uncompressed content too large ({len(xml_content) / (1024*1024):.1f} MB). "
+                f"Maximum is {MAX_UNCOMPRESSED_SIZE / (1024*1024):.1f} MB. "
+                "Possible zip bomb attack detected."
+            )
             
         # Parse the XML content
         return DMARCParser._parse_xml(xml_content)
@@ -40,14 +60,39 @@ class DMARCParser:
     def _extract_xml_content(file_content: bytes, filename: str) -> Optional[bytes]:
         """
         Extract XML content from various file formats (ZIP, GZIP, or plain XML)
+        
+        Raises:
+            ValueError: If archive contains too many files or is potentially malicious
         """
         # Try to handle as ZIP file
         if filename.lower().endswith('.zip'):
             try:
                 with zipfile.ZipFile(io.BytesIO(file_content)) as z:
+                    # Security: Check number of files in archive
+                    file_list = z.infolist()
+                    if len(file_list) > MAX_FILES_IN_ARCHIVE:
+                        raise ValueError(
+                            f"ZIP archive contains too many files ({len(file_list)}). "
+                            f"Maximum is {MAX_FILES_IN_ARCHIVE}."
+                        )
+                    
+                    # Security: Check for zip bomb by examining compression ratios
+                    total_uncompressed = sum(f.file_size for f in file_list)
+                    if total_uncompressed > MAX_UNCOMPRESSED_SIZE:
+                        raise ValueError(
+                            f"ZIP archive uncompressed size too large ({total_uncompressed / (1024*1024):.1f} MB). "
+                            f"Maximum is {MAX_UNCOMPRESSED_SIZE / (1024*1024):.1f} MB. "
+                            "Possible zip bomb attack detected."
+                        )
+                    
                     # Find the first XML file in the archive
-                    for file_info in z.infolist():
+                    for file_info in file_list:
                         if file_info.filename.lower().endswith('.xml'):
+                            # Security: Double-check individual file size
+                            if file_info.file_size > MAX_UNCOMPRESSED_SIZE:
+                                raise ValueError(
+                                    f"XML file in archive too large ({file_info.file_size / (1024*1024):.1f} MB)"
+                                )
                             return z.read(file_info.filename)
             except zipfile.BadZipFile:
                 pass
