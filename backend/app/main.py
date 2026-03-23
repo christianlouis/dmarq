@@ -244,9 +244,7 @@ async def upload_page(request: Request):
 
 # API endpoint to manually trigger IMAP polling
 @app.post("/api/v1/admin/trigger-poll")
-def trigger_imap_poll(
-    background_tasks: BackgroundTasks, auth: dict = Depends(require_admin_auth)
-):
+def trigger_imap_poll(background_tasks: BackgroundTasks, auth: dict = Depends(require_admin_auth)):
     """
     Manually trigger IMAP polling (admin only - requires authentication)
 
