@@ -1,6 +1,7 @@
-from app.models.domain import Domain
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
+
+from app.models.domain import Domain
 
 
 def test_read_health(client: TestClient):

@@ -2,14 +2,15 @@ import asyncio
 
 import pytest
 import pytest_asyncio
-from app.core.database import Base, get_db
-from app.core.security import get_password_hash
-from app.models.user import User
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from httpx import AsyncClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+
+from app.core.database import Base, get_db
+from app.core.security import get_password_hash
+from app.models.user import User
 
 # Use in-memory SQLite database for tests
 TEST_DATABASE_URL = "sqlite:///./test.db"
@@ -79,7 +80,9 @@ async def async_client(test_app: FastAPI, db_session):
 
     test_app.dependency_overrides[get_db] = override_get_db
 
-    async with AsyncClient(app=test_app, base_url="http://testserver") as ac:
+    async with AsyncClient(
+        transport=httpx.ASGITransport(app=test_app), base_url="http://testserver"
+    ) as ac:
         yield ac
 
 

@@ -1,11 +1,12 @@
 import logging
 from typing import List
 
+from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from pydantic import BaseModel
+
 from app.services.dmarc_parser import DMARCParser
 from app.services.report_store import ReportStore
 from app.utils.domain_validator import DomainValidationError, validate_domain
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
-from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -190,7 +191,7 @@ async def upload_report(file: UploadFile = File(...)):
         )
 
 
-@router.get("/domains", response_model=List[str])
+@router.get("/", response_model=List[str])
 async def get_domains():
     """
     Get list of all domains with reports

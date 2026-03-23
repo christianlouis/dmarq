@@ -4,11 +4,12 @@ import secrets
 from datetime import datetime, timedelta
 from typing import Any, Optional, Union
 
-from app.core.config import get_settings
 from fastapi import HTTPException, Security, status
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+
+from app.core.config import get_settings
 
 settings = get_settings()
 logger = logging.getLogger(__name__)

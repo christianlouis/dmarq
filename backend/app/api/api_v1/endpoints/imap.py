@@ -2,9 +2,10 @@ import logging
 from datetime import datetime
 from typing import Any, Dict
 
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+
 from app.core.security import require_admin_auth
 from app.services.imap_client import IMAPClient
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
