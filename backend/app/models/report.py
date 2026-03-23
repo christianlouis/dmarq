@@ -1,8 +1,9 @@
 from datetime import datetime
 
-from app.core.database import Base
 from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import relationship
+
+from app.core.database import Base
 
 
 class DMARCReport(Base):
@@ -21,7 +22,7 @@ class DMARCReport(Base):
     source_email = Column(String, nullable=True)
 
     # Policy information
-    policy = Column(String, nullable=True, index=True)  # none, quarantine, reject
+    policy = Column(String, nullable=True)  # none, quarantine, reject
     subdomain_policy = Column(String, nullable=True)
     adkim = Column(String(1), nullable=True)  # r (relaxed) or s (strict)
     aspf = Column(String(1), nullable=True)  # r (relaxed) or s (strict)
@@ -62,9 +63,9 @@ class ReportRecord(Base):
     count = Column(Integer, nullable=False, default=0)
 
     # Policy evaluation
-    disposition = Column(String, nullable=False, index=True)  # none, quarantine, reject
-    dkim = Column(String, nullable=True, index=True)  # pass, fail
-    spf = Column(String, nullable=True, index=True)  # pass, fail
+    disposition = Column(String, nullable=False)  # none, quarantine, reject
+    dkim = Column(String, nullable=True)  # pass, fail
+    spf = Column(String, nullable=True)  # pass, fail
 
     # Identifiers
     header_from = Column(String, nullable=True, index=True)

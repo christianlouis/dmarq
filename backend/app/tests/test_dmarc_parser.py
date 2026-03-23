@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 import defusedxml.ElementTree as ET
+
 from app.services.dmarc_parser import DMARCParser
 
 
@@ -65,15 +66,15 @@ class TestDMARCParser:
         result = DMARCParser.parse_file(xml_bytes, "test_report.xml")
 
         # Verify report metadata
-        assert result["report_metadata"]["org_name"] == "google.com"
-        assert result["report_metadata"]["email"] == "noreply-dmarc-support@google.com"
-        assert result["report_metadata"]["report_id"] == "123456789"
-        assert result["report_metadata"]["begin_date"] == 1597449600
-        assert result["report_metadata"]["end_date"] == 1597535999
+        assert result["org_name"] == "google.com"
+        assert result["email"] == "noreply-dmarc-support@google.com"
+        assert result["report_id"] == "123456789"
+        assert result["begin_timestamp"] == 1597449600
+        assert result["end_timestamp"] == 1597535999
 
         # Verify policy published
-        assert result["policy_published"]["domain"] == "example.com"
-        assert result["policy_published"]["policy"] == "none"
+        assert result["domain"] == "example.com"
+        assert result["policy"]["p"] == "none"
 
         # Verify record data
         assert len(result["records"]) == 1
@@ -91,6 +92,13 @@ class TestDMARCParser:
         # Setup mock zipfile extraction
         mock_zip_instance = MagicMock()
         mock_zipfile.return_value.__enter__.return_value = mock_zip_instance
+
+        # Create mock file info objects for infolist()
+        mock_file_info = MagicMock()
+        mock_file_info.filename = "report.xml"
+        mock_file_info.file_size = len(self.sample_xml)
+        mock_zip_instance.infolist.return_value = [mock_file_info]
+
         mock_zip_instance.namelist.return_value = ["report.xml"]
         mock_zip_instance.read.return_value = self.sample_xml.encode("utf-8")
 
@@ -99,7 +107,7 @@ class TestDMARCParser:
         result = DMARCParser.parse_file(zip_content, "test_report.zip")
 
         # Assertions similar to test_parse_aggregate_report_xml
-        assert result["report_metadata"]["org_name"] == "google.com"
+        assert result["org_name"] == "google.com"
         assert len(result["records"]) == 1
 
     def test_extract_authentication_results(self):

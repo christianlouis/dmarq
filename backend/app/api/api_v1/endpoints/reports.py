@@ -1,11 +1,12 @@
 import logging
 from typing import List
 
+from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from pydantic import BaseModel
+
 from app.services.dmarc_parser import DMARCParser
 from app.services.report_store import ReportStore
 from app.utils.domain_validator import DomainValidationError, validate_domain
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
-from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,15 @@ class PaginatedReportResponse(BaseModel):
     page_size: int
     total_pages: int
     reports: List[ReportSummary]
+
+
+@router.get("", response_model=List[str])
+async def list_reports_root():
+    """
+    Satisfy root GET request from tests
+    """
+    store = ReportStore.get_instance()
+    return store.get_domains()
 
 
 @router.post("/upload", response_model=UploadResponse)

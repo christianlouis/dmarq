@@ -1,4 +1,5 @@
 import pytest
+
 from app.services.imap_client import IMAPClient
 
 

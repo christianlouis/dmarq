@@ -2,17 +2,18 @@ import asyncio
 
 import pytest
 import pytest_asyncio
-from app.core.database import Base, get_db
-from app.core.security import get_password_hash
-from app.models.user import User
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from httpx import AsyncClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from app.core.database import Base, get_db
+from app.core.security import get_password_hash
+from app.models.user import User
+
 # Use in-memory SQLite database for tests
-TEST_DATABASE_URL = "sqlite:///./test.db"
+TEST_DATABASE_URL = "sqlite://"
 
 
 @pytest.fixture(scope="session")
