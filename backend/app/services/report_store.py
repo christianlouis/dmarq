@@ -1,5 +1,9 @@
+import logging
 import threading
 from typing import Any, Dict, List, Optional
+
+# Setup logger
+logger = logging.getLogger(__name__)
 
 
 class ReportStore:
@@ -206,6 +210,7 @@ class ReportStore:
             self.domain_summary.pop(domain, None)
             self.domain_sources.pop(domain, None)
             return True
-        except Exception:
-            # If any exception occurs during deletion, return False
+        except Exception as e:
+            # If any exception occurs during deletion, log it and return False
+            logger.error(f"Error deleting domain {domain}: {str(e)}")
             return False

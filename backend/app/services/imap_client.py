@@ -85,13 +85,13 @@ class IMAPClient:
                                 if mailbox_name.startswith(" "):
                                     mailbox_name = mailbox_name[1:]
                                 available_mailboxes.append(mailbox_name)
-                        except Exception:
-                            # Silently skip mailboxes that can't be parsed
+                        except Exception as e:
+                            # Log and skip mailboxes that can't be parsed
                             # Some IMAP servers return non-standard list responses or
                             # use different delimiters/encodings that don't follow RFC 3501
                             # Common cases: special characters, non-UTF8 encodings, malformed responses
                             # This is expected behavior and not a critical error
-                            pass  # nosec B110
+                            logger.warning(f"Failed to parse mailbox entry '{mailbox}': {str(e)}")
 
             # Select inbox and get message count
             status, data = mail.select("INBOX")
