@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 @router.post("/test-connection")
-async def test_imap_connection(
+def test_imap_connection(
     auth: dict = Depends(require_admin_auth),
     server: str = None,
     port: int = 993,
@@ -49,7 +49,7 @@ async def test_imap_connection(
 
 
 @router.post("/fetch-reports")
-async def fetch_imap_reports(
+def fetch_imap_reports(
     background_tasks: BackgroundTasks,
     auth: dict = Depends(require_admin_auth),
     days: int = 7,
