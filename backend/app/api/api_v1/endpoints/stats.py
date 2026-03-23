@@ -1,9 +1,10 @@
 from typing import Any, Dict
 
-from app.core.database import get_db
-from app.utils.stats_summarizer import StatsSummarizer
 from fastapi import APIRouter, Depends, Path, Query
 from sqlalchemy.orm import Session
+
+from app.core.database import get_db
+from app.utils.stats_summarizer import StatsSummarizer
 
 router = APIRouter()
 

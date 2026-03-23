@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 import defusedxml.ElementTree as ET
+
 from app.services.dmarc_parser import DMARCParser
 
 

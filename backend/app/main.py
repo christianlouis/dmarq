@@ -3,17 +3,18 @@ import logging
 import os
 from datetime import datetime
 
+from fastapi import BackgroundTasks, Depends, FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+
 from app.api.api_v1.api import api_router
 from app.core.config import get_settings
 from app.core.security import add_api_key, generate_api_key, require_admin_auth
 from app.middleware.security import SecurityHeadersMiddleware
 from app.services.imap_client import IMAPClient
 from app.services.report_store import ReportStore
-from fastapi import BackgroundTasks, Depends, FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -244,9 +245,7 @@ async def upload_page(request: Request):
 
 # API endpoint to manually trigger IMAP polling
 @app.post("/api/v1/admin/trigger-poll")
-async def trigger_imap_poll(
-    background_tasks: BackgroundTasks, auth: dict = Depends(require_admin_auth)
-):
+def trigger_imap_poll(background_tasks: BackgroundTasks, auth: dict = Depends(require_admin_auth)):
     """
     Manually trigger IMAP polling (admin only - requires authentication)
 

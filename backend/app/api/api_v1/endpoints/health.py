@@ -1,5 +1,6 @@
-from app.api.api_v1.endpoints.setup import setup_status
 from fastapi import APIRouter
+
+from app.api.api_v1.endpoints.setup import setup_status
 
 router = APIRouter()
 

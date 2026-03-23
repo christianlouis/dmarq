@@ -1,8 +1,9 @@
 from datetime import datetime
 
-from app.core.database import Base
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import relationship
+
+from app.core.database import Base
 
 
 class Domain(Base):

@@ -120,20 +120,33 @@ class DMARCParser:
         """
         try:
             root = ET.fromstring(xml_content)
-            report = {}
+            report = {
+                "report_metadata": {},
+                "policy_published": {},
+                "records": [],
+            }
 
             # Parse report metadata
             metadata = root.find("report_metadata")
             if metadata is not None:
-                report["report_id"] = metadata.findtext("report_id", "")
-                report["org_name"] = metadata.findtext("org_name", "")
-                report["email"] = metadata.findtext("email", "")
+                report["report_metadata"]["report_id"] = metadata.findtext("report_id", "")
+                report["report_metadata"]["org_name"] = metadata.findtext("org_name", "")
+                report["report_metadata"]["email"] = metadata.findtext("email", "")
+
+                # Keep flattened versions for backward compatibility
+                report["report_id"] = report["report_metadata"]["report_id"]
+                report["org_name"] = report["report_metadata"]["org_name"]
+                report["email"] = report["report_metadata"]["email"]
 
                 # Parse date range
                 date_range = metadata.find("date_range")
                 if date_range is not None:
                     begin_ts = int(date_range.findtext("begin", 0))
                     end_ts = int(date_range.findtext("end", 0))
+                    report["report_metadata"]["begin_date"] = begin_ts
+                    report["report_metadata"]["end_date"] = end_ts
+
+                    # Formatted dates
                     report["begin_date"] = datetime.fromtimestamp(begin_ts).isoformat()
                     report["end_date"] = datetime.fromtimestamp(end_ts).isoformat()
                     report["begin_timestamp"] = begin_ts
@@ -142,17 +155,28 @@ class DMARCParser:
             # Parse policy published
             policy = root.find("policy_published")
             if policy is not None:
-                report["domain"] = policy.findtext("domain", "")
+                report["policy_published"]["domain"] = policy.findtext("domain", "")
+                report["policy_published"]["policy"] = policy.findtext("p", "none")
+                report["policy_published"]["p"] = policy.findtext("p", "none")
+                report["policy_published"]["sp"] = policy.findtext("sp", "")
+                report["policy_published"]["pct"] = policy.findtext("pct", "100")
+
+                # Keep flattened versions for backward compatibility
+                report["domain"] = report["policy_published"]["domain"]
                 report["policy"] = {
-                    "p": policy.findtext("p", "none"),
-                    "sp": policy.findtext("sp", ""),
-                    "pct": policy.findtext("pct", "100"),
+                    "p": report["policy_published"]["p"],
+                    "sp": report["policy_published"]["sp"],
+                    "pct": report["policy_published"]["pct"],
                 }
 
             # Parse records
             records = []
             for record_elem in root.findall("record"):
-                record = {}
+                record = {
+                    "policy_evaluated": {},
+                    "identifiers": {},
+                    "auth_results": {},
+                }
 
                 # Parse row
                 row = record_elem.find("row")
@@ -162,14 +186,27 @@ class DMARCParser:
 
                     policy_evaluated = row.find("policy_evaluated")
                     if policy_evaluated is not None:
-                        record["disposition"] = policy_evaluated.findtext("disposition", "none")
-                        record["dkim_result"] = policy_evaluated.findtext("dkim", "").lower()
-                        record["spf_result"] = policy_evaluated.findtext("spf", "").lower()
+                        record["policy_evaluated"]["disposition"] = policy_evaluated.findtext(
+                            "disposition", "none"
+                        )
+                        record["policy_evaluated"]["dkim"] = policy_evaluated.findtext(
+                            "dkim", ""
+                        ).lower()
+                        record["policy_evaluated"]["spf"] = policy_evaluated.findtext(
+                            "spf", ""
+                        ).lower()
+
+                        # Keep flattened versions for backward compatibility
+                        record["disposition"] = record["policy_evaluated"]["disposition"]
+                        record["dkim_result"] = record["policy_evaluated"]["dkim"]
+                        record["spf_result"] = record["policy_evaluated"]["spf"]
 
                 # Parse identifiers
                 identifiers = record_elem.find("identifiers")
                 if identifiers is not None:
-                    record["header_from"] = identifiers.findtext("header_from", "")
+                    record["identifiers"]["header_from"] = identifiers.findtext("header_from", "")
+                    # Keep flattened version
+                    record["header_from"] = record["identifiers"]["header_from"]
 
                 # Parse auth results
                 auth_results = record_elem.find("auth_results")
@@ -184,6 +221,8 @@ class DMARCParser:
                             }
                         )
                     if spf_entries:
+                        record["auth_results"]["spf"] = spf_entries
+                        # Keep flattened version
                         record["spf"] = spf_entries
 
                     # DKIM results
@@ -197,6 +236,8 @@ class DMARCParser:
                             }
                         )
                     if dkim_entries:
+                        record["auth_results"]["dkim"] = dkim_entries
+                        # Keep flattened version
                         record["dkim"] = dkim_entries
 
                 records.append(record)

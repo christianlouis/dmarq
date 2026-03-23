@@ -1,8 +1,9 @@
 from datetime import datetime
 
-from app.core.database import Base
 from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import relationship
+
+from app.core.database import Base
 
 
 class DMARCReport(Base):
@@ -39,10 +40,10 @@ class DMARCReport(Base):
     __table_args__ = (
         # Composite index for domain and date range queries (common dashboard queries)
         Index("ix_dmarc_reports_domain_dates", "domain_id", "begin_date", "end_date"),
-        # Index for finding reports by policy
-        Index("ix_dmarc_reports_policy", "policy"),
-        # Index for finding recent reports (dashboard statistics)
-        Index("ix_dmarc_reports_processed", "processed_at"),
+        # Index for finding reports by policy - already indexed by column, giving unique name
+        Index("ix_dmarc_reports_policy_explicit", "policy"),
+        # Index for finding recent reports (dashboard statistics) - already indexed by column, giving unique name
+        Index("ix_dmarc_reports_processed_explicit", "processed_at"),
     )
 
     def __repr__(self):
@@ -81,8 +82,8 @@ class ReportRecord(Base):
     __table_args__ = (
         # Composite index for source IP and evaluation results (for filtering)
         Index("ix_report_records_source_auth", "source_ip", "dkim", "spf"),
-        # Composite index for disposition and count (for statistics)
-        Index("ix_report_records_disposition", "disposition", "count"),
+        # Composite index for disposition and count (for statistics) - already indexed by column, giving unique name
+        Index("ix_report_records_disposition_explicit", "disposition", "count"),
     )
 
     def __repr__(self):
