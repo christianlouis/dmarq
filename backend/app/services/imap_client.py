@@ -308,7 +308,10 @@ class IMAPClient:
             else:
                 decoded_parts.append(text)
 
-        return " ".join(decoded_parts)
+        # Join the parts back together. For decoded headers, parts are usually
+        # already correctly separated, so we just join them.
+        # We handle potential leading/trailing spaces from decode_header parts.
+        return "".join(decoded_parts)
 
     def _has_dmarc_attachments(self, msg: email.message.Message) -> bool:
         """

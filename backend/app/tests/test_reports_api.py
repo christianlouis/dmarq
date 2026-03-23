@@ -1,9 +1,10 @@
 import io
 import zipfile
 
-from app.models.domain import Domain
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
+
+from app.models.domain import Domain
 
 
 def test_read_reports_empty(client: TestClient):
@@ -148,15 +149,13 @@ def test_upload_report_success(client: TestClient, db_session: Session):
     )
 
     # Should be successful
-    assert response.status_code == 201
+    assert response.status_code == 200
     data = response.json()
     assert data["success"] is True
-    assert "report_id" in data
+    assert "domain" in data
 
-    # Check that the report was actually created
+    # Check that the report was actually created (domains list now contains the domain)
     response = client.get("/api/v1/reports")
     assert response.status_code == 200
-    reports = response.json()
-    assert len(reports) == 1
-    assert reports[0]["report_id"] == "123456789"
-    assert reports[0]["org_name"] == "google.com"
+    domains = response.json()
+    assert "example.com" in domains

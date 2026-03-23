@@ -1,10 +1,11 @@
+import random  # Used for mock data generation - TODO: Replace with actual historical data
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
-import random  # Used for mock data generation - TODO: Replace with actual historical data
 
-from app.services.report_store import ReportStore
 from fastapi import APIRouter, HTTPException, Path, Query, status
 from pydantic import BaseModel
+
+from app.services.report_store import ReportStore
 
 router = APIRouter()
 
@@ -148,7 +149,7 @@ async def get_domains_summary():
     )
 
 
-@router.get("/domains", response_model=List[DomainResponse])
+@router.get("", response_model=List[DomainResponse])
 async def read_domains():
     """
     Retrieve domains with their statistics.
@@ -173,7 +174,7 @@ async def read_domains():
     return result
 
 
-@router.get("/domains/{domain_name}", response_model=DomainResponse)
+@router.get("/{domain_name}", response_model=DomainResponse)
 async def read_domain(domain_name: str):
     """
     Get statistics for a specific domain.
