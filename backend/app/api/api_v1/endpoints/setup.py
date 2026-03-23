@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, EmailStr
 
@@ -38,7 +37,8 @@ class SystemConfigRequest(BaseModel):
 async def get_setup_status():
     """Get the current setup status"""
     return SetupStatusResponse(
-        is_setup_complete=setup_status["is_setup_complete"], app_name=setup_status["app_name"]
+        is_setup_complete=setup_status["is_setup_complete"],
+        app_name=setup_status["app_name"],
     )
 
 
