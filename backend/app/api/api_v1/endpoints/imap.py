@@ -24,7 +24,7 @@ class IMAPTestRequest(BaseModel):
 @router.post("/test-connection")
 async def test_imap_connection(
     request: IMAPTestRequest,
-    auth: dict = Depends(require_admin_auth),
+    _auth: dict = Depends(require_admin_auth),
 ) -> Dict[str, Any]:
     """
     Test connection to an IMAP server and gather mailbox statistics
@@ -55,7 +55,7 @@ async def test_imap_connection(
 @router.post("/fetch-reports")
 async def fetch_imap_reports(
     background_tasks: BackgroundTasks,
-    auth: dict = Depends(require_admin_auth),
+    _auth: dict = Depends(require_admin_auth),
     days: int = 7,
     delete_emails: bool = False,
 ) -> Dict[str, Any]:
@@ -92,14 +92,14 @@ async def fetch_imap_reports(
             "timestamp": datetime.now().isoformat(),
         }
     except Exception as e:
-        logger.error(f"Error fetching IMAP reports: {str(e)}")
+        logger.error("Error fetching IMAP reports: %s", str(e))
         raise HTTPException(
             status_code=500, detail="Failed to fetch reports. Check server logs for details."
-        )
+        ) from e
 
 
 @router.get("/status")
-async def get_imap_status(auth: dict = Depends(require_admin_auth)) -> Dict[str, Any]:
+async def get_imap_status(_auth: dict = Depends(require_admin_auth)) -> Dict[str, Any]:
     """
     Get the current status of IMAP polling background processes
 
