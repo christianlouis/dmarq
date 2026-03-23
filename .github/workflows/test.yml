@@ -58,6 +58,7 @@ jobs:
       env:
         DATABASE_URL: postgresql://test_user:test_password@localhost:5432/test_db
         SECRET_KEY: test_secret_key_for_ci
+        PYTHONPATH: .
       run: |
         cd backend
         pytest --cov=app --cov-report=xml --cov-report=term-missing

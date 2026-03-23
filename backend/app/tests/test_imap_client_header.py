@@ -1,6 +1,7 @@
 import pytest
 from app.services.imap_client import IMAPClient
 
+
 class TestIMAPClientHeader:
     """
     Tests specifically for IMAPClient._decode_email_header method.
@@ -10,22 +11,22 @@ class TestIMAPClientHeader:
         """Set up test fixtures"""
         # We don't need real credentials for testing this pure function
         self.client = IMAPClient(
-            server="imap.example.com",
-            port=993,
-            username="test@example.com",
-            password="password"
+            server="imap.example.com", port=993, username="test@example.com", password="password"
         )
 
-    @pytest.mark.parametrize("header, expected", [
-        ("Simple Subject", "Simple Subject"),
-        ("=?utf-8?q?Hello_World?=", "Hello World"),
-        ("=?utf-8?b?SGVsbG8gV29ybGQ=?=", "Hello World"),
-        ("=?utf-8?q?Re=3A?= DMARC report", "Re: DMARC report"),
-        ("=?utf-8?q?First?= =?utf-8?q?Second?=", "FirstSecond"),
-        ("=?iso-8859-1?q?T=E9st?=", "Tést"),
-        ("", ""),
-        ("=?utf-8?q?Malformed", "=?utf-8?q?Malformed"),
-    ])
+    @pytest.mark.parametrize(
+        "header, expected",
+        [
+            ("Simple Subject", "Simple Subject"),
+            ("=?utf-8?q?Hello_World?=", "Hello World"),
+            ("=?utf-8?b?SGVsbG8gV29ybGQ=?=", "Hello World"),
+            ("=?utf-8?q?Re=3A?= DMARC report", "Re: DMARC report"),
+            ("=?utf-8?q?First?= =?utf-8?q?Second?=", "FirstSecond"),
+            ("=?iso-8859-1?q?T=E9st?=", "Tést"),
+            ("", ""),
+            ("=?utf-8?q?Malformed", "=?utf-8?q?Malformed"),
+        ],
+    )
     def test_decode_email_header(self, header, expected):
         """Test decoding various email headers"""
         assert self.client._decode_email_header(header) == expected
