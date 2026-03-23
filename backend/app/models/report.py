@@ -15,21 +15,21 @@ class DMARCReport(Base):
     domain_id = Column(Integer, ForeignKey("domains.id"), nullable=False, index=True)
 
     # Report metadata
-    report_id = Column(String, nullable=False)
-    org_name = Column(String, nullable=False)
-    begin_date = Column(Integer, nullable=False)  # Unix timestamp
-    end_date = Column(Integer, nullable=False)  # Unix timestamp
+    report_id = Column(String, index=True, nullable=False)
+    org_name = Column(String, nullable=False, index=True)
+    begin_date = Column(Integer, nullable=False, index=True)  # Unix timestamp
+    end_date = Column(Integer, nullable=False, index=True)  # Unix timestamp
     source_email = Column(String, nullable=True)
 
     # Policy information
-    policy = Column(String, nullable=True)  # none, quarantine, reject
+    policy = Column(String, nullable=True, index=True)  # none, quarantine, reject
     subdomain_policy = Column(String, nullable=True)
     adkim = Column(String(1), nullable=True)  # r (relaxed) or s (strict)
     aspf = Column(String(1), nullable=True)  # r (relaxed) or s (strict)
     percentage = Column(Integer, nullable=True)
 
     # Processing metadata
-    processed_at = Column(DateTime, default=datetime.utcnow)
+    processed_at = Column(DateTime, default=datetime.utcnow, index=True)
     raw_data = Column(Text, nullable=True)  # Original XML content (optional)
 
     # Relationships
@@ -38,14 +38,12 @@ class DMARCReport(Base):
 
     # Indexes for common queries
     __table_args__ = (
-        Index("ix_dmarc_reports_report_id", "report_id"),
-        Index("ix_dmarc_reports_org_name", "org_name"),
-        Index("ix_dmarc_reports_begin_date", "begin_date"),
-        Index("ix_dmarc_reports_end_date", "end_date"),
-        Index("ix_dmarc_reports_policy", "policy"),
-        Index("ix_dmarc_reports_processed_at", "processed_at"),
         # Composite index for domain and date range queries (common dashboard queries)
         Index("ix_dmarc_reports_domain_dates", "domain_id", "begin_date", "end_date"),
+        # Index for finding reports by policy - already indexed by column, giving unique name
+        Index("ix_dmarc_reports_policy_explicit", "policy"),
+        # Index for finding recent reports (dashboard statistics) - already indexed by column, giving unique name
+        Index("ix_dmarc_reports_processed_explicit", "processed_at"),
     )
 
     def __repr__(self):
@@ -57,20 +55,20 @@ class ReportRecord(Base):
 
     __tablename__ = "report_records"
 
-    id = Column(Integer, primary_key=True)
-    report_id = Column(Integer, ForeignKey("dmarc_reports.id"), nullable=False)
+    id = Column(Integer, primary_key=True, index=True)
+    report_id = Column(Integer, ForeignKey("dmarc_reports.id"), nullable=False, index=True)
 
     # Source information
-    source_ip = Column(String, nullable=False)
+    source_ip = Column(String, nullable=False, index=True)
     count = Column(Integer, nullable=False, default=0)
 
     # Policy evaluation
-    disposition = Column(String, nullable=False)  # none, quarantine, reject
-    dkim = Column(String, nullable=True)  # pass, fail
-    spf = Column(String, nullable=True)  # pass, fail
+    disposition = Column(String, nullable=False, index=True)  # none, quarantine, reject
+    dkim = Column(String, nullable=True, index=True)  # pass, fail
+    spf = Column(String, nullable=True, index=True)  # pass, fail
 
     # Identifiers
-    header_from = Column(String, nullable=True)
+    header_from = Column(String, nullable=True, index=True)
     envelope_from = Column(String, nullable=True)
 
     # Authentication details (optional JSON fields)
@@ -82,16 +80,10 @@ class ReportRecord(Base):
 
     # Indexes for common queries
     __table_args__ = (
-        Index("ix_report_records_report_id", "report_id"),
-        Index("ix_report_records_source_ip", "source_ip"),
-        Index("ix_report_records_disposition", "disposition"),
-        Index("ix_report_records_dkim", "dkim"),
-        Index("ix_report_records_spf", "spf"),
-        Index("ix_report_records_header_from", "header_from"),
         # Composite index for source IP and evaluation results (for filtering)
         Index("ix_report_records_source_auth", "source_ip", "dkim", "spf"),
-        # Composite index for disposition and count (for statistics)
-        Index("ix_report_records_disposition_stat", "disposition", "count"),
+        # Composite index for disposition and count (for statistics) - already indexed by column, giving unique name
+        Index("ix_report_records_disposition_explicit", "disposition", "count"),
     )
 
     def __repr__(self):

@@ -66,25 +66,25 @@ class TestDMARCParser:
         result = DMARCParser.parse_file(xml_bytes, "test_report.xml")
 
         # Verify report metadata
-        assert result["org_name"] == "google.com"
-        assert result["email"] == "noreply-dmarc-support@google.com"
-        assert result["report_id"] == "123456789"
-        assert result["begin_timestamp"] == 1597449600
-        assert result["end_timestamp"] == 1597535999
+        assert result["report_metadata"]["org_name"] == "google.com"
+        assert result["report_metadata"]["email"] == "noreply-dmarc-support@google.com"
+        assert result["report_metadata"]["report_id"] == "123456789"
+        assert result["report_metadata"]["begin_date"] == 1597449600
+        assert result["report_metadata"]["end_date"] == 1597535999
 
         # Verify policy published
-        assert result["domain"] == "example.com"
-        assert result["policy"]["p"] == "none"
+        assert result["policy_published"]["domain"] == "example.com"
+        assert result["policy_published"]["policy"] == "none"
 
         # Verify record data
         assert len(result["records"]) == 1
         record = result["records"][0]
         assert record["source_ip"] == "203.0.113.1"
         assert record["count"] == 2
-        assert record["disposition"] == "none"
-        assert record["dkim_result"] == "pass"
-        assert record["spf_result"] == "fail"
-        assert record["header_from"] == "example.com"
+        assert record["policy_evaluated"]["disposition"] == "none"
+        assert record["policy_evaluated"]["dkim"] == "pass"
+        assert record["policy_evaluated"]["spf"] == "fail"
+        assert record["identifiers"]["header_from"] == "example.com"
 
     @patch("app.services.dmarc_parser.zipfile.ZipFile")
     def test_parse_aggregate_report_zip(self, mock_zipfile):
@@ -92,13 +92,7 @@ class TestDMARCParser:
         # Setup mock zipfile extraction
         mock_zip_instance = MagicMock()
         mock_zipfile.return_value.__enter__.return_value = mock_zip_instance
-
-        # Mock infolist for security checks
-        mock_file_info = MagicMock()
-        mock_file_info.filename = "report.xml"
-        mock_file_info.file_size = len(self.sample_xml)
-        mock_zip_instance.infolist.return_value = [mock_file_info]
-
+        mock_zip_instance.namelist.return_value = ["report.xml"]
         mock_zip_instance.read.return_value = self.sample_xml.encode("utf-8")
 
         # Create fake zip file content
@@ -106,7 +100,7 @@ class TestDMARCParser:
         result = DMARCParser.parse_file(zip_content, "test_report.zip")
 
         # Assertions similar to test_parse_aggregate_report_xml
-        assert result["org_name"] == "google.com"
+        assert result["report_metadata"]["org_name"] == "google.com"
         assert len(result["records"]) == 1
 
     def test_extract_authentication_results(self):

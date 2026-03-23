@@ -149,7 +149,7 @@ async def get_domains_summary():
     )
 
 
-@router.get("/", response_model=List[DomainResponse])
+@router.get("/domains", response_model=List[DomainResponse])
 async def read_domains():
     """
     Retrieve domains with their statistics.
@@ -174,7 +174,7 @@ async def read_domains():
     return result
 
 
-@router.get("/{domain_name}", response_model=DomainResponse)
+@router.get("/domains/{domain_name}", response_model=DomainResponse)
 async def read_domain(domain_name: str):
     """
     Get statistics for a specific domain.

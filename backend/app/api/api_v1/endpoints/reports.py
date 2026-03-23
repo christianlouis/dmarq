@@ -191,7 +191,7 @@ async def upload_report(file: UploadFile = File(...)):
         )
 
 
-@router.get("/", response_model=List[str])
+@router.get("/domains", response_model=List[str])
 async def get_domains():
     """
     Get list of all domains with reports

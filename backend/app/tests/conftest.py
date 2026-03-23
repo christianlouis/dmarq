@@ -1,5 +1,6 @@
 import asyncio
 
+import httpx
 import pytest
 import pytest_asyncio
 from fastapi import FastAPI
@@ -80,9 +81,7 @@ async def async_client(test_app: FastAPI, db_session):
 
     test_app.dependency_overrides[get_db] = override_get_db
 
-    async with AsyncClient(
-        transport=httpx.ASGITransport(app=test_app), base_url="http://testserver"
-    ) as ac:
+    async with AsyncClient(app=test_app, base_url="http://testserver") as ac:
         yield ac
 
 
