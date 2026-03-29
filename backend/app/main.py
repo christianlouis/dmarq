@@ -11,8 +11,10 @@ from fastapi.templating import Jinja2Templates
 
 from app.api.api_v1.api import api_router
 from app.core.config import get_settings
+from app.core.database import Base, SessionLocal, engine
 from app.core.security import add_api_key, generate_api_key, require_admin_auth
 from app.middleware.security import SecurityHeadersMiddleware
+from app.models.mail_source import MailSource  # noqa: F401 – ensure table is registered
 from app.services.imap_client import IMAPClient
 from app.services.report_store import ReportStore
 
@@ -26,47 +28,147 @@ background_task = None
 last_check_time = None
 
 
-async def scheduled_imap_polling():
-    """Background task for periodically checking IMAP for new DMARC reports"""
+def _poll_single_imap_source(source: MailSource) -> None:
+    """Fetch DMARC reports for a single IMAP mail source and update its last_checked timestamp."""
     global last_check_time  # pylint: disable=global-statement
 
-    try:
-        # How often to check for emails (in seconds)
-        check_interval = 3600  # Default: 1 hour
+    imap_client = IMAPClient(
+        server=source.server,
+        port=source.port or 993,
+        username=source.username,
+        password=source.password,
+        delete_emails=False,
+    )
+    results = imap_client.fetch_reports(days=9999)
 
+    db = SessionLocal()
+    try:
+        src = db.query(MailSource).get(source.id)
+        if src:
+            src.last_checked = datetime.utcnow()
+            db.commit()
+    finally:
+        db.close()
+
+    last_check_time = datetime.now()
+
+    if results["success"]:
+        logger.info(
+            "IMAP polling (source id=%d): %s emails processed, %s reports found",
+            source.id,
+            results["processed"],
+            results["reports_found"],
+        )
+        if results["new_domains"]:
+            logger.info("New domains found: %s", ", ".join(results["new_domains"]))
+    else:
+        logger.error(
+            "IMAP polling (source id=%d) failed: %s",
+            source.id,
+            results.get("error", "Unknown error"),
+        )
+
+
+def _poll_all_enabled_sources() -> None:
+    """Iterate over all enabled mail sources and poll each one."""
+    db = SessionLocal()
+    try:
+        enabled_sources = (
+            db.query(MailSource).filter(MailSource.enabled == True).all()  # noqa: E712
+        )
+    finally:
+        db.close()
+
+    if not enabled_sources:
+        logger.info("No enabled mail sources configured – polling skipped")
+        return
+
+    for source in enabled_sources:
+        if source.method != "IMAP":
+            logger.info(
+                "Skipping mail source id=%d method=%r (not yet implemented)",
+                source.id,
+                source.method,
+            )
+            continue
+        try:
+            _poll_single_imap_source(source)
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Error polling mail source id=%d: %s", source.id, str(e))
+
+
+def _next_sleep_seconds(min_sleep: int = 60) -> int:
+    """Return how many seconds to sleep until the next polling cycle."""
+    try:
+        db = SessionLocal()
+        try:
+            intervals = [
+                s.polling_interval or 60
+                for s in db.query(MailSource).filter(MailSource.enabled == True).all()  # noqa: E712
+            ]
+        finally:
+            db.close()
+        return max(min_sleep, min(intervals, default=3600) * 60)
+    except Exception:  # pylint: disable=broad-exception-caught
+        return 3600
+
+
+async def scheduled_imap_polling():
+    """Background task for periodically checking IMAP for new DMARC reports"""
+    try:
         while True:
             logger.info("Starting scheduled IMAP polling for DMARC reports")
-
             try:
-                # Create IMAP client and fetch reports
-                imap_client = IMAPClient(delete_emails=False)
-                results = imap_client.fetch_reports(days=9999)
-
-                # Update last check time
-                last_check_time = datetime.now()
-
-                if results["success"]:
-                    logger.info(
-                        "IMAP polling completed: %s emails processed, %s reports found",
-                        results["processed"],
-                        results["reports_found"],
-                    )
-
-                    # If new domains were found, log them
-                    if results["new_domains"]:
-                        logger.info("New domains found: %s", ", ".join(results["new_domains"]))
-
-                else:
-                    logger.error("IMAP polling failed: %s", results.get("error", "Unknown error"))
-
+                _poll_all_enabled_sources()
             except Exception as e:  # pylint: disable=broad-exception-caught
                 logger.error("Error in IMAP polling task: %s", str(e))
 
-            # Wait for the next check interval
-            await asyncio.sleep(check_interval)
+            await asyncio.sleep(_next_sleep_seconds())
 
     except asyncio.CancelledError:
         logger.info("IMAP polling task cancelled")
+
+
+def _migrate_imap_env_vars_to_db() -> None:
+    """
+    One-time migration: if IMAP_* environment variables are configured and no
+    MailSource rows exist yet, create an initial MailSource from those settings.
+
+    This ensures that existing deployments continue to work without manual
+    reconfiguration after the upgrade.
+    """
+    if not all([settings.IMAP_SERVER, settings.IMAP_USERNAME, settings.IMAP_PASSWORD]):
+        return
+
+    db = SessionLocal()
+    try:
+        if db.query(MailSource).first() is not None:
+            return  # already migrated or manually configured
+
+        migrated = MailSource(
+            name="Default IMAP (migrated from environment)",
+            method="IMAP",
+            server=settings.IMAP_SERVER,
+            port=settings.IMAP_PORT,
+            username=settings.IMAP_USERNAME,
+            password=settings.IMAP_PASSWORD,
+            use_ssl=True,
+            folder="INBOX",
+            polling_interval=60,
+            enabled=True,
+        )
+        db.add(migrated)
+        db.commit()
+        logger.info(
+            "Migrated IMAP settings from environment variables to "
+            "database (MailSource id=%d). "
+            "You can now manage this source via the Mail Sources admin UI.",
+            migrated.id,
+        )
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error("Failed to migrate IMAP env vars to database: %s", str(e))
+    finally:
+        db.close()
 
 
 def create_app() -> FastAPI:
@@ -120,6 +222,9 @@ def create_app() -> FastAPI:
         """Initialize background tasks and security on application startup"""
         global background_task  # pylint: disable=global-statement
 
+        # Ensure all tables exist (no-op if already present)
+        Base.metadata.create_all(bind=engine)
+
         # Generate and provide admin API key
         api_key = generate_api_key()
         add_api_key(api_key)
@@ -141,12 +246,14 @@ def create_app() -> FastAPI:
         if os.getenv("ENVIRONMENT", "development") == "development":
             logger.info("Development Mode - Full API Key: %s", api_key)
 
-        # Check if IMAP credentials are configured
-        if all([settings.IMAP_SERVER, settings.IMAP_USERNAME, settings.IMAP_PASSWORD]):
-            logger.info("Starting IMAP polling background task")
-            background_task = asyncio.create_task(scheduled_imap_polling())
-        else:
-            logger.warning("IMAP credentials not fully configured, polling disabled")
+        # One-time migration: if IMAP_* env vars are set and no mail sources exist,
+        # create an initial MailSource from those settings so existing deployments
+        # continue to work without manual reconfiguration.
+        _migrate_imap_env_vars_to_db()
+
+        # Start background polling task (iterates over DB-enabled mail sources)
+        logger.info("Starting IMAP polling background task")
+        background_task = asyncio.create_task(scheduled_imap_polling())
 
     @application.on_event("shutdown")
     async def shutdown_event():
@@ -239,6 +346,11 @@ async def settings_page(request: Request):
     return templates.TemplateResponse("settings.html", {"request": request})
 
 
+@app.get("/mail-sources", response_class=HTMLResponse)
+async def mail_sources_page(request: Request):
+    return templates.TemplateResponse("mail_sources.html", {"request": request})
+
+
 @app.get("/upload", response_class=HTMLResponse)
 async def upload_page(request: Request):
     return templates.TemplateResponse("upload.html", {"request": request})
@@ -255,34 +367,81 @@ async def health():
 @app.post("/api/v1/admin/trigger-poll")
 async def trigger_imap_poll(auth: dict = Depends(require_admin_auth)):
     """
-    Manually trigger IMAP polling (admin only - requires authentication)
+    Manually trigger IMAP polling for all enabled mail sources (admin only).
 
     Security: Requires either X-API-Key header or Bearer token
     """
     global last_check_time  # pylint: disable=global-statement
 
+    results_summary = []
+    db = SessionLocal()
     try:
-        # Create IMAP client and fetch reports
-        imap_client = IMAPClient(delete_emails=False)
-        results = imap_client.fetch_reports(days=7)
+        enabled_sources = (
+            db.query(MailSource).filter(MailSource.enabled == True).all()  # noqa: E712
+        )
 
-        # Update last check time
-        last_check_time = datetime.now()
+        if not enabled_sources:
+            return {
+                "success": True,
+                "message": "No enabled mail sources configured.",
+                "sources_polled": 0,
+                "authenticated_by": auth.get("auth_type"),
+            }
 
-        return {
-            "success": results["success"],
-            "timestamp": last_check_time.isoformat(),
-            "processed": results["processed"],
-            "reports_found": results["reports_found"],
-            "new_domains": results["new_domains"],
-            "authenticated_by": auth.get("auth_type"),
-        }
-    except Exception as e:  # pylint: disable=broad-exception-caught
-        logger.error("Error triggering IMAP poll: %s", str(e))
-        return {
-            "success": False,
-            "error": "Failed to trigger IMAP poll. Check server logs for details.",
-        }
+        for source in enabled_sources:
+            if source.method != "IMAP":
+                results_summary.append(
+                    {
+                        "source_id": source.id,
+                        "name": source.name,
+                        "skipped": True,
+                        "reason": f"method '{source.method}' not yet implemented",
+                    }
+                )
+                continue
+
+            try:
+                imap_client = IMAPClient(
+                    server=source.server,
+                    port=source.port or 993,
+                    username=source.username,
+                    password=source.password,
+                    delete_emails=False,
+                )
+                results = imap_client.fetch_reports(days=7)
+                last_check_time = datetime.now()
+                source.last_checked = datetime.utcnow()
+                db.commit()
+
+                results_summary.append(
+                    {
+                        "source_id": source.id,
+                        "name": source.name,
+                        "success": results["success"],
+                        "processed": results.get("processed", 0),
+                        "reports_found": results.get("reports_found", 0),
+                        "new_domains": results.get("new_domains", []),
+                    }
+                )
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                logger.error("Error polling mail source id=%d: %s", source.id, str(e))
+                results_summary.append(
+                    {
+                        "source_id": source.id,
+                        "name": source.name,
+                        "success": False,
+                        "error": "Failed to poll. Check server logs for details.",
+                    }
+                )
+    finally:
+        db.close()
+
+    return {
+        "success": all(r.get("success", True) for r in results_summary),
+        "timestamp": last_check_time.isoformat() if last_check_time else None,
+        "sources": results_summary,
+        "authenticated_by": auth.get("auth_type"),
+    }
 
 
 # API endpoint to check status of IMAP polling

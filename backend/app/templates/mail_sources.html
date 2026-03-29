@@ -1,0 +1,514 @@
+{% extends "layouts/base.html" %}
+{% from "components/ui/card.html" import card, card_header, card_title, card_description, card_content, card_footer %}
+{% from "components/ui/button.html" import button %}
+{% from "components/ui/alert.html" import alert, alert_title, alert_description %}
+{% from "components/ui/input.html" import input, label, form_group %}
+
+{% block title %}Mail Sources - DMARQ{% endblock %}
+
+{% block page_title %}Mail Sources{% endblock %}
+
+{% block content %}
+<div class="grid gap-4 md:gap-8 py-4" x-data="mailSourcesApp()">
+
+    <!-- Page header -->
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-2xl font-bold">Mail Sources</h1>
+            <p class="text-muted-foreground mt-1">
+                Manage inbox accounts used to automatically retrieve DMARC reports.
+                Multiple accounts and connection methods (IMAP, POP3, Gmail API) are supported.
+            </p>
+        </div>
+        <button class="btn btn-default btn-md" x-on:click="openAddForm()">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            Add Mail Source
+        </button>
+    </div>
+
+    <!-- Feedback alerts -->
+    <template x-if="feedback.message && feedback.type === 'success'">
+        {% call alert(variant="success") %}
+            {% call alert_description() %}<span x-text="feedback.message"></span>{% endcall %}
+        {% endcall %}
+    </template>
+    <template x-if="feedback.message && feedback.type === 'error'">
+        {% call alert(variant="error") %}
+            {% call alert_description() %}<span x-text="feedback.message"></span>{% endcall %}
+        {% endcall %}
+    </template>
+
+    <!-- Sources list -->
+    {% call card() %}
+        {% call card_header() %}
+            {% call card_title() %}Configured Accounts{% endcall %}
+            {% call card_description() %}Click a row to edit. Use the toggle to enable or disable polling for an account.{% endcall %}
+        {% endcall %}
+        {% call card_content() %}
+            <template x-if="sources.length === 0">
+                <p class="text-muted-foreground text-sm py-4 text-center">
+                    No mail sources configured yet. Click <strong>Add Mail Source</strong> to get started.
+                </p>
+            </template>
+            <template x-if="sources.length > 0">
+                <div class="overflow-x-auto">
+                    <table class="table w-full">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Method</th>
+                                <th>Server</th>
+                                <th>Username</th>
+                                <th>Last Checked</th>
+                                <th>Enabled</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="source in sources" :key="source.id">
+                                <tr class="hover">
+                                    <td x-text="source.name" class="font-medium"></td>
+                                    <td>
+                                        <span class="badge badge-outline" x-text="source.method"></span>
+                                    </td>
+                                    <td x-text="source.server ? source.server + ':' + source.port : '—'"></td>
+                                    <td x-text="source.username || '—'"></td>
+                                    <td x-text="source.last_checked ? new Date(source.last_checked).toLocaleString() : 'Never'"></td>
+                                    <td>
+                                        <input
+                                            type="checkbox"
+                                            class="toggle toggle-success toggle-sm"
+                                            :checked="source.enabled"
+                                            x-on:change="toggleSource(source.id)"
+                                        />
+                                    </td>
+                                    <td>
+                                        <div class="flex items-center gap-2">
+                                            <button class="btn btn-ghost btn-xs" x-on:click="openEditForm(source)" title="Edit">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+                                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                                    stroke-linejoin="round">
+                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                </svg>
+                                            </button>
+                                            <button class="btn btn-ghost btn-xs" x-on:click="testSource(source.id)" title="Test connection"
+                                                :disabled="testing[source.id]">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+                                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                                    stroke-linejoin="round">
+                                                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                                    <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                                                </svg>
+                                            </button>
+                                            <button class="btn btn-ghost btn-xs text-error" x-on:click="confirmDelete(source)" title="Delete">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+                                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                                    stroke-linejoin="round">
+                                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+                                                    <path d="M10 11v6"></path>
+                                                    <path d="M14 11v6"></path>
+                                                    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </template>
+        {% endcall %}
+    {% endcall %}
+
+    <!-- Add / Edit modal -->
+    <div x-show="showForm" x-cloak
+        class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+        x-on:keydown.escape.window="closeForm()">
+        <div class="bg-base-100 rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div class="p-6 space-y-4">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-lg font-semibold" x-text="editingId ? 'Edit Mail Source' : 'Add Mail Source'"></h2>
+                    <button class="btn btn-ghost btn-sm btn-circle" x-on:click="closeForm()">✕</button>
+                </div>
+
+                <form id="source-form" x-on:submit.prevent="saveSource()" class="space-y-4">
+
+                    <!-- Name -->
+                    <div>
+                        <label class="label"><span class="label-text font-medium">Name <span class="text-error">*</span></span></label>
+                        <input type="text" x-model="form.name" placeholder="e.g. DMARC Reports Inbox"
+                            class="input input-bordered w-full" required />
+                    </div>
+
+                    <!-- Method -->
+                    <div>
+                        <label class="label"><span class="label-text font-medium">Method</span></label>
+                        <select x-model="form.method" class="select select-bordered w-full">
+                            <option value="IMAP">IMAP</option>
+                            <option value="POP3">POP3 (coming soon)</option>
+                            <option value="GMAIL_API">Gmail API (coming soon)</option>
+                        </select>
+                    </div>
+
+                    <!-- Server + Port (IMAP / POP3) -->
+                    <template x-if="form.method === 'IMAP' || form.method === 'POP3'">
+                        <div class="grid grid-cols-3 gap-3">
+                            <div class="col-span-2">
+                                <label class="label"><span class="label-text font-medium">Server <span class="text-error">*</span></span></label>
+                                <input type="text" x-model="form.server" placeholder="imap.example.com"
+                                    class="input input-bordered w-full" />
+                            </div>
+                            <div>
+                                <label class="label"><span class="label-text font-medium">Port</span></label>
+                                <input type="number" x-model.number="form.port" class="input input-bordered w-full" />
+                            </div>
+                        </div>
+                    </template>
+
+                    <!-- Username -->
+                    <template x-if="form.method === 'IMAP' || form.method === 'POP3'">
+                        <div>
+                            <label class="label"><span class="label-text font-medium">Username <span class="text-error">*</span></span></label>
+                            <input type="text" x-model="form.username" placeholder="dmarc@example.com"
+                                class="input input-bordered w-full" />
+                        </div>
+                    </template>
+
+                    <!-- Password -->
+                    <template x-if="form.method === 'IMAP' || form.method === 'POP3'">
+                        <div>
+                            <label class="label">
+                                <span class="label-text font-medium">Password <span class="text-error">*</span></span>
+                                <span class="label-text-alt text-muted-foreground" x-show="editingId">Leave blank to keep existing</span>
+                            </label>
+                            <div class="relative">
+                                <input :type="showPassword ? 'text' : 'password'" x-model="form.password"
+                                    class="input input-bordered w-full pr-10" />
+                                <button type="button" class="absolute right-2 top-3 text-muted-foreground hover:text-foreground"
+                                    x-on:click="showPassword = !showPassword">
+                                    <svg x-show="!showPassword" xmlns="http://www.w3.org/2000/svg" width="16" height="16"
+                                        viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"></path>
+                                        <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"></path>
+                                        <path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"></path>
+                                        <line x1="2" x2="22" y1="2" y2="22"></line>
+                                    </svg>
+                                    <svg x-show="showPassword" xmlns="http://www.w3.org/2000/svg" width="16" height="16"
+                                        viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round" x-cloak>
+                                        <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path>
+                                        <circle cx="12" cy="12" r="3"></circle>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    </template>
+
+                    <!-- SSL toggle -->
+                    <template x-if="form.method === 'IMAP' || form.method === 'POP3'">
+                        <div class="flex items-center gap-3">
+                            <input type="checkbox" x-model="form.use_ssl" class="toggle toggle-sm" id="form-ssl" />
+                            <label for="form-ssl" class="label-text">Use SSL/TLS (recommended)</label>
+                        </div>
+                    </template>
+
+                    <!-- Folder -->
+                    <template x-if="form.method === 'IMAP'">
+                        <div>
+                            <label class="label"><span class="label-text font-medium">Folder</span></label>
+                            <input type="text" x-model="form.folder" placeholder="INBOX"
+                                class="input input-bordered w-full" />
+                        </div>
+                    </template>
+
+                    <!-- Polling interval -->
+                    <div>
+                        <label class="label"><span class="label-text font-medium">Polling Interval (minutes)</span></label>
+                        <input type="number" x-model.number="form.polling_interval" min="15" max="1440"
+                            class="input input-bordered w-full" />
+                        <p class="text-xs text-muted-foreground mt-1">How often to check for new reports (min 15 min)</p>
+                    </div>
+
+                    <!-- Enabled -->
+                    <div class="flex items-center gap-3">
+                        <input type="checkbox" x-model="form.enabled" class="toggle toggle-sm" id="form-enabled" />
+                        <label for="form-enabled" class="label-text">Enable this mail source</label>
+                    </div>
+
+                    <!-- Test connection result -->
+                    <template x-if="testResult.message">
+                        <div :class="testResult.success ? 'alert alert-success' : 'alert alert-error'" class="text-sm p-3 rounded">
+                            <span x-text="testResult.message"></span>
+                        </div>
+                    </template>
+
+                    <!-- Form actions -->
+                    <div class="flex justify-between pt-2">
+                        <button type="button" class="btn btn-outline btn-sm"
+                            x-on:click="testAdHoc()"
+                            :disabled="isTesting || isSaving">
+                            <span x-show="!isTesting">Test Connection</span>
+                            <span x-show="isTesting" class="flex items-center" x-cloak>
+                                <svg class="animate-spin h-4 w-4 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                Testing...
+                            </span>
+                        </button>
+                        <div class="flex gap-2">
+                            <button type="button" class="btn btn-ghost btn-sm" x-on:click="closeForm()">Cancel</button>
+                            <button type="submit" class="btn btn-default btn-sm" :disabled="isSaving">
+                                <span x-show="!isSaving" x-text="editingId ? 'Update' : 'Save'"></span>
+                                <span x-show="isSaving" x-cloak>Saving…</span>
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete confirmation modal -->
+    <div x-show="deleteTarget" x-cloak
+        class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div class="bg-base-100 rounded-lg shadow-xl w-full max-w-sm p-6 space-y-4">
+            <h2 class="text-lg font-semibold">Delete Mail Source</h2>
+            <p class="text-sm text-muted-foreground">
+                Are you sure you want to delete <strong x-text="deleteTarget && deleteTarget.name"></strong>?
+                This action cannot be undone.
+            </p>
+            <div class="flex justify-end gap-2">
+                <button class="btn btn-ghost btn-sm" x-on:click="deleteTarget = null">Cancel</button>
+                <button class="btn btn-error btn-sm" x-on:click="deleteSource()">Delete</button>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function mailSourcesApp() {
+    return {
+        sources: [],
+        showForm: false,
+        editingId: null,
+        deleteTarget: null,
+        showPassword: false,
+        isTesting: false,
+        isSaving: false,
+        testing: {},
+        feedback: { message: '', type: '' },
+        testResult: { message: '', success: false },
+
+        form: {
+            name: '',
+            method: 'IMAP',
+            server: '',
+            port: 993,
+            username: '',
+            password: '',
+            use_ssl: true,
+            folder: 'INBOX',
+            polling_interval: 60,
+            enabled: true,
+        },
+
+        async init() {
+            await this.loadSources();
+        },
+
+        async loadSources() {
+            try {
+                const resp = await fetch('/api/v1/mail-sources');
+                if (resp.ok) {
+                    this.sources = await resp.json();
+                }
+            } catch (e) {
+                console.error('Failed to load mail sources', e);
+            }
+        },
+
+        openAddForm() {
+            this.editingId = null;
+            this.form = {
+                name: '',
+                method: 'IMAP',
+                server: '',
+                port: 993,
+                username: '',
+                password: '',
+                use_ssl: true,
+                folder: 'INBOX',
+                polling_interval: 60,
+                enabled: true,
+            };
+            this.testResult = { message: '', success: false };
+            this.showForm = true;
+        },
+
+        openEditForm(source) {
+            this.editingId = source.id;
+            this.form = {
+                name: source.name,
+                method: source.method,
+                server: source.server || '',
+                port: source.port || 993,
+                username: source.username || '',
+                password: '',   // never pre-fill password
+                use_ssl: source.use_ssl !== false,
+                folder: source.folder || 'INBOX',
+                polling_interval: source.polling_interval || 60,
+                enabled: source.enabled !== false,
+            };
+            this.testResult = { message: '', success: false };
+            this.showForm = true;
+        },
+
+        closeForm() {
+            this.showForm = false;
+            this.editingId = null;
+            this.testResult = { message: '', success: false };
+        },
+
+        async saveSource() {
+            this.isSaving = true;
+            this.feedback = { message: '', type: '' };
+            try {
+                const payload = { ...this.form };
+                // Don't send empty password on edit
+                if (this.editingId && !payload.password) {
+                    delete payload.password;
+                }
+
+                const url = this.editingId
+                    ? `/api/v1/mail-sources/${this.editingId}`
+                    : '/api/v1/mail-sources';
+                const method = this.editingId ? 'PUT' : 'POST';
+
+                const resp = await fetch(url, {
+                    method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    throw new Error(err.detail || 'Save failed');
+                }
+                this.feedback = {
+                    message: this.editingId
+                        ? 'Mail source updated successfully.'
+                        : 'Mail source created successfully.',
+                    type: 'success',
+                };
+                await this.loadSources();
+                this.closeForm();
+            } catch (e) {
+                this.feedback = { message: `Error: ${e.message}`, type: 'error' };
+            } finally {
+                this.isSaving = false;
+            }
+        },
+
+        async toggleSource(id) {
+            try {
+                const resp = await fetch(`/api/v1/mail-sources/${id}/toggle`, { method: 'POST' });
+                if (!resp.ok) throw new Error('Toggle failed');
+                await this.loadSources();
+            } catch (e) {
+                this.feedback = { message: `Error toggling source: ${e.message}`, type: 'error' };
+            }
+        },
+
+        confirmDelete(source) {
+            this.deleteTarget = source;
+        },
+
+        async deleteSource() {
+            if (!this.deleteTarget) return;
+            try {
+                const resp = await fetch(`/api/v1/mail-sources/${this.deleteTarget.id}`, {
+                    method: 'DELETE',
+                });
+                if (!resp.ok && resp.status !== 204) throw new Error('Delete failed');
+                this.feedback = {
+                    message: `Mail source "${this.deleteTarget.name}" deleted.`,
+                    type: 'success',
+                };
+                this.deleteTarget = null;
+                await this.loadSources();
+            } catch (e) {
+                this.feedback = { message: `Error: ${e.message}`, type: 'error' };
+                this.deleteTarget = null;
+            }
+        },
+
+        async testSource(id) {
+            this.testing[id] = true;
+            this.feedback = { message: '', type: '' };
+            try {
+                const resp = await fetch(`/api/v1/mail-sources/${id}/test`, { method: 'POST' });
+                const result = await resp.json();
+                if (result.success) {
+                    this.feedback = {
+                        message: `Connection test successful for source #${id}: ${result.message}`,
+                        type: 'success',
+                    };
+                    await this.loadSources();
+                } else {
+                    this.feedback = {
+                        message: `Connection test failed for source #${id}: ${result.message}`,
+                        type: 'error',
+                    };
+                }
+            } catch (e) {
+                this.feedback = { message: `Test error: ${e.message}`, type: 'error' };
+            } finally {
+                this.testing[id] = false;
+            }
+        },
+
+        async testAdHoc() {
+            this.isTesting = true;
+            this.testResult = { message: '', success: false };
+            try {
+                const payload = {
+                    server: this.form.server,
+                    port: this.form.port,
+                    username: this.form.username,
+                    password: this.form.password,
+                    ssl: this.form.use_ssl,
+                    method: this.form.method,
+                };
+                const resp = await fetch('/api/v1/mail-sources/test-connection', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                const result = await resp.json();
+                this.testResult = {
+                    success: result.success,
+                    message: result.success
+                        ? `✓ Connected. ${result.message_count || 0} messages, ${result.dmarc_count || 0} potential DMARC reports.`
+                        : `✗ ${result.message}`,
+                };
+            } catch (e) {
+                this.testResult = { success: false, message: `Error: ${e.message}` };
+            } finally {
+                this.isTesting = false;
+            }
+        },
+    };
+}
+</script>
+{% endblock %}
