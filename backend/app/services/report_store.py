@@ -177,7 +177,7 @@ class ReportStore:
             return sorted_reports[:limit]
         return sorted_reports
 
-    def get_domain_sources(self, domain: str, _days: int = 30) -> List[Dict[str, Any]]:
+    def get_domain_sources(self, domain: str, days: int = 30) -> List[Dict[str, Any]]:
         """
         Get sending sources for a domain
 
