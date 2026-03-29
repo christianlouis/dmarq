@@ -9,6 +9,9 @@ on:
     # Weekly security scan on Mondays at 00:00 UTC
     - cron: '0 0 * * 1'
 
+env:
+  K8S_STATE_REPO: christianlouis/k8s-cluster-state
+
 jobs:
   # ── Stage 1: Lint (gates everything else) ────────────────────────────────
   lint:
@@ -228,3 +231,75 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # ── Stage 4: GitOps – update preprod k8s manifest ────────────────────────
+  update-k8s-manifest:
+    name: Update Preprod K8s Manifest
+    runs-on: ubuntu-latest
+    needs: [docker]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+
+    steps:
+      - name: Compute image tag
+        id: tag
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "image=ghcr.io/${{ github.repository }}:${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "image_pattern=^ghcr\\.io/${{ github.repository }}:" >> "$GITHUB_OUTPUT"
+
+      - name: Check if GH_PAT is configured and has repo access
+        id: pat-check
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          if [ -z "$GH_PAT" ]; then
+            echo "::warning::GH_PAT secret is not configured. Skipping k8s manifest update."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          else
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+              -H "Authorization: Bearer $GH_PAT" \
+              "https://api.github.com/repos/${{ env.K8S_STATE_REPO }}")
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "available=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "::warning::GH_PAT does not have access to ${{ env.K8S_STATE_REPO }} (HTTP $HTTP_CODE). Skipping k8s manifest update."
+              echo "available=false" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Checkout k8s-cluster-state
+        if: steps.pat-check.outputs.available == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.K8S_STATE_REPO }}
+          token: ${{ secrets.GH_PAT }}
+          path: k8s-cluster-state
+          ref: main
+
+      - name: Update image tag in preprod manifest
+        if: steps.pat-check.outputs.available == 'true'
+        uses: mikefarah/yq@v4.44.6
+        env:
+          IMAGE: ${{ steps.tag.outputs.image }}
+          IMAGE_PATTERN: ${{ steps.tag.outputs.image_pattern }}
+        with:
+          cmd: |
+            yq -i '(.. | select(tag == "!!str") | select(test(strenv(IMAGE_PATTERN)))) = strenv(IMAGE)' \
+              k8s-cluster-state/apps/dmarq/preprod/dmarq-stack.yaml
+
+      - name: Commit and push manifest update
+        if: steps.pat-check.outputs.available == 'true'
+        run: |
+          cd k8s-cluster-state
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add apps/dmarq/preprod/dmarq-stack.yaml
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore(preprod): update dmarq image to ${{ steps.tag.outputs.short_sha }}"
+            git push
+          fi
