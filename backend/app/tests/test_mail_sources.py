@@ -436,6 +436,285 @@ class TestMailSourcesAPIAuthed:
 
 
 # ---------------------------------------------------------------------------
+# Gmail API-specific tests
+# ---------------------------------------------------------------------------
+
+
+class TestGmailAPIMailSource:
+    """Tests for GMAIL_API mail source creation, OAuth flow, and fetching."""
+
+    def test_create_gmail_api_source(self, authed_client: TestClient):
+        payload = {
+            "name": "My Gmail",
+            "method": "GMAIL_API",
+            "gmail_client_id": "123-abc.apps.googleusercontent.com",
+            "gmail_client_secret": "GOCSPX-secret",
+            "polling_interval": 30,
+            "enabled": True,
+        }
+        resp = authed_client.post("/api/v1/mail-sources", json=payload)
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["method"] == "GMAIL_API"
+        assert data["gmail_client_id"] == "123-abc.apps.googleusercontent.com"
+        # Secret should be redacted in response
+        assert data["gmail_client_secret"] == "**redacted**"
+        assert data["gmail_connected"] is False
+        assert data["gmail_email"] is None
+
+    def test_gmail_source_test_no_token(self, authed_client: TestClient):
+        """Test a GMAIL_API source that has no OAuth tokens yet."""
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "Unauthed Gmail", "method": "GMAIL_API"},
+        )
+        source_id = create_resp.json()["id"]
+
+        resp = authed_client.post(f"/api/v1/mail-sources/{source_id}/test")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is False
+        assert "not yet authorised" in data["message"].lower() or "oauth" in data["message"].lower()
+
+    def test_gmail_source_test_with_valid_token(self, authed_client: TestClient):
+        """Test a GMAIL_API source that has valid OAuth tokens (mocked)."""
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={
+                "name": "Authed Gmail",
+                "method": "GMAIL_API",
+                "gmail_client_id": "my-client-id",
+                "gmail_client_secret": "my-secret",
+            },
+        )
+        source_id = create_resp.json()["id"]
+
+        # Inject tokens directly into DB via the DB session
+        from sqlalchemy.orm import Session
+        from app.models.mail_source import MailSource as MS
+
+        # Use the authed_client's DB override — patch the ORM object instead
+        mock_service = MagicMock()
+        mock_service.users.return_value.getProfile.return_value.execute.return_value = {
+            "emailAddress": "test@gmail.com"
+        }
+        mock_gmail_client = MagicMock()
+        mock_gmail_client._build_service.return_value = mock_service
+
+        with patch(
+            "app.api.api_v1.endpoints.mail_sources.GmailClient",
+            return_value=mock_gmail_client,
+        ):
+            # First set the access token directly
+            with patch(
+                "app.api.api_v1.endpoints.mail_sources._get_source_or_404"
+            ) as mock_get:
+                mock_source = MagicMock()
+                mock_source.method = "GMAIL_API"
+                mock_source.gmail_access_token = "valid-token"
+                mock_source.gmail_email = "test@gmail.com"
+                mock_source.gmail_client_id = "my-client-id"
+                mock_source.gmail_client_secret = "my-secret"
+                mock_source.gmail_refresh_token = "refresh-token"
+                mock_get.return_value = mock_source
+
+                resp = authed_client.post(f"/api/v1/mail-sources/{source_id}/test")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert "valid" in data["message"].lower()
+
+    def test_gmail_authorize_url_no_client_id(self, authed_client: TestClient):
+        """Requesting authorize-url without a client_id returns 400."""
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "No Client ID Gmail", "method": "GMAIL_API"},
+        )
+        source_id = create_resp.json()["id"]
+
+        resp = authed_client.get(f"/api/v1/mail-sources/{source_id}/gmail/authorize-url")
+        assert resp.status_code == 400
+
+    def test_gmail_authorize_url_wrong_method(self, authed_client: TestClient):
+        """Requesting authorize-url on a non-GMAIL_API source returns 400."""
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources", json={"name": "IMAP Source", "method": "IMAP"}
+        )
+        source_id = create_resp.json()["id"]
+
+        resp = authed_client.get(f"/api/v1/mail-sources/{source_id}/gmail/authorize-url")
+        assert resp.status_code == 400
+
+    def test_gmail_authorize_url_returns_google_url(self, authed_client: TestClient):
+        """A GMAIL_API source with client_id returns a valid Google auth URL."""
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={
+                "name": "Ready Gmail",
+                "method": "GMAIL_API",
+                "gmail_client_id": "123-abc.apps.googleusercontent.com",
+            },
+        )
+        source_id = create_resp.json()["id"]
+
+        resp = authed_client.get(f"/api/v1/mail-sources/{source_id}/gmail/authorize-url")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "authorization_url" in data
+        assert "accounts.google.com" in data["authorization_url"]
+        assert "123-abc.apps.googleusercontent.com" in data["authorization_url"]
+        assert "gmail.readonly" in data["authorization_url"]
+
+    def test_gmail_disconnect_clears_tokens(self, authed_client: TestClient):
+        """DELETE /gmail/connection clears stored OAuth tokens."""
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "Disconnect Test", "method": "GMAIL_API"},
+        )
+        source_id = create_resp.json()["id"]
+
+        resp = authed_client.delete(f"/api/v1/mail-sources/{source_id}/gmail/connection")
+        assert resp.status_code == 204
+
+    def test_gmail_disconnect_wrong_method_returns_400(self, authed_client: TestClient):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources", json={"name": "IMAP2", "method": "IMAP"}
+        )
+        source_id = create_resp.json()["id"]
+        resp = authed_client.delete(f"/api/v1/mail-sources/{source_id}/gmail/connection")
+        assert resp.status_code == 400
+
+    def test_gmail_fetch_no_token_returns_400(self, authed_client: TestClient):
+        """Fetch without OAuth tokens returns 400."""
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "No Token Gmail", "method": "GMAIL_API"},
+        )
+        source_id = create_resp.json()["id"]
+
+        resp = authed_client.post(f"/api/v1/mail-sources/{source_id}/gmail/fetch")
+        assert resp.status_code == 400
+
+    def test_gmail_fetch_wrong_method_returns_400(self, authed_client: TestClient):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources", json={"name": "IMAP3", "method": "IMAP"}
+        )
+        source_id = create_resp.json()["id"]
+        resp = authed_client.post(f"/api/v1/mail-sources/{source_id}/gmail/fetch")
+        assert resp.status_code == 400
+
+    def test_gmail_fetch_with_mocked_client(self, authed_client: TestClient):
+        """Fetch with valid token (mocked GmailClient) returns success summary."""
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={
+                "name": "Fetch Gmail",
+                "method": "GMAIL_API",
+                "gmail_client_id": "cid",
+                "gmail_client_secret": "csec",
+            },
+        )
+        source_id = create_resp.json()["id"]
+
+        mock_fetch_results = {
+            "success": True,
+            "processed": 3,
+            "reports_found": 2,
+            "new_domains": ["example.com"],
+            "errors": [],
+            "new_ingested_ids": ["id1", "id2", "id3"],
+        }
+        mock_client = MagicMock()
+        mock_client.fetch_reports.return_value = mock_fetch_results
+        mock_client.get_refreshed_tokens.return_value = None
+
+        with patch(
+            "app.api.api_v1.endpoints.mail_sources._get_source_or_404"
+        ) as mock_get, patch(
+            "app.api.api_v1.endpoints.mail_sources.GmailClient", return_value=mock_client
+        ):
+            mock_source = MagicMock()
+            mock_source.method = "GMAIL_API"
+            mock_source.gmail_access_token = "tok"
+            mock_source.gmail_refresh_token = "refresh"
+            mock_source.gmail_client_id = "cid"
+            mock_source.gmail_client_secret = "csec"
+            mock_source.gmail_ingested_ids = "[]"
+            mock_source.id = source_id
+            mock_get.return_value = mock_source
+
+            resp = authed_client.post(f"/api/v1/mail-sources/{source_id}/gmail/fetch")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["processed"] == 3
+        assert data["reports_found"] == 2
+        assert data["new_domains"] == ["example.com"]
+
+
+# ---------------------------------------------------------------------------
+# GmailClient unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestGmailClientHelpers:
+    """Unit tests for GmailClient static helpers."""
+
+    def test_load_ingested_ids_empty_string(self):
+        from app.services.gmail_client import GmailClient
+
+        assert GmailClient.load_ingested_ids("") == []
+
+    def test_load_ingested_ids_none(self):
+        from app.services.gmail_client import GmailClient
+
+        assert GmailClient.load_ingested_ids(None) == []
+
+    def test_load_ingested_ids_valid_json(self):
+        from app.services.gmail_client import GmailClient
+
+        result = GmailClient.load_ingested_ids('["id1", "id2"]')
+        assert result == ["id1", "id2"]
+
+    def test_load_ingested_ids_invalid_json(self):
+        from app.services.gmail_client import GmailClient
+
+        assert GmailClient.load_ingested_ids("not-json") == []
+
+    def test_dump_ingested_ids(self):
+        from app.services.gmail_client import GmailClient
+
+        result = GmailClient.dump_ingested_ids(["id1", "id2"])
+        assert '"id1"' in result
+        assert '"id2"' in result
+
+    def test_build_authorization_url(self):
+        from app.services.gmail_client import GmailClient
+
+        url = GmailClient.build_authorization_url(
+            client_id="test-client-id",
+            redirect_uri="https://example.com/callback",
+            state="42",
+        )
+        assert "accounts.google.com" in url
+        assert "test-client-id" in url
+        assert "gmail.readonly" in url
+        assert "offline" in url
+        assert "consent" in url
+
+    def test_build_authorization_url_no_state(self):
+        from app.services.gmail_client import GmailClient
+
+        url = GmailClient.build_authorization_url(
+            client_id="cid",
+            redirect_uri="https://example.com/cb",
+        )
+        assert "state=" not in url
+
+
+# ---------------------------------------------------------------------------
 # _sanitize_for_log helper
 # ---------------------------------------------------------------------------
 

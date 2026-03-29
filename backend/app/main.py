@@ -15,6 +15,7 @@ from app.core.database import Base, SessionLocal, engine
 from app.core.security import add_api_key, generate_api_key, require_admin_auth
 from app.middleware.security import SecurityHeadersMiddleware
 from app.models.mail_source import MailSource  # noqa: F401 – ensure table is registered
+from app.services.gmail_client import GmailClient
 from app.services.imap_client import IMAPClient
 from app.services.report_store import ReportStore
 
@@ -69,6 +70,66 @@ def _poll_single_imap_source(source: MailSource) -> None:
         )
 
 
+def _poll_single_gmail_source(source: MailSource) -> None:
+    """Fetch DMARC reports for a single GMAIL_API mail source."""
+    global last_check_time  # pylint: disable=global-statement
+
+    if not source.gmail_access_token:
+        logger.info(
+            "Gmail polling (source id=%d): skipped – OAuth2 not yet authorised",
+            source.id,
+        )
+        return
+
+    already = GmailClient.load_ingested_ids(source.gmail_ingested_ids)
+    client = GmailClient(
+        client_id=source.gmail_client_id or "",
+        client_secret=source.gmail_client_secret or "",
+        access_token=source.gmail_access_token,
+        refresh_token=source.gmail_refresh_token or "",
+        already_ingested_ids=already,
+    )
+
+    results = client.fetch_reports()
+
+    db = SessionLocal()
+    try:
+        src = db.query(MailSource).get(source.id)
+        if src:
+            if results.get("new_ingested_ids"):
+                all_ids = list(dict.fromkeys(already + results["new_ingested_ids"]))
+                src.gmail_ingested_ids = GmailClient.dump_ingested_ids(all_ids)
+
+            refreshed = client.get_refreshed_tokens()
+            if refreshed:
+                src.gmail_access_token = refreshed["access_token"]
+                if "refresh_token" in refreshed:
+                    src.gmail_refresh_token = refreshed["refresh_token"]
+
+            src.last_checked = datetime.utcnow()
+            db.commit()
+    finally:
+        db.close()
+
+    last_check_time = datetime.now()
+
+    if results["success"]:
+        logger.info(
+            "Gmail polling (source id=%d): %s emails processed, %s reports found",
+            source.id,
+            results["processed"],
+            results["reports_found"],
+        )
+        if results["new_domains"]:
+            logger.info("New domains found: %s", ", ".join(results["new_domains"]))
+    else:
+        logger.error(
+            "Gmail polling (source id=%d) failed: %s",
+            source.id,
+            results.get("error", "Unknown error"),
+        )
+
+
 def _poll_all_enabled_sources() -> None:
     """Iterate over all enabled mail sources and poll each one."""
     db = SessionLocal()
@@ -84,17 +145,22 @@ def _poll_all_enabled_sources() -> None:
         return
 
     for source in enabled_sources:
-        if source.method != "IMAP":
+        if source.method == "GMAIL_API":
+            try:
+                _poll_single_gmail_source(source)
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                logger.error("Error polling Gmail source id=%d: %s", source.id, str(e))
+        elif source.method == "IMAP":
+            try:
+                _poll_single_imap_source(source)
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                logger.error("Error polling mail source id=%d: %s", source.id, str(e))
+        else:
             logger.info(
                 "Skipping mail source id=%d method=%r (not yet implemented)",
                 source.id,
                 source.method,
             )
-            continue
-        try:
-            _poll_single_imap_source(source)
-        except Exception as e:  # pylint: disable=broad-exception-caught
-            logger.error("Error polling mail source id=%d: %s", source.id, str(e))
 
 
 def _next_sleep_seconds(min_sleep: int = 60) -> int:
@@ -386,48 +452,101 @@ async def trigger_imap_poll(auth: dict = Depends(require_admin_auth)):
             }
 
         for source in enabled_sources:
-            if source.method != "IMAP":
+            if source.method == "GMAIL_API":
+                if not source.gmail_access_token:
+                    results_summary.append(
+                        {
+                            "source_id": source.id,
+                            "name": source.name,
+                            "skipped": True,
+                            "reason": "Gmail account not yet authorised",
+                        }
+                    )
+                    continue
+                try:
+                    already = GmailClient.load_ingested_ids(source.gmail_ingested_ids)
+                    gmail_client = GmailClient(
+                        client_id=source.gmail_client_id or "",
+                        client_secret=source.gmail_client_secret or "",
+                        access_token=source.gmail_access_token,
+                        refresh_token=source.gmail_refresh_token or "",
+                        already_ingested_ids=already,
+                    )
+                    results = gmail_client.fetch_reports()
+                    last_check_time = datetime.now()
+
+                    if results.get("new_ingested_ids"):
+                        all_ids = list(dict.fromkeys(already + results["new_ingested_ids"]))
+                        source.gmail_ingested_ids = GmailClient.dump_ingested_ids(all_ids)
+                    refreshed = gmail_client.get_refreshed_tokens()
+                    if refreshed:
+                        source.gmail_access_token = refreshed["access_token"]
+                        if "refresh_token" in refreshed:
+                            source.gmail_refresh_token = refreshed["refresh_token"]
+                    source.last_checked = datetime.utcnow()
+                    db.commit()
+
+                    results_summary.append(
+                        {
+                            "source_id": source.id,
+                            "name": source.name,
+                            "success": results["success"],
+                            "processed": results.get("processed", 0),
+                            "reports_found": results.get("reports_found", 0),
+                            "new_domains": results.get("new_domains", []),
+                        }
+                    )
+                except Exception as e:  # pylint: disable=broad-exception-caught
+                    logger.error("Error polling Gmail source id=%d: %s", source.id, str(e))
+                    results_summary.append(
+                        {
+                            "source_id": source.id,
+                            "name": source.name,
+                            "success": False,
+                            "error": "Failed to poll. Check server logs for details.",
+                        }
+                    )
+            elif source.method == "IMAP":
+                try:
+                    imap_client = IMAPClient(
+                        server=source.server,
+                        port=source.port or 993,
+                        username=source.username,
+                        password=source.password,
+                        delete_emails=False,
+                    )
+                    results = imap_client.fetch_reports(days=7)
+                    last_check_time = datetime.now()
+                    source.last_checked = datetime.utcnow()
+                    db.commit()
+
+                    results_summary.append(
+                        {
+                            "source_id": source.id,
+                            "name": source.name,
+                            "success": results["success"],
+                            "processed": results.get("processed", 0),
+                            "reports_found": results.get("reports_found", 0),
+                            "new_domains": results.get("new_domains", []),
+                        }
+                    )
+                except Exception as e:  # pylint: disable=broad-exception-caught
+                    logger.error("Error polling mail source id=%d: %s", source.id, str(e))
+                    results_summary.append(
+                        {
+                            "source_id": source.id,
+                            "name": source.name,
+                            "success": False,
+                            "error": "Failed to poll. Check server logs for details.",
+                        }
+                    )
+            else:
                 results_summary.append(
                     {
                         "source_id": source.id,
                         "name": source.name,
                         "skipped": True,
                         "reason": f"method '{source.method}' not yet implemented",
-                    }
-                )
-                continue
-
-            try:
-                imap_client = IMAPClient(
-                    server=source.server,
-                    port=source.port or 993,
-                    username=source.username,
-                    password=source.password,
-                    delete_emails=False,
-                )
-                results = imap_client.fetch_reports(days=7)
-                last_check_time = datetime.now()
-                source.last_checked = datetime.utcnow()
-                db.commit()
-
-                results_summary.append(
-                    {
-                        "source_id": source.id,
-                        "name": source.name,
-                        "success": results["success"],
-                        "processed": results.get("processed", 0),
-                        "reports_found": results.get("reports_found", 0),
-                        "new_domains": results.get("new_domains", []),
-                    }
-                )
-            except Exception as e:  # pylint: disable=broad-exception-caught
-                logger.error("Error polling mail source id=%d: %s", source.id, str(e))
-                results_summary.append(
-                    {
-                        "source_id": source.id,
-                        "name": source.name,
-                        "success": False,
-                        "error": "Failed to poll. Check server logs for details.",
                     }
                 )
     finally:
