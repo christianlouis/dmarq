@@ -5,9 +5,11 @@ Covers API key management, domain validation, file upload limits, and XML parsin
 """
 
 import pytest
+from fastapi.testclient import TestClient
 
 import app.services.dmarc_parser as parser_module
 from app.core.security import add_api_key, generate_api_key, verify_api_key
+from app.main import create_app
 from app.services.dmarc_parser import DMARCParser
 from app.utils.domain_validator import validate_domain, validate_domain_config
 
@@ -151,3 +153,42 @@ class TestXMLParsingSecurity:
             assert "root:" not in org_name and "/bin" not in org_name
         except Exception:  # pylint: disable=broad-exception-caught
             pass  # Expected – defusedxml blocks DTD processing
+
+
+class TestAdminApiKeyStartup:
+    """Test admin API key loading during the application startup event."""
+
+    def test_startup_uses_env_api_key(self, monkeypatch):
+        """When ADMIN_API_KEY is configured, startup should register it directly."""
+        import app.core.security as sec_module
+        import app.main as main_module
+
+        test_key = "a" * 64
+        monkeypatch.setattr(main_module.settings, "ADMIN_API_KEY", test_key)
+
+        saved_keys = set(sec_module._api_keys)
+        sec_module._api_keys.clear()
+        try:
+            application = create_app()
+            with TestClient(application):
+                assert sec_module.verify_api_key(test_key)
+        finally:
+            sec_module._api_keys.clear()
+            sec_module._api_keys.update(saved_keys)
+
+    def test_startup_generates_key_when_no_env(self, monkeypatch):
+        """When ADMIN_API_KEY is not set, startup should generate a random key."""
+        import app.core.security as sec_module
+        import app.main as main_module
+
+        monkeypatch.setattr(main_module.settings, "ADMIN_API_KEY", None)
+
+        saved_keys = set(sec_module._api_keys)
+        sec_module._api_keys.clear()
+        try:
+            application = create_app()
+            with TestClient(application):
+                assert len(sec_module._api_keys) == 1
+        finally:
+            sec_module._api_keys.clear()
+            sec_module._api_keys.update(saved_keys)
