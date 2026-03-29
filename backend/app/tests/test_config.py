@@ -6,8 +6,6 @@ previously caused a JSONDecodeError in pydantic_settings v2 before validators
 could run (see: pydantic_settings sources/providers/env.py decode_complex_value).
 """
 
-import pytest
-
 from app.core.config import Settings
 
 
