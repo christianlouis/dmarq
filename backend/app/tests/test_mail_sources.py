@@ -799,6 +799,428 @@ def test_mail_sources_page_template_response():
 
 
 # ---------------------------------------------------------------------------
+# Gmail OAuth2 GET callback tests
+# ---------------------------------------------------------------------------
+
+
+class TestGmailCallbackGet:
+    """Tests for the browser-redirect GET /gmail/callback endpoint."""
+
+    def test_callback_error_param_returns_html_400(self, authed_client: TestClient):
+        """Google reports an error – return a user-facing HTML error page."""
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "CB Error", "method": "GMAIL_API"},
+        )
+        source_id = create_resp.json()["id"]
+
+        resp = authed_client.get(
+            f"/api/v1/mail-sources/{source_id}/gmail/callback?error=access_denied",
+        )
+        assert resp.status_code == 400
+        assert "authorisation failed" in resp.text.lower() or "failed" in resp.text.lower()
+
+    def test_callback_missing_code_returns_html_400(self, authed_client: TestClient):
+        """No code in the redirect – return a user-facing HTML error page."""
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "CB NoCode", "method": "GMAIL_API"},
+        )
+        source_id = create_resp.json()["id"]
+
+        resp = authed_client.get(f"/api/v1/mail-sources/{source_id}/gmail/callback")
+        assert resp.status_code == 400
+
+    def test_callback_unknown_source_returns_html_404(self, authed_client: TestClient):
+        """Source ID does not exist – return a user-facing HTML 404 page."""
+        resp = authed_client.get("/api/v1/mail-sources/99999/gmail/callback?code=xyz")
+        assert resp.status_code == 404
+
+    def test_callback_non_gmail_source_returns_html_404(self, authed_client: TestClient):
+        """Source is not a GMAIL_API source – return HTML 404."""
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources", json={"name": "IMAP CB", "method": "IMAP"}
+        )
+        source_id = create_resp.json()["id"]
+
+        resp = authed_client.get(
+            f"/api/v1/mail-sources/{source_id}/gmail/callback?code=xyz"
+        )
+        assert resp.status_code == 404
+
+    def test_callback_token_exchange_error_returns_html_400(self, authed_client: TestClient):
+        """Token exchange raises ValueError – return a user-facing HTML error page."""
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "CB TokenErr", "method": "GMAIL_API", "gmail_client_id": "cid"},
+        )
+        source_id = create_resp.json()["id"]
+
+        with patch(
+            "app.api.api_v1.endpoints.mail_sources.GmailClient.exchange_code_for_tokens",
+            side_effect=ValueError("bad token"),
+        ):
+            resp = authed_client.get(
+                f"/api/v1/mail-sources/{source_id}/gmail/callback?code=abc"
+            )
+
+        assert resp.status_code == 400
+        assert "token exchange failed" in resp.text.lower() or "failed" in resp.text.lower()
+
+    def test_callback_no_access_token_returns_html_400(self, authed_client: TestClient):
+        """Exchange succeeds but Google returns no access token – HTML 400."""
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "CB NoAccess", "method": "GMAIL_API", "gmail_client_id": "cid"},
+        )
+        source_id = create_resp.json()["id"]
+
+        with patch(
+            "app.api.api_v1.endpoints.mail_sources.GmailClient.exchange_code_for_tokens",
+            return_value={},  # empty – no access_token key
+        ):
+            resp = authed_client.get(
+                f"/api/v1/mail-sources/{source_id}/gmail/callback?code=abc"
+            )
+
+        assert resp.status_code == 400
+
+    def test_callback_success_saves_tokens_and_returns_html(self, authed_client: TestClient):
+        """Successful callback stores tokens and returns a success HTML page."""
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "CB Success", "method": "GMAIL_API", "gmail_client_id": "cid"},
+        )
+        source_id = create_resp.json()["id"]
+
+        with patch(
+            "app.api.api_v1.endpoints.mail_sources.GmailClient.exchange_code_for_tokens",
+            return_value={"access_token": "acc", "refresh_token": "ref"},
+        ), patch(
+            "app.api.api_v1.endpoints.mail_sources.GmailClient.get_gmail_email",
+            return_value="user@gmail.com",
+        ):
+            resp = authed_client.get(
+                f"/api/v1/mail-sources/{source_id}/gmail/callback?code=abc"
+            )
+
+        assert resp.status_code == 200
+        assert "connected successfully" in resp.text.lower() or "gmail" in resp.text.lower()
+
+        # Tokens should have been persisted
+        get_resp = authed_client.get(f"/api/v1/mail-sources/{source_id}")
+        assert get_resp.json()["gmail_connected"] is True
+        assert get_resp.json()["gmail_email"] == "user@gmail.com"
+
+    def test_callback_success_without_email(self, authed_client: TestClient):
+        """Successful callback where get_gmail_email returns None still saves token."""
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "CB NoEmail", "method": "GMAIL_API", "gmail_client_id": "cid"},
+        )
+        source_id = create_resp.json()["id"]
+
+        with patch(
+            "app.api.api_v1.endpoints.mail_sources.GmailClient.exchange_code_for_tokens",
+            return_value={"access_token": "acc"},  # no refresh token
+        ), patch(
+            "app.api.api_v1.endpoints.mail_sources.GmailClient.get_gmail_email",
+            return_value=None,
+        ):
+            resp = authed_client.get(
+                f"/api/v1/mail-sources/{source_id}/gmail/callback?code=abc"
+            )
+
+        assert resp.status_code == 200
+        get_resp = authed_client.get(f"/api/v1/mail-sources/{source_id}")
+        assert get_resp.json()["gmail_connected"] is True
+
+
+# ---------------------------------------------------------------------------
+# Gmail OAuth2 POST callback tests
+# ---------------------------------------------------------------------------
+
+
+class TestGmailCallbackPost:
+    """Tests for the JSON/programmatic POST /gmail/callback endpoint."""
+
+    def test_post_callback_wrong_method_returns_400(self, authed_client: TestClient):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources", json={"name": "IMAP CB Post", "method": "IMAP"}
+        )
+        source_id = create_resp.json()["id"]
+
+        resp = authed_client.post(
+            f"/api/v1/mail-sources/{source_id}/gmail/callback",
+            json={"code": "abc", "redirect_uri": "https://example.com/cb"},
+        )
+        assert resp.status_code == 400
+
+    def test_post_callback_token_exchange_error_returns_400(self, authed_client: TestClient):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "Post TokenErr", "method": "GMAIL_API"},
+        )
+        source_id = create_resp.json()["id"]
+
+        with patch(
+            "app.api.api_v1.endpoints.mail_sources.GmailClient.exchange_code_for_tokens",
+            side_effect=ValueError("bad exchange"),
+        ):
+            resp = authed_client.post(
+                f"/api/v1/mail-sources/{source_id}/gmail/callback",
+                json={"code": "abc", "redirect_uri": "https://example.com/cb"},
+            )
+
+        assert resp.status_code == 400
+
+    def test_post_callback_no_access_token_returns_400(self, authed_client: TestClient):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "Post NoAccess", "method": "GMAIL_API"},
+        )
+        source_id = create_resp.json()["id"]
+
+        with patch(
+            "app.api.api_v1.endpoints.mail_sources.GmailClient.exchange_code_for_tokens",
+            return_value={},
+        ):
+            resp = authed_client.post(
+                f"/api/v1/mail-sources/{source_id}/gmail/callback",
+                json={"code": "abc", "redirect_uri": "https://example.com/cb"},
+            )
+
+        assert resp.status_code == 400
+
+    def test_post_callback_success_returns_source(self, authed_client: TestClient):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "Post Success", "method": "GMAIL_API", "gmail_client_id": "cid"},
+        )
+        source_id = create_resp.json()["id"]
+
+        with patch(
+            "app.api.api_v1.endpoints.mail_sources.GmailClient.exchange_code_for_tokens",
+            return_value={"access_token": "acc", "refresh_token": "ref"},
+        ), patch(
+            "app.api.api_v1.endpoints.mail_sources.GmailClient.get_gmail_email",
+            return_value="user@gmail.com",
+        ):
+            resp = authed_client.post(
+                f"/api/v1/mail-sources/{source_id}/gmail/callback",
+                json={"code": "abc", "redirect_uri": "https://example.com/cb"},
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["gmail_connected"] is True
+        assert data["gmail_email"] == "user@gmail.com"
+
+    def test_post_callback_nonexistent_source_returns_404(self, authed_client: TestClient):
+        resp = authed_client.post(
+            "/api/v1/mail-sources/99999/gmail/callback",
+            json={"code": "abc", "redirect_uri": "https://example.com/cb"},
+        )
+        assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Additional Gmail fetch tests
+# ---------------------------------------------------------------------------
+
+
+class TestGmailFetchExtra:
+    """Extra fetch tests covering error and token-refresh branches."""
+
+    def test_gmail_fetch_with_errors_returns_error_count(self, authed_client: TestClient):
+        """Fetch that produces errors returns error_count rather than raw messages."""
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "Fetch Errors", "method": "GMAIL_API"},
+        )
+        source_id = create_resp.json()["id"]
+
+        mock_fetch_results = {
+            "success": False,
+            "processed": 1,
+            "reports_found": 0,
+            "new_domains": [],
+            "errors": ["failed to decode attachment A", "failed to decode attachment B"],
+            "new_ingested_ids": [],
+        }
+        mock_client = MagicMock()
+        mock_client.fetch_reports.return_value = mock_fetch_results
+        mock_client.get_refreshed_tokens.return_value = None
+
+        with patch(
+            "app.api.api_v1.endpoints.mail_sources._get_source_or_404"
+        ) as mock_get, patch(
+            "app.api.api_v1.endpoints.mail_sources.GmailClient", return_value=mock_client
+        ):
+            mock_source = MagicMock()
+            mock_source.method = "GMAIL_API"
+            mock_source.gmail_access_token = "tok"
+            mock_source.gmail_refresh_token = "ref"
+            mock_source.gmail_client_id = "cid"
+            mock_source.gmail_client_secret = "csec"
+            mock_source.gmail_ingested_ids = "[]"
+            mock_source.id = source_id
+            mock_get.return_value = mock_source
+
+            resp = authed_client.post(f"/api/v1/mail-sources/{source_id}/gmail/fetch")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["error_count"] == 2
+        # Raw error strings must NOT appear in the response
+        assert "errors" not in data or isinstance(data.get("errors"), int)
+        assert "failed to decode attachment A" not in str(data)
+
+    def test_gmail_fetch_with_refreshed_tokens_saves_them(self, authed_client: TestClient):
+        """Fetch that returns refreshed tokens persists the new tokens."""
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "Fetch Refresh", "method": "GMAIL_API"},
+        )
+        source_id = create_resp.json()["id"]
+
+        mock_fetch_results = {
+            "success": True,
+            "processed": 0,
+            "reports_found": 0,
+            "new_domains": [],
+            "errors": [],
+            "new_ingested_ids": [],
+        }
+        mock_client = MagicMock()
+        mock_client.fetch_reports.return_value = mock_fetch_results
+        mock_client.get_refreshed_tokens.return_value = {
+            "access_token": "new_access",
+            "refresh_token": "new_refresh",
+        }
+
+        with patch(
+            "app.api.api_v1.endpoints.mail_sources._get_source_or_404"
+        ) as mock_get, patch(
+            "app.api.api_v1.endpoints.mail_sources.GmailClient", return_value=mock_client
+        ):
+            mock_source = MagicMock()
+            mock_source.method = "GMAIL_API"
+            mock_source.gmail_access_token = "old_tok"
+            mock_source.gmail_refresh_token = "old_ref"
+            mock_source.gmail_client_id = "cid"
+            mock_source.gmail_client_secret = "csec"
+            mock_source.gmail_ingested_ids = "[]"
+            mock_source.id = source_id
+            mock_get.return_value = mock_source
+
+            resp = authed_client.post(f"/api/v1/mail-sources/{source_id}/gmail/fetch")
+
+        assert resp.status_code == 200
+        # Tokens should have been updated on the source object
+        assert mock_source.gmail_access_token == "new_access"
+        assert mock_source.gmail_refresh_token == "new_refresh"
+
+    def test_gmail_fetch_ingested_ids_are_merged(self, authed_client: TestClient):
+        """New ingested IDs are merged with existing ones without duplicates."""
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "Fetch IDs", "method": "GMAIL_API"},
+        )
+        source_id = create_resp.json()["id"]
+
+        mock_fetch_results = {
+            "success": True,
+            "processed": 2,
+            "reports_found": 2,
+            "new_domains": ["domain.example"],
+            "errors": [],
+            "new_ingested_ids": ["id2", "id3"],
+        }
+        mock_client = MagicMock()
+        mock_client.fetch_reports.return_value = mock_fetch_results
+        mock_client.get_refreshed_tokens.return_value = None
+
+        with patch(
+            "app.api.api_v1.endpoints.mail_sources._get_source_or_404"
+        ) as mock_get, patch(
+            "app.api.api_v1.endpoints.mail_sources.GmailClient", return_value=mock_client
+        ) as mock_gmail_class:
+            # Configure the class-level static helpers used inside the endpoint
+            mock_gmail_class.load_ingested_ids.return_value = ["id1"]
+            mock_gmail_class.dump_ingested_ids.return_value = '["id1","id2","id3"]'
+
+            mock_source = MagicMock()
+            mock_source.method = "GMAIL_API"
+            mock_source.gmail_access_token = "tok"
+            mock_source.gmail_refresh_token = "ref"
+            mock_source.gmail_client_id = "cid"
+            mock_source.gmail_client_secret = "csec"
+            mock_source.gmail_ingested_ids = '["id1"]'  # pre-existing ID
+            mock_source.id = source_id
+            mock_get.return_value = mock_source
+
+            resp = authed_client.post(f"/api/v1/mail-sources/{source_id}/gmail/fetch")
+
+        assert resp.status_code == 200
+        # dump_ingested_ids should have been called with all 3 IDs merged
+        args, _ = mock_gmail_class.dump_ingested_ids.call_args
+        merged_ids = args[0]
+        assert "id1" in merged_ids
+        assert "id2" in merged_ids
+        assert "id3" in merged_ids
+
+
+# ---------------------------------------------------------------------------
+# Gmail test-connection exception branch
+# ---------------------------------------------------------------------------
+
+
+class TestGmailTestConnectionFailure:
+    """Tests for the Gmail API test failure (exception) branch."""
+
+    def test_gmail_test_with_exception_returns_generic_message(self, authed_client: TestClient):
+        """When _build_service().execute() raises, return a generic error without the stack trace."""
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "Gmail Exc Test", "method": "GMAIL_API"},
+        )
+        source_id = create_resp.json()["id"]
+
+        mock_service = MagicMock()
+        mock_service.users.return_value.getProfile.return_value.execute.side_effect = (
+            Exception("internal oauth error: token expired")
+        )
+        mock_gmail_client = MagicMock()
+        mock_gmail_client._build_service.return_value = mock_service
+
+        with patch(
+            "app.api.api_v1.endpoints.mail_sources.GmailClient",
+            return_value=mock_gmail_client,
+        ), patch(
+            "app.api.api_v1.endpoints.mail_sources._get_source_or_404"
+        ) as mock_get:
+            mock_source = MagicMock()
+            mock_source.method = "GMAIL_API"
+            mock_source.gmail_access_token = "tok"
+            mock_source.gmail_email = None
+            mock_source.gmail_client_id = "cid"
+            mock_source.gmail_client_secret = "csec"
+            mock_source.gmail_refresh_token = "ref"
+            mock_get.return_value = mock_source
+
+            resp = authed_client.post(f"/api/v1/mail-sources/{source_id}/test")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is False
+        # Stack-trace / raw exception text must NOT be exposed to callers
+        assert "internal oauth error" not in data["message"]
+        assert "token expired" not in data["message"]
+        assert "check server logs" in data["message"].lower()
+
+
+# ---------------------------------------------------------------------------
 # Pytest marker to avoid warnings for test methods without assertions
 # ---------------------------------------------------------------------------
 pytestmark = pytest.mark.usefixtures("_reset_report_store")
