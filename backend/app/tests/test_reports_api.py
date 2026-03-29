@@ -173,3 +173,183 @@ def test_report_detail_html_page():
         response = c.get("/reports/123456789")
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
+
+
+# ---------------------------------------------------------------------------
+# Tests for GET /api/v1/reports  (cross-domain reports list)
+# ---------------------------------------------------------------------------
+
+
+def test_get_all_reports_empty(client: TestClient):
+    """GET /api/v1/reports returns an empty list when no reports have been uploaded."""
+    response = client.get("/api/v1/reports")
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_get_all_reports_single_report(client: TestClient):
+    """GET /api/v1/reports returns the report after a successful upload."""
+    zip_bytes = _make_zip(SAMPLE_XML)
+    client.post(
+        "/api/v1/reports/upload",
+        files={"file": ("report.zip", zip_bytes, "application/zip")},
+    )
+
+    response = client.get("/api/v1/reports")
+    assert response.status_code == 200
+    items = response.json()
+    assert len(items) == 1
+    item = items[0]
+    assert item["report_id"] == "123456789"
+    assert item["domain"] == "example.com"
+    assert item["org_name"] == "google.com"
+    assert "begin_date" in item
+    assert "end_date" in item
+    assert item["total_count"] == 2
+    # SAMPLE_XML has one record with count=2 and dkim=pass (DMARC passes on dkim pass)
+    assert item["passed_count"] >= 0
+    assert item["failed_count"] >= 0
+    assert isinstance(item["pass_rate"], float)
+
+
+def test_get_all_reports_multiple_domains(client: TestClient):
+    """GET /api/v1/reports returns reports from all domains."""
+    from app.services.report_store import ReportStore
+
+    store = ReportStore.get_instance()
+
+    report_a = {
+        "domain": "alpha.com",
+        "report_id": "rpt-alpha",
+        "org_name": "Google",
+        "email": "",
+        "begin_date": "2024-01-01T00:00:00",
+        "end_date": "2024-01-01T23:59:59",
+        "begin_timestamp": 1704067200,
+        "end_timestamp": 1704153599,
+        "policy": {"p": "none", "sp": "none", "pct": "100"},
+        "records": [],
+        "summary": {"total_count": 10, "passed_count": 10, "failed_count": 0},
+    }
+    report_b = {
+        "domain": "beta.com",
+        "report_id": "rpt-beta",
+        "org_name": "Microsoft",
+        "email": "",
+        "begin_date": "2024-01-02T00:00:00",
+        "end_date": "2024-01-02T23:59:59",
+        "begin_timestamp": 1704153600,
+        "end_timestamp": 1704239999,
+        "policy": {"p": "reject", "sp": "reject", "pct": "100"},
+        "records": [],
+        "summary": {"total_count": 5, "passed_count": 3, "failed_count": 2},
+    }
+    store.add_report(report_a)
+    store.add_report(report_b)
+
+    response = client.get("/api/v1/reports")
+    assert response.status_code == 200
+    items = response.json()
+    assert len(items) == 2
+    domains_returned = {item["domain"] for item in items}
+    assert domains_returned == {"alpha.com", "beta.com"}
+
+
+def test_get_all_reports_sorted_by_end_date_desc(client: TestClient):
+    """GET /api/v1/reports returns items sorted by end_date descending."""
+    from app.services.report_store import ReportStore
+
+    store = ReportStore.get_instance()
+
+    older = {
+        "domain": "example.com",
+        "report_id": "rpt-older",
+        "org_name": "OrgA",
+        "email": "",
+        "begin_date": "2023-06-01T00:00:00",
+        "end_date": "2023-06-01T23:59:59",
+        "begin_timestamp": 1685577600,
+        "end_timestamp": 1685663999,
+        "policy": {"p": "none"},
+        "records": [],
+        "summary": {"total_count": 4, "passed_count": 4, "failed_count": 0},
+    }
+    newer = {
+        "domain": "example.com",
+        "report_id": "rpt-newer",
+        "org_name": "OrgA",
+        "email": "",
+        "begin_date": "2024-01-01T00:00:00",
+        "end_date": "2024-01-01T23:59:59",
+        "begin_timestamp": 1704067200,
+        "end_timestamp": 1704153599,
+        "policy": {"p": "none"},
+        "records": [],
+        "summary": {"total_count": 6, "passed_count": 6, "failed_count": 0},
+    }
+    store.add_report(older)
+    store.add_report(newer)
+
+    response = client.get("/api/v1/reports")
+    assert response.status_code == 200
+    items = response.json()
+    assert len(items) == 2
+    # Newest end_date should come first
+    assert items[0]["report_id"] == "rpt-newer"
+    assert items[1]["report_id"] == "rpt-older"
+
+
+def test_get_all_reports_pass_rate_computed_correctly(client: TestClient):
+    """pass_rate is computed from passed_count / total_count * 100."""
+    from app.services.report_store import ReportStore
+
+    store = ReportStore.get_instance()
+
+    report = {
+        "domain": "example.com",
+        "report_id": "rpt-rate",
+        "org_name": "OrgB",
+        "email": "",
+        "begin_date": "2024-03-01T00:00:00",
+        "end_date": "2024-03-01T23:59:59",
+        "begin_timestamp": 1709251200,
+        "end_timestamp": 1709337599,
+        "policy": {"p": "none"},
+        "records": [],
+        "summary": {"total_count": 8, "passed_count": 6, "failed_count": 2},
+    }
+    store.add_report(report)
+
+    response = client.get("/api/v1/reports")
+    assert response.status_code == 200
+    items = response.json()
+    assert len(items) == 1
+    assert items[0]["pass_rate"] == 75.0
+
+
+def test_get_all_reports_zero_total_gives_zero_pass_rate(client: TestClient):
+    """pass_rate is 0.0 when total_count is 0 (no division by zero)."""
+    from app.services.report_store import ReportStore
+
+    store = ReportStore.get_instance()
+
+    report = {
+        "domain": "example.com",
+        "report_id": "rpt-zero",
+        "org_name": "OrgC",
+        "email": "",
+        "begin_date": "2024-04-01T00:00:00",
+        "end_date": "2024-04-01T23:59:59",
+        "begin_timestamp": 1711929600,
+        "end_timestamp": 1712015999,
+        "policy": {"p": "none"},
+        "records": [],
+        "summary": {"total_count": 0, "passed_count": 0, "failed_count": 0},
+    }
+    store.add_report(report)
+
+    response = client.get("/api/v1/reports")
+    assert response.status_code == 200
+    items = response.json()
+    assert len(items) == 1
+    assert items[0]["pass_rate"] == 0.0

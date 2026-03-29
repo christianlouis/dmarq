@@ -24,14 +24,6 @@
                         </select>
                     </div>
                     <div class="w-full sm:w-auto">
-                        <label class="block text-sm font-medium mb-1">Report Type</label>
-                        <select class="select select-bordered w-full" x-model="filters.reportType">
-                            <option value="">All Types</option>
-                            <option value="aggregate">Aggregate (RUA)</option>
-                            <option value="forensic">Forensic (RUF)</option>
-                        </select>
-                    </div>
-                    <div class="w-full sm:w-auto">
                         <label class="block text-sm font-medium mb-1">Date Range</label>
                         <select class="select select-bordered w-full" x-model="filters.dateRange">
                             <option value="7">Last 7 days</option>
@@ -80,33 +72,34 @@
                         <template x-for="(report, index) in filteredReports" :key="index">
                             {% call tr() %}
                                 {% call td() %}
-                                    <div x-text="formatDate(report.date)"></div>
+                                    <div x-text="formatDate(report.end_date)"></div>
                                 {% endcall %}
                                 {% call td() %}
-                                    <div class="inline-flex items-center px-2 py-1 rounded text-xs" 
-                                         :class="report.type === 'aggregate' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'">
-                                        <span x-text="report.type === 'aggregate' ? 'Aggregate' : 'Forensic'"></span>
+                                    <div class="inline-flex items-center px-2 py-1 rounded text-xs bg-blue-100 text-blue-800">
+                                        Aggregate
                                     </div>
                                 {% endcall %}
                                 {% call td() %}
                                     <div class="font-medium" x-text="report.domain"></div>
                                 {% endcall %}
                                 {% call td() %}
-                                    <div x-text="report.organization"></div>
+                                    <div x-text="report.org_name"></div>
                                 {% endcall %}
                                 {% call td() %}
-                                    <div x-text="report.messages"></div>
+                                    <div x-text="report.total_count"></div>
                                 {% endcall %}
                                 {% call td() %}
                                     <div class="inline-flex items-center px-2 py-1 rounded" 
-                                         :class="getPassRateColor(report.passRate)">
-                                        <span x-text="report.passRate + '%'"></span>
+                                         :class="getPassRateColor(report.pass_rate)">
+                                        <span x-text="report.pass_rate + '%'"></span>
                                     </div>
                                 {% endcall %}
                                 {% call td("text-right") %}
-                                    {% call button(variant="outline", size="sm") %}
-                                        View Details
-                                    {% endcall %}
+                                    <a :href="`/reports/${report.report_id}`">
+                                        {% call button(variant="outline", size="sm") %}
+                                            View Details
+                                        {% endcall %}
+                                    </a>
                                 {% endcall %}
                             {% endcall %}
                         </template>
@@ -124,43 +117,14 @@ function reportsApp() {
     return {
         filters: {
             domain: '',
-            reportType: '',
             dateRange: '30'
         },
-        domains: ['example.com', 'mydomain.com'],
-        reports: [
-            {
-                id: 1,
-                date: '2023-04-15',
-                type: 'aggregate',
-                domain: 'example.com',
-                organization: 'Google',
-                messages: 128,
-                passRate: 96
-            },
-            {
-                id: 2,
-                date: '2023-04-15',
-                type: 'aggregate',
-                domain: 'mydomain.com',
-                organization: 'Microsoft',
-                messages: 64,
-                passRate: 100
-            },
-            {
-                id: 3,
-                date: '2023-04-14',
-                type: 'forensic',
-                domain: 'example.com',
-                organization: 'Yahoo',
-                messages: 1,
-                passRate: 0
-            }
-        ],
+        domains: [],
+        reports: [],
+        loading: false,
         
         init() {
-            // When API is ready, fetch reports from server
-            // this.fetchReports();
+            this.fetchReports();
         },
         
         get filteredReports() {
@@ -170,18 +134,13 @@ function reportsApp() {
                     return false;
                 }
                 
-                // Filter by report type
-                if (this.filters.reportType && report.type !== this.filters.reportType) {
-                    return false;
-                }
-                
                 // Filter by date range
                 if (this.filters.dateRange !== 'all') {
                     const days = parseInt(this.filters.dateRange);
                     const cutoff = new Date();
                     cutoff.setDate(cutoff.getDate() - days);
                     
-                    const reportDate = new Date(report.date);
+                    const reportDate = new Date(report.end_date);
                     if (reportDate < cutoff) {
                         return false;
                     }
@@ -203,14 +162,17 @@ function reportsApp() {
         },
         
         async fetchReports() {
+            this.loading = true;
             try {
                 const response = await fetch('/api/v1/reports');
                 this.reports = await response.json();
                 
-                // Extract unique domains
-                this.domains = [...new Set(this.reports.map(r => r.domain))];
+                // Extract unique domains for the filter dropdown
+                this.domains = [...new Set(this.reports.map(r => r.domain))].sort();
             } catch (error) {
                 console.error('Error fetching reports:', error);
+            } finally {
+                this.loading = false;
             }
         }
     }

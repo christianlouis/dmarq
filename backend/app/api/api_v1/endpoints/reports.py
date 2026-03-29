@@ -132,6 +132,20 @@ class ReportSummary(BaseModel):
     failed_count: int
 
 
+class AllReportsItem(BaseModel):
+    """Single report item for the cross-domain reports list"""
+
+    report_id: str
+    domain: str
+    org_name: str
+    begin_date: str
+    end_date: str
+    total_count: int
+    passed_count: int
+    failed_count: int
+    pass_rate: float
+
+
 class PaginatedReportResponse(BaseModel):
     """Paginated reports response model"""
 
@@ -214,6 +228,42 @@ async def upload_report(file: UploadFile = File(...)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error processing report. Please contact support if this persists.",
         ) from e
+
+
+@router.get("", response_model=List[AllReportsItem])
+async def get_all_reports():
+    """
+    Get all DMARC reports across all domains, sorted by end_date descending.
+    """
+    store = ReportStore.get_instance()
+    domains = store.get_domains()
+
+    all_reports: List[AllReportsItem] = []
+    for domain in domains:
+        domain_reports = store.get_domain_reports(domain)
+        for report in domain_reports:
+            summary = report.get("summary", {})
+            total = summary.get("total_count", 0)
+            passed = summary.get("passed_count", 0)
+            pass_rate = round(passed / total * 100, 1) if total > 0 else 0.0
+            all_reports.append(
+                AllReportsItem(
+                    report_id=report.get("report_id", ""),
+                    domain=domain,
+                    org_name=report.get("org_name", ""),
+                    begin_date=str(report.get("begin_date", "")),
+                    end_date=str(report.get("end_date", "")),
+                    total_count=total,
+                    passed_count=passed,
+                    failed_count=summary.get("failed_count", 0),
+                    pass_rate=pass_rate,
+                )
+            )
+
+    # end_date is stored in ISO 8601 format (YYYY-MM-DDTHH:MM:SS), so lexicographic
+    # sorting produces correct chronological order.
+    all_reports.sort(key=lambda r: r.end_date, reverse=True)
+    return all_reports
 
 
 @router.get("/domains", response_model=List[str])
