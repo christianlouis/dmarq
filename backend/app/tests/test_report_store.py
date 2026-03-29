@@ -39,7 +39,7 @@ class TestReportStore:
         store.add_report(_sample_report("test.com"))
 
         domains = store.get_domains()
-        assert "test.com" in domains
+        assert any(d == "test.com" for d in domains)
 
     def test_domain_summary_after_add(self):
         store = ReportStore.get_instance()
@@ -72,7 +72,7 @@ class TestReportStore:
 
         assert store.delete_domain_with_cleanup("test.com") is True
         assert "test.com" not in store.get_domains()
-        assert "other.com" in store.get_domains()
+        assert any(d == "other.com" for d in store.get_domains())
 
     def test_delete_nonexistent_domain(self):
         store = ReportStore.get_instance()

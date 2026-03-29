@@ -84,7 +84,7 @@ def test_upload_populates_domains_list(client: TestClient):
     response = client.get("/api/v1/reports/domains")
     assert response.status_code == 200
     domains = response.json()
-    assert "example.com" in domains
+    assert any(d == "example.com" for d in domains)
 
 
 def test_reports_domains_empty(client: TestClient):
