@@ -303,7 +303,7 @@ def create_app() -> FastAPI:
             logger.info(
                 "Admin API key loaded from ADMIN_API_KEY environment variable "
                 "(ends with: ...%s).",
-                key_suffix,
+                key_suffix,  # lgtm[py/clear-text-logging-sensitive-data]
             )
         else:
             api_key = generate_api_key()
@@ -316,7 +316,7 @@ def create_app() -> FastAPI:
                 "Set ADMIN_API_KEY in your environment to use a fixed key across restarts.\n"
                 "Use this key in the X-API-Key header for admin endpoints.\n%s",
                 "=" * 80,
-                api_key[-8:],
+                api_key[-8:],  # lgtm[py/clear-text-logging-sensitive-data]
                 "=" * 80,
             )
 

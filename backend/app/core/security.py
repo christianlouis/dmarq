@@ -76,7 +76,7 @@ def add_api_key(api_key: str) -> bool:
     if api_key in _api_keys:
         return False
     _api_keys.add(api_key)
-    logger.info("API key added (ends with: ...%s)", api_key[-8:])
+    logger.info("API key added (ends with: ...%s)", api_key[-8:])  # lgtm[py/clear-text-logging-sensitive-data]
     return True
 
 

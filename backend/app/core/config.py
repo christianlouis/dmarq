@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     ADMIN_API_KEY: Optional[str] = None
 
     @validator("ADMIN_API_KEY", pre=True, always=True)
+    @classmethod
     def validate_admin_api_key(cls, v: Optional[str]) -> Optional[str]:  # pylint: disable=no-self-argument
         """Warn if ADMIN_API_KEY is set but too short."""
         if v is not None and len(v) < 32:
