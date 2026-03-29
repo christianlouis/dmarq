@@ -463,7 +463,7 @@ function mailSourcesApp() {
                 polling_interval: source.polling_interval || 60,
                 enabled: source.enabled !== false,
                 gmail_client_id: source.gmail_client_id || '',
-                gmail_client_secret: source.gmail_client_secret ? '' : '',  // never pre-fill
+                gmail_client_secret: '',  // never pre-fill client secret
             };
             this.testResult = { message: '', success: false };
             this.showForm = true;

@@ -39,7 +39,10 @@ class MailSource(Base):
     folder = Column(String, default="INBOX")
 
     # Gmail API OAuth2 credentials (used by GMAIL_API method)
-    # NOTE: tokens stored in plaintext – encrypt at the app layer in production.
+    # NOTE: tokens and secrets are stored in plaintext – in a production
+    # environment these fields should be encrypted at the application layer
+    # (e.g. using Fernet/AES) before persisting, the same way IMAP passwords
+    # should be.  Treat database access as equivalent to credential access.
     gmail_client_id = Column(String, nullable=True)
     gmail_client_secret = Column(Text, nullable=True)
     gmail_access_token = Column(Text, nullable=True)

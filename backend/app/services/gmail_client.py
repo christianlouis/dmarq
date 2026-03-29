@@ -11,7 +11,7 @@ import base64
 import email
 import json
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
 
 import httpx
@@ -295,10 +295,7 @@ class GmailClient:
         """
         try:
             msg_data = (
-                service.users()
-                .messages()
-                .get(userId="me", id=msg_id, format="raw")
-                .execute()
+                service.users().messages().get(userId="me", id=msg_id, format="raw").execute()
             )
         except HttpError as exc:
             logger.error("Gmail API: failed to fetch message %s: %s", msg_id, exc)
