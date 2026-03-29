@@ -66,9 +66,7 @@ def _validate_upload_file(file: UploadFile, file_content: bytes) -> None:
     """
     # Security: Validate filename is provided
     if not file.filename:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Filename is required"
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Filename is required")
 
     # Security: Validate file extension
     file_ext = "." + file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
@@ -97,13 +95,9 @@ def _handle_upload_value_error(filename: str, error_message: str) -> None:
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File too large"
         )
     elif "zip bomb" in error_message.lower():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid archive file"
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid archive file")
     else:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid report format"
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid report format")
 
 
 class UploadResponse(BaseModel):
