@@ -18,7 +18,9 @@ if config.config_file_name is not None:
 # Override sqlalchemy.url with DATABASE_URL environment variable when present
 database_url = os.environ.get("DATABASE_URL")
 if database_url:
-    config.set_main_option("sqlalchemy.url", database_url)
+    from app.core.database import _make_sync_db_url  # noqa: E402
+
+    config.set_main_option("sqlalchemy.url", _make_sync_db_url(database_url))
 
 # Import all models so that autogenerate can detect them
 from app.core.database import Base  # noqa: E402
