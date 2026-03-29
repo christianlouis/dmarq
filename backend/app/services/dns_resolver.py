@@ -17,6 +17,16 @@ logger = logging.getLogger(__name__)
 
 def _sanitize_for_log(value: str) -> str:
     """
+    Remove characters that could be used for log injection from a string.
+
+    Currently strips carriage returns and newlines to prevent forged log lines.
+    """
+    return value.replace("\r", "").replace("\n", "")
+
+
+
+def _sanitize_for_log(value: str) -> str:
+    """
     Remove newline and carriage return characters from log values to prevent
     log injection through user-controlled input.
     """
@@ -83,7 +93,8 @@ class BaseDNSProvider(ABC):
     # ------------------------------------------------------------------
     # High-level record checks built on top of lookup_txt
     # ------------------------------------------------------------------
-
+            safe_domain = _sanitize_for_log(domain)
+            logger.debug("DMARC lookup failed for %s: %s", safe_domain, exc)
     async def check_dmarc(self, domain: str) -> Tuple[bool, Optional[str]]:
         """Return *(found, record_string)* for the domain's DMARC TXT record."""
         try:
@@ -94,7 +105,8 @@ class BaseDNSProvider(ABC):
         except LookupError as exc:
             logger.debug("DMARC lookup failed for %s: %s", _sanitize_for_log(domain), exc)
         return False, None
-
+            safe_domain = _sanitize_for_log(domain)
+            logger.debug("SPF lookup failed for %s: %s", safe_domain, exc)
     async def check_spf(self, domain: str) -> Tuple[bool, Optional[str]]:
         """Return *(found, record_string)* for the domain's SPF TXT record."""
         try:
@@ -108,8 +120,13 @@ class BaseDNSProvider(ABC):
 
     async def check_dkim(
         self, domain: str, selectors: List[str]
+                safe_selector = _sanitize_for_log(selector)
+                safe_domain = _sanitize_for_log(domain)
     ) -> Tuple[bool, Optional[str], Optional[str]]:
-        """Return *(found, selector, record_string)* for the first working DKIM selector."""
+                    "DKIM lookup failed for selector=%s domain=%s: %s",
+                    safe_selector,
+                    safe_domain,
+                    exc,
         for selector in selectors:
             try:
                 records = await self.lookup_txt(f"{selector}._domainkey.{domain}")
