@@ -15,7 +15,7 @@ from app.core.database import Base, SessionLocal, engine
 from app.core.security import add_api_key, generate_api_key, require_admin_auth
 from app.middleware.security import SecurityHeadersMiddleware
 from app.models.mail_source import MailSource  # noqa: F401 – ensure table is registered
-from app.models.user import User  # noqa: F401 – ensure mapper is registered before UserDomain resolves "User"
+from app.models.user import User  # noqa: F401 – ensure User mapper is registered
 from app.services.imap_client import IMAPClient
 from app.services.report_store import ReportStore
 
