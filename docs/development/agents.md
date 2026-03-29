@@ -64,7 +64,7 @@ Give your AI assistant context about DMARQ:
 
 ```markdown
 DMARQ is a self-hosted DMARC monitoring platform built with:
-- Backend: FastAPI (Python 3.10+)
+- Backend: FastAPI (Python 3.13+)
 - Database: SQLAlchemy ORM (PostgreSQL/SQLite)
 - Templates: Jinja2 with Tailwind CSS
 - Architecture: RESTful API with server-side rendering

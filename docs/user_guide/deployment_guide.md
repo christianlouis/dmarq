@@ -99,7 +99,7 @@ For environments where Docker isn't available, you can install DMARQ manually.
 
 ### Prerequisites
 
-- Python 3.9 or higher
+- Python 3.13 or higher
 - pip and virtualenv
 - Node.js 16+ (if modifying frontend assets)
 

@@ -27,7 +27,7 @@ backend/app/tests/
 
 ### Prerequisites
 
-- Python 3.10+
+- Python 3.13+
 - Dependencies from `backend/requirements.txt`
 
 ### Installation
@@ -143,7 +143,7 @@ isort backend/app
 Tests run automatically on every push and PR via GitHub Actions (`.github/workflows/test.yml`).
 
 The CI workflow:
-1. Installs dependencies (Python 3.10)
+1. Installs dependencies (Python 3.13)
 2. Runs `pytest` with coverage
 3. Runs linting checks (Black, isort, Flake8, Pylint)
 4. Uploads coverage to Codecov

@@ -23,7 +23,7 @@ The core of DMARQ is a FastAPI application that provides:
 - Background task processing
 
 **Key Technologies:**
-- Python 3.9+
+- Python 3.13+
 - FastAPI framework
 - Pydantic for data validation
 - SQLAlchemy ORM for database access

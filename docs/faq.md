@@ -31,7 +31,7 @@ The minimum requirements are:
 - 2GB RAM (4GB+ recommended for production)
 - 20GB storage
 - Docker Engine 20.10.0+ (for Docker installation)
-- Python 3.9+ (for manual installation)
+- Python 3.13+ (for manual installation)
 
 ### How do I install DMARQ?
 
