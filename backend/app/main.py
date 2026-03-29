@@ -267,7 +267,7 @@ def create_app() -> FastAPI:
     return application
 
 
-app = create_app()
+app = create_app()  # noqa: F811 – intentional rebind; `app` package imported above for side-effects
 
 # Initialize Jinja2 templates
 templates_dir = os.path.join(os.path.dirname(__file__), "templates")
