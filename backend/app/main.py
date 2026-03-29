@@ -581,8 +581,8 @@ async def trigger_imap_poll(auth: dict = Depends(require_admin_auth)):
     }
 
 
-# API endpoint to check status of IMAP polling
-@app.get("/api/v1/admin/poll-status")
+# API endpoint to check status of IMAP polling (public, read-only)
+@app.get("/api/v1/poll-status")
 async def get_poll_status():
     """
     Get the status of IMAP polling (read-only, no authentication required).
