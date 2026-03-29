@@ -241,11 +241,6 @@ def create_app() -> FastAPI:
             "=" * 80,
         )
 
-        # In development, also log the full key for convenience
-        # This should be removed in production or controlled by environment variable
-        if os.getenv("ENVIRONMENT", "development") == "development":
-            logger.info("Development Mode - Full API Key: %s", api_key)
-
         # One-time migration: if IMAP_* env vars are set and no mail sources exist,
         # create an initial MailSource from those settings so existing deployments
         # continue to work without manual reconfiguration.
