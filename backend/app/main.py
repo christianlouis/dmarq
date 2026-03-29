@@ -53,14 +53,10 @@ async def scheduled_imap_polling():
 
                     # If new domains were found, log them
                     if results["new_domains"]:
-                        logger.info(
-                            "New domains found: %s", ", ".join(results["new_domains"])
-                        )
+                        logger.info("New domains found: %s", ", ".join(results["new_domains"]))
 
                 else:
-                    logger.error(
-                        "IMAP polling failed: %s", results.get("error", "Unknown error")
-                    )
+                    logger.error("IMAP polling failed: %s", results.get("error", "Unknown error"))
 
             except Exception as e:  # pylint: disable=broad-exception-caught
                 logger.error("Error in IMAP polling task: %s", str(e))

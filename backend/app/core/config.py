@@ -74,7 +74,9 @@ class Settings(BaseSettings):
         return v
 
     @validator("BACKEND_CORS_ORIGINS", pre=True)
-    def assemble_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:  # pylint: disable=no-self-argument
+    def assemble_cors_origins(
+        cls, v: Union[str, List[str]]
+    ) -> List[str]:  # pylint: disable=no-self-argument
         if isinstance(v, str) and not v.startswith("["):
             return [i.strip() for i in v.split(",")]
         if isinstance(v, (list, str)):

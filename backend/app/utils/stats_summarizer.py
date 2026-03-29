@@ -130,9 +130,7 @@ class StatsSummarizer:
         safe_domain = domain_id.replace(".", "_").replace("/", "_")
         return os.path.join(self.cache_dir, f"domain_{safe_domain}.json")
 
-    def calculate_summary_statistics(
-        self, _db, domain_id: Optional[str] = None
-    ) -> Dict[str, Any]:
+    def calculate_summary_statistics(self, _db, domain_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Calculate summary statistics from the database
 

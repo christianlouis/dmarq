@@ -392,8 +392,6 @@ class IMAPClient:
                             reports_found += 1
                             logger.info("Successfully processed DMARC report: %s", filename)
                         except Exception as e:  # pylint: disable=broad-exception-caught
-                            logger.error(
-                                "Error processing attachment %s: %s", filename, str(e)
-                            )
+                            logger.error("Error processing attachment %s: %s", filename, str(e))
 
         return reports_found

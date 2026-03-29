@@ -237,9 +237,7 @@ class DMARCParser:
             # Log parse results for debugging
             total_count = report["summary"]["total_count"]
             logger.info("Parsed DMARC report for domain: %s", report.get("domain"))
-            logger.info(
-                "Found %s record entries with %s total messages", len(records), total_count
-            )
+            logger.info("Found %s record entries with %s total messages", len(records), total_count)
             logger.info(
                 "Messages passed: %s, failed: %s",
                 report["summary"]["passed_count"],
