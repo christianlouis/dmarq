@@ -5,7 +5,7 @@ from typing import List, Optional, Union
 
 # Try to import from pydantic_settings first (newer versions)
 try:
-    from pydantic import EmailStr, validator
+    from pydantic import EmailStr, validator  # pylint: disable=ungrouped-imports
     from pydantic_settings import BaseSettings
 except ImportError:
     # Fall back to older pydantic version
@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     CLOUDFLARE_ZONE_ID: Optional[str] = None
 
     @validator("SECRET_KEY", pre=True, always=True)
-    def validate_secret_key(cls, v: Optional[str]) -> str:
+    def validate_secret_key(cls, v: Optional[str]) -> str:  # pylint: disable=no-self-argument
         """Validate and generate SECRET_KEY if not provided."""
         # Default insecure key that should never be used
         DEFAULT_INSECURE_KEY = "CHANGE_THIS_TO_A_RANDOM_SECRET_IN_PRODUCTION"
@@ -66,17 +66,20 @@ class Settings(BaseSettings):
         # Check if key is too short
         if len(v) < 32:
             logger.warning(
-                f"SECRET_KEY is too short ({len(v)} characters). "
-                "Recommended minimum is 32 characters for security."
+                "SECRET_KEY is too short (%s characters). "
+                "Recommended minimum is 32 characters for security.",
+                len(v),
             )
 
         return v
 
     @validator("BACKEND_CORS_ORIGINS", pre=True)
-    def assemble_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
+    def assemble_cors_origins(  # pylint: disable=no-self-argument
+        cls, v: Union[str, List[str]]
+    ) -> List[str]:
         if isinstance(v, str) and not v.startswith("["):
             return [i.strip() for i in v.split(",")]
-        elif isinstance(v, (list, str)):
+        if isinstance(v, (list, str)):
             return v
         raise ValueError(v)
 

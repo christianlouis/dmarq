@@ -5,6 +5,8 @@ Covers API key management, domain validation, file upload limits, and XML parsin
 """
 
 import pytest
+
+import app.services.dmarc_parser as parser_module
 from app.core.security import add_api_key, generate_api_key, verify_api_key
 from app.services.dmarc_parser import DMARCParser
 from app.utils.domain_validator import validate_domain, validate_domain_config
@@ -123,8 +125,6 @@ class TestXMLParsingSecurity:
     """Test XML parsing security (defusedxml, XXE protection)."""
 
     def test_defusedxml_is_used(self):
-        import app.services.dmarc_parser as parser_module
-
         assert hasattr(parser_module, "ET")
         module_info = str(getattr(parser_module.ET, "__name__", "")) + str(
             getattr(parser_module.ET, "__module__", "")
@@ -149,5 +149,5 @@ class TestXMLParsingSecurity:
             result = DMARCParser.parse_file(xxe_payload, "test.xml")
             org_name = result.get("org_name", "")
             assert "root:" not in org_name and "/bin" not in org_name
-        except Exception:
+        except Exception:  # pylint: disable=broad-exception-caught
             pass  # Expected – defusedxml blocks DTD processing

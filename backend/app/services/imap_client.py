@@ -18,7 +18,7 @@ class IMAPClient:
     Client for retrieving DMARC reports from an IMAP mailbox
     """
 
-    def __init__(
+    def __init__(  # pylint: disable=too-many-positional-arguments,too-many-arguments
         self,
         server: str = None,
         port: int = None,
@@ -63,7 +63,7 @@ class IMAPClient:
                         if mailbox_name.startswith(" "):
                             mailbox_name = mailbox_name[1:]
                         available_mailboxes.append(mailbox_name)
-                except Exception:
+                except Exception:  # pylint: disable=broad-exception-caught
                     # Silently skip mailboxes that can't be parsed; they are simply
                     # omitted from the returned list so callers should expect it may
                     # be incomplete.  Some IMAP servers return non-standard list
@@ -130,8 +130,8 @@ class IMAPClient:
             }
 
             return True, "Connection successful", stats
-        except Exception as e:
-            logger.error(f"IMAP connection test failed: {str(e)}")
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("IMAP connection test failed: %s", str(e))
             return False, f"Connection failed: {str(e)}", {}
 
     def _process_single_email(self, mail, email_id: bytes, stats: dict) -> None:
@@ -139,7 +139,7 @@ class IMAPClient:
         try:
             status, msg_data = mail.fetch(email_id, "(RFC822)")
             if status != "OK":
-                logger.error(f"Error fetching email ID {email_id}")
+                logger.error("Error fetching email ID %s", email_id)
                 return
 
             raw_email = msg_data[0][1]
@@ -155,7 +155,7 @@ class IMAPClient:
                     mail.store(email_id, "+FLAGS", "\\Deleted")
 
                 stats["processed"] += 1
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             error_msg = f"Error processing email ID {email_id}: {str(e)}"
             logger.error(error_msg)
             stats["errors"].append(error_msg)
@@ -225,8 +225,8 @@ class IMAPClient:
 
             return stats
 
-        except Exception as e:
-            logger.error(f"Error fetching DMARC reports: {str(e)}")
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Error fetching DMARC reports: %s", str(e))
             return {
                 "success": False,
                 "error": f"Error connecting to mailbox: {str(e)}",
@@ -339,12 +339,12 @@ class IMAPClient:
 
                 # Check content type
                 content_type = part.get_content_type()
-                if (
-                    content_type == "application/zip"
-                    or content_type == "application/gzip"
-                    or content_type == "application/x-gzip"
-                    or content_type == "application/xml"
-                    or content_type == "text/xml"
+                if content_type in (
+                    "application/zip",
+                    "application/gzip",
+                    "application/x-gzip",
+                    "application/xml",
+                    "text/xml",
                 ):
                     return True
 
@@ -390,8 +390,8 @@ class IMAPClient:
                             self.report_store.add_report(report)
 
                             reports_found += 1
-                            logger.info(f"Successfully processed DMARC report: {filename}")
-                        except Exception as e:
-                            logger.error(f"Error processing attachment {filename}: {str(e)}")
+                            logger.info("Successfully processed DMARC report: %s", filename)
+                        except Exception as e:  # pylint: disable=broad-exception-caught
+                            logger.error("Error processing attachment %s: %s", filename, str(e))
 
         return reports_found

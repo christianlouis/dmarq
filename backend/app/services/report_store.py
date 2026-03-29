@@ -155,7 +155,7 @@ class ReportStore:
             return sorted_reports[:limit]
         return sorted_reports
 
-    def get_domain_sources(self, domain: str, days: int = 30) -> List[Dict[str, Any]]:
+    def get_domain_sources(self, domain: str, _days: int = 30) -> List[Dict[str, Any]]:
         """
         Get sending sources for a domain
 
@@ -206,6 +206,6 @@ class ReportStore:
             self.domain_summary.pop(domain, None)
             self.domain_sources.pop(domain, None)
             return True
-        except Exception:
+        except Exception:  # pylint: disable=broad-exception-caught
             # If any exception occurs during deletion, return False
             return False

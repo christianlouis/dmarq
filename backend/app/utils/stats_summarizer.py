@@ -63,10 +63,10 @@ class StatsSummarizer:
                 return None
 
             # Read cache file
-            with open(cache_file, "r") as f:
+            with open(cache_file, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except Exception as e:
-            logger.warning(f"Error reading cache file {cache_file}: {str(e)}")
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.warning("Error reading cache file %s: %s", cache_file, str(e))
             return None
 
     def save_summary(self, stats: Dict[str, Any], domain_id: Optional[str] = None) -> bool:
@@ -87,12 +87,12 @@ class StatsSummarizer:
             stats["cached_at"] = datetime.now().isoformat()
 
             # Write to cache file
-            with open(cache_file, "w") as f:
+            with open(cache_file, "w", encoding="utf-8") as f:
                 json.dump(stats, f)
 
             return True
-        except Exception as e:
-            logger.error(f"Error writing cache file {cache_file}: {str(e)}")
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Error writing cache file %s: %s", cache_file, str(e))
             return False
 
     def invalidate_cache(self, domain_id: Optional[str] = None) -> None:
@@ -126,12 +126,11 @@ class StatsSummarizer:
         """
         if domain_id is None:
             return os.path.join(self.cache_dir, "global_summary.json")
-        else:
-            # Sanitize domain_id to use as filename
-            safe_domain = domain_id.replace(".", "_").replace("/", "_")
-            return os.path.join(self.cache_dir, f"domain_{safe_domain}.json")
+        # Sanitize domain_id to use as filename
+        safe_domain = domain_id.replace(".", "_").replace("/", "_")
+        return os.path.join(self.cache_dir, f"domain_{safe_domain}.json")
 
-    def calculate_summary_statistics(self, db, domain_id: Optional[str] = None) -> Dict[str, Any]:
+    def calculate_summary_statistics(self, _db, domain_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Calculate summary statistics from the database
 

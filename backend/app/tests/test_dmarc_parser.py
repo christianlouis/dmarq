@@ -2,55 +2,9 @@ import io
 import zipfile
 
 import pytest
-from app.services.dmarc_parser import DMARCParser
 
-SAMPLE_XML = """\
-<?xml version="1.0" encoding="UTF-8" ?>
-<feedback>
-    <report_metadata>
-        <org_name>google.com</org_name>
-        <email>noreply-dmarc-support@google.com</email>
-        <report_id>123456789</report_id>
-        <date_range>
-            <begin>1597449600</begin>
-            <end>1597535999</end>
-        </date_range>
-    </report_metadata>
-    <policy_published>
-        <domain>example.com</domain>
-        <adkim>r</adkim>
-        <aspf>r</aspf>
-        <p>none</p>
-        <sp>none</sp>
-        <pct>100</pct>
-    </policy_published>
-    <record>
-        <row>
-            <source_ip>203.0.113.1</source_ip>
-            <count>2</count>
-            <policy_evaluated>
-                <disposition>none</disposition>
-                <dkim>pass</dkim>
-                <spf>fail</spf>
-            </policy_evaluated>
-        </row>
-        <identifiers>
-            <header_from>example.com</header_from>
-        </identifiers>
-        <auth_results>
-            <dkim>
-                <domain>example.com</domain>
-                <result>pass</result>
-                <selector>default</selector>
-            </dkim>
-            <spf>
-                <domain>example.com</domain>
-                <result>fail</result>
-            </spf>
-        </auth_results>
-    </record>
-</feedback>
-"""
+from app.services.dmarc_parser import DMARCParser
+from app.tests.test_data import SAMPLE_XML
 
 
 class TestDMARCParser:

@@ -1,6 +1,7 @@
+from sqlalchemy.orm import Session
+
 from app.models.domain import Domain
 from app.models.report import DMARCReport, ReportRecord
-from sqlalchemy.orm import Session
 
 
 class TestDomainModel:
