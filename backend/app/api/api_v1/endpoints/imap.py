@@ -1,39 +1,43 @@
 import logging
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from app.core.security import require_admin_auth
 from app.services.imap_client import IMAPClient
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from pydantic import BaseModel
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+class IMAPTestRequest(BaseModel):
+    """IMAP connection test request body"""
+
+    server: Optional[str] = None
+    port: int = 993
+    username: Optional[str] = None
+    password: Optional[str] = None
+    ssl: bool = True
+
+
 @router.post("/test-connection")
 async def test_imap_connection(
-    auth: dict = Depends(require_admin_auth),
-    server: str = None,
-    port: int = 993,
-    username: str = None,
-    password: str = None,
-    ssl: bool = True,
+    request: IMAPTestRequest,
+    _auth: dict = Depends(require_admin_auth),
 ) -> Dict[str, Any]:
     """
     Test connection to an IMAP server and gather mailbox statistics
 
     Security: Requires authentication (X-API-Key or Bearer token)
-    Note: Credentials should be passed in request body, not query params
+    Credentials should be passed in request body
     """
-    # Security: Don't accept credentials in query parameters (they get logged)
-    if any([server, username, password]):
-        logger.warning("IMAP credentials passed as query parameters - this is insecure")
-        raise HTTPException(
-            status_code=400,
-            detail="Credentials should be passed in request body, not query parameters",
-        )
-
-    imap_client = IMAPClient(server=server, port=port, username=username, password=password)
+    imap_client = IMAPClient(
+        server=request.server,
+        port=request.port,
+        username=request.username,
+        password=request.password,
+    )
 
     success, message, stats = imap_client.test_connection()
 
@@ -51,7 +55,7 @@ async def test_imap_connection(
 @router.post("/fetch-reports")
 async def fetch_imap_reports(
     background_tasks: BackgroundTasks,
-    auth: dict = Depends(require_admin_auth),
+    _auth: dict = Depends(require_admin_auth),
     days: int = 7,
     delete_emails: bool = False,
 ) -> Dict[str, Any]:
@@ -88,14 +92,14 @@ async def fetch_imap_reports(
             "timestamp": datetime.now().isoformat(),
         }
     except Exception as e:
-        logger.error(f"Error fetching IMAP reports: {str(e)}")
+        logger.error("Error fetching IMAP reports: %s", str(e))
         raise HTTPException(
             status_code=500, detail="Failed to fetch reports. Check server logs for details."
-        )
+        ) from e
 
 
 @router.get("/status")
-async def get_imap_status(auth: dict = Depends(require_admin_auth)) -> Dict[str, Any]:
+async def get_imap_status(_auth: dict = Depends(require_admin_auth)) -> Dict[str, Any]:
     """
     Get the current status of IMAP polling background processes
 
