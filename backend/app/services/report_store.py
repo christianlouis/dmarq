@@ -44,9 +44,7 @@ class ReportStore:
         Returns:
             True if the report already exists, False otherwise
         """
-        return any(
-            r.get("report_id") == report_id for r in self.domain_reports.get(domain, [])
-        )
+        return any(r.get("report_id") == report_id for r in self.domain_reports.get(domain, []))
 
     def _recompute_domain_stats(self, domain: str) -> None:
         """
