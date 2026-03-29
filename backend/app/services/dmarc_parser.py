@@ -236,20 +236,24 @@ class DMARCParser:
 
             # Log parse results for debugging
             total_count = report["summary"]["total_count"]
-            logger.info(f"Parsed DMARC report for domain: {report.get('domain')}")
-            logger.info(f"Found {len(records)} record entries with {total_count} total messages")
+            logger.info("Parsed DMARC report for domain: %s", report.get("domain"))
             logger.info(
-                f"Messages passed: {report['summary']['passed_count']}, "
-                f"failed: {report['summary']['failed_count']}"
+                "Found %s record entries with %s total messages", len(records), total_count
+            )
+            logger.info(
+                "Messages passed: %s, failed: %s",
+                report["summary"]["passed_count"],
+                report["summary"]["failed_count"],
             )
             if records:
                 logger.info(
-                    f"Sample record - SPF: {records[0].get('spf_result')}, "
-                    f"DKIM: {records[0].get('dkim_result')}"
+                    "Sample record - SPF: %s, DKIM: %s",
+                    records[0].get("spf_result"),
+                    records[0].get("dkim_result"),
                 )
 
             return report
 
         except Exception as e:
-            logger.error(f"Error parsing DMARC XML: {str(e)}")
-            raise ValueError(f"Error parsing DMARC XML: {str(e)}")
+            logger.error("Error parsing DMARC XML: %s", str(e))
+            raise ValueError(f"Error parsing DMARC XML: {str(e)}") from e

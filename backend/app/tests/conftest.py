@@ -1,9 +1,10 @@
 # Import all models so Base.metadata knows every table
-import app.models.domain  # noqa: F401
-import app.models.report  # noqa: F401
-import app.models.user  # noqa: F401
+import app.models.domain  # noqa: F401  # pylint: disable=unused-import
+import app.models.report  # noqa: F401  # pylint: disable=unused-import
+import app.models.user  # noqa: F401  # pylint: disable=unused-import
 import pytest
 from app.core.database import Base, get_db
+from app.main import create_app
 from app.services.report_store import ReportStore
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -14,8 +15,6 @@ from sqlalchemy.orm import sessionmaker
 @pytest.fixture()
 def test_app() -> FastAPI:
     """Create a fresh FastAPI application instance for testing."""
-    from app.main import create_app
-
     application = create_app()
     return application
 
@@ -36,7 +35,7 @@ def db_session():
 
 
 @pytest.fixture()
-def client(test_app: FastAPI, db_session):
+def client(test_app: FastAPI, db_session):  # pylint: disable=redefined-outer-name
     """Create a TestClient with a DB override for the test app."""
 
     def override_get_db():

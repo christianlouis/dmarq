@@ -47,16 +47,16 @@ def _validate_mime_type(file_content: bytes) -> None:
     try:
         mime_type = magic.from_buffer(file_content, mime=True)
         if mime_type not in ALLOWED_MIME_TYPES:
-            logger.warning(f"Rejected file with MIME type: {mime_type}")
+            logger.warning("Rejected file with MIME type: %s", mime_type)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid file type. File must be XML, ZIP, or GZIP format.",
             )
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-exception-caught
         # If magic fails, log but continue (fallback to extension check)
-        logger.warning(f"MIME type detection failed: {str(e)}")
+        logger.warning("MIME type detection failed: %s", str(e))
 
 
 def _validate_upload_file(file: UploadFile, file_content: bytes) -> None:
@@ -89,15 +89,14 @@ def _handle_upload_value_error(filename: str, error_message: str) -> None:
 
     Always raises — never returns.
     """
-    logger.error(f"ValueError processing report {filename}: {error_message}")
+    logger.error("ValueError processing report %s: %s", filename, error_message)
     if "too large" in error_message.lower():
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File too large"
         )
-    elif "zip bomb" in error_message.lower():
+    if "zip bomb" in error_message.lower():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid archive file")
-    else:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid report format")
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid report format")
 
 
 class UploadResponse(BaseModel):
@@ -196,13 +195,13 @@ async def upload_report(file: UploadFile = File(...)):
     except ValueError as e:
         # Security: Sanitize error messages from parser
         _handle_upload_value_error(file.filename, str(e))
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-exception-caught
         # Security: Don't expose internal errors to client
-        logger.error(f"Unexpected error processing report {file.filename}: {str(e)}")
+        logger.error("Unexpected error processing report %s: %s", file.filename, str(e))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error processing report. Please contact support if this persists.",
-        )
+        ) from e
 
 
 @router.get("/domains", response_model=List[str])
@@ -300,10 +299,11 @@ async def get_domain_reports_paginated(
 
     if sort_field == "total_count":
         all_reports.sort(
-            key=lambda r: r.get("summary", {}).get("total_count", 0), reverse=(sort_order == "desc")
+            key=lambda r: r.get("summary", {}).get("total_count", 0),
+            reverse=sort_order == "desc",
         )
     else:
-        all_reports.sort(key=lambda r: r.get(sort_field, ""), reverse=(sort_order == "desc"))
+        all_reports.sort(key=lambda r: r.get(sort_field, ""), reverse=sort_order == "desc")
 
     # Apply pagination
     total = len(all_reports)

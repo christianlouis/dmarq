@@ -9,7 +9,7 @@ from app.core.security import add_api_key, generate_api_key, require_admin_auth
 from app.middleware.security import SecurityHeadersMiddleware
 from app.services.imap_client import IMAPClient
 from app.services.report_store import ReportStore
-from fastapi import BackgroundTasks, Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -27,7 +27,7 @@ last_check_time = None
 
 async def scheduled_imap_polling():
     """Background task for periodically checking IMAP for new DMARC reports"""
-    global last_check_time
+    global last_check_time  # pylint: disable=global-statement
 
     try:
         # How often to check for emails (in seconds)
@@ -46,19 +46,24 @@ async def scheduled_imap_polling():
 
                 if results["success"]:
                     logger.info(
-                        f"IMAP polling completed: {results['processed']} emails processed, "
-                        f"{results['reports_found']} reports found"
+                        "IMAP polling completed: %s emails processed, %s reports found",
+                        results["processed"],
+                        results["reports_found"],
                     )
 
                     # If new domains were found, log them
                     if results["new_domains"]:
-                        logger.info(f"New domains found: {', '.join(results['new_domains'])}")
+                        logger.info(
+                            "New domains found: %s", ", ".join(results["new_domains"])
+                        )
 
                 else:
-                    logger.error(f"IMAP polling failed: {results.get('error', 'Unknown error')}")
+                    logger.error(
+                        "IMAP polling failed: %s", results.get("error", "Unknown error")
+                    )
 
-            except Exception as e:
-                logger.error(f"Error in IMAP polling task: {str(e)}")
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                logger.error("Error in IMAP polling task: %s", str(e))
 
             # Wait for the next check interval
             await asyncio.sleep(check_interval)
@@ -69,7 +74,7 @@ async def scheduled_imap_polling():
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application"""
-    app = FastAPI(
+    application = FastAPI(
         title=settings.PROJECT_NAME,
         openapi_url=f"{settings.API_V1_STR}/openapi.json",
         version="0.1.0",
@@ -78,11 +83,11 @@ def create_app() -> FastAPI:
     # Add security headers middleware
     # Determine environment from settings or environment variable
     environment = os.getenv("ENVIRONMENT", "development")
-    app.add_middleware(SecurityHeadersMiddleware, environment=environment)
+    application.add_middleware(SecurityHeadersMiddleware, environment=environment)
 
     # Improved CORS configuration - restrict to specific methods and headers
     if settings.BACKEND_CORS_ORIGINS:
-        app.add_middleware(
+        application.add_middleware(
             CORSMiddleware,
             allow_origins=[str(origin) for origin in settings.BACKEND_CORS_ORIGINS],
             allow_credentials=True,
@@ -103,20 +108,20 @@ def create_app() -> FastAPI:
         )
 
     # Include API router
-    app.include_router(api_router, prefix=settings.API_V1_STR)
+    application.include_router(api_router, prefix=settings.API_V1_STR)
 
     # Mount static files directory
-    app.mount(
+    application.mount(
         "/static",
         StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")),
         name="static",
     )
 
     # Set up event handlers for startup and shutdown
-    @app.on_event("startup")
+    @application.on_event("startup")
     async def startup_event():
         """Initialize background tasks and security on application startup"""
-        global background_task
+        global background_task  # pylint: disable=global-statement
 
         # Generate and provide admin API key
         api_key = generate_api_key()
@@ -124,19 +129,20 @@ def create_app() -> FastAPI:
 
         # Security: Log only last 8 characters for reference
         logger.warning(
-            "=" * 80 + "\n"
-            "IMPORTANT: Admin API Key Generated\n"
-            f"API Key (last 8 chars): ...{api_key[-8:]}\n"
+            "%s\nIMPORTANT: Admin API Key Generated\n"
+            "API Key (last 8 chars): ...%s\n"
             "Full key stored securely in memory.\n"
             "For production, retrieve the key through secure configuration management.\n"
-            "Use this key in the X-API-Key header for admin endpoints.\n"
-            "=" * 80
+            "Use this key in the X-API-Key header for admin endpoints.\n%s",
+            "=" * 80,
+            api_key[-8:],
+            "=" * 80,
         )
 
         # In development, also log the full key for convenience
         # This should be removed in production or controlled by environment variable
         if os.getenv("ENVIRONMENT", "development") == "development":
-            logger.info(f"Development Mode - Full API Key: {api_key}")
+            logger.info("Development Mode - Full API Key: %s", api_key)
 
         # Check if IMAP credentials are configured
         if all([settings.IMAP_SERVER, settings.IMAP_USERNAME, settings.IMAP_PASSWORD]):
@@ -145,7 +151,7 @@ def create_app() -> FastAPI:
         else:
             logger.warning("IMAP credentials not fully configured, polling disabled")
 
-    @app.on_event("shutdown")
+    @application.on_event("shutdown")
     async def shutdown_event():
         """Clean up background tasks on application shutdown"""
         if background_task:
@@ -156,7 +162,7 @@ def create_app() -> FastAPI:
             except asyncio.CancelledError:
                 pass
 
-    return app
+    return application
 
 
 app = create_app()
@@ -202,9 +208,9 @@ async def domains(request: Request):
 async def domain_details(request: Request, domain_id: str):
     """View detailed reports for a specific domain"""
     store = ReportStore.get_instance()
-    domains = store.get_domains()
+    known_domains = store.get_domains()
 
-    if domain_id not in domains:
+    if domain_id not in known_domains:
         # Domain not found, redirect to domains list
         return templates.TemplateResponse(
             "domains.html", {"request": request, "error": f"Domain {domain_id} not found"}
@@ -243,15 +249,13 @@ async def upload_page(request: Request):
 
 # API endpoint to manually trigger IMAP polling
 @app.post("/api/v1/admin/trigger-poll")
-async def trigger_imap_poll(
-    background_tasks: BackgroundTasks, auth: dict = Depends(require_admin_auth)
-):
+async def trigger_imap_poll(auth: dict = Depends(require_admin_auth)):
     """
     Manually trigger IMAP polling (admin only - requires authentication)
 
     Security: Requires either X-API-Key header or Bearer token
     """
-    global last_check_time
+    global last_check_time  # pylint: disable=global-statement
 
     try:
         # Create IMAP client and fetch reports
@@ -269,8 +273,8 @@ async def trigger_imap_poll(
             "new_domains": results["new_domains"],
             "authenticated_by": auth.get("auth_type"),
         }
-    except Exception as e:
-        logger.error(f"Error triggering IMAP poll: {str(e)}")
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error("Error triggering IMAP poll: %s", str(e))
         return {
             "success": False,
             "error": "Failed to trigger IMAP poll. Check server logs for details.",

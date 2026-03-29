@@ -75,7 +75,7 @@ def add_api_key(api_key: str) -> bool:
     if api_key in _api_keys:
         return False
     _api_keys.add(api_key)
-    logger.info(f"API key added (ends with: ...{api_key[-8:]})")
+    logger.info("API key added (ends with: ...%s)", api_key[-8:])
     return True
 
 
@@ -92,7 +92,7 @@ def verify_api_key(api_key: str) -> bool:
     return api_key in _api_keys
 
 
-async def get_api_key(api_key_header: Optional[str] = Security(api_key_header)) -> str:
+async def get_api_key(api_key_value: Optional[str] = Security(api_key_header)) -> str:
     """
     Dependency to verify API key authentication.
 
@@ -105,24 +105,23 @@ async def get_api_key(api_key_header: Optional[str] = Security(api_key_header)) 
     Raises:
         HTTPException: If API key is missing or invalid
     """
-    if not api_key_header:
+    if not api_key_value:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing API key",
             headers={"WWW-Authenticate": "ApiKey"},
         )
 
-    if not verify_api_key(api_key_header):
-        logger.warning(
-            f"Invalid API key attempt: ...{api_key_header[-8:] if len(api_key_header) >= 8 else 'invalid'}"
-        )
+    if not verify_api_key(api_key_value):
+        suffix = api_key_value[-8:] if len(api_key_value) >= 8 else "invalid"
+        logger.warning("Invalid API key attempt: ...%s", suffix)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid API key",
             headers={"WWW-Authenticate": "ApiKey"},
         )
 
-    return api_key_header
+    return api_key_value
 
 
 async def verify_token(
@@ -153,12 +152,12 @@ async def verify_token(
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         return payload
     except JWTError as e:
-        logger.warning(f"Invalid JWT token: {str(e)}")
+        logger.warning("Invalid JWT token: %s", str(e))
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication token",
             headers={"WWW-Authenticate": "Bearer"},
-        )
+        ) from e
 
 
 async def require_admin_auth(
@@ -192,7 +191,7 @@ async def require_admin_auth(
             )
             return {"auth_type": "jwt", "payload": payload}
         except JWTError as e:
-            logger.warning(f"Invalid JWT token: {str(e)}")
+            logger.warning("Invalid JWT token: %s", str(e))
 
     # No valid authentication provided
     raise HTTPException(

@@ -248,9 +248,13 @@ async def get_domain_dns_records(domain_id: str = Path(..., title="The domain ID
 
     # For Milestone 1, return mock DNS record data
     # In a future milestone, this will be replaced with actual DNS lookups
+    mock_dmarc_record = (
+        "v=DMARC1; p=none; rua=mailto:dmarc@example.com;"
+        " ruf=mailto:forensic@example.com; pct=100"
+    )
     return DNSRecordResponse(
         dmarc=True,
-        dmarcRecord="v=DMARC1; p=none; rua=mailto:dmarc@example.com; ruf=mailto:forensic@example.com; pct=100",
+        dmarcRecord=mock_dmarc_record,
         spf=True,
         spfRecord="v=spf1 include:_spf.google.com include:spf.protection.outlook.com -all",
         dkim=True,
@@ -299,7 +303,7 @@ async def get_domain_reports(
         date = datetime.now() - timedelta(days=i)
         date_str = date.strftime("%Y-%m-%d")
 
-        # TODO: Replace with actual historical data in future milestone
+        # TODO: Replace with actual historical data in future milestone  # pylint: disable=fixme
         # For now, generate mock data with variation for demonstration purposes
         compliance_rate = random.uniform(80, 100)  # nosec B311 - Mock data only
 

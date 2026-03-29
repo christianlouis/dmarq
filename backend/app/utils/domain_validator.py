@@ -56,7 +56,7 @@ def _validate_domain_labels(
     return True, None, None
 
 
-def validate_domain(
+def validate_domain(  # pylint: disable=too-many-return-statements
     domain_name: str, check_dns: bool = True
 ) -> Tuple[bool, Optional[str], Optional[str]]:
     """
@@ -103,7 +103,6 @@ def validate_domain(
     if check_dns:
         try:
             socket.gethostbyname(domain_name)
-            return True, None, None
         except socket.gaierror:
             # We could consider this valid if we don't require DNS resolution,
             # but since DMARC requires valid DNS, we'll mark it as warning
@@ -133,7 +132,7 @@ def validate_domain_config(domain_data: Dict) -> Dict[str, Union[bool, str]]:
     # Validate domain name
     if "name" in domain_data:
         # Don't check DNS for domain config validation
-        is_valid, error_msg, error_code = validate_domain(domain_data["name"], check_dns=False)
+        is_valid, error_msg, _ = validate_domain(domain_data["name"], check_dns=False)
         if not is_valid:
             errors["name"] = error_msg
     else:
