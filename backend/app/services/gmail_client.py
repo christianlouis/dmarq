@@ -306,6 +306,31 @@ class GmailClient:
         msg = email.message_from_bytes(raw_bytes)
         return self._process_attachments(msg, stats)
 
+    @staticmethod
+    def _decode_part_filename(part: email.message.Message) -> str:
+        """Return the decoded filename for a MIME part (handles RFC 2047 encoding)."""
+        from email.header import decode_header
+
+        raw_name = part.get_filename() or ""
+        decoded_parts = []
+        for fragment, charset in decode_header(raw_name):
+            if isinstance(fragment, bytes):
+                decoded_parts.append(fragment.decode(charset or "utf-8", errors="replace"))
+            else:
+                decoded_parts.append(fragment)
+        return "".join(decoded_parts)
+
+    @staticmethod
+    def _is_dmarc_attachment(filename: str) -> bool:
+        """Return True if *filename* looks like a DMARC aggregate-report file."""
+        lower = filename.lower()
+        return (
+            lower.endswith(".xml")
+            or lower.endswith(".zip")
+            or lower.endswith(".gz")
+            or lower.endswith(".gzip")
+        )
+
     def _process_attachments(self, msg: email.message.Message, stats: dict) -> int:
         """Walk a parsed email message and extract DMARC report attachments."""
         reports_found = 0
@@ -314,27 +339,8 @@ class GmailClient:
             if part.get_content_disposition() != "attachment":
                 continue
 
-            filename = part.get_filename() or ""
-            if hasattr(filename, "encode"):
-                # Decode RFC 2047-encoded filenames
-                from email.header import decode_header
-
-                parts = decode_header(filename)
-                decoded_parts = []
-                for raw, charset in parts:
-                    if isinstance(raw, bytes):
-                        decoded_parts.append(raw.decode(charset or "utf-8", errors="replace"))
-                    else:
-                        decoded_parts.append(raw)
-                filename = "".join(decoded_parts)
-
-            lower = filename.lower()
-            if not (
-                lower.endswith(".xml")
-                or lower.endswith(".zip")
-                or lower.endswith(".gz")
-                or lower.endswith(".gzip")
-            ):
+            filename = self._decode_part_filename(part)
+            if not self._is_dmarc_attachment(filename):
                 continue
 
             content = part.get_payload(decode=True)

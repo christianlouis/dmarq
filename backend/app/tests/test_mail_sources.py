@@ -489,10 +489,6 @@ class TestGmailAPIMailSource:
         )
         source_id = create_resp.json()["id"]
 
-        # Inject tokens directly into DB via the DB session
-        from sqlalchemy.orm import Session
-        from app.models.mail_source import MailSource as MS
-
         # Use the authed_client's DB override — patch the ORM object instead
         mock_service = MagicMock()
         mock_service.users.return_value.getProfile.return_value.execute.return_value = {
