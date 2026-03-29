@@ -1221,6 +1221,481 @@ class TestGmailTestConnectionFailure:
 
 
 # ---------------------------------------------------------------------------
+# Tests for new main.py helper functions (_poll_single_gmail_source,
+# _trigger_poll_imap_source, _trigger_poll_gmail_source, _poll_source_for_trigger)
+# ---------------------------------------------------------------------------
+
+
+class TestPollSingleGmailSource:
+    """Unit tests for app.main._poll_single_gmail_source."""
+
+    def _make_source(self, *, access_token="tok", refresh_token="ref"):
+        src = MagicMock()
+        src.id = 1
+        src.gmail_access_token = access_token
+        src.gmail_refresh_token = refresh_token
+        src.gmail_client_id = "cid"
+        src.gmail_client_secret = "csec"
+        src.gmail_ingested_ids = "[]"
+        src.gmail_email = "u@gmail.com"
+        return src
+
+    def test_skips_when_no_access_token(self):
+        """Source without OAuth token → early return, no GmailClient created."""
+        from app.main import _poll_single_gmail_source
+
+        src = self._make_source(access_token=None)
+
+        with patch("app.main.GmailClient") as mock_gc:
+            _poll_single_gmail_source(src)
+
+        mock_gc.assert_not_called()
+
+    def test_fetches_reports_and_persists_ids(self):
+        """Happy-path: client is created, reports fetched, IDs saved to DB."""
+        from app.main import _poll_single_gmail_source
+
+        src = self._make_source()
+
+        mock_client = MagicMock()
+        mock_client.fetch_reports.return_value = {
+            "success": True,
+            "processed": 2,
+            "reports_found": 1,
+            "new_domains": [],
+            "errors": [],
+            "new_ingested_ids": ["id1", "id2"],
+        }
+        mock_client.get_refreshed_tokens.return_value = None
+
+        mock_db_source = MagicMock()
+        mock_db = MagicMock()
+        mock_db.__enter__ = MagicMock(return_value=mock_db)
+        mock_db.__exit__ = MagicMock(return_value=False)
+        mock_db.query.return_value.get.return_value = mock_db_source
+
+        with patch("app.main.GmailClient", return_value=mock_client), patch(
+            "app.main.SessionLocal", return_value=mock_db
+        ), patch("app.main.GmailClient.load_ingested_ids", return_value=[]), patch(
+            "app.main.GmailClient.dump_ingested_ids", return_value='["id1","id2"]'
+        ):
+            _poll_single_gmail_source(src)
+
+        mock_client.fetch_reports.assert_called_once()
+
+    def test_logs_new_domains_on_success(self):
+        """When results include new_domains, the function logs them."""
+        from app.main import _poll_single_gmail_source
+
+        src = self._make_source()
+
+        mock_client = MagicMock()
+        mock_client.fetch_reports.return_value = {
+            "success": True,
+            "processed": 1,
+            "reports_found": 1,
+            "new_domains": ["example.com"],
+            "errors": [],
+            "new_ingested_ids": [],
+        }
+        mock_client.get_refreshed_tokens.return_value = None
+
+        mock_db = MagicMock()
+        mock_db.query.return_value.get.return_value = MagicMock()
+
+        with patch("app.main.GmailClient", return_value=mock_client), patch(
+            "app.main.SessionLocal", return_value=mock_db
+        ), patch("app.main.GmailClient.load_ingested_ids", return_value=[]):
+            _poll_single_gmail_source(src)  # should not raise
+
+    def test_logs_error_on_failure(self):
+        """When results['success'] is False, the function logs an error."""
+        from app.main import _poll_single_gmail_source
+
+        src = self._make_source()
+
+        mock_client = MagicMock()
+        mock_client.fetch_reports.return_value = {
+            "success": False,
+            "error": "auth failed",
+            "processed": 0,
+            "reports_found": 0,
+            "new_domains": [],
+            "errors": [],
+            "new_ingested_ids": [],
+        }
+        mock_client.get_refreshed_tokens.return_value = None
+
+        mock_db = MagicMock()
+        mock_db.query.return_value.get.return_value = MagicMock()
+
+        with patch("app.main.GmailClient", return_value=mock_client), patch(
+            "app.main.SessionLocal", return_value=mock_db
+        ), patch("app.main.GmailClient.load_ingested_ids", return_value=[]):
+            _poll_single_gmail_source(src)  # should not raise
+
+    def test_persists_refreshed_tokens(self):
+        """When GmailClient reports refreshed tokens, they are saved to the DB row."""
+        from app.main import _poll_single_gmail_source
+
+        src = self._make_source()
+
+        mock_client = MagicMock()
+        mock_client.fetch_reports.return_value = {
+            "success": True,
+            "processed": 0,
+            "reports_found": 0,
+            "new_domains": [],
+            "errors": [],
+            "new_ingested_ids": [],
+        }
+        mock_client.get_refreshed_tokens.return_value = {
+            "access_token": "new-acc",
+            "refresh_token": "new-ref",
+        }
+
+        mock_db_source = MagicMock()
+        mock_db = MagicMock()
+        mock_db.query.return_value.get.return_value = mock_db_source
+
+        with patch("app.main.GmailClient", return_value=mock_client), patch(
+            "app.main.SessionLocal", return_value=mock_db
+        ), patch("app.main.GmailClient.load_ingested_ids", return_value=[]):
+            _poll_single_gmail_source(src)
+
+        assert mock_db_source.gmail_access_token == "new-acc"
+        assert mock_db_source.gmail_refresh_token == "new-ref"
+
+
+class TestTriggerPollImapSource:
+    """Unit tests for app.main._trigger_poll_imap_source."""
+
+    def test_returns_result_dict_on_success(self):
+        from app.main import _trigger_poll_imap_source
+
+        src = MagicMock()
+        src.id = 5
+        src.name = "My IMAP"
+        src.server = "imap.example.com"
+        src.port = 993
+        src.username = "u"
+        src.password = "p"
+
+        mock_imap = MagicMock()
+        mock_imap.fetch_reports.return_value = {
+            "success": True,
+            "processed": 3,
+            "reports_found": 2,
+            "new_domains": ["dom.example"],
+        }
+
+        mock_db = MagicMock()
+
+        with patch("app.main.IMAPClient", return_value=mock_imap):
+            result = _trigger_poll_imap_source(src, mock_db)
+
+        assert result["success"] is True
+        assert result["source_id"] == 5
+        assert result["name"] == "My IMAP"
+        assert result["processed"] == 3
+        assert result["reports_found"] == 2
+        assert result["new_domains"] == ["dom.example"]
+        mock_db.commit.assert_called_once()
+
+
+class TestTriggerPollGmailSource:
+    """Unit tests for app.main._trigger_poll_gmail_source."""
+
+    def _make_src(self):
+        src = MagicMock()
+        src.id = 7
+        src.name = "My Gmail"
+        src.gmail_client_id = "cid"
+        src.gmail_client_secret = "csec"
+        src.gmail_access_token = "tok"
+        src.gmail_refresh_token = "ref"
+        src.gmail_ingested_ids = "[]"
+        return src
+
+    def test_returns_result_dict_on_success(self):
+        from app.main import _trigger_poll_gmail_source
+
+        src = self._make_src()
+        mock_gc = MagicMock()
+        mock_gc.fetch_reports.return_value = {
+            "success": True,
+            "processed": 1,
+            "reports_found": 1,
+            "new_domains": [],
+            "new_ingested_ids": ["id1"],
+        }
+        mock_gc.get_refreshed_tokens.return_value = None
+        mock_db = MagicMock()
+
+        with patch("app.main.GmailClient", return_value=mock_gc), patch(
+            "app.main.GmailClient.load_ingested_ids", return_value=[]
+        ), patch("app.main.GmailClient.dump_ingested_ids", return_value='["id1"]'):
+            result = _trigger_poll_gmail_source(src, mock_db)
+
+        assert result["success"] is True
+        assert result["source_id"] == 7
+        mock_db.commit.assert_called_once()
+
+    def test_persists_refreshed_tokens(self):
+        from app.main import _trigger_poll_gmail_source
+
+        src = self._make_src()
+        mock_gc = MagicMock()
+        mock_gc.fetch_reports.return_value = {
+            "success": True,
+            "processed": 0,
+            "reports_found": 0,
+            "new_domains": [],
+            "new_ingested_ids": [],
+        }
+        mock_gc.get_refreshed_tokens.return_value = {
+            "access_token": "new-acc",
+            "refresh_token": "new-ref",
+        }
+        mock_db = MagicMock()
+
+        with patch("app.main.GmailClient", return_value=mock_gc), patch(
+            "app.main.GmailClient.load_ingested_ids", return_value=[]
+        ):
+            _trigger_poll_gmail_source(src, mock_db)
+
+        assert src.gmail_access_token == "new-acc"
+        assert src.gmail_refresh_token == "new-ref"
+
+
+class TestPollSourceForTrigger:
+    """Unit tests for app.main._poll_source_for_trigger."""
+
+    def test_gmail_no_token_returns_skipped(self):
+        from app.main import _poll_source_for_trigger
+
+        src = MagicMock()
+        src.method = "GMAIL_API"
+        src.gmail_access_token = None
+        src.id = 1
+        src.name = "Gmail no token"
+
+        result = _poll_source_for_trigger(src, MagicMock())
+
+        assert result["skipped"] is True
+        assert "authorised" in result["reason"].lower()
+
+    def test_gmail_with_token_delegates_to_trigger_poll(self):
+        from app.main import _poll_source_for_trigger
+
+        src = MagicMock()
+        src.method = "GMAIL_API"
+        src.gmail_access_token = "tok"
+        src.id = 2
+        src.name = "Gmail"
+
+        expected = {"source_id": 2, "name": "Gmail", "success": True}
+        with patch("app.main._trigger_poll_gmail_source", return_value=expected) as mock_fn:
+            result = _poll_source_for_trigger(src, MagicMock())
+
+        assert result is expected
+        mock_fn.assert_called_once()
+
+    def test_gmail_exception_returns_failure_dict(self):
+        from app.main import _poll_source_for_trigger
+
+        src = MagicMock()
+        src.method = "GMAIL_API"
+        src.gmail_access_token = "tok"
+        src.id = 3
+        src.name = "Gmail exc"
+
+        with patch(
+            "app.main._trigger_poll_gmail_source", side_effect=Exception("boom")
+        ):
+            result = _poll_source_for_trigger(src, MagicMock())
+
+        assert result["success"] is False
+        assert "boom" not in result.get("error", "")  # raw msg not exposed
+
+    def test_imap_delegates_to_trigger_poll(self):
+        from app.main import _poll_source_for_trigger
+
+        src = MagicMock()
+        src.method = "IMAP"
+        src.id = 4
+        src.name = "IMAP src"
+
+        expected = {"source_id": 4, "success": True}
+        with patch("app.main._trigger_poll_imap_source", return_value=expected) as mock_fn:
+            result = _poll_source_for_trigger(src, MagicMock())
+
+        assert result is expected
+        mock_fn.assert_called_once()
+
+    def test_imap_exception_returns_failure_dict(self):
+        from app.main import _poll_source_for_trigger
+
+        src = MagicMock()
+        src.method = "IMAP"
+        src.id = 5
+        src.name = "IMAP exc"
+
+        with patch(
+            "app.main._trigger_poll_imap_source", side_effect=Exception("imap fail")
+        ):
+            result = _poll_source_for_trigger(src, MagicMock())
+
+        assert result["success"] is False
+
+    def test_unknown_method_returns_skipped(self):
+        from app.main import _poll_source_for_trigger
+
+        src = MagicMock()
+        src.method = "POP3"
+        src.id = 6
+        src.name = "POP3 src"
+
+        result = _poll_source_for_trigger(src, MagicMock())
+
+        assert result["skipped"] is True
+        assert "POP3" in result["reason"]
+
+
+class TestPollAllEnabledSources:
+    """Unit tests for app.main._poll_all_enabled_sources dispatch logic."""
+
+    def test_dispatches_gmail_api_source(self):
+        """GMAIL_API sources are forwarded to _poll_single_gmail_source."""
+        from app.main import _poll_all_enabled_sources
+
+        src = MagicMock()
+        src.id = 1
+        src.method = "GMAIL_API"
+
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.all.return_value = [src]
+
+        with patch("app.main.SessionLocal", return_value=mock_db), patch(
+            "app.main._poll_single_gmail_source"
+        ) as mock_gmail:
+            _poll_all_enabled_sources()
+
+        mock_gmail.assert_called_once_with(src)
+
+    def test_dispatches_imap_source(self):
+        """IMAP sources are forwarded to _poll_single_imap_source."""
+        from app.main import _poll_all_enabled_sources
+
+        src = MagicMock()
+        src.id = 2
+        src.method = "IMAP"
+
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.all.return_value = [src]
+
+        with patch("app.main.SessionLocal", return_value=mock_db), patch(
+            "app.main._poll_single_imap_source"
+        ) as mock_imap:
+            _poll_all_enabled_sources()
+
+        mock_imap.assert_called_once_with(src)
+
+    def test_gmail_exception_is_caught(self):
+        """Exception from _poll_single_gmail_source must not propagate."""
+        from app.main import _poll_all_enabled_sources
+
+        src = MagicMock()
+        src.id = 3
+        src.method = "GMAIL_API"
+
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.all.return_value = [src]
+
+        with patch("app.main.SessionLocal", return_value=mock_db), patch(
+            "app.main._poll_single_gmail_source", side_effect=Exception("crash")
+        ):
+            _poll_all_enabled_sources()  # should not raise
+
+    def test_imap_exception_is_caught(self):
+        """Exception from _poll_single_imap_source must not propagate."""
+        from app.main import _poll_all_enabled_sources
+
+        src = MagicMock()
+        src.id = 4
+        src.method = "IMAP"
+
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.all.return_value = [src]
+
+        with patch("app.main.SessionLocal", return_value=mock_db), patch(
+            "app.main._poll_single_imap_source", side_effect=Exception("imap crash")
+        ):
+            _poll_all_enabled_sources()  # should not raise
+
+    def test_unknown_method_skipped(self):
+        """An unknown method logs a skip message and does not raise."""
+        from app.main import _poll_all_enabled_sources
+
+        src = MagicMock()
+        src.id = 5
+        src.method = "POP3"
+
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.all.return_value = [src]
+
+        with patch("app.main.SessionLocal", return_value=mock_db):
+            _poll_all_enabled_sources()  # should not raise
+
+
+class TestTriggerPollEndpoint:
+    """Tests for the POST /api/v1/admin/trigger-poll endpoint with sources."""
+
+    def test_trigger_poll_with_enabled_sources(self):
+        """With enabled sources, the endpoint dispatches and returns results."""
+        from app.main import app as main_app
+        from app.core.security import require_admin_auth
+
+        async def mock_auth():
+            return {"auth_type": "api_key"}
+
+        main_app.dependency_overrides[require_admin_auth] = mock_auth
+
+        try:
+            mock_source = MagicMock()
+            mock_source.id = 1
+            mock_source.name = "Trigger GMAIL"
+            mock_source.method = "GMAIL_API"
+            mock_source.enabled = True
+
+            mock_db = MagicMock()
+            mock_db.query.return_value.filter.return_value.all.return_value = [mock_source]
+
+            mock_result = {
+                "source_id": 1,
+                "name": "Trigger GMAIL",
+                "success": True,
+                "processed": 0,
+                "reports_found": 0,
+                "new_domains": [],
+            }
+
+            with TestClient(main_app) as tc:
+                with patch("app.main.SessionLocal", return_value=mock_db), patch(
+                    "app.main._poll_source_for_trigger", return_value=mock_result
+                ):
+                    resp = tc.post("/api/v1/admin/trigger-poll")
+
+            assert resp.status_code == 200
+            data = resp.json()
+            assert "sources" in data
+            assert len(data["sources"]) == 1
+            assert data["sources"][0]["success"] is True
+        finally:
+            main_app.dependency_overrides.clear()
+
+
+# ---------------------------------------------------------------------------
 # Pytest marker to avoid warnings for test methods without assertions
 # ---------------------------------------------------------------------------
 pytestmark = pytest.mark.usefixtures("_reset_report_store")
