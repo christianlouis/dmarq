@@ -84,7 +84,7 @@ class RoadmapParser:
                 "### Related Documentation",
                 "",
                 "- [SECURITY.md](../SECURITY.md)",
-                "- [Security Remediation Sprint](../ROADMAP.md#security-remediation-sprint-priority---in-progress)",
+                "- [Security Remediation Sprint](../roadmap.md#security-remediation-sprint-priority---in-progress)",
                 "",
                 "---",
                 "*This issue was auto-generated from the DMARQ roadmap.*"
@@ -166,7 +166,7 @@ class RoadmapParser:
                     body_parts.extend([
                         "### Related Documentation",
                         "",
-                        f"- [Milestone {milestone_num}](../ROADMAP.md#milestone-{milestone_num}-{milestone_name.lower().replace(' ', '-').replace('&', '').replace('(', '').replace(')', '')})",
+                        f"- [Milestone {milestone_num}](../roadmap.md#milestone-{milestone_num}-{milestone_name.lower().replace(' ', '-').replace('&', '').replace('(', '').replace(')', '')})",
                         "",
                         "---",
                         "*This issue was auto-generated from the DMARQ roadmap.*"
@@ -211,7 +211,7 @@ class RoadmapParser:
                         "",
                         "### Related Documentation",
                         "",
-                        f"- [Milestone {milestone_num}](../ROADMAP.md#milestone-{milestone_num}-{milestone_name.lower().replace(' ', '-').replace('&', '').replace('(', '').replace(')', '')})",
+                        f"- [Milestone {milestone_num}](../roadmap.md#milestone-{milestone_num}-{milestone_name.lower().replace(' ', '-').replace('&', '').replace('(', '').replace(')', '')})",
                         "- [SECURITY.md](../SECURITY.md)",
                         "",
                         "---",
@@ -290,7 +290,7 @@ class RoadmapParser:
                 "",
                 "### Related Documentation",
                 "",
-                "- [Continuous Improvements](../ROADMAP.md#continuous-improvements-ongoing)",
+                "- [Continuous Improvements](../roadmap.md#continuous-improvements-ongoing)",
                 "",
                 "---",
                 "*This issue was auto-generated from the DMARQ roadmap.*"
@@ -452,8 +452,8 @@ def save_github_import_script(issues: List[Issue], output_path: Path):
 def main():
     """Main function."""
     repo_root = Path(__file__).parent.parent
-    roadmap_path = repo_root / "ROADMAP.md"
-    output_dir = repo_root / "generated_issues"
+    roadmap_path = repo_root / "docs" / "development" / "roadmap.md"
+    output_dir = repo_root / "docs" / "development" / "generated_issues"
     output_dir.mkdir(exist_ok=True)
     
     print("=" * 60)

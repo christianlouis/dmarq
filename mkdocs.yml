@@ -45,6 +45,8 @@ nav:
     - Contributing: development/contributing.md
     - Testing: development/testing.md
     - Roadmap: development/roadmap.md
+    - Agentic Coding: development/agents.md
+    - Issue Generation: development/issue_generation.md
   - FAQ: faq.md
   - Changelog: changelog.md
 

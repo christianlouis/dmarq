@@ -111,10 +111,13 @@ Then visit [http://localhost:8080](http://localhost:8080)
 ## 🧪 Development Roadmap
 
 - ✅ **Milestone 1**: Basic DMARC Monitoring (up to 5 domains)
-- 🔄 **Milestone 2**: Enhanced Visualization & Analysis
-- 🔜 **Milestone 3**: Database Persistence & User Management
-- 🔜 **Milestone 4**: Email Integration & Automated Processing
-- 🔜 **Milestone 5**: DNS Health & Configuration Suggestions
+- ✅ **Milestone 2**: IMAP Integration
+- ✅ **Milestone 3**: Database Persistence
+- 🔜 **Milestone 4**: Enhanced Dashboard & Visualization
+- 🔜 **Milestone 5**: User Authentication & Multi-User Support
+
+See the full [Roadmap](docs/development/roadmap.md) and [TODO](TODO.md) for details
+on what is planned vs. what is currently implemented.
 
 ---
 
@@ -126,7 +129,11 @@ MIT License — you are free to use, modify, and host DMARQ for any purpose.
 
 ## 🤝 Contributing
 
-Pull requests are welcome! Please open an issue to discuss major features or design ideas before submitting code. Full contributing guide coming soon.
+Pull requests are welcome! Please open an issue to discuss major features or design ideas before submitting code. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide.
+
+This project uses [Conventional Commits](https://www.conventionalcommits.org/) and
+[python-semantic-release](https://python-semantic-release.readthedocs.io/) for
+automated versioning and changelog generation.
 
 ---
 
