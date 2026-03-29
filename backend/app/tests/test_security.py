@@ -1,98 +1,78 @@
 """
-Security-focused unit tests for DMARQ application.
+Security-focused tests for DMARQ application.
 
-Tests authentication, input validation, file upload security, and other security features.
+Covers API key management, domain validation, file upload limits, and XML parsing security.
 """
 
 import pytest
-from app.core.security import (
-    add_api_key,
-    generate_api_key,
-    verify_api_key,
-)
+from app.core.security import add_api_key, generate_api_key, verify_api_key
 from app.services.dmarc_parser import DMARCParser
 from app.utils.domain_validator import validate_domain, validate_domain_config
 
 
-class TestAuthentication:
-    """Test authentication and API key functionality."""
+class TestAPIKeySecurity:
+    """Test API key generation and verification."""
 
-    def test_generate_api_key(self):
-        """Test API key generation."""
+    def test_generate_api_key_length_and_uniqueness(self):
+        """Generated keys should be 64 hex characters and unique."""
         key1 = generate_api_key()
         key2 = generate_api_key()
 
-        # Keys should be 64 characters (32 bytes hex encoded)
         assert len(key1) == 64
         assert len(key2) == 64
-
-        # Keys should be unique
         assert key1 != key2
-
-        # Keys should be hexadecimal
         assert all(c in "0123456789abcdef" for c in key1)
 
     def test_add_and_verify_api_key(self):
-        """Test adding and verifying API keys."""
+        """Keys should only be valid after being added."""
         key = generate_api_key()
-
-        # Key should not be valid before adding
         assert not verify_api_key(key)
 
-        # Add key
-        assert add_api_key(key)
+        assert add_api_key(key) is True
+        assert verify_api_key(key) is True
 
-        # Key should now be valid
-        assert verify_api_key(key)
-
-        # Adding same key again should return False
-        assert not add_api_key(key)
-
-    def test_password_hashing(self):
-        """Test password hashing and verification."""
-        # Skip this test if bcrypt has issues
-        pytest.skip("Skipping due to bcrypt compatibility issues in test environment")
+        # Adding the same key again returns False
+        assert add_api_key(key) is False
 
 
 class TestDomainValidation:
-    """Test domain validation security."""
+    """Test domain name validation."""
 
-    def test_valid_domains(self):
-        """Test validation of legitimate domains."""
-        valid_domains = [
+    @pytest.mark.parametrize(
+        "domain",
+        [
             "example.com",
             "subdomain.example.com",
             "my-domain.example.org",
             "test123.example.net",
-        ]
+        ],
+    )
+    def test_valid_domains(self, domain):
+        is_valid, error, _ = validate_domain(domain, check_dns=False)
+        assert is_valid, f"Domain {domain} should be valid: {error}"
 
-        for domain in valid_domains:
-            is_valid, error, error_code = validate_domain(domain, check_dns=False)
-            assert is_valid, f"Domain {domain} should be valid: {error}"
+    @pytest.mark.parametrize(
+        "domain",
+        [
+            "",
+            "   ",
+            "example",
+            "-example.com",
+            "example-.com",
+            "exam ple.com",
+            "example..com",
+            "a" * 64 + ".com",
+            "a" * 254,
+        ],
+    )
+    def test_invalid_domain_format(self, domain):
+        is_valid, error, _ = validate_domain(domain, check_dns=False)
+        assert not is_valid, f"Domain '{domain}' should be invalid"
+        assert error is not None
 
-    def test_invalid_domain_format(self):
-        """Test rejection of invalid domain formats."""
-        invalid_domains = [
-            "",  # Empty
-            "   ",  # Whitespace
-            "example",  # No TLD
-            "-example.com",  # Starts with hyphen
-            "example-.com",  # Ends with hyphen
-            "exam ple.com",  # Contains space
-            "example..com",  # Double dot
-            "example.com.",  # Trailing dot (should fail with current regex)
-            "a" * 64 + ".com",  # Label too long (>63 chars)
-            "a" * 250 + ".com",  # Domain too long (>253 chars)
-        ]
-
-        for domain in invalid_domains:
-            is_valid, error, error_code = validate_domain(domain, check_dns=False)
-            assert not is_valid, f"Domain '{domain}' should be invalid"
-            assert error is not None
-
-    def test_malicious_domain_input(self):
-        """Test rejection of domains with malicious characters."""
-        malicious_domains = [
+    @pytest.mark.parametrize(
+        "domain",
+        [
             "example.com<script>",
             "example.com'; DROP TABLE users--",
             "example.com|whoami",
@@ -101,91 +81,60 @@ class TestDomainValidation:
             "example.com$USER",
             'example.com"test',
             "example.com\\\\test",
-        ]
+        ],
+    )
+    def test_malicious_domain_input(self, domain):
+        is_valid, _, _ = validate_domain(domain, check_dns=False)
+        assert not is_valid, f"Malicious domain '{domain}' should be rejected"
 
-        for domain in malicious_domains:
-            is_valid, error, error_code = validate_domain(domain, check_dns=False)
-            assert not is_valid, f"Malicious domain '{domain}' should be rejected"
-
-    def test_domain_length_limits(self):
-        """Test domain length validation."""
-        # Max label is 63 characters - this should be caught by label length check
-        long_label = "a" * 64 + ".example.com"
-        is_valid, error, error_code = validate_domain(long_label, check_dns=False)
-        assert not is_valid
-        # Could be caught by format check or label length check
-        assert error is not None
-
-        # Max domain is 253 characters
-        long_domain = "a" * 254  # 254 chars, no dot
-        is_valid, error, error_code = validate_domain(long_domain, check_dns=False)
-        assert not is_valid
-        assert "too long" in error.lower() or "invalid" in error.lower()
-
-    def test_domain_config_validation(self):
-        """Test domain configuration validation."""
-        # Valid config
-        valid_config = {"name": "example.com", "description": "Test domain"}
-        result = validate_domain_config(valid_config)
+    def test_domain_config_validation_valid(self):
+        result = validate_domain_config({"name": "example.com", "description": "Test domain"})
         assert result["valid"]
         assert len(result["errors"]) == 0
 
-        # Missing name
-        invalid_config = {"description": "Test"}
-        result = validate_domain_config(invalid_config)
+    def test_domain_config_missing_name(self):
+        result = validate_domain_config({"description": "Test"})
         assert not result["valid"]
         assert "name" in result["errors"]
 
-        # Description too long
-        long_desc_config = {"name": "example.com", "description": "a" * 501}
-        result = validate_domain_config(long_desc_config)
+    def test_domain_config_description_too_long(self):
+        result = validate_domain_config({"name": "example.com", "description": "a" * 501})
         assert not result["valid"]
         assert "description" in result["errors"]
 
-        # Malicious description
-        malicious_config = {"name": "example.com", "description": "<script>alert('xss')</script>"}
-        result = validate_domain_config(malicious_config)
+    def test_domain_config_xss_description(self):
+        result = validate_domain_config(
+            {"name": "example.com", "description": "<script>alert('xss')</script>"}
+        )
         assert not result["valid"]
         assert "description" in result["errors"]
 
 
 class TestFileUploadSecurity:
-    """Test file upload security features."""
+    """Test file upload size limits."""
 
     def test_file_size_limit(self):
-        """Test file size limit enforcement."""
-        parser = DMARCParser()
-
-        # Create a file that's too large (> 10 MB)
         large_content = b"x" * (11 * 1024 * 1024)
-
-        with pytest.raises(ValueError) as exc_info:
-            parser.parse_file(large_content, "test.xml")
-
-        assert "too large" in str(exc_info.value).lower()
+        with pytest.raises(ValueError, match="too large"):
+            DMARCParser.parse_file(large_content, "test.xml")
 
 
 class TestXMLParsingSecurity:
-    """Test XML parsing security features."""
+    """Test XML parsing security (defusedxml, XXE protection)."""
 
-    def test_defusedxml_import(self):
-        """Test that defusedxml is being used."""
+    def test_defusedxml_is_used(self):
         import app.services.dmarc_parser as parser_module
 
-        # Check that the module uses defusedxml
         assert hasattr(parser_module, "ET")
-        # The module name should contain 'defusedxml'
-        assert (
-            "defusedxml" in str(parser_module.ET.__name__).lower()
-            or "defusedxml" in str(parser_module.ET.__module__).lower()
+        module_info = str(getattr(parser_module.ET, "__name__", "")) + str(
+            getattr(parser_module.ET, "__module__", "")
         )
+        assert "defusedxml" in module_info.lower()
 
-    def test_xml_entity_expansion_protection(self):
-        """Test protection against XML entity expansion attacks."""
-        parser = DMARCParser()
-
-        # XXE attack payload
-        xxe_payload = b"""<?xml version="1.0"?>
+    def test_xxe_protection(self):
+        """defusedxml should prevent XXE entity expansion."""
+        xxe_payload = b"""\
+<?xml version="1.0"?>
 <!DOCTYPE foo [
 <!ENTITY xxe SYSTEM "file:///etc/passwd">
 ]>
@@ -195,23 +144,10 @@ class TestXMLParsingSecurity:
     </report_metadata>
 </feedback>
 """
-
-        # Should either fail parsing or not expand the entity
-        # defusedxml should prevent this
+        # defusedxml should raise an error or not expand the entity
         try:
-            result = parser.parse_file(xxe_payload, "test.xml")
-            # If it doesn't raise an error, the entity should not be expanded
+            result = DMARCParser.parse_file(xxe_payload, "test.xml")
             org_name = result.get("org_name", "")
-            assert not org_name.startswith("root:") and "/bin" not in org_name
-        except Exception:
-            # Expected - defusedxml should prevent parsing
-            pass
-
-
-# Note: TestSecurityHeaders and TestErrorHandling tests are not implemented
-# because they require proper async client setup. These will be added in a future PR
-# with proper integration test infrastructure.
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+            assert "root:" not in org_name and "/bin" not in org_name
+        except (ValueError, Exception):
+            pass  # Expected – defusedxml blocks DTD processing

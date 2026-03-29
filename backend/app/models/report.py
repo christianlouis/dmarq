@@ -21,7 +21,7 @@ class DMARCReport(Base):
     source_email = Column(String, nullable=True)
 
     # Policy information
-    policy = Column(String, nullable=True, index=True)  # none, quarantine, reject
+    policy = Column(String, nullable=True)  # none, quarantine, reject (indexed via __table_args__)
     subdomain_policy = Column(String, nullable=True)
     adkim = Column(String(1), nullable=True)  # r (relaxed) or s (strict)
     aspf = Column(String(1), nullable=True)  # r (relaxed) or s (strict)
@@ -62,7 +62,7 @@ class ReportRecord(Base):
     count = Column(Integer, nullable=False, default=0)
 
     # Policy evaluation
-    disposition = Column(String, nullable=False, index=True)  # none, quarantine, reject
+    disposition = Column(String, nullable=False)  # none, quarantine, reject (indexed via __table_args__)
     dkim = Column(String, nullable=True, index=True)  # pass, fail
     spf = Column(String, nullable=True, index=True)  # pass, fail
 
