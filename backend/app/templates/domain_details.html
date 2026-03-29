@@ -160,7 +160,7 @@
                             <span x-show="!dns.dkim" class="inline-flex h-2 w-2 rounded-full bg-red-500"></span>
                         </h3>
                         <div class="bg-muted p-2 rounded text-sm overflow-x-auto font-mono"
-                             x-text="dns.dkim ? (dns.dkimSelectors ? 'selector: ' + dns.dkimSelectors : 'Verified') : 'No DKIM record found for configured selectors'">-</div>
+                             x-text="dkimLiveText">-</div>
                     </div>
                     <!-- DKIM Selector Management -->
                     <div class="border rounded-lg p-4">
@@ -419,6 +419,12 @@ function domainDetailsApp(domainId) {
                 if (!this.filters.sourceFilter) return true;
                 return source.ip.toLowerCase().includes(this.filters.sourceFilter.toLowerCase());
             });
+        },
+
+        get dkimLiveText() {
+            if (!this.dns.dkim) return 'No DKIM record found for configured selectors';
+            if (this.dns.dkimSelectors) return 'selector: ' + this.dns.dkimSelectors;
+            return 'Verified';
         },
 
         async fetchDomainStats() {

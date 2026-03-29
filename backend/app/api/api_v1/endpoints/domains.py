@@ -168,7 +168,7 @@ async def get_domains_summary(db: Session = Depends(get_db)):
                 provider.check_domain(domain_name, selectors=combined),
                 timeout=10.0,
             )
-        except (asyncio.TimeoutError, Exception) as exc:  # pylint: disable=broad-exception-caught
+        except (asyncio.TimeoutError, LookupError, OSError) as exc:
             logger.warning("DNS check failed for %s: %s", domain_name, exc)
             return DomainDNSResult()
 

@@ -234,7 +234,7 @@ class CloudflareDNSProvider(BaseDNSProvider):
                         txt = answer.get("data", "").strip('"')
                         records.append(txt)
                 return records
-        except Exception as exc:
+        except (httpx.RequestError, httpx.HTTPStatusError, httpx.TimeoutException) as exc:
             raise LookupError(f"Cloudflare DoH lookup failed for {name}: {exc}") from exc
 
 
