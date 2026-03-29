@@ -35,8 +35,8 @@ REPORT_DICT_POLICY = {
             "source_ip": "209.85.220.1",
             "count": 10,
             "disposition": "none",
-            "dkim": "pass",
-            "spf": "pass",
+            "dkim_result": "pass",
+            "spf_result": "pass",
             "header_from": DOMAIN,
         }
     ],
