@@ -42,6 +42,11 @@ jobs:
           pip install black isort flake8 pylint
           cd backend && pip install -r requirements.txt
 
+      - name: Auto-format with Black and isort
+        run: |
+          black backend/app
+          isort backend/app
+
       - name: Black – format check
         run: black --check backend/app
 
