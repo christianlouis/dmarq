@@ -14,6 +14,9 @@ from app.core.config import get_settings
 from app.core.database import Base, SessionLocal, engine
 from app.core.security import add_api_key, generate_api_key, require_admin_auth
 from app.middleware.security import SecurityHeadersMiddleware
+import app.models.domain  # noqa: F401 – ensure Domain/UserDomain tables are registered
+import app.models.report  # noqa: F401 – ensure DMARCReport/ReportRecord tables are registered
+import app.models.user  # noqa: F401 – ensure User table is registered
 from app.models.mail_source import MailSource  # noqa: F401 – ensure table is registered
 from app.services.imap_client import IMAPClient
 from app.services.report_store import ReportStore
