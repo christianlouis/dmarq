@@ -138,3 +138,35 @@ class TestEnsureSqliteDir:
         """Default DATABASE_URL places the SQLite file inside a data/ subdirectory."""
         settings = Settings()
         assert settings.DATABASE_URL.endswith("data/dmarq.db")
+
+
+class TestAdminApiKeySetting:
+    """Tests for the ADMIN_API_KEY settings field."""
+
+    def test_admin_api_key_defaults_to_none(self):
+        """ADMIN_API_KEY is None when not set."""
+        settings = Settings()
+        assert settings.ADMIN_API_KEY is None
+
+    def test_admin_api_key_reads_from_env(self, monkeypatch):
+        """ADMIN_API_KEY is read from the environment variable."""
+        monkeypatch.setenv("ADMIN_API_KEY", "mytestapikey1234")
+        settings = Settings()
+        assert settings.ADMIN_API_KEY == "mytestapikey1234"
+
+    def test_admin_api_key_warns_when_short(self, monkeypatch, caplog):
+        """A warning is logged when ADMIN_API_KEY is shorter than 32 characters."""
+        import logging
+
+        monkeypatch.setenv("ADMIN_API_KEY", "short")
+        with caplog.at_level(logging.WARNING, logger="app.core.config"):
+            settings = Settings()
+        assert settings.ADMIN_API_KEY == "short"
+        assert any("too short" in record.message for record in caplog.records)
+
+    def test_admin_api_key_accepts_long_key(self, monkeypatch):
+        """A 64-char hex key (openssl rand -hex 32 output) is accepted without warnings."""
+        long_key = "a" * 64
+        monkeypatch.setenv("ADMIN_API_KEY", long_key)
+        settings = Settings()
+        assert settings.ADMIN_API_KEY == long_key

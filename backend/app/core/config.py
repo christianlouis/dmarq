@@ -49,6 +49,23 @@ class Settings(BaseSettings):
     CLOUDFLARE_API_TOKEN: Optional[str] = None
     CLOUDFLARE_ZONE_ID: Optional[str] = None
 
+    # Admin API Key (optional)
+    # If set, this key is used directly instead of generating a random one at startup.
+    # Use: openssl rand -hex 32
+    ADMIN_API_KEY: Optional[str] = None
+
+    @validator("ADMIN_API_KEY", pre=True, always=True)
+    def validate_admin_api_key(cls, v: Optional[str]) -> Optional[str]:  # pylint: disable=no-self-argument
+        """Warn if ADMIN_API_KEY is set but too short."""
+        if v is not None and len(v) < 32:
+            logger.warning(
+                "ADMIN_API_KEY is too short (%s characters). "
+                "Recommended minimum is 32 characters for security. "
+                "Generate a strong key with: openssl rand -hex 32",
+                len(v),
+            )
+        return v or None
+
     @validator("SECRET_KEY", pre=True, always=True)
     def validate_secret_key(cls, v: Optional[str]) -> str:  # pylint: disable=no-self-argument
         """Validate and generate SECRET_KEY if not provided."""
