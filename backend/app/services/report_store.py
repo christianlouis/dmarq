@@ -82,8 +82,8 @@ class ReportStore:
                         "disposition": "none",
                     }
                 sources[source_ip]["count"] += record.get("count", 0)
-                sources[source_ip]["spf_result"] = record.get("spf", "unknown")
-                sources[source_ip]["dkim_result"] = record.get("dkim", "unknown")
+                sources[source_ip]["spf_result"] = record.get("spf_result", "unknown")
+                sources[source_ip]["dkim_result"] = record.get("dkim_result", "unknown")
                 sources[source_ip]["disposition"] = record.get("disposition", "none")
 
         total = summary["total_count"]
