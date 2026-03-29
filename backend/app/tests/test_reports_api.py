@@ -132,3 +132,44 @@ def test_upload_after_delete_succeeds(client: TestClient):
     )
     assert response.status_code == 200
     assert response.json()["success"] is True
+
+
+def test_get_report_by_id_returns_detail(client: TestClient):
+    """GET /api/v1/reports/{report_id} returns full report detail after upload."""
+    zip_bytes = _make_zip(SAMPLE_XML)
+    client.post(
+        "/api/v1/reports/upload",
+        files={"file": ("report.zip", zip_bytes, "application/zip")},
+    )
+
+    response = client.get("/api/v1/reports/123456789")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["report_id"] == "123456789"
+    assert data["domain"] == "example.com"
+    assert data["org_name"] == "google.com"
+    assert "policy" in data
+    assert "records" in data
+    assert "summary" in data
+    assert data["summary"]["total_count"] == 2
+
+
+def test_get_report_by_id_not_found(client: TestClient):
+    """GET /api/v1/reports/{report_id} returns 404 when report does not exist."""
+    response = client.get("/api/v1/reports/no-such-report-id")
+    assert response.status_code == 404
+
+
+def test_report_detail_html_page():
+    """GET /reports/{report_id} returns 200 HTML page.
+
+    The /reports/{report_id} route is registered on the module-level ``app``
+    instance in main.py, not on the ``create_app()`` instance used by the
+    ``client`` fixture, so we must import the module-level app here.
+    """
+    from app.main import app as main_app  # noqa: PLC0415
+
+    with TestClient(main_app) as c:
+        response = c.get("/reports/123456789")
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]

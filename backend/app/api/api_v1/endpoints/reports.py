@@ -1,5 +1,5 @@
 import logging
-from typing import List
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 from pydantic import BaseModel
@@ -373,4 +373,113 @@ async def delete_report(domain: str, report_id: str):
     return DeleteReportResponse(
         success=True,
         message=f"Report '{report_id}' for domain '{domain}' deleted successfully.",
+    )
+
+
+class ReportRecordDetail(BaseModel):
+    """Detailed record from a DMARC report"""
+
+    source_ip: str
+    count: int
+    disposition: str
+    dkim_result: str
+    spf_result: str
+    header_from: str
+    spf: Optional[List[Dict[str, Any]]] = None
+    dkim: Optional[List[Dict[str, Any]]] = None
+
+
+class ReportPolicyDetail(BaseModel):
+    """Published policy from a DMARC report"""
+
+    p: str
+    sp: str = ""
+    pct: str = "100"
+
+
+class ReportSummaryDetail(BaseModel):
+    """Summary statistics for a DMARC report"""
+
+    total_count: int
+    passed_count: int
+    failed_count: int
+    pass_rate: float
+
+
+class ReportDetail(BaseModel):
+    """Full detail of a single DMARC report"""
+
+    report_id: str
+    org_name: str
+    email: str
+    domain: str
+    begin_date: str
+    end_date: str
+    begin_timestamp: int
+    end_timestamp: int
+    policy: ReportPolicyDetail
+    records: List[ReportRecordDetail]
+    summary: ReportSummaryDetail
+
+
+@router.get("/{report_id}", response_model=ReportDetail)
+async def get_report_by_id(report_id: str):
+    """
+    Get full details for a single DMARC report by its report ID.
+    """
+    store = ReportStore.get_instance()
+    report = store.get_report_by_id(report_id)
+
+    if report is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Report '{report_id}' not found.",
+        )
+
+    # Normalize the policy field
+    policy_val = report.get("policy", {})
+    if isinstance(policy_val, str):
+        policy_val = {"p": policy_val, "sp": "", "pct": "100"}
+    policy_detail = ReportPolicyDetail(
+        p=policy_val.get("p", "none"),
+        sp=policy_val.get("sp", ""),
+        pct=str(policy_val.get("pct", "100")),
+    )
+
+    # Normalize records
+    record_details = []
+    for rec in report.get("records", []):
+        record_details.append(
+            ReportRecordDetail(
+                source_ip=rec.get("source_ip", ""),
+                count=rec.get("count", 0),
+                disposition=rec.get("disposition", "none"),
+                dkim_result=rec.get("dkim_result", ""),
+                spf_result=rec.get("spf_result", ""),
+                header_from=rec.get("header_from", ""),
+                spf=rec.get("spf") if isinstance(rec.get("spf"), list) else None,
+                dkim=rec.get("dkim") if isinstance(rec.get("dkim"), list) else None,
+            )
+        )
+
+    raw_summary = report.get("summary", {})
+    summary_detail = ReportSummaryDetail(
+        total_count=raw_summary.get("total_count", 0),
+        passed_count=raw_summary.get("passed_count", 0),
+        failed_count=raw_summary.get("failed_count", 0),
+        pass_rate=raw_summary.get("pass_rate", 0.0),
+    )
+
+    return ReportDetail(
+        report_id=report.get("report_id", ""),
+        org_name=report.get("org_name", ""),
+        email=report.get("email", ""),
+        domain=report.get("domain", ""),
+        begin_date=str(report.get("begin_date", "")),
+        end_date=str(report.get("end_date", "")),
+        begin_timestamp=report.get("begin_timestamp", 0),
+        end_timestamp=report.get("end_timestamp", 0),
+        policy=policy_detail,
+        records=record_details,
+        summary=summary_detail,
     )

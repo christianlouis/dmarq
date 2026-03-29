@@ -1,0 +1,276 @@
+{% extends "layouts/base.html" %}
+{% from "components/ui/card.html" import card, card_header, card_title, card_description, card_content %}
+{% from "components/ui/button.html" import button, button_link %}
+{% from "components/ui/table.html" import table, thead, tbody, tr, th, td %}
+
+{% block title %}DMARQ - Report Detail{% endblock %}
+
+{% block content %}
+<div class="container mx-auto py-4" x-data="reportDetailApp('{{ report_id }}')">
+    <nav class="mb-4 text-sm">
+        <ol class="flex items-center space-x-2">
+            <li><a href="/" class="hover:text-primary">Dashboard</a></li>
+            <li><span class="text-muted-foreground px-2">/</span></li>
+            <li><a href="/reports" class="hover:text-primary">Reports</a></li>
+            <li><span class="text-muted-foreground px-2">/</span></li>
+            <li><span class="font-medium" x-text="reportId"></span></li>
+        </ol>
+    </nav>
+
+    <!-- Loading state -->
+    <template x-if="loading">
+        <div class="flex items-center justify-center py-16">
+            <span class="loading loading-spinner loading-lg"></span>
+        </div>
+    </template>
+
+    <!-- Error state -->
+    <template x-if="!loading && error">
+        <div class="alert alert-error mb-6">
+            <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span x-text="error"></span>
+        </div>
+    </template>
+
+    <!-- Report content -->
+    <template x-if="!loading && !error && report">
+        <div class="grid grid-cols-1 gap-6">
+            <!-- Header -->
+            <div class="flex justify-between items-start">
+                <div>
+                    <h1 class="text-2xl font-bold mb-1" x-text="'Report: ' + report.report_id"></h1>
+                    <p class="text-muted-foreground">
+                        Submitted by <span x-text="report.org_name"></span>
+                        &bull;
+                        <a :href="'/domains/' + report.domain" class="hover:text-primary" x-text="report.domain"></a>
+                    </p>
+                </div>
+                <div class="flex space-x-2">
+                    <a :href="'/domains/' + report.domain" class="btn btn-outline btn-sm">
+                        Back to Domain
+                    </a>
+                </div>
+            </div>
+
+            <!-- Summary Cards -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {% call card() %}
+                    {% call card_header() %}
+                        {% call card_title() %}Total Emails{% endcall %}
+                    {% endcall %}
+                    {% call card_content() %}
+                        <div class="stat-value text-2xl font-bold" x-text="report.summary.total_count">-</div>
+                    {% endcall %}
+                {% endcall %}
+                {% call card() %}
+                    {% call card_header() %}
+                        {% call card_title() %}Passed{% endcall %}
+                    {% endcall %}
+                    {% call card_content() %}
+                        <div class="stat-value text-2xl font-bold text-success" x-text="report.summary.passed_count">-</div>
+                    {% endcall %}
+                {% endcall %}
+                {% call card() %}
+                    {% call card_header() %}
+                        {% call card_title() %}Failed{% endcall %}
+                    {% endcall %}
+                    {% call card_content() %}
+                        <div class="stat-value text-2xl font-bold text-error" x-text="report.summary.failed_count">-</div>
+                    {% endcall %}
+                {% endcall %}
+                {% call card() %}
+                    {% call card_header() %}
+                        {% call card_title() %}Pass Rate{% endcall %}
+                    {% endcall %}
+                    {% call card_content() %}
+                        <div class="stat-value text-2xl font-bold"
+                             :class="passRateClass(report.summary.pass_rate)"
+                             x-text="report.summary.pass_rate.toFixed(1) + '%'">-</div>
+                    {% endcall %}
+                {% endcall %}
+            </div>
+
+            <!-- Report Metadata -->
+            {% call card() %}
+                {% call card_header() %}
+                    {% call card_title() %}Report Metadata{% endcall %}
+                {% endcall %}
+                {% call card_content() %}
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <p class="text-sm text-muted-foreground">Report ID</p>
+                            <p class="font-medium font-mono text-sm break-all" x-text="report.report_id"></p>
+                        </div>
+                        <div>
+                            <p class="text-sm text-muted-foreground">Organization</p>
+                            <p class="font-medium" x-text="report.org_name"></p>
+                        </div>
+                        <div>
+                            <p class="text-sm text-muted-foreground">Email</p>
+                            <p class="font-medium" x-text="report.email || '—'"></p>
+                        </div>
+                        <div>
+                            <p class="text-sm text-muted-foreground">Domain</p>
+                            <p class="font-medium" x-text="report.domain"></p>
+                        </div>
+                        <div>
+                            <p class="text-sm text-muted-foreground">Period Start</p>
+                            <p class="font-medium" x-text="formatDate(report.begin_timestamp)"></p>
+                        </div>
+                        <div>
+                            <p class="text-sm text-muted-foreground">Period End</p>
+                            <p class="font-medium" x-text="formatDate(report.end_timestamp)"></p>
+                        </div>
+                    </div>
+                {% endcall %}
+            {% endcall %}
+
+            <!-- Policy Published -->
+            {% call card() %}
+                {% call card_header() %}
+                    {% call card_title() %}Policy Published{% endcall %}
+                    {% call card_description() %}DMARC policy in effect during the reporting period{% endcall %}
+                {% endcall %}
+                {% call card_content() %}
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div>
+                            <p class="text-sm text-muted-foreground">Policy (p)</p>
+                            <p class="font-medium capitalize" x-text="report.policy.p"></p>
+                        </div>
+                        <div>
+                            <p class="text-sm text-muted-foreground">Subdomain Policy (sp)</p>
+                            <p class="font-medium capitalize" x-text="report.policy.sp || '—'"></p>
+                        </div>
+                        <div>
+                            <p class="text-sm text-muted-foreground">Percentage (pct)</p>
+                            <p class="font-medium" x-text="report.policy.pct + '%'"></p>
+                        </div>
+                    </div>
+                {% endcall %}
+            {% endcall %}
+
+            <!-- Records -->
+            {% call card() %}
+                {% call card_header() %}
+                    {% call card_title() %}Records{% endcall %}
+                    {% call card_description() %}
+                        <span x-text="report.records.length"></span> IP source(s) in this report
+                    {% endcall %}
+                {% endcall %}
+                {% call card_content() %}
+                    {% call table() %}
+                        {% call thead() %}
+                            {% call tr() %}
+                                {% call th() %}Source IP{% endcall %}
+                                {% call th() %}Count{% endcall %}
+                                {% call th() %}Disposition{% endcall %}
+                                {% call th() %}DKIM{% endcall %}
+                                {% call th() %}SPF{% endcall %}
+                                {% call th() %}Header From{% endcall %}
+                            {% endcall %}
+                        {% endcall %}
+                        {% call tbody() %}
+                            <template x-if="report.records.length === 0">
+                                <tr>
+                                    <td colspan="6" class="text-center py-4">
+                                        <div class="text-muted-foreground">No records in this report</div>
+                                    </td>
+                                </tr>
+                            </template>
+                            <template x-for="(record, index) in report.records" :key="index">
+                                {% call tr() %}
+                                    {% call td() %}
+                                        <span class="font-mono text-sm" x-text="record.source_ip"></span>
+                                    {% endcall %}
+                                    {% call td() %}
+                                        <span x-text="record.count"></span>
+                                    {% endcall %}
+                                    {% call td() %}
+                                        <span class="inline-flex items-center px-2 py-1 rounded text-xs capitalize"
+                                              :class="dispositionClass(record.disposition)"
+                                              x-text="record.disposition"></span>
+                                    {% endcall %}
+                                    {% call td() %}
+                                        <span class="inline-flex items-center px-2 py-1 rounded text-xs capitalize"
+                                              :class="resultClass(record.dkim_result)"
+                                              x-text="record.dkim_result || '—'"></span>
+                                    {% endcall %}
+                                    {% call td() %}
+                                        <span class="inline-flex items-center px-2 py-1 rounded text-xs capitalize"
+                                              :class="resultClass(record.spf_result)"
+                                              x-text="record.spf_result || '—'"></span>
+                                    {% endcall %}
+                                    {% call td() %}
+                                        <span x-text="record.header_from || '—'"></span>
+                                    {% endcall %}
+                                {% endcall %}
+                            </template>
+                        {% endcall %}
+                    {% endcall %}
+                {% endcall %}
+            {% endcall %}
+        </div>
+    </template>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function reportDetailApp(reportId) {
+    return {
+        reportId: reportId,
+        report: null,
+        loading: true,
+        error: null,
+
+        async init() {
+            await this.fetchReport();
+        },
+
+        async fetchReport() {
+            try {
+                const response = await fetch(`/api/v1/reports/${encodeURIComponent(this.reportId)}`);
+                if (response.ok) {
+                    this.report = await response.json();
+                } else if (response.status === 404) {
+                    this.error = `Report '${this.reportId}' was not found. It may have been deleted or may not exist.`;
+                } else {
+                    this.error = 'Failed to load report. Please try again later.';
+                }
+            } catch (err) {
+                this.error = 'Network error — could not load report.';
+                console.error('Error fetching report:', err);
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        formatDate(timestamp) {
+            if (!timestamp) return '—';
+            return new Date(timestamp * 1000).toLocaleString();
+        },
+
+        passRateClass(rate) {
+            if (rate >= 90) return 'text-success';
+            if (rate >= 50) return 'text-warning';
+            return 'text-error';
+        },
+
+        resultClass(result) {
+            if (result === 'pass') return 'bg-green-100 text-green-800';
+            if (result === 'fail') return 'bg-red-100 text-red-800';
+            return 'bg-gray-100 text-gray-800';
+        },
+
+        dispositionClass(disposition) {
+            if (disposition === 'none') return 'bg-green-100 text-green-800';
+            if (disposition === 'quarantine') return 'bg-yellow-100 text-yellow-800';
+            if (disposition === 'reject') return 'bg-red-100 text-red-800';
+            return 'bg-gray-100 text-gray-800';
+        },
+    };
+}
+</script>
+{% endblock %}

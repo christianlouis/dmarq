@@ -147,6 +147,22 @@ class ReportStore:
         """
         return self.domain_summary
 
+    def get_report_by_id(self, report_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Find a report by its report_id across all domains.
+
+        Args:
+            report_id: Report identifier from the DMARC report metadata
+
+        Returns:
+            The report dictionary if found, None otherwise
+        """
+        for reports in self.domain_reports.values():
+            for report in reports:
+                if report.get("report_id") == report_id:
+                    return report
+        return None
+
     def get_domain_reports(self, domain: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """
         Get all reports for a domain

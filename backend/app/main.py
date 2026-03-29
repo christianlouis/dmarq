@@ -342,6 +342,14 @@ async def reports(request: Request):
     return templates.TemplateResponse(request, "reports.html")
 
 
+@app.get("/reports/{report_id}", response_class=HTMLResponse)
+async def report_detail(request: Request, report_id: str):
+    """View detailed information for a specific DMARC report"""
+    return templates.TemplateResponse(
+        request, "report_detail.html", {"report_id": report_id}
+    )
+
+
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request):
     return templates.TemplateResponse(request, "settings.html")
