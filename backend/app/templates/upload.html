@@ -1,6 +1,5 @@
 {% extends "layouts/base.html" %}
 {% from "components/ui/card.html" import card, card_header, card_title, card_description, card_content, card_footer %}
-{% from "components/ui/button.html" import button %}
 {% from "components/ui/alert.html" import alert, alert_title, alert_description %}
 
 {% block title %}Upload DMARC Reports - DMARQ{% endblock %}
@@ -14,12 +13,13 @@
         {% call card_header() %}
             {% call card_title() %}Upload DMARC Reports{% endcall %}
             {% call card_description() %}
-                Upload your DMARC aggregate report files (XML, ZIP, or GZIP)
+                Drag and drop one or more DMARC aggregate report files (XML, ZIP, or GZIP). Files are uploaded automatically.
             {% endcall %}
         {% endcall %}
         {% call card_content() %}
-            <form id="upload-form" enctype="multipart/form-data" class="space-y-6" x-data="uploadForm()">
-                <div 
+            <div class="space-y-6" x-data="uploadForm()">
+                <!-- Drop Zone -->
+                <div
                     class="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center hover:bg-muted/50 transition-colors cursor-pointer relative"
                     x-on:dragover.prevent="dragover = true"
                     x-on:dragleave.prevent="dragover = false"
@@ -33,78 +33,108 @@
                         <span class="text-primary">Click to upload</span> or drag and drop
                     </p>
                     <p class="text-sm text-muted-foreground">
-                        XML, ZIP, or GZIP files only
+                        XML, ZIP, or GZIP files &mdash; multiple files supported
                     </p>
-                    <input id="report-file" type="file" name="file" accept=".xml,.zip,.gz,.gzip" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" x-on:change="handleFileSelect" />
+                    <input
+                        id="report-file"
+                        type="file"
+                        accept=".xml,.zip,.gz,.gzip"
+                        multiple
+                        class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        x-on:change="handleFileSelect($event)"
+                    />
                 </div>
-                
-                <div id="file-selected" x-show="selectedFile" class="p-3 bg-muted rounded-md" x-cloak>
-                    <div class="flex items-center justify-between">
-                        <div class="flex items-center space-x-2">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-primary"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
-                            <span id="file-name" class="text-sm font-medium" x-text="selectedFile"></span>
-                        </div>
-                        <button type="button" id="remove-file" class="text-muted-foreground hover:text-foreground" x-on:click="clearFile">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
-                        </button>
+
+                <!-- File queue -->
+                <div x-show="files.length > 0" x-cloak class="space-y-2">
+                    <!-- Queue header -->
+                    <div class="flex items-center justify-between text-sm text-muted-foreground">
+                        <span x-text="`${files.length} file${files.length !== 1 ? 's' : ''} queued`"></span>
+                        <button
+                            type="button"
+                            class="text-xs underline hover:text-foreground"
+                            x-show="!isUploading"
+                            x-on:click="clearAll()"
+                        >Clear all</button>
                     </div>
-                </div>
-                
-                <div id="upload-result" x-show="uploadResult" x-cloak>
-                    <template x-if="uploadStatus === 'success'">
-                        {% call alert(variant="success") %}
-                            {% call alert_title() %}Upload Successful{% endcall %}
-                            {% call alert_description() %}
-                                <p x-text="uploadResult"></p>
-                            {% endcall %}
-                        {% endcall %}
-                    </template>
-                    
-                    <template x-if="uploadStatus === 'error'">
-                        {% call alert(variant="error") %}
-                            {% call alert_title() %}Upload Failed{% endcall %}
-                            {% call alert_description() %}
-                                <p x-text="uploadResult"></p>
-                            {% endcall %}
-                        {% endcall %}
+
+                    <!-- Per-file rows -->
+                    <template x-for="(entry, index) in files" :key="index">
+                        <div class="flex items-center justify-between p-3 bg-muted rounded-md">
+                            <div class="flex items-center space-x-3 min-w-0 flex-1">
+                                <!-- Status icon -->
+                                <div class="flex-shrink-0">
+                                    <template x-if="entry.status === 'pending'">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-muted-foreground"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                    </template>
+                                    <template x-if="entry.status === 'uploading'">
+                                        <svg class="animate-spin h-4 w-4 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                    </template>
+                                    <template x-if="entry.status === 'success'">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-success"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                                    </template>
+                                    <template x-if="entry.status === 'error'">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-error"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                                    </template>
+                                </div>
+
+                                <!-- Filename and result message -->
+                                <div class="min-w-0 flex-1">
+                                    <p class="text-sm font-medium truncate" x-text="entry.name"></p>
+                                    <p class="text-xs text-muted-foreground" x-show="entry.message" x-text="entry.message"></p>
+                                </div>
+                            </div>
+
+                            <!-- Remove button (hidden while file is uploading) -->
+                            <button
+                                type="button"
+                                class="flex-shrink-0 ml-2 text-muted-foreground hover:text-foreground"
+                                x-show="entry.status !== 'uploading'"
+                                x-on:click="removeFile(index)"
+                                aria-label="Remove file"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+                            </button>
+                        </div>
                     </template>
 
-                    <template x-if="uploadStatus === 'processing'">
-                        {% call alert(variant="info") %}
-                            {% call alert_title() %}Processing{% endcall %}
-                            {% call alert_description() %}
-                                <div class="flex items-center space-x-2">
-                                    <svg class="animate-spin h-5 w-5 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                    </svg>
-                                    <span>Uploading and processing your DMARC report...</span>
-                                </div>
+                    <!-- Summary alert shown when all files have been processed -->
+                    <div x-show="!isUploading && files.length > 0 && pendingCount === 0" class="mt-4">
+                        <template x-if="errorCount === 0 && successCount > 0">
+                            {% call alert(variant="success") %}
+                                {% call alert_title() %}All uploads complete{% endcall %}
+                                {% call alert_description() %}
+                                    <p x-text="`Successfully processed ${successCount} file${successCount !== 1 ? 's' : ''}.`"></p>
+                                {% endcall %}
                             {% endcall %}
-                        {% endcall %}
-                    </template>
+                        </template>
+                        <template x-if="successCount === 0 && errorCount > 0">
+                            {% call alert(variant="error") %}
+                                {% call alert_title() %}Upload failed{% endcall %}
+                                {% call alert_description() %}
+                                    <p x-text="`Failed to process ${errorCount} file${errorCount !== 1 ? 's' : ''}.`"></p>
+                                {% endcall %}
+                            {% endcall %}
+                        </template>
+                        <template x-if="successCount > 0 && errorCount > 0">
+                            {% call alert(variant="warning") %}
+                                {% call alert_title() %}Upload complete with errors{% endcall %}
+                                {% call alert_description() %}
+                                    <p x-text="`${successCount} succeeded, ${errorCount} failed. See details above.`"></p>
+                                {% endcall %}
+                            {% endcall %}
+                        </template>
+                    </div>
                 </div>
-                
-                <div class="flex justify-end">
-                    <button 
-                        type="submit" 
-                        class="btn btn-default btn-md"
-                        x-bind:disabled="!selectedFile || isUploading"
-                    >
-                        <span x-show="!isUploading">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" x2="12" y1="3" y2="15"></line></svg>
-                            Upload Report
-                        </span>
-                        <span x-show="isUploading" class="flex items-center">
-                            <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                            Uploading...
-                        </span>
-                    </button>
-                </div>
-            </form>
+
+                <!-- Hint shown when the queue is empty -->
+                <p x-show="files.length === 0" class="text-center text-sm text-muted-foreground">
+                    Select or drop files above to begin uploading automatically.
+                </p>
+            </div>
         {% endcall %}
     {% endcall %}
 </div>
@@ -114,88 +144,103 @@
 <script>
 function uploadForm() {
     return {
-        selectedFile: '',
+        files: [],
         isUploading: false,
         dragover: false,
-        uploadResult: '',
-        uploadStatus: '',
-        
-        handleFileSelect(event) {
-            const file = event.target.files[0];
-            if (file) {
-                this.selectedFile = file.name;
-            }
+
+        get pendingCount() {
+            return this.files.filter(f => f.status === 'pending').length;
         },
-        
+
+        get successCount() {
+            return this.files.filter(f => f.status === 'success').length;
+        },
+
+        get errorCount() {
+            return this.files.filter(f => f.status === 'error').length;
+        },
+
+        handleFileSelect(event) {
+            this.addFiles(event.target.files);
+            // Reset input so the same file can be re-selected after removal
+            event.target.value = '';
+        },
+
         handleDrop(event) {
             this.dragover = false;
-            
-            const file = event.dataTransfer.files[0];
-            if (file && (file.name.endsWith('.xml') || file.name.endsWith('.zip') || file.name.endsWith('.gz') || file.name.endsWith('.gzip'))) {
-                document.getElementById('report-file').files = event.dataTransfer.files;
-                this.selectedFile = file.name;
-            } else {
-                this.uploadStatus = 'error';
-                this.uploadResult = 'Invalid file type. Please upload XML, ZIP, or GZIP files only.';
-            }
+            this.addFiles(event.dataTransfer.files);
         },
-        
-        clearFile() {
-            this.selectedFile = '';
-            this.uploadStatus = '';
-            this.uploadResult = '';
-            document.getElementById('report-file').value = '';
-        },
-        
-        init() {
-            const form = document.getElementById('upload-form');
-            
-            form.addEventListener('submit', async (e) => {
-                e.preventDefault();
-                
-                const fileInput = document.getElementById('report-file');
-                
-                if (!fileInput.files.length) {
-                    this.uploadStatus = 'error';
-                    this.uploadResult = 'Please select a file to upload.';
-                    return;
+
+        addFiles(fileList) {
+            const validExtensions = ['.xml', '.zip', '.gz', '.gzip'];
+            for (const file of fileList) {
+                const dotIndex = file.name.lastIndexOf('.');
+                const ext = dotIndex >= 0 ? file.name.slice(dotIndex).toLowerCase() : '';
+                if (validExtensions.includes(ext)) {
+                    this.files.push({ name: file.name, file: file, status: 'pending', message: '' });
+                } else {
+                    this.files.push({
+                        name: file.name,
+                        file: file,
+                        status: 'error',
+                        message: 'Invalid file type. Only XML, ZIP, or GZIP files are supported.'
+                    });
                 }
-                
-                this.isUploading = true;
-                this.uploadStatus = 'processing';
-                this.uploadResult = 'Uploading and processing report...';
-                
+            }
+            this.uploadPending();
+        },
+
+        removeFile(index) {
+            this.files.splice(index, 1);
+        },
+
+        clearAll() {
+            // Keep any file that is currently being uploaded
+            this.files = this.files.filter(f => f.status === 'uploading');
+        },
+
+        async uploadPending() {
+            // Guard: only one upload loop runs at a time.
+            // New pending files added while uploading will be picked up by the
+            // running while-loop on its next iteration.
+            if (this.isUploading) return;
+            this.isUploading = true;
+
+            // Use find() so that index shifts caused by removeFile() during an
+            // awaited upload do not cause any pending file to be skipped.
+            // Batch sizes for DMARC reports are small, so the O(n) scan per
+            // iteration is not a practical concern.
+            let entry;
+            while ((entry = this.files.find(f => f.status === 'pending')) !== undefined) {
+                entry.status = 'uploading';
+                entry.message = '';
+
                 const formData = new FormData();
-                formData.append('file', fileInput.files[0]);
-                
+                formData.append('file', entry.file);
+
                 try {
                     const response = await fetch('/api/v1/reports/upload', {
                         method: 'POST',
                         body: formData
                     });
-                    
                     const data = await response.json();
-                    
+
                     if (response.ok) {
-                        this.uploadStatus = 'success';
-                        this.uploadResult = `Report processed successfully. Found ${data.processed_records || 0} records for domain ${data.domain || ''}.`;
-                        this.selectedFile = '';
-                        fileInput.value = '';
-                        
-                        // Refresh dashboard data after 1 second
-                        setTimeout(() => {
-                            window.dispatchEvent(new CustomEvent('dmarq:refresh-data'));
-                        }, 1000);
+                        const records = data.processed_records || 0;
+                        entry.status = 'success';
+                        entry.message = `${records} record${records !== 1 ? 's' : ''} for ${data.domain || 'unknown domain'}`;
                     } else {
-                        throw new Error(data.detail || 'Unknown error');
+                        entry.status = 'error';
+                        entry.message = data.detail || 'Upload failed';
                     }
                 } catch (error) {
-                    this.uploadStatus = 'error';
-                    this.uploadResult = `Upload failed: ${error.message}`;
-                } finally {
-                    this.isUploading = false;
+                    entry.status = 'error';
+                    entry.message = `Upload failed: ${error.message}`;
                 }
-            });
+            }
+
+            this.isUploading = false;
+            window.dispatchEvent(new CustomEvent('dmarq:refresh-data'));
         }
     };
 }
