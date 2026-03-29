@@ -7,7 +7,7 @@ could run (see: pydantic_settings sources/providers/env.py decode_complex_value)
 """
 
 from app.core.config import Settings
-from app.core.database import _make_sync_db_url
+from app.core.database import _ensure_sqlite_dir, _make_sync_db_url
 
 
 class TestBackendCorsOriginsValidator:
@@ -96,3 +96,45 @@ class TestMakeSyncDbUrl:
         assert settings.DATABASE_URL == "postgresql+asyncpg://user:pass@db:5432/mydb"
         # Normalised URL used by the engine must not contain asyncpg
         assert "asyncpg" not in _make_sync_db_url(settings.DATABASE_URL)
+
+
+class TestEnsureSqliteDir:
+    """Tests for the _ensure_sqlite_dir() helper."""
+
+    def test_relative_sqlite_path_creates_directory(self, tmp_path, monkeypatch):
+        """A relative SQLite URL creates its parent directory."""
+        monkeypatch.chdir(tmp_path)
+        _ensure_sqlite_dir("sqlite:///./subdir/dmarq.db")
+        assert (tmp_path / "subdir").is_dir()
+
+    def test_absolute_sqlite_path_creates_directory(self, tmp_path):
+        """An absolute SQLite URL creates its parent directory."""
+        db_path = tmp_path / "nested" / "dmarq.db"
+        _ensure_sqlite_dir(f"sqlite:///{db_path}")
+        assert db_path.parent.is_dir()
+
+    def test_in_memory_sqlite_no_directory_created(self, tmp_path, monkeypatch):
+        """An in-memory SQLite URL does not create any directory."""
+        monkeypatch.chdir(tmp_path)
+        _ensure_sqlite_dir("sqlite://")
+        _ensure_sqlite_dir("sqlite:///:memory:")
+        # tmp_path itself exists but no new subdirectories should appear
+        assert list(tmp_path.iterdir()) == []
+
+    def test_postgres_url_no_directory_created(self, tmp_path, monkeypatch):
+        """Non-SQLite URLs are ignored entirely."""
+        monkeypatch.chdir(tmp_path)
+        _ensure_sqlite_dir("postgresql://user:pass@db:5432/mydb")
+        assert list(tmp_path.iterdir()) == []
+
+    def test_existing_directory_is_noop(self, tmp_path):
+        """Calling _ensure_sqlite_dir when the directory already exists is a no-op."""
+        existing = tmp_path / "data"
+        existing.mkdir()
+        _ensure_sqlite_dir(f"sqlite:///{existing}/dmarq.db")  # should not raise
+        assert existing.is_dir()
+
+    def test_default_database_url_uses_data_subdir(self):
+        """Default DATABASE_URL places the SQLite file inside a data/ subdirectory."""
+        settings = Settings()
+        assert settings.DATABASE_URL.endswith("data/dmarq.db")

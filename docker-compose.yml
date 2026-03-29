@@ -26,7 +26,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     volumes:
-      - ./backend:/app
+      - ./backend:/app          # development: mount source code for live reload
+      - app_data:/app/data      # persist SQLite database and other application data
     depends_on:
       db:
         condition: service_healthy
@@ -50,4 +51,6 @@ networks:
 # Define volumes
 volumes:
   postgres_data:
+    driver: local
+  app_data:
     driver: local
