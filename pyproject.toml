@@ -1,3 +1,25 @@
+[project]
+name = "dmarq"
+version = "0.3.0"
+description = "A modern, privacy-conscious DMARC monitoring and analysis platform"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+
+[tool.semantic_release]
+version_toml = ["pyproject.toml:project.version"]
+version_variables = ["backend/app/__init__.py:__version__"]
+commit_message = "chore(release): v{version}"
+tag_format = "v{version}"
+build_command = "python3 scripts/sync_version.py"
+upload_to_pypi = false
+
+[tool.semantic_release.changelog]
+changelog_file = "CHANGELOG.md"
+
+[tool.semantic_release.branches.main]
+match = "main"
+
 [tool.black]
 line-length = 100
 target-version = ['py310']
