@@ -52,14 +52,37 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
         # Content Security Policy (CSP)
         # Restricts sources of content that can be loaded
-        # TODO: Remove 'unsafe-inline' and 'unsafe-eval' and use nonces/hashes instead
+        # 
+        # SECURITY TODO: Current CSP includes 'unsafe-inline' and 'unsafe-eval' which
+        # weaken XSS protection. To remove these:
+        # 
+        # For script-src 'unsafe-inline':
+        # 1. Move all inline <script> tags from templates to external .js files
+        # 2. OR implement CSP nonces for inline scripts (requires template changes)
+        # 3. Convert any inline event handlers (onclick, etc.) to addEventListener
+        # 
+        # For script-src 'unsafe-eval':
+        # 1. Verify no code uses eval(), Function(), setTimeout/setInterval with strings
+        # 2. If using libraries that require eval, consider alternatives
+        # 3. Current scan shows no eval usage - can likely remove this directive
+        # 
+        # For style-src 'unsafe-inline':
+        # 1. Move inline styles to CSS files or use style tags with nonces
+        # 2. Replace style="" attributes with CSS classes
+        # 3. OR implement CSP nonces for inline styles
+        # 
+        # Target secure CSP (no inline):
+        # "script-src 'self'"
+        # "style-src 'self' https://fonts.googleapis.com"
+        # 
+        # See: https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP
         csp_directives = [
             "default-src 'self'",
-            # Note: 'unsafe-inline' and 'unsafe-eval' weaken XSS protection
-            # These should be removed and replaced with nonces or CSP hashes
-            # See: https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval'",  # TODO: Use nonces
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",  # TODO: Use nonces
+            # TODO: Remove 'unsafe-inline' - requires moving inline scripts to external files
+            # TODO: Remove 'unsafe-eval' - no eval usage detected, safe to remove after testing
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdn.jsdelivr.net",
+            # TODO: Remove 'unsafe-inline' - requires moving inline styles to CSS or using nonces
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net",
             "font-src 'self' https://fonts.gstatic.com",
             "img-src 'self' data: https:",
             "connect-src 'self'",

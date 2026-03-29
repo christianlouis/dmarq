@@ -184,9 +184,11 @@ function setupWizardEventListeners() {
                 const cloudflareToken = document.getElementById('cloudflare-token').value;
                 const cloudflareZone = document.getElementById('cloudflare-zone').value;
                 
+                // Store only the flag that Cloudflare is enabled
+                // Credentials should be sent directly to backend, never stored client-side
                 localStorage.setItem('setup_cloudflare_enabled', 'true');
-                localStorage.setItem('setup_cloudflare_token', cloudflareToken);
-                localStorage.setItem('setup_cloudflare_zone', cloudflareZone);
+                // TODO: Send cloudflareToken and cloudflareZone to backend API instead of localStorage
+                // For now, these credentials are not persisted client-side for security
             }
             
             // Move to step 3

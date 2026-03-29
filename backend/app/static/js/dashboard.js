@@ -231,14 +231,23 @@ function renderRecentReports(reports, domains) {
         // Get domain name
         const domainName = domainMap.get(report.domain_id) || 'Unknown';
         
-        row.innerHTML = `
-            <td>${domainName}</td>
-            <td>${formattedDate}</td>
-            <td>${report.is_compliant ? 
-                '<span style="color: green;">Compliant</span>' : 
-                '<span style="color: red;">Non-compliant</span>'
-            }</td>
-        `;
+        // Create domain cell with safe text content
+        const domainCell = document.createElement('td');
+        domainCell.textContent = domainName;
+        row.appendChild(domainCell);
+        
+        // Create date cell with safe text content
+        const dateCell = document.createElement('td');
+        dateCell.textContent = formattedDate;
+        row.appendChild(dateCell);
+        
+        // Create status cell with safe text content and CSS classes
+        const statusCell = document.createElement('td');
+        const statusSpan = document.createElement('span');
+        statusSpan.textContent = report.is_compliant ? 'Compliant' : 'Non-compliant';
+        statusSpan.className = report.is_compliant ? 'text-success' : 'text-error';
+        statusCell.appendChild(statusSpan);
+        row.appendChild(statusCell);
         
         tableBody.appendChild(row);
     });

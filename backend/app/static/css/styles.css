@@ -247,3 +247,14 @@ h1, h2, h3, h4, h5, h6 {
   height: 16rem; /* h-64 */
   @apply w-full;
 }
+
+/* Text status colors for compliance status */
+.text-success {
+  color: #16a34a; /* Green color for compliant status */
+  font-weight: 500;
+}
+
+.text-error {
+  color: #dc2626; /* Red color for non-compliant status */
+  font-weight: 500;
+}
