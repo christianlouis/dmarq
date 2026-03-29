@@ -454,7 +454,7 @@ function mailSourcesApp() {
         },
 
         async testSource(id) {
-            this.$set(this.testing, id, true);
+            this.testing[id] = true;
             this.feedback = { message: '', type: '' };
             try {
                 const resp = await fetch(`/api/v1/mail-sources/${id}/test`, { method: 'POST' });
@@ -474,7 +474,7 @@ function mailSourcesApp() {
             } catch (e) {
                 this.feedback = { message: `Test error: ${e.message}`, type: 'error' };
             } finally {
-                this.$set(this.testing, id, false);
+                this.testing[id] = false;
             }
         },
 

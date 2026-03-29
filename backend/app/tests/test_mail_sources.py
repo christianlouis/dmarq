@@ -147,9 +147,7 @@ class TestMailSourcesAPI:
         db_session.add(MailSource(name="Disabled", method="IMAP", enabled=False))
         db_session.commit()
 
-        enabled = (
-            db_session.query(MailSource).filter(MailSource.enabled == True).all()  # noqa: E712
-        )
+        enabled = db_session.query(MailSource).filter(MailSource.enabled).all()
         assert len(enabled) == 2
         names = {s.name for s in enabled}
         assert "Enabled A" in names
