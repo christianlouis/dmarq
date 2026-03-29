@@ -1,7 +1,7 @@
 import json
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import case, func
@@ -319,7 +319,7 @@ class StatsSummarizer:
 
         Groups reports by their date range and calculates daily compliance rates.
         """
-        cutoff = datetime.now() - timedelta(days=days)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         cutoff_ts = int(cutoff.timestamp())
 
         # Build the base query for records within the time window
@@ -349,7 +349,7 @@ class StatsSummarizer:
         # Convert timestamps to dates and aggregate per day
         daily: Dict[str, Dict[str, int]] = {}
         for row in results:
-            date_str = datetime.fromtimestamp(row.begin_date).strftime("%Y-%m-%d")
+            date_str = datetime.fromtimestamp(row.begin_date, tz=timezone.utc).strftime("%Y-%m-%d")
             if date_str not in daily:
                 daily[date_str] = {"total": 0, "passed": 0}
             daily[date_str]["total"] += int(row.total)

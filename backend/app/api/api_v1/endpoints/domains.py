@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Path, Query, status
@@ -318,7 +318,7 @@ def _build_compliance_timeline(store: ReportStore, domain: str) -> List[Timeline
         # Use begin_date to determine the day of this report
         begin = report.get("begin_date", 0)
         if isinstance(begin, (int, float)) and begin > 0:
-            date_str = datetime.fromtimestamp(begin).strftime("%Y-%m-%d")
+            date_str = datetime.fromtimestamp(begin, tz=timezone.utc).strftime("%Y-%m-%d")
         elif isinstance(begin, str):
             # Handle ISO-format strings
             try:
