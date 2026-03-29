@@ -47,3 +47,51 @@ SAMPLE_XML = """\
     </record>
 </feedback>
 """
+
+SAMPLE_XML_WITH_NAMESPACE = """\
+<?xml version="1.0" encoding="UTF-8" ?>
+<feedback xmlns="urn:ietf:params:xml:ns:dmarc-2.0">
+    <report_metadata>
+        <org_name>web.de</org_name>
+        <email>dmarc@web.de</email>
+        <report_id>987654321</report_id>
+        <date_range>
+            <begin>1597449600</begin>
+            <end>1597535999</end>
+        </date_range>
+    </report_metadata>
+    <policy_published>
+        <domain>example.com</domain>
+        <adkim>r</adkim>
+        <aspf>r</aspf>
+        <p>reject</p>
+        <sp>reject</sp>
+        <pct>100</pct>
+    </policy_published>
+    <record>
+        <row>
+            <source_ip>198.51.100.5</source_ip>
+            <count>3</count>
+            <policy_evaluated>
+                <disposition>reject</disposition>
+                <dkim>pass</dkim>
+                <spf>pass</spf>
+            </policy_evaluated>
+        </row>
+        <identifiers>
+            <header_from>example.com</header_from>
+        </identifiers>
+        <auth_results>
+            <dkim>
+                <domain>example.com</domain>
+                <result>pass</result>
+                <selector>s1</selector>
+            </dkim>
+            <spf>
+                <domain>example.com</domain>
+                <result>pass</result>
+            </spf>
+        </auth_results>
+    </record>
+</feedback>
+"""
