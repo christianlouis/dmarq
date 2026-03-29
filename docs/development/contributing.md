@@ -20,7 +20,7 @@ There are many ways to contribute to DMARQ:
 
 ### Prerequisites
 
-- Python 3.9+
+- Python 3.13+
 - Node.js 16+ (for frontend assets)
 - Docker and Docker Compose (recommended)
 - Git

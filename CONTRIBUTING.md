@@ -61,7 +61,7 @@ Unsure where to begin? You can start by looking through issues tagged with:
 
 ### Prerequisites
 
-- Python 3.10 or higher
+- Python 3.13 or higher
 - Docker and Docker Compose (for full stack testing)
 - Git
 

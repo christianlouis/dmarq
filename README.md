@@ -104,7 +104,7 @@ Then visit [http://localhost:8080](http://localhost:8080)
 
 - DMARC aggregate reports (XML, ZIP, or GZIP format)
 - Docker + Docker Compose (for production deployment)
-- Python 3.10+ (for development)
+- Python 3.13+ (for development)
 
 ---
 

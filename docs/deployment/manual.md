@@ -6,7 +6,7 @@ This guide covers how to deploy DMARQ without Docker, using a traditional instal
 
 Before proceeding with a manual installation, ensure you have:
 
-- Python 3.9 or higher
+- Python 3.13 or higher
 - pip and virtualenv
 - Node.js 16+ (if modifying frontend assets)
 - PostgreSQL (recommended for production) or SQLite
