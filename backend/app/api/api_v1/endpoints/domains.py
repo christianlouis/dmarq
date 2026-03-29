@@ -1,5 +1,4 @@
-import random  # Used for mock data generation - TODO: Replace with actual historical data
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Path, Query, status
@@ -298,19 +297,52 @@ async def get_domain_reports(
             )
         )
 
-    # Generate compliance timeline (last 30 days)
-    timeline = []
-    for i in range(30, 0, -1):
-        date = datetime.now() - timedelta(days=i)
-        date_str = date.strftime("%Y-%m-%d")
-
-        # TODO: Replace with actual historical data in future milestone  # pylint: disable=fixme
-        # For now, generate mock data with variation for demonstration purposes
-        compliance_rate = random.uniform(80, 100)  # nosec B311 - Mock data only
-
-        timeline.append(TimelinePoint(date=date_str, compliance_rate=round(compliance_rate, 1)))
+    # Build compliance timeline from actual report data
+    timeline = _build_compliance_timeline(store, domain_id)
 
     return DomainReportsResponse(reports=report_entries, compliance_timeline=timeline)
+
+
+def _build_compliance_timeline(store: ReportStore, domain: str) -> List[TimelinePoint]:
+    """
+    Build a compliance timeline from actual report data stored in ReportStore.
+
+    Groups reports by date and calculates the pass rate per day to provide
+    real historical trend data for the compliance chart.
+    """
+    all_reports = store.get_domain_reports(domain)
+
+    # Aggregate report data by date
+    daily_data: Dict[str, Dict[str, int]] = {}
+    for report in all_reports:
+        # Use begin_date to determine the day of this report
+        begin = report.get("begin_date", 0)
+        if isinstance(begin, (int, float)) and begin > 0:
+            date_str = datetime.fromtimestamp(begin, tz=timezone.utc).strftime("%Y-%m-%d")
+        elif isinstance(begin, str):
+            # Handle ISO-format strings
+            try:
+                date_str = datetime.fromisoformat(begin).strftime("%Y-%m-%d")
+            except (ValueError, TypeError):
+                continue
+        else:
+            continue
+
+        if date_str not in daily_data:
+            daily_data[date_str] = {"total": 0, "passed": 0}
+
+        summary = report.get("summary", {})
+        daily_data[date_str]["total"] += summary.get("total_count", 0)
+        daily_data[date_str]["passed"] += summary.get("passed_count", 0)
+
+    # Convert to timeline points sorted by date
+    timeline = []
+    for date_str in sorted(daily_data.keys()):
+        data = daily_data[date_str]
+        rate = round((data["passed"] / data["total"]) * 100, 1) if data["total"] > 0 else 0.0
+        timeline.append(TimelinePoint(date=date_str, compliance_rate=rate))
+
+    return timeline
 
 
 @router.get("/{domain_id}/sources", response_model=DomainSourcesResponse)
