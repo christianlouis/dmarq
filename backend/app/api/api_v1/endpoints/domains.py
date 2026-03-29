@@ -437,6 +437,33 @@ def _build_compliance_timeline(store: ReportStore, domain: str) -> List[Timeline
     return timeline
 
 
+def _spf_fix_hint(ip: str, spf_result: str) -> Optional[str]:
+    """Return a copy-paste SPF mechanism (e.g. ``ip4:1.2.3.4``) for a failing IP.
+
+    Returns ``None`` when SPF did not fail or when *ip* is not a valid address.
+    """
+    if spf_result != "fail":
+        return None
+    try:
+        addr = ipaddress.ip_address(ip)
+        prefix = "ip6" if isinstance(addr, ipaddress.IPv6Address) else "ip4"
+        return f"{prefix}:{ip}"
+    except ValueError:
+        return None
+
+
+async def _safe_ptr_lookup(provider: Any, ip: str, timeout: float = 3.0) -> Optional[str]:
+    """Perform a PTR lookup for *ip*, returning ``None`` on any error or timeout."""
+    try:
+        ipaddress.ip_address(ip)  # validate before making a DNS query
+    except ValueError:
+        return None
+    try:
+        return await asyncio.wait_for(provider.lookup_ptr(ip), timeout=timeout)
+    except Exception:
+        return None
+
+
 @router.get("/{domain_id}/sources", response_model=DomainSourcesResponse)
 async def get_domain_sources(
     domain_id: str = Path(..., title="The domain ID or name"),
@@ -455,37 +482,17 @@ async def get_domain_sources(
             detail="Domain not found",
         )
 
-    # Get sending sources for this domain
     sources = store.get_domain_sources(domain_id, days=days)
-
     provider = get_default_provider()
 
-    async def _safe_ptr(ip: str) -> Optional[str]:
-        """Perform a PTR lookup with a short timeout; return None on any failure."""
-        try:
-            return await asyncio.wait_for(provider.lookup_ptr(ip), timeout=3.0)
-        except Exception:
-            return None
-
     ips = [s.get("source_ip", "unknown") for s in sources]
-    hostnames = await asyncio.gather(*[_safe_ptr(ip) for ip in ips])
+    hostnames = await asyncio.gather(*[_safe_ptr_lookup(provider, ip) for ip in ips])
 
     source_entries = []
     for source, hostname in zip(sources, hostnames):
         ip = source.get("source_ip", "unknown")
         spf_result = source.get("spf_result", "unknown")
         dkim_result = source.get("dkim_result", "unknown")
-
-        # Build a copy-paste SPF mechanism for IPs that fail SPF
-        spf_fix_hint: Optional[str] = None
-        if spf_result == "fail":
-            try:
-                addr = ipaddress.ip_address(ip)
-                prefix = "ip6" if isinstance(addr, ipaddress.IPv6Address) else "ip4"
-                spf_fix_hint = f"{prefix}:{ip}"
-            except ValueError:
-                pass
-
         source_entries.append(
             SourceEntry(
                 ip=ip,
@@ -495,7 +502,7 @@ async def get_domain_sources(
                 dmarc=("pass" if spf_result == "pass" or dkim_result == "pass" else "fail"),
                 disposition=source.get("disposition", "none"),
                 hostname=hostname,
-                spf_fix_hint=spf_fix_hint,
+                spf_fix_hint=_spf_fix_hint(ip, spf_result),
             )
         )
 
