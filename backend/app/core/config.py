@@ -23,7 +23,9 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
 
     # Database
-    DATABASE_URL: str = "sqlite:///./dmarq.db"
+    # Default to a sub-directory so the SQLite file lives in a location that
+    # can be persisted via a Docker volume mount (e.g. /app/data).
+    DATABASE_URL: str = "sqlite:///./data/dmarq.db"
 
     # JWT Authentication
     SECRET_KEY: Optional[str] = None
