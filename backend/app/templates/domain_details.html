@@ -169,7 +169,7 @@
                             Manually configure selectors to check. Selectors seen in received DMARC
                             reports and common well-known selectors are checked automatically.
                         </p>
-                        <!-- Existing selectors list -->
+                        <!-- Manually configured selectors -->
                         <div class="mb-3">
                             <template x-if="selectors.length === 0">
                                 <p class="text-sm text-muted-foreground italic">No manually configured selectors yet.</p>
@@ -185,6 +185,18 @@
                                 </div>
                             </template>
                         </div>
+                        <!-- Auto-discovered selectors from DMARC reports -->
+                        <template x-if="reportSelectors.length > 0">
+                            <div class="mb-3">
+                                <p class="text-xs text-muted-foreground font-semibold uppercase tracking-wide mb-1">From DMARC reports (auto-detected)</p>
+                                <template x-for="sel in reportSelectors" :key="sel">
+                                    <div class="flex items-center py-1 px-2 rounded bg-muted/50 border border-dashed mb-1">
+                                        <span class="font-mono text-sm text-muted-foreground" x-text="sel"></span>
+                                        <span class="ml-2 text-xs text-muted-foreground italic">auto</span>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
                         <!-- Add selector form -->
                         <div class="flex items-center gap-2">
                             <input
@@ -445,9 +457,10 @@ function domainDetailsApp(domainId) {
             spf: false,
             spfRecord: '',
             dkim: false,
-            dkimSelectors: ''
+            dkimSelectors: []
         },
         selectors: [],
+        reportSelectors: [],
         newSelector: '',
         selectorError: '',
         reports: [],
@@ -481,7 +494,9 @@ function domainDetailsApp(domainId) {
 
         get dkimLiveText() {
             if (!this.dns.dkim) return 'No DKIM record found for configured selectors';
-            if (this.dns.dkimSelectors) return 'selector: ' + this.dns.dkimSelectors;
+            if (this.dns.dkimSelectors && this.dns.dkimSelectors.length > 0) {
+                return 'selectors: ' + this.dns.dkimSelectors.join(', ');
+            }
             return 'Verified';
         },
 
@@ -515,6 +530,7 @@ function domainDetailsApp(domainId) {
                 if (response.ok) {
                     const data = await response.json();
                     this.selectors = data.selectors || [];
+                    this.reportSelectors = data.report_selectors || [];
                 }
             } catch (error) {
                 console.error('Error fetching selectors:', error);
@@ -532,10 +548,9 @@ function domainDetailsApp(domainId) {
                     body: JSON.stringify({ selector: sel })
                 });
                 if (response.ok) {
-                    const data = await response.json();
-                    this.selectors = data.selectors || [];
                     this.newSelector = '';
-                    // Refresh DNS check to reflect the new selector
+                    // Refresh selectors (both manual and report) and DNS check
+                    this.fetchSelectors();
                     this.fetchDNSRecords();
                 } else {
                     const err = await response.json();
@@ -554,9 +569,8 @@ function domainDetailsApp(domainId) {
                     { method: 'DELETE' }
                 );
                 if (response.ok) {
-                    const data = await response.json();
-                    this.selectors = data.selectors || [];
-                    // Refresh DNS check after removing a selector
+                    // Refresh selectors (both manual and report) and DNS check
+                    this.fetchSelectors();
                     this.fetchDNSRecords();
                 } else {
                     console.error('Error deleting selector:', response.status);

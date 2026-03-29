@@ -71,7 +71,8 @@ class DomainDNSResult:
     spf: bool = False
     spf_record: Optional[str] = None
     dkim: bool = False
-    dkim_selector: Optional[str] = None
+    # All selectors that resolved to a valid DKIM record (may be multiple)
+    dkim_selectors: List[str] = field(default_factory=list)
     dkim_record: Optional[str] = None
     # Track which selectors were tried so callers can surface this information
     selectors_checked: List[str] = field(default_factory=list)
@@ -133,14 +134,25 @@ class BaseDNSProvider(ABC):
 
     async def check_dkim(
         self, domain: str, selectors: List[str]
-    ) -> Tuple[bool, Optional[str], Optional[str]]:
-        """Return *(found, selector, record_string)* for the first working DKIM selector."""
+    ) -> Tuple[bool, List[str], Optional[str]]:
+        """Return *(found, matching_selectors, first_record_string)* for all working DKIM selectors.
+
+        All selectors in *selectors* are checked and every one that resolves to
+        a valid DKIM TXT record is collected.  The boolean is ``True`` when at
+        least one selector resolved.  *first_record_string* is the record text
+        for the first matching selector (useful for display purposes).
+        """
+        matching_selectors: List[str] = []
+        first_record: Optional[str] = None
         for selector in selectors:
             try:
                 records = await self.lookup_txt(f"{selector}._domainkey.{domain}")
                 for record in records:
                     if "v=dkim1" in record.lower() or "p=" in record.lower():
-                        return True, selector, record
+                        matching_selectors.append(selector)
+                        if first_record is None:
+                            first_record = record
+                        break
             except LookupError as exc:
                 logger.debug(
                     "DKIM lookup failed for selector=%s domain=%s: %s",
@@ -148,7 +160,7 @@ class BaseDNSProvider(ABC):
                     _sanitize_for_log(domain),
                     exc,
                 )
-        return False, None, None
+        return bool(matching_selectors), matching_selectors, first_record
 
     async def check_domain(
         self, domain: str, selectors: Optional[List[str]] = None
@@ -169,7 +181,7 @@ class BaseDNSProvider(ABC):
         spf_coro = self.check_spf(domain)
         dkim_coro = self.check_dkim(domain, all_selectors)
 
-        (dmarc_ok, dmarc_record), (spf_ok, spf_record), (dkim_ok, dkim_sel, dkim_record) = (
+        (dmarc_ok, dmarc_record), (spf_ok, spf_record), (dkim_ok, dkim_sels, dkim_record) = (
             await asyncio.gather(dmarc_coro, spf_coro, dkim_coro)
         )
 
@@ -179,7 +191,7 @@ class BaseDNSProvider(ABC):
             spf=spf_ok,
             spf_record=spf_record,
             dkim=dkim_ok,
-            dkim_selector=dkim_sel,
+            dkim_selectors=dkim_sels,
             dkim_record=dkim_record,
             selectors_checked=all_selectors,
         )

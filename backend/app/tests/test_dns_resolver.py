@@ -110,9 +110,9 @@ async def test_check_dkim_found_first_selector():
     provider = FakeDNSProvider(
         {"google._domainkey.example.com": ["v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3"]}
     )
-    found, selector, record = await provider.check_dkim("example.com", ["google", "mail"])
+    found, selectors, record = await provider.check_dkim("example.com", ["google", "mail"])
     assert found is True
-    assert selector == "google"
+    assert selectors == ["google"]
     assert record is not None
 
 
@@ -121,17 +121,34 @@ async def test_check_dkim_found_second_selector():
     provider = FakeDNSProvider(
         {"mail._domainkey.example.com": ["v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3"]}
     )
-    found, selector, record = await provider.check_dkim("example.com", ["google", "mail"])
+    found, selectors, record = await provider.check_dkim("example.com", ["google", "mail"])
     assert found is True
-    assert selector == "mail"
+    assert selectors == ["mail"]
+
+
+@pytest.mark.asyncio
+async def test_check_dkim_found_multiple_selectors():
+    """When multiple selectors resolve, all are returned."""
+    provider = FakeDNSProvider(
+        {
+            "google._domainkey.example.com": ["v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3"],
+            "mail._domainkey.example.com": ["v=DKIM1; k=rsa; p=XYZ"],
+        }
+    )
+    found, selectors, record = await provider.check_dkim("example.com", ["google", "mail"])
+    assert found is True
+    assert "google" in selectors
+    assert "mail" in selectors
+    assert len(selectors) == 2
+    assert record is not None  # record of the first match
 
 
 @pytest.mark.asyncio
 async def test_check_dkim_not_found():
     provider = FakeDNSProvider({})
-    found, selector, record = await provider.check_dkim("example.com", ["google", "mail"])
+    found, selectors, record = await provider.check_dkim("example.com", ["google", "mail"])
     assert found is False
-    assert selector is None
+    assert selectors == []
     assert record is None
 
 
@@ -149,7 +166,7 @@ async def test_check_domain_all_present():
     assert result.dmarc is True
     assert result.spf is True
     assert result.dkim is True
-    assert result.dkim_selector == "google"
+    assert result.dkim_selectors == ["google"]
 
 
 @pytest.mark.asyncio
@@ -168,7 +185,7 @@ async def test_check_domain_uses_common_selectors_as_fallback():
     provider = FakeDNSProvider({"default._domainkey.example.com": ["v=DKIM1; k=rsa; p=ABC"]})
     result = await provider.check_domain("example.com", selectors=[])
     assert result.dkim is True
-    assert result.dkim_selector == "default"
+    assert result.dkim_selectors == ["default"]
 
 
 @pytest.mark.asyncio
@@ -178,7 +195,7 @@ async def test_check_domain_manual_selectors_take_priority():
     provider = FakeDNSProvider({"custom._domainkey.example.com": ["v=DKIM1; k=rsa; p=XYZ"]})
     result = await provider.check_domain("example.com", selectors=["custom"])
     assert result.dkim is True
-    assert result.dkim_selector == "custom"
+    assert result.dkim_selectors == ["custom"]
 
 
 # ---------------------------------------------------------------------------

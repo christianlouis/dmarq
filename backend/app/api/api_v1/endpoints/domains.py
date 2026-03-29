@@ -55,7 +55,7 @@ class DNSRecordResponse(BaseModel):
     spf: bool
     spfRecord: Optional[str] = None
     dkim: bool
-    dkimSelectors: Optional[str] = None
+    dkimSelectors: List[str] = []
 
 
 class TimelinePoint(BaseModel):
@@ -347,7 +347,7 @@ async def get_domain_dns_records(
         spf=result.spf,
         spfRecord=result.spf_record,
         dkim=result.dkim,
-        dkimSelectors=result.dkim_selector,
+        dkimSelectors=result.dkim_selectors,
     )
 
 
@@ -514,15 +514,23 @@ async def get_domain_selectors(
     domain_id: str = Path(..., title="The domain ID or name"),
     db: Session = Depends(get_db),
 ):
-    """Return the manually configured DKIM selectors for a domain."""
+    """Return the manually configured DKIM selectors for a domain.
+
+    The response includes both ``selectors`` (manually configured, can be
+    deleted) and ``report_selectors`` (automatically discovered from received
+    DMARC reports, read-only).
+    """
     store = ReportStore.get_instance()
     if domain_id not in store.get_domains():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Domain not found",
         )
-    selectors = _get_domain_selectors_from_db(db, domain_id)
-    return {"selectors": selectors}
+    manual = _get_domain_selectors_from_db(db, domain_id)
+    report = _get_selectors_from_reports(store, domain_id)
+    # Only include in report_selectors those not already in the manual list
+    auto = [s for s in report if s not in manual]
+    return {"selectors": manual, "report_selectors": auto}
 
 
 @router.post("/{domain_id}/selectors", status_code=status.HTTP_201_CREATED)
