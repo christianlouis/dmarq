@@ -14,6 +14,15 @@ from typing import List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
+
+def _sanitize_for_log(value: str) -> str:
+    """
+    Remove newline and carriage return characters from log values to prevent
+    log injection through user-controlled input.
+    """
+    return value.replace("\r", "").replace("\n", "")
+
+
 # Well-known DKIM selectors tried when no selectors are configured
 COMMON_DKIM_SELECTORS: List[str] = [
     "default",
@@ -83,7 +92,7 @@ class BaseDNSProvider(ABC):
                 if record.lower().startswith("v=dmarc1"):
                     return True, record
         except LookupError as exc:
-            logger.debug("DMARC lookup failed for %s: %s", domain, exc)
+            logger.debug("DMARC lookup failed for %s: %s", _sanitize_for_log(domain), exc)
         return False, None
 
     async def check_spf(self, domain: str) -> Tuple[bool, Optional[str]]:
@@ -94,7 +103,7 @@ class BaseDNSProvider(ABC):
                 if record.lower().startswith("v=spf1"):
                     return True, record
         except LookupError as exc:
-            logger.debug("SPF lookup failed for %s: %s", domain, exc)
+            logger.debug("SPF lookup failed for %s: %s", _sanitize_for_log(domain), exc)
         return False, None
 
     async def check_dkim(
@@ -109,7 +118,10 @@ class BaseDNSProvider(ABC):
                         return True, selector, record
             except LookupError as exc:
                 logger.debug(
-                    "DKIM lookup failed for selector=%s domain=%s: %s", selector, domain, exc
+                    "DKIM lookup failed for selector=%s domain=%s: %s",
+                    selector,
+                    _sanitize_for_log(domain),
+                    exc,
                 )
         return False, None, None
 
