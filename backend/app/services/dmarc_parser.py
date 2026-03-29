@@ -129,6 +129,14 @@ class DMARCParser:
         return None
 
     @staticmethod
+    def _strip_namespace(el) -> None:
+        """Recursively remove XML namespace prefixes from element tags in-place."""
+        if "}" in el.tag:
+            el.tag = el.tag.split("}", 1)[1]
+        for child in el:
+            DMARCParser._strip_namespace(child)
+
+    @staticmethod
     def _parse_metadata(root) -> dict:
         """Parse the report_metadata section of a DMARC XML report."""
         report: dict = {}
@@ -216,6 +224,7 @@ class DMARCParser:
         """
         try:
             root = ET.fromstring(xml_content)
+            DMARCParser._strip_namespace(root)
 
             report = DMARCParser._parse_metadata(root)
 

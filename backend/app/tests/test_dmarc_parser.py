@@ -4,7 +4,7 @@ import zipfile
 import pytest
 
 from app.services.dmarc_parser import DMARCParser
-from app.tests.test_data import SAMPLE_XML
+from app.tests.test_data import SAMPLE_XML, SAMPLE_XML_WITH_NAMESPACE
 
 
 class TestDMARCParser:
@@ -66,6 +66,37 @@ class TestDMARCParser:
         """Test that invalid XML raises a ValueError."""
         with pytest.raises(ValueError):
             DMARCParser.parse_file(b"not xml at all", "report.xml")
+
+    def test_parse_xml_report_with_namespace(self):
+        """Test parsing a DMARC XML report that uses an XML namespace (e.g. web.de/gmx.net)."""
+        xml_bytes = SAMPLE_XML_WITH_NAMESPACE.encode("utf-8")
+        result = DMARCParser.parse_file(xml_bytes, "report.xml")
+
+        # Metadata
+        assert result["report_id"] == "987654321"
+        assert result["org_name"] == "web.de"
+        assert result["email"] == "dmarc@web.de"
+        assert result["begin_timestamp"] == 1597449600
+        assert result["end_timestamp"] == 1597535999
+
+        # Policy published
+        assert result["domain"] == "example.com"
+        assert result["policy"]["p"] == "reject"
+
+        # Records
+        assert len(result["records"]) == 1
+        record = result["records"][0]
+        assert record["source_ip"] == "198.51.100.5"
+        assert record["count"] == 3
+        assert record["disposition"] == "reject"
+        assert record["dkim_result"] == "pass"
+        assert record["spf_result"] == "pass"
+        assert record["header_from"] == "example.com"
+
+        # Summary
+        assert result["summary"]["total_count"] == 3
+        assert result["summary"]["passed_count"] == 3
+        assert result["summary"]["failed_count"] == 0
 
     def test_unsupported_extension_returns_none(self):
         """Test that an unsupported file extension raises ValueError."""
