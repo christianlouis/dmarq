@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.services.gmail_client import GmailClient, DMARC_GMAIL_QUERY
+from app.services.gmail_client import GmailClient
 
 
 # ---------------------------------------------------------------------------
@@ -635,7 +635,4 @@ class TestIngestedIdHelpers:
     def test_dump_preserves_order(self):
         ids = ["z", "a", "m"]
         dumped = GmailClient.dump_ingested_ids(ids)
-        loaded = json.loads(dumped)
-        assert loaded == ["z", "a", "m"]
-
-
+        assert json.loads(dumped) == ["z", "a", "m"]
