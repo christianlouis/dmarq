@@ -327,6 +327,12 @@ async def domain_details(request: Request, domain_id: str):
     )
 
 
+@app.get("/domains/{domain_id}", response_class=HTMLResponse)
+async def domain_details_plural(request: Request, domain_id: str):
+    """View detailed reports for a specific domain (plural /domains/ path alias)"""
+    return await domain_details(request, domain_id)
+
+
 @app.get("/reports", response_class=HTMLResponse)
 async def reports(request: Request):
     return templates.TemplateResponse(request, "reports.html")
