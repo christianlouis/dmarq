@@ -25,6 +25,15 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+def _sanitize_log_value(value: object) -> str:
+    """Strip newline/carriage-return characters from a value before logging.
+
+    Prevents log-injection attacks where a user-provided string contains
+    embedded newlines that forge additional log lines.
+    """
+    return str(value).replace("\n", "\\n").replace("\r", "\\r")
+
+
 # ---------------------------------------------------------------------------
 # Pydantic schemas
 # ---------------------------------------------------------------------------
@@ -292,9 +301,14 @@ async def test_stored_mail_source(
                 "timestamp": datetime.now().isoformat(),
             }
         except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.error(
+                "Gmail API test failed for source id=%d: %s",
+                source_id,
+                _sanitize_log_value(exc),
+            )
             return {
                 "success": False,
-                "message": f"Gmail API test failed: {exc}",
+                "message": "Gmail API test failed. Check server logs for details.",
                 "timestamp": datetime.now().isoformat(),
             }
 
@@ -459,7 +473,11 @@ async def gmail_oauth_callback(
             redirect_uri=redirect_uri,
         )
     except ValueError as exc:
-        logger.error("Gmail token exchange error for source id=%d: %s", source_id, exc)
+        logger.error(
+            "Gmail token exchange error for source id=%d: %s",
+            source_id,
+            _sanitize_log_value(exc),
+        )
         html = (
             "<html><body><p>Token exchange failed. "
             "Please close this window and try again.</p></body></html>"
@@ -488,7 +506,7 @@ async def gmail_oauth_callback(
     logger.info(
         "Gmail OAuth2 authorisation complete for source id=%d (account=%s)",
         source_id,
-        gmail_email or "unknown",
+        _sanitize_log_value(gmail_email or "unknown"),
     )
 
     html = (
@@ -560,7 +578,7 @@ async def gmail_oauth_callback_post(
     logger.info(
         "Gmail OAuth2 tokens saved for source id=%d (account=%s)",
         source_id,
-        gmail_email or "unknown",
+        _sanitize_log_value(gmail_email or "unknown"),
     )
     return _source_to_response(source)
 
@@ -617,17 +635,24 @@ async def gmail_fetch_reports(
 
     logger.info(
         "Gmail fetch for source id=%d: processed=%d reports_found=%d",
-        source_id,
-        results.get("processed", 0),
-        results.get("reports_found", 0),
+        int(source_id),
+        int(results.get("processed", 0)),
+        int(results.get("reports_found", 0)),
     )
+
+    for err in results.get("errors", []):
+        logger.warning(
+            "Gmail fetch warning for source id=%d: %s",
+            int(source_id),
+            _sanitize_log_value(err),
+        )
 
     return {
         "success": results.get("success", False),
         "processed": results.get("processed", 0),
         "reports_found": results.get("reports_found", 0),
         "new_domains": results.get("new_domains", []),
-        "errors": results.get("errors", []) or None,
+        "error_count": len(results.get("errors", [])),
         "timestamp": datetime.now().isoformat(),
     }
 
@@ -652,4 +677,4 @@ async def gmail_disconnect(
     source.gmail_email = None
     source.updated_at = datetime.utcnow()
     db.commit()
-    logger.info("Gmail tokens cleared for source id=%d", source_id)
+    logger.info("Gmail tokens cleared for source id=%d", int(source_id))

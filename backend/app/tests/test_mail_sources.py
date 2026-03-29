@@ -4,6 +4,7 @@ Tests for MailSource model and mail-sources API endpoints.
 
 import asyncio
 from unittest.mock import MagicMock, patch
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from fastapi.testclient import TestClient
@@ -558,8 +559,9 @@ class TestGmailAPIMailSource:
         assert resp.status_code == 200
         data = resp.json()
         assert "authorization_url" in data
-        assert "accounts.google.com" in data["authorization_url"]
-        assert "123-abc.apps.googleusercontent.com" in data["authorization_url"]
+        _parsed = urlparse(data["authorization_url"])
+        assert _parsed.hostname == "accounts.google.com"
+        assert parse_qs(_parsed.query).get("client_id") == ["123-abc.apps.googleusercontent.com"]
         assert "gmail.readonly" in data["authorization_url"]
 
     def test_gmail_disconnect_clears_tokens(self, authed_client: TestClient):
@@ -694,7 +696,7 @@ class TestGmailClientHelpers:
             redirect_uri="https://example.com/callback",
             state="42",
         )
-        assert "accounts.google.com" in url
+        assert urlparse(url).hostname == "accounts.google.com"
         assert "test-client-id" in url
         assert "gmail.readonly" in url
         assert "offline" in url
