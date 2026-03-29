@@ -345,7 +345,7 @@ async def settings_page(request: Request):
 
 @app.get("/mail-sources", response_class=HTMLResponse)
 async def mail_sources_page(request: Request):
-    return templates.TemplateResponse("mail_sources.html", {"request": request})
+    return templates.TemplateResponse(request, "mail_sources.html")
 
 
 @app.get("/upload", response_class=HTMLResponse)
