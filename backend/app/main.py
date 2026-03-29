@@ -184,16 +184,12 @@ async def dashboard(request: Request):
 
 @app.get("/login", response_class=HTMLResponse)
 async def login(request: Request):
-    return templates.TemplateResponse(
-        request, "login.html", {"app_name": settings.PROJECT_NAME}
-    )
+    return templates.TemplateResponse(request, "login.html", {"app_name": settings.PROJECT_NAME})
 
 
 @app.get("/setup", response_class=HTMLResponse)
 async def setup(request: Request):
-    return templates.TemplateResponse(
-        request, "setup.html", {"app_name": settings.PROJECT_NAME}
-    )
+    return templates.TemplateResponse(request, "setup.html", {"app_name": settings.PROJECT_NAME})
 
 
 @app.get("/domains", response_class=HTMLResponse)
