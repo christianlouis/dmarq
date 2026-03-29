@@ -16,7 +16,7 @@ class Domain(Base):
     active = Column(Boolean, default=True, index=True)
 
     # DMARC policy information
-    dmarc_policy = Column(String, nullable=True, index=True)
+    dmarc_policy = Column(String, nullable=True)
     spf_record = Column(String, nullable=True)
     dkim_selectors = Column(String, nullable=True)  # Comma-separated list of DKIM selectors
 

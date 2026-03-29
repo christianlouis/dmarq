@@ -28,7 +28,7 @@ class DMARCReport(Base):
     percentage = Column(Integer, nullable=True)
 
     # Processing metadata
-    processed_at = Column(DateTime, default=datetime.utcnow, index=True)
+    processed_at = Column(DateTime, default=datetime.utcnow)
     raw_data = Column(Text, nullable=True)  # Original XML content (optional)
 
     # Relationships
