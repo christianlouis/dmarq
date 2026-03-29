@@ -1,10 +1,22 @@
+import asyncio
+import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Path, Query, status
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
+from app.core.database import get_db
+from app.models.domain import Domain
+from app.services.dns_resolver import (
+    DomainDNSResult,
+    extract_dmarc_policy,
+    get_default_provider,
+)
 from app.services.report_store import ReportStore
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -98,14 +110,69 @@ class DomainSummaryResponse(BaseModel):
     domains: List[Dict[str, Any]]
 
 
+class SelectorRequest(BaseModel):
+    """Request body for adding a DKIM selector"""
+
+    selector: str = Field(..., min_length=1, description="DKIM selector name")
+
+
+def _get_selectors_from_reports(store: "ReportStore", domain: str) -> List[str]:
+    """Extract DKIM selectors seen in stored DMARC reports for *domain*.
+
+    DMARC aggregate report records include DKIM auth results that carry the
+    selector used by the sending server.  Collecting these gives us a set of
+    real-world selectors to verify against live DNS, in addition to any
+    manually configured selectors.
+    """
+    selectors: List[str] = []
+    for report in store.get_domain_reports(domain):
+        for record in report.get("records", []):
+            for dkim_entry in record.get("dkim", []):
+                sel = dkim_entry.get("selector", "").strip()
+                if sel and sel not in selectors:
+                    selectors.append(sel)
+    return selectors
+
+
+def _get_domain_selectors_from_db(db: Session, domain_name: str) -> List[str]:
+    """Return the manually configured DKIM selectors for *domain_name* from the DB."""
+    domain_db = db.query(Domain).filter(Domain.name == domain_name).first()
+    if domain_db and domain_db.dkim_selectors:
+        return [s.strip() for s in domain_db.dkim_selectors.split(",") if s.strip()]
+    return []
+
+
 @router.get("/summary", response_model=DomainSummaryResponse)
-async def get_domains_summary():
+async def get_domains_summary(db: Session = Depends(get_db)):
     """
     Get summary statistics for all domains, formatted for the dashboard.
+
+    Performs live DNS lookups for each domain concurrently and includes the
+    results (DMARC/SPF/DKIM status and live DMARC policy) in the per-domain
+    entries.  A per-domain timeout of 10 s prevents slow DNS responses from
+    blocking the page load.
     """
     store = ReportStore.get_instance()
     domains = store.get_domains()
     summaries = store.get_all_domain_summaries()
+
+    # Perform DNS checks concurrently for all domains
+    provider = get_default_provider()
+
+    async def _dns_for_domain(domain_name: str) -> DomainDNSResult:
+        manual_selectors = _get_domain_selectors_from_db(db, domain_name)
+        report_selectors = _get_selectors_from_reports(store, domain_name)
+        combined = list(dict.fromkeys(manual_selectors + report_selectors))
+        try:
+            return await asyncio.wait_for(
+                provider.check_domain(domain_name, selectors=combined),
+                timeout=10.0,
+            )
+        except (asyncio.TimeoutError, LookupError, OSError) as exc:
+            logger.warning("DNS check failed for %s: %s", domain_name, exc)
+            return DomainDNSResult()
+
+    dns_results = await asyncio.gather(*[_dns_for_domain(d) for d in domains])
 
     # Calculate overall statistics
     total_domains = len(domains)
@@ -115,22 +182,34 @@ async def get_domains_summary():
 
     domains_list = []
 
-    for domain_name in domains:
+    for domain_name, dns in zip(domains, dns_results):
         summary = summaries.get(domain_name, {})
         total_emails += summary.get("total_count", 0)
         total_passed += summary.get("passed_count", 0)
         total_reports += summary.get("reports_processed", 0)
 
+        # Prefer live DNS policy; fall back to policy seen in reports
+        live_policy = extract_dmarc_policy(dns.dmarc_record)
+        reported_policy = summary.get("policy", {})
+        if isinstance(reported_policy, dict):
+            reported_policy = reported_policy.get("p")
+        dmarc_policy = live_policy or reported_policy or "none"
+
         # Format domain data for frontend
         domains_list.append(
             {
-                "id": domain_name,  # Using the domain name as ID for now
+                "id": domain_name,
                 "domain_name": domain_name,
                 "total_emails": summary.get("total_count", 0),
                 "passed_count": summary.get("passed_count", 0),
                 "failed_count": summary.get("failed_count", 0),
                 "pass_rate": summary.get("compliance_rate", 0),
                 "report_count": summary.get("reports_processed", 0),
+                # Real DNS status
+                "dmarc_status": dns.dmarc,
+                "dmarc_policy": dmarc_policy,
+                "spf_status": dns.spf,
+                "dkim_status": dns.dkim,
             }
         )
 
@@ -232,10 +311,16 @@ async def get_domain_stats(domain_id: str = Path(..., title="The domain ID or na
 
 
 @router.get("/{domain_id}/dns", response_model=DNSRecordResponse)
-async def get_domain_dns_records(domain_id: str = Path(..., title="The domain ID or name")):
+async def get_domain_dns_records(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    db: Session = Depends(get_db),
+):
     """
-    Get DNS records for a specific domain. For Milestone 1,
-    this returns mock data since DNS integration is part of a future milestone.
+    Get DNS records for a specific domain using live DNS lookups.
+
+    Manual selectors (stored in the database) are checked first, followed by
+    selectors observed in stored DMARC reports, with common well-known
+    selectors used as a final fallback.
     """
     store = ReportStore.get_instance()
     domains = store.get_domains()
@@ -246,19 +331,20 @@ async def get_domain_dns_records(domain_id: str = Path(..., title="The domain ID
             detail="Domain not found",
         )
 
-    # For Milestone 1, return mock DNS record data
-    # In a future milestone, this will be replaced with actual DNS lookups
-    mock_dmarc_record = (
-        "v=DMARC1; p=none; rua=mailto:dmarc@example.com;"
-        " ruf=mailto:forensic@example.com; pct=100"
-    )
+    manual_selectors = _get_domain_selectors_from_db(db, domain_id)
+    report_selectors = _get_selectors_from_reports(store, domain_id)
+    combined_selectors = list(dict.fromkeys(manual_selectors + report_selectors))
+
+    provider = get_default_provider()
+    result = await provider.check_domain(domain_id, selectors=combined_selectors)
+
     return DNSRecordResponse(
-        dmarc=True,
-        dmarcRecord=mock_dmarc_record,
-        spf=True,
-        spfRecord="v=spf1 include:_spf.google.com include:spf.protection.outlook.com -all",
-        dkim=True,
-        dkimSelectors="selector1, selector2",
+        dmarc=result.dmarc,
+        dmarcRecord=result.dmarc_record,
+        spf=result.spf,
+        spfRecord=result.spf_record,
+        dkim=result.dkim,
+        dkimSelectors=result.dkim_selector,
     )
 
 
@@ -383,6 +469,90 @@ async def get_domain_sources(
         )
 
     return DomainSourcesResponse(sources=source_entries)
+
+
+@router.get("/{domain_id}/selectors")
+async def get_domain_selectors(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    db: Session = Depends(get_db),
+):
+    """Return the manually configured DKIM selectors for a domain."""
+    store = ReportStore.get_instance()
+    if domain_id not in store.get_domains():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Domain not found",
+        )
+    selectors = _get_domain_selectors_from_db(db, domain_id)
+    return {"selectors": selectors}
+
+
+@router.post("/{domain_id}/selectors", status_code=status.HTTP_201_CREATED)
+async def add_domain_selector(
+    selector_data: SelectorRequest,
+    domain_id: str = Path(..., title="The domain ID or name"),
+    db: Session = Depends(get_db),
+):
+    """Add a DKIM selector to the manual list for a domain.
+
+    The selector is persisted in the ``Domain`` database row so that it will
+    be used in all subsequent DNS checks, even if it has not yet appeared in
+    any received DMARC report.
+    """
+    store = ReportStore.get_instance()
+    if domain_id not in store.get_domains():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Domain not found",
+        )
+
+    selector = selector_data.selector.strip()
+    if not selector:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Selector must not be empty",
+        )
+
+    domain_db = db.query(Domain).filter(Domain.name == domain_id).first()
+    if not domain_db:
+        domain_db = Domain(name=domain_id)
+        db.add(domain_db)
+
+    existing = [s.strip() for s in (domain_db.dkim_selectors or "").split(",") if s.strip()]
+    if selector not in existing:
+        existing.append(selector)
+        domain_db.dkim_selectors = ",".join(existing)
+        db.commit()
+
+    return {"selectors": existing}
+
+
+@router.delete("/{domain_id}/selectors/{selector}", status_code=status.HTTP_200_OK)
+async def delete_domain_selector(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    selector: str = Path(..., title="The DKIM selector to remove"),
+    db: Session = Depends(get_db),
+):
+    """Remove a manually configured DKIM selector from a domain."""
+    domain_db = db.query(Domain).filter(Domain.name == domain_id).first()
+    if not domain_db:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Domain not found",
+        )
+
+    existing = [s.strip() for s in (domain_db.dkim_selectors or "").split(",") if s.strip()]
+    if selector not in existing:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Selector '{selector}' not found",
+        )
+
+    existing.remove(selector)
+    domain_db.dkim_selectors = ",".join(existing)
+    db.commit()
+
+    return {"selectors": existing}
 
 
 @router.delete("/{domain_id}", status_code=status.HTTP_204_NO_CONTENT)
