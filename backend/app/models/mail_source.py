@@ -15,7 +15,7 @@ class MailSource(Base):
 
     - ``IMAP``       – standard IMAP4 (over SSL/TLS or STARTTLS)
     - ``POP3``       – POP3 inbox (stub for future implementation)
-    - ``GMAIL_API``  – Gmail API with OAuth 2.0 (stub for future implementation)
+    - ``GMAIL_API``  – Gmail API with OAuth 2.0
     """
 
     __tablename__ = "mail_sources"
@@ -37,6 +37,20 @@ class MailSource(Base):
     password = Column(Text, nullable=True)
     use_ssl = Column(Boolean, default=True)
     folder = Column(String, default="INBOX")
+
+    # Gmail API OAuth2 credentials (used by GMAIL_API method)
+    # NOTE: tokens and secrets are stored in plaintext – in a production
+    # environment these fields should be encrypted at the application layer
+    # (e.g. using Fernet/AES) before persisting, the same way IMAP passwords
+    # should be.  Treat database access as equivalent to credential access.
+    gmail_client_id = Column(String, nullable=True)
+    gmail_client_secret = Column(Text, nullable=True)
+    gmail_access_token = Column(Text, nullable=True)
+    gmail_refresh_token = Column(Text, nullable=True)
+    # Email address of the authorised Gmail account
+    gmail_email = Column(String, nullable=True)
+    # JSON-encoded list of Gmail message IDs that have already been ingested
+    gmail_ingested_ids = Column(Text, nullable=True, default="[]")
 
     # Polling behaviour
     polling_interval = Column(Integer, default=60)  # minutes
