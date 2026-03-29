@@ -16,9 +16,7 @@ class TestBackendCorsOriginsValidator:
 
     def test_comma_separated_string(self):
         """Comma-separated origins are split into a list."""
-        settings = Settings(
-            BACKEND_CORS_ORIGINS="http://localhost:3000,http://localhost:5173"
-        )
+        settings = Settings(BACKEND_CORS_ORIGINS="http://localhost:3000,http://localhost:5173")
         assert settings.BACKEND_CORS_ORIGINS == [
             "http://localhost:3000",
             "http://localhost:5173",
@@ -53,9 +51,7 @@ class TestBackendCorsOriginsValidator:
 
     def test_comma_separated_with_spaces(self):
         """Extra whitespace around origins is stripped."""
-        settings = Settings(
-            BACKEND_CORS_ORIGINS=" http://a.example.com , http://b.example.com "
-        )
+        settings = Settings(BACKEND_CORS_ORIGINS=" http://a.example.com , http://b.example.com ")
         assert settings.BACKEND_CORS_ORIGINS == [
             "http://a.example.com",
             "http://b.example.com",
