@@ -178,8 +178,19 @@ async def upload_report(file: UploadFile = File(...)):
                 detail=f"Invalid domain in report: {error_msg}",
             )
 
-        # Store the report
+        # Check for duplicate report before storing
         store = ReportStore.get_instance()
+        report_id = report.get("report_id", "")
+        if report_id and store.has_report(domain, report_id):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Report '{report_id}' for domain '{domain}' has already been uploaded. "
+                    "Duplicate reports are not stored to keep statistics accurate."
+                ),
+            )
+
+        # Store the report
         store.add_report(report)
 
         processed_records = report.get("summary", {}).get("total_count", 0)
@@ -329,4 +340,37 @@ async def get_domain_reports_paginated(
 
     return PaginatedReportResponse(
         total=total, page=page, page_size=page_size, total_pages=total_pages, reports=report_entries
+    )
+
+
+class DeleteReportResponse(BaseModel):
+    """Response model for report deletion"""
+
+    success: bool
+    message: str
+
+
+@router.delete(
+    "/domain/{domain}/reports/{report_id}",
+    response_model=DeleteReportResponse,
+)
+async def delete_report(domain: str, report_id: str):
+    """
+    Delete a single DMARC report for a domain.
+
+    Removes the report from the store and recomputes all domain statistics so
+    that aggregated numbers remain accurate after deletion.
+    """
+    store = ReportStore.get_instance()
+    deleted = store.delete_report(domain, report_id)
+
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Report '{report_id}' not found for domain '{domain}'.",
+        )
+
+    return DeleteReportResponse(
+        success=True,
+        message=f"Report '{report_id}' for domain '{domain}' deleted successfully.",
     )

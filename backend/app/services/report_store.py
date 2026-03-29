@@ -33,6 +33,67 @@ class ReportStore:
         # Domain -> sources (sending IPs)
         self.domain_sources: Dict[str, Dict[str, Dict[str, Any]]] = {}
 
+    def has_report(self, domain: str, report_id: str) -> bool:
+        """
+        Check whether a report with the given report_id already exists for a domain.
+
+        Args:
+            domain: Domain name
+            report_id: Report identifier from the DMARC report metadata
+
+        Returns:
+            True if the report already exists, False otherwise
+        """
+        return any(r.get("report_id") == report_id for r in self.domain_reports.get(domain, []))
+
+    def _recompute_domain_stats(self, domain: str) -> None:
+        """
+        Recompute summary stats and source data for a domain from its current report list.
+
+        Args:
+            domain: Domain name whose stats should be recalculated
+        """
+        reports = self.domain_reports.get(domain, [])
+
+        summary: Dict[str, Any] = {
+            "total_count": 0,
+            "passed_count": 0,
+            "failed_count": 0,
+            "reports_processed": len(reports),
+        }
+        sources: Dict[str, Dict[str, Any]] = {}
+
+        for report in reports:
+            report_summary = report.get("summary", {})
+            summary["total_count"] += report_summary.get("total_count", 0)
+            summary["passed_count"] += report_summary.get("passed_count", 0)
+            summary["failed_count"] += report_summary.get("failed_count", 0)
+
+            if "policy" in report:
+                summary["policy"] = report["policy"]
+
+            for record in report.get("records", []):
+                source_ip = record.get("source_ip", "unknown")
+                if source_ip not in sources:
+                    sources[source_ip] = {
+                        "count": 0,
+                        "spf_result": "unknown",
+                        "dkim_result": "unknown",
+                        "disposition": "none",
+                    }
+                sources[source_ip]["count"] += record.get("count", 0)
+                sources[source_ip]["spf_result"] = record.get("spf", "unknown")
+                sources[source_ip]["dkim_result"] = record.get("dkim", "unknown")
+                sources[source_ip]["disposition"] = record.get("disposition", "none")
+
+        total = summary["total_count"]
+        summary["compliance_rate"] = (
+            round(summary["passed_count"] / total * 100, 1) if total > 0 else 0
+        )
+
+        self.domain_summary[domain] = summary
+        self.domain_sources[domain] = sources
+
     def add_report(self, report: Dict[str, Any]) -> None:
         """
         Add a new report to the store
@@ -56,47 +117,8 @@ class ReportStore:
         # Add the new report
         self.domain_reports[domain].append(report)
 
-        # Update summary stats for this domain
-        summary = report.get("summary", {})
-        self.domain_summary[domain]["total_count"] += summary.get("total_count", 0)
-        self.domain_summary[domain]["passed_count"] += summary.get("passed_count", 0)
-        self.domain_summary[domain]["failed_count"] += summary.get("failed_count", 0)
-        self.domain_summary[domain]["reports_processed"] += 1
-
-        # Set policy from the latest report
-        if "policy" in report:
-            self.domain_summary[domain]["policy"] = report["policy"]
-
-        # Update source data
-        report_records = report.get("records", [])
-        for record in report_records:
-            source_ip = record.get("source_ip", "unknown")
-            if source_ip not in self.domain_sources[domain]:
-                self.domain_sources[domain][source_ip] = {
-                    "count": 0,
-                    "spf_result": "unknown",
-                    "dkim_result": "unknown",
-                    "disposition": "none",
-                }
-
-            # Update source counts and results
-            self.domain_sources[domain][source_ip]["count"] += record.get("count", 0)
-            self.domain_sources[domain][source_ip]["spf_result"] = record.get("spf", "unknown")
-            self.domain_sources[domain][source_ip]["dkim_result"] = record.get("dkim", "unknown")
-            self.domain_sources[domain][source_ip]["disposition"] = record.get(
-                "disposition", "none"
-            )
-
-        # Calculate compliance rate (percentage of passing emails)
-        if self.domain_summary[domain]["total_count"] > 0:
-            pass_rate = (
-                self.domain_summary[domain]["passed_count"]
-                / self.domain_summary[domain]["total_count"]
-                * 100
-            )
-            self.domain_summary[domain]["compliance_rate"] = round(pass_rate, 1)
-        else:
-            self.domain_summary[domain]["compliance_rate"] = 0
+        # Recompute all summary stats from the full list to keep them consistent
+        self._recompute_domain_stats(domain)
 
     def get_domains(self) -> List[str]:
         """
@@ -186,6 +208,38 @@ class ReportStore:
         self.domain_reports = {}
         self.domain_summary = {}
         self.domain_sources = {}
+
+    def delete_report(self, domain: str, report_id: str) -> bool:
+        """
+        Delete a single report from the store and recompute domain statistics.
+
+        If the domain has no remaining reports after deletion, the domain entry
+        is removed entirely from all internal data structures.
+
+        Args:
+            domain: Domain name
+            report_id: Report identifier to delete
+
+        Returns:
+            True if the report was found and deleted, False otherwise
+        """
+        reports = self.domain_reports.get(domain, [])
+        original_len = len(reports)
+        self.domain_reports[domain] = [r for r in reports if r.get("report_id") != report_id]
+
+        if len(self.domain_reports[domain]) == original_len:
+            # Nothing was removed
+            return False
+
+        if not self.domain_reports[domain]:
+            # Domain has no remaining reports – clean up entirely
+            self.domain_reports.pop(domain, None)
+            self.domain_summary.pop(domain, None)
+            self.domain_sources.pop(domain, None)
+        else:
+            self._recompute_domain_stats(domain)
+
+        return True
 
     def delete_domain_with_cleanup(self, domain: str) -> bool:
         """
