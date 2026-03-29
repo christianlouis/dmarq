@@ -1,11 +1,9 @@
-import pytest
-from app.core.database import Base, get_db
-
 # Import all models so Base.metadata knows every table
 import app.models.domain  # noqa: F401
 import app.models.report  # noqa: F401
 import app.models.user  # noqa: F401
-
+import pytest
+from app.core.database import Base, get_db
 from app.services.report_store import ReportStore
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -18,8 +16,8 @@ def test_app() -> FastAPI:
     """Create a fresh FastAPI application instance for testing."""
     from app.main import create_app
 
-    app = create_app()
-    return app
+    application = create_app()
+    return application
 
 
 @pytest.fixture()

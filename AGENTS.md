@@ -91,6 +91,46 @@ async def list_domains():
     return domains
 ```
 
+## Mandatory Pre-Commit Checks
+
+Before committing any code to the repository, **always** run the following checks and ensure they pass:
+
+### Linting (Required)
+
+```bash
+# Format check – must pass with zero reformatted files
+black --check backend/app
+
+# Import order check
+isort --check-only backend/app
+
+# Flake8 lint
+flake8 backend/app --max-line-length=100 --extend-ignore=E203,W503
+```
+
+If Black or isort report issues, fix them automatically:
+
+```bash
+black backend/app
+isort backend/app
+```
+
+### Test Coverage (Required)
+
+All changes must include passing tests. Run the test suite with coverage:
+
+```bash
+cd backend
+pytest --cov=app --cov-report=term-missing
+```
+
+Coverage goals:
+- Overall coverage: **80%+**
+- Core modules (`core/`, `services/`, `utils/`): **90%+**
+- New code: **100%** of new functions and branches should be covered
+
+When adding new features, always add corresponding tests in `backend/app/tests/`.
+
 ## Best Practices
 
 ### 1. Start Small
