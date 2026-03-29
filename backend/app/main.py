@@ -9,6 +9,9 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+import app.models.domain  # noqa: F401 – ensure Domain/UserDomain tables are registered
+import app.models.report  # noqa: F401 – ensure DMARCReport/ReportRecord tables are registered
+import app.models.user  # noqa: F401 – ensure User table is registered
 from app.api.api_v1.api import api_router
 from app.core.config import get_settings
 from app.core.database import Base, SessionLocal, engine
@@ -265,7 +268,7 @@ def create_app() -> FastAPI:
     return application
 
 
-app = create_app()
+app = create_app()  # noqa: F811 – intentional rebind; `app` package imported above for side-effects
 
 # Initialize Jinja2 templates
 templates_dir = os.path.join(os.path.dirname(__file__), "templates")
