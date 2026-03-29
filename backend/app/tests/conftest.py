@@ -6,6 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 import app.models.domain  # noqa: F401  # pylint: disable=unused-import
+import app.models.mail_source  # noqa: F401  # pylint: disable=unused-import
 import app.models.report  # noqa: F401  # pylint: disable=unused-import
 import app.models.user  # noqa: F401  # pylint: disable=unused-import
 from app.core.database import Base, get_db
