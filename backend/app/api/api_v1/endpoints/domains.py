@@ -1,6 +1,6 @@
+import random  # Used for mock data generation - TODO: Replace with actual historical data
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
-import random  # Used for mock data generation - TODO: Replace with actual historical data
 
 from app.services.report_store import ReportStore
 from fastapi import APIRouter, HTTPException, Path, Query, status

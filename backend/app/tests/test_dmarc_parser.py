@@ -1,112 +1,119 @@
-from unittest.mock import MagicMock, patch
+import io
+import zipfile
 
-import defusedxml.ElementTree as ET
+import pytest
 from app.services.dmarc_parser import DMARCParser
+
+SAMPLE_XML = """\
+<?xml version="1.0" encoding="UTF-8" ?>
+<feedback>
+    <report_metadata>
+        <org_name>google.com</org_name>
+        <email>noreply-dmarc-support@google.com</email>
+        <report_id>123456789</report_id>
+        <date_range>
+            <begin>1597449600</begin>
+            <end>1597535999</end>
+        </date_range>
+    </report_metadata>
+    <policy_published>
+        <domain>example.com</domain>
+        <adkim>r</adkim>
+        <aspf>r</aspf>
+        <p>none</p>
+        <sp>none</sp>
+        <pct>100</pct>
+    </policy_published>
+    <record>
+        <row>
+            <source_ip>203.0.113.1</source_ip>
+            <count>2</count>
+            <policy_evaluated>
+                <disposition>none</disposition>
+                <dkim>pass</dkim>
+                <spf>fail</spf>
+            </policy_evaluated>
+        </row>
+        <identifiers>
+            <header_from>example.com</header_from>
+        </identifiers>
+        <auth_results>
+            <dkim>
+                <domain>example.com</domain>
+                <result>pass</result>
+                <selector>default</selector>
+            </dkim>
+            <spf>
+                <domain>example.com</domain>
+                <result>fail</result>
+            </spf>
+        </auth_results>
+    </record>
+</feedback>
+"""
 
 
 class TestDMARCParser:
+    """Tests for the DMARC XML parser."""
 
-    def setup_method(self):
-        """Set up test fixtures"""
-        self.parser = DMARCParser()
+    def test_parse_xml_report(self):
+        """Test parsing a plain XML DMARC report."""
+        xml_bytes = SAMPLE_XML.encode("utf-8")
+        result = DMARCParser.parse_file(xml_bytes, "report.xml")
 
-        # Sample XML string for testing
-        self.sample_xml = """<?xml version="1.0" encoding="UTF-8" ?>
-        <feedback>
-            <report_metadata>
-                <org_name>google.com</org_name>
-                <email>noreply-dmarc-support@google.com</email>
-                <report_id>123456789</report_id>
-                <date_range>
-                    <begin>1597449600</begin>
-                    <end>1597535999</end>
-                </date_range>
-            </report_metadata>
-            <policy_published>
-                <domain>example.com</domain>
-                <adkim>r</adkim>
-                <aspf>r</aspf>
-                <p>none</p>
-                <sp>none</sp>
-                <pct>100</pct>
-            </policy_published>
-            <record>
-                <row>
-                    <source_ip>203.0.113.1</source_ip>
-                    <count>2</count>
-                    <policy_evaluated>
-                        <disposition>none</disposition>
-                        <dkim>pass</dkim>
-                        <spf>fail</spf>
-                    </policy_evaluated>
-                </row>
-                <identifiers>
-                    <header_from>example.com</header_from>
-                </identifiers>
-                <auth_results>
-                    <dkim>
-                        <domain>example.com</domain>
-                        <result>pass</result>
-                        <selector>default</selector>
-                    </dkim>
-                    <spf>
-                        <domain>example.com</domain>
-                        <result>fail</result>
-                    </spf>
-                </auth_results>
-            </record>
-        </feedback>
-        """
+        # Report metadata (flat keys from _parse_xml)
+        assert result["report_id"] == "123456789"
+        assert result["org_name"] == "google.com"
+        assert result["email"] == "noreply-dmarc-support@google.com"
+        assert result["begin_timestamp"] == 1597449600
+        assert result["end_timestamp"] == 1597535999
 
-    def test_parse_aggregate_report_xml(self):
-        """Test parsing an XML aggregate report"""
-        # Use DMARCParser.parse_file with file_content (bytes) and filename
-        xml_bytes = self.sample_xml.encode("utf-8")
-        result = DMARCParser.parse_file(xml_bytes, "test_report.xml")
+        # Policy published
+        assert result["domain"] == "example.com"
+        assert result["policy"]["p"] == "none"
 
-        # Verify report metadata
-        assert result["report_metadata"]["org_name"] == "google.com"
-        assert result["report_metadata"]["email"] == "noreply-dmarc-support@google.com"
-        assert result["report_metadata"]["report_id"] == "123456789"
-        assert result["report_metadata"]["begin_date"] == 1597449600
-        assert result["report_metadata"]["end_date"] == 1597535999
-
-        # Verify policy published
-        assert result["policy_published"]["domain"] == "example.com"
-        assert result["policy_published"]["policy"] == "none"
-
-        # Verify record data
+        # Records
         assert len(result["records"]) == 1
         record = result["records"][0]
         assert record["source_ip"] == "203.0.113.1"
         assert record["count"] == 2
-        assert record["policy_evaluated"]["disposition"] == "none"
-        assert record["policy_evaluated"]["dkim"] == "pass"
-        assert record["policy_evaluated"]["spf"] == "fail"
-        assert record["identifiers"]["header_from"] == "example.com"
+        assert record["disposition"] == "none"
+        assert record["dkim_result"] == "pass"
+        assert record["spf_result"] == "fail"
+        assert record["header_from"] == "example.com"
 
-    @patch("app.services.dmarc_parser.zipfile.ZipFile")
-    def test_parse_aggregate_report_zip(self, mock_zipfile):
-        """Test parsing a zipped aggregate report"""
-        # Setup mock zipfile extraction
-        mock_zip_instance = MagicMock()
-        mock_zipfile.return_value.__enter__.return_value = mock_zip_instance
-        mock_zip_instance.namelist.return_value = ["report.xml"]
-        mock_zip_instance.read.return_value = self.sample_xml.encode("utf-8")
+        # Summary
+        assert result["summary"]["total_count"] == 2
+        assert result["summary"]["passed_count"] == 2  # dkim passed
+        assert result["summary"]["failed_count"] == 0
 
-        # Create fake zip file content
-        zip_content = b"fake_zip_content"
-        result = DMARCParser.parse_file(zip_content, "test_report.zip")
+    def test_parse_zip_report(self):
+        """Test parsing a DMARC report inside a ZIP archive."""
+        xml_bytes = SAMPLE_XML.encode("utf-8")
 
-        # Assertions similar to test_parse_aggregate_report_xml
-        assert result["report_metadata"]["org_name"] == "google.com"
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as zf:
+            zf.writestr("report.xml", xml_bytes)
+        zip_content = zip_buffer.getvalue()
+
+        result = DMARCParser.parse_file(zip_content, "report.zip")
+
+        assert result["report_id"] == "123456789"
+        assert result["domain"] == "example.com"
         assert len(result["records"]) == 1
 
-    def test_extract_authentication_results(self):
-        """Test extracting authentication results from report"""
-        # This test was for an internal method that may have changed
-        # The functionality is tested through test_parse_aggregate_report_xml
-        # which validates the full parsing including authentication results
-        import pytest
+    def test_file_too_large(self):
+        """Test that files exceeding the size limit are rejected."""
+        large_content = b"x" * (11 * 1024 * 1024)  # 11 MB
+        with pytest.raises(ValueError, match="too large"):
+            DMARCParser.parse_file(large_content, "report.xml")
 
-        pytest.skip("Internal method test - functionality covered by integration tests")
+    def test_invalid_xml(self):
+        """Test that invalid XML raises a ValueError."""
+        with pytest.raises(ValueError):
+            DMARCParser.parse_file(b"not xml at all", "report.xml")
+
+    def test_unsupported_extension_returns_none(self):
+        """Test that an unsupported file extension raises ValueError."""
+        with pytest.raises(ValueError, match="Could not extract XML"):
+            DMARCParser.parse_file(b"some content", "report.pdf")

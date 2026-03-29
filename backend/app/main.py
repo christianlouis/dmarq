@@ -148,7 +148,6 @@ def create_app() -> FastAPI:
     @app.on_event("shutdown")
     async def shutdown_event():
         """Clean up background tasks on application shutdown"""
-        global background_task
         if background_task:
             logger.info("Cancelling IMAP polling background task")
             background_task.cancel()

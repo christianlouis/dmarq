@@ -35,6 +35,77 @@ ALLOWED_MIME_TYPES = {
 ALLOWED_EXTENSIONS = {".xml", ".zip", ".gz", ".gzip"}
 
 
+def _validate_mime_type(file_content: bytes) -> None:
+    """Validate the MIME type of the uploaded file using python-magic.
+
+    No-ops silently when python-magic is unavailable.
+    Raises HTTPException on a disallowed MIME type.
+    """
+    if not HAS_MAGIC:
+        logger.debug("MIME type validation skipped (python-magic not available)")
+        return
+    try:
+        mime_type = magic.from_buffer(file_content, mime=True)
+        if mime_type not in ALLOWED_MIME_TYPES:
+            logger.warning(f"Rejected file with MIME type: {mime_type}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid file type. File must be XML, ZIP, or GZIP format.",
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        # If magic fails, log but continue (fallback to extension check)
+        logger.warning(f"MIME type detection failed: {str(e)}")
+
+
+def _validate_upload_file(file: UploadFile, file_content: bytes) -> None:
+    """Run all pre-parse validation checks on an uploaded file.
+
+    Raises HTTPException for any validation failure.
+    """
+    # Security: Validate filename is provided
+    if not file.filename:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Filename is required"
+        )
+
+    # Security: Validate file extension
+    file_ext = "." + file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    if file_ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid file type. Allowed types: {', '.join(ALLOWED_EXTENSIONS)}",
+        )
+
+    # Security: Validate file is not empty
+    if len(file_content) == 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File is empty")
+
+    # Security: Validate MIME type (if python-magic is available)
+    _validate_mime_type(file_content)
+
+
+def _handle_upload_value_error(filename: str, error_message: str) -> None:
+    """Translate a parser ValueError into a sanitized HTTPException.
+
+    Always raises — never returns.
+    """
+    logger.error(f"ValueError processing report {filename}: {error_message}")
+    if "too large" in error_message.lower():
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File too large"
+        )
+    elif "zip bomb" in error_message.lower():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid archive file"
+        )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid report format"
+        )
+
+
 class UploadResponse(BaseModel):
     """Response model for report upload"""
 
@@ -89,42 +160,9 @@ async def upload_report(file: UploadFile = File(...)):
     - Sanitized error messages
     """
     try:
-        # Security: Validate filename is provided
-        if not file.filename:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="Filename is required"
-            )
-
-        # Security: Validate file extension
-        file_ext = "." + file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
-        if file_ext not in ALLOWED_EXTENSIONS:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid file type. Allowed types: {', '.join(ALLOWED_EXTENSIONS)}",
-            )
-
-        # Read the file content
+        # Read content first so validators can inspect it
         file_content = await file.read()
-
-        # Security: Validate file is not empty
-        if len(file_content) == 0:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File is empty")
-
-        # Security: Validate MIME type using python-magic (if available)
-        if HAS_MAGIC:
-            try:
-                mime_type = magic.from_buffer(file_content, mime=True)
-                if mime_type not in ALLOWED_MIME_TYPES:
-                    logger.warning(f"Rejected file with MIME type: {mime_type}")
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="Invalid file type. File must be XML, ZIP, or GZIP format.",
-                    )
-            except Exception as e:
-                # If magic fails, log but continue (fallback to extension check)
-                logger.warning(f"MIME type detection failed: {str(e)}")
-        else:
-            logger.debug("MIME type validation skipped (python-magic not available)")
+        _validate_upload_file(file, file_content)
 
         # Parse the report
         parser = DMARCParser()
@@ -141,7 +179,6 @@ async def upload_report(file: UploadFile = File(...)):
         # Validate domain format (not DNS resolution to avoid external calls)
         is_valid, error_msg, error_code = validate_domain(domain, check_dns=False)
         if not is_valid and error_code != DomainValidationError.DNS_RESOLUTION_FAILED:
-            # Allow domains that fail DNS resolution but have valid format
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid domain in report: {error_msg}",
@@ -161,26 +198,10 @@ async def upload_report(file: UploadFile = File(...)):
         )
 
     except HTTPException:
-        # Re-raise HTTP exceptions as-is
         raise
     except ValueError as e:
         # Security: Sanitize error messages from parser
-        error_message = str(e)
-        # Log full error for debugging
-        logger.error(f"ValueError processing report {file.filename}: {error_message}")
-        # Return sanitized message
-        if "too large" in error_message.lower():
-            raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File too large"
-            )
-        elif "zip bomb" in error_message.lower():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid archive file"
-            )
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid report format"
-            )
+        _handle_upload_value_error(file.filename, str(e))
     except Exception as e:
         # Security: Don't expose internal errors to client
         logger.error(f"Unexpected error processing report {file.filename}: {str(e)}")

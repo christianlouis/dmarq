@@ -1,60 +1,44 @@
-import asyncio
-
+# Import all models so Base.metadata knows every table
+import app.models.domain  # noqa: F401
+import app.models.report  # noqa: F401
+import app.models.user  # noqa: F401
 import pytest
-import pytest_asyncio
 from app.core.database import Base, get_db
-from app.core.security import get_password_hash
-from app.models.user import User
+from app.services.report_store import ReportStore
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from httpx import AsyncClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-# Use in-memory SQLite database for tests
-TEST_DATABASE_URL = "sqlite:///./test.db"
 
-
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create an instance of the default event loop for each test case."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
-
-
-@pytest.fixture(scope="session")
+@pytest.fixture()
 def test_app() -> FastAPI:
-    # Avoid circular import
+    """Create a fresh FastAPI application instance for testing."""
     from app.main import create_app
 
-    app = create_app()
-    return app
+    application = create_app()
+    return application
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture()
 def db_session():
-    # Create the SQLite database engine
-    engine = create_engine(TEST_DATABASE_URL)
-
-    # Create all tables
+    """Create a fresh in-memory SQLite database session per test."""
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     Base.metadata.create_all(engine)
-
-    # Create a new session
     TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     db = TestingSessionLocal()
-
     try:
         yield db
     finally:
         db.close()
-        # Drop all tables after the test
         Base.metadata.drop_all(engine)
+        engine.dispose()
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture()
 def client(test_app: FastAPI, db_session):
-    # Override the get_db dependency to use the test database
+    """Create a TestClient with a DB override for the test app."""
+
     def override_get_db():
         try:
             yield db_session
@@ -62,38 +46,15 @@ def client(test_app: FastAPI, db_session):
             pass
 
     test_app.dependency_overrides[get_db] = override_get_db
-
-    # Use the FastAPI TestClient
     with TestClient(test_app) as test_client:
         yield test_client
+    test_app.dependency_overrides.clear()
 
 
-@pytest_asyncio.fixture(scope="function")
-async def async_client(test_app: FastAPI, db_session):
-    # Override the get_db dependency to use the test database
-    def override_get_db():
-        try:
-            yield db_session
-        finally:
-            pass
-
-    test_app.dependency_overrides[get_db] = override_get_db
-
-    async with AsyncClient(app=test_app, base_url="http://testserver") as ac:
-        yield ac
-
-
-@pytest.fixture(scope="function")
-def test_user(db_session):
-    """Create a test user in the database."""
-    user = User(
-        email="test@example.com",
-        hashed_password=get_password_hash("password"),
-        is_active=True,
-        is_superuser=False,
-        is_verified=True,
-    )
-    db_session.add(user)
-    db_session.commit()
-    db_session.refresh(user)
-    return user
+@pytest.fixture(autouse=True)
+def _reset_report_store():
+    """Reset the ReportStore singleton between tests to avoid state leakage."""
+    store = ReportStore.get_instance()
+    store.clear()
+    yield
+    store.clear()

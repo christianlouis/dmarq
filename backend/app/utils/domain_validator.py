@@ -17,6 +17,45 @@ class DomainValidationError:
     DNS_RESOLUTION_FAILED = "dns_resolution_failed"
 
 
+def _validate_domain_characters(
+    domain_name: str,
+) -> Tuple[bool, Optional[str], Optional[str]]:
+    """Check a domain name for whitespace and suspicious characters."""
+    if " " in domain_name or "\t" in domain_name or "\n" in domain_name:
+        return (
+            False,
+            "Domain name cannot contain whitespace",
+            DomainValidationError.INVALID_CHARACTERS,
+        )
+    if any(char in domain_name for char in ["<", ">", '"', "'", "\\", "|", ";", "&", "$", "`"]):
+        return (
+            False,
+            "Domain name contains invalid characters",
+            DomainValidationError.INVALID_CHARACTERS,
+        )
+    return True, None, None
+
+
+def _validate_domain_labels(
+    labels: list,
+) -> Tuple[bool, Optional[str], Optional[str]]:
+    """Check each DNS label for length and hyphen-placement rules."""
+    for label in labels:
+        if len(label) > 63:
+            return (
+                False,
+                f"Domain label too long: '{label}' (max 63 characters per label)",
+                DomainValidationError.LABEL_TOO_LONG,
+            )
+        if label.startswith("-") or label.endswith("-"):
+            return (
+                False,
+                f"Domain label cannot start or end with hyphen: '{label}'",
+                DomainValidationError.INVALID_LABEL,
+            )
+    return True, None, None
+
+
 def validate_domain(
     domain_name: str, check_dns: bool = True
 ) -> Tuple[bool, Optional[str], Optional[str]]:
@@ -41,21 +80,10 @@ def validate_domain(
     if len(domain_name) > 253:
         return False, "Domain name too long (max 253 characters)", DomainValidationError.TOO_LONG
 
-    # Security: Check for whitespace
-    if " " in domain_name or "\t" in domain_name or "\n" in domain_name:
-        return (
-            False,
-            "Domain name cannot contain whitespace",
-            DomainValidationError.INVALID_CHARACTERS,
-        )
-
-    # Security: Check for suspicious characters
-    if any(char in domain_name for char in ["<", ">", '"', "'", "\\", "|", ";", "&", "$", "`"]):
-        return (
-            False,
-            "Domain name contains invalid characters",
-            DomainValidationError.INVALID_CHARACTERS,
-        )
+    # Security: Check for whitespace and suspicious characters
+    char_ok, char_msg, char_code = _validate_domain_characters(domain_name)
+    if not char_ok:
+        return False, char_msg, char_code
 
     # Check domain format with regex
     # This regex allows domain names with alphanumeric characters, hyphens,
@@ -67,19 +95,9 @@ def validate_domain(
 
     # Security: Check each label length (max 63 characters per label)
     labels = domain_name.split(".")
-    for label in labels:
-        if len(label) > 63:
-            return (
-                False,
-                f"Domain label too long: '{label}' (max 63 characters per label)",
-                DomainValidationError.LABEL_TOO_LONG,
-            )
-        if label.startswith("-") or label.endswith("-"):
-            return (
-                False,
-                f"Domain label cannot start or end with hyphen: '{label}'",
-                DomainValidationError.INVALID_LABEL,
-            )
+    label_ok, label_msg, label_code = _validate_domain_labels(labels)
+    if not label_ok:
+        return False, label_msg, label_code
 
     # Check if domain exists by attempting to resolve DNS (optional)
     if check_dns:

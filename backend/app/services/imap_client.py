@@ -49,6 +49,30 @@ class IMAPClient:
         if not all([self.server, self.username, self.password]):
             logger.warning("IMAP credentials not fully configured")
 
+    def _list_mailboxes(self, mailbox_data: list) -> list:
+        """Parse the raw IMAP LIST response into a list of mailbox name strings."""
+        available_mailboxes = []
+        for mailbox in mailbox_data:
+            if isinstance(mailbox, bytes):
+                try:
+                    mailbox_str = mailbox.decode("utf-8")
+                    # Extract the mailbox name (after the last quote)
+                    parts = mailbox_str.split('"')
+                    if len(parts) > 2:
+                        mailbox_name = parts[-1].strip()
+                        if mailbox_name.startswith(" "):
+                            mailbox_name = mailbox_name[1:]
+                        available_mailboxes.append(mailbox_name)
+                except Exception:
+                    # Silently skip mailboxes that can't be parsed; they are simply
+                    # omitted from the returned list so callers should expect it may
+                    # be incomplete.  Some IMAP servers return non-standard list
+                    # responses or use different delimiters/encodings that don't follow
+                    # RFC 3501 (special characters, non-UTF-8 encodings, malformed
+                    # responses).  This is expected behaviour and not a critical error.
+                    pass  # nosec B110
+        return available_mailboxes
+
     def test_connection(self) -> Tuple[bool, str, Dict[str, Any]]:
         """
         Test the IMAP connection and gather basic mailbox statistics
@@ -70,28 +94,7 @@ class IMAPClient:
 
             # List available mailboxes
             status, mailbox_list = mail.list()
-            available_mailboxes = []
-
-            if status == "OK":
-                for mailbox in mailbox_list:
-                    if isinstance(mailbox, bytes):
-                        try:
-                            # Extract mailbox name from response
-                            mailbox_str = mailbox.decode("utf-8")
-                            # Extract the mailbox name (after the last quote)
-                            parts = mailbox_str.split('"')
-                            if len(parts) > 2:
-                                mailbox_name = parts[-1].strip()
-                                if mailbox_name.startswith(" "):
-                                    mailbox_name = mailbox_name[1:]
-                                available_mailboxes.append(mailbox_name)
-                        except Exception:
-                            # Silently skip mailboxes that can't be parsed
-                            # Some IMAP servers return non-standard list responses or
-                            # use different delimiters/encodings that don't follow RFC 3501
-                            # Common cases: special characters, non-UTF8 encodings, malformed responses
-                            # This is expected behavior and not a critical error
-                            pass  # nosec B110
+            available_mailboxes = self._list_mailboxes(mailbox_list) if status == "OK" else []
 
             # Select inbox and get message count
             status, data = mail.select("INBOX")
@@ -130,6 +133,32 @@ class IMAPClient:
         except Exception as e:
             logger.error(f"IMAP connection test failed: {str(e)}")
             return False, f"Connection failed: {str(e)}", {}
+
+    def _process_single_email(self, mail, email_id: bytes, stats: dict) -> None:
+        """Fetch, parse, and store DMARC attachments from one email message."""
+        try:
+            status, msg_data = mail.fetch(email_id, "(RFC822)")
+            if status != "OK":
+                logger.error(f"Error fetching email ID {email_id}")
+                return
+
+            raw_email = msg_data[0][1]
+            msg = email.message_from_bytes(raw_email)
+
+            if self._is_dmarc_report_email(msg):
+                reports_found = self._process_attachments(msg)
+                stats["reports_found"] += reports_found
+
+                # Mark email as read (and optionally delete)
+                mail.store(email_id, "+FLAGS", "\\Seen")
+                if self.delete_emails:
+                    mail.store(email_id, "+FLAGS", "\\Deleted")
+
+                stats["processed"] += 1
+        except Exception as e:
+            error_msg = f"Error processing email ID {email_id}: {str(e)}"
+            logger.error(error_msg)
+            stats["errors"].append(error_msg)
 
     def fetch_reports(self, days: int = 7) -> Dict[str, Any]:
         """
@@ -181,36 +210,7 @@ class IMAPClient:
 
             # Process each email
             for email_id in email_ids:
-                try:
-                    # Fetch the email
-                    status, msg_data = mail.fetch(email_id, "(RFC822)")
-
-                    if status != "OK":
-                        logger.error(f"Error fetching email ID {email_id}")
-                        continue
-
-                    # Parse the email
-                    raw_email = msg_data[0][1]
-                    msg = email.message_from_bytes(raw_email)
-
-                    # Check if this email might contain DMARC reports
-                    if self._is_dmarc_report_email(msg):
-                        # Process attachments
-                        reports_found = self._process_attachments(msg)
-                        stats["reports_found"] += reports_found
-
-                        # Mark email as read
-                        mail.store(email_id, "+FLAGS", "\\Seen")
-
-                        # Delete email if configured
-                        if self.delete_emails:
-                            mail.store(email_id, "+FLAGS", "\\Deleted")
-
-                        stats["processed"] += 1
-                except Exception as e:
-                    error_msg = f"Error processing email ID {email_id}: {str(e)}"
-                    logger.error(error_msg)
-                    stats["errors"].append(error_msg)
+                self._process_single_email(mail, email_id, stats)
 
             # Actually remove emails marked for deletion
             if self.delete_emails:
