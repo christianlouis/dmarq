@@ -7,6 +7,7 @@ could run (see: pydantic_settings sources/providers/env.py decode_complex_value)
 """
 
 from app.core.config import Settings
+from app.core.database import _make_sync_db_url
 
 
 class TestBackendCorsOriginsValidator:
@@ -64,3 +65,34 @@ class TestBackendCorsOriginsValidator:
             "https://a.example.com",
             "https://b.example.com",
         ]
+
+
+class TestMakeSyncDbUrl:
+    """Tests for the _make_sync_db_url() URL normalization helper."""
+
+    def test_asyncpg_replaced_with_psycopg2(self):
+        """asyncpg scheme is converted to psycopg2."""
+        url = "postgresql+asyncpg://user:pass@db:5432/mydb"
+        assert _make_sync_db_url(url) == "postgresql+psycopg2://user:pass@db:5432/mydb"
+
+    def test_plain_postgresql_unchanged(self):
+        """Plain postgresql:// URLs are not modified."""
+        url = "postgresql://user:pass@db:5432/mydb"
+        assert _make_sync_db_url(url) == url
+
+    def test_psycopg2_url_unchanged(self):
+        """URLs already using psycopg2 are not modified."""
+        url = "postgresql+psycopg2://user:pass@db:5432/mydb"
+        assert _make_sync_db_url(url) == url
+
+    def test_sqlite_url_unchanged(self):
+        """SQLite URLs are not modified."""
+        url = "sqlite:///./dmarq.db"
+        assert _make_sync_db_url(url) == url
+
+    def test_database_url_setting_asyncpg(self):
+        """Settings with an asyncpg DATABASE_URL still initialise correctly."""
+        settings = Settings(DATABASE_URL="postgresql+asyncpg://user:pass@db:5432/mydb")
+        assert settings.DATABASE_URL == "postgresql+asyncpg://user:pass@db:5432/mydb"
+        # Normalised URL used by the engine must not contain asyncpg
+        assert "asyncpg" not in _make_sync_db_url(settings.DATABASE_URL)
