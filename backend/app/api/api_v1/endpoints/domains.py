@@ -1,4 +1,5 @@
 import asyncio
+import ipaddress
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -85,6 +86,8 @@ class SourceEntry(BaseModel):
     dkim: str
     dmarc: str
     disposition: str
+    hostname: Optional[str] = None
+    spf_fix_hint: Optional[str] = None
 
 
 class DomainReportsResponse(BaseModel):
@@ -440,7 +443,8 @@ async def get_domain_sources(
     days: int = Query(30, title="Number of days to look back"),
 ):
     """
-    Get sending sources for a specific domain
+    Get sending sources for a specific domain, including reverse-DNS hostnames
+    and SPF fix hints for sources that fail authentication.
     """
     store = ReportStore.get_instance()
     domains = store.get_domains()
@@ -454,20 +458,44 @@ async def get_domain_sources(
     # Get sending sources for this domain
     sources = store.get_domain_sources(domain_id, days=days)
 
+    provider = get_default_provider()
+
+    async def _safe_ptr(ip: str) -> Optional[str]:
+        """Perform a PTR lookup with a short timeout; return None on any failure."""
+        try:
+            return await asyncio.wait_for(provider.lookup_ptr(ip), timeout=3.0)
+        except Exception:
+            return None
+
+    ips = [s.get("source_ip", "unknown") for s in sources]
+    hostnames = await asyncio.gather(*[_safe_ptr(ip) for ip in ips])
+
     source_entries = []
-    for source in sources:
+    for source, hostname in zip(sources, hostnames):
+        ip = source.get("source_ip", "unknown")
+        spf_result = source.get("spf_result", "unknown")
+        dkim_result = source.get("dkim_result", "unknown")
+
+        # Build a copy-paste SPF mechanism for IPs that fail SPF
+        spf_fix_hint: Optional[str] = None
+        if spf_result == "fail":
+            try:
+                addr = ipaddress.ip_address(ip)
+                prefix = "ip6" if isinstance(addr, ipaddress.IPv6Address) else "ip4"
+                spf_fix_hint = f"{prefix}:{ip}"
+            except ValueError:
+                pass
+
         source_entries.append(
             SourceEntry(
-                ip=source.get("source_ip", "unknown"),
+                ip=ip,
                 count=source.get("count", 0),
-                spf=source.get("spf_result", "unknown"),
-                dkim=source.get("dkim_result", "unknown"),
-                dmarc=(
-                    "pass"
-                    if source.get("spf_result") == "pass" or source.get("dkim_result") == "pass"
-                    else "fail"
-                ),
+                spf=spf_result,
+                dkim=dkim_result,
+                dmarc=("pass" if spf_result == "pass" or dkim_result == "pass" else "fail"),
                 disposition=source.get("disposition", "none"),
+                hostname=hostname,
+                spf_fix_hint=spf_fix_hint,
             )
         )
 

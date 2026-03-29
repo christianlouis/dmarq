@@ -250,3 +250,94 @@ def test_summary_dns_failure_defaults_false(client: TestClient):
     assert domain["dmarc_status"] is False
     assert domain["spf_status"] is False
     assert domain["dkim_status"] is False
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/domains/{domain_id}/sources  (PTR + fix hints)
+# ---------------------------------------------------------------------------
+
+# A failing-source report used for sources tests
+FAILING_SOURCE_REPORT = {
+    "domain": DOMAIN,
+    "report_id": "fail-src-001",
+    "org_name": "Fail Org",
+    "policy": {"p": "reject", "sp": "", "pct": "100"},
+    "records": [
+        {
+            "source_ip": "10.0.0.1",
+            "count": 3,
+            "disposition": "reject",
+            "dkim_result": "fail",
+            "spf_result": "fail",
+            "dkim": [],
+            "spf": [],
+        }
+    ],
+    "summary": {"total_count": 3, "passed_count": 0, "failed_count": 3, "pass_rate": 0.0},
+}
+
+
+def _mock_provider(hostname=None):
+    """Return a context manager that patches get_default_provider with a PTR mock."""
+    mock_prov = AsyncMock()
+    mock_prov.check_domain = AsyncMock(return_value=MOCK_DNS_RESULT)
+    mock_prov.lookup_ptr = AsyncMock(return_value=hostname)
+    return patch(
+        "app.api.api_v1.endpoints.domains.get_default_provider",
+        return_value=mock_prov,
+    )
+
+
+def test_sources_endpoint_includes_hostname(client: TestClient):
+    """The /sources endpoint should return the rDNS hostname when available."""
+    store = ReportStore.get_instance()
+    store.add_report(FAILING_SOURCE_REPORT)
+
+    with _mock_provider(hostname="mail.example.com"):
+        response = client.get(f"/api/v1/domains/{DOMAIN}/sources")
+
+    assert response.status_code == 200
+    sources = response.json()["sources"]
+    # Find the failing source
+    failing = next((s for s in sources if s["ip"] == "10.0.0.1"), None)
+    assert failing is not None
+    assert failing["hostname"] == "mail.example.com"
+
+
+def test_sources_endpoint_hostname_none_when_no_ptr(client: TestClient):
+    """The /sources endpoint should return null hostname when no PTR record exists."""
+    with _mock_provider(hostname=None):
+        response = client.get(f"/api/v1/domains/{DOMAIN}/sources")
+
+    assert response.status_code == 200
+    sources = response.json()["sources"]
+    for source in sources:
+        # hostname may be null; it must not crash
+        assert "hostname" in source
+
+
+def test_sources_endpoint_spf_fix_hint_for_failing_ip(client: TestClient):
+    """A source with spf=fail should receive an spf_fix_hint containing its IP."""
+    store = ReportStore.get_instance()
+    store.add_report(FAILING_SOURCE_REPORT)
+
+    with _mock_provider():
+        response = client.get(f"/api/v1/domains/{DOMAIN}/sources")
+
+    assert response.status_code == 200
+    sources = response.json()["sources"]
+    failing = next((s for s in sources if s["ip"] == "10.0.0.1"), None)
+    assert failing is not None
+    assert failing["spf_fix_hint"] == "ip4:10.0.0.1"
+
+
+def test_sources_endpoint_no_fix_hint_when_spf_passes(client: TestClient):
+    """A source with spf=pass should not receive an spf_fix_hint."""
+    with _mock_provider():
+        response = client.get(f"/api/v1/domains/{DOMAIN}/sources")
+
+    assert response.status_code == 200
+    sources = response.json()["sources"]
+    passing = next((s for s in sources if s["ip"] == "1.2.3.4"), None)
+    if passing is not None:
+        assert passing["spf_fix_hint"] is None

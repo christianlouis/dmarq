@@ -234,18 +234,19 @@
                 {% call table() %}
                     {% call thead() %}
                         {% call tr() %}
-                            {% call th() %}Source IP{% endcall %}
+                            {% call th() %}Source IP / Hostname{% endcall %}
                             {% call th() %}Total Emails{% endcall %}
                             {% call th() %}SPF{% endcall %}
                             {% call th() %}DKIM{% endcall %}
                             {% call th() %}DMARC{% endcall %}
                             {% call th() %}Disposition{% endcall %}
+                            {% call th() %}Fix{% endcall %}
                         {% endcall %}
                     {% endcall %}
                     {% call tbody() %}
                         <template x-if="sources.length === 0">
                             <tr>
-                                <td colspan="6" class="text-center py-4">
+                                <td colspan="7" class="text-center py-4">
                                     <div class="text-muted-foreground">No data available for this time period</div>
                                 </td>
                             </tr>
@@ -253,39 +254,60 @@
                         <template x-for="source in filteredSources" :key="source.ip">
                             {% call tr() %}
                                 {% call td() %}
-                                    <span x-text="source.ip"></span>
+                                    <div class="flex flex-col">
+                                        <span class="font-mono text-sm" x-text="source.ip"></span>
+                                        <template x-if="source.hostname">
+                                            <span class="text-xs text-muted-foreground" x-text="source.hostname"></span>
+                                        </template>
+                                    </div>
                                 {% endcall %}
                                 {% call td() %}
                                     <span x-text="source.count"></span>
                                 {% endcall %}
                                 {% call td() %}
                                     <template x-if="source.spf === 'pass'">
-                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">Pass</span>
+                                        <div class="tooltip" data-tip="IP is authorized in the SPF record">
+                                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">Pass</span>
+                                        </div>
                                     </template>
                                     <template x-if="source.spf === 'fail'">
-                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-red-100 text-red-800">Fail</span>
+                                        <div class="tooltip" data-tip="IP is not listed in the SPF record">
+                                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-red-100 text-red-800">Fail</span>
+                                        </div>
                                     </template>
                                     <template x-if="source.spf === 'neutral' || source.spf === 'none'">
-                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-800" x-text="source.spf"></span>
+                                        <div class="tooltip" :data-tip="'SPF returned: ' + source.spf">
+                                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-800" x-text="source.spf"></span>
+                                        </div>
                                     </template>
                                 {% endcall %}
                                 {% call td() %}
                                     <template x-if="source.dkim === 'pass'">
-                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">Pass</span>
+                                        <div class="tooltip" data-tip="Valid DKIM signature found">
+                                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">Pass</span>
+                                        </div>
                                     </template>
                                     <template x-if="source.dkim === 'fail'">
-                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-red-100 text-red-800">Fail</span>
+                                        <div class="tooltip" data-tip="No valid DKIM signature for this domain">
+                                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-red-100 text-red-800">Fail</span>
+                                        </div>
                                     </template>
                                     <template x-if="source.dkim === 'neutral' || source.dkim === 'none'">
-                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-800" x-text="source.dkim"></span>
+                                        <div class="tooltip" :data-tip="'DKIM returned: ' + source.dkim">
+                                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-800" x-text="source.dkim"></span>
+                                        </div>
                                     </template>
                                 {% endcall %}
                                 {% call td() %}
                                     <template x-if="source.dmarc === 'pass'">
-                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">Pass</span>
+                                        <div class="tooltip" data-tip="DMARC passed: SPF or DKIM alignment succeeded">
+                                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">Pass</span>
+                                        </div>
                                     </template>
                                     <template x-if="source.dmarc === 'fail'">
-                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-red-100 text-red-800">Fail</span>
+                                        <div class="tooltip" data-tip="DMARC failed: neither SPF nor DKIM alignment passed">
+                                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-red-100 text-red-800">Fail</span>
+                                        </div>
                                     </template>
                                 {% endcall %}
                                 {% call td() %}
@@ -297,6 +319,42 @@
                                     </template>
                                     <template x-if="source.disposition === 'reject'">
                                         <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-red-100 text-red-800">Reject</span>
+                                    </template>
+                                {% endcall %}
+                                {% call td() %}
+                                    <template x-if="source.spf_fix_hint">
+                                        <div x-data="{ open: false }" class="relative">
+                                            <button
+                                                @click="open = !open"
+                                                class="btn btn-xs btn-warning"
+                                                title="Show SPF fix suggestion"
+                                            >
+                                                Fix SPF
+                                            </button>
+                                            <div
+                                                x-show="open"
+                                                @click.outside="open = false"
+                                                class="absolute right-0 z-20 mt-1 w-72 bg-base-100 border border-base-300 rounded-lg shadow-lg p-3 text-sm"
+                                            >
+                                                <p class="font-semibold mb-1">SPF Fix Suggestion</p>
+                                                <p class="text-xs text-muted-foreground mb-2">
+                                                    Add the following mechanism to your SPF TXT record to authorise this server:
+                                                </p>
+                                                <div class="flex items-center gap-2 bg-base-200 rounded px-2 py-1">
+                                                    <code class="flex-1 font-mono text-xs" x-text="source.spf_fix_hint"></code>
+                                                    <button
+                                                        @click="navigator.clipboard.writeText(source.spf_fix_hint)"
+                                                        class="btn btn-xs btn-ghost"
+                                                        title="Copy to clipboard"
+                                                    >
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                                                    </button>
+                                                </div>
+                                                <p class="text-xs text-muted-foreground mt-2">
+                                                    Example: <code class="font-mono" x-text="'v=spf1 ' + source.spf_fix_hint + ' ~all'"></code>
+                                                </p>
+                                            </div>
+                                        </div>
                                     </template>
                                 {% endcall %}
                             {% endcall %}
