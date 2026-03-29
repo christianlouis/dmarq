@@ -299,24 +299,21 @@ def create_app() -> FastAPI:
         if settings.ADMIN_API_KEY:
             api_key = settings.ADMIN_API_KEY
             add_api_key(api_key)
-            key_suffix = api_key[-8:] if len(api_key) >= 8 else api_key
             logger.info(
                 "Admin API key loaded from ADMIN_API_KEY environment variable "
-                "(ends with: ...%s).",
-                key_suffix,  # lgtm[py/clear-text-logging-sensitive-data]
+                "(length: %d chars).",
+                len(api_key),
             )
         else:
             api_key = generate_api_key()
             add_api_key(api_key)
-            # Security: Log only last 8 characters for reference
             logger.warning(
                 "%s\nIMPORTANT: Admin API Key Generated\n"
-                "API Key (last 8 chars): ...%s\n"
-                "Full key stored securely in memory.\n"
+                "Key length: %d chars. Full key stored securely in memory.\n"
                 "Set ADMIN_API_KEY in your environment to use a fixed key across restarts.\n"
                 "Use this key in the X-API-Key header for admin endpoints.\n%s",
                 "=" * 80,
-                api_key[-8:],  # lgtm[py/clear-text-logging-sensitive-data]
+                len(api_key),
                 "=" * 80,
             )
 
