@@ -2,6 +2,7 @@
 Tests for MailSource model and mail-sources API endpoints.
 """
 
+import asyncio
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -492,6 +493,32 @@ class TestSourceToResponse:
 
         response = _source_to_response(source)
         assert response.password is None
+
+
+# ---------------------------------------------------------------------------
+# HTML page route – mail_sources_page
+# ---------------------------------------------------------------------------
+
+
+def test_mail_sources_page_template_response():
+    """Verify mail_sources_page uses the new-style TemplateResponse(request, name) API.
+
+    Regression test for the 500 error caused by the old-style
+    ``TemplateResponse("mail_sources.html", {"request": request})`` call, which
+    passed a dict as the template name and triggered
+    ``TypeError: unhashable type: 'dict'`` in Jinja2's LRU cache.
+    """
+    from app.main import mail_sources_page  # module-level route function
+
+    mock_request = MagicMock()
+    with patch("app.main.templates") as mock_templates:
+        mock_response = MagicMock()
+        mock_templates.TemplateResponse.return_value = mock_response
+
+        result = asyncio.run(mail_sources_page(mock_request))
+
+    mock_templates.TemplateResponse.assert_called_once_with(mock_request, "mail_sources.html")
+    assert result is mock_response
 
 
 # ---------------------------------------------------------------------------
