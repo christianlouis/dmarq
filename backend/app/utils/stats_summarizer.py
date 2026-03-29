@@ -2,7 +2,13 @@ import json
 import logging
 import os
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy import case, func
+from sqlalchemy.orm import Session
+
+from app.models.domain import Domain
+from app.models.report import DMARCReport, ReportRecord
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -130,7 +136,9 @@ class StatsSummarizer:
         safe_domain = domain_id.replace(".", "_").replace("/", "_")
         return os.path.join(self.cache_dir, f"domain_{safe_domain}.json")
 
-    def calculate_summary_statistics(self, _db, domain_id: Optional[str] = None) -> Dict[str, Any]:
+    def calculate_summary_statistics(
+        self, db: Session, domain_id: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
         Calculate summary statistics from the database
 
@@ -141,68 +149,216 @@ class StatsSummarizer:
         Returns:
             Dictionary with summary statistics
         """
-        # In a real implementation, this would query the database
-        # using SQLAlchemy models and calculate statistics
-        # For now, we'll return mock statistics
-
         # First check if we have cached stats
         cached_stats = self.get_cached_summary(domain_id)
         if cached_stats:
             return cached_stats
 
-        # If no cached stats, calculate from database
-        # In a real implementation, this would be done with SQL queries
-        # optimized for performance with large datasets
-
-        # For now, mock statistics
         if domain_id is None:
-            # Global statistics
-            stats = {
-                "total_domains": 5,
-                "total_emails": 1250,
-                "compliant_emails": 1100,
-                "compliance_rate": 88.0,
-                "reports_processed": 25,
-                "top_sources": [
-                    {"ip": "192.168.1.1", "count": 150},
-                    {"ip": "10.0.0.1", "count": 120},
-                    {"ip": "172.16.0.1", "count": 100},
-                ],
-                "compliance_trend": [
-                    {"date": "2025-04-13", "rate": 85.5},
-                    {"date": "2025-04-14", "rate": 86.2},
-                    {"date": "2025-04-15", "rate": 86.8},
-                    {"date": "2025-04-16", "rate": 87.3},
-                    {"date": "2025-04-17", "rate": 87.9},
-                    {"date": "2025-04-18", "rate": 88.4},
-                    {"date": "2025-04-19", "rate": 88.0},
-                ],
-            }
+            stats = self._calculate_global_statistics(db)
         else:
-            # Domain-specific statistics
-            stats = {
-                "domain": domain_id,
-                "total_emails": 250,
-                "compliant_emails": 220,
-                "compliance_rate": 88.0,
-                "reports_processed": 5,
-                "sources": [
-                    {"ip": "192.168.1.1", "count": 100, "spf": "pass", "dkim": "pass"},
-                    {"ip": "10.0.0.1", "count": 80, "spf": "pass", "dkim": "fail"},
-                    {"ip": "172.16.0.1", "count": 70, "spf": "fail", "dkim": "pass"},
-                ],
-                "compliance_trend": [
-                    {"date": "2025-04-13", "rate": 85.0},
-                    {"date": "2025-04-14", "rate": 86.0},
-                    {"date": "2025-04-15", "rate": 87.0},
-                    {"date": "2025-04-16", "rate": 87.5},
-                    {"date": "2025-04-17", "rate": 88.0},
-                    {"date": "2025-04-18", "rate": 88.5},
-                    {"date": "2025-04-19", "rate": 88.0},
-                ],
-            }
+            stats = self._calculate_domain_statistics(db, domain_id)
 
         # Cache the statistics
         self.save_summary(stats, domain_id)
 
         return stats
+
+    def _calculate_global_statistics(self, db: Session) -> Dict[str, Any]:
+        """Calculate global statistics across all domains from the database."""
+        # Count total domains
+        total_domains = db.query(func.count(Domain.id)).scalar() or 0
+
+        # Aggregate email counts from report records
+        totals = db.query(
+            func.coalesce(func.sum(ReportRecord.count), 0).label("total_emails"),
+        ).first()
+        total_emails = int(totals.total_emails) if totals else 0
+
+        # Count compliant emails (DKIM pass OR SPF pass)
+        compliant_emails = (
+            db.query(func.coalesce(func.sum(ReportRecord.count), 0))
+            .filter((ReportRecord.dkim == "pass") | (ReportRecord.spf == "pass"))
+            .scalar()
+        )
+        compliant_emails = int(compliant_emails) if compliant_emails else 0
+
+        # Count reports processed
+        reports_processed = db.query(func.count(DMARCReport.id)).scalar() or 0
+
+        # Compliance rate
+        compliance_rate = 0.0
+        if total_emails > 0:
+            compliance_rate = round((compliant_emails / total_emails) * 100, 1)
+
+        # Top sending sources by volume
+        top_sources = self._get_top_sources(db)
+
+        # Compliance trend over recent days
+        compliance_trend = self._get_compliance_trend(db)
+
+        return {
+            "total_domains": total_domains,
+            "total_emails": total_emails,
+            "compliant_emails": compliant_emails,
+            "compliance_rate": compliance_rate,
+            "reports_processed": reports_processed,
+            "top_sources": top_sources,
+            "compliance_trend": compliance_trend,
+        }
+
+    def _calculate_domain_statistics(self, db: Session, domain_id: str) -> Dict[str, Any]:
+        """Calculate statistics for a specific domain from the database."""
+        # Look up the domain by name
+        domain = db.query(Domain).filter(Domain.name == domain_id).first()
+        if not domain:
+            return {
+                "domain": domain_id,
+                "total_emails": 0,
+                "compliant_emails": 0,
+                "compliance_rate": 0.0,
+                "reports_processed": 0,
+                "sources": [],
+                "compliance_trend": [],
+            }
+
+        # Aggregate email counts for this domain
+        total_emails = (
+            db.query(func.coalesce(func.sum(ReportRecord.count), 0))
+            .join(DMARCReport, ReportRecord.report_id == DMARCReport.id)
+            .filter(DMARCReport.domain_id == domain.id)
+            .scalar()
+        )
+        total_emails = int(total_emails) if total_emails else 0
+
+        # Count compliant emails for this domain
+        compliant_emails = (
+            db.query(func.coalesce(func.sum(ReportRecord.count), 0))
+            .join(DMARCReport, ReportRecord.report_id == DMARCReport.id)
+            .filter(DMARCReport.domain_id == domain.id)
+            .filter((ReportRecord.dkim == "pass") | (ReportRecord.spf == "pass"))
+            .scalar()
+        )
+        compliant_emails = int(compliant_emails) if compliant_emails else 0
+
+        # Count reports for this domain
+        reports_processed = (
+            db.query(func.count(DMARCReport.id)).filter(DMARCReport.domain_id == domain.id).scalar()
+        ) or 0
+
+        # Compliance rate
+        compliance_rate = 0.0
+        if total_emails > 0:
+            compliance_rate = round((compliant_emails / total_emails) * 100, 1)
+
+        # Top sources for this domain
+        sources = self._get_domain_sources(db, domain.id)
+
+        # Compliance trend for this domain
+        compliance_trend = self._get_compliance_trend(db, domain.id)
+
+        return {
+            "domain": domain_id,
+            "total_emails": total_emails,
+            "compliant_emails": compliant_emails,
+            "compliance_rate": compliance_rate,
+            "reports_processed": reports_processed,
+            "sources": sources,
+            "compliance_trend": compliance_trend,
+        }
+
+    def _get_top_sources(self, db: Session, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get top sending sources by email volume across all domains."""
+        results = (
+            db.query(
+                ReportRecord.source_ip,
+                func.sum(ReportRecord.count).label("total_count"),
+            )
+            .group_by(ReportRecord.source_ip)
+            .order_by(func.sum(ReportRecord.count).desc())
+            .limit(limit)
+            .all()
+        )
+
+        return [{"ip": row.source_ip, "count": int(row.total_count)} for row in results]
+
+    def _get_domain_sources(
+        self, db: Session, domain_db_id: int, limit: int = 10
+    ) -> List[Dict[str, Any]]:
+        """Get top sending sources for a specific domain."""
+        results = (
+            db.query(
+                ReportRecord.source_ip,
+                func.sum(ReportRecord.count).label("total_count"),
+                ReportRecord.spf,
+                ReportRecord.dkim,
+            )
+            .join(DMARCReport, ReportRecord.report_id == DMARCReport.id)
+            .filter(DMARCReport.domain_id == domain_db_id)
+            .group_by(ReportRecord.source_ip, ReportRecord.spf, ReportRecord.dkim)
+            .order_by(func.sum(ReportRecord.count).desc())
+            .limit(limit)
+            .all()
+        )
+
+        return [
+            {
+                "ip": row.source_ip,
+                "count": int(row.total_count),
+                "spf": row.spf or "unknown",
+                "dkim": row.dkim or "unknown",
+            }
+            for row in results
+        ]
+
+    def _get_compliance_trend(
+        self, db: Session, domain_db_id: Optional[int] = None, days: int = 30
+    ) -> List[Dict[str, Any]]:
+        """
+        Calculate compliance trend over recent days from report data.
+
+        Groups reports by their date range and calculates daily compliance rates.
+        """
+        cutoff = datetime.now() - timedelta(days=days)
+        cutoff_ts = int(cutoff.timestamp())
+
+        # Build the base query for records within the time window
+        query = (
+            db.query(
+                DMARCReport.begin_date,
+                func.sum(ReportRecord.count).label("total"),
+                func.sum(
+                    case(
+                        (
+                            (ReportRecord.dkim == "pass") | (ReportRecord.spf == "pass"),
+                            ReportRecord.count,
+                        ),
+                        else_=0,
+                    )
+                ).label("passed"),
+            )
+            .join(ReportRecord, ReportRecord.report_id == DMARCReport.id)
+            .filter(DMARCReport.begin_date >= cutoff_ts)
+        )
+
+        if domain_db_id is not None:
+            query = query.filter(DMARCReport.domain_id == domain_db_id)
+
+        results = query.group_by(DMARCReport.begin_date).order_by(DMARCReport.begin_date).all()
+
+        # Convert timestamps to dates and aggregate per day
+        daily: Dict[str, Dict[str, int]] = {}
+        for row in results:
+            date_str = datetime.fromtimestamp(row.begin_date).strftime("%Y-%m-%d")
+            if date_str not in daily:
+                daily[date_str] = {"total": 0, "passed": 0}
+            daily[date_str]["total"] += int(row.total)
+            daily[date_str]["passed"] += int(row.passed)
+
+        trend = []
+        for date_str in sorted(daily.keys()):
+            data = daily[date_str]
+            rate = round((data["passed"] / data["total"]) * 100, 1) if data["total"] > 0 else 0.0
+            trend.append({"date": date_str, "rate": rate})
+
+        return trend

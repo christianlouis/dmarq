@@ -94,15 +94,15 @@ have no working implementation in the codebase yet.
 
 ### Dashboard Visualizations (Real Data)
 - **Documented in**: README.md ("Track pass/fail rates over time", "Volume & Trends")
-- **Current state**: The stats endpoints (`backend/app/utils/stats_summarizer.py`,
-  `backend/app/api/api_v1/endpoints/domains.py`) return mock/random data with TODO
-  comments like `# For now, mock statistics` and `# TODO: Replace with actual
-  historical data`. Chart.js is integrated in templates but fed with mock data.
-- [ ] Historical trend charts with real data
-- [ ] Compliance rate visualizations from actual reports
-- [ ] Volume and sender analytics based on stored data
-- [ ] Time-series data from database
-- [ ] Domain comparison views
+- **Current state**: Stats endpoints (`backend/app/utils/stats_summarizer.py`,
+  `backend/app/api/api_v1/endpoints/domains.py`) now query real data from the
+  database and in-memory ReportStore. Chart.js visualizations display actual
+  compliance trends derived from uploaded DMARC reports.
+- [x] Historical trend charts with real data
+- [x] Compliance rate visualizations from actual reports
+- [x] Volume and sender analytics based on stored data
+- [x] Time-series data from database
+- [x] Domain comparison views
 
 ### Advanced Rule Engine
 - **Documented in**: docs/development/roadmap.md (Milestone 7)
@@ -158,7 +158,7 @@ have no working implementation in the codebase yet.
 - [ ] Remove unused `apprise` from `requirements.txt` or implement alerts
 - [ ] Remove unused `dnspython` from `requirements.txt` or implement DNS checks
 - [ ] Remove or wire up `fastapi-users` (currently installed but unused)
-- [ ] Replace mock data in stats endpoints with real database queries
+- [x] Replace mock data in stats endpoints with real database queries
 - [ ] Replace mock DNS data with actual DNS lookups
 - [ ] Add CI/CD pipeline
 - [ ] Reach >80% test coverage
