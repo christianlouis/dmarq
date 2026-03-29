@@ -99,25 +99,25 @@
 function domainsApp() {
     return {
         domains: [],
-        
+
         init() {
             // Fetch domains from server
             this.fetchDomains();
         },
-        
+
         async fetchDomains() {
             try {
                 const response = await fetch('/api/v1/domains/summary');
                 if (response.ok) {
                     const data = await response.json();
-                    
-                    // Format domains for display
+
+                    // Map API fields — DNS status comes directly from live lookups
                     this.domains = data.domains.map(domain => ({
                         name: domain.domain_name,
-                        dmarc_status: true, // In Milestone 1, assume DMARC is configured if we have reports
-                        dmarc_policy: domain.policy || 'p=none',
-                        spf_status: true, // In future milestones, this will come from DNS checks
-                        dkim_status: true, // In future milestones, this will come from DNS checks
+                        dmarc_status: domain.dmarc_status ?? false,
+                        dmarc_policy: domain.dmarc_policy || 'Not configured',
+                        spf_status: domain.spf_status ?? false,
+                        dkim_status: domain.dkim_status ?? false,
                         reports_count: domain.report_count,
                         emails_count: domain.total_emails,
                         compliance_rate: domain.pass_rate

@@ -152,13 +152,55 @@
                         </h3>
                         <div class="bg-muted p-2 rounded text-sm overflow-x-auto font-mono" x-text="dns.spfRecord || 'No SPF record found'">-</div>
                     </div>
+                    <!-- DKIM Selectors — live check result -->
                     <div>
                         <h3 class="font-semibold mb-1 flex items-center">
-                            <span class="mr-2">DKIM Selectors</span>
-                            <span x-show="dns.dkim && dns.dkim.length > 0" class="inline-flex h-2 w-2 rounded-full bg-green-500"></span>
-                            <span x-show="!dns.dkim || dns.dkim.length === 0" class="inline-flex h-2 w-2 rounded-full bg-red-500"></span>
+                            <span class="mr-2">DKIM (live check)</span>
+                            <span x-show="dns.dkim" class="inline-flex h-2 w-2 rounded-full bg-green-500"></span>
+                            <span x-show="!dns.dkim" class="inline-flex h-2 w-2 rounded-full bg-red-500"></span>
                         </h3>
-                        <div class="bg-muted p-2 rounded text-sm overflow-x-auto font-mono" x-text="dns.dkimSelectors || 'No DKIM selectors configured'">-</div>
+                        <div class="bg-muted p-2 rounded text-sm overflow-x-auto font-mono"
+                             x-text="dns.dkim ? (dns.dkimSelectors ? 'selector: ' + dns.dkimSelectors : 'Verified') : 'No DKIM record found for configured selectors'">-</div>
+                    </div>
+                    <!-- DKIM Selector Management -->
+                    <div class="border rounded-lg p-4">
+                        <h3 class="font-semibold mb-3">DKIM Selectors</h3>
+                        <p class="text-sm text-muted-foreground mb-3">
+                            Manually configure selectors to check. Selectors seen in received DMARC
+                            reports and common well-known selectors are checked automatically.
+                        </p>
+                        <!-- Existing selectors list -->
+                        <div class="mb-3">
+                            <template x-if="selectors.length === 0">
+                                <p class="text-sm text-muted-foreground italic">No manually configured selectors yet.</p>
+                            </template>
+                            <template x-for="sel in selectors" :key="sel">
+                                <div class="flex items-center justify-between py-1 px-2 rounded bg-muted mb-1">
+                                    <span class="font-mono text-sm" x-text="sel"></span>
+                                    <button
+                                        @click="deleteSelector(sel)"
+                                        class="text-red-500 hover:text-red-700 text-xs ml-4"
+                                        title="Remove selector"
+                                    >✕</button>
+                                </div>
+                            </template>
+                        </div>
+                        <!-- Add selector form -->
+                        <div class="flex items-center gap-2">
+                            <input
+                                x-model="newSelector"
+                                @keydown.enter.prevent="addSelector()"
+                                type="text"
+                                placeholder="e.g. google, selector1, mail"
+                                class="input input-sm input-bordered flex-1 font-mono"
+                            />
+                            <button
+                                @click="addSelector()"
+                                :disabled="!newSelector.trim()"
+                                class="btn btn-sm btn-primary"
+                            >Add</button>
+                        </div>
+                        <p x-show="selectorError" x-text="selectorError" class="text-red-500 text-xs mt-1"></p>
                     </div>
                 </div>
             {% endcall %}
@@ -347,6 +389,9 @@ function domainDetailsApp(domainId) {
             dkim: false,
             dkimSelectors: ''
         },
+        selectors: [],
+        newSelector: '',
+        selectorError: '',
         reports: [],
         sources: [],
         complianceChart: null,
@@ -354,27 +399,28 @@ function domainDetailsApp(domainId) {
             dateRange: '30',
             sourceFilter: ''
         },
-        
+
         init() {
             this.fetchDomainStats();
             this.fetchDNSRecords();
+            this.fetchSelectors();
             this.fetchReports();
             this.fetchSources();
-            
+
             this.$watch('filters.dateRange', () => {
                 this.fetchSources();
             });
         },
-        
+
         get filteredSources() {
             if (!this.sources) return [];
-            
+
             return this.sources.filter(source => {
                 if (!this.filters.sourceFilter) return true;
                 return source.ip.toLowerCase().includes(this.filters.sourceFilter.toLowerCase());
             });
         },
-        
+
         async fetchDomainStats() {
             try {
                 const response = await fetch(`/api/v1/domains/${this.domainId}/stats`);
@@ -386,7 +432,7 @@ function domainDetailsApp(domainId) {
                 console.error('Error fetching domain stats:', error);
             }
         },
-        
+
         async fetchDNSRecords() {
             try {
                 const response = await fetch(`/api/v1/domains/${this.domainId}/dns`);
@@ -398,7 +444,64 @@ function domainDetailsApp(domainId) {
                 console.error('Error fetching DNS records:', error);
             }
         },
-        
+
+        async fetchSelectors() {
+            try {
+                const response = await fetch(`/api/v1/domains/${this.domainId}/selectors`);
+                if (response.ok) {
+                    const data = await response.json();
+                    this.selectors = data.selectors || [];
+                }
+            } catch (error) {
+                console.error('Error fetching selectors:', error);
+            }
+        },
+
+        async addSelector() {
+            this.selectorError = '';
+            const sel = this.newSelector.trim();
+            if (!sel) return;
+            try {
+                const response = await fetch(`/api/v1/domains/${this.domainId}/selectors`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ selector: sel })
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    this.selectors = data.selectors || [];
+                    this.newSelector = '';
+                    // Refresh DNS check to reflect the new selector
+                    this.fetchDNSRecords();
+                } else {
+                    const err = await response.json();
+                    this.selectorError = err.detail || 'Failed to add selector';
+                }
+            } catch (error) {
+                this.selectorError = 'Network error — could not add selector';
+                console.error('Error adding selector:', error);
+            }
+        },
+
+        async deleteSelector(selector) {
+            try {
+                const response = await fetch(
+                    `/api/v1/domains/${this.domainId}/selectors/${encodeURIComponent(selector)}`,
+                    { method: 'DELETE' }
+                );
+                if (response.ok) {
+                    const data = await response.json();
+                    this.selectors = data.selectors || [];
+                    // Refresh DNS check after removing a selector
+                    this.fetchDNSRecords();
+                } else {
+                    console.error('Error deleting selector:', response.status);
+                }
+            } catch (error) {
+                console.error('Error deleting selector:', error);
+            }
+        },
+
         async fetchReports() {
             try {
                 const response = await fetch(`/api/v1/domains/${this.domainId}/reports?limit=10`);
