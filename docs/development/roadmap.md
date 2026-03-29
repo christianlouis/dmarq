@@ -1,201 +1,418 @@
-# Roadmap
+# DMARQ Security-Enhanced Roadmap
 
-This document outlines the planned development roadmap for DMARQ, including upcoming features, improvements, and long-term goals.
+## Document Purpose
 
-## Current Version: 1.0.0 (April 2025)
+This roadmap outlines the development plan for DMARQ with an enhanced focus on security, code quality, and preparation for agentic coding (AI-assisted development). This document supersedes previous roadmap versions with security milestones integrated throughout.
 
-The initial release of DMARQ includes:
+**Last Updated**: 2026-02-06  
+**Status**: Active Development
 
-- Basic DMARC report processing and analysis
-- Domain management
-- User authentication
-- Dashboard with key metrics
-- IMAP integration for automatic report collection
-- Simple alerting system
-- Docker deployment option
+---
 
-## Short-Term Goals (Q2-Q3 2025)
+## Current Status (Milestone 1 - COMPLETE ✅)
 
-### Version 1.1.0 (June 2025)
+### Achievements
+- ✅ Basic DMARC report parsing (XML, ZIP, GZIP)
+- ✅ In-memory storage for up to 5 domains
+- ✅ Simple dashboard UI
+- ✅ Report upload functionality
+- ✅ Domain overview with compliance stats
 
-- **Advanced Report Filtering**
-  - Filter reports by IP address
-  - Filter by authentication result
-  - Custom date range selection
-  - Save custom filters
+### Security Status
+⚠️ **Multiple critical security issues identified** - See [SECURITY.md](../../SECURITY.md) for details
 
-- **Improved Visualizations**
-  - Interactive charts with drill-down capability
-  - Geographic IP distribution map
-  - Timeline view of authentication changes
+---
 
-- **Enhanced DNS Health Checks**
-  - Automated SPF, DKIM, DMARC syntax validation
-  - Record monitoring with change detection
-  - Best practice recommendations
+## Security Remediation Sprint (PRIORITY - In Progress)
 
-- **API Enhancements**
-  - Additional endpoints for statistics
-  - Improved authentication options
-  - Better documentation and examples
+**Timeline**: Immediate (Next 2-4 weeks)  
+**Status**: 🔄 In Progress
 
-### Version 1.2.0 (August 2025)
+### Critical Fixes Required
 
-- **User Management Improvements**
-  - Role-based access control
-  - Domain-specific permissions
-  - User invitation system
-  - Activity audit logging
+#### 1. Authentication & Authorization (CRITICAL)
+- [ ] Add authentication middleware to all admin endpoints
+- [ ] Implement proper user authentication system
+- [ ] Add authorization checks on sensitive operations
+- [ ] Add rate limiting to prevent abuse
+- **Files to Fix**:
+  - `backend/app/main.py` (lines 195-196, 224-225)
+  - `backend/app/api/api_v1/endpoints/imap.py`
+  - `backend/app/api/api_v1/endpoints/domains.py`
 
-- **Multi-tenant Support**
-  - Organization-level grouping of domains
-  - Isolated views for different user groups
-  - White-labeling options
+#### 2. Secret Management (CRITICAL)
+- [ ] Remove default SECRET_KEY value
+- [ ] Add SECRET_KEY validation on startup
+- [ ] Document secret generation in deployment guide
+- [ ] Add warning if default secret is detected
+- **Files to Fix**:
+  - `backend/app/core/config.py` (line 24)
+  - Documentation updates
 
-- **Enhanced IMAP Integration**
-  - Support for multiple mailboxes
-  - Advanced filtering options
-  - Attachment preprocessing rules
+#### 3. XML Parsing Security (HIGH)
+- [ ] Replace ElementTree with defusedxml
+- [ ] Add file size limits for uploads
+- [ ] Implement zip bomb protection
+- [ ] Add malware scanning hooks (optional)
+- **Files to Fix**:
+  - `backend/app/services/dmarc_parser.py`
 
-- **Forensic Report Analysis**
-  - Improved parsing for various report formats
-  - Header analysis tools
-  - Correlation with aggregate reports
+#### 4. Input Validation (HIGH)
+- [ ] Add domain name validation regex
+- [ ] Implement file type validation (MIME + extension)
+- [ ] Add parameter validation on all endpoints
+- [ ] Sanitize error messages
+- **Files to Fix**:
+  - `backend/app/api/api_v1/endpoints/domains.py`
+  - `backend/app/api/api_v1/endpoints/reports.py`
+  - `backend/app/utils/domain_validator.py`
 
-## Mid-Term Goals (Q4 2025 - Q1 2026)
+#### 5. Security Headers (MEDIUM)
+- [ ] Add security headers middleware
+- [ ] Implement CSP (Content Security Policy)
+- [ ] Add X-Frame-Options, X-Content-Type-Options
+- [ ] Configure HSTS for production
+- **Files to Create/Modify**:
+  - `backend/app/middleware/security.py` (new)
+  - `backend/app/main.py`
 
-### Version 1.3.0 (November 2025)
+#### 6. CORS Configuration (MEDIUM)
+- [ ] Restrict CORS methods and headers
+- [ ] Remove wildcard configurations
+- [ ] Document CORS setup for deployments
+- **Files to Fix**:
+  - `backend/app/main.py` (lines 75-82)
 
-- **Integration Ecosystem**
-  - Slack/Teams notifications
-  - WebHook support for custom integrations
-  - Export to BI tools
-  - SIEM integration
+#### 7. Error Handling (MEDIUM)
+- [ ] Implement centralized error handling
+- [ ] Remove sensitive data from error responses
+- [ ] Add error logging with request context
+- [ ] Create user-friendly error messages
+- **Files to Fix**:
+  - Multiple endpoints across API layer
 
-- **Advanced Alerting System**
-  - Custom alert rules
-  - Alert severity levels
-  - Alert acknowledgment workflow
-  - Historical alert tracking
+### Testing & Validation
+- [ ] Add security-focused unit tests
+- [ ] Implement integration tests for auth flow
+- [ ] Add penetration testing checklist
+- [ ] Document security testing procedures
 
-- **DNS Management**
-  - Integration with Cloudflare API
-  - Integration with AWS Route 53
-  - One-click fix for common DNS issues
-  - DNS record deployment tracking
+### Documentation
+- [x] Create SECURITY.md
+- [ ] Update deployment guides with security best practices
+- [ ] Create security checklist for contributors
+- [ ] Add security section to API documentation
 
-- **Report Anomaly Detection**
-  - Machine learning-based anomaly detection
-  - Unusual sending pattern identification
-  - Automatic threat scoring
+---
 
-### Version 2.0.0 (February 2026)
+## Milestone 2: IMAP Integration (COMPLETE ✅ - Security Review Needed)
 
-- **Comprehensive Email Authentication Suite**
-  - SPF record management and monitoring
-  - DKIM key rotation management
-  - BIMI record support
-  - MTA-STS implementation assistance
+### Current Features
+- ✅ IMAP connection and mailbox scanning
+- ✅ Automated report fetching
+- ✅ Background task scheduler
+- ✅ Configuration UI
 
-- **Policy Management**
-  - DMARC policy transition recommendations
-  - Automated policy progression
-  - Impact analysis before policy changes
-  - Rollback capabilities
+### Security Enhancements Needed
+- [ ] **URGENT**: Remove credentials from URL parameters
+- [ ] Encrypt IMAP credentials at rest
+- [ ] Add connection timeout and retry logic
+- [ ] Implement secure credential storage (vault integration)
+- [ ] Add audit logging for IMAP operations
 
-- **Reporting Enhancements**
-  - Scheduled PDF/CSV exports
-  - Custom report templates
-  - Executive summary generation
-  - Trend analysis with predictive insights
+---
 
-- **Multi-Channel Notifications**
-  - Email notifications
-  - SMS alerts
-  - Mobile app push notifications
-  - Custom notification channels
+## Milestone 3: Database Integration & Persistence (COMPLETE ✅)
 
-## Long-Term Goals (Mid 2026+)
+### Current Features
+- ✅ SQLAlchemy ORM setup
+- ✅ SQLite/PostgreSQL support
+- ✅ Database migrations with Alembic
+- ✅ Persistent storage
 
-### Version 2.x and Beyond
+### Security Enhancements Needed
+- [ ] Add database encryption at rest
+- [ ] Implement query audit logging
+- [ ] Add prepared statement validation
+- [ ] Review and secure database credentials
+- [ ] Add database backup encryption
 
-- **Advanced Threat Intelligence**
-  - Integration with email security platforms
-  - Shared threat database
-  - Sender reputation scoring
-  - Proactive security recommendations
+---
 
-- **Enterprise Features**
-  - LDAP/Active Directory integration
-  - SAML/SSO support
-  - Advanced audit logging
-  - Custom branding
+## Milestone 4: Enhanced Dashboard & Visualization (Next - 4-6 weeks)
 
-- **Internationalization**
-  - Multi-language interface
-  - Region-specific reporting
-  - International domain support (IDN)
-  - Localized documentation
+### Planned Features
+- [ ] Historical trend charts (Chart.js integration)
+- [ ] Compliance rate visualizations
+- [ ] Volume and sender analytics
+- [ ] Time-series data displays
+- [ ] Domain comparison views
 
-- **AI-Powered Analysis**
-  - Natural language querying of report data
-  - Automated root cause analysis
-  - Predictive compliance modeling
-  - AI-assisted remediation recommendations
+### Security Considerations
+- [ ] XSS prevention in chart data
+- [ ] CSP compatibility with Chart.js
+- [ ] Rate limiting on analytics endpoints
+- [ ] Data access controls for multi-user scenarios
 
-- **Ecosystem Expansion**
-  - Mobile companion app
-  - Browser plugins
-  - Desktop notifications
-  - Command-line tools
+### Implementation
+- **Priority**: Medium
+- **Dependencies**: Security Sprint completion
+- **Estimated Effort**: 2-3 weeks
 
-## Feature Requests and Prioritization
+---
 
-We prioritize features based on:
+## Milestone 5: User Authentication & Multi-User Support (8-10 weeks)
 
-1. **User Impact**: How many users will benefit?
-2. **Security Enhancement**: Does it improve email security?
-3. **Ease of Implementation**: Can we deliver it quickly?
-4. **Strategic Alignment**: Does it align with our vision?
+### Planned Features
+- [ ] FastAPI Users integration
+- [ ] User registration and management
+- [ ] JWT-based authentication
+- [ ] Role-based access control (RBAC)
+- [ ] Password reset functionality
+- [ ] Email verification (optional)
 
-To suggest features:
+### Security Features
+- [ ] Strong password policy enforcement
+- [ ] Multi-factor authentication (MFA)
+- [ ] Session management
+- [ ] Account lockout on failed attempts
+- [ ] Security event logging
+- [ ] GDPR compliance features
 
-- Open an issue on our [GitHub repository](https://github.com/yourusername/dmarq)
-- Provide details about the feature and why it's valuable
-- Include use cases and examples when possible
+### Implementation Priority
+- **Priority**: High
+- **Security Impact**: Critical
+- **Dependencies**: Security Sprint, Milestone 4
 
-## Contribution Opportunities
+---
 
-We welcome contributions in these areas:
+## Milestone 6: Alerting & Notifications (10-12 weeks)
 
-- **Integrations**: Help build integrations with other services
-- **Documentation**: Improve guides, examples, and references
-- **UI/UX**: Enhance the user interface and experience
-- **Testing**: Add tests and improve test coverage
-- **Performance**: Optimize database queries and processing
+### Planned Features
+- [ ] Apprise integration
+- [ ] Customizable alert rules
+- [ ] Multi-channel notifications (Email, Slack, etc.)
+- [ ] Alert history and management
+- [ ] Notification preferences per user
 
-See our [Contributing Guide](contributing.md) for details on how to contribute.
+### Security Features
+- [ ] Secure webhook handling
+- [ ] Alert rate limiting
+- [ ] PII filtering in notifications
+- [ ] Encrypted notification credentials
+- [ ] Audit trail for alert configuration
 
-## Release Schedule
+---
 
-- **Major Releases**: 2 per year (February and August)
-- **Minor Releases**: Quarterly (February, May, August, November)
-- **Patch Releases**: As needed for bug fixes and security updates
+## Milestone 7: Advanced Rule Engine (14-16 weeks)
 
-## Deprecation Policy
+### Planned Features
+- [ ] Custom alert conditions
+- [ ] Threshold-based triggers
+- [ ] New sender detection
+- [ ] Anomaly detection
+- [ ] Scheduled report summaries
 
-We maintain backward compatibility where possible, but sometimes need to deprecate features:
+### Security Features
+- [ ] Rule validation and sandboxing
+- [ ] Resource limits on rule execution
+- [ ] Audit logging for rule changes
+- [ ] Protection against rule abuse
 
-1. **Announcement**: We announce deprecations at least 6 months in advance
-2. **Alternative**: We provide migration paths to alternative solutions
-3. **Support**: We continue supporting deprecated features during the transition period
-4. **Removal**: We remove features only in major version updates
+---
 
-## Feedback
+## Milestone 8: DNS Health & Cloudflare Integration (16-18 weeks)
 
-We value your feedback on our roadmap! Please share your thoughts:
+### Planned Features
+- [ ] DNS record health checks
+- [ ] SPF/DKIM/DMARC validation
+- [ ] Cloudflare API integration
+- [ ] Configuration recommendations
+- [ ] DNS change tracking
 
-- Through GitHub issues
-- In our community forums
-- During community calls
-- Via email to roadmap@example.com
+### Security Features
+- [ ] Secure API credential storage
+- [ ] DNS query rate limiting
+- [ ] DNSSEC validation
+- [ ] Audit logging for DNS operations
+- [ ] Read-only DNS access (no auto-changes initially)
+
+---
+
+## Milestone 9: Forensic Reports (RUF) Support (20-22 weeks)
+
+### Planned Features
+- [ ] Forensic report parsing
+- [ ] Failure sample analysis
+- [ ] PII redaction options
+- [ ] Detailed authentication failure views
+- [ ] Sample download/export
+
+### Security Features
+- [ ] PII detection and redaction
+- [ ] Access controls for sensitive data
+- [ ] Audit logging for forensic data access
+- [ ] Compliance with privacy regulations
+- [ ] Secure export with encryption
+
+---
+
+## Milestone 10: Advanced Analytics & Reporting (24-26 weeks)
+
+### Planned Features
+- [ ] Historical trend analysis
+- [ ] Comparative reporting
+- [ ] Export capabilities (PDF, CSV)
+- [ ] Scheduled reports
+- [ ] Custom dashboards
+
+### Security Features
+- [ ] Export sanitization
+- [ ] Watermarking for exported reports
+- [ ] Access logging for exports
+- [ ] Encrypted export files
+
+---
+
+## Milestone 11: Enterprise Features (28-30+ weeks)
+
+### Planned Features
+- [ ] Multi-tenant architecture
+- [ ] API rate limiting
+- [ ] Advanced RBAC
+- [ ] SSO integration (SAML, OAuth)
+- [ ] Compliance reporting (SOC 2, GDPR)
+- [ ] High availability setup
+- [ ] Backup and disaster recovery
+
+### Security Features
+- [ ] Tenant isolation
+- [ ] Advanced audit logging
+- [ ] Security event monitoring
+- [ ] Compliance automation
+- [ ] Regular security assessments
+
+---
+
+## Continuous Improvements (Ongoing)
+
+### Code Quality
+- [ ] Maintain >80% test coverage
+- [ ] Regular dependency updates
+- [ ] Code review for all changes
+- [ ] Performance optimization
+- [ ] Technical debt reduction
+
+### Security
+- [ ] Monthly security audits
+- [ ] Automated vulnerability scanning (GitHub Actions)
+- [ ] Dependency security monitoring
+- [ ] Regular penetration testing
+- [ ] Security training for contributors
+
+### Documentation
+- [ ] Keep documentation current
+- [ ] API documentation completeness
+- [ ] Security best practices guide
+- [ ] Deployment playbooks
+- [ ] Troubleshooting guides
+
+### Community
+- [ ] Issue triage and response
+- [ ] PR review and merging
+- [ ] Community engagement
+- [ ] Feature request evaluation
+- [ ] Bug fix prioritization
+
+---
+
+## Security Milestones Integration
+
+Each development milestone now includes security considerations:
+
+| Milestone | Security Priority | Key Security Features |
+|-----------|------------------|----------------------|
+| Security Sprint | 🔴 Critical | Fix all critical vulnerabilities |
+| Milestone 4 | 🟡 Medium | XSS prevention, CSP |
+| Milestone 5 | 🔴 Critical | Authentication, RBAC, MFA |
+| Milestone 6 | 🟠 High | Secure webhooks, PII filtering |
+| Milestone 7 | 🟠 High | Rule sandboxing, audit trails |
+| Milestone 8 | 🟠 High | API security, DNSSEC |
+| Milestone 9 | 🔴 Critical | PII redaction, compliance |
+| Milestone 10 | 🟡 Medium | Export security, watermarking |
+| Milestone 11 | 🔴 Critical | Enterprise security, SOC 2 |
+
+---
+
+## Success Criteria
+
+### Functional
+- All planned features implemented
+- Performance meets requirements
+- User experience is intuitive
+- Documentation is complete
+
+### Security
+- Zero critical vulnerabilities
+- All high-severity issues resolved
+- Security tests pass
+- Regular security audits pass
+- Compliance requirements met
+
+### Quality
+- >80% code coverage
+- All tests passing
+- No critical bugs
+- Performance benchmarks met
+- Code review approval
+
+---
+
+## Risk Management
+
+### Technical Risks
+- **Risk**: Complex security implementations
+  - **Mitigation**: Incremental approach, expert review
+- **Risk**: Performance degradation with security features
+  - **Mitigation**: Performance testing, optimization
+
+### Resource Risks
+- **Risk**: Limited security expertise
+  - **Mitigation**: External security audits, community review
+- **Risk**: Time constraints for security work
+  - **Mitigation**: Prioritize critical issues first
+
+### Operational Risks
+- **Risk**: Breaking changes with security fixes
+  - **Mitigation**: Thorough testing, clear documentation
+- **Risk**: User adoption of security features
+  - **Mitigation**: Clear communication, good UX
+
+---
+
+## Contributing to This Roadmap
+
+This roadmap is a living document. To contribute:
+
+1. Review current milestones and status
+2. Propose changes via GitHub Issues
+3. Discuss in community forums
+4. Submit PRs for roadmap updates
+5. Participate in planning discussions
+
+See [CONTRIBUTING.md](../../CONTRIBUTING.md) for detailed guidelines.
+
+---
+
+## References
+
+- [SECURITY.md](../../SECURITY.md) - Security policy and vulnerability reporting
+- [CONTRIBUTING.md](../../CONTRIBUTING.md) - Contribution guidelines
+- [Agentic Coding Guidelines](agents.md) - AI-assisted development guidelines
+- [Milestones](../milestones.md) - Detailed milestone specifications
+- [Todo](../todo.md) - Detailed task tracking
+
+---
+
+**Maintained by**: DMARQ Development Team  
+**Contact**: See [SECURITY.md](../../SECURITY.md) for contact information

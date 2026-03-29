@@ -5,10 +5,12 @@ All notable changes to DMARQ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-This changelog is automatically maintained by
-[python-semantic-release](https://python-semantic-release.readthedocs.io/).
-See the root [CHANGELOG.md](https://github.com/christianlouis/dmarq/blob/main/CHANGELOG.md)
-for the canonical version.
+## [Unreleased]
+
+### Changed
+- Reorganized repository: moved development docs (`AGENTS.md`, `ROADMAP.md`, `ISSUE_GENERATION_SUMMARY.md`, `generated_issues/`) into `docs/`
+- Added root-level `CHANGELOG.md` and `TODO.md`
+- Cleaned up root directory for clarity
 
 ## [0.3.0] - 2026-02-09
 

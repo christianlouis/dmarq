@@ -188,8 +188,8 @@ jq '.[] | select(.labels[] | contains("priority: high"))' issues.json
 
 ## 📞 Support
 
-- **Source**: Generated from [ROADMAP.md](../ROADMAP.md)
-- **Script**: [scripts/generate_issues.py](../scripts/generate_issues.py)
+- **Source**: Generated from [roadmap.md](../roadmap.md)
+- **Script**: [scripts/generate_issues.py](../../../scripts/generate_issues.py)
 - **Questions**: Open an issue in the DMARQ repository
 
 ## 🔒 Important Notes
