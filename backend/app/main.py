@@ -244,6 +244,13 @@ async def upload_page(request: Request):
     return templates.TemplateResponse("upload.html", {"request": request})
 
 
+@app.get("/health", status_code=200, tags=["health"])
+@app.get("/healthz", status_code=200, tags=["health"], include_in_schema=False)
+async def health():
+    """Root-level health check endpoint for Kubernetes liveness/readiness probes."""
+    return {"status": "ok", "service": "dmarq"}
+
+
 # API endpoint to manually trigger IMAP polling
 @app.post("/api/v1/admin/trigger-poll")
 async def trigger_imap_poll(auth: dict = Depends(require_admin_auth)):
