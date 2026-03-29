@@ -278,34 +278,30 @@ templates = Jinja2Templates(directory=templates_dir)
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request, "index.html")
 
 
 # Individual page routes
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request):
     return templates.TemplateResponse(
-        "dashboard.html", {"request": request, "app_name": settings.PROJECT_NAME}
+        request, "dashboard.html", {"app_name": settings.PROJECT_NAME}
     )
 
 
 @app.get("/login", response_class=HTMLResponse)
 async def login(request: Request):
-    return templates.TemplateResponse(
-        "login.html", {"request": request, "app_name": settings.PROJECT_NAME}
-    )
+    return templates.TemplateResponse(request, "login.html", {"app_name": settings.PROJECT_NAME})
 
 
 @app.get("/setup", response_class=HTMLResponse)
 async def setup(request: Request):
-    return templates.TemplateResponse(
-        "setup.html", {"request": request, "app_name": settings.PROJECT_NAME}
-    )
+    return templates.TemplateResponse(request, "setup.html", {"app_name": settings.PROJECT_NAME})
 
 
 @app.get("/domains", response_class=HTMLResponse)
 async def domains(request: Request):
-    return templates.TemplateResponse("domains.html", {"request": request})
+    return templates.TemplateResponse(request, "domains.html")
 
 
 @app.get("/domain/{domain_id}", response_class=HTMLResponse)
@@ -317,15 +313,15 @@ async def domain_details(request: Request, domain_id: str):
     if domain_id not in known_domains:
         # Domain not found, redirect to domains list
         return templates.TemplateResponse(
-            "domains.html", {"request": request, "error": f"Domain {domain_id} not found"}
+            request, "domains.html", {"error": f"Domain {domain_id} not found"}
         )
 
     domain_summary = store.get_domain_summary(domain_id)
 
     return templates.TemplateResponse(
+        request,
         "domain_details.html",
         {
-            "request": request,
             "domain_id": domain_id,
             "domain": {
                 "name": domain_id,
@@ -338,12 +334,12 @@ async def domain_details(request: Request, domain_id: str):
 
 @app.get("/reports", response_class=HTMLResponse)
 async def reports(request: Request):
-    return templates.TemplateResponse("reports.html", {"request": request})
+    return templates.TemplateResponse(request, "reports.html")
 
 
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request):
-    return templates.TemplateResponse("settings.html", {"request": request})
+    return templates.TemplateResponse(request, "settings.html")
 
 
 @app.get("/mail-sources", response_class=HTMLResponse)
@@ -353,7 +349,7 @@ async def mail_sources_page(request: Request):
 
 @app.get("/upload", response_class=HTMLResponse)
 async def upload_page(request: Request):
-    return templates.TemplateResponse("upload.html", {"request": request})
+    return templates.TemplateResponse(request, "upload.html")
 
 
 @app.get("/health", status_code=200, tags=["health"])
