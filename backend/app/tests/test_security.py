@@ -149,5 +149,5 @@ class TestXMLParsingSecurity:
             result = DMARCParser.parse_file(xxe_payload, "test.xml")
             org_name = result.get("org_name", "")
             assert "root:" not in org_name and "/bin" not in org_name
-        except (ValueError, Exception):
+        except Exception:
             pass  # Expected – defusedxml blocks DTD processing

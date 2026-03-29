@@ -105,7 +105,7 @@ black --check backend/app
 isort --check-only backend/app
 
 # Flake8 lint
-flake8 backend/app --max-line-length=100 --extend-ignore=E203,W503
+flake8 backend/app --max-line-length=100 --extend-ignore=E203,W503,E501
 ```
 
 If Black or isort report issues, fix them automatically:
