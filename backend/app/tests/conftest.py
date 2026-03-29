@@ -1,15 +1,16 @@
 # Import all models so Base.metadata knows every table
-import app.models.domain  # noqa: F401  # pylint: disable=unused-import
-import app.models.report  # noqa: F401  # pylint: disable=unused-import
-import app.models.user  # noqa: F401  # pylint: disable=unused-import
 import pytest
-from app.core.database import Base, get_db
-from app.main import create_app
-from app.services.report_store import ReportStore
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+
+import app.models.domain  # noqa: F401  # pylint: disable=unused-import
+import app.models.report  # noqa: F401  # pylint: disable=unused-import
+import app.models.user  # noqa: F401  # pylint: disable=unused-import
+from app.core.database import Base, get_db
+from app.main import create_app
+from app.services.report_store import ReportStore
 
 
 @pytest.fixture()

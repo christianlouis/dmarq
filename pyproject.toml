@@ -49,6 +49,24 @@ include_trailing_comma = true
 force_grid_wrap = 0
 use_parentheses = true
 ensure_newline_before_comments = true
+known_first_party = ["app"]
+skip = ["venv", ".venv", "migrations"]
+
+[tool.pylint.main]
+# Run from repo root: pylint backend/app
+max-line-length = 100
+
+[tool.pylint."messages control"]
+disable = [
+    "C0111",  # missing-docstring
+    "C0103",  # invalid-name  (e.g. SessionLocal, TestingSessionLocal)
+    "R0903",  # too-few-public-methods
+    "R0913",  # too-many-arguments
+    "W0212",  # protected-access
+]
+
+[tool.pylint.basic]
+good-names = ["i", "j", "k", "ex", "_", "id", "db"]
 
 [tool.pytest.ini_options]
 testpaths = ["backend/app/tests"]

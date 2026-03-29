@@ -80,11 +80,11 @@ jobs:
 
     - name: Run Flake8
       run: |
-        flake8 backend/app --max-line-length=100 --extend-ignore=E203,W503,E501
+        flake8 backend/app
 
     - name: Run Pylint
       run: |
-        pylint backend/app --max-line-length=100 --disable=C0111,R0903
+        pylint backend/app
       continue-on-error: true
 
   docker:

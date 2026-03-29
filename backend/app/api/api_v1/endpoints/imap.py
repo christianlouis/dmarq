@@ -2,10 +2,11 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from app.core.security import require_admin_auth
-from app.services.imap_client import IMAPClient
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
+
+from app.core.security import require_admin_auth
+from app.services.imap_client import IMAPClient
 
 router = APIRouter()
 logger = logging.getLogger(__name__)

@@ -4,8 +4,9 @@ Security-focused tests for DMARQ application.
 Covers API key management, domain validation, file upload limits, and XML parsing security.
 """
 
-import app.services.dmarc_parser as parser_module
 import pytest
+
+import app.services.dmarc_parser as parser_module
 from app.core.security import add_api_key, generate_api_key, verify_api_key
 from app.services.dmarc_parser import DMARCParser
 from app.utils.domain_validator import validate_domain, validate_domain_config

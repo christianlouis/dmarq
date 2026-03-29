@@ -3,17 +3,18 @@ import logging
 import os
 from datetime import datetime
 
+from fastapi import Depends, FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+
 from app.api.api_v1.api import api_router
 from app.core.config import get_settings
 from app.core.security import add_api_key, generate_api_key, require_admin_auth
 from app.middleware.security import SecurityHeadersMiddleware
 from app.services.imap_client import IMAPClient
 from app.services.report_store import ReportStore
-from fastapi import Depends, FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 
 # Set up logging
 logger = logging.getLogger(__name__)

@@ -1,0 +1,21 @@
+[flake8]
+# Keep in sync with black's line-length in pyproject.toml [tool.black]
+max-line-length = 100
+max-complexity = 10
+exclude =
+    .git,
+    __pycache__,
+    .venv,
+    venv,
+    build,
+    dist,
+    *.egg-info,
+    migrations
+# Ignored rules – must not conflict with black:
+#   E203 – whitespace before ':' (black formats slices this way)
+#   W503 – line break before binary operator (black prefers this style)
+#   E501 – line too long (black already enforces max-line-length; avoid double-reporting)
+extend-ignore = E203, W503, E501
+per-file-ignores =
+    # Allow unused imports in __init__.py (re-exports)
+    __init__.py: F401

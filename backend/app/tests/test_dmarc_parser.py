@@ -2,6 +2,7 @@ import io
 import zipfile
 
 import pytest
+
 from app.services.dmarc_parser import DMARCParser
 from app.tests.test_data import SAMPLE_XML
 

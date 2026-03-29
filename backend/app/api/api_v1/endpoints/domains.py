@@ -2,9 +2,10 @@ import random  # Used for mock data generation - TODO: Replace with actual histo
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-from app.services.report_store import ReportStore
 from fastapi import APIRouter, HTTPException, Path, Query, status
 from pydantic import BaseModel
+
+from app.services.report_store import ReportStore
 
 router = APIRouter()
 
