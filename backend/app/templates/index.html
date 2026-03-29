@@ -200,6 +200,10 @@ function dashboardApp() {
         async getImapStatus() {
             try {
                 const response = await fetch('/api/v1/admin/poll-status');
+                if (!response.ok) {
+                    console.error('Error checking IMAP status:', response.status);
+                    return;
+                }
                 const data = await response.json();
                 
                 const statusIcon = document.getElementById('imap-status-icon');

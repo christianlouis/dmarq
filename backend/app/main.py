@@ -583,14 +583,11 @@ async def trigger_imap_poll(auth: dict = Depends(require_admin_auth)):
 
 # API endpoint to check status of IMAP polling
 @app.get("/api/v1/admin/poll-status")
-async def get_poll_status(auth: dict = Depends(require_admin_auth)):
+async def get_poll_status():
     """
-    Get the status of IMAP polling (admin only - requires authentication)
-
-    Security: Requires either X-API-Key header or Bearer token
+    Get the status of IMAP polling (read-only, no authentication required).
     """
     return {
         "is_running": background_task is not None and not background_task.done(),
         "last_check": last_check_time.isoformat() if last_check_time else None,
-        "authenticated_by": auth.get("auth_type"),
     }
