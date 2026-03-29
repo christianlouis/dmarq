@@ -267,3 +267,147 @@ async def test_cloudflare_provider_raises_on_http_error():
 def test_get_default_provider_returns_system():
     provider = get_default_provider()
     assert isinstance(provider, SystemDNSProvider)
+
+
+# ---------------------------------------------------------------------------
+# _ip_to_arpa_name helper
+# ---------------------------------------------------------------------------
+
+
+def test_ip_to_arpa_name_ipv4():
+    from app.services.dns_resolver import _ip_to_arpa_name
+
+    assert _ip_to_arpa_name("1.2.3.4") == "4.3.2.1.in-addr.arpa"
+
+
+def test_ip_to_arpa_name_ipv4_leading_zero_safe():
+    from app.services.dns_resolver import _ip_to_arpa_name
+
+    assert _ip_to_arpa_name("192.168.1.100") == "100.1.168.192.in-addr.arpa"
+
+
+def test_ip_to_arpa_name_ipv6():
+    from app.services.dns_resolver import _ip_to_arpa_name
+
+    # 2001:db8::1 expanded → 20010db8000000000000000000000001
+    name = _ip_to_arpa_name("2001:db8::1")
+    assert name.endswith(".ip6.arpa")
+
+
+def test_ip_to_arpa_name_invalid_raises():
+    from app.services.dns_resolver import _ip_to_arpa_name
+
+    with pytest.raises(ValueError):
+        _ip_to_arpa_name("not-an-ip")
+
+
+# ---------------------------------------------------------------------------
+# BaseDNSProvider.lookup_ptr (default returns None)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_base_provider_lookup_ptr_returns_none():
+    """FakeDNSProvider only implements lookup_txt; lookup_ptr must return None."""
+    provider = FakeDNSProvider({})
+    result = await provider.lookup_ptr("1.2.3.4")
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# SystemDNSProvider.lookup_ptr
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_system_provider_lookup_ptr_returns_hostname():
+    """SystemDNSProvider.lookup_ptr should decode the first PTR rdata."""
+
+    class FakePTRRdata:
+        def __str__(self):
+            return "mail.example.com."
+
+    class FakePTRAnswers:
+        def __iter__(self):
+            return iter([FakePTRRdata()])
+
+    with patch("dns.asyncresolver.resolve", new=AsyncMock(return_value=FakePTRAnswers())):
+        provider = SystemDNSProvider()
+        hostname = await provider.lookup_ptr("1.2.3.4")
+
+    # Trailing dot should be stripped
+    assert hostname == "mail.example.com"
+
+
+@pytest.mark.asyncio
+async def test_system_provider_lookup_ptr_returns_none_on_nxdomain():
+    import dns.exception  # type: ignore[import]
+
+    with patch(
+        "dns.asyncresolver.resolve",
+        new=AsyncMock(side_effect=dns.exception.DNSException("NXDOMAIN")),
+    ):
+        provider = SystemDNSProvider()
+        hostname = await provider.lookup_ptr("1.2.3.4")
+
+    assert hostname is None
+
+
+@pytest.mark.asyncio
+async def test_system_provider_lookup_ptr_returns_none_for_invalid_ip():
+    provider = SystemDNSProvider()
+    result = await provider.lookup_ptr("not-an-ip")
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# CloudflareDNSProvider.lookup_ptr
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_provider_lookup_ptr_returns_hostname():
+    """CloudflareDNSProvider.lookup_ptr should extract the PTR name from DoH JSON."""
+    from unittest.mock import MagicMock
+
+    fake_response_data = {
+        "Answer": [
+            {"type": 12, "data": "mail.example.com."},
+            {"type": 1, "data": "93.184.216.34"},  # A record — should be ignored
+        ]
+    }
+
+    mock_response = AsyncMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json = lambda: fake_response_data
+
+    with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=mock_response)):
+        provider = CloudflareDNSProvider()
+        hostname = await provider.lookup_ptr("1.2.3.4")
+
+    assert hostname == "mail.example.com"
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_provider_lookup_ptr_returns_none_when_no_ptr():
+    """CloudflareDNSProvider.lookup_ptr returns None when no PTR answer exists."""
+    from unittest.mock import MagicMock
+
+    fake_response_data = {"Answer": []}
+
+    mock_response = AsyncMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json = lambda: fake_response_data
+
+    with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=mock_response)):
+        provider = CloudflareDNSProvider()
+        hostname = await provider.lookup_ptr("1.2.3.4")
+
+    assert hostname is None
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_provider_lookup_ptr_returns_none_for_invalid_ip():
+    provider = CloudflareDNSProvider()
+    result = await provider.lookup_ptr("not-an-ip")
+    assert result is None

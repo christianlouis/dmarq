@@ -1,4 +1,5 @@
 import asyncio
+import ipaddress
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -85,6 +86,8 @@ class SourceEntry(BaseModel):
     dkim: str
     dmarc: str
     disposition: str
+    hostname: Optional[str] = None
+    spf_fix_hint: Optional[str] = None
 
 
 class DomainReportsResponse(BaseModel):
@@ -434,13 +437,41 @@ def _build_compliance_timeline(store: ReportStore, domain: str) -> List[Timeline
     return timeline
 
 
+def _spf_fix_hint(ip: str, spf_result: str) -> Optional[str]:
+    """Return a copy-paste SPF mechanism (e.g. ``ip4:1.2.3.4``) for a failing IP.
+
+    Returns ``None`` when SPF did not fail or when *ip* is not a valid address.
+    """
+    if spf_result != "fail":
+        return None
+    try:
+        addr = ipaddress.ip_address(ip)
+        prefix = "ip6" if isinstance(addr, ipaddress.IPv6Address) else "ip4"
+        return f"{prefix}:{ip}"
+    except ValueError:
+        return None
+
+
+async def _safe_ptr_lookup(provider: Any, ip: str, timeout: float = 3.0) -> Optional[str]:
+    """Perform a PTR lookup for *ip*, returning ``None`` on any error or timeout."""
+    try:
+        ipaddress.ip_address(ip)  # validate before making a DNS query
+    except ValueError:
+        return None
+    try:
+        return await asyncio.wait_for(provider.lookup_ptr(ip), timeout=timeout)
+    except Exception:
+        return None
+
+
 @router.get("/{domain_id}/sources", response_model=DomainSourcesResponse)
 async def get_domain_sources(
     domain_id: str = Path(..., title="The domain ID or name"),
     days: int = Query(30, title="Number of days to look back"),
 ):
     """
-    Get sending sources for a specific domain
+    Get sending sources for a specific domain, including reverse-DNS hostnames
+    and SPF fix hints for sources that fail authentication.
     """
     store = ReportStore.get_instance()
     domains = store.get_domains()
@@ -451,23 +482,27 @@ async def get_domain_sources(
             detail="Domain not found",
         )
 
-    # Get sending sources for this domain
     sources = store.get_domain_sources(domain_id, days=days)
+    provider = get_default_provider()
+
+    ips = [s.get("source_ip", "unknown") for s in sources]
+    hostnames = await asyncio.gather(*[_safe_ptr_lookup(provider, ip) for ip in ips])
 
     source_entries = []
-    for source in sources:
+    for source, hostname in zip(sources, hostnames):
+        ip = source.get("source_ip", "unknown")
+        spf_result = source.get("spf_result", "unknown")
+        dkim_result = source.get("dkim_result", "unknown")
         source_entries.append(
             SourceEntry(
-                ip=source.get("source_ip", "unknown"),
+                ip=ip,
                 count=source.get("count", 0),
-                spf=source.get("spf_result", "unknown"),
-                dkim=source.get("dkim_result", "unknown"),
-                dmarc=(
-                    "pass"
-                    if source.get("spf_result") == "pass" or source.get("dkim_result") == "pass"
-                    else "fail"
-                ),
+                spf=spf_result,
+                dkim=dkim_result,
+                dmarc=("pass" if spf_result == "pass" or dkim_result == "pass" else "fail"),
                 disposition=source.get("disposition", "none"),
+                hostname=hostname,
+                spf_fix_hint=_spf_fix_hint(ip, spf_result),
             )
         )
 

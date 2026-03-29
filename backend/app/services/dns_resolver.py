@@ -1,5 +1,5 @@
 """
-DNS resolver service for DMARC, SPF, and DKIM record lookups.
+DNS resolver service for DMARC, SPF, DKIM, and PTR record lookups.
 
 Provides an extensible provider architecture so that DNS data can be fetched
 either via the system resolver (dnspython) or via the Cloudflare DNS API for
@@ -7,6 +7,7 @@ future Cloudflare integration.
 """
 
 import asyncio
+import ipaddress
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -18,6 +19,23 @@ logger = logging.getLogger(__name__)
 def _sanitize_for_log(value: str) -> str:
     """Remove newline and carriage-return characters to prevent log injection."""
     return value.replace("\r", "").replace("\n", "")
+
+
+def _ip_to_arpa_name(ip: str) -> str:
+    """Convert an IP address string to its reverse-DNS ARPA lookup name.
+
+    E.g. ``"1.2.3.4"`` → ``"4.3.2.1.in-addr.arpa"``
+         ``"2001:db8::1"`` → ``"...ip6.arpa"``
+
+    Raises ``ValueError`` for invalid IP address strings.
+    """
+    addr = ipaddress.ip_address(ip)
+    if isinstance(addr, ipaddress.IPv4Address):
+        parts = ip.split(".")
+        return ".".join(reversed(parts)) + ".in-addr.arpa"
+    # IPv6: expand, strip colons, reverse nibbles
+    expanded = addr.exploded.replace(":", "")
+    return ".".join(reversed(expanded)) + ".ip6.arpa"
 
 
 # Well-known DKIM selectors tried when no selectors are configured
@@ -103,6 +121,16 @@ class BaseDNSProvider(ABC):
             logger.debug("SPF lookup failed for %s: %s", _sanitize_for_log(domain), exc)
         return False, None
 
+    async def lookup_ptr(self, ip: str) -> Optional[str]:
+        """Return the PTR (reverse DNS) hostname for *ip*, or ``None`` if unavailable.
+
+        The base implementation always returns ``None``.  Concrete providers
+        override this to perform an actual DNS PTR lookup so that existing
+        test doubles (which only implement ``lookup_txt``) keep working without
+        modification.
+        """
+        return None
+
     async def check_dkim(
         self, domain: str, selectors: List[str]
     ) -> Tuple[bool, Optional[str], Optional[str]]:
@@ -180,6 +208,23 @@ class SystemDNSProvider(BaseDNSProvider):
         except dns.exception.DNSException as exc:
             raise LookupError(f"TXT lookup failed for {name}: {exc}") from exc
 
+    async def lookup_ptr(self, ip: str) -> Optional[str]:
+        """Resolve a PTR record for *ip* via the system resolver."""
+        import dns.asyncresolver  # type: ignore[import]
+        import dns.exception  # type: ignore[import]
+
+        try:
+            ptr_name = _ip_to_arpa_name(ip)
+            answers = await dns.asyncresolver.resolve(
+                ptr_name, "PTR", lifetime=DNS_TIMEOUT, raise_on_no_answer=False
+            )
+            if answers:
+                for rdata in answers:
+                    return str(rdata).rstrip(".")
+        except (dns.exception.DNSException, ValueError):
+            pass
+        return None
+
 
 class CloudflareDNSProvider(BaseDNSProvider):
     """DNS provider using Cloudflare's DNS-over-HTTPS (DoH) endpoint.
@@ -245,6 +290,34 @@ class CloudflareDNSProvider(BaseDNSProvider):
                 return records
         except (httpx.RequestError, httpx.HTTPStatusError, httpx.TimeoutException) as exc:
             raise LookupError(f"Cloudflare DoH lookup failed for {name}: {exc}") from exc
+
+    async def lookup_ptr(self, ip: str) -> Optional[str]:
+        """Resolve a PTR record for *ip* via Cloudflare's DoH endpoint."""
+        import httpx  # type: ignore[import]
+
+        try:
+            ptr_name = _ip_to_arpa_name(ip)
+        except ValueError:
+            return None
+
+        params = {"name": ptr_name, "type": "PTR"}
+        headers = {"Accept": "application/dns-json"}
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    self.CLOUDFLARE_DOH_URL,
+                    params=params,
+                    headers=headers,
+                    timeout=DNS_TIMEOUT,
+                )
+                response.raise_for_status()
+                data = response.json()
+                for answer in data.get("Answer", []):
+                    if answer.get("type") == 12:  # PTR record type
+                        return answer.get("data", "").rstrip(".")
+        except (httpx.RequestError, httpx.HTTPStatusError, httpx.TimeoutException):
+            pass
+        return None
 
 
 def get_default_provider() -> BaseDNSProvider:
