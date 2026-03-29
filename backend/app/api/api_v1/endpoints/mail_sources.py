@@ -92,6 +92,11 @@ class TestConnectionRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+def _sanitize_for_log(value: object) -> str:
+    """Remove CR/LF characters from a value to prevent log injection attacks."""
+    return str(value).replace("\r", "").replace("\n", " ")
+
+
 def _get_source_or_404(source_id: int, db: Session) -> MailSource:
     source = db.query(MailSource).filter(MailSource.id == source_id).first()
     if source is None:
@@ -210,7 +215,7 @@ async def delete_mail_source(
     source = _get_source_or_404(source_id, db)
     db.delete(source)
     db.commit()
-    logger.info("Deleted mail source id=%d", source_id)
+    logger.info("Deleted mail source id=%s", _sanitize_for_log(source_id))
 
 
 @router.post("/{source_id}/toggle", response_model=MailSourceResponse)

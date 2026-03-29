@@ -132,7 +132,7 @@ class IMAPClient:
             return True, "Connection successful", stats
         except Exception as e:  # pylint: disable=broad-exception-caught
             logger.error("IMAP connection test failed: %s", str(e))
-            return False, f"Connection failed: {str(e)}", {}
+            return False, "Connection failed. Check server address and credentials.", {}
 
     def _process_single_email(self, mail, email_id: bytes, stats: dict) -> None:
         """Fetch, parse, and store DMARC attachments from one email message."""
@@ -229,7 +229,7 @@ class IMAPClient:
             logger.error("Error fetching DMARC reports: %s", str(e))
             return {
                 "success": False,
-                "error": f"Error connecting to mailbox: {str(e)}",
+                "error": "Error connecting to mailbox. Check server logs for details.",
                 "processed": 0,
             }
 
