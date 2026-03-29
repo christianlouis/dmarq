@@ -49,7 +49,7 @@ MOCK_DNS_RESULT = DomainDNSResult(
     spf=True,
     spf_record="v=spf1 include:_spf.google.com ~all",
     dkim=True,
-    dkim_selector="google",
+    dkim_selectors=["google"],
     dkim_record="v=DKIM1; k=rsa; p=ABC",
 )
 
@@ -79,7 +79,9 @@ def test_get_selectors_empty(client: TestClient):
     """Returns an empty list when no selectors have been configured."""
     response = client.get(f"/api/v1/domains/{DOMAIN}/selectors")
     assert response.status_code == 200
-    assert response.json() == {"selectors": []}
+    data = response.json()
+    assert data["selectors"] == []
+    assert "report_selectors" in data
 
 
 def test_get_selectors_unknown_domain(client: TestClient):
@@ -174,6 +176,42 @@ def test_delete_selector_unknown_domain(client: TestClient):
 # ---------------------------------------------------------------------------
 # GET /api/v1/domains/{domain_id}/dns  (real DNS replaced by mock)
 # ---------------------------------------------------------------------------
+
+
+def test_get_selectors_includes_report_selectors(client: TestClient):
+    """Report selectors (from DMARC report records) are returned in report_selectors."""
+    response = client.get(f"/api/v1/domains/{DOMAIN}/selectors")
+    assert response.status_code == 200
+    data = response.json()
+    # The MINIMAL_REPORT has a record with selector "google" in its dkim auth results
+    assert "google" in data["report_selectors"]
+
+
+def test_get_selectors_report_selector_moves_to_manual_when_added(client: TestClient):
+    """A selector discovered from reports should appear only in 'selectors' once added manually."""
+    # Confirm it's in report_selectors before adding
+    r1 = client.get(f"/api/v1/domains/{DOMAIN}/selectors")
+    assert "google" in r1.json()["report_selectors"]
+
+    # Add it as a manual selector
+    client.post(f"/api/v1/domains/{DOMAIN}/selectors", json={"selector": "google"})
+
+    r2 = client.get(f"/api/v1/domains/{DOMAIN}/selectors")
+    data = r2.json()
+    assert "google" in data["selectors"]
+    # It must not appear in both lists
+    assert "google" not in data["report_selectors"]
+
+
+def test_dns_endpoint_returns_dkim_selectors_as_list(client: TestClient):
+    """The /dns endpoint should return dkimSelectors as a list."""
+    with _mock_dns():
+        response = client.get(f"/api/v1/domains/{DOMAIN}/dns")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data["dkimSelectors"], list)
+    assert "google" in data["dkimSelectors"]
 
 
 def test_dns_endpoint_returns_real_data(client: TestClient):
