@@ -1,3 +1,4 @@
+import json
 import logging
 import secrets
 from functools import lru_cache
@@ -77,15 +78,21 @@ class Settings(BaseSettings):
     def assemble_cors_origins(  # pylint: disable=no-self-argument
         cls, v: Union[str, List[str]]
     ) -> List[str]:
-        if isinstance(v, str) and not v.startswith("["):
-            return [i.strip() for i in v.split(",")]
-        if isinstance(v, (list, str)):
+        if isinstance(v, str):
+            v = v.strip()
+            if not v:
+                return []
+            if v.startswith("["):
+                return json.loads(v)
+            return [i.strip() for i in v.split(",") if i.strip()]
+        if isinstance(v, list):
             return v
         raise ValueError(v)
 
     class Config:
         env_file = ".env"
         case_sensitive = True
+        env_ignore_empty = True
 
 
 @lru_cache()
