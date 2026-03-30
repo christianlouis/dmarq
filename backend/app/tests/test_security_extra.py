@@ -38,11 +38,11 @@ class TestCreateAccessToken:
         from app.core.config import get_settings
 
         settings = get_settings()
-        delta = timedelta(seconds=5)
+        delta = timedelta(seconds=60)
         token = create_access_token("user@example.com", expires_delta=delta)
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        # exp should be roughly `now + 5 seconds`
-        assert abs(payload["exp"] - (int(time.time()) + 5)) <= 5
+        # exp should be roughly `now + 60 seconds` (within a 2-second tolerance)
+        assert abs(payload["exp"] - (int(time.time()) + 60)) <= 2
 
 
 # ---------------------------------------------------------------------------
