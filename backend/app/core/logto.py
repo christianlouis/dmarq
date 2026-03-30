@@ -12,9 +12,11 @@ Provides:
 from __future__ import annotations
 
 import logging
+import ssl
 from datetime import datetime, timedelta
 from typing import Optional
 
+import aiohttp
 from fastapi import Request, Response
 from jose import JWTError, jwt
 from logto import IdTokenClaims, LogtoClient, LogtoConfig, PersistKey, Storage, UserInfoScope
@@ -36,6 +38,59 @@ _SIGN_IN_SESSION_MAX_AGE = 600  # 10 minutes
 # The app-level session lasts 24 hours by default; the Logto ID-token has its own
 # expiry but we don't keep it in the browser beyond the callback request.
 _SESSION_MAX_AGE = 86_400  # 24 hours
+
+
+# ── SSL configuration for Logto SDK ──────────────────────────────────────────
+
+
+def _apply_logto_ssl_patch() -> None:
+    """
+    If ``LOGTO_SKIP_SSL_VERIFY`` is ``True``, monkey-patch ``aiohttp.ClientSession``
+    so that every session created by the Logto SDK uses a non-verifying SSL connector.
+
+    The Logto SDK creates its own ``aiohttp.ClientSession`` objects internally and
+    provides no mechanism to inject an SSL context.  Replacing the class at module
+    level is the only way to propagate the setting without forking the SDK.
+
+    **Scope note:** ``aiohttp`` is not used anywhere else in this application – only
+    the Logto SDK pulls it in.  If additional code in this repository starts using
+    ``aiohttp`` directly, review whether those connections should also skip
+    verification before enabling this setting.
+
+    .. warning::
+        Disabling SSL verification removes protection against man-in-the-middle
+        attacks.  Only enable this when connecting to a Logto instance that uses
+        a self-signed certificate that you control.
+    """
+    if not settings.LOGTO_SKIP_SSL_VERIFY:
+        return
+
+    logger.warning(
+        "LOGTO_SKIP_SSL_VERIFY is enabled – SSL certificate verification for "
+        "Logto OIDC connections is DISABLED.  Use this only when your Logto "
+        "instance uses a self-signed certificate.  Never enable this in a "
+        "production environment that faces the public internet."
+    )
+
+    ssl_ctx = ssl.create_default_context()
+    ssl_ctx.check_hostname = False
+    ssl_ctx.verify_mode = ssl.CERT_NONE
+
+    _OriginalClientSession = aiohttp.ClientSession
+
+    class _NoVerifyClientSession(_OriginalClientSession):  # type: ignore[misc]
+        """``aiohttp.ClientSession`` subclass that disables SSL verification."""
+
+        def __init__(self, *args, **kwargs) -> None:  # type: ignore[override]
+            if "connector" not in kwargs:
+                kwargs["connector"] = aiohttp.TCPConnector(ssl=ssl_ctx)
+                kwargs.setdefault("connector_owner", True)
+            super().__init__(*args, **kwargs)
+
+    aiohttp.ClientSession = _NoVerifyClientSession  # type: ignore[assignment]
+
+
+_apply_logto_ssl_patch()
 
 
 # ── Cookie-backed Logto Storage ───────────────────────────────────────────────

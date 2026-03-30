@@ -71,10 +71,15 @@ class Settings(BaseSettings):
     # LOGTO_APP_SECRET:  the Client Secret of the same application.
     # LOGTO_REDIRECT_URI (optional): override the default callback URL.
     #                    Defaults to <base_url>/api/v1/auth/callback.
+    # LOGTO_SKIP_SSL_VERIFY (optional): set to false to enable SSL certificate
+    #                    verification when connecting to the Logto OIDC endpoint.
+    #                    Defaults to true (verification disabled) to support
+    #                    self-signed certificates out of the box.
     LOGTO_ENDPOINT: Optional[str] = None
     LOGTO_APP_ID: Optional[str] = None
     LOGTO_APP_SECRET: Optional[str] = None
     LOGTO_REDIRECT_URI: Optional[str] = None
+    LOGTO_SKIP_SSL_VERIFY: bool = True
 
     @property
     def logto_configured(self) -> bool:
