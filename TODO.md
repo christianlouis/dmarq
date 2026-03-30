@@ -160,5 +160,7 @@ have no working implementation in the codebase yet.
 - [ ] Remove or wire up `fastapi-users` (currently installed but unused)
 - [x] Replace mock data in stats endpoints with real database queries
 - [ ] Replace mock DNS data with actual DNS lookups
-- [ ] Add CI/CD pipeline
+- [x] Add CI/CD pipeline — GitHub Actions workflows in `.github/workflows/ci.yml`
+        (lint → test/security/CodeQL/dependency-review → Docker build/push → GitOps)
+        and `.github/workflows/release.yml` (semantic versioning)
 - [ ] Reach >80% test coverage

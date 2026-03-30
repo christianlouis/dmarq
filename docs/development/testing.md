@@ -140,10 +140,15 @@ isort backend/app
 
 ## Continuous Integration
 
-Tests run automatically on every push and PR via GitHub Actions (`.github/workflows/test.yml`).
+Tests run automatically on every push and PR via GitHub Actions
+(`.github/workflows/ci.yml`).  See [CI/CD Pipeline](ci-cd.md) for a full
+description of every stage.
 
-The CI workflow:
-1. Installs dependencies (Python 3.13)
-2. Runs `pytest` with coverage
-3. Runs linting checks (Black, isort, Flake8, Pylint)
-4. Uploads coverage to Codecov
+The pipeline runs in four stages:
+
+1. **Lint** (blocking gate) — Black, isort, Flake8, Pylint
+2. **Test** — `pytest` with coverage; report uploaded to Codecov
+3. **Security** — Bandit static analysis + pip-audit dependency scan
+4. **CodeQL** — GitHub's semantic code analysis for Python
+5. **Docker** — builds and pushes to `ghcr.io` (main branch only)
+6. **GitOps** — updates the preprod Kubernetes manifest (main branch only)
