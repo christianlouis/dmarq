@@ -45,17 +45,31 @@ _SESSION_MAX_AGE = 86_400  # 24 hours
 
 def _apply_logto_ssl_patch() -> None:
     """
-    If ``LOGTO_SKIP_SSL_VERIFY`` is ``True``, monkey-patch ``aiohttp.ClientSession``
-    so that every session created by the Logto SDK uses a non-verifying SSL connector.
+    If ``LOGTO_SKIP_SSL_VERIFY`` is ``True``, monkey-patch both
+    ``aiohttp.ClientSession`` and the ``PyJWKClient`` used by the Logto SDK so
+    that every connection to the Logto OIDC endpoint skips SSL certificate
+    verification.
 
-    The Logto SDK creates its own ``aiohttp.ClientSession`` objects internally and
-    provides no mechanism to inject an SSL context.  Replacing the class at module
-    level is the only way to propagate the setting without forking the SDK.
+    Two patches are applied:
 
-    **Scope note:** ``aiohttp`` is not used anywhere else in this application – only
-    the Logto SDK pulls it in.  If additional code in this repository starts using
-    ``aiohttp`` directly, review whether those connections should also skip
-    verification before enabling this setting.
+    1. **aiohttp.ClientSession** – The Logto SDK creates its own
+       ``aiohttp.ClientSession`` objects internally (for the OIDC discovery
+       document and token-endpoint requests) and provides no mechanism to
+       inject an SSL context.  Replacing the class at module level is the
+       only way to propagate the setting without forking the SDK.
+
+    2. **PyJWKClient** inside ``logto.OidcCore`` – The Logto SDK uses
+       ``PyJWKClient`` (from PyJWT) to fetch and verify the JWKS for
+       ID-token signature validation.  ``PyJWKClient`` uses ``urllib``
+       internally, *not* ``aiohttp``, so the first patch does not cover it.
+       We replace the ``PyJWKClient`` reference in the ``logto.OidcCore``
+       module so that every ``OidcCore`` instance gets a client that passes
+       the non-verifying SSL context to ``urllib``.
+
+    **Scope note:** ``aiohttp`` is not used anywhere else in this application
+    – only the Logto SDK pulls it in.  If additional code in this repository
+    starts using ``aiohttp`` directly, review whether those connections should
+    also skip verification before enabling this setting.
 
     .. warning::
         Disabling SSL verification removes protection against man-in-the-middle
@@ -76,6 +90,9 @@ def _apply_logto_ssl_patch() -> None:
     ssl_ctx.check_hostname = False
     ssl_ctx.verify_mode = ssl.CERT_NONE
 
+    # ── Patch 1: aiohttp.ClientSession ───────────────────────────────────────
+    # Covers OIDC discovery-document and token-endpoint requests.
+
     _OriginalClientSession = aiohttp.ClientSession
 
     class _NoVerifyClientSession(_OriginalClientSession):  # type: ignore[misc]
@@ -88,6 +105,29 @@ def _apply_logto_ssl_patch() -> None:
             super().__init__(*args, **kwargs)
 
     aiohttp.ClientSession = _NoVerifyClientSession  # type: ignore[assignment]
+
+    # ── Patch 2: PyJWKClient inside logto.OidcCore ────────────────────────────
+    # Covers JWKS fetching for ID-token signature verification.
+    # PyJWKClient uses urllib internally, so Patch 1 does not cover it.
+    try:
+        import logto.OidcCore as _oidc_module  # noqa: PLC0415
+        from jwt import PyJWKClient as _OrigPyJWKClient  # noqa: PLC0415
+
+        class _NoVerifyPyJWKClient(_OrigPyJWKClient):  # type: ignore[misc]
+            """``PyJWKClient`` subclass that injects a non-verifying SSL context."""
+
+            def __init__(self, *args, **kwargs) -> None:  # type: ignore[override]
+                kwargs.setdefault("ssl_context", ssl_ctx)
+                super().__init__(*args, **kwargs)
+
+        _oidc_module.PyJWKClient = _NoVerifyPyJWKClient  # type: ignore[attr-defined]
+    except Exception as _exc:  # pylint: disable=broad-exception-caught
+        logger.warning(
+            "Failed to patch PyJWKClient for LOGTO_SKIP_SSL_VERIFY: %s. "
+            "JWKS fetching will still verify SSL certificates, which may cause "
+            "ID-token verification to fail when using a self-signed certificate.",
+            _exc,
+        )
 
 
 _apply_logto_ssl_patch()

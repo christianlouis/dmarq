@@ -8,6 +8,7 @@ These tests exercise:
 - /api/v1/auth/me – authenticated and unauthenticated
 - /api/v1/auth/sign-in – Logto not configured → 503
 - /api/v1/auth/sign-out – always clears the session cookie
+- SSL bypass patching (_apply_logto_ssl_patch)
 
 All tests use the in-memory SQLite fixture from conftest.py.
 Logto SDK calls are mocked so no live Logto instance is needed.
@@ -329,3 +330,93 @@ class TestStaticAssetBypass:
             res = client.get("/dashboard", follow_redirects=False)
         assert res.status_code == 302
         assert res.headers["location"].startswith("/login")
+
+
+# ── SSL bypass patch ──────────────────────────────────────────────────────────
+
+
+class TestApplyLogtoSslPatch:
+    """_apply_logto_ssl_patch should extend both the aiohttp and PyJWKClient patches."""
+
+    def test_no_patch_when_ssl_verify_enabled(self):
+        """When LOGTO_SKIP_SSL_VERIFY is False the function must not modify aiohttp."""
+        import aiohttp
+
+        original = aiohttp.ClientSession
+
+        mock_settings = MagicMock()
+        mock_settings.LOGTO_SKIP_SSL_VERIFY = False
+
+        with patch("app.core.logto.settings", mock_settings):
+            from app.core.logto import _apply_logto_ssl_patch
+
+            _apply_logto_ssl_patch()
+
+        assert aiohttp.ClientSession is original
+
+    def test_aiohttp_patched_when_ssl_skip_enabled(self):
+        """When LOGTO_SKIP_SSL_VERIFY is True the aiohttp.ClientSession must be replaced."""
+        import aiohttp
+
+        original = aiohttp.ClientSession
+
+        mock_settings = MagicMock()
+        mock_settings.LOGTO_SKIP_SSL_VERIFY = True
+
+        with patch("app.core.logto.settings", mock_settings):
+            from app.core.logto import _apply_logto_ssl_patch
+
+            _apply_logto_ssl_patch()
+
+        try:
+            assert aiohttp.ClientSession is not original
+        finally:
+            # Restore so later tests are not affected.
+            aiohttp.ClientSession = original
+
+    def test_pyjwkclient_patched_when_ssl_skip_enabled(self):
+        """When LOGTO_SKIP_SSL_VERIFY is True, PyJWKClient in logto.OidcCore must be
+        replaced with a subclass that injects a non-verifying ssl_context."""
+        import logto.OidcCore as _oidc_module
+        from jwt import PyJWKClient
+
+        original_pyjwkclient = _oidc_module.PyJWKClient
+
+        mock_settings = MagicMock()
+        mock_settings.LOGTO_SKIP_SSL_VERIFY = True
+
+        with patch("app.core.logto.settings", mock_settings):
+            from app.core.logto import _apply_logto_ssl_patch
+
+            _apply_logto_ssl_patch()
+
+        try:
+            patched = _oidc_module.PyJWKClient
+            assert patched is not PyJWKClient, "PyJWKClient should be replaced"
+            assert issubclass(patched, PyJWKClient), "Replacement must subclass PyJWKClient"
+        finally:
+            _oidc_module.PyJWKClient = original_pyjwkclient
+
+    def test_pyjwkclient_patch_injects_ssl_context(self):
+        """The patched PyJWKClient must pass ssl_context to its parent when constructed."""
+        import ssl
+
+        import logto.OidcCore as _oidc_module
+
+        original_pyjwkclient = _oidc_module.PyJWKClient
+
+        mock_settings = MagicMock()
+        mock_settings.LOGTO_SKIP_SSL_VERIFY = True
+
+        with patch("app.core.logto.settings", mock_settings):
+            from app.core.logto import _apply_logto_ssl_patch
+
+            _apply_logto_ssl_patch()
+
+        try:
+            instance = _oidc_module.PyJWKClient("https://example.com/.well-known/jwks.json")
+            assert instance.ssl_context is not None
+            assert isinstance(instance.ssl_context, ssl.SSLContext)
+            assert instance.ssl_context.verify_mode == ssl.CERT_NONE
+        finally:
+            _oidc_module.PyJWKClient = original_pyjwkclient
