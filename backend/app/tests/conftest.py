@@ -9,6 +9,7 @@ from sqlalchemy.pool import StaticPool
 import app.models.domain  # noqa: F401  # pylint: disable=unused-import
 import app.models.mail_source as _mail_source_model  # noqa: F401  # pylint: disable=unused-import
 import app.models.report  # noqa: F401  # pylint: disable=unused-import
+import app.models.setting  # noqa: F401  # pylint: disable=unused-import
 import app.models.user  # noqa: F401  # pylint: disable=unused-import
 from app.core.database import Base, get_db
 from app.core.security import require_admin_auth

@@ -11,6 +11,7 @@ from fastapi.templating import Jinja2Templates
 
 import app.models.domain  # noqa: F401 – ensure Domain/UserDomain tables are registered
 import app.models.report  # noqa: F401 – ensure DMARCReport/ReportRecord tables are registered
+import app.models.setting  # noqa: F401 – ensure Setting table is registered
 import app.models.user  # noqa: F401 – ensure User table is registered
 from app.api.api_v1.api import api_router
 from app.core.config import get_settings
