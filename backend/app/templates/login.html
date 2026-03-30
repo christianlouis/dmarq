@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dmarqlight">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign In – {{ app_name }}</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Open+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.24/dist/full.css" rel="stylesheet" type="text/css"/>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body class="min-h-screen bg-base-200 flex items-center justify-center font-sans antialiased">
+
+<div class="w-full max-w-md px-4">
+    <!-- Logo / brand -->
+    <div class="text-center mb-8">
+        <a href="/" class="inline-flex items-center gap-3">
+            <img src="/static/img/monogram_light.png" alt="{{ app_name }} logo" class="w-12 h-12">
+            <span class="text-3xl font-bold text-primary font-heading">{{ app_name }}</span>
+        </a>
+        <p class="mt-2 text-base-content/60 text-sm">DMARC Monitoring &amp; Analysis</p>
+    </div>
+
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body gap-6">
+            <h1 class="card-title text-xl justify-center">Sign in to your account</h1>
+
+            {% if auth_disabled %}
+            <!-- Auth disabled mode -->
+            <div role="alert" class="alert alert-info">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20A10 10 0 0012 2z"/>
+                </svg>
+                <div>
+                    <p class="font-semibold">Authentication is disabled</p>
+                    <p class="text-sm">
+                        <code class="font-mono bg-base-200 px-1 rounded">AUTH_DISABLED=true</code>
+                        is set. All requests have full access — no sign-in required.
+                        <a href="/" class="link link-info font-medium">Go to dashboard →</a>
+                    </p>
+                </div>
+            </div>
+            {% elif not logto_configured %}
+            <!-- Logto not yet configured -->
+            <div role="alert" class="alert alert-warning">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                </svg>
+                <div>
+                    <p class="font-semibold">Authentication not configured</p>
+                    <p class="text-sm">Logto is not set up yet. Please visit the
+                        <a href="/setup" class="link link-warning font-medium">setup page</a>
+                        for configuration instructions.
+                    </p>
+                </div>
+            </div>
+            {% else %}
+
+            <!-- Error banner (shown when ?error= is present) -->
+            <div x-data="{ error: new URLSearchParams(window.location.search).get('error') }"
+                 x-show="error" x-cloak>
+                <div role="alert" class="alert alert-error">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                    <div>
+                        <p class="font-semibold">Sign-in failed</p>
+                        <p class="text-sm" x-text="error === 'callback_failed'
+                            ? 'The authentication callback failed. Please try again.'
+                            : error === 'token_error'
+                            ? 'Could not read authentication token. Please try again.'
+                            : 'An unexpected error occurred. Please try again.'">
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Primary sign-in button -->
+            <div class="space-y-3">
+                <a href="/api/v1/auth/sign-in?next={{ next | urlencode }}"
+                   class="btn btn-primary btn-lg w-full gap-2">
+                    <!-- Logto "shield" icon approximation -->
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M12 2L4 5v6c0 5.25 3.5 9.74 8 11 4.5-1.26 8-5.75 8-11V5L12 2z"/>
+                    </svg>
+                    Sign in with Logto
+                </a>
+
+                <p class="text-center text-xs text-base-content/50">
+                    Logto securely handles authentication.
+                    Your credentials are never sent to {{ app_name }}.
+                </p>
+            </div>
+
+            <div class="divider text-xs text-base-content/40">What is Logto?</div>
+
+            <div class="text-sm text-base-content/60 space-y-1">
+                <p>
+                    <a href="https://logto.io" target="_blank" rel="noopener" class="link link-primary">Logto</a>
+                    is an open-source identity platform that supports email/password login,
+                    social providers (Google, GitHub, …), passkeys, and multi-factor authentication.
+                </p>
+                <p>
+                    It can be self-hosted alongside {{ app_name }} or used via the
+                    <a href="https://cloud.logto.io" target="_blank" rel="noopener" class="link link-primary">Logto Cloud</a>
+                    free tier.
+                </p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <p class="text-center mt-6 text-xs text-base-content/40">
+        &copy; {{ app_name }} – DMARC Monitoring Platform
+    </p>
+</div>
+
+<script>
+    // Restore dark-mode preference from localStorage (mirrors base.html logic)
+    (function () {
+        if (localStorage.getItem('darkMode') === 'true') {
+            document.documentElement.setAttribute('data-theme', 'dmarqdark');
+        }
+    })();
+</script>
+</body>
+</html>

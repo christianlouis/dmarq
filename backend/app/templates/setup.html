@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dmarqlight">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Setup – {{ app_name }}</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Open+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.24/dist/full.css" rel="stylesheet" type="text/css"/>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body class="min-h-screen bg-base-200 font-sans antialiased">
+
+<div class="max-w-3xl mx-auto px-4 py-12">
+
+    <!-- Logo / brand -->
+    <div class="text-center mb-10">
+        <a href="/" class="inline-flex items-center gap-3">
+            <img src="/static/img/monogram_light.png" alt="{{ app_name }} logo" class="w-12 h-12">
+            <span class="text-3xl font-bold text-primary font-heading">{{ app_name }}</span>
+        </a>
+        <h1 class="mt-3 text-2xl font-semibold">First-run Setup</h1>
+        <p class="mt-1 text-base-content/60 text-sm">Configure Logto to enable user authentication.</p>
+    </div>
+
+    {% if logto_configured %}
+    <!-- Already configured -->
+    <div class="card bg-base-100 shadow-xl mb-8">
+        <div class="card-body">
+            <div role="alert" class="alert alert-success">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                </svg>
+                <div>
+                    <p class="font-semibold">Logto is configured!</p>
+                    <p class="text-sm">Authentication is ready. You can now
+                        <a href="/login" class="link link-success font-medium">sign in</a>.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Step-by-step guide -->
+    <div class="space-y-6">
+
+        <!-- Step 1 -->
+        <div class="card bg-base-100 shadow">
+            <div class="card-body">
+                <h2 class="card-title text-lg">
+                    <span class="badge badge-primary badge-lg mr-2">1</span>
+                    Deploy or sign up for Logto
+                </h2>
+                <p class="text-sm text-base-content/70">
+                    Choose one of the options below.  Both are free to start.
+                </p>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
+                    <div class="border border-base-300 rounded-lg p-4 space-y-2">
+                        <p class="font-semibold text-sm">☁️ Logto Cloud (recommended)</p>
+                        <p class="text-xs text-base-content/60">
+                            Sign up at
+                            <a href="https://cloud.logto.io" target="_blank" rel="noopener" class="link link-primary">cloud.logto.io</a>.
+                            The free tier supports unlimited users.
+                        </p>
+                    </div>
+                    <div class="border border-base-300 rounded-lg p-4 space-y-2">
+                        <p class="font-semibold text-sm">🐳 Self-hosted (Docker)</p>
+                        <p class="text-xs text-base-content/60">
+                            Add Logto to your <code class="font-mono">docker-compose.yml</code>
+                            (see the
+                            <a href="https://docs.logto.io/docs/recipes/deployment/" target="_blank" rel="noopener" class="link link-primary">Logto deployment guide</a>).
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 2 -->
+        <div class="card bg-base-100 shadow">
+            <div class="card-body">
+                <h2 class="card-title text-lg">
+                    <span class="badge badge-primary badge-lg mr-2">2</span>
+                    Create a "Traditional Web" application in Logto
+                </h2>
+                <ol class="list-decimal list-inside text-sm text-base-content/70 space-y-1 mt-1">
+                    <li>Open the <strong>Logto Console</strong> → <em>Applications</em> → <em>Create application</em>.</li>
+                    <li>Choose <strong>Traditional Web</strong>.</li>
+                    <li>Enter a name, e.g. <em>DMARQ</em>.</li>
+                    <li>
+                        Set the <strong>Redirect URI</strong> to:<br>
+                        <code class="font-mono bg-base-200 px-2 py-0.5 rounded text-xs break-all">
+                            &lt;your-dmarq-url&gt;/api/v1/auth/callback
+                        </code>
+                    </li>
+                    <li>
+                        Set the <strong>Post Sign-out Redirect URI</strong> to:<br>
+                        <code class="font-mono bg-base-200 px-2 py-0.5 rounded text-xs break-all">
+                            &lt;your-dmarq-url&gt;/login
+                        </code>
+                    </li>
+                    <li>Save and note the <strong>App ID</strong> and <strong>App Secret</strong>.</li>
+                </ol>
+            </div>
+        </div>
+
+        <!-- Step 3 -->
+        <div class="card bg-base-100 shadow">
+            <div class="card-body">
+                <h2 class="card-title text-lg">
+                    <span class="badge badge-primary badge-lg mr-2">3</span>
+                    Set environment variables and restart {{ app_name }}
+                </h2>
+                <p class="text-sm text-base-content/70 mb-3">
+                    Add the following to your <code class="font-mono">.env</code> file or Docker environment:
+                </p>
+                <div class="mockup-code text-xs">
+                    <pre><code># Logto endpoint – the base URL of your Logto instance
+LOGTO_ENDPOINT=https://&lt;your-tenant&gt;.logto.app
+
+# Application credentials from the Logto Console
+LOGTO_APP_ID=&lt;your-app-id&gt;
+LOGTO_APP_SECRET=&lt;your-app-secret&gt;
+
+# Optional: override the callback URL (defaults to &lt;base_url&gt;/api/v1/auth/callback)
+# LOGTO_REDIRECT_URI=https://dmarc.example.com/api/v1/auth/callback</code></pre>
+                </div>
+                <div role="alert" class="alert alert-info mt-4 text-sm">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20A10 10 0 0012 2z"/>
+                    </svg>
+                    <p>
+                        For Docker Compose, set these in the <code class="font-mono">environment:</code> section
+                        of the <em>backend</em> service and run <code class="font-mono">docker compose up -d --force-recreate</code>.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 4 -->
+        <div class="card bg-base-100 shadow">
+            <div class="card-body">
+                <h2 class="card-title text-lg">
+                    <span class="badge badge-primary badge-lg mr-2">4</span>
+                    (Optional) Add authentication providers in Logto
+                </h2>
+                <p class="text-sm text-base-content/70">
+                    Logto lets you enable social providers (Google, GitHub, Microsoft, …),
+                    SMS / email passwordless, and multi-factor authentication entirely through
+                    its console – no code changes needed in {{ app_name }}.
+                </p>
+                <p class="text-sm text-base-content/70 mt-2">
+                    See the
+                    <a href="https://docs.logto.io/docs/recipes/configure-connectors/" target="_blank" rel="noopener" class="link link-primary">Logto connector docs</a>
+                    for details.
+                </p>
+            </div>
+        </div>
+
+        <!-- Alternative: disable auth entirely -->
+        <div class="card bg-base-100 shadow border border-warning/40">
+            <div class="card-body">
+                <h2 class="card-title text-lg text-warning">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                    </svg>
+                    Alternative: disable authentication entirely
+                </h2>
+                <p class="text-sm text-base-content/70">
+                    If you're running {{ app_name }} locally or behind a trusted reverse proxy that
+                    already handles authentication, you can skip Logto and grant everyone full access
+                    by setting:
+                </p>
+                <div class="mockup-code text-xs mt-2">
+                    <pre><code>AUTH_DISABLED=true</code></pre>
+                </div>
+                <div role="alert" class="alert alert-warning mt-3 text-sm">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                    </svg>
+                    <p>
+                        <strong>Never</strong> set <code class="font-mono">AUTH_DISABLED=true</code> on a
+                        publicly reachable instance. Anyone with network access will have full admin access.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        {% if logto_configured %}
+        <div class="text-center mt-4">
+            <a href="/login" class="btn btn-primary btn-lg">Go to Sign-in</a>
+        </div>
+        {% endif %}
+
+    </div><!-- /space-y-6 -->
+</div>
+
+<script>
+    (function () {
+        if (localStorage.getItem('darkMode') === 'true') {
+            document.documentElement.setAttribute('data-theme', 'dmarqdark');
+        }
+    })();
+</script>
+</body>
+</html>

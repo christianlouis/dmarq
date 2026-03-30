@@ -9,8 +9,8 @@ import base64
 import email as email_mod
 import json
 from email import encoders as email_encoders
-from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Optional
 from unittest.mock import MagicMock, patch
@@ -18,7 +18,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.services.gmail_client import GmailClient
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -234,9 +233,7 @@ class TestGetGmailEmail:
         assert result is None
 
     def test_returns_none_on_exception(self):
-        with patch(
-            "app.services.gmail_client.httpx.get", side_effect=Exception("network error")
-        ):
+        with patch("app.services.gmail_client.httpx.get", side_effect=Exception("network error")):
             result = GmailClient.get_gmail_email("some-token")
 
         assert result is None
@@ -264,8 +261,9 @@ class TestBuildService:
         client._mock_creds.refresh_token = "ref"
 
         mock_service = MagicMock()
-        with patch("app.services.gmail_client.build", return_value=mock_service), patch(
-            "app.services.gmail_client.Request"
+        with (
+            patch("app.services.gmail_client.build", return_value=mock_service),
+            patch("app.services.gmail_client.Request"),
         ):
             svc = client._build_service()
 
@@ -278,9 +276,7 @@ class TestBuildService:
         client._mock_creds.refresh_token = "ref"
         client._mock_creds.refresh.side_effect = Exception("refresh failed")
 
-        with patch("app.services.gmail_client.Request"), patch(
-            "app.services.gmail_client.build"
-        ):
+        with patch("app.services.gmail_client.Request"), patch("app.services.gmail_client.build"):
             with pytest.raises(Exception, match="refresh failed"):
                 client._build_service()
 
@@ -397,9 +393,7 @@ class TestProcessMessage:
     def test_fetches_and_processes_message(self):
         """Happy path: message fetched, attachments processed."""
         client = _make_client()
-        raw_email = _make_raw_email(
-            [{"filename": "report.xml", "content": b"<xml/>"}]
-        )
+        raw_email = _make_raw_email([{"filename": "report.xml", "content": b"<xml/>"}])
         raw_b64 = _b64_raw(raw_email)
 
         service = MagicMock()
@@ -440,9 +434,7 @@ class TestProcessMessage:
 class TestProcessAttachments:
     def test_no_attachments_returns_zero(self):
         client = _make_client()
-        msg = email_mod.message_from_bytes(
-            b"From: a@b.com\r\nTo: c@d.com\r\n\r\nHello"
-        )
+        msg = email_mod.message_from_bytes(b"From: a@b.com\r\nTo: c@d.com\r\n\r\nHello")
         stats = {"reports_found": 0, "errors": []}
         count = client._process_attachments(msg, stats)
         assert count == 0
@@ -450,9 +442,7 @@ class TestProcessAttachments:
     def test_non_dmarc_attachment_skipped(self):
         """An inline or non-DMARC file should not count as a report."""
         client = _make_client()
-        raw = _make_raw_email(
-            [{"filename": "photo.png", "content": b"\x89PNG"}]
-        )
+        raw = _make_raw_email([{"filename": "photo.png", "content": b"\x89PNG"}])
         msg = email_mod.message_from_bytes(raw)
         stats = {"reports_found": 0, "errors": []}
         count = client._process_attachments(msg, stats)
@@ -462,9 +452,7 @@ class TestProcessAttachments:
     def test_dmarc_xml_attachment_is_parsed(self):
         """A .xml attachment is parsed via DMARCParser and counts as a report."""
         client = _make_client()
-        raw = _make_raw_email(
-            [{"filename": "report.xml", "content": b"<xml_content/>"}]
-        )
+        raw = _make_raw_email([{"filename": "report.xml", "content": b"<xml_content/>"}])
         msg = email_mod.message_from_bytes(raw)
         stats = {"reports_found": 0, "errors": []}
 
@@ -484,9 +472,7 @@ class TestProcessAttachments:
         """A DMARC-named attachment with truly empty payload is skipped gracefully."""
         client = _make_client()
         # Build an attachment with empty bytes – base64 of b"" is b""
-        raw = _make_raw_email(
-            [{"filename": "report.zip", "content": b""}]
-        )
+        raw = _make_raw_email([{"filename": "report.zip", "content": b""}])
         msg = email_mod.message_from_bytes(raw)
         stats = {"reports_found": 0, "errors": []}
         count = client._process_attachments(msg, stats)
@@ -536,9 +522,7 @@ class TestProcessAttachments:
 class TestFetchReports:
     def test_returns_failure_when_build_service_raises(self):
         client = _make_client()
-        with patch.object(
-            client, "_build_service", side_effect=Exception("auth error")
-        ):
+        with patch.object(client, "_build_service", side_effect=Exception("auth error")):
             result = client.fetch_reports()
 
         assert result["success"] is False
@@ -547,8 +531,9 @@ class TestFetchReports:
     def test_returns_failure_when_list_messages_raises(self):
         client = _make_client()
         mock_service = MagicMock()
-        with patch.object(client, "_build_service", return_value=mock_service), patch.object(
-            client, "_list_dmarc_message_ids", side_effect=Exception("list error")
+        with (
+            patch.object(client, "_build_service", return_value=mock_service),
+            patch.object(client, "_list_dmarc_message_ids", side_effect=Exception("list error")),
         ):
             result = client.fetch_reports()
 
@@ -557,8 +542,9 @@ class TestFetchReports:
     def test_returns_success_with_no_messages(self):
         client = _make_client()
         mock_service = MagicMock()
-        with patch.object(client, "_build_service", return_value=mock_service), patch.object(
-            client, "_list_dmarc_message_ids", return_value=[]
+        with (
+            patch.object(client, "_build_service", return_value=mock_service),
+            patch.object(client, "_list_dmarc_message_ids", return_value=[]),
         ):
             result = client.fetch_reports()
 
@@ -568,9 +554,11 @@ class TestFetchReports:
     def test_skips_already_ingested_messages(self):
         client = _make_client(already_ingested=["id1"])
         mock_service = MagicMock()
-        with patch.object(client, "_build_service", return_value=mock_service), patch.object(
-            client, "_list_dmarc_message_ids", return_value=["id1", "id2"]
-        ), patch.object(client, "_process_message", return_value=0) as mock_proc:
+        with (
+            patch.object(client, "_build_service", return_value=mock_service),
+            patch.object(client, "_list_dmarc_message_ids", return_value=["id1", "id2"]),
+            patch.object(client, "_process_message", return_value=0) as mock_proc,
+        ):
             result = client.fetch_reports()
 
         # Only id2 should be processed; id1 is already ingested
@@ -582,9 +570,11 @@ class TestFetchReports:
     def test_tracks_new_ingested_ids(self):
         client = _make_client()
         mock_service = MagicMock()
-        with patch.object(client, "_build_service", return_value=mock_service), patch.object(
-            client, "_list_dmarc_message_ids", return_value=["id1", "id2"]
-        ), patch.object(client, "_process_message", return_value=0):
+        with (
+            patch.object(client, "_build_service", return_value=mock_service),
+            patch.object(client, "_list_dmarc_message_ids", return_value=["id1", "id2"]),
+            patch.object(client, "_process_message", return_value=0),
+        ):
             result = client.fetch_reports()
 
         assert "id1" in result["new_ingested_ids"]
@@ -612,9 +602,11 @@ class TestFetchReports:
             stats["reports_found"] += 1
             return 1
 
-        with patch.object(client, "_build_service", return_value=mock_service), patch.object(
-            client, "_list_dmarc_message_ids", return_value=["id1"]
-        ), patch.object(client, "_process_message", side_effect=_process_side_effect):
+        with (
+            patch.object(client, "_build_service", return_value=mock_service),
+            patch.object(client, "_list_dmarc_message_ids", return_value=["id1"]),
+            patch.object(client, "_process_message", side_effect=_process_side_effect),
+        ):
             result = client.fetch_reports()
 
         assert "newdomain.example" in result["new_domains"]

@@ -503,9 +503,7 @@ class TestGmailAPIMailSource:
             return_value=mock_gmail_client,
         ):
             # First set the access token directly
-            with patch(
-                "app.api.api_v1.endpoints.mail_sources._get_source_or_404"
-            ) as mock_get:
+            with patch("app.api.api_v1.endpoints.mail_sources._get_source_or_404") as mock_get:
                 mock_source = MagicMock()
                 mock_source.method = "GMAIL_API"
                 mock_source.gmail_access_token = "valid-token"
@@ -627,10 +625,9 @@ class TestGmailAPIMailSource:
         mock_client.fetch_reports.return_value = mock_fetch_results
         mock_client.get_refreshed_tokens.return_value = None
 
-        with patch(
-            "app.api.api_v1.endpoints.mail_sources._get_source_or_404"
-        ) as mock_get, patch(
-            "app.api.api_v1.endpoints.mail_sources.GmailClient", return_value=mock_client
+        with (
+            patch("app.api.api_v1.endpoints.mail_sources._get_source_or_404") as mock_get,
+            patch("app.api.api_v1.endpoints.mail_sources.GmailClient", return_value=mock_client),
         ):
             mock_source = MagicMock()
             mock_source.method = "GMAIL_API"
@@ -843,9 +840,7 @@ class TestGmailCallbackGet:
         )
         source_id = create_resp.json()["id"]
 
-        resp = authed_client.get(
-            f"/api/v1/mail-sources/{source_id}/gmail/callback?code=xyz"
-        )
+        resp = authed_client.get(f"/api/v1/mail-sources/{source_id}/gmail/callback?code=xyz")
         assert resp.status_code == 404
 
     def test_callback_token_exchange_error_returns_html_400(self, authed_client: TestClient):
@@ -860,9 +855,7 @@ class TestGmailCallbackGet:
             "app.api.api_v1.endpoints.mail_sources.GmailClient.exchange_code_for_tokens",
             side_effect=ValueError("bad token"),
         ):
-            resp = authed_client.get(
-                f"/api/v1/mail-sources/{source_id}/gmail/callback?code=abc"
-            )
+            resp = authed_client.get(f"/api/v1/mail-sources/{source_id}/gmail/callback?code=abc")
 
         assert resp.status_code == 400
         assert "token exchange failed" in resp.text.lower() or "failed" in resp.text.lower()
@@ -879,9 +872,7 @@ class TestGmailCallbackGet:
             "app.api.api_v1.endpoints.mail_sources.GmailClient.exchange_code_for_tokens",
             return_value={},  # empty – no access_token key
         ):
-            resp = authed_client.get(
-                f"/api/v1/mail-sources/{source_id}/gmail/callback?code=abc"
-            )
+            resp = authed_client.get(f"/api/v1/mail-sources/{source_id}/gmail/callback?code=abc")
 
         assert resp.status_code == 400
 
@@ -893,16 +884,17 @@ class TestGmailCallbackGet:
         )
         source_id = create_resp.json()["id"]
 
-        with patch(
-            "app.api.api_v1.endpoints.mail_sources.GmailClient.exchange_code_for_tokens",
-            return_value={"access_token": "acc", "refresh_token": "ref"},
-        ), patch(
-            "app.api.api_v1.endpoints.mail_sources.GmailClient.get_gmail_email",
-            return_value="user@gmail.com",
+        with (
+            patch(
+                "app.api.api_v1.endpoints.mail_sources.GmailClient.exchange_code_for_tokens",
+                return_value={"access_token": "acc", "refresh_token": "ref"},
+            ),
+            patch(
+                "app.api.api_v1.endpoints.mail_sources.GmailClient.get_gmail_email",
+                return_value="user@gmail.com",
+            ),
         ):
-            resp = authed_client.get(
-                f"/api/v1/mail-sources/{source_id}/gmail/callback?code=abc"
-            )
+            resp = authed_client.get(f"/api/v1/mail-sources/{source_id}/gmail/callback?code=abc")
 
         assert resp.status_code == 200
         assert "connected successfully" in resp.text.lower() or "gmail" in resp.text.lower()
@@ -920,16 +912,17 @@ class TestGmailCallbackGet:
         )
         source_id = create_resp.json()["id"]
 
-        with patch(
-            "app.api.api_v1.endpoints.mail_sources.GmailClient.exchange_code_for_tokens",
-            return_value={"access_token": "acc"},  # no refresh token
-        ), patch(
-            "app.api.api_v1.endpoints.mail_sources.GmailClient.get_gmail_email",
-            return_value=None,
+        with (
+            patch(
+                "app.api.api_v1.endpoints.mail_sources.GmailClient.exchange_code_for_tokens",
+                return_value={"access_token": "acc"},  # no refresh token
+            ),
+            patch(
+                "app.api.api_v1.endpoints.mail_sources.GmailClient.get_gmail_email",
+                return_value=None,
+            ),
         ):
-            resp = authed_client.get(
-                f"/api/v1/mail-sources/{source_id}/gmail/callback?code=abc"
-            )
+            resp = authed_client.get(f"/api/v1/mail-sources/{source_id}/gmail/callback?code=abc")
 
         assert resp.status_code == 200
         get_resp = authed_client.get(f"/api/v1/mail-sources/{source_id}")
@@ -999,12 +992,15 @@ class TestGmailCallbackPost:
         )
         source_id = create_resp.json()["id"]
 
-        with patch(
-            "app.api.api_v1.endpoints.mail_sources.GmailClient.exchange_code_for_tokens",
-            return_value={"access_token": "acc", "refresh_token": "ref"},
-        ), patch(
-            "app.api.api_v1.endpoints.mail_sources.GmailClient.get_gmail_email",
-            return_value="user@gmail.com",
+        with (
+            patch(
+                "app.api.api_v1.endpoints.mail_sources.GmailClient.exchange_code_for_tokens",
+                return_value={"access_token": "acc", "refresh_token": "ref"},
+            ),
+            patch(
+                "app.api.api_v1.endpoints.mail_sources.GmailClient.get_gmail_email",
+                return_value="user@gmail.com",
+            ),
         ):
             resp = authed_client.post(
                 f"/api/v1/mail-sources/{source_id}/gmail/callback",
@@ -1052,10 +1048,9 @@ class TestGmailFetchExtra:
         mock_client.fetch_reports.return_value = mock_fetch_results
         mock_client.get_refreshed_tokens.return_value = None
 
-        with patch(
-            "app.api.api_v1.endpoints.mail_sources._get_source_or_404"
-        ) as mock_get, patch(
-            "app.api.api_v1.endpoints.mail_sources.GmailClient", return_value=mock_client
+        with (
+            patch("app.api.api_v1.endpoints.mail_sources._get_source_or_404") as mock_get,
+            patch("app.api.api_v1.endpoints.mail_sources.GmailClient", return_value=mock_client),
         ):
             mock_source = MagicMock()
             mock_source.method = "GMAIL_API"
@@ -1099,10 +1094,9 @@ class TestGmailFetchExtra:
             "refresh_token": "new_refresh",
         }
 
-        with patch(
-            "app.api.api_v1.endpoints.mail_sources._get_source_or_404"
-        ) as mock_get, patch(
-            "app.api.api_v1.endpoints.mail_sources.GmailClient", return_value=mock_client
+        with (
+            patch("app.api.api_v1.endpoints.mail_sources._get_source_or_404") as mock_get,
+            patch("app.api.api_v1.endpoints.mail_sources.GmailClient", return_value=mock_client),
         ):
             mock_source = MagicMock()
             mock_source.method = "GMAIL_API"
@@ -1141,11 +1135,12 @@ class TestGmailFetchExtra:
         mock_client.fetch_reports.return_value = mock_fetch_results
         mock_client.get_refreshed_tokens.return_value = None
 
-        with patch(
-            "app.api.api_v1.endpoints.mail_sources._get_source_or_404"
-        ) as mock_get, patch(
-            "app.api.api_v1.endpoints.mail_sources.GmailClient", return_value=mock_client
-        ) as mock_gmail_class:
+        with (
+            patch("app.api.api_v1.endpoints.mail_sources._get_source_or_404") as mock_get,
+            patch(
+                "app.api.api_v1.endpoints.mail_sources.GmailClient", return_value=mock_client
+            ) as mock_gmail_class,
+        ):
             # Configure the class-level static helpers used inside the endpoint
             mock_gmail_class.load_ingested_ids.return_value = ["id1"]
             mock_gmail_class.dump_ingested_ids.return_value = '["id1","id2","id3"]'
@@ -1188,18 +1183,19 @@ class TestGmailTestConnectionFailure:
         source_id = create_resp.json()["id"]
 
         mock_service = MagicMock()
-        mock_service.users.return_value.getProfile.return_value.execute.side_effect = (
-            Exception("internal oauth error: token expired")
+        mock_service.users.return_value.getProfile.return_value.execute.side_effect = Exception(
+            "internal oauth error: token expired"
         )
         mock_gmail_client = MagicMock()
         mock_gmail_client._build_service.return_value = mock_service
 
-        with patch(
-            "app.api.api_v1.endpoints.mail_sources.GmailClient",
-            return_value=mock_gmail_client,
-        ), patch(
-            "app.api.api_v1.endpoints.mail_sources._get_source_or_404"
-        ) as mock_get:
+        with (
+            patch(
+                "app.api.api_v1.endpoints.mail_sources.GmailClient",
+                return_value=mock_gmail_client,
+            ),
+            patch("app.api.api_v1.endpoints.mail_sources._get_source_or_404") as mock_get,
+        ):
             mock_source = MagicMock()
             mock_source.method = "GMAIL_API"
             mock_source.gmail_access_token = "tok"
@@ -1274,10 +1270,11 @@ class TestPollSingleGmailSource:
         mock_db.__exit__ = MagicMock(return_value=False)
         mock_db.query.return_value.get.return_value = mock_db_source
 
-        with patch("app.main.GmailClient", return_value=mock_client), patch(
-            "app.main.SessionLocal", return_value=mock_db
-        ), patch("app.main.GmailClient.load_ingested_ids", return_value=[]), patch(
-            "app.main.GmailClient.dump_ingested_ids", return_value='["id1","id2"]'
+        with (
+            patch("app.main.GmailClient", return_value=mock_client),
+            patch("app.main.SessionLocal", return_value=mock_db),
+            patch("app.main.GmailClient.load_ingested_ids", return_value=[]),
+            patch("app.main.GmailClient.dump_ingested_ids", return_value='["id1","id2"]'),
         ):
             _poll_single_gmail_source(src)
 
@@ -1303,9 +1300,11 @@ class TestPollSingleGmailSource:
         mock_db = MagicMock()
         mock_db.query.return_value.get.return_value = MagicMock()
 
-        with patch("app.main.GmailClient", return_value=mock_client), patch(
-            "app.main.SessionLocal", return_value=mock_db
-        ), patch("app.main.GmailClient.load_ingested_ids", return_value=[]):
+        with (
+            patch("app.main.GmailClient", return_value=mock_client),
+            patch("app.main.SessionLocal", return_value=mock_db),
+            patch("app.main.GmailClient.load_ingested_ids", return_value=[]),
+        ):
             _poll_single_gmail_source(src)  # should not raise
 
     def test_logs_error_on_failure(self):
@@ -1329,9 +1328,11 @@ class TestPollSingleGmailSource:
         mock_db = MagicMock()
         mock_db.query.return_value.get.return_value = MagicMock()
 
-        with patch("app.main.GmailClient", return_value=mock_client), patch(
-            "app.main.SessionLocal", return_value=mock_db
-        ), patch("app.main.GmailClient.load_ingested_ids", return_value=[]):
+        with (
+            patch("app.main.GmailClient", return_value=mock_client),
+            patch("app.main.SessionLocal", return_value=mock_db),
+            patch("app.main.GmailClient.load_ingested_ids", return_value=[]),
+        ):
             _poll_single_gmail_source(src)  # should not raise
 
     def test_persists_refreshed_tokens(self):
@@ -1358,9 +1359,11 @@ class TestPollSingleGmailSource:
         mock_db = MagicMock()
         mock_db.query.return_value.get.return_value = mock_db_source
 
-        with patch("app.main.GmailClient", return_value=mock_client), patch(
-            "app.main.SessionLocal", return_value=mock_db
-        ), patch("app.main.GmailClient.load_ingested_ids", return_value=[]):
+        with (
+            patch("app.main.GmailClient", return_value=mock_client),
+            patch("app.main.SessionLocal", return_value=mock_db),
+            patch("app.main.GmailClient.load_ingested_ids", return_value=[]),
+        ):
             _poll_single_gmail_source(src)
 
         assert mock_db_source.gmail_access_token == "new-acc"
@@ -1432,9 +1435,11 @@ class TestTriggerPollGmailSource:
         mock_gc.get_refreshed_tokens.return_value = None
         mock_db = MagicMock()
 
-        with patch("app.main.GmailClient", return_value=mock_gc), patch(
-            "app.main.GmailClient.load_ingested_ids", return_value=[]
-        ), patch("app.main.GmailClient.dump_ingested_ids", return_value='["id1"]'):
+        with (
+            patch("app.main.GmailClient", return_value=mock_gc),
+            patch("app.main.GmailClient.load_ingested_ids", return_value=[]),
+            patch("app.main.GmailClient.dump_ingested_ids", return_value='["id1"]'),
+        ):
             result = _trigger_poll_gmail_source(src, mock_db)
 
         assert result["success"] is True
@@ -1459,8 +1464,9 @@ class TestTriggerPollGmailSource:
         }
         mock_db = MagicMock()
 
-        with patch("app.main.GmailClient", return_value=mock_gc), patch(
-            "app.main.GmailClient.load_ingested_ids", return_value=[]
+        with (
+            patch("app.main.GmailClient", return_value=mock_gc),
+            patch("app.main.GmailClient.load_ingested_ids", return_value=[]),
         ):
             _trigger_poll_gmail_source(src, mock_db)
 
@@ -1510,9 +1516,7 @@ class TestPollSourceForTrigger:
         src.id = 3
         src.name = "Gmail exc"
 
-        with patch(
-            "app.main._trigger_poll_gmail_source", side_effect=Exception("boom")
-        ):
+        with patch("app.main._trigger_poll_gmail_source", side_effect=Exception("boom")):
             result = _poll_source_for_trigger(src, MagicMock())
 
         assert result["success"] is False
@@ -1541,9 +1545,7 @@ class TestPollSourceForTrigger:
         src.id = 5
         src.name = "IMAP exc"
 
-        with patch(
-            "app.main._trigger_poll_imap_source", side_effect=Exception("imap fail")
-        ):
+        with patch("app.main._trigger_poll_imap_source", side_effect=Exception("imap fail")):
             result = _poll_source_for_trigger(src, MagicMock())
 
         assert result["success"] is False
@@ -1576,9 +1578,10 @@ class TestPollAllEnabledSources:
         mock_db = MagicMock()
         mock_db.query.return_value.filter.return_value.all.return_value = [src]
 
-        with patch("app.main.SessionLocal", return_value=mock_db), patch(
-            "app.main._poll_single_gmail_source"
-        ) as mock_gmail:
+        with (
+            patch("app.main.SessionLocal", return_value=mock_db),
+            patch("app.main._poll_single_gmail_source") as mock_gmail,
+        ):
             _poll_all_enabled_sources()
 
         mock_gmail.assert_called_once_with(src)
@@ -1594,9 +1597,10 @@ class TestPollAllEnabledSources:
         mock_db = MagicMock()
         mock_db.query.return_value.filter.return_value.all.return_value = [src]
 
-        with patch("app.main.SessionLocal", return_value=mock_db), patch(
-            "app.main._poll_single_imap_source"
-        ) as mock_imap:
+        with (
+            patch("app.main.SessionLocal", return_value=mock_db),
+            patch("app.main._poll_single_imap_source") as mock_imap,
+        ):
             _poll_all_enabled_sources()
 
         mock_imap.assert_called_once_with(src)
@@ -1612,8 +1616,9 @@ class TestPollAllEnabledSources:
         mock_db = MagicMock()
         mock_db.query.return_value.filter.return_value.all.return_value = [src]
 
-        with patch("app.main.SessionLocal", return_value=mock_db), patch(
-            "app.main._poll_single_gmail_source", side_effect=Exception("crash")
+        with (
+            patch("app.main.SessionLocal", return_value=mock_db),
+            patch("app.main._poll_single_gmail_source", side_effect=Exception("crash")),
         ):
             _poll_all_enabled_sources()  # should not raise
 
@@ -1628,8 +1633,9 @@ class TestPollAllEnabledSources:
         mock_db = MagicMock()
         mock_db.query.return_value.filter.return_value.all.return_value = [src]
 
-        with patch("app.main.SessionLocal", return_value=mock_db), patch(
-            "app.main._poll_single_imap_source", side_effect=Exception("imap crash")
+        with (
+            patch("app.main.SessionLocal", return_value=mock_db),
+            patch("app.main._poll_single_imap_source", side_effect=Exception("imap crash")),
         ):
             _poll_all_enabled_sources()  # should not raise
 
@@ -1653,8 +1659,8 @@ class TestTriggerPollEndpoint:
 
     def test_trigger_poll_with_enabled_sources(self):
         """With enabled sources, the endpoint dispatches and returns results."""
-        from app.main import app as main_app
         from app.core.security import require_admin_auth
+        from app.main import app as main_app
 
         async def mock_auth():
             return {"auth_type": "api_key"}
@@ -1681,8 +1687,9 @@ class TestTriggerPollEndpoint:
             }
 
             with TestClient(main_app) as tc:
-                with patch("app.main.SessionLocal", return_value=mock_db), patch(
-                    "app.main._poll_source_for_trigger", return_value=mock_result
+                with (
+                    patch("app.main.SessionLocal", return_value=mock_db),
+                    patch("app.main._poll_source_for_trigger", return_value=mock_result),
                 ):
                     resp = tc.post("/api/v1/admin/trigger-poll")
 

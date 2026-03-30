@@ -89,18 +89,14 @@ class TestDomainStatistics:
         response = client.get("/api/v1/stats/domain/example.com?force_refresh=true")
         assert response.status_code == 200
 
-    def test_domain_stats_force_refresh_calls_invalidate_with_domain(
-        self, client: TestClient
-    ):
+    def test_domain_stats_force_refresh_calls_invalidate_with_domain(self, client: TestClient):
         """Verify invalidate_cache is called with the domain ID."""
         with patch("app.api.api_v1.endpoints.stats.StatsSummarizer") as MockSummarizer:
             mock_instance = MagicMock()
             mock_instance.calculate_summary_statistics.return_value = {"total": 0}
             MockSummarizer.return_value = mock_instance
 
-            response = client.get(
-                "/api/v1/stats/domain/example.com?force_refresh=true"
-            )
+            response = client.get("/api/v1/stats/domain/example.com?force_refresh=true")
             assert response.status_code == 200
             mock_instance.invalidate_cache.assert_called_once_with("example.com")
 

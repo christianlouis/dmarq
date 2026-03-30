@@ -19,7 +19,6 @@ import pytest
 from app.services.imap_client import IMAPClient
 from app.services.report_store import ReportStore
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -316,9 +315,7 @@ class TestIsDmarcReportEmail:
 
     def test_dmarc_sender_matches(self):
         client = self._make_client()
-        msg = self._make_msg(
-            subject="Weekly report", from_addr="noreply@google.com"
-        )
+        msg = self._make_msg(subject="Weekly report", from_addr="noreply@google.com")
         assert client._is_dmarc_report_email(msg) is True
 
     def test_xml_attachment_matches(self):
@@ -443,9 +440,7 @@ class TestProcessAttachments:
 
     def test_bad_attachment_does_not_raise(self):
         client = self._make_client()
-        msg = email.message_from_bytes(
-            _make_email_with_attachment("report.xml", b"not xml at all")
-        )
+        msg = email.message_from_bytes(_make_email_with_attachment("report.xml", b"not xml at all"))
         # Should not raise; just returns 0
         count = client._process_attachments(msg)
         assert count == 0

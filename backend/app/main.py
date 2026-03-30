@@ -17,10 +17,11 @@ from app.api.api_v1.api import api_router
 from app.core.config import get_settings
 from app.core.database import Base, SessionLocal, engine
 from app.core.security import add_api_key, generate_api_key, require_admin_auth
+from app.middleware.auth import AuthRedirectMiddleware
 from app.middleware.security import SecurityHeadersMiddleware
 from app.models.mail_source import MailSource  # noqa: F401 – ensure table is registered
-from app.services.gmail_client import GmailClient
 from app.models.user import User  # noqa: F401 – ensure User mapper is registered
+from app.services.gmail_client import GmailClient
 from app.services.imap_client import IMAPClient
 from app.services.report_store import ReportStore
 
@@ -255,6 +256,9 @@ def create_app() -> FastAPI:
     environment = os.getenv("ENVIRONMENT", "development")
     application.add_middleware(SecurityHeadersMiddleware, environment=environment)
 
+    # Auth redirect middleware – protects HTML pages; must sit outside CORS
+    application.add_middleware(AuthRedirectMiddleware)
+
     # Improved CORS configuration - restrict to specific methods and headers
     if settings.BACKEND_CORS_ORIGINS:
         application.add_middleware(
@@ -295,6 +299,18 @@ def create_app() -> FastAPI:
 
         # Ensure all tables exist (no-op if already present)
         Base.metadata.create_all(bind=engine)
+
+        # Warn loudly when authentication is completely disabled
+        if settings.AUTH_DISABLED:
+            logger.warning(
+                "%s\n"
+                "⚠️  AUTH_DISABLED=true — authentication is turned OFF.\n"
+                "All requests have unrestricted admin access.\n"
+                "Do NOT expose this instance directly to the internet.\n"
+                "%s",
+                "=" * 80,
+                "=" * 80,
+            )
 
         # Load or generate the admin API key
         if settings.ADMIN_API_KEY:
@@ -362,13 +378,29 @@ async def dashboard(request: Request):
 
 
 @app.get("/login", response_class=HTMLResponse)
-async def login(request: Request):
-    return templates.TemplateResponse(request, "login.html", {"app_name": settings.PROJECT_NAME})
+async def login(request: Request, next: str = "/"):
+    return templates.TemplateResponse(
+        request,
+        "login.html",
+        {
+            "app_name": settings.PROJECT_NAME,
+            "logto_configured": settings.logto_configured,
+            "auth_disabled": settings.AUTH_DISABLED,
+            "next": next,
+        },
+    )
 
 
 @app.get("/setup", response_class=HTMLResponse)
 async def setup(request: Request):
-    return templates.TemplateResponse(request, "setup.html", {"app_name": settings.PROJECT_NAME})
+    return templates.TemplateResponse(
+        request,
+        "setup.html",
+        {
+            "app_name": settings.PROJECT_NAME,
+            "logto_configured": settings.logto_configured,
+        },
+    )
 
 
 @app.get("/domains", response_class=HTMLResponse)
@@ -418,9 +450,7 @@ async def reports(request: Request):
 @app.get("/reports/{report_id}", response_class=HTMLResponse)
 async def report_detail(request: Request, report_id: str):
     """View detailed information for a specific DMARC report"""
-    return templates.TemplateResponse(
-        request, "report_detail.html", {"report_id": report_id}
-    )
+    return templates.TemplateResponse(request, "report_detail.html", {"report_id": report_id})
 
 
 @app.get("/settings", response_class=HTMLResponse)

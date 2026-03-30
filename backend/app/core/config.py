@@ -54,9 +54,38 @@ class Settings(BaseSettings):
     # Use: openssl rand -hex 32
     ADMIN_API_KEY: Optional[str] = None
 
+    # ── Authentication mode ───────────────────────────────────────────────────
+    # Set AUTH_DISABLED=true to run without any authentication.
+    # Every request is treated as an anonymous admin.
+    #
+    # ⚠️  Only use this for local development or deployments that are protected
+    #     by an external auth proxy (e.g. Authelia, OAuth2 Proxy, Traefik Forward Auth).
+    #     Never expose an AUTH_DISABLED instance directly to the internet.
+    AUTH_DISABLED: bool = False
+
+    # ── Logto OIDC ────────────────────────────────────────────────────────────
+    # Set these to enable Logto-based authentication.
+    # LOGTO_ENDPOINT:    the base URL of your Logto instance,
+    #                    e.g. "https://your-tenant.logto.app" or a self-hosted URL.
+    # LOGTO_APP_ID:      the Client ID of the "Traditional Web" application in Logto.
+    # LOGTO_APP_SECRET:  the Client Secret of the same application.
+    # LOGTO_REDIRECT_URI (optional): override the default callback URL.
+    #                    Defaults to <base_url>/api/v1/auth/callback.
+    LOGTO_ENDPOINT: Optional[str] = None
+    LOGTO_APP_ID: Optional[str] = None
+    LOGTO_APP_SECRET: Optional[str] = None
+    LOGTO_REDIRECT_URI: Optional[str] = None
+
+    @property
+    def logto_configured(self) -> bool:
+        """Return True when the minimum Logto settings are present."""
+        return bool(self.LOGTO_ENDPOINT and self.LOGTO_APP_ID and self.LOGTO_APP_SECRET)
+
     @validator("ADMIN_API_KEY", pre=True, always=True)
     @classmethod
-    def validate_admin_api_key(cls, v: Optional[str]) -> Optional[str]:  # pylint: disable=no-self-argument
+    def validate_admin_api_key(
+        cls, v: Optional[str]
+    ) -> Optional[str]:  # pylint: disable=no-self-argument
         """Warn if ADMIN_API_KEY is set but too short."""
         if v is not None and len(v) < 32:
             logger.warning(

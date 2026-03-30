@@ -4,7 +4,7 @@ import secrets
 from datetime import datetime, timedelta
 from typing import Any, Optional, Union
 
-from fastapi import HTTPException, Security, status
+from fastapi import HTTPException, Request, Security, status
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -162,42 +162,60 @@ async def verify_token(
 
 
 async def require_admin_auth(
+    request: Request,
     api_key: Optional[str] = Security(api_key_header),
     bearer: Optional[HTTPAuthorizationCredentials] = Security(security_bearer),
 ) -> dict:
     """
-    Dependency to require either API key or JWT token authentication for admin endpoints.
+    Dependency to require authentication for admin/API endpoints.
 
-    Checks API key first, then falls back to JWT token.
+    Accepts (in priority order):
+    1. ``AUTH_DISABLED=true`` env var – passes through with a synthetic context.
+    2. ``dmarq_session`` cookie – set after a successful Logto login.
+    3. ``X-API-Key`` header    – static admin key for programmatic access.
+    4. ``Authorization: Bearer <token>`` header – app-issued JWT.
 
-    Args:
-        api_key: Optional API key from X-API-Key header
-        bearer: Optional JWT token from Authorization header
-
-    Returns:
-        Authentication context (api_key or token payload)
-
-    Raises:
-        HTTPException: If no valid authentication is provided
+    Returns an authentication context dict describing how the request was
+    authenticated.  Raises ``HTTP 401`` when no valid credential is present.
     """
-    # Try API key first
+    # 0. Auth globally disabled
+    if settings.AUTH_DISABLED:
+        return {"auth_type": "disabled"}
+
+    # 1. Session cookie (Logto-backed app session)
+    from app.core.logto import SESSION_COOKIE, decode_session_token  # local import
+
+    session_token = request.cookies.get(SESSION_COOKIE)
+    if session_token:
+        user_id = decode_session_token(session_token)
+        if user_id is not None:
+            return {"auth_type": "session", "user_id": user_id}
+
+    # 2. Static admin API key
     if api_key and verify_api_key(api_key):
         return {"auth_type": "api_key", "api_key": api_key}
 
-    # Try JWT token
+    # 3. Bearer JWT (app-issued; also covers Bearer tokens set by older clients)
     if bearer:
+        from app.core.logto import decode_session_token as _dec  # local import
+
+        user_id = _dec(bearer.credentials)
+        if user_id is not None:
+            return {"auth_type": "bearer", "user_id": user_id}
+
+        # Fallback: legacy python-jose JWT (pre-Logto API keys / CI tokens)
         try:
             payload = jwt.decode(
                 bearer.credentials, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
             )
             return {"auth_type": "jwt", "payload": payload}
         except JWTError as e:
-            logger.warning("Invalid JWT token: %s", str(e))
+            logger.warning("Invalid Bearer JWT: %s", str(e))
 
-    # No valid authentication provided
+    # No valid authentication
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Authentication required. Provide either X-API-Key header or Bearer token.",
+        detail="Authentication required. Provide a session cookie, X-API-Key header, or Bearer token.",
         headers={"WWW-Authenticate": "ApiKey, Bearer"},
     )
 
