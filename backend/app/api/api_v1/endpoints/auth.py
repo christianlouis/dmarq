@@ -7,6 +7,8 @@ GET  /sign-in         – Initiate the Logto sign-in flow.
 GET  /callback        – Handle the Logto authorization-code callback.
 GET  /sign-out        – Sign the user out (clears session + redirects to Logto).
 GET  /me              – Return the currently authenticated user's profile.
+GET  /forgot-password – Redirect to Logto's forgot-password screen.
+GET  /account-portal  – Redirect to the Logto account portal (MFA management).
 """
 
 from __future__ import annotations
@@ -195,6 +197,53 @@ async def sign_out(request: Request) -> RedirectResponse:
     response = RedirectResponse(url=redirect_to, status_code=302)
     response.delete_cookie(key=SESSION_COOKIE, httponly=True, samesite="lax")
     return response
+
+
+@router.get("/forgot-password")
+async def forgot_password(request: Request) -> RedirectResponse:
+    """
+    Redirect the user to Logto's forgot-password screen.
+
+    Builds a standard Logto authorization URL and appends the
+    ``first_screen=forgot_password`` parameter so that Logto shows the
+    password-reset form immediately instead of the normal sign-in form.
+    After the user resets their password they are returned via the normal
+    callback flow and land on the app dashboard.
+    """
+    if not settings.logto_configured:
+        raise _logto_not_configured()
+
+    storage = CookieStorage(request)
+    client = make_logto_client(storage)
+
+    sign_in_url: str = await client.signIn(redirectUri=_get_redirect_uri(request))
+
+    # Append the Logto-specific first_screen parameter so the password-reset
+    # form is shown directly.  The sign-in URL normally already contains a "?"
+    # but we defensively detect the right separator in case the structure varies.
+    separator = "&" if "?" in sign_in_url else "?"
+    forgot_url = f"{sign_in_url}{separator}first_screen=forgot_password"
+
+    response = RedirectResponse(url=forgot_url, status_code=302)
+    storage.apply_to_response(response)
+    return response
+
+
+@router.get("/account-portal")
+async def account_portal(request: Request) -> RedirectResponse:
+    """
+    Redirect an authenticated user to the Logto account portal.
+
+    The Logto account portal (``{LOGTO_ENDPOINT}/account``) lets users manage
+    their profile, linked identities, and multi-factor authentication settings
+    without leaving the Logto-hosted UI.  After updating their settings, users
+    can simply navigate back to the app.
+    """
+    if not settings.logto_configured:
+        raise _logto_not_configured()
+
+    portal_url = f"{settings.LOGTO_ENDPOINT.rstrip('/')}/account"
+    return RedirectResponse(url=portal_url, status_code=302)
 
 
 @router.get("/me", response_model=None)
