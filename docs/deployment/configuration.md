@@ -34,6 +34,16 @@ DMARQ can be configured through:
 | `LOG_LEVEL` | Application logging level | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `CORS_ORIGINS` | Allowed CORS origins | `http://localhost:8000` | `https://dmarq.example.com` |
 
+### Logto Authentication Settings
+
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `LOGTO_ENDPOINT` | Base URL of your Logto instance | - | `https://your-tenant.logto.app` |
+| `LOGTO_APP_ID` | Client ID of the Logto application | - | `your-app-id` |
+| `LOGTO_APP_SECRET` | Client Secret of the Logto application | - | `your-app-secret` |
+| `LOGTO_REDIRECT_URI` | Override the OAuth callback URL | Auto-detected | `https://dmarq.example.com/api/v1/auth/callback` |
+| `LOGTO_SKIP_SSL_VERIFY` | Disable SSL certificate verification for connections to the Logto endpoint. **Only use this when your Logto instance uses a self-signed certificate that you control. Never enable in production environments.** | `true` | `true`, `false` |
+
 ### IMAP Settings
 
 | Variable | Description | Default | Example |
