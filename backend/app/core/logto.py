@@ -17,7 +17,8 @@ from typing import Optional
 
 from fastapi import Request, Response
 from jose import JWTError, jwt
-from logto import IdTokenClaims, LogtoClient, LogtoConfig, PersistKey, Scope, Storage, UserInfoScope
+from logto import IdTokenClaims, LogtoClient, LogtoConfig, PersistKey, Storage, UserInfoScope
+from logto.models.oidc import OAuthScope
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -125,7 +126,7 @@ def make_logto_client(storage: CookieStorage) -> LogtoClient:
             scopes=[
                 UserInfoScope.email,
                 UserInfoScope.profile,
-                Scope.offlineAccess,
+                OAuthScope.offlineAccess,
             ],
         ),
         storage=storage,
