@@ -372,9 +372,7 @@ async def index(request: Request):
 # Individual page routes
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request):
-    return templates.TemplateResponse(
-        request, "dashboard.html", {"app_name": settings.PROJECT_NAME}
-    )
+    return templates.TemplateResponse(request, "index.html")
 
 
 @app.get("/login", response_class=HTMLResponse)
