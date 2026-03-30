@@ -51,7 +51,7 @@ class TestSetupAdmin:
             json={
                 "email": "admin@example.com",
                 "username": "admin",
-                "password": "s3cr3tpass",
+                "password": "test-placeholder-password",
             },
         )
         assert response.status_code == 201

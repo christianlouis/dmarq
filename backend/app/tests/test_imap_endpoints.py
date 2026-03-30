@@ -6,7 +6,6 @@ Covers connection testing, report fetching (foreground and background), and stat
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 from fastapi.testclient import TestClient
 
 

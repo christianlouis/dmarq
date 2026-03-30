@@ -6,14 +6,12 @@ create_access_token, and require_admin_auth branches not yet exercised.
 from datetime import timedelta
 
 import pytest
-from fastapi.testclient import TestClient
 from jose import jwt
 
 from app.core.security import (
     add_api_key,
     create_access_token,
     generate_api_key,
-    verify_api_key,
     verify_token,
 )
 
