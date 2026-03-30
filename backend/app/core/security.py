@@ -170,13 +170,18 @@ async def require_admin_auth(
     Dependency to require authentication for admin/API endpoints.
 
     Accepts (in priority order):
-    1. ``dmarq_session`` cookie – set after a successful Logto login.
-    2. ``X-API-Key`` header    – static admin key for programmatic access.
-    3. ``Authorization: Bearer <token>`` header – app-issued JWT.
+    1. ``AUTH_DISABLED=true`` env var – passes through with a synthetic context.
+    2. ``dmarq_session`` cookie – set after a successful Logto login.
+    3. ``X-API-Key`` header    – static admin key for programmatic access.
+    4. ``Authorization: Bearer <token>`` header – app-issued JWT.
 
     Returns an authentication context dict describing how the request was
     authenticated.  Raises ``HTTP 401`` when no valid credential is present.
     """
+    # 0. Auth globally disabled
+    if settings.AUTH_DISABLED:
+        return {"auth_type": "disabled"}
+
     # 1. Session cookie (Logto-backed app session)
     from app.core.logto import SESSION_COOKIE, decode_session_token  # local import
 

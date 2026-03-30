@@ -300,6 +300,18 @@ def create_app() -> FastAPI:
         # Ensure all tables exist (no-op if already present)
         Base.metadata.create_all(bind=engine)
 
+        # Warn loudly when authentication is completely disabled
+        if settings.AUTH_DISABLED:
+            logger.warning(
+                "%s\n"
+                "⚠️  AUTH_DISABLED=true — authentication is turned OFF.\n"
+                "All requests have unrestricted admin access.\n"
+                "Do NOT expose this instance directly to the internet.\n"
+                "%s",
+                "=" * 80,
+                "=" * 80,
+            )
+
         # Load or generate the admin API key
         if settings.ADMIN_API_KEY:
             api_key = settings.ADMIN_API_KEY
@@ -373,6 +385,7 @@ async def login(request: Request, next: str = "/"):
         {
             "app_name": settings.PROJECT_NAME,
             "logto_configured": settings.logto_configured,
+            "auth_disabled": settings.AUTH_DISABLED,
             "next": next,
         },
     )

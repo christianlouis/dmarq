@@ -158,6 +158,35 @@ LOGTO_APP_SECRET=&lt;your-app-secret&gt;
             </div>
         </div>
 
+        <!-- Alternative: disable auth entirely -->
+        <div class="card bg-base-100 shadow border border-warning/40">
+            <div class="card-body">
+                <h2 class="card-title text-lg text-warning">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                    </svg>
+                    Alternative: disable authentication entirely
+                </h2>
+                <p class="text-sm text-base-content/70">
+                    If you're running {{ app_name }} locally or behind a trusted reverse proxy that
+                    already handles authentication, you can skip Logto and grant everyone full access
+                    by setting:
+                </p>
+                <div class="mockup-code text-xs mt-2">
+                    <pre><code>AUTH_DISABLED=true</code></pre>
+                </div>
+                <div role="alert" class="alert alert-warning mt-3 text-sm">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                    </svg>
+                    <p>
+                        <strong>Never</strong> set <code class="font-mono">AUTH_DISABLED=true</code> on a
+                        publicly reachable instance. Anyone with network access will have full admin access.
+                    </p>
+                </div>
+            </div>
+        </div>
+
         {% if logto_configured %}
         <div class="text-center mt-4">
             <a href="/login" class="btn btn-primary btn-lg">Go to Sign-in</a>

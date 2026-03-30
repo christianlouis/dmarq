@@ -26,7 +26,22 @@
         <div class="card-body gap-6">
             <h1 class="card-title text-xl justify-center">Sign in to your account</h1>
 
-            {% if not logto_configured %}
+            {% if auth_disabled %}
+            <!-- Auth disabled mode -->
+            <div role="alert" class="alert alert-info">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20A10 10 0 0012 2z"/>
+                </svg>
+                <div>
+                    <p class="font-semibold">Authentication is disabled</p>
+                    <p class="text-sm">
+                        <code class="font-mono bg-base-200 px-1 rounded">AUTH_DISABLED=true</code>
+                        is set. All requests have full access — no sign-in required.
+                        <a href="/" class="link link-info font-medium">Go to dashboard →</a>
+                    </p>
+                </div>
+            </div>
+            {% elif not logto_configured %}
             <!-- Logto not yet configured -->
             <div role="alert" class="alert alert-warning">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">

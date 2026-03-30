@@ -166,9 +166,14 @@ async def sign_out(request: Request) -> RedirectResponse:
     """
     Sign the user out.
 
-    Clears the app session cookie and redirects to Logto's end-session
+    When ``AUTH_DISABLED=true`` there is nothing to sign out of; redirects to ``/``.
+
+    Otherwise clears the app session cookie and redirects to Logto's end-session
     endpoint (if available) so that the Logto session is terminated too.
     """
+    if settings.AUTH_DISABLED:
+        return RedirectResponse(url="/", status_code=302)
+
     post_logout_url = str(request.base_url).rstrip("/")
 
     # Best-effort: obtain Logto's end-session URL from OIDC metadata.
@@ -200,9 +205,25 @@ async def get_current_user(
     """
     Return the profile of the currently authenticated user.
 
-    Reads the ``dmarq_session`` cookie (issued at callback time) and looks up
-    the corresponding local ``User`` record.
+    When ``AUTH_DISABLED=true`` a synthetic anonymous-admin profile is returned
+    so that UI components (e.g. the navbar user menu) work without a real session.
+
+    Otherwise reads the ``dmarq_session`` cookie (issued at callback time) and
+    looks up the corresponding local ``User`` record.
     """
+    # Auth-disabled: return a synthetic profile so the UI renders correctly.
+    if settings.AUTH_DISABLED:
+        return {
+            "id": 0,
+            "email": "admin@localhost",
+            "full_name": "Local Admin",
+            "username": "admin",
+            "picture": None,
+            "is_superuser": True,
+            "logto_id": None,
+            "auth_disabled": True,
+        }
+
     token = request.cookies.get(SESSION_COOKIE)
     if not token:
         raise HTTPException(

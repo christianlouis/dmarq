@@ -237,3 +237,59 @@ class TestSignOutEndpoint:
         set_cookie = res.headers.get("set-cookie", "")
         assert SESSION_COOKIE in set_cookie
         assert "Max-Age=0" in set_cookie or "max-age=0" in set_cookie
+
+
+# ── AUTH_DISABLED mode ────────────────────────────────────────────────────────
+
+
+class TestAuthDisabled:
+    """Verify the AUTH_DISABLED=true no-auth fallback mode."""
+
+    def test_me_returns_synthetic_admin_when_auth_disabled(self, client: TestClient):
+        """With AUTH_DISABLED, /me must return the synthetic admin profile."""
+        with patch("app.api.api_v1.endpoints.auth.settings") as mock_settings:
+            mock_settings.AUTH_DISABLED = True
+            res = client.get("/api/v1/auth/me")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["is_superuser"] is True
+        assert data["auth_disabled"] is True
+        assert data["email"] == "admin@localhost"
+
+    def test_sign_out_redirects_to_root_when_auth_disabled(self, client: TestClient):
+        """With AUTH_DISABLED, sign-out should redirect to / (no Logto session to clear)."""
+        with patch("app.api.api_v1.endpoints.auth.settings") as mock_settings:
+            mock_settings.AUTH_DISABLED = True
+            res = client.get("/api/v1/auth/sign-out", follow_redirects=False)
+        assert res.status_code == 302
+        assert res.headers["location"] == "/"
+
+    def test_require_admin_auth_passes_when_disabled(self):
+        """require_admin_auth must return a synthetic context when AUTH_DISABLED=True."""
+        import asyncio
+        from unittest.mock import MagicMock
+
+        from app.core.security import require_admin_auth
+
+        with patch("app.core.security.settings") as mock_settings:
+            mock_settings.AUTH_DISABLED = True
+            mock_req = MagicMock()
+            mock_req.cookies = {}
+            result = asyncio.get_event_loop().run_until_complete(
+                require_admin_auth(request=mock_req, api_key=None, bearer=None)
+            )
+        assert result["auth_type"] == "disabled"
+
+    def test_middleware_passes_all_requests_when_auth_disabled(self, client: TestClient):
+        """The auth middleware must let every request through when AUTH_DISABLED=True."""
+        # The middleware does `from app.core.config import get_settings` inside dispatch,
+        # so we patch the canonical location used at call time.
+        with patch("app.core.config.get_settings") as mock_get_settings:
+            mock_cfg = MagicMock()
+            mock_cfg.AUTH_DISABLED = True
+            mock_get_settings.return_value = mock_cfg
+            # Even without a session cookie, the middleware lets the request through.
+            # The endpoint itself then handles auth (API key or 401), but it must
+            # never be a 302 redirect from the middleware.
+            res = client.get("/settings", follow_redirects=False)
+            assert res.status_code != 302

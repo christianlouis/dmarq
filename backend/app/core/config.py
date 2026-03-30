@@ -54,6 +54,15 @@ class Settings(BaseSettings):
     # Use: openssl rand -hex 32
     ADMIN_API_KEY: Optional[str] = None
 
+    # ── Authentication mode ───────────────────────────────────────────────────
+    # Set AUTH_DISABLED=true to run without any authentication.
+    # Every request is treated as an anonymous admin.
+    #
+    # ⚠️  Only use this for local development or deployments that are protected
+    #     by an external auth proxy (e.g. Authelia, OAuth2 Proxy, Traefik Forward Auth).
+    #     Never expose an AUTH_DISABLED instance directly to the internet.
+    AUTH_DISABLED: bool = False
+
     # ── Logto OIDC ────────────────────────────────────────────────────────────
     # Set these to enable Logto-based authentication.
     # LOGTO_ENDPOINT:    the base URL of your Logto instance,

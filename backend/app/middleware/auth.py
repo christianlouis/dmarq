@@ -56,6 +56,13 @@ class AuthRedirectMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[override]
         path = request.url.path
 
+        # ── 0. Auth disabled globally ─────────────────────────────────────────
+        from app.core.config import get_settings  # local import avoids circular dep
+
+        cfg = get_settings()
+        if cfg.AUTH_DISABLED:
+            return await call_next(request)
+
         # ── 1. Public paths & prefixes ────────────────────────────────────────
         if path in _PUBLIC_PATHS:
             return await call_next(request)
@@ -68,9 +75,7 @@ class AuthRedirectMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # ── 3. Logto not configured ───────────────────────────────────────────
-        from app.core.config import get_settings  # local import avoids circular dep
-
-        if not get_settings().logto_configured:
+        if not cfg.logto_configured:
             return RedirectResponse(url="/setup", status_code=302)
 
         # ── 4. Redirect to login ──────────────────────────────────────────────
