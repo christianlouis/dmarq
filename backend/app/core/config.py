@@ -54,9 +54,29 @@ class Settings(BaseSettings):
     # Use: openssl rand -hex 32
     ADMIN_API_KEY: Optional[str] = None
 
+    # ── Logto OIDC ────────────────────────────────────────────────────────────
+    # Set these to enable Logto-based authentication.
+    # LOGTO_ENDPOINT:    the base URL of your Logto instance,
+    #                    e.g. "https://your-tenant.logto.app" or a self-hosted URL.
+    # LOGTO_APP_ID:      the Client ID of the "Traditional Web" application in Logto.
+    # LOGTO_APP_SECRET:  the Client Secret of the same application.
+    # LOGTO_REDIRECT_URI (optional): override the default callback URL.
+    #                    Defaults to <base_url>/api/v1/auth/callback.
+    LOGTO_ENDPOINT: Optional[str] = None
+    LOGTO_APP_ID: Optional[str] = None
+    LOGTO_APP_SECRET: Optional[str] = None
+    LOGTO_REDIRECT_URI: Optional[str] = None
+
+    @property
+    def logto_configured(self) -> bool:
+        """Return True when the minimum Logto settings are present."""
+        return bool(self.LOGTO_ENDPOINT and self.LOGTO_APP_ID and self.LOGTO_APP_SECRET)
+
     @validator("ADMIN_API_KEY", pre=True, always=True)
     @classmethod
-    def validate_admin_api_key(cls, v: Optional[str]) -> Optional[str]:  # pylint: disable=no-self-argument
+    def validate_admin_api_key(
+        cls, v: Optional[str]
+    ) -> Optional[str]:  # pylint: disable=no-self-argument
         """Warn if ADMIN_API_KEY is set but too short."""
         if v is not None and len(v) < 32:
             logger.warning(

@@ -19,7 +19,8 @@
 </head>
 <body class="min-h-screen bg-base-100 font-body antialiased">
     <!-- Updated Menu Bar -->
-    <header class="navbar bg-primary text-primary-content">
+    <header class="navbar bg-primary text-primary-content"
+            x-data="userMenu()" x-init="loadUser()">
         <div class="flex-1">
             <a href="/" class="btn btn-ghost normal-case text-xl">
                 <img src="/static/img/monogram_light.png" alt="DMARQ Logo" class="w-8 h-8 mr-2">
@@ -35,6 +36,41 @@
                 <li><a href="/mail-sources">Mail Sources</a></li>
                 <li><a href="/settings">Settings</a></li>
             </ul>
+            <!-- User menu -->
+            <div class="ml-2">
+                <template x-if="user">
+                    <div class="dropdown dropdown-end">
+                        <label tabindex="0" class="btn btn-ghost btn-circle avatar placeholder">
+                            <div class="bg-primary-content text-primary rounded-full w-8">
+                                <template x-if="user.picture">
+                                    <img :src="user.picture" :alt="user.full_name || user.email" class="rounded-full w-8 h-8 object-cover">
+                                </template>
+                                <template x-if="!user.picture">
+                                    <span class="text-sm font-semibold" x-text="(user.full_name || user.email || '?')[0].toUpperCase()"></span>
+                                </template>
+                            </div>
+                        </label>
+                        <ul tabindex="0" class="menu menu-sm dropdown-content mt-3 z-[1] p-2 shadow bg-base-100 text-base-content rounded-box w-56">
+                            <li class="menu-title px-2 py-1">
+                                <span class="text-xs font-semibold truncate" x-text="user.full_name || user.email"></span>
+                                <span class="text-xs text-base-content/50 truncate" x-text="user.email" x-show="user.full_name"></span>
+                            </li>
+                            <li><a href="/settings">Settings</a></li>
+                            <li>
+                                <a href="/api/v1/auth/sign-out" class="text-error">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                                    </svg>
+                                    Sign out
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+                </template>
+                <template x-if="!user">
+                    <a href="/login" class="btn btn-ghost btn-sm">Sign in</a>
+                </template>
+            </div>
         </div>
     </header>
 
@@ -45,7 +81,26 @@
 
     <!-- Scripts -->
     {% block scripts %}{% endblock %}
-    
+
+    <!-- User-menu Alpine component -->
+    <script>
+        function userMenu() {
+            return {
+                user: null,
+                async loadUser() {
+                    try {
+                        const res = await fetch('/api/v1/auth/me');
+                        if (res.ok) {
+                            this.user = await res.json();
+                        }
+                    } catch (_) {
+                        // silently ignore – user is simply not shown
+                    }
+                },
+            };
+        }
+    </script>
+
     <!-- Initialize theme from localStorage -->
     <script>
         document.addEventListener('DOMContentLoaded', function() {

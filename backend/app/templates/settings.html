@@ -342,14 +342,19 @@ function settingsApp() {
         showCfToken: false,
         showSmtpPw: false,
 
+        // Session cookie is sent automatically by the browser (httpOnly, same-origin).
+        // No manual auth header needed for API calls from the UI.
         apiHeaders() {
-            const key = localStorage.getItem('adminApiKey') || '';
-            return { 'Content-Type': 'application/json', 'X-API-Key': key };
+            return { 'Content-Type': 'application/json' };
         },
 
         async loadSettings() {
             try {
                 const res = await fetch('/api/v1/settings', { headers: this.apiHeaders() });
+                if (res.status === 401 || res.status === 403) {
+                    window.location.href = '/login?next=/settings';
+                    return;
+                }
                 if (!res.ok) {
                     this.showFlash('Failed to load settings: ' + res.statusText, false);
                     return;

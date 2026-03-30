@@ -15,7 +15,6 @@ from app.core.security import (
     verify_token,
 )
 
-
 # ---------------------------------------------------------------------------
 # create_access_token
 # ---------------------------------------------------------------------------
@@ -84,6 +83,16 @@ class TestVerifyToken:
 
 
 class TestRequireAdminAuth:
+    """Unit tests for the require_admin_auth dependency."""
+
+    def _make_request(self, cookies: dict = None):
+        """Build a minimal mock Request with optional cookies."""
+        from unittest.mock import MagicMock
+
+        req = MagicMock()
+        req.cookies = cookies or {}
+        return req
+
     @pytest.mark.asyncio
     async def test_valid_api_key_returns_auth_context(self):
         from app.core.security import require_admin_auth
@@ -91,7 +100,9 @@ class TestRequireAdminAuth:
         key = generate_api_key()
         add_api_key(key)
         try:
-            result = await require_admin_auth(api_key=key, bearer=None)
+            result = await require_admin_auth(
+                request=self._make_request(), api_key=key, bearer=None
+            )
             assert result["auth_type"] == "api_key"
         finally:
             from app.core.security import _api_keys
@@ -106,7 +117,7 @@ class TestRequireAdminAuth:
         from fastapi.security import HTTPAuthorizationCredentials
 
         creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
-        result = await require_admin_auth(api_key=None, bearer=creds)
+        result = await require_admin_auth(request=self._make_request(), api_key=None, bearer=creds)
         assert result["auth_type"] == "jwt"
         assert result["payload"]["sub"] == "admin-user"
 
@@ -117,11 +128,9 @@ class TestRequireAdminAuth:
 
         from app.core.security import require_admin_auth
 
-        creds = HTTPAuthorizationCredentials(
-            scheme="Bearer", credentials="bad.token.value"
-        )
+        creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="bad.token.value")
         with pytest.raises(HTTPException) as exc_info:
-            await require_admin_auth(api_key=None, bearer=creds)
+            await require_admin_auth(request=self._make_request(), api_key=None, bearer=creds)
         assert exc_info.value.status_code == 401
 
     @pytest.mark.asyncio
@@ -131,8 +140,23 @@ class TestRequireAdminAuth:
         from app.core.security import require_admin_auth
 
         with pytest.raises(HTTPException) as exc_info:
-            await require_admin_auth(api_key=None, bearer=None)
+            await require_admin_auth(request=self._make_request(), api_key=None, bearer=None)
         assert exc_info.value.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_valid_session_cookie_returns_auth_context(self):
+        """A valid dmarq_session cookie should authenticate successfully."""
+        from app.core.logto import create_session_token
+        from app.core.security import require_admin_auth
+
+        token = create_session_token(user_id=42)
+        result = await require_admin_auth(
+            request=self._make_request(cookies={"dmarq_session": token}),
+            api_key=None,
+            bearer=None,
+        )
+        assert result["auth_type"] == "session"
+        assert result["user_id"] == 42
 
 
 # ---------------------------------------------------------------------------

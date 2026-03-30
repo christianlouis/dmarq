@@ -1,10 +1,9 @@
 import os
-from typing import AsyncGenerator, Generator
+from typing import Generator
 from urllib.parse import urlparse, urlunparse
 
 from sqlalchemy import create_engine
 from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
