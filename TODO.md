@@ -30,6 +30,10 @@ These features are documented and confirmed working in the codebase:
       (`docker-compose.yml`, `backend/Dockerfile`)
 - [x] **Setup Wizard** — Basic guided onboarding endpoints, though in-memory only
       (`backend/app/api/api_v1/endpoints/setup.py`)
+- [x] **DNS Record Health Checks** — Real DNS lookups for DMARC, SPF, DKIM, and
+      reverse-DNS (PTR) via `SystemDNSProvider` (dnspython async) and
+      `CloudflareDNSProvider` (DNS-over-HTTPS); used by `/dns`, `/summary`, and
+      `/sources` API endpoints (`backend/app/services/dns_resolver.py`)
 
 ---
 
@@ -65,18 +69,6 @@ have no working implementation in the codebase yet.
 - [ ] Failure sample analysis
 - [ ] PII redaction options
 - [ ] Detailed authentication failure views
-
-### DNS Record Health Checks
-- **Documented in**: README.md ("Inspect SPF, DKIM, DMARC, MX, and BIMI records"),
-  docs/development/roadmap.md (Milestone 8)
-- **Current state**: The `/api/v1/domains/{domain_id}/dns` endpoint
-  (`backend/app/api/api_v1/endpoints/domains.py`) returns hardcoded mock data.
-  `dnspython>=2.3.0` is in `requirements.txt` but is never imported or used.
-- [ ] Real DNS lookups for SPF, DKIM, DMARC, and MX records
-- [ ] BIMI record support (zero code exists)
-- [ ] Identify missing, broken, or invalid records
-- [ ] Provider-specific fix suggestions (Google, Microsoft, etc.)
-- [ ] DNSSEC validation
 
 ### User Authentication & Multi-User Support
 - **Documented in**: README.md ("Built-in authentication via FastAPI Users"),
@@ -151,15 +143,33 @@ have no working implementation in the codebase yet.
 - [ ] Add vault integration for secure credential storage
 - [ ] Audit logging for IMAP operations
 
+### DNS Record Health Checks
+- **Documented in**: README.md ("Inspect SPF, DKIM, DMARC, MX, and BIMI records"),
+  docs/development/roadmap.md (Milestone 8)
+- **Current state**: The `/api/v1/domains/{domain_id}/dns` and `/api/v1/domains/summary`
+  endpoints perform real DNS lookups via `SystemDNSProvider` (dnspython async) and
+  `CloudflareDNSProvider` (DNS-over-HTTPS), implemented in
+  `backend/app/services/dns_resolver.py`. DKIM selectors from DMARC reports and manually
+  configured selectors are both checked. PTR reverse-DNS lookups power the `/sources`
+  endpoint. Full Cloudflare zone-management integration is planned for a future milestone.
+- [x] Real DNS lookups for SPF, DKIM, and DMARC records
+- [x] Proper error handling for DNS failures and timeouts (per-domain timeouts, graceful fallback)
+- [x] Unit and integration tests for DNS resolution (55 tests passing)
+- [ ] MX record lookups
+- [ ] BIMI record support
+- [ ] Cloudflare API zone-management integration (read/write DNS records)
+- [ ] Provider-specific fix suggestions (Google, Microsoft, etc.)
+- [ ] DNSSEC validation
+
 ---
 
 ## Housekeeping
 
 - [ ] Remove unused `apprise` from `requirements.txt` or implement alerts
-- [ ] Remove unused `dnspython` from `requirements.txt` or implement DNS checks
+- [x] Remove unused `dnspython` from `requirements.txt` or implement DNS checks (done — `dnspython` is used by `SystemDNSProvider`)
 - [ ] Remove or wire up `fastapi-users` (currently installed but unused)
 - [x] Replace mock data in stats endpoints with real database queries
-- [ ] Replace mock DNS data with actual DNS lookups
+- [x] Replace mock DNS data with actual DNS lookups
 - [x] Add CI/CD pipeline — GitHub Actions workflows in `.github/workflows/ci.yml`
         (lint → test/security/CodeQL/dependency-review → Docker build/push → GitOps)
         and `.github/workflows/release.yml` (semantic versioning)
