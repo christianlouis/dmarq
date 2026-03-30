@@ -131,7 +131,7 @@ async def callback(
         return RedirectResponse(url="/login?error=callback_failed", status_code=302)
 
     try:
-        claims = await client.getIdTokenClaims()
+        claims = client.getIdTokenClaims()
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.warning("Failed to extract ID-token claims: %s", exc)
         return RedirectResponse(url="/login?error=token_error", status_code=302)
