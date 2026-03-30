@@ -26,6 +26,7 @@ if database_url:
 from app.core.database import Base  # noqa: E402
 import app.models.domain  # noqa: E402, F401
 import app.models.report  # noqa: E402, F401
+import app.models.setting  # noqa: E402, F401
 import app.models.user  # noqa: E402, F401
 
 target_metadata = Base.metadata

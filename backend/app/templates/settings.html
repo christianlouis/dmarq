@@ -9,16 +9,311 @@
 {% block page_title %}Settings{% endblock %}
 
 {% block content %}
-<div class="grid gap-4 md:gap-8 py-4">
+<div
+    x-data="settingsApp()"
+    x-init="loadSettings()"
+    class="space-y-6 py-4"
+>
 
-    <!-- Mail Sources info card (replaces the old IMAP configuration form) -->
+    <!-- Flash message -->
+    <template x-if="flashMsg">
+        <div :class="flashOk ? 'alert alert-success' : 'alert alert-error'" class="shadow-sm">
+            <span x-text="flashMsg"></span>
+        </div>
+    </template>
+
+    <!-- ── General ──────────────────────────────────────────────────────── -->
+    {% call card() %}
+        {% call card_header() %}
+            {% call card_title() %}General{% endcall %}
+            {% call card_description() %}Basic application settings{% endcall %}
+        {% endcall %}
+        {% call card_content() %}
+            <form @submit.prevent="saveCategory('general')" class="space-y-4">
+                <div class="form-control w-full">
+                    <label class="label"><span class="label-text font-medium">Application Name</span></label>
+                    <input type="text" x-model="s['general.app_name']"
+                        class="input input-bordered w-full"
+                        placeholder="DMARQ" />
+                    <label class="label"><span class="label-text-alt text-muted-foreground">Display name shown in the navigation bar and page titles</span></label>
+                </div>
+                <div class="form-control w-full">
+                    <label class="label"><span class="label-text font-medium">Base URL</span></label>
+                    <input type="url" x-model="s['general.base_url']"
+                        class="input input-bordered w-full"
+                        placeholder="https://dmarc.example.com" />
+                    <label class="label"><span class="label-text-alt text-muted-foreground">Public URL used in OAuth2 redirect URIs and email links</span></label>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="form-control w-full">
+                        <label class="label"><span class="label-text font-medium">Reports Per Page</span></label>
+                        <input type="number" x-model.number="s['general.reports_per_page']"
+                            class="input input-bordered w-full" min="5" max="200" />
+                        <label class="label"><span class="label-text-alt text-muted-foreground">How many reports are shown per page</span></label>
+                    </div>
+                    <div class="form-control w-full">
+                        <label class="label"><span class="label-text font-medium">Session Lifetime (minutes)</span></label>
+                        <input type="number" x-model.number="s['general.session_lifetime_minutes']"
+                            class="input input-bordered w-full" min="5" />
+                        <label class="label"><span class="label-text-alt text-muted-foreground">How long login sessions remain valid</span></label>
+                    </div>
+                </div>
+                <div class="flex justify-end">
+                    <button type="submit" class="btn btn-default btn-md" :disabled="saving">
+                        <template x-if="!saving">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                        </template>
+                        <template x-if="saving"><span class="loading loading-spinner loading-xs mr-2"></span></template>
+                        Save General Settings
+                    </button>
+                </div>
+            </form>
+        {% endcall %}
+    {% endcall %}
+
+    <!-- ── DMARC Policy Defaults ─────────────────────────────────────────── -->
+    {% call card() %}
+        {% call card_header() %}
+            {% call card_title() %}DMARC Policy Defaults{% endcall %}
+            {% call card_description() %}Default values applied when adding a new domain{% endcall %}
+        {% endcall %}
+        {% call card_content() %}
+            <form @submit.prevent="saveCategory('dmarc')" class="space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="form-control w-full">
+                        <label class="label"><span class="label-text font-medium">Default Policy</span></label>
+                        <select x-model="s['dmarc.default_policy']" class="input input-bordered w-full">
+                            <option value="none">None (monitoring only)</option>
+                            <option value="quarantine">Quarantine (send to spam)</option>
+                            <option value="reject">Reject (block delivery)</option>
+                        </select>
+                    </div>
+                    <div class="form-control w-full">
+                        <label class="label">
+                            <span class="label-text font-medium">Default Percentage</span>
+                            <span class="label-text-alt" x-text="(s['dmarc.default_percentage'] || 100) + '%'"></span>
+                        </label>
+                        <input type="range" x-model.number="s['dmarc.default_percentage']"
+                            min="0" max="100"
+                            class="range range-primary w-full" />
+                        <label class="label"><span class="label-text-alt text-muted-foreground">Percentage of messages to which the policy is applied (pct tag)</span></label>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="form-control w-full">
+                        <label class="label"><span class="label-text font-medium">DKIM Alignment (adkim)</span></label>
+                        <select x-model="s['dmarc.default_adkim']" class="input input-bordered w-full">
+                            <option value="r">Relaxed</option>
+                            <option value="s">Strict</option>
+                        </select>
+                    </div>
+                    <div class="form-control w-full">
+                        <label class="label"><span class="label-text font-medium">SPF Alignment (aspf)</span></label>
+                        <select x-model="s['dmarc.default_aspf']" class="input input-bordered w-full">
+                            <option value="r">Relaxed</option>
+                            <option value="s">Strict</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="flex justify-end">
+                    <button type="submit" class="btn btn-default btn-md" :disabled="saving">
+                        <template x-if="!saving">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                        </template>
+                        <template x-if="saving"><span class="loading loading-spinner loading-xs mr-2"></span></template>
+                        Save DMARC Defaults
+                    </button>
+                </div>
+            </form>
+        {% endcall %}
+    {% endcall %}
+
+    <!-- ── DNS Resolver ──────────────────────────────────────────────────── -->
+    {% call card() %}
+        {% call card_header() %}
+            {% call card_title() %}DNS Resolver{% endcall %}
+            {% call card_description() %}Choose how DMARQ resolves DNS records for domain lookups{% endcall %}
+        {% endcall %}
+        {% call card_content() %}
+            <form @submit.prevent="saveCategory('dns')" class="space-y-4">
+                <div class="form-control w-full">
+                    <label class="label"><span class="label-text font-medium">DNS Resolver</span></label>
+                    <select x-model="s['dns.resolver']" class="input input-bordered w-full">
+                        <option value="system">System (OS default)</option>
+                        <option value="cloudflare">Cloudflare DoH (1.1.1.1)</option>
+                    </select>
+                    <label class="label"><span class="label-text-alt text-muted-foreground">System resolver uses the OS-configured DNS server; Cloudflare uses DNS-over-HTTPS</span></label>
+                </div>
+                <div class="flex justify-end">
+                    <button type="submit" class="btn btn-default btn-md" :disabled="saving">
+                        <template x-if="!saving">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                        </template>
+                        <template x-if="saving"><span class="loading loading-spinner loading-xs mr-2"></span></template>
+                        Save DNS Settings
+                    </button>
+                </div>
+            </form>
+        {% endcall %}
+    {% endcall %}
+
+    <!-- ── Cloudflare Integration ─────────────────────────────────────────── -->
+    {% call card() %}
+        {% call card_header() %}
+            {% call card_title() %}Cloudflare Integration{% endcall %}
+            {% call card_description() %}
+                Provide a Cloudflare API token and Zone ID to enable automated DNS record management and DoH lookups.
+                Obtain your token from <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" class="underline">Cloudflare API Tokens</a>.
+            {% endcall %}
+        {% endcall %}
+        {% call card_content() %}
+            <form @submit.prevent="saveCategory('cloudflare')" class="space-y-4">
+                <div class="form-control w-full">
+                    <label class="label"><span class="label-text font-medium">API Token</span></label>
+                    <div class="relative">
+                        <input :type="showCfToken ? 'text' : 'password'"
+                            x-model="s['cloudflare.api_token']"
+                            class="input input-bordered w-full pr-10"
+                            placeholder="Your Cloudflare API token" />
+                        <button type="button"
+                            class="absolute right-2 top-3 text-muted-foreground hover:text-foreground"
+                            @click="showCfToken = !showCfToken">
+                            <svg x-show="!showCfToken" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                            <svg x-show="showCfToken" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+                        </button>
+                    </div>
+                    <label class="label"><span class="label-text-alt text-muted-foreground">Stored securely; leave as-is to keep existing token</span></label>
+                </div>
+                <div class="form-control w-full">
+                    <label class="label"><span class="label-text font-medium">Zone ID</span></label>
+                    <input type="text" x-model="s['cloudflare.zone_id']"
+                        class="input input-bordered w-full"
+                        placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+                    <label class="label"><span class="label-text-alt text-muted-foreground">Found on the Cloudflare dashboard overview for your domain</span></label>
+                </div>
+                <div class="flex justify-end">
+                    <button type="submit" class="btn btn-default btn-md" :disabled="saving">
+                        <template x-if="!saving">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                        </template>
+                        <template x-if="saving"><span class="loading loading-spinner loading-xs mr-2"></span></template>
+                        Save Cloudflare Settings
+                    </button>
+                </div>
+            </form>
+        {% endcall %}
+    {% endcall %}
+
+    <!-- ── Email Notifications ─────────────────────────────────────────────── -->
+    {% call card() %}
+        {% call card_header() %}
+            {% call card_title() %}Email Notifications{% endcall %}
+            {% call card_description() %}Send alerts when DMARC failures are detected{% endcall %}
+        {% endcall %}
+        {% call card_content() %}
+            <form @submit.prevent="saveCategory('notifications')" class="space-y-4">
+                <div class="form-control">
+                    <label class="label cursor-pointer justify-start gap-3">
+                        <input type="checkbox"
+                            :checked="s['notifications.email_enabled'] === 'true'"
+                            @change="s['notifications.email_enabled'] = $event.target.checked ? 'true' : 'false'"
+                            class="checkbox checkbox-primary" />
+                        <span class="label-text font-medium">Enable email notifications</span>
+                    </label>
+                </div>
+
+                <template x-if="s['notifications.email_enabled'] === 'true'">
+                    <div class="space-y-4">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="form-control w-full">
+                                <label class="label"><span class="label-text font-medium">From Address</span></label>
+                                <input type="email" x-model="s['notifications.email_from']"
+                                    class="input input-bordered w-full"
+                                    placeholder="noreply@example.com" />
+                            </div>
+                            <div class="form-control w-full">
+                                <label class="label"><span class="label-text font-medium">Recipient(s)</span></label>
+                                <input type="text" x-model="s['notifications.email_to']"
+                                    class="input input-bordered w-full"
+                                    placeholder="admin@example.com, security@example.com" />
+                                <label class="label"><span class="label-text-alt text-muted-foreground">Comma-separated email addresses</span></label>
+                            </div>
+                        </div>
+
+                        <div class="divider text-sm">SMTP Configuration</div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="form-control w-full">
+                                <label class="label"><span class="label-text font-medium">SMTP Host</span></label>
+                                <input type="text" x-model="s['notifications.smtp_host']"
+                                    class="input input-bordered w-full"
+                                    placeholder="smtp.example.com" />
+                            </div>
+                            <div class="form-control w-full">
+                                <label class="label"><span class="label-text font-medium">SMTP Port</span></label>
+                                <input type="number" x-model.number="s['notifications.smtp_port']"
+                                    class="input input-bordered w-full"
+                                    placeholder="587" min="1" max="65535" />
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="form-control w-full">
+                                <label class="label"><span class="label-text font-medium">SMTP Username</span></label>
+                                <input type="text" x-model="s['notifications.smtp_username']"
+                                    class="input input-bordered w-full"
+                                    placeholder="smtpuser@example.com" />
+                            </div>
+                            <div class="form-control w-full">
+                                <label class="label"><span class="label-text font-medium">SMTP Password</span></label>
+                                <div class="relative">
+                                    <input :type="showSmtpPw ? 'text' : 'password'"
+                                        x-model="s['notifications.smtp_password']"
+                                        class="input input-bordered w-full pr-10"
+                                        placeholder="••••••••" />
+                                    <button type="button"
+                                        class="absolute right-2 top-3 text-muted-foreground hover:text-foreground"
+                                        @click="showSmtpPw = !showSmtpPw">
+                                        <svg x-show="!showSmtpPw" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                                        <svg x-show="showSmtpPw" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+                                    </button>
+                                </div>
+                                <label class="label"><span class="label-text-alt text-muted-foreground">Leave as-is to keep existing password</span></label>
+                            </div>
+                        </div>
+
+                        <div class="form-control">
+                            <label class="label cursor-pointer justify-start gap-3">
+                                <input type="checkbox"
+                                    :checked="s['notifications.smtp_use_tls'] === 'true'"
+                                    @change="s['notifications.smtp_use_tls'] = $event.target.checked ? 'true' : 'false'"
+                                    class="checkbox checkbox-primary" />
+                                <span class="label-text font-medium">Use TLS (STARTTLS)</span>
+                            </label>
+                        </div>
+                    </div>
+                </template>
+
+                <div class="flex justify-end">
+                    <button type="submit" class="btn btn-default btn-md" :disabled="saving">
+                        <template x-if="!saving">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                        </template>
+                        <template x-if="saving"><span class="loading loading-spinner loading-xs mr-2"></span></template>
+                        Save Notification Settings
+                    </button>
+                </div>
+            </form>
+        {% endcall %}
+    {% endcall %}
+
+    <!-- ── Mail Sources shortcut ──────────────────────────────────────────── -->
     {% call card() %}
         {% call card_header() %}
             {% call card_title() %}Mail Sources{% endcall %}
             {% call card_description() %}
-                IMAP and other inbox credentials are now managed on the dedicated
-                <strong>Mail Sources</strong> page. Multiple accounts and methods
-                (IMAP, POP3, Gmail API) can be configured there.
+                IMAP, POP3 and Gmail API inbox credentials are managed on the dedicated
+                <strong>Mail Sources</strong> page.
             {% endcall %}
         {% endcall %}
         {% call card_content() %}
@@ -33,71 +328,74 @@
         {% endcall %}
     {% endcall %}
 
-    <!-- DMARC Policy Management -->
-    {% call card() %}
-        {% call card_header() %}
-            {% call card_title() %}DMARC Policy Management{% endcall %}
-            {% call card_description() %}
-                Configure default DMARC policy settings for newly added domains
-            {% endcall %}
-        {% endcall %}
-        {% call card_content() %}
-            <form id="dmarc-policy-form" class="space-y-6" x-data="{isUpdating: false, updateResult: ''}">
-                <div class="space-y-4">
-                    {% call form_group() %}
-                        {% call label(for="default_policy") %}Default DMARC Policy{% endcall %}
-                        <select id="default_policy" name="default_policy" class="input w-full">
-                            <option value="none">None (monitoring only)</option>
-                            <option value="quarantine">Quarantine (send to spam)</option>
-                            <option value="reject">Reject (block delivery)</option>
-                        </select>
-                        <p class="text-xs text-muted-foreground mt-1">Policy applied to new domains when no specific policy is set</p>
-                    {% endcall %}
-
-                    {% call form_group() %}
-                        {% call label(for="percent") %}Percentage{% endcall %}
-                        <div class="flex items-center">
-                            <input type="range" id="percent" name="percent" min="0" max="100" value="100" class="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer" />
-                            <span class="ml-2 text-sm font-medium w-10" id="percent-display">100%</span>
-                        </div>
-                        <p class="text-xs text-muted-foreground mt-1">Percentage of messages to which the DMARC policy is applied</p>
-                    {% endcall %}
-                </div>
-
-                <div class="flex justify-end">
-                    <button type="submit" class="btn btn-default btn-md">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-                        Save Policy Settings
-                    </button>
-                </div>
-            </form>
-        {% endcall %}
-    {% endcall %}
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-// Initialize any scripts after DOM load
-document.addEventListener('DOMContentLoaded', function() {
-    // Percent display for DMARC policy form
-    const percentInput = document.getElementById('percent');
-    const percentDisplay = document.getElementById('percent-display');
-    if (percentInput && percentDisplay) {
-        percentInput.addEventListener('input', function() {
-            percentDisplay.textContent = this.value + '%';
-        });
-    }
+function settingsApp() {
+    return {
+        s: {},           // flat map of key → value (strings)
+        saving: false,
+        flashMsg: '',
+        flashOk: true,
+        showCfToken: false,
+        showSmtpPw: false,
 
-    // DMARC policy form handling
-    const policyForm = document.getElementById('dmarc-policy-form');
-    if (policyForm) {
-        policyForm.addEventListener('submit', function(e) {
-            e.preventDefault();
-            // In a real app, you would save the policy settings here
-            alert('DMARC policy settings saved');
-        });
-    }
-});
+        apiHeaders() {
+            const key = localStorage.getItem('adminApiKey') || '';
+            return { 'Content-Type': 'application/json', 'X-API-Key': key };
+        },
+
+        async loadSettings() {
+            try {
+                const res = await fetch('/api/v1/settings', { headers: this.apiHeaders() });
+                if (!res.ok) {
+                    this.showFlash('Failed to load settings: ' + res.statusText, false);
+                    return;
+                }
+                const rows = await res.json();
+                const map = {};
+                rows.forEach(r => { map[r.key] = r.value ?? ''; });
+                this.s = map;
+            } catch (err) {
+                this.showFlash('Error loading settings: ' + err.message, false);
+            }
+        },
+
+        async saveCategory(category) {
+            this.saving = true;
+            // Collect all keys that belong to this category
+            const categoryKeys = Object.keys(this.s).filter(k => k.startsWith(category + '.'));
+            const settings = {};
+            categoryKeys.forEach(k => { settings[k] = String(this.s[k] ?? ''); });
+            try {
+                const res = await fetch('/api/v1/settings/bulk', {
+                    method: 'POST',
+                    headers: this.apiHeaders(),
+                    body: JSON.stringify({ settings }),
+                });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    this.showFlash('Save failed: ' + (data.detail || res.statusText), false);
+                } else {
+                    const rows = await res.json();
+                    rows.forEach(r => { this.s[r.key] = r.value ?? ''; });
+                    this.showFlash('Settings saved successfully.', true);
+                }
+            } catch (err) {
+                this.showFlash('Error saving settings: ' + err.message, false);
+            } finally {
+                this.saving = false;
+            }
+        },
+
+        showFlash(msg, ok) {
+            this.flashMsg = msg;
+            this.flashOk = ok;
+            setTimeout(() => { this.flashMsg = ''; }, 4000);
+        },
+    };
+}
 </script>
 {% endblock %}
