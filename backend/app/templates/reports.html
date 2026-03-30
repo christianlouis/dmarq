@@ -95,11 +95,17 @@
                                     </div>
                                 {% endcall %}
                                 {% call td("text-right") %}
-                                    <a :href="`/reports/${report.report_id}`">
-                                        {% call button(variant="outline", size="sm") %}
-                                            View Details
-                                        {% endcall %}
-                                    </a>
+                                    <div class="inline-flex gap-2 justify-end">
+                                        <a :href="`/reports/${report.report_id}`">
+                                            {% call button(variant="outline", size="sm") %}
+                                                View Details
+                                            {% endcall %}
+                                        </a>
+                                        <button class="btn btn-error btn-sm"
+                                                @click="deleteReport(report.domain, report.report_id)">
+                                            Delete
+                                        </button>
+                                    </div>
                                 {% endcall %}
                             {% endcall %}
                         </template>
@@ -173,6 +179,32 @@ function reportsApp() {
                 console.error('Error fetching reports:', error);
             } finally {
                 this.loading = false;
+            }
+        },
+
+        async deleteReport(domain, reportId) {
+            if (!confirm(`Delete report "${reportId}" for domain "${domain}"?\n\nThis will remove the report from the system. You can re-import it afterwards.`)) {
+                return;
+            }
+            try {
+                const response = await fetch(
+                    `/api/v1/reports/domain/${encodeURIComponent(domain)}/reports/${encodeURIComponent(reportId)}`,
+                    { method: 'DELETE' }
+                );
+                if (response.ok) {
+                    this.reports = this.reports.filter(
+                        r => !(r.domain === domain && r.report_id === reportId)
+                    );
+                    if (!this.reports.some(r => r.domain === domain)) {
+                        this.domains = this.domains.filter(d => d !== domain);
+                    }
+                } else {
+                    const data = await response.json().catch(() => ({}));
+                    alert('Failed to delete report: ' + (data.detail || response.statusText));
+                }
+            } catch (error) {
+                console.error('Error deleting report:', error);
+                alert('Network error — could not delete report.');
             }
         }
     }
