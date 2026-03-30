@@ -51,6 +51,10 @@
                     <a :href="'/domains/' + report.domain" class="btn btn-outline btn-sm">
                         Back to Domain
                     </a>
+                    <button class="btn btn-error btn-sm"
+                            @click="deleteReport(report.domain, report.report_id)">
+                        Delete Report
+                    </button>
                 </div>
             </div>
 
@@ -244,6 +248,27 @@ function reportDetailApp(reportId) {
                 console.error('Error fetching report:', err);
             } finally {
                 this.loading = false;
+            }
+        },
+
+        async deleteReport(domain, reportId) {
+            if (!confirm(`Delete report "${reportId}" for domain "${domain}"?\n\nThis will remove the report from the system. You can re-import it afterwards.`)) {
+                return;
+            }
+            try {
+                const response = await fetch(
+                    `/api/v1/reports/domain/${encodeURIComponent(domain)}/reports/${encodeURIComponent(reportId)}`,
+                    { method: 'DELETE' }
+                );
+                if (response.ok) {
+                    window.location.href = '/reports';
+                } else {
+                    const data = await response.json().catch(() => ({}));
+                    alert('Failed to delete report: ' + (data.detail || response.statusText));
+                }
+            } catch (error) {
+                console.error('Error deleting report:', error);
+                alert('Network error — could not delete report.');
             }
         },
 
