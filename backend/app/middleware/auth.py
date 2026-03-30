@@ -37,6 +37,24 @@ _PUBLIC_PREFIXES: tuple[str, ...] = (
     "/openapi",
 )
 
+# File extensions for static assets that are always publicly accessible
+_STATIC_EXTENSIONS: tuple[str, ...] = (
+    ".ico",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".svg",
+    ".webp",
+    ".css",
+    ".js",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".eot",
+    ".map",
+)
+
 
 class AuthRedirectMiddleware(BaseHTTPMiddleware):
     """
@@ -67,6 +85,8 @@ class AuthRedirectMiddleware(BaseHTTPMiddleware):
         if path in _PUBLIC_PATHS:
             return await call_next(request)
         if any(path.startswith(p) for p in _PUBLIC_PREFIXES):
+            return await call_next(request)
+        if any(path.endswith(ext) for ext in _STATIC_EXTENSIONS):
             return await call_next(request)
 
         # ── 2. Valid session cookie ───────────────────────────────────────────

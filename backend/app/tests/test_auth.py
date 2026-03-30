@@ -293,3 +293,39 @@ class TestAuthDisabled:
             # never be a 302 redirect from the middleware.
             res = client.get("/settings", follow_redirects=False)
             assert res.status_code != 302
+
+
+# ── Static asset bypass ───────────────────────────────────────────────────────
+
+
+class TestStaticAssetBypass:
+    """Static assets must never be redirected to the login page."""
+
+    @staticmethod
+    def _logto_configured_mock():
+        mock_cfg = MagicMock()
+        mock_cfg.AUTH_DISABLED = False
+        mock_cfg.logto_configured = True
+        return mock_cfg
+
+    def test_favicon_not_redirected_to_login(self, client: TestClient):
+        """GET /favicon.ico without a session must pass through (not redirect to /login)."""
+        with patch("app.core.config.get_settings") as mock_get_settings:
+            mock_get_settings.return_value = self._logto_configured_mock()
+            res = client.get("/favicon.ico", follow_redirects=False)
+        assert res.status_code != 302
+
+    def test_png_asset_not_redirected_to_login(self, client: TestClient):
+        """GET /logo.png without a session must pass through."""
+        with patch("app.core.config.get_settings") as mock_get_settings:
+            mock_get_settings.return_value = self._logto_configured_mock()
+            res = client.get("/logo.png", follow_redirects=False)
+        assert res.status_code != 302
+
+    def test_protected_page_still_redirected(self, client: TestClient):
+        """GET /dashboard without a session must still redirect to /login."""
+        with patch("app.core.config.get_settings") as mock_get_settings:
+            mock_get_settings.return_value = self._logto_configured_mock()
+            res = client.get("/dashboard", follow_redirects=False)
+        assert res.status_code == 302
+        assert res.headers["location"].startswith("/login")
