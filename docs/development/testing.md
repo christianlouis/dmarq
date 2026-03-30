@@ -147,8 +147,7 @@ description of every stage.
 The pipeline runs in four stages:
 
 1. **Lint** (blocking gate) — Black, isort, Flake8, Pylint
-2. **Test** — `pytest` with coverage; report uploaded to Codecov
-3. **Security** — Bandit static analysis + pip-audit dependency scan
-4. **CodeQL** — GitHub's semantic code analysis for Python
-5. **Docker** — builds and pushes to `ghcr.io` (main branch only)
-6. **GitOps** — updates the preprod Kubernetes manifest (main branch only)
+2. **Parallel quality gates** — Test (pytest + Codecov), Security (Bandit + pip-audit),
+   CodeQL analysis, and Dependency Review (PRs only)
+3. **Docker** — builds and pushes to `ghcr.io` (main branch only)
+4. **GitOps** — updates the preprod Kubernetes manifest (main branch only)
