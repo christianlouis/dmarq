@@ -461,6 +461,19 @@ async def settings_page(request: Request):
     return templates.TemplateResponse(request, "settings.html")
 
 
+@app.get("/profile", response_class=HTMLResponse)
+async def profile_page(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "profile.html",
+        {
+            "app_name": settings.PROJECT_NAME,
+            "logto_configured": settings.logto_configured,
+            "auth_disabled": settings.AUTH_DISABLED,
+        },
+    )
+
+
 @app.get("/mail-sources", response_class=HTMLResponse)
 async def mail_sources_page(request: Request):
     return templates.TemplateResponse(request, "mail_sources.html")

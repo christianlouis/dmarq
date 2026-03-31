@@ -1,0 +1,182 @@
+{% extends "layouts/base.html" %}
+{% from "components/ui/card.html" import card, card_header, card_title, card_description, card_content %}
+{% from "components/ui/button.html" import button_link %}
+
+{% block title %}My Profile – {{ app_name }}{% endblock %}
+
+{% block content %}
+<div x-data="profileApp()" x-init="init()" class="max-w-2xl mx-auto space-y-6 py-4">
+
+    <!-- Profile info card -->
+    {% call card() %}
+        {% call card_header() %}
+            {% call card_title() %}My Profile{% endcall %}
+            {% call card_description() %}Your account information from your current session.{% endcall %}
+        {% endcall %}
+        {% call card_content() %}
+            <div class="flex items-center gap-4 mb-6">
+                <!-- Avatar -->
+                <template x-if="user && user.picture">
+                    <img :src="user.picture" :alt="user.full_name || user.email"
+                         class="w-16 h-16 rounded-full object-cover ring-2 ring-primary/20">
+                </template>
+                <template x-if="user && !user.picture">
+                    <div class="avatar placeholder">
+                        <div class="bg-primary text-primary-content rounded-full w-16">
+                            <span class="text-2xl font-semibold"
+                                  x-text="user ? (user.full_name || user.email || '?')[0].toUpperCase() : '?'"></span>
+                        </div>
+                    </div>
+                </template>
+                <div>
+                    <p class="text-lg font-semibold" x-text="user ? (user.full_name || '—') : '…'"></p>
+                    <p class="text-sm text-base-content/60" x-text="user ? user.email : ''"></p>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                <div>
+                    <span class="font-medium text-base-content/70">Username</span>
+                    <p class="mt-0.5" x-text="user && user.username ? user.username : '—'"></p>
+                </div>
+                <div>
+                    <span class="font-medium text-base-content/70">Role</span>
+                    <p class="mt-0.5">
+                        <template x-if="user && user.is_superuser">
+                            <span class="badge badge-primary badge-sm">Admin</span>
+                        </template>
+                        <template x-if="user && !user.is_superuser">
+                            <span class="badge badge-ghost badge-sm">User</span>
+                        </template>
+                    </p>
+                </div>
+                <div>
+                    <span class="font-medium text-base-content/70">Logto ID</span>
+                    <p class="mt-0.5 font-mono text-xs truncate"
+                       x-text="user && user.logto_id ? user.logto_id : '—'"></p>
+                </div>
+                <div>
+                    <span class="font-medium text-base-content/70">Auth mode</span>
+                    <p class="mt-0.5">
+                        <template x-if="user && user.auth_disabled">
+                            <span class="badge badge-warning badge-sm">Auth disabled</span>
+                        </template>
+                        <template x-if="user && !user.auth_disabled">
+                            <span class="badge badge-success badge-sm">Logto OIDC</span>
+                        </template>
+                    </p>
+                </div>
+            </div>
+        {% endcall %}
+    {% endcall %}
+
+    <!-- Account actions card -->
+    {% if logto_configured and not auth_disabled %}
+    {% call card() %}
+        {% call card_header() %}
+            {% call card_title() %}Account Security{% endcall %}
+            {% call card_description() %}
+                Manage your password and multi-factor authentication settings.
+                These actions redirect you to your Logto identity account.
+            {% endcall %}
+        {% endcall %}
+        {% call card_content() %}
+            <div class="space-y-4">
+
+                <!-- Password reset -->
+                <div class="flex items-start justify-between gap-4">
+                    <div>
+                        <p class="font-medium">Password</p>
+                        <p class="text-sm text-base-content/60">
+                            Reset your Logto account password via email verification.
+                        </p>
+                    </div>
+                    {% call button_link(href='/api/v1/auth/forgot-password', variant='outline', size='sm') %}
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 mr-1" fill="none"
+                             viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/>
+                        </svg>
+                        Reset Password
+                    {% endcall %}
+                </div>
+
+                <div class="divider my-1"></div>
+
+                <!-- MFA management -->
+                <div class="flex items-start justify-between gap-4">
+                    <div>
+                        <p class="font-medium">Multi-Factor Authentication</p>
+                        <p class="text-sm text-base-content/60">
+                            Enable, configure, or remove MFA methods such as TOTP
+                            authenticator apps and backup codes in your Logto account portal.
+                        </p>
+                    </div>
+                    {% call button_link(href='/api/v1/auth/account-portal', variant='outline', size='sm') %}
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 mr-1" fill="none"
+                             viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                        </svg>
+                        Manage MFA
+                    {% endcall %}
+                </div>
+
+            </div>
+        {% endcall %}
+    {% endcall %}
+    {% elif auth_disabled %}
+    <div role="alert" class="alert alert-info">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24"
+             stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20A10 10 0 0012 2z"/>
+        </svg>
+        <div>
+            <p class="font-semibold">Authentication is disabled</p>
+            <p class="text-sm">
+                Password reset and MFA management require Logto to be configured.
+                Set <code class="font-mono bg-base-200 px-1 rounded">AUTH_DISABLED=false</code>
+                and configure Logto to enable these features.
+            </p>
+        </div>
+    </div>
+    {% else %}
+    <div role="alert" class="alert alert-warning">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24"
+             stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+        </svg>
+        <div>
+            <p class="font-semibold">Logto not configured</p>
+            <p class="text-sm">
+                Password reset and MFA management require Logto. Visit the
+                <a href="/setup" class="link link-warning font-medium">setup page</a>
+                to configure it.
+            </p>
+        </div>
+    </div>
+    {% endif %}
+
+</div>
+
+<script>
+    function profileApp() {
+        return {
+            user: null,
+            async init() {
+                try {
+                    const res = await fetch('/api/v1/auth/me');
+                    if (res.ok) {
+                        this.user = await res.json();
+                    }
+                } catch (e) {
+                    console.error('Failed to load user profile:', e);
+                    // ignore – profile info simply won't be shown
+                }
+            },
+        };
+    }
+</script>
+{% endblock %}
