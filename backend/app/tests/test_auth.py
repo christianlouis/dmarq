@@ -16,7 +16,7 @@ Logto SDK calls are mocked so no live Logto instance is needed.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -205,6 +205,91 @@ class TestAuthMeEndpoint:
         token = create_session_token(user.id)
         res = client.get("/api/v1/auth/me", cookies={SESSION_COOKIE: token})
         assert res.status_code == 401
+
+
+# ── /api/v1/auth/callback ────────────────────────────────────────────────────
+
+
+class TestCallbackEndpoint:
+    """Tests for the Logto OIDC authorization-code callback handler."""
+
+    def _make_mock_claims(self):
+        claims = MagicMock()
+        claims.sub = "logto-sub-callback"
+        claims.email = "callback@example.com"
+        claims.name = "Callback User"
+        claims.username = None
+        claims.picture = None
+        claims.email_verified = True
+        return claims
+
+    def _mock_client(self, handle_error=None, claims_error=None, claims=None):
+        """Build a mock LogtoClient with configurable side effects."""
+        mock_client = MagicMock()
+        if handle_error:
+            mock_client.handleSignInCallback = AsyncMock(side_effect=handle_error)
+        else:
+            mock_client.handleSignInCallback = AsyncMock()
+        if claims_error:
+            mock_client.getIdTokenClaims.side_effect = claims_error
+        elif claims is not None:
+            mock_client.getIdTokenClaims.return_value = claims
+        return mock_client
+
+    def test_callback_without_logto_config_returns_503(self, client: TestClient):
+        """When Logto is not configured the callback must return 503."""
+        with patch("app.api.api_v1.endpoints.auth.settings") as mock_settings:
+            mock_settings.logto_configured = False
+            res = client.get("/api/v1/auth/callback", follow_redirects=False)
+        assert res.status_code == 503
+
+    def test_callback_handle_signin_error_redirects_to_callback_failed(self, client: TestClient):
+        """If handleSignInCallback raises, redirect to /login?error=callback_failed."""
+        mock_client = self._mock_client(handle_error=Exception("bad state"))
+        with patch("app.api.api_v1.endpoints.auth.settings") as mock_settings:
+            mock_settings.logto_configured = True
+            with patch("app.api.api_v1.endpoints.auth.make_logto_client", return_value=mock_client):
+                res = client.get("/api/v1/auth/callback?code=bad", follow_redirects=False)
+        assert res.status_code == 302
+        assert "callback_failed" in res.headers["location"]
+
+    def test_callback_get_claims_error_redirects_to_token_error(self, client: TestClient):
+        """If getIdTokenClaims raises, redirect to /login?error=token_error."""
+        mock_client = self._mock_client(claims_error=Exception("claims unavailable"))
+        with patch("app.api.api_v1.endpoints.auth.settings") as mock_settings:
+            mock_settings.logto_configured = True
+            with patch("app.api.api_v1.endpoints.auth.make_logto_client", return_value=mock_client):
+                res = client.get("/api/v1/auth/callback?code=x", follow_redirects=False)
+        assert res.status_code == 302
+        assert "token_error" in res.headers["location"]
+
+    def test_callback_success_issues_session_cookie_and_redirects_to_root(self, client: TestClient):
+        """Successful callback must issue the dmarq_session cookie and redirect to /."""
+        claims = self._make_mock_claims()
+        mock_client = self._mock_client(claims=claims)
+        with patch("app.api.api_v1.endpoints.auth.settings") as mock_settings:
+            mock_settings.logto_configured = True
+            with patch("app.api.api_v1.endpoints.auth.make_logto_client", return_value=mock_client):
+                res = client.get("/api/v1/auth/callback?code=good", follow_redirects=False)
+        assert res.status_code == 302
+        assert res.headers["location"] == "/"
+        set_cookie = res.headers.get("set-cookie", "")
+        assert SESSION_COOKIE in set_cookie
+
+    def test_callback_success_respects_logto_next_cookie(self, client: TestClient):
+        """After a successful callback the user is redirected to the stored next URL."""
+        claims = self._make_mock_claims()
+        mock_client = self._mock_client(claims=claims)
+        with patch("app.api.api_v1.endpoints.auth.settings") as mock_settings:
+            mock_settings.logto_configured = True
+            with patch("app.api.api_v1.endpoints.auth.make_logto_client", return_value=mock_client):
+                res = client.get(
+                    "/api/v1/auth/callback?code=good",
+                    cookies={"logto_next": "/dashboard"},
+                    follow_redirects=False,
+                )
+        assert res.status_code == 302
+        assert res.headers["location"] == "/dashboard"
 
 
 # ── /api/v1/auth/sign-in ─────────────────────────────────────────────────────
