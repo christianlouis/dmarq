@@ -76,28 +76,28 @@
         {% call card_header() %}
             {% call card_title() %}Account Security{% endcall %}
             {% call card_description() %}
-                Manage your password and multi-factor authentication settings.
-                These actions redirect you to your Logto identity account.
+                Manage your password and multi-factor authentication settings
+                via the Logto account center.
             {% endcall %}
         {% endcall %}
         {% call card_content() %}
             <div class="space-y-4">
 
-                <!-- Password reset -->
+                <!-- Password change -->
                 <div class="flex items-start justify-between gap-4">
                     <div>
                         <p class="font-medium">Password</p>
                         <p class="text-sm text-base-content/60">
-                            Reset your Logto account password via email verification.
+                            Change your password in the Logto account center.
                         </p>
                     </div>
-                    {% call button_link(href='/api/v1/auth/forgot-password', variant='outline', size='sm') %}
+                    {% call button_link(href='/api/v1/auth/change-password', variant='outline', size='sm') %}
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 mr-1" fill="none"
                              viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                   d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/>
                         </svg>
-                        Reset Password
+                        Change Password
                     {% endcall %}
                 </div>
 
@@ -109,10 +109,10 @@
                         <p class="font-medium">Multi-Factor Authentication</p>
                         <p class="text-sm text-base-content/60">
                             Enable, configure, or remove MFA methods such as TOTP
-                            authenticator apps and backup codes in your Logto account portal.
+                            authenticator apps and backup codes in your Logto account center.
                         </p>
                     </div>
-                    {% call button_link(href='/api/v1/auth/account-portal', variant='outline', size='sm') %}
+                    {% call button_link(href='/api/v1/auth/manage-mfa', variant='outline', size='sm') %}
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 mr-1" fill="none"
                              viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
