@@ -3,12 +3,14 @@ Authentication endpoints (Logto OIDC).
 
 Routes
 ------
-GET  /sign-in         – Initiate the Logto sign-in flow.
-GET  /callback        – Handle the Logto authorization-code callback.
-GET  /sign-out        – Sign the user out (clears session + redirects to Logto).
-GET  /me              – Return the currently authenticated user's profile.
-GET  /forgot-password – Redirect to Logto's forgot-password screen.
-GET  /account-portal  – Redirect to the Logto account portal (MFA management).
+GET  /sign-in          – Initiate the Logto sign-in flow.
+GET  /callback         – Handle the Logto authorization-code callback.
+GET  /sign-out         – Sign the user out (clears session + redirects to Logto).
+GET  /me               – Return the currently authenticated user's profile.
+GET  /forgot-password  – Redirect to Logto's forgot-password screen (unauthenticated).
+GET  /change-password  – Redirect to Logto Account Center password page (authenticated).
+GET  /manage-mfa       – Redirect to Logto Account Center MFA page (authenticated).
+GET  /account-portal   – Redirect to the Logto Account Center root.
 """
 
 from __future__ import annotations
@@ -199,6 +201,24 @@ async def sign_out(request: Request) -> RedirectResponse:
     return response
 
 
+@router.get("/change-password")
+async def change_password(request: Request) -> RedirectResponse:
+    """
+    Redirect an authenticated user to the Logto Account Center password page.
+
+    Uses Logto's prebuilt Account Center flow at ``{LOGTO_ENDPOINT}/account/password``
+    so the user can change their existing password directly.  A ``redirect``
+    query parameter is appended so that Logto returns the user to the Profile &
+    Security page after a successful update.
+    """
+    if not settings.logto_configured:
+        raise _logto_not_configured()
+
+    base = str(request.base_url).rstrip("/")
+    password_url = f"{settings.LOGTO_ENDPOINT.rstrip('/')}/account/password?redirect={base}/profile"
+    return RedirectResponse(url=password_url, status_code=302)
+
+
 @router.get("/forgot-password")
 async def forgot_password(request: Request) -> RedirectResponse:
     """
@@ -209,6 +229,9 @@ async def forgot_password(request: Request) -> RedirectResponse:
     password-reset form immediately instead of the normal sign-in form.
     After the user resets their password they are returned via the normal
     callback flow and land on the app dashboard.
+
+    This endpoint is kept for unauthenticated / "I forgot my password" use
+    cases.  Authenticated users should use ``/change-password`` instead.
     """
     if not settings.logto_configured:
         raise _logto_not_configured()
@@ -229,20 +252,44 @@ async def forgot_password(request: Request) -> RedirectResponse:
     return response
 
 
-@router.get("/account-portal")
-async def account_portal(request: Request) -> RedirectResponse:
+@router.get("/manage-mfa")
+async def manage_mfa(request: Request) -> RedirectResponse:
     """
-    Redirect an authenticated user to the Logto account portal.
+    Redirect an authenticated user to the Logto Account Center MFA page.
 
-    The Logto account portal (``{LOGTO_ENDPOINT}/account``) lets users manage
-    their profile, linked identities, and multi-factor authentication settings
-    without leaving the Logto-hosted UI.  After updating their settings, users
-    can simply navigate back to the app.
+    Uses Logto's prebuilt Account Center flow at
+    ``{LOGTO_ENDPOINT}/account/authenticator-app`` so the user can enable,
+    configure, or remove TOTP authenticator-app MFA directly.  A ``redirect``
+    query parameter is appended so that Logto returns the user to the Profile &
+    Security page after a successful update.
     """
     if not settings.logto_configured:
         raise _logto_not_configured()
 
-    portal_url = f"{settings.LOGTO_ENDPOINT.rstrip('/')}/account"
+    base = str(request.base_url).rstrip("/")
+    mfa_url = (
+        f"{settings.LOGTO_ENDPOINT.rstrip('/')}/account/authenticator-app"
+        f"?redirect={base}/profile"
+    )
+    return RedirectResponse(url=mfa_url, status_code=302)
+
+
+@router.get("/account-portal")
+async def account_portal(request: Request) -> RedirectResponse:
+    """
+    Redirect an authenticated user to the Logto Account Center.
+
+    The Logto account portal (``{LOGTO_ENDPOINT}/account``) lets users manage
+    their profile, linked identities, and multi-factor authentication settings
+    without leaving the Logto-hosted UI.  A ``redirect`` query parameter is
+    appended so that Logto returns the user to the Profile & Security page
+    after a successful update.
+    """
+    if not settings.logto_configured:
+        raise _logto_not_configured()
+
+    base = str(request.base_url).rstrip("/")
+    portal_url = f"{settings.LOGTO_ENDPOINT.rstrip('/')}/account?redirect={base}/profile"
     return RedirectResponse(url=portal_url, status_code=302)
 
 
