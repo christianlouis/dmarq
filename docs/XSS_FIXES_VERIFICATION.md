@@ -195,7 +195,8 @@ No review comments found.
 ## Remaining Work
 
 ### CSP Hardening (Future Work)
-The Content Security Policy still includes `unsafe-inline` and `unsafe-eval` directives. To remove these:
+The Content Security Policy no longer includes `unsafe-eval`, but it still
+includes `unsafe-inline`. To remove the remaining unsafe inline allowances:
 
 1. **For script-src 'unsafe-inline'**:
    - Move inline `<script>` blocks from templates to external .js files
@@ -203,9 +204,8 @@ The Content Security Policy still includes `unsafe-inline` and `unsafe-eval` dir
    - Files with inline scripts: index.html, domains.html, reports.html, settings.html, upload.html, domain_details.html, base.html
 
 2. **For script-src 'unsafe-eval'**:
-   - Current scan shows no eval() usage
-   - Can be removed after testing
-   - Verify no third-party libraries require eval
+   - Removed from the current CSP after verifying no eval() usage
+   - Continue to verify new third-party libraries do not require eval
 
 3. **For style-src 'unsafe-inline'**:
    - Move inline styles to CSS files
@@ -244,7 +244,8 @@ The setup wizard currently collects Cloudflare credentials but doesn't persist t
 
 2. **Short-term** (Next Sprint):
    - Move inline scripts to external files
-   - Remove 'unsafe-eval' from CSP
+   - Keep `unsafe-eval` out of CSP
+   - Remove remaining `unsafe-inline` directives
    - Test application functionality with stricter CSP
 
 3. **Medium-term** (Next Quarter):

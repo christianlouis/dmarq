@@ -239,7 +239,7 @@ After fixing the XSS issues, update your CSP header in `backend/app/middleware/s
 
 ### Current (Insecure)
 ```python
-"script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+"script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net",
 "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
 ```
 
@@ -255,6 +255,7 @@ After fixing the XSS issues, update your CSP header in `backend/app/middleware/s
 - [ ] All user input uses `textContent` not `innerHTML`
 - [ ] No credentials stored in localStorage
 - [ ] Inline styles replaced with CSS classes
+- [x] CSP headers updated to remove 'unsafe-eval'
 - [ ] CSP headers updated to remove 'unsafe-inline'
 - [ ] Manual XSS testing completed
 - [ ] Automated tests added

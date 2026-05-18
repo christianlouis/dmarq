@@ -173,7 +173,8 @@ class TestAdminApiKeySetting:
 
 
 class TestLogtoSettings:
-    def test_ssl_verification_is_enabled_by_default(self):
+    def test_ssl_verification_is_enabled_by_default(self, monkeypatch):
+        monkeypatch.delenv("LOGTO_SKIP_SSL_VERIFY", raising=False)
         settings = Settings()
 
         assert settings.LOGTO_SKIP_SSL_VERIFY is False

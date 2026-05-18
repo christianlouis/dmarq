@@ -13,6 +13,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api.api_v1.endpoints import domains as domains_endpoint
+from app.models.domain import Domain
 from app.services.dns_resolver import DomainDNSResult
 from app.services.report_store import ReportStore
 
@@ -288,6 +290,50 @@ def test_summary_dns_failure_defaults_false(client: TestClient):
     assert domain["dmarc_status"] is False
     assert domain["spf_status"] is False
     assert domain["dkim_status"] is False
+
+
+def test_summary_endpoint_uses_manual_selectors(client: TestClient):
+    """Manually configured selectors are forwarded by the summary endpoint."""
+    client.post(f"/api/v1/domains/{DOMAIN}/selectors", json={"selector": "manualsel"})
+    captured_selectors = []
+
+    async def _fake_check_domain(domain, selectors=None):
+        captured_selectors.extend(selectors or [])
+        return MOCK_DNS_RESULT
+
+    with patch(
+        "app.api.api_v1.endpoints.domains.get_default_provider",
+        return_value=AsyncMock(check_domain=_fake_check_domain),
+    ):
+        response = client.get("/api/v1/domains/summary")
+
+    assert response.status_code == 200
+    assert "manualsel" in captured_selectors
+    assert "google" in captured_selectors
+
+
+def test_selector_map_lookup_chunks_domain_names(db_session, monkeypatch):
+    """Large summary batches are split to avoid database parameter limits."""
+    monkeypatch.setattr(domains_endpoint, "DOMAIN_SELECTOR_LOOKUP_CHUNK_SIZE", 2)
+    db_session.add_all(
+        [
+            Domain(name="one.example", dkim_selectors="a,b"),
+            Domain(name="two.example", dkim_selectors="c"),
+            Domain(name="three.example", dkim_selectors="d"),
+        ]
+    )
+    db_session.commit()
+
+    selectors = domains_endpoint._get_domain_selectors_map_from_db(
+        db_session,
+        ["one.example", "two.example", "three.example", "one.example"],
+    )
+
+    assert selectors == {
+        "one.example": ["a", "b"],
+        "two.example": ["c"],
+        "three.example": ["d"],
+    }
 
 
 # ---------------------------------------------------------------------------

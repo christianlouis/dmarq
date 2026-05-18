@@ -45,11 +45,11 @@ Content Security Policy hardening has been documented with detailed plans:
    - Added CDN sources to CSP whitelist
 
 2. **Analysis** - ✅ COMPLETE
-   - Verified no eval() usage (unsafe-eval can be removed)
+   - Verified no eval() usage and removed `unsafe-eval` from `script-src`
    - Identified all inline script locations
    - Documented inline style usage
 
-3. **Implementation** - ⚠️ FUTURE WORK
+3. **Remaining Implementation** - ⚠️ FUTURE WORK
    - Requires moving inline scripts to external files
    - Or implementing CSP nonces (more complex)
    - Priority: HIGH
@@ -58,7 +58,8 @@ Content Security Policy hardening has been documented with detailed plans:
 **Current CSP Status**:
 - ✅ Documented comprehensive plan
 - ✅ Added TODO comments with specific steps
-- ⚠️ Still includes unsafe-inline/unsafe-eval
+- ✅ Removed `unsafe-eval` from `script-src`
+- ⚠️ Still includes `unsafe-inline`
 - ⚠️ Requires template refactoring to fix
 
 ### 📊 MEDIUM - Test Suite Remediation (ANALYZED, PARTIAL)
@@ -143,7 +144,7 @@ Comprehensive audit process has been documented:
 2. ✅ Audit process established for ongoing monitoring
 
 ### Remaining Risks
-1. ⚠️ CSP still allows unsafe-inline/unsafe-eval (documented, planned)
+1. ⚠️ CSP still allows `unsafe-inline` (documented, planned)
 2. ⚠️ Some test failures indicate potential integration issues (non-security)
 
 ## Metrics
@@ -177,7 +178,8 @@ Comprehensive audit process has been documented:
 
 ### Short-term (Next Sprint)
 - [ ] Move inline scripts to external files
-- [ ] Remove 'unsafe-eval' from CSP
+- [x] Remove 'unsafe-eval' from CSP
+- [ ] Remove 'unsafe-inline' from CSP
 - [ ] Test with stricter CSP
 - [ ] Fix test suite database schema issues
 - [ ] Resolve failing API tests
