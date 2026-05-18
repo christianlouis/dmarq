@@ -21,9 +21,9 @@ class TestNextSleepSeconds:
     def test_respects_min_sleep(self):
         from app.main import _next_sleep_seconds
 
-        source = SimpleNamespace(polling_interval=0)
+        source = SimpleNamespace(polling_interval=1)
 
-        assert _next_sleep_seconds(min_sleep=120, enabled_sources=[source]) == 3600
+        assert _next_sleep_seconds(min_sleep=120, enabled_sources=[source]) == 120
 
     def test_queries_database_when_sources_not_supplied(self):
         from app.main import _next_sleep_seconds

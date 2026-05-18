@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from app.api.api_v1.endpoints.setup import setup_status
 from app.core.security import _api_keys, add_api_key
+from app.models.setting import Setting
 
 
 @pytest.fixture(autouse=True)
@@ -41,6 +42,38 @@ class TestSetupStatus:
         data = response.json()
         assert data["is_setup_complete"] is True
         assert data["app_name"] == "MyApp"
+
+    def test_status_reads_persisted_setup_state_after_memory_reset(
+        self, client: TestClient, db_session
+    ):
+        db_session.add(
+            Setting(
+                key="setup.is_complete",
+                value="true",
+                description="Whether initial setup has been completed",
+                value_type="boolean",
+                category="setup",
+            )
+        )
+        db_session.add(
+            Setting(
+                key="general.app_name",
+                value="Persisted DMARQ",
+                description="Application display name shown in the UI",
+                value_type="string",
+                category="general",
+            )
+        )
+        db_session.commit()
+        setup_status["is_setup_complete"] = False
+        setup_status["app_name"] = "DMARQ"
+
+        response = client.get("/api/v1/setup/status")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["is_setup_complete"] is True
+        assert data["app_name"] == "Persisted DMARQ"
 
 
 class TestSetupAdmin:
@@ -129,6 +162,23 @@ class TestSetupSystem:
 
     def test_system_setup_requires_auth_if_already_complete(self, client: TestClient):
         setup_status["is_setup_complete"] = True
+
+        response = client.post(
+            "/api/v1/setup/system",
+            json={"app_name": "Changed", "base_url": "https://changed.example.com"},
+        )
+
+        assert response.status_code == 401
+
+    def test_system_setup_requires_auth_if_persisted_complete_after_restart(
+        self, client: TestClient
+    ):
+        first_response = client.post(
+            "/api/v1/setup/system",
+            json={"app_name": "DMARQ", "base_url": "https://example.com"},
+        )
+        assert first_response.status_code == 200
+        setup_status["is_setup_complete"] = False
 
         response = client.post(
             "/api/v1/setup/system",

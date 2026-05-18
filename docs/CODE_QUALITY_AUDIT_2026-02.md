@@ -94,7 +94,7 @@ This comprehensive audit evaluated the DMARQ codebase across multiple dimensions
 #### 📝 Recommendations
 
 1. **Priority: Low** - Consider extracting helper functions from complex methods if readability suffers
-2. **Priority: Medium** - Address CSP TODOs (remove unsafe-inline/unsafe-eval)
+2. **Priority: Medium** - Address CSP TODOs (remove remaining unsafe-inline allowances)
 3. **Priority: Low** - Migrate from Pydantic v1 validators to v2 field_validator
 
 ---
@@ -272,14 +272,15 @@ document.getElementById('openModalBtn').addEventListener('click', () => {
    - Documented with clear warnings in code
 
 2. **CSP Unsafe Directives**
-   - Uses 'unsafe-inline' and 'unsafe-eval'
+   - Uses 'unsafe-inline'
+   - 'unsafe-eval' has been removed from the current policy
    - Tracked with TODOs in code
    - Documented in SECURITY.md
 
 #### 📝 Recommendations
 
 **Priority: MEDIUM**
-1. Remove CSP unsafe-inline/unsafe-eval directives
+1. Remove remaining CSP unsafe-inline directives
 2. Implement nonce-based CSP for scripts/styles
 3. Move API keys to database/Redis for production
 
@@ -425,7 +426,7 @@ document.getElementById('openModalBtn').addEventListener('click', () => {
 ## Summary of TODOs Found in Codebase
 
 1. **middleware/security.py (3 instances):**
-   - Line 55: Remove 'unsafe-inline' and 'unsafe-eval' and use nonces/hashes instead
+   - Line 55: Remove remaining 'unsafe-inline' allowances and use nonces/hashes instead
    - Line 61: Use nonces for script-src
    - Line 62: Use nonces for style-src
 

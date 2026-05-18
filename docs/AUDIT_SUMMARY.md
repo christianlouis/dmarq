@@ -135,7 +135,7 @@ DMARQ has **excellent Python code quality** and **strong security infrastructure
    - Some API tests failing
 
 2. **CSP TODOs**
-   - 3 documented TODOs to remove unsafe-inline/unsafe-eval
+   - Documented TODOs to remove remaining unsafe-inline allowances
    - Currently weakens security
 
 3. **Accessibility Gaps**

@@ -20,6 +20,7 @@ from app.services.report_store import ReportStore
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+DOMAIN_SELECTOR_LOOKUP_CHUNK_SIZE = 500
 
 
 class DomainBase(BaseModel):
@@ -145,17 +146,26 @@ def _get_domain_selectors_from_db(db: Session, domain_name: str) -> List[str]:
     return []
 
 
-def _get_domain_selectors_map_from_db(db: Session, domain_names: List[str]) -> Dict[str, List[str]]:
+def _get_domain_selectors_map_from_db(
+    db: Session, domain_names: List[str]
+) -> Dict[str, List[str]]:
     """Return manually configured DKIM selectors for all requested domains."""
     if not domain_names:
         return {}
 
-    rows = db.query(Domain.name, Domain.dkim_selectors).filter(Domain.name.in_(domain_names)).all()
+    unique_names = list(dict.fromkeys(domain_names))
     selectors_by_domain: Dict[str, List[str]] = {}
-    for name, selectors in rows:
-        selectors_by_domain[name] = [
-            selector.strip() for selector in (selectors or "").split(",") if selector.strip()
-        ]
+    for index in range(0, len(unique_names), DOMAIN_SELECTOR_LOOKUP_CHUNK_SIZE):
+        chunk = unique_names[index : index + DOMAIN_SELECTOR_LOOKUP_CHUNK_SIZE]
+        rows = (
+            db.query(Domain.name, Domain.dkim_selectors)
+            .filter(Domain.name.in_(chunk))
+            .all()
+        )
+        for name, selectors in rows:
+            selectors_by_domain[name] = [
+                selector.strip() for selector in (selectors or "").split(",") if selector.strip()
+            ]
     return selectors_by_domain
 
 
