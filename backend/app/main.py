@@ -20,7 +20,6 @@ from app.core.security import add_api_key, generate_api_key, require_admin_auth
 from app.middleware.auth import AuthRedirectMiddleware
 from app.middleware.security import SecurityHeadersMiddleware
 from app.models.mail_source import MailSource  # noqa: F401 – ensure table is registered
-from app.models.user import User  # noqa: F401 – ensure User mapper is registered
 from app.services.gmail_client import GmailClient
 from app.services.imap_client import IMAPClient
 from app.services.report_store import ReportStore
@@ -136,7 +135,7 @@ def _poll_single_gmail_source(source: MailSource) -> None:
         )
 
 
-def _poll_all_enabled_sources() -> None:
+def _poll_all_enabled_sources() -> list[MailSource]:
     """Iterate over all enabled mail sources and poll each one."""
     db = SessionLocal()
     try:
@@ -148,7 +147,7 @@ def _poll_all_enabled_sources() -> None:
 
     if not enabled_sources:
         logger.info("No enabled mail sources configured – polling skipped")
-        return
+        return enabled_sources
 
     for source in enabled_sources:
         if source.method == "GMAIL_API":
@@ -167,19 +166,23 @@ def _poll_all_enabled_sources() -> None:
                 source.id,
                 source.method,
             )
+    return enabled_sources
 
 
-def _next_sleep_seconds(min_sleep: int = 60) -> int:
+def _next_sleep_seconds(
+    min_sleep: int = 60, enabled_sources: list[MailSource] | None = None
+) -> int:
     """Return how many seconds to sleep until the next polling cycle."""
     try:
-        db = SessionLocal()
-        try:
-            intervals = [
-                s.polling_interval or 60
-                for s in db.query(MailSource).filter(MailSource.enabled == True).all()  # noqa: E712
-            ]
-        finally:
-            db.close()
+        if enabled_sources is None:
+            db = SessionLocal()
+            try:
+                enabled_sources = (
+                    db.query(MailSource).filter(MailSource.enabled == True).all()  # noqa: E712
+                )
+            finally:
+                db.close()
+        intervals = [s.polling_interval or 60 for s in enabled_sources]
         return max(min_sleep, min(intervals, default=3600) * 60)
     except Exception:  # pylint: disable=broad-exception-caught
         return 3600
@@ -191,11 +194,18 @@ async def scheduled_imap_polling():
         while True:
             logger.info("Starting scheduled IMAP polling for DMARC reports")
             try:
-                _poll_all_enabled_sources()
+                enabled_sources = _poll_all_enabled_sources()
             except Exception as e:  # pylint: disable=broad-exception-caught
                 logger.error("Error in IMAP polling task: %s", str(e))
+                enabled_sources = None
 
-            await asyncio.sleep(_next_sleep_seconds())
+            try:
+                await asyncio.sleep(_next_sleep_seconds(enabled_sources=enabled_sources))
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                logger.error("Error sleeping in IMAP polling task: %s", str(e))
+                await asyncio.sleep(3600)
 
     except asyncio.CancelledError:
         logger.info("IMAP polling task cancelled")

@@ -53,18 +53,13 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # Content Security Policy (CSP)
         # Restricts sources of content that can be loaded
         #
-        # SECURITY TODO: Current CSP includes 'unsafe-inline' and 'unsafe-eval' which
-        # weaken XSS protection. To remove these:
+        # SECURITY TODO: Current CSP includes 'unsafe-inline' which weakens
+        # XSS protection. To remove it:
         #
         # For script-src 'unsafe-inline':
         # 1. Move all inline <script> tags from templates to external .js files
         # 2. OR implement CSP nonces for inline scripts (requires template changes)
         # 3. Convert any inline event handlers (onclick, etc.) to addEventListener
-        #
-        # For script-src 'unsafe-eval':
-        # 1. Verify no code uses eval(), Function(), setTimeout/setInterval with strings
-        # 2. If using libraries that require eval, consider alternatives
-        # 3. Current scan shows no eval usage - can likely remove this directive
         #
         # For style-src 'unsafe-inline':
         # 1. Move inline styles to CSS files or use style tags with nonces
@@ -79,8 +74,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         csp_directives = [
             "default-src 'self'",
             # TODO: Remove 'unsafe-inline' - requires moving inline scripts to external files  # pylint: disable=fixme
-            # TODO: Remove 'unsafe-eval' - no eval usage detected, safe to remove after testing  # pylint: disable=fixme
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
+            "script-src 'self' 'unsafe-inline'"
             " https://cdn.tailwindcss.com https://cdn.jsdelivr.net",
             # TODO: Remove 'unsafe-inline' - requires moving inline styles to CSS or using nonces  # pylint: disable=fixme
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com"

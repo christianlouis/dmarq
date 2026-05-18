@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.api_v1.endpoints.setup import setup_status
+from app.core.security import _api_keys, add_api_key
 
 
 @pytest.fixture(autouse=True)
@@ -57,8 +58,7 @@ class TestSetupAdmin:
         assert response.status_code == 201
         assert "message" in response.json()
 
-    def test_admin_setup_fails_if_already_complete(self, client: TestClient):
-        # Mark setup as complete
+    def test_admin_setup_requires_auth_if_already_complete(self, client: TestClient):
         setup_status["is_setup_complete"] = True
 
         response = client.post(
@@ -69,6 +69,28 @@ class TestSetupAdmin:
                 "password": "pass",
             },
         )
+
+        assert response.status_code == 401
+
+    def test_admin_setup_fails_if_already_complete(self, client: TestClient):
+        # Mark setup as complete
+        setup_status["is_setup_complete"] = True
+        api_key = "a" * 64
+        add_api_key(api_key)
+
+        try:
+            response = client.post(
+                "/api/v1/setup/admin",
+                json={
+                    "email": "admin2@example.com",
+                    "username": "admin2",
+                    "password": "pass",
+                },
+                headers={"X-API-Key": api_key},
+            )
+        finally:
+            _api_keys.discard(api_key)
+
         assert response.status_code == 400
         assert "already completed" in response.json()["detail"]
 
@@ -104,3 +126,30 @@ class TestSetupSystem:
             json={"app_name": "Test", "base_url": "https://test.example.com"},
         )
         assert setup_status["is_setup_complete"] is True
+
+    def test_system_setup_requires_auth_if_already_complete(self, client: TestClient):
+        setup_status["is_setup_complete"] = True
+
+        response = client.post(
+            "/api/v1/setup/system",
+            json={"app_name": "Changed", "base_url": "https://changed.example.com"},
+        )
+
+        assert response.status_code == 401
+
+    def test_system_setup_allows_authenticated_updates_after_complete(self, client: TestClient):
+        setup_status["is_setup_complete"] = True
+        api_key = "b" * 64
+        add_api_key(api_key)
+
+        try:
+            response = client.post(
+                "/api/v1/setup/system",
+                json={"app_name": "Changed", "base_url": "https://changed.example.com"},
+                headers={"X-API-Key": api_key},
+            )
+        finally:
+            _api_keys.discard(api_key)
+
+        assert response.status_code == 200
+        assert setup_status["app_name"] == "Changed"

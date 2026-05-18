@@ -58,6 +58,39 @@ class TestReportStore:
         assert len(reports) == 1
         assert reports[0]["report_id"] == "rpt-001"
 
+    def test_get_report_by_id_returns_matching_report(self):
+        store = ReportStore.get_instance()
+        report = _sample_report("test.com")
+        store.add_report(report)
+
+        assert store.get_report_by_id("rpt-001") is report
+
+    def test_get_report_by_id_returns_none_for_missing_report(self):
+        store = ReportStore.get_instance()
+        store.add_report(_sample_report("test.com"))
+
+        assert store.get_report_by_id("rpt-missing") is None
+
+    def test_get_domain_sources_returns_sources_sorted_by_count(self):
+        store = ReportStore.get_instance()
+        report = _sample_report("test.com")
+        report["records"].append(
+            {
+                "source_ip": "203.0.113.2",
+                "count": 12,
+                "disposition": "none",
+                "dkim_result": "fail",
+                "spf_result": "pass",
+                "header_from": "test.com",
+            }
+        )
+        store.add_report(report)
+
+        sources = store.get_domain_sources("test.com")
+
+        assert [source["source_ip"] for source in sources] == ["203.0.113.2", "203.0.113.1"]
+        assert [source["count"] for source in sources] == [12, 5]
+
     def test_clear(self):
         store = ReportStore.get_instance()
         store.add_report(_sample_report("test.com"))
