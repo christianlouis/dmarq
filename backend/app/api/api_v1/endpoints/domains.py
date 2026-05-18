@@ -145,6 +145,20 @@ def _get_domain_selectors_from_db(db: Session, domain_name: str) -> List[str]:
     return []
 
 
+def _get_domain_selectors_map_from_db(db: Session, domain_names: List[str]) -> Dict[str, List[str]]:
+    """Return manually configured DKIM selectors for all requested domains."""
+    if not domain_names:
+        return {}
+
+    rows = db.query(Domain.name, Domain.dkim_selectors).filter(Domain.name.in_(domain_names)).all()
+    selectors_by_domain: Dict[str, List[str]] = {}
+    for name, selectors in rows:
+        selectors_by_domain[name] = [
+            selector.strip() for selector in (selectors or "").split(",") if selector.strip()
+        ]
+    return selectors_by_domain
+
+
 @router.get("/summary", response_model=DomainSummaryResponse)
 async def get_domains_summary(db: Session = Depends(get_db)):
     """
@@ -161,9 +175,10 @@ async def get_domains_summary(db: Session = Depends(get_db)):
 
     # Perform DNS checks concurrently for all domains
     provider = get_default_provider()
+    manual_selectors_by_domain = _get_domain_selectors_map_from_db(db, domains)
 
     async def _dns_for_domain(domain_name: str) -> DomainDNSResult:
-        manual_selectors = _get_domain_selectors_from_db(db, domain_name)
+        manual_selectors = manual_selectors_by_domain.get(domain_name, [])
         report_selectors = _get_selectors_from_reports(store, domain_name)
         combined = list(dict.fromkeys(manual_selectors + report_selectors))
         try:

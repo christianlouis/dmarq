@@ -64,7 +64,7 @@ class TestDMARCParser:
 
     def test_invalid_xml(self):
         """Test that invalid XML raises a ValueError."""
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="Error parsing DMARC XML"):
             DMARCParser.parse_file(b"not xml at all", "report.xml")
 
     def test_parse_xml_report_with_namespace(self):
@@ -102,3 +102,30 @@ class TestDMARCParser:
         """Test that an unsupported file extension raises ValueError."""
         with pytest.raises(ValueError, match="Could not extract XML"):
             DMARCParser.parse_file(b"some content", "report.pdf")
+
+    def test_bad_zip_file_returns_no_xml_content(self):
+        """A corrupt ZIP should be handled as no extractable XML content."""
+        with pytest.raises(ValueError, match="Could not extract XML"):
+            DMARCParser.parse_file(b"not a zip file", "report.zip")
+
+    def test_bad_gzip_file_returns_no_xml_content(self):
+        """A corrupt GZIP should be handled as no extractable XML content."""
+        with pytest.raises(ValueError, match="Could not extract XML"):
+            DMARCParser.parse_file(b"not a gzip file", "report.gz")
+
+    def test_parse_xml_without_report_metadata(self):
+        """Missing report_metadata should not crash parsing otherwise valid XML."""
+        xml = b"""
+        <feedback>
+            <policy_published>
+                <domain>example.com</domain>
+                <p>none</p>
+            </policy_published>
+        </feedback>
+        """
+
+        result = DMARCParser.parse_file(xml, "report.xml")
+
+        assert result["domain"] == "example.com"
+        assert result["records"] == []
+        assert result["summary"]["total_count"] == 0

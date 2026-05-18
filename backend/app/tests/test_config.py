@@ -170,3 +170,16 @@ class TestAdminApiKeySetting:
         monkeypatch.setenv("ADMIN_API_KEY", long_key)
         settings = Settings()
         assert settings.ADMIN_API_KEY == long_key
+
+
+class TestLogtoSettings:
+    def test_ssl_verification_is_enabled_by_default(self):
+        settings = Settings()
+
+        assert settings.LOGTO_SKIP_SSL_VERIFY is False
+
+    def test_ssl_verification_can_be_skipped_explicitly(self, monkeypatch):
+        monkeypatch.setenv("LOGTO_SKIP_SSL_VERIFY", "true")
+        settings = Settings()
+
+        assert settings.LOGTO_SKIP_SSL_VERIFY is True
