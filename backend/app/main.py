@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 import app.models.alert  # noqa: F401 – ensure AlertHistory table is registered
+import app.models.dns_cache  # noqa: F401 – ensure DNSCache table is registered
 import app.models.domain  # noqa: F401 – ensure Domain/UserDomain tables are registered
 import app.models.mail_source_import  # noqa: F401 – ensure import history table is registered
 import app.models.report  # noqa: F401 – ensure DMARCReport/ReportRecord tables are registered
