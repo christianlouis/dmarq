@@ -42,6 +42,11 @@ class TestComplianceTimeline:
         data = response.json()
         timeline = data["compliance_timeline"]
         assert len(timeline) >= 1
+        assert timeline[0]["total"] == 10
+        assert timeline[0]["volume"] == 10
+        assert timeline[0]["passed"] == 8
+        assert timeline[0]["failed"] == 2
+        assert timeline[0]["failure_rate"] == 20.0
 
     def test_timeline_uses_real_dates(self, client: TestClient):
         """Timeline dates should come from actual report begin_dates."""
@@ -108,7 +113,11 @@ class TestComplianceTimeline:
         timeline = _build_compliance_timeline(store, "isodate.com")
         assert len(timeline) == 1
         assert timeline[0].date == "2020-08-15"
+        assert timeline[0].total == 10
+        assert timeline[0].passed == 9
+        assert timeline[0].failed == 1
         assert timeline[0].compliance_rate == 90.0
+        assert timeline[0].failure_rate == 10.0
 
 
 class TestBuildComplianceTimelineMultipleReports:
@@ -126,8 +135,12 @@ class TestBuildComplianceTimelineMultipleReports:
 
         assert len(timeline) == 1
         assert timeline[0]["date"] == "2020-08-15"
+        assert timeline[0]["total"] == 20
+        assert timeline[0]["passed"] == 14
+        assert timeline[0]["failed"] == 6
         # Aggregated: 14 passed out of 20 total = 70%
         assert timeline[0]["compliance_rate"] == 70.0
+        assert timeline[0]["failure_rate"] == 30.0
 
     def test_reports_on_different_days(self, client: TestClient):
         """Reports on different days should produce separate timeline points."""
@@ -142,6 +155,9 @@ class TestBuildComplianceTimelineMultipleReports:
         assert len(timeline) == 2
         # Sorted by date
         assert timeline[0]["date"] == "2020-08-15"
+        assert timeline[0]["total"] == 10
         assert timeline[0]["compliance_rate"] == 100.0
         assert timeline[1]["date"] == "2020-08-16"
+        assert timeline[1]["total"] == 10
         assert timeline[1]["compliance_rate"] == 50.0
+        assert timeline[1]["failure_rate"] == 50.0

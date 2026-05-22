@@ -67,7 +67,12 @@ class TimelinePoint(BaseModel):
     """Data point for compliance timeline"""
 
     date: str
+    total: int
+    volume: int
+    passed: int
+    failed: int
     compliance_rate: float
+    failure_rate: float
 
 
 class ReportEntry(BaseModel):
@@ -464,18 +469,34 @@ def _build_compliance_timeline(store: ReportStore, domain: str) -> List[Timeline
             continue
 
         if date_str not in daily_data:
-            daily_data[date_str] = {"total": 0, "passed": 0}
+            daily_data[date_str] = {"total": 0, "passed": 0, "failed": 0}
 
         summary = report.get("summary", {})
-        daily_data[date_str]["total"] += summary.get("total_count", 0)
-        daily_data[date_str]["passed"] += summary.get("passed_count", 0)
+        total = summary.get("total_count", 0)
+        passed = summary.get("passed_count", 0)
+        failed = summary.get("failed_count", max(0, total - passed))
+        daily_data[date_str]["total"] += total
+        daily_data[date_str]["passed"] += passed
+        daily_data[date_str]["failed"] += failed
 
     # Convert to timeline points sorted by date
     timeline = []
     for date_str in sorted(daily_data.keys()):
         data = daily_data[date_str]
-        rate = round((data["passed"] / data["total"]) * 100, 1) if data["total"] > 0 else 0.0
-        timeline.append(TimelinePoint(date=date_str, compliance_rate=rate))
+        total = data["total"]
+        compliance_rate = round((data["passed"] / total) * 100, 1) if total > 0 else 0.0
+        failure_rate = round((data["failed"] / total) * 100, 1) if total > 0 else 0.0
+        timeline.append(
+            TimelinePoint(
+                date=date_str,
+                total=total,
+                volume=total,
+                passed=data["passed"],
+                failed=data["failed"],
+                compliance_rate=compliance_rate,
+                failure_rate=failure_rate,
+            )
+        )
 
     return timeline
 
