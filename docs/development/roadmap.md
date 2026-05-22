@@ -137,3 +137,16 @@ The milestone breakdown in `docs/milestones.md` is intentionally focused on exit
 Notes:
 - Releases are planned as *themes*, not promises; reprioritize based on what production deployments surface.
 - “AI + MCP” is explicitly opt-in and should default to safe, privacy-preserving, read-only behavior.
+
+### Roadmap Tracking (GitHub)
+
+- Release plan: #167
+- Milestone 8: #158
+- Milestone 9: #161
+- Milestone 10: #166
+- Milestone 11: #129
+- Milestone 12: #133
+- Milestone 13: #138
+- Milestone 14: #143
+- Milestone 15: #148
+- Milestone 16: #153
