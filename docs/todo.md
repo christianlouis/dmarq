@@ -142,7 +142,7 @@ This file tracks the specific implementation tasks for each milestone of the DMA
 - [ ] Add alert status summary (for later integration)
 
 ### Historical Data
-- [ ] Implement date range filtering
+- [x] Implement date range filtering
 - [ ] Create historical trend analysis
 - [ ] Add data aggregation for different time periods
 - [ ] Implement data comparison features
@@ -151,7 +151,7 @@ This file tracks the specific implementation tasks for each milestone of the DMA
 - [x] Add per-domain daily rollups
 - [x] Add sender/source pass/fail totals
 - [ ] Add newly observed source detection
-- [ ] Add exportable domain reports
+- [x] Add exportable domain reports
 - [ ] Add actionable recommendations for common DMARC failure patterns
 
 ## Future Milestones
