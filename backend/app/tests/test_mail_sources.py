@@ -2132,6 +2132,36 @@ class TestTriggerPollEndpoint:
         finally:
             main_app.dependency_overrides.clear()
 
+    def test_trigger_poll_with_no_enabled_sources(self):
+        """With no enabled sources, the endpoint returns an empty-success response."""
+        from app.core.security import require_admin_auth
+        from app.main import app as main_app
+
+        async def mock_auth():
+            return {"auth_type": "api_key"}
+
+        main_app.dependency_overrides[require_admin_auth] = mock_auth
+
+        try:
+            mock_db = MagicMock()
+            mock_db.query.return_value.filter.return_value.all.return_value = []
+
+            with TestClient(main_app) as tc:
+                with patch("app.main.SessionLocal", return_value=mock_db):
+                    resp = tc.post("/api/v1/admin/trigger-poll?days=14")
+
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data == {
+                "success": True,
+                "message": "No enabled mail sources configured.",
+                "sources_polled": 0,
+                "days": 14,
+                "authenticated_by": "api_key",
+            }
+        finally:
+            main_app.dependency_overrides.clear()
+
 
 # ---------------------------------------------------------------------------
 # Pytest marker to avoid warnings for test methods without assertions
