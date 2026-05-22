@@ -188,6 +188,20 @@ class TestLogtoSettings:
         assert settings.LOGTO_SKIP_SSL_VERIFY is True
 
 
+class TestImapSettings:
+    def test_delete_imported_emails_defaults_false(self, monkeypatch):
+        monkeypatch.delenv("DELETE_IMPORTED_EMAILS", raising=False)
+        settings = Settings()
+
+        assert settings.DELETE_IMPORTED_EMAILS is False
+
+    def test_delete_imported_emails_reads_env(self, monkeypatch):
+        monkeypatch.setenv("DELETE_IMPORTED_EMAILS", "true")
+        settings = Settings()
+
+        assert settings.DELETE_IMPORTED_EMAILS is True
+
+
 class TestProductionStartupSettings:
     """Tests for production-critical settings and startup validation."""
 

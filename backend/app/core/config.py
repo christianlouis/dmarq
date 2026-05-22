@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     IMAP_USERNAME: Optional[str] = None
     IMAP_PASSWORD: Optional[str] = None
     IMAP_FOLDER: str = "INBOX"
+    DELETE_IMPORTED_EMAILS: bool = False
 
     # Admin User
     FIRST_SUPERUSER: Optional[EmailStr] = None
@@ -50,6 +51,7 @@ class Settings(BaseSettings):
     # Optional Cloudflare Integration
     CLOUDFLARE_API_TOKEN: Optional[str] = None
     CLOUDFLARE_ZONE_ID: Optional[str] = None
+    WEBHOOK_SECRET: Optional[str] = None
 
     # Admin API Key (optional)
     # If set, this key is used directly instead of generating a random one at startup.

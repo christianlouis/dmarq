@@ -26,22 +26,21 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     volumes:
-      - ./backend:/app          # development: mount source code for live reload
       - app_data:/app/data      # persist SQLite database and other application data
     depends_on:
       db:
         condition: service_healthy
     environment:
+      - SERVICE_FQDN_APP_8080
       - DATABASE_URL=postgresql://dmarq_user:dmarq_secure_password@db:5432/dmarq_db
       - SECRET_KEY=your_secret_key_change_in_production
       - DEBUG=True
       - ENVIRONMENT=development
+      - DELETE_IMPORTED_EMAILS=false
       # Add NODE_ENV for Tailwind
       - NODE_ENV=production
     networks:
       - dmarq-network
-    ports:
-      - "80:8080"  # Map directly to port 80 for web access
 
 # Define networks
 networks:

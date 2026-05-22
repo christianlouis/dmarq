@@ -139,6 +139,19 @@ class TestIMAPClientInit:
         assert client.password == "secret"
         assert client.delete_emails is True
 
+    def test_delete_emails_defaults_to_settings(self):
+        settings = SimpleNamespace(
+            IMAP_SERVER="imap.example.com",
+            IMAP_PORT=993,
+            IMAP_USERNAME="u",
+            IMAP_PASSWORD="p",
+            DELETE_IMPORTED_EMAILS=True,
+        )
+        with patch("app.services.imap_client.get_settings", return_value=settings):
+            client = IMAPClient()
+
+        assert client.delete_emails is True
+
     def test_folder_uses_explicit_value_or_settings_default(self):
         """Folder defaults to settings and can be overridden explicitly."""
         settings = SimpleNamespace(
@@ -223,6 +236,7 @@ class TestTestConnection:
                 IMAP_PORT=993,
                 IMAP_USERNAME=username,
                 IMAP_PASSWORD=password,
+                DELETE_IMPORTED_EMAILS=False,
             )
             return IMAPClient()
 
@@ -233,6 +247,7 @@ class TestTestConnection:
                 IMAP_PORT=993,
                 IMAP_USERNAME=None,
                 IMAP_PASSWORD=None,
+                DELETE_IMPORTED_EMAILS=False,
             )
             client = IMAPClient()
         success, message, stats = client.test_connection()
@@ -634,11 +649,31 @@ class TestProcessSingleEmail:
         mock_mail.fetch.return_value = ("OK", [(b"1", raw)])
         mock_mail.store.return_value = ("OK", None)
 
-        stats = {"processed": 0, "reports_found": 0, "errors": []}
+        stats = {"processed": 0, "reports_found": 0, "deleted": 0, "errors": []}
         client._process_single_email(mock_mail, b"1", stats)
 
         # store should have been called twice: once for \\Seen, once for \\Deleted
         assert mock_mail.store.call_count >= 2
+        assert stats["deleted"] == 1
+
+    def test_does_not_delete_when_no_report_imported(self):
+        client = self._make_client()
+        client.delete_emails = True
+        raw = _make_email_with_attachment(
+            "not-a-report.txt",
+            b"not a report",
+            "text/plain",
+            subject="DMARC Report",
+        )
+        mock_mail = MagicMock()
+        mock_mail.fetch.return_value = ("OK", [(b"1", raw)])
+        mock_mail.store.return_value = ("OK", None)
+
+        stats = {"processed": 0, "reports_found": 0, "deleted": 0, "errors": []}
+        client._process_single_email(mock_mail, b"1", stats)
+
+        mock_mail.store.assert_called_once_with(b"1", "+FLAGS", "\\Seen")
+        assert stats["deleted"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -736,7 +771,22 @@ class TestFetchReports:
         mock_mail = MagicMock()
         mock_mail.login.return_value = None
         mock_mail.select.return_value = ("OK", [b"0"])
-        mock_mail.search.return_value = ("OK", [b""])
+        mock_mail.search.return_value = ("OK", [b"1"])
+        mock_mail.fetch.return_value = (
+            "OK",
+            [
+                (
+                    b"1",
+                    _make_email_with_attachment(
+                        "report.xml",
+                        MINIMAL_DMARC_XML,
+                        "application/xml",
+                        subject="DMARC Report",
+                    ),
+                )
+            ],
+        )
+        mock_mail.store.return_value = ("OK", None)
         mock_mail.logout.return_value = None
 
         with patch("imaplib.IMAP4_SSL", return_value=mock_mail):
@@ -744,3 +794,20 @@ class TestFetchReports:
 
         mock_mail.expunge.assert_called_once()
         assert result["success"] is True
+        assert result["deleted"] == 1
+
+    def test_delete_emails_skips_expunge_when_nothing_deleted(self):
+        client = self._make_client()
+        client.delete_emails = True
+        mock_mail = MagicMock()
+        mock_mail.login.return_value = None
+        mock_mail.select.return_value = ("OK", [b"0"])
+        mock_mail.search.return_value = ("OK", [b""])
+        mock_mail.logout.return_value = None
+
+        with patch("imaplib.IMAP4_SSL", return_value=mock_mail):
+            result = client.fetch_reports(days=3)
+
+        mock_mail.expunge.assert_not_called()
+        assert result["success"] is True
+        assert result["deleted"] == 0

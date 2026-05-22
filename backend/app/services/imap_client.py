@@ -3,7 +3,7 @@ import imaplib
 import logging
 from datetime import datetime, timedelta
 from email.header import decode_header
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from app.core.config import get_settings
 from app.services.dmarc_parser import DMARCParser
@@ -25,7 +25,7 @@ class IMAPClient:
         port: int = None,
         username: str = None,
         password: str = None,
-        delete_emails: bool = False,
+        delete_emails: Optional[bool] = None,
         folder: str = None,
         db: Any = None,
     ):
@@ -37,7 +37,8 @@ class IMAPClient:
             port: IMAP server port (if None, uses settings)
             username: IMAP username (if None, uses settings)
             password: IMAP password (if None, uses settings)
-            delete_emails: Whether to delete emails after processing (default: False)
+            delete_emails: Whether to delete emails after successful report imports.
+                If omitted, uses DELETE_IMPORTED_EMAILS from settings.
             folder: IMAP mailbox folder to read (if None, uses settings or INBOX)
             db: Optional SQLAlchemy session used to persist imported reports
         """
@@ -50,7 +51,10 @@ class IMAPClient:
         self.port = port or settings.IMAP_PORT
         self.username = username or settings.IMAP_USERNAME
         self.password = password or settings.IMAP_PASSWORD
-        self.delete_emails = delete_emails
+        configured_delete = getattr(settings, "DELETE_IMPORTED_EMAILS", False)
+        if not isinstance(configured_delete, bool):
+            configured_delete = False
+        self.delete_emails = configured_delete if delete_emails is None else delete_emails
         self.folder = folder or settings_folder or "INBOX"
         self.db = db
 
@@ -170,10 +174,11 @@ class IMAPClient:
                 reports_found = self._process_attachments(msg, stats, message_id=message_id)
                 stats["reports_found"] += reports_found
 
-                # Mark email as read (and optionally delete)
+                # Mark DMARC-looking email as read, and delete only after a successful import.
                 mail.store(email_id, "+FLAGS", "\\Seen")
-                if self.delete_emails:
+                if self.delete_emails and reports_found > 0:
                     mail.store(email_id, "+FLAGS", "\\Deleted")
+                    stats["deleted"] = stats.get("deleted", 0) + 1
 
                 stats["processed"] += 1
         except Exception as e:  # pylint: disable=broad-exception-caught
@@ -206,6 +211,7 @@ class IMAPClient:
             "success": True,
             "processed": 0,
             "reports_found": 0,
+            "deleted": 0,
             "duplicate_reports": 0,
             "new_domains": [],
             "errors": [],
@@ -243,7 +249,7 @@ class IMAPClient:
                 self._process_single_email(mail, email_id, stats)
 
             # Actually remove emails marked for deletion
-            if self.delete_emails:
+            if self.delete_emails and stats["deleted"] > 0:
                 mail.expunge()
 
             # Logout

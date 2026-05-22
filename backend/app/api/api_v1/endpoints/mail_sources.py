@@ -287,7 +287,6 @@ def _fetch_imap_source(source: MailSource, db: Session, days: int) -> Dict[str, 
         port=source.port or 993,
         username=source.username,
         password=source.password,
-        delete_emails=False,
         folder=source.folder,
         db=db,
     )
