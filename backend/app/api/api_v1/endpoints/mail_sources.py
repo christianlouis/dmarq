@@ -288,6 +288,7 @@ def _fetch_imap_source(source: MailSource, db: Session, days: int) -> Dict[str, 
         username=source.username,
         password=source.password,
         delete_emails=False,
+        folder=source.folder,
         db=db,
     )
     started_at = datetime.utcnow()
@@ -526,6 +527,7 @@ async def test_stored_mail_source(
         port=source.port or 993,
         username=source.username,
         password=source.password,
+        folder=source.folder,
     )
     success, message, stats = imap_client.test_connection()
 

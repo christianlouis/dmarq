@@ -11,6 +11,7 @@ from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from io import BytesIO
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from zipfile import ZipFile
 
@@ -138,6 +139,19 @@ class TestIMAPClientInit:
         assert client.password == "secret"
         assert client.delete_emails is True
 
+    def test_folder_uses_explicit_value_or_settings_default(self):
+        """Folder defaults to settings and can be overridden explicitly."""
+        settings = SimpleNamespace(
+            IMAP_SERVER="imap.example.com",
+            IMAP_PORT=993,
+            IMAP_USERNAME="u",
+            IMAP_PASSWORD="p",
+            IMAP_FOLDER="Archive",
+        )
+        with patch("app.services.imap_client.get_settings", return_value=settings):
+            assert IMAPClient().folder == "Archive"
+            assert IMAPClient(folder="Junk Mail").folder == "Junk Mail"
+
     def test_report_store_assigned(self):
         """IMAPClient stores a reference to the ReportStore singleton."""
         with patch("app.services.imap_client.get_settings") as mock_settings:
@@ -241,6 +255,26 @@ class TestTestConnection:
         assert "successful" in message.lower()
         assert stats["message_count"] == 10
         assert "INBOX" in stats["available_mailboxes"]
+
+    def test_connection_selects_configured_folder_with_quotes(self):
+        client = IMAPClient(
+            server="imap.example.com",
+            port=993,
+            username="u",
+            password="p",
+            folder="Junk Mail",
+        )
+        mock_mail = MagicMock()
+        mock_mail.login.return_value = None
+        mock_mail.list.return_value = ("OK", [])
+        mock_mail.select.return_value = ("OK", [b"0"])
+        mock_mail.search.return_value = ("OK", [b""])
+
+        with patch("imaplib.IMAP4_SSL", return_value=mock_mail):
+            success, _, _ = client.test_connection()
+
+        assert success is True
+        mock_mail.select.assert_called_once_with('"Junk Mail"')
 
     def test_connection_exception_returns_false(self):
         client = self._make_client()
@@ -646,6 +680,26 @@ class TestFetchReports:
             result = client.fetch_reports(days=7)
 
         assert result["success"] is False
+
+    def test_fetch_reports_selects_configured_folder_with_quotes(self):
+        client = IMAPClient(
+            server="imap.example.com",
+            port=993,
+            username="u",
+            password="p",
+            folder="Junk Mail",
+        )
+        mock_mail = MagicMock()
+        mock_mail.login.return_value = None
+        mock_mail.select.return_value = ("OK", [b"0"])
+        mock_mail.search.return_value = ("OK", [b""])
+        mock_mail.logout.return_value = None
+
+        with patch("imaplib.IMAP4_SSL", return_value=mock_mail):
+            result = client.fetch_reports(days=7)
+
+        assert result["success"] is True
+        mock_mail.select.assert_called_once_with('"Junk Mail"')
 
     def test_successful_fetch_with_email(self):
         client = self._make_client()

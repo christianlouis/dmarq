@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     IMAP_PORT: int = 993
     IMAP_USERNAME: Optional[str] = None
     IMAP_PASSWORD: Optional[str] = None
+    IMAP_FOLDER: str = "INBOX"
 
     # Admin User
     FIRST_SUPERUSER: Optional[EmailStr] = None
