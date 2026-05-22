@@ -157,6 +157,7 @@ This file tracks the specific implementation tasks for each milestone of the DMA
 ## Future Milestones
 - [x] Production secret handling guide using 1Password injection
 - [x] Redact mailbox/OAuth secrets from diagnostics, logs, import history, and auth contexts
+- [x] Add startup checks for production-critical configuration
 - [ ] Apprise notifications and alert rules
 - [ ] DNS health guidance and Cloudflare read-only inspection
 - [ ] Guided setup and operator health pages
