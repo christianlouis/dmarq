@@ -45,6 +45,48 @@ class TestNextSleepSeconds:
             assert _next_sleep_seconds() == 3600
 
 
+def test_poll_single_imap_source_passes_configured_folder():
+    from app.main import _poll_single_imap_source
+
+    source = SimpleNamespace(
+        id=1,
+        server="imap.example.com",
+        port=993,
+        username="u",
+        password="p",
+        folder="Junk Mail",
+    )
+    db = MagicMock()
+    db.query.return_value.get.return_value = source
+    results = {
+        "success": True,
+        "processed": 0,
+        "reports_found": 0,
+        "new_domains": [],
+    }
+
+    with (
+        patch("app.main.SessionLocal", return_value=db),
+        patch("app.main.IMAPClient") as mock_client_cls,
+        patch("app.main.record_import_attempt"),
+    ):
+        mock_client_cls.return_value.fetch_reports.return_value = results
+
+        _poll_single_imap_source(source)
+
+    mock_client_cls.assert_called_once_with(
+        server="imap.example.com",
+        port=993,
+        username="u",
+        password="p",
+        delete_emails=False,
+        folder="Junk Mail",
+        db=db,
+    )
+    db.commit.assert_called_once()
+    db.close.assert_called_once()
+
+
 @pytest.mark.asyncio
 async def test_scheduled_imap_polling_sleep_exception_falls_back_then_cancels():
     from app.main import scheduled_imap_polling

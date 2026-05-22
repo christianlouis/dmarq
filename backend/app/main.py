@@ -51,6 +51,7 @@ def _poll_single_imap_source(source: MailSource) -> None:
             username=poll_source.username,
             password=poll_source.password,
             delete_emails=False,
+            folder=poll_source.folder,
             db=db,
         )
         started_at = datetime.utcnow()
@@ -530,6 +531,7 @@ def _trigger_poll_imap_source(source: MailSource, db) -> dict:
         username=source.username,
         password=source.password,
         delete_emails=False,
+        folder=source.folder,
         db=db,
     )
     started_at = datetime.utcnow()

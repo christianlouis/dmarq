@@ -26,6 +26,7 @@ class IMAPClient:
         username: str = None,
         password: str = None,
         delete_emails: bool = False,
+        folder: str = None,
         db: Any = None,
     ):
         """
@@ -37,21 +38,30 @@ class IMAPClient:
             username: IMAP username (if None, uses settings)
             password: IMAP password (if None, uses settings)
             delete_emails: Whether to delete emails after processing (default: False)
+            folder: IMAP mailbox folder to read (if None, uses settings or INBOX)
             db: Optional SQLAlchemy session used to persist imported reports
         """
         settings = get_settings()
+        settings_folder = getattr(settings, "IMAP_FOLDER", None)
+        if not isinstance(settings_folder, str):
+            settings_folder = None
 
         self.server = server or settings.IMAP_SERVER
         self.port = port or settings.IMAP_PORT
         self.username = username or settings.IMAP_USERNAME
         self.password = password or settings.IMAP_PASSWORD
         self.delete_emails = delete_emails
+        self.folder = folder or settings_folder or "INBOX"
         self.db = db
 
         self.report_store = ReportStore.get_instance()
 
         if not all([self.server, self.username, self.password]):
             logger.warning("IMAP credentials not fully configured")
+
+    def _quoted_folder(self) -> str:
+        escaped = self.folder.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
 
     def _list_mailboxes(self, mailbox_data: list) -> list:
         """Parse the raw IMAP LIST response into a list of mailbox name strings."""
@@ -100,8 +110,8 @@ class IMAPClient:
             status, mailbox_list = mail.list()
             available_mailboxes = self._list_mailboxes(mailbox_list) if status == "OK" else []
 
-            # Select inbox and get message count
-            status, data = mail.select("INBOX")
+            # Select configured mailbox and get message count
+            status, data = mail.select(self._quoted_folder())
             message_count = 0
             unread_count = 0
 
@@ -206,7 +216,7 @@ class IMAPClient:
             # Connect to the mail server
             mail = imaplib.IMAP4_SSL(self.server, self.port)
             mail.login(self.username, self.password)
-            mail.select("INBOX")
+            mail.select(self._quoted_folder())
 
             # Calculate the date range for search
             date_since = (datetime.now() - timedelta(days=days)).strftime("%d-%b-%Y")
