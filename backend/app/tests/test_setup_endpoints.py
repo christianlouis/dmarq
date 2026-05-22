@@ -76,6 +76,24 @@ class TestSetupStatus:
         assert data["app_name"] == "Persisted DMARQ"
 
 
+class TestSetupPage:
+    """Tests for the rendered setup page."""
+
+    def test_setup_page_renders_guided_wizard(self):
+        from app.main import app as main_app
+
+        with TestClient(main_app) as test_client:
+            response = test_client.get("/setup")
+
+        assert response.status_code == 200
+        assert "First-run setup" in response.text
+        assert '@submit.prevent="submitAdmin"' in response.text
+        assert '@submit.prevent="submitSystem"' in response.text
+        assert "/api/v1/setup/status" in response.text
+        assert "/api/v1/setup/admin" in response.text
+        assert "/api/v1/setup/system" in response.text
+
+
 class TestSetupAdmin:
     """Tests for POST /api/v1/setup/admin"""
 

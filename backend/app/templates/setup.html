@@ -3,205 +3,293 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Setup – {{ app_name }}</title>
+    <title>Setup - {{ app_name }}</title>
 
+    <link rel="icon" type="image/x-icon" href="/static/img/favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/img/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/static/img/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/img/apple-touch-icon.png">
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Open+Sans:wght@400;500;600&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.24/dist/full.css" rel="stylesheet" type="text/css"/>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>[x-cloak] { display: none !important; }</style>
 </head>
 <body class="min-h-screen bg-base-200 font-sans antialiased">
-
-<div class="max-w-3xl mx-auto px-4 py-12">
-
-    <!-- Logo / brand -->
-    <div class="text-center mb-10">
-        <a href="/" class="inline-flex items-center gap-3">
-            <img src="/static/img/monogram_light.png" alt="{{ app_name }} logo" class="w-12 h-12">
-            <span class="text-3xl font-bold text-primary font-heading">{{ app_name }}</span>
-        </a>
-        <h1 class="mt-3 text-2xl font-semibold">First-run Setup</h1>
-        <p class="mt-1 text-base-content/60 text-sm">Configure Logto to enable user authentication.</p>
-    </div>
-
-    {% if logto_configured %}
-    <!-- Already configured -->
-    <div class="card bg-base-100 shadow-xl mb-8">
-        <div class="card-body">
-            <div role="alert" class="alert alert-success">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                </svg>
-                <div>
-                    <p class="font-semibold">Logto is configured!</p>
-                    <p class="text-sm">Authentication is ready. You can now
-                        <a href="/login" class="link link-success font-medium">sign in</a>.
-                    </p>
-                </div>
-            </div>
+<div class="min-h-screen" x-data="setupWizard()" x-init="init()" x-cloak>
+    <header class="border-b border-base-300 bg-base-100">
+        <div class="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
+            <a href="/" class="inline-flex items-center gap-3">
+                <img src="/static/img/monogram_light.png" alt="{{ app_name }} logo" class="h-10 w-10">
+                <span class="font-heading text-2xl font-bold text-primary">{{ app_name }}</span>
+            </a>
+            <a x-show="complete" href="/login" class="btn btn-primary btn-sm">Sign in</a>
         </div>
-    </div>
-    {% endif %}
+    </header>
 
-    <!-- Step-by-step guide -->
-    <div class="space-y-6">
-
-        <!-- Step 1 -->
-        <div class="card bg-base-100 shadow">
-            <div class="card-body">
-                <h2 class="card-title text-lg">
-                    <span class="badge badge-primary badge-lg mr-2">1</span>
-                    Deploy or sign up for Logto
-                </h2>
-                <p class="text-sm text-base-content/70">
-                    Choose one of the options below.  Both are free to start.
+    <main class="mx-auto grid max-w-6xl grid-cols-1 gap-6 px-4 py-8 lg:grid-cols-[minmax(0,1fr)_22rem]">
+        <section class="min-w-0 space-y-6">
+            <div>
+                <h1 class="text-3xl font-semibold text-base-content">First-run setup</h1>
+                <p class="mt-2 max-w-2xl text-sm leading-6 text-base-content/70">
+                    Save the basic settings DMARQ needs before the dashboard is used.
                 </p>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
-                    <div class="border border-base-300 rounded-lg p-4 space-y-2">
-                        <p class="font-semibold text-sm">☁️ Logto Cloud (recommended)</p>
-                        <p class="text-xs text-base-content/60">
-                            Sign up at
-                            <a href="https://cloud.logto.io" target="_blank" rel="noopener" class="link link-primary">cloud.logto.io</a>.
-                            The free tier supports unlimited users.
-                        </p>
+            </div>
+
+            <div class="card bg-base-100 shadow">
+                <div class="card-body gap-6">
+                    <ol class="grid gap-3 sm:grid-cols-3" aria-label="Setup progress">
+                        <template x-for="step in steps" :key="step.id">
+                            <li class="flex items-center gap-3 rounded-lg border border-base-300 p-3"
+                                :class="stepClass(step.id)">
+                                <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold"
+                                      :class="stepBadgeClass(step.id)"
+                                      x-text="step.id"></span>
+                                <span class="min-w-0">
+                                    <span class="block text-sm font-semibold" x-text="step.title"></span>
+                                    <span class="block truncate text-xs text-base-content/60" x-text="step.detail"></span>
+                                </span>
+                            </li>
+                        </template>
+                    </ol>
+
+                    <div x-show="statusLoading" class="flex items-center gap-3 rounded-lg bg-base-200 p-4">
+                        <span class="loading loading-spinner loading-sm"></span>
+                        <span class="text-sm text-base-content/70">Checking setup status...</span>
                     </div>
-                    <div class="border border-base-300 rounded-lg p-4 space-y-2">
-                        <p class="font-semibold text-sm">🐳 Self-hosted (Docker)</p>
-                        <p class="text-xs text-base-content/60">
-                            Add Logto to your <code class="font-mono">docker-compose.yml</code>
-                            (see the
-                            <a href="https://docs.logto.io/docs/recipes/deployment/" target="_blank" rel="noopener" class="link link-primary">Logto deployment guide</a>).
-                        </p>
+
+                    <div x-show="error" role="alert" class="alert alert-error">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                        </svg>
+                        <span x-text="error"></span>
+                    </div>
+
+                    <form x-show="!statusLoading && currentStep === 1" @submit.prevent="submitAdmin" class="space-y-5">
+                        <div>
+                            <h2 class="text-xl font-semibold">Admin contact</h2>
+                            <p class="mt-1 text-sm text-base-content/60">This contact is saved with the setup record.</p>
+                        </div>
+
+                        <div class="grid gap-4 sm:grid-cols-2">
+                            <label class="form-control">
+                                <span class="label-text font-medium">Email</span>
+                                <input x-model.trim="admin.email" type="email" required autocomplete="email" class="input input-bordered">
+                            </label>
+                            <label class="form-control">
+                                <span class="label-text font-medium">Username</span>
+                                <input x-model.trim="admin.username" type="text" required autocomplete="username" class="input input-bordered">
+                            </label>
+                            <label class="form-control">
+                                <span class="label-text font-medium">Password</span>
+                                <input x-model="admin.password" type="password" required autocomplete="new-password" class="input input-bordered">
+                            </label>
+                            <label class="form-control">
+                                <span class="label-text font-medium">Confirm password</span>
+                                <input x-model="admin.confirmPassword" type="password" required autocomplete="new-password" class="input input-bordered">
+                            </label>
+                        </div>
+
+                        <div class="flex justify-end">
+                            <button type="submit" class="btn btn-primary" :disabled="saving">
+                                <span x-show="saving" class="loading loading-spinner loading-xs"></span>
+                                Continue
+                            </button>
+                        </div>
+                    </form>
+
+                    <form x-show="!statusLoading && currentStep === 2" @submit.prevent="submitSystem" class="space-y-5">
+                        <div>
+                            <h2 class="text-xl font-semibold">System settings</h2>
+                            <p class="mt-1 text-sm text-base-content/60">These values are stored in the application settings.</p>
+                        </div>
+
+                        <div class="grid gap-4 sm:grid-cols-2">
+                            <label class="form-control">
+                                <span class="label-text font-medium">Application name</span>
+                                <input x-model.trim="system.app_name" type="text" required class="input input-bordered">
+                            </label>
+                            <label class="form-control">
+                                <span class="label-text font-medium">Base URL</span>
+                                <input x-model.trim="system.base_url" type="url" required class="input input-bordered">
+                            </label>
+                        </div>
+
+                        <div class="flex justify-between gap-3">
+                            <button type="button" class="btn btn-ghost" @click="currentStep = 1" :disabled="saving">Back</button>
+                            <button type="submit" class="btn btn-primary" :disabled="saving">
+                                <span x-show="saving" class="loading loading-spinner loading-xs"></span>
+                                Finish setup
+                            </button>
+                        </div>
+                    </form>
+
+                    <div x-show="!statusLoading && complete" class="space-y-5">
+                        <div role="alert" class="alert alert-success">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m5 13 4 4L19 7"/>
+                            </svg>
+                            <div>
+                                <p class="font-semibold">Setup is complete.</p>
+                                <p class="text-sm" x-text="message || 'DMARQ is ready for sign-in and report ingestion.'"></p>
+                            </div>
+                        </div>
+                        <div class="flex flex-wrap gap-3">
+                            <a href="/login" class="btn btn-primary">Sign in</a>
+                            <a href="/" class="btn btn-outline">Open dashboard</a>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
+        </section>
 
-        <!-- Step 2 -->
-        <div class="card bg-base-100 shadow">
-            <div class="card-body">
-                <h2 class="card-title text-lg">
-                    <span class="badge badge-primary badge-lg mr-2">2</span>
-                    Create a "Traditional Web" application in Logto
-                </h2>
-                <ol class="list-decimal list-inside text-sm text-base-content/70 space-y-1 mt-1">
-                    <li>Open the <strong>Logto Console</strong> → <em>Applications</em> → <em>Create application</em>.</li>
-                    <li>Choose <strong>Traditional Web</strong>.</li>
-                    <li>Enter a name, e.g. <em>DMARQ</em>.</li>
-                    <li>
-                        Set the <strong>Redirect URI</strong> to:<br>
-                        <code class="font-mono bg-base-200 px-2 py-0.5 rounded text-xs break-all">
-                            &lt;your-dmarq-url&gt;/api/v1/auth/callback
-                        </code>
-                    </li>
-                    <li>
-                        Set the <strong>Post Sign-out Redirect URI</strong> to:<br>
-                        <code class="font-mono bg-base-200 px-2 py-0.5 rounded text-xs break-all">
-                            &lt;your-dmarq-url&gt;/login
-                        </code>
-                    </li>
-                    <li>Save and note the <strong>App ID</strong> and <strong>App Secret</strong>.</li>
-                </ol>
-            </div>
-        </div>
-
-        <!-- Step 3 -->
-        <div class="card bg-base-100 shadow">
-            <div class="card-body">
-                <h2 class="card-title text-lg">
-                    <span class="badge badge-primary badge-lg mr-2">3</span>
-                    Set environment variables and restart {{ app_name }}
-                </h2>
-                <p class="text-sm text-base-content/70 mb-3">
-                    Add the following to your <code class="font-mono">.env</code> file or Docker environment:
-                </p>
-                <div class="mockup-code text-xs">
-                    <pre><code># Logto endpoint – the base URL of your Logto instance
-LOGTO_ENDPOINT=https://&lt;your-tenant&gt;.logto.app
-
-# Application credentials from the Logto Console
-LOGTO_APP_ID=&lt;your-app-id&gt;
-LOGTO_APP_SECRET=&lt;your-app-secret&gt;
-
-# Optional: override the callback URL (defaults to &lt;base_url&gt;/api/v1/auth/callback)
-# LOGTO_REDIRECT_URI=https://dmarc.example.com/api/v1/auth/callback</code></pre>
-                </div>
-                <div role="alert" class="alert alert-info mt-4 text-sm">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20A10 10 0 0012 2z"/>
-                    </svg>
-                    <p>
-                        For Docker Compose, set these in the <code class="font-mono">environment:</code> section
-                        of the <em>backend</em> service and run <code class="font-mono">docker compose up -d --force-recreate</code>.
+        <aside class="min-w-0 space-y-6">
+            <div class="card bg-base-100 shadow">
+                <div class="card-body">
+                    <h2 class="card-title text-lg">Authentication</h2>
+                    {% if logto_configured %}
+                    <div role="alert" class="alert alert-success py-3 text-sm">
+                        <span>Logto is configured.</span>
+                    </div>
+                    {% else %}
+                    <p class="text-sm leading-6 text-base-content/70">
+                        Configure Logto after setup to enable user sign-in.
                     </p>
+                    <div class="mockup-code mt-2 text-xs">
+                        <pre><code>LOGTO_ENDPOINT=https://tenant.logto.app</code></pre>
+                        <pre><code>LOGTO_APP_ID=...</code></pre>
+                        <pre><code>LOGTO_APP_SECRET=...</code></pre>
+                    </div>
+                    {% endif %}
                 </div>
             </div>
-        </div>
 
-        <!-- Step 4 -->
-        <div class="card bg-base-100 shadow">
-            <div class="card-body">
-                <h2 class="card-title text-lg">
-                    <span class="badge badge-primary badge-lg mr-2">4</span>
-                    (Optional) Add authentication providers in Logto
-                </h2>
-                <p class="text-sm text-base-content/70">
-                    Logto lets you enable social providers (Google, GitHub, Microsoft, …),
-                    SMS / email passwordless, and multi-factor authentication entirely through
-                    its console – no code changes needed in {{ app_name }}.
-                </p>
-                <p class="text-sm text-base-content/70 mt-2">
-                    See the
-                    <a href="https://docs.logto.io/docs/recipes/configure-connectors/" target="_blank" rel="noopener" class="link link-primary">Logto connector docs</a>
-                    for details.
-                </p>
-            </div>
-        </div>
-
-        <!-- Alternative: disable auth entirely -->
-        <div class="card bg-base-100 shadow border border-warning/40">
-            <div class="card-body">
-                <h2 class="card-title text-lg text-warning">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-                    </svg>
-                    Alternative: disable authentication entirely
-                </h2>
-                <p class="text-sm text-base-content/70">
-                    If you're running {{ app_name }} locally or behind a trusted reverse proxy that
-                    already handles authentication, you can skip Logto and grant everyone full access
-                    by setting:
-                </p>
-                <div class="mockup-code text-xs mt-2">
-                    <pre><code>AUTH_DISABLED=true</code></pre>
-                </div>
-                <div role="alert" class="alert alert-warning mt-3 text-sm">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-                    </svg>
-                    <p>
-                        <strong>Never</strong> set <code class="font-mono">AUTH_DISABLED=true</code> on a
-                        publicly reachable instance. Anyone with network access will have full admin access.
-                    </p>
+            <div class="card bg-base-100 shadow">
+                <div class="card-body">
+                    <h2 class="card-title text-lg">Next steps</h2>
+                    <ul class="space-y-3 text-sm text-base-content/70">
+                        <li class="flex gap-2">
+                            <span class="mt-1 h-2 w-2 rounded-full bg-primary"></span>
+                            <span>Add a mail source from the Mail Sources page.</span>
+                        </li>
+                        <li class="flex gap-2">
+                            <span class="mt-1 h-2 w-2 rounded-full bg-secondary"></span>
+                            <span>Import DMARC reports from Gmail, IMAP, upload, or webhook.</span>
+                        </li>
+                        <li class="flex gap-2">
+                            <span class="mt-1 h-2 w-2 rounded-full bg-accent"></span>
+                            <span>Use DNS health checks to review SPF, DKIM, and DMARC records.</span>
+                        </li>
+                    </ul>
                 </div>
             </div>
-        </div>
-
-        {% if logto_configured %}
-        <div class="text-center mt-4">
-            <a href="/login" class="btn btn-primary btn-lg">Go to Sign-in</a>
-        </div>
-        {% endif %}
-
-    </div><!-- /space-y-6 -->
+        </aside>
+    </main>
 </div>
 
 <script>
-    (function () {
-        if (localStorage.getItem('darkMode') === 'true') {
-            document.documentElement.setAttribute('data-theme', 'dmarqdark');
-        }
-    })();
+    function setupWizard() {
+        return {
+            statusLoading: true,
+            saving: false,
+            currentStep: 1,
+            complete: false,
+            error: '',
+            message: '',
+            steps: [
+                { id: 1, title: 'Admin', detail: 'Contact details' },
+                { id: 2, title: 'System', detail: 'Name and URL' },
+                { id: 3, title: 'Ready', detail: 'Start using DMARQ' },
+            ],
+            admin: {
+                email: '',
+                username: '',
+                password: '',
+                confirmPassword: '',
+            },
+            system: {
+                app_name: {{ app_name | tojson }},
+                base_url: window.location.origin,
+            },
+            async init() {
+                this.applyTheme();
+                try {
+                    const response = await fetch('/api/v1/setup/status');
+                    if (!response.ok) {
+                        throw new Error('Could not load setup status.');
+                    }
+                    const status = await response.json();
+                    this.system.app_name = status.app_name || this.system.app_name;
+                    this.complete = Boolean(status.is_setup_complete);
+                    this.currentStep = this.complete ? 3 : 1;
+                } catch (err) {
+                    this.error = err.message || 'Could not load setup status.';
+                } finally {
+                    this.statusLoading = false;
+                }
+            },
+            applyTheme() {
+                if (localStorage.getItem('darkMode') === 'true') {
+                    document.documentElement.setAttribute('data-theme', 'dmarqdark');
+                }
+            },
+            stepClass(stepId) {
+                if (this.complete && stepId === 3) return 'border-success bg-success/10';
+                if (stepId === this.currentStep) return 'border-primary bg-primary/10';
+                if (stepId < this.currentStep) return 'border-success bg-success/10';
+                return 'border-base-300 bg-base-100';
+            },
+            stepBadgeClass(stepId) {
+                if (this.complete && stepId === 3) return 'bg-success text-success-content';
+                if (stepId === this.currentStep) return 'bg-primary text-primary-content';
+                if (stepId < this.currentStep) return 'bg-success text-success-content';
+                return 'bg-base-200 text-base-content/70';
+            },
+            async submitAdmin() {
+                this.error = '';
+                if (this.admin.password !== this.admin.confirmPassword) {
+                    this.error = 'Passwords do not match.';
+                    return;
+                }
+                await this.save('/api/v1/setup/admin', {
+                    email: this.admin.email,
+                    username: this.admin.username,
+                    password: this.admin.password,
+                }, () => {
+                    this.currentStep = 2;
+                    this.admin.password = '';
+                    this.admin.confirmPassword = '';
+                });
+            },
+            async submitSystem() {
+                this.error = '';
+                await this.save('/api/v1/setup/system', this.system, () => {
+                    this.complete = true;
+                    this.currentStep = 3;
+                    this.message = 'Your setup settings have been saved.';
+                });
+            },
+            async save(url, payload, onSuccess) {
+                this.saving = true;
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                    });
+                    if (!response.ok) {
+                        const data = await response.json().catch(() => ({}));
+                        throw new Error(data.detail || 'Setup could not be saved.');
+                    }
+                    onSuccess();
+                } catch (err) {
+                    this.error = err.message || 'Setup could not be saved.';
+                } finally {
+                    this.saving = false;
+                }
+            },
+        };
+    }
 </script>
 </body>
 </html>
