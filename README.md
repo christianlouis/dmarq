@@ -4,7 +4,7 @@
 
 🌐 [Live Demo (soon)](https://app.dmarq.org)  
 🔒 Self-hosted. Secure. Beautifully visual.  
-🛠️ Docker-deployable. DNS posture checks (Cloudflare inspection planned).  
+🛠️ Docker-deployable. DNS posture checks with optional Cloudflare inspection.
 📬 Aggregate report support (failure/forensic reports planned).
 
 ---
@@ -17,7 +17,7 @@ No more guessing. See which services are passing DMARC, which are failing, and h
 
 ---
 
-## 🚀 Current Status (Milestones 1–7 Complete)
+## 🚀 Current Status (Milestones 1–8 Complete)
 
 DMARQ currently supports end-to-end aggregate DMARC monitoring with mailbox ingestion, persistence, reporting, DNS checks, and notifications.
 
@@ -30,10 +30,10 @@ Included:
 - ✅ Import history + backfills for mail sources
 - ✅ Alerts & notifications via Apprise (test send, alert rules, daily/weekly summaries)
 - ✅ DNS checks (DMARC/SPF/DKIM) with DKIM selector discovery from report data
+- ✅ Cloudflare read-only domain discovery, DNS inspection, recommendations, and change tracking
 
 Up next:
 
-- 🔜 DNS health guidance + optional Cloudflare read-only inspection (Milestone 8)
 - 🔜 Setup and operations polish (Milestone 9)
 - 🧊 Failure/forensic report support (RUF) (Milestone 10)
 
@@ -54,8 +54,9 @@ Up next:
 - Show which records are missing, broken, or invalid
 - 🔒 No automatic changes — all DNS updates require explicit confirmation (when remediation workflows are added)
 
-### 🌐 Cloudflare Integration (Planned)
+### 🌐 Cloudflare Integration
 - Optional read-only domain discovery and DNS inspection
+- Import Cloudflare zones as monitored domains from Settings
 - Suggestions for missing or malformed entries
 - Track configuration changes over time
 
@@ -147,8 +148,7 @@ settings.
 
 ## 🧭 Development Roadmap
 
-- ✅ **Milestones 1–7**: Parsing, ingestion (upload/IMAP/Gmail), persistence, reporting, notifications, production hardening
-- 🔜 **Milestone 8**: DNS health guidance + Cloudflare read-only inspection
+- ✅ **Milestones 1–8**: Parsing, ingestion (upload/IMAP/Gmail), persistence, reporting, notifications, production hardening, DNS health, Cloudflare read-only inspection
 - 🔜 **Milestone 9**: Setup and operations polish
 - 🧊 **Milestone 10**: Failure/forensic report support (RUF)
 - 🧠 **Milestones 11–16**: DMARC format compatibility, Microsoft 365 ingestion, broader email posture, APIs/webhooks, workspaces/MSP, AI/MCP (see docs)

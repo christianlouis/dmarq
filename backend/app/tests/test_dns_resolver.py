@@ -9,6 +9,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from app.core.credential_encryption import encrypt_secret
+from app.models.setting import Setting
 from app.services.dns_resolver import (
     BaseDNSProvider,
     CloudflareDNSProvider,
@@ -276,6 +278,78 @@ async def test_cloudflare_provider_raises_on_http_error():
             await provider.lookup_txt("_dmarc.example.com")
 
 
+@pytest.mark.asyncio
+async def test_cloudflare_provider_lists_zones_from_rest_api():
+    from unittest.mock import MagicMock
+
+    responses = [
+        {
+            "success": True,
+            "result": [{"id": "zone-1", "name": "example.com"}],
+            "result_info": {"total_pages": 2},
+        },
+        {
+            "success": True,
+            "result": [{"id": "zone-2", "name": "example.net"}],
+            "result_info": {"total_pages": 2},
+        },
+    ]
+
+    mock_response = AsyncMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json = lambda: responses.pop(0)
+
+    with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=mock_response)) as mock_get:
+        provider = CloudflareDNSProvider(api_token="token")
+        zones = await provider.list_zones()
+
+    assert [zone["name"] for zone in zones] == ["example.com", "example.net"]
+    assert mock_get.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_provider_lists_dns_records_from_rest_api():
+    from unittest.mock import MagicMock
+
+    fake_response_data = {
+        "success": True,
+        "result": [{"id": "record-1", "type": "TXT", "name": "example.com"}],
+        "result_info": {"total_pages": 1},
+    }
+
+    mock_response = AsyncMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json = lambda: fake_response_data
+
+    with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=mock_response)) as mock_get:
+        provider = CloudflareDNSProvider(api_token="token", zone_id="zone-1")
+        records = await provider.list_dns_records(record_type="TXT")
+
+    assert records == fake_response_data["result"]
+    _, kwargs = mock_get.await_args
+    assert "/zones/zone-1/dns_records" in str(mock_get.await_args.args[0])
+    assert kwargs["params"]["type"] == "TXT"
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_provider_raises_when_rest_api_reports_error():
+    from unittest.mock import MagicMock
+
+    fake_response_data = {
+        "success": False,
+        "errors": [{"message": "invalid token"}],
+    }
+
+    mock_response = AsyncMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json = lambda: fake_response_data
+
+    with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=mock_response)):
+        provider = CloudflareDNSProvider(api_token="token")
+        with pytest.raises(LookupError, match="invalid token"):
+            await provider.list_zones()
+
+
 # ---------------------------------------------------------------------------
 # get_default_provider
 # ---------------------------------------------------------------------------
@@ -284,6 +358,27 @@ async def test_cloudflare_provider_raises_on_http_error():
 def test_get_default_provider_returns_system():
     provider = get_default_provider()
     assert isinstance(provider, SystemDNSProvider)
+
+
+def test_get_default_provider_uses_cloudflare_settings(db_session):
+    db_session.add_all(
+        [
+            Setting(key="dns.resolver", value="cloudflare", category="dns"),
+            Setting(
+                key="cloudflare.api_token",
+                value=encrypt_secret("cf-token"),
+                category="cloudflare",
+            ),
+            Setting(key="cloudflare.zone_id", value="zone-1", category="cloudflare"),
+        ]
+    )
+    db_session.commit()
+
+    provider = get_default_provider(db_session)
+
+    assert isinstance(provider, CloudflareDNSProvider)
+    assert provider.api_token == "cf-token"
+    assert provider.zone_id == "zone-1"
 
 
 # ---------------------------------------------------------------------------

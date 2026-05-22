@@ -125,18 +125,19 @@ Exit criteria:
 
 ## Milestone 8: DNS Health and Guidance
 
-Status: Planned
+Status: Complete
 
 Goal: connect report findings with DNS configuration guidance.
 
 Delivered:
 - DMARC/SPF/DKIM DNS checks with database-backed cached results.
 - DKIM selector discovery from report data.
-
-Planned:
 - Per-domain DNS health summary.
+- Cloudflare read-only integration for automatic domain discovery and DNS record inspection.
+- Import Cloudflare zones as monitored domains from Settings.
+- Suggestions for missing, duplicate, or malformed DMARC/SPF/DKIM records.
+- DNS record snapshots and change history for Cloudflare-managed records, including additions, modifications, and removals.
 - Suggestions for moving from `p=none` to enforcement when compliance supports it.
-- Optional Cloudflare read-only integration for DNS record inspection.
 
 Exit criteria:
 - A user can see whether DNS records match the actual senders observed in DMARC reports.

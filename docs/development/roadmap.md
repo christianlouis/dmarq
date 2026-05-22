@@ -84,7 +84,7 @@ Follow-up:
 ## Later Milestones
 
 - Notifications and alert rules. Apprise delivery, test notifications, alert-rule evaluation, scheduled daily/weekly summaries, and alert history are in place.
-- DNS health and Cloudflare read-only inspection.
+- DNS health and Cloudflare read-only inspection are in place, including zone import, record recommendations, and DNS change tracking.
 - Guided setup and operator health screens.
 - Forensic/RUF report support.
 

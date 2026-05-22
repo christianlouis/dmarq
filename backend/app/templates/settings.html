@@ -189,7 +189,65 @@
                     <input type="text" x-model="s['cloudflare.zone_id']"
                         class="input input-bordered w-full"
                         placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
-                    <label class="label"><span class="label-text-alt text-muted-foreground">Found on the Cloudflare dashboard overview for your domain</span></label>
+                    <label class="label"><span class="label-text-alt text-muted-foreground">Optional. Leave blank to discover all zones available to the token.</span></label>
+                </div>
+                <div class="border-t border-border pt-4 space-y-4">
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                            <h3 class="text-sm font-semibold">Domain Discovery</h3>
+                            <p class="text-sm text-muted-foreground">Find Cloudflare zones and import them into DMARQ.</p>
+                        </div>
+                        <div class="flex flex-col gap-2 sm:flex-row">
+                            <button type="button" class="btn btn-outline btn-sm" :disabled="saving || loadingCfZones" @click="discoverCloudflareZones()">
+                                <template x-if="!loadingCfZones">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
+                                        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                                        <path d="M3 3v5h5"></path>
+                                    </svg>
+                                </template>
+                                <template x-if="loadingCfZones"><span class="loading loading-spinner loading-xs mr-2"></span></template>
+                                Discover
+                            </button>
+                            <button type="button" class="btn btn-default btn-sm" :disabled="saving || importingCfZones || cfZones.length === 0" @click="importCloudflareZones()">
+                                <template x-if="!importingCfZones">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
+                                        <path d="M12 5v14"></path>
+                                        <path d="m19 12-7 7-7-7"></path>
+                                    </svg>
+                                </template>
+                                <template x-if="importingCfZones"><span class="loading loading-spinner loading-xs mr-2"></span></template>
+                                Import New
+                            </button>
+                        </div>
+                    </div>
+                    <template x-if="cfZones.length > 0">
+                        <div class="overflow-x-auto rounded-md border border-border">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Domain</th>
+                                        <th>Status</th>
+                                        <th>Account</th>
+                                        <th>Imported</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="zone in cfZones" :key="zone.id">
+                                        <tr>
+                                            <td class="font-medium" x-text="zone.name"></td>
+                                            <td x-text="zone.status || 'unknown'"></td>
+                                            <td x-text="zone.account_name || ''"></td>
+                                            <td>
+                                                <span class="badge" :class="zone.imported ? 'badge-success' : 'badge-outline'" x-text="zone.imported ? 'Yes' : 'No'"></span>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </template>
                 </div>
                 <div class="flex justify-end">
                     <button type="submit" class="btn btn-default btn-md" :disabled="saving">
@@ -577,6 +635,9 @@ function settingsApp() {
         alertHistory: [],
         loadingConfigAudit: false,
         configAudit: [],
+        loadingCfZones: false,
+        importingCfZones: false,
+        cfZones: [],
         showCfToken: false,
 
         // Session cookie is sent automatically by the browser (httpOnly, same-origin).
@@ -801,6 +862,50 @@ function settingsApp() {
                 }
             } finally {
                 this.loadingConfigAudit = false;
+            }
+        },
+
+        async discoverCloudflareZones() {
+            this.loadingCfZones = true;
+            try {
+                await this.saveCategory('cloudflare');
+                const res = await fetch('/api/v1/domains/cloudflare/discover', {
+                    headers: this.apiHeaders(),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    this.showFlash('Cloudflare discovery failed: ' + (data.detail || res.statusText), false);
+                } else {
+                    this.cfZones = data || [];
+                    this.showFlash(`${this.cfZones.length} Cloudflare zone${this.cfZones.length === 1 ? '' : 's'} found.`, true);
+                }
+            } catch (err) {
+                this.showFlash('Error discovering Cloudflare zones: ' + err.message, false);
+            } finally {
+                this.loadingCfZones = false;
+            }
+        },
+
+        async importCloudflareZones() {
+            this.importingCfZones = true;
+            try {
+                const domains = this.cfZones.filter(z => !z.imported).map(z => z.name);
+                const res = await fetch('/api/v1/domains/cloudflare/import', {
+                    method: 'POST',
+                    headers: this.apiHeaders(),
+                    body: JSON.stringify({ domains }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    this.showFlash('Cloudflare import failed: ' + (data.detail || res.statusText), false);
+                } else {
+                    await this.discoverCloudflareZones();
+                    this.showFlash(`${data.imported.length} domain${data.imported.length === 1 ? '' : 's'} imported.`, true);
+                }
+            } catch (err) {
+                this.showFlash('Error importing Cloudflare zones: ' + err.message, false);
+            } finally {
+                this.importingCfZones = false;
             }
         },
 
