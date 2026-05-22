@@ -27,6 +27,7 @@ Recently improved:
 - Parsed upload, Gmail, and IMAP reports are now persisted to `dmarc_reports` and `report_records`.
 - Report/domain API reads can hydrate the dashboard projection from persisted data after restart.
 - Mail source import history is visible in the Mail Sources UI.
+- Individual mail sources can be manually imported from the Mail Sources UI.
 - The current Alpine-based UI is allowed by CSP and renders dynamic tables in real browsers.
 
 Implementation note:
