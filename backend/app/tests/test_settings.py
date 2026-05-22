@@ -2,10 +2,61 @@
 Tests for the Settings model and /api/v1/settings endpoints.
 """
 
+from datetime import datetime, timedelta, timezone
+
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.models.domain import Domain
+from app.models.report import DMARCReport, ReportRecord
 from app.models.setting import Setting
+from app.services.notifications import NotificationResult
+
+
+def _timestamp_days_ago(days: int) -> int:
+    return int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp())
+
+
+def _add_domain(db_session: Session, name: str) -> Domain:
+    domain = Domain(name=name)
+    db_session.add(domain)
+    db_session.flush()
+    return domain
+
+
+def _add_report_record(
+    db_session: Session,
+    domain: Domain,
+    *,
+    report_id: str,
+    days_ago: int,
+    source_ip: str,
+    count: int,
+    dkim: str = "pass",
+    spf: str = "pass",
+) -> None:
+    begin_date = _timestamp_days_ago(days_ago)
+    report = DMARCReport(
+        domain_id=domain.id,
+        report_id=report_id,
+        org_name="receiver.example",
+        begin_date=begin_date,
+        end_date=begin_date + 3600,
+        policy="none",
+    )
+    db_session.add(report)
+    db_session.flush()
+    db_session.add(
+        ReportRecord(
+            report_id=report.id,
+            source_ip=source_ip,
+            count=count,
+            disposition="none",
+            dkim=dkim,
+            spf=spf,
+            header_from=domain.name,
+        )
+    )
 
 
 class TestSettingModel:
@@ -51,6 +102,10 @@ class TestSettingsAPI:
         assert "cloudflare.api_token" in keys
         assert "notifications.apprise_enabled" in keys
         assert "notifications.apprise_urls" in keys
+        assert "notifications.alert_new_sources_enabled" in keys
+        assert "notifications.alert_compliance_drop_points" in keys
+        assert "notifications.alert_failure_threshold_count" in keys
+        assert "notifications.alert_missing_reports_days" in keys
 
     def test_list_settings_filter_by_category(self, authed_client: TestClient):
         """GET /api/v1/settings?category=dmarc returns only dmarc settings."""
@@ -213,3 +268,145 @@ class TestSettingsAPI:
         detail = res.json()["detail"]
         assert detail["success"] is False
         assert detail["message"] == "No notification targets are configured."
+
+    def test_notification_alert_rules_detect_new_source_and_failures(
+        self,
+        authed_client: TestClient,
+        db_session: Session,
+    ):
+        """GET /settings/notifications/alerts evaluates source and failure alerts."""
+        domain = _add_domain(db_session, "alerts.example")
+        _add_report_record(
+            db_session,
+            domain,
+            report_id="alerts-old-source",
+            days_ago=10,
+            source_ip="203.0.113.10",
+            count=12,
+        )
+        _add_report_record(
+            db_session,
+            domain,
+            report_id="alerts-new-source",
+            days_ago=0,
+            source_ip="203.0.113.20",
+            count=150,
+            dkim="fail",
+            spf="fail",
+        )
+        db_session.commit()
+
+        res = authed_client.get("/api/v1/settings/notifications/alerts")
+
+        assert res.status_code == 200
+        alerts = res.json()["alerts"]
+        rules = {alert["rule"] for alert in alerts}
+        assert "new_sender_source" in rules
+        assert "dmarc_failures_above_threshold" in rules
+        new_source = next(alert for alert in alerts if alert["rule"] == "new_sender_source")
+        assert new_source["source_ip"] == "203.0.113.20"
+
+    def test_notification_alert_rules_detect_missing_reports(
+        self,
+        authed_client: TestClient,
+        db_session: Session,
+    ):
+        """Alert rules flag active monitored domains without recent reports."""
+        _add_domain(db_session, "missing.example")
+        db_session.commit()
+
+        res = authed_client.get("/api/v1/settings/notifications/alerts")
+
+        assert res.status_code == 200
+        alerts = res.json()["alerts"]
+        assert any(
+            alert["rule"] == "missing_reports" and alert["domain"] == "missing.example"
+            for alert in alerts
+        )
+
+    def test_notification_alert_rules_detect_compliance_drop(
+        self,
+        authed_client: TestClient,
+        db_session: Session,
+    ):
+        """Alert rules compare recent compliance rates and flag large drops."""
+        domain = _add_domain(db_session, "drop.example")
+        _add_report_record(
+            db_session,
+            domain,
+            report_id="drop-known-source",
+            days_ago=10,
+            source_ip="203.0.113.30",
+            count=3,
+        )
+        _add_report_record(
+            db_session,
+            domain,
+            report_id="drop-passing-day",
+            days_ago=1,
+            source_ip="203.0.113.30",
+            count=10,
+        )
+        _add_report_record(
+            db_session,
+            domain,
+            report_id="drop-failing-day",
+            days_ago=0,
+            source_ip="203.0.113.30",
+            count=10,
+            dkim="fail",
+            spf="fail",
+        )
+        db_session.commit()
+
+        res = authed_client.get("/api/v1/settings/notifications/alerts")
+
+        assert res.status_code == 200
+        alerts = res.json()["alerts"]
+        compliance_alert = next(alert for alert in alerts if alert["rule"] == "compliance_drop")
+        assert compliance_alert["domain"] == "drop.example"
+        assert compliance_alert["previous_rate"] == 100.0
+        assert compliance_alert["current_rate"] == 0.0
+
+    def test_notification_alert_send_uses_alert_summary(
+        self,
+        authed_client: TestClient,
+        db_session: Session,
+        monkeypatch,
+    ):
+        """POST /settings/notifications/alerts/send sends one alert summary."""
+        sent_messages = []
+
+        def fake_send_notification(
+            db, *, title, body, force=False
+        ):  # pylint: disable=unused-argument
+            sent_messages.append({"title": title, "body": body})
+            return NotificationResult(
+                success=True,
+                message="Notification sent.",
+                configured_targets=1,
+            )
+
+        monkeypatch.setattr("app.services.alert_rules.send_notification", fake_send_notification)
+
+        domain = _add_domain(db_session, "send.example")
+        _add_report_record(
+            db_session,
+            domain,
+            report_id="send-failing-day",
+            days_ago=0,
+            source_ip="203.0.113.40",
+            count=200,
+            dkim="fail",
+            spf="fail",
+        )
+        db_session.commit()
+
+        res = authed_client.post("/api/v1/settings/notifications/alerts/send")
+
+        assert res.status_code == 200
+        data = res.json()
+        assert data["notification"]["success"] is True
+        assert data["alerts"]
+        assert sent_messages[0]["title"].startswith("DMARQ alert summary")
+        assert "DMARC failures above threshold" in sent_messages[0]["body"]

@@ -85,6 +85,13 @@ from API responses.
 |---------|-------------|---------|---------|
 | `notifications.apprise_enabled` | Enable Apprise notification delivery | `false` | `true` |
 | `notifications.apprise_urls` | Newline-separated Apprise target URLs | - | `mailto://user:pass@example.com` |
+| `notifications.alert_new_sources_enabled` | Alert on newly observed sending sources | `true` | `true` |
+| `notifications.alert_compliance_drop_enabled` | Alert on recent compliance-rate drops | `true` | `true` |
+| `notifications.alert_compliance_drop_points` | Minimum compliance-rate drop in percentage points | `10` | `15` |
+| `notifications.alert_failure_threshold_enabled` | Alert on high recent DMARC failure volume | `true` | `true` |
+| `notifications.alert_failure_threshold_count` | Failed messages in the last day before alerting | `100` | `250` |
+| `notifications.alert_missing_reports_enabled` | Alert when a monitored domain stops receiving reports | `true` | `true` |
+| `notifications.alert_missing_reports_days` | Days without reports before alerting | `2` | `3` |
 
 ### Cloudflare Integration
 

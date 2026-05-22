@@ -44,14 +44,15 @@ settings API or page reloads.
 
 ### Alert Thresholds
 
-Set thresholds for when alerts are triggered:
+Set alert rules and thresholds in **Settings** > **Notifications**:
 
-1. Navigate to **Settings** > **Notifications** > **Thresholds**
-2. Configure thresholds for:
-   - **Compliance Rate Drop**: Alert when compliance falls below a threshold
-   - **New Sending Sources**: Alert when new IPs/servers send email as your domain
-   - **Authentication Failures**: Alert when failures exceed a certain number
-   - **Report Processing Issues**: Alert on report processing errors
+- **New Sending Sources**: newly observed IPs or servers sending as a monitored domain
+- **Compliance Drops**: recent compliance-rate drops beyond the configured point threshold
+- **High DMARC Failures**: failed messages over the daily threshold
+- **Missing Reports**: monitored domains without reports for the configured number of days
+
+Use **Check Alerts** to preview the current alert count, or **Send Alerts Now** to
+send the current alert summary through the configured Apprise targets.
 
 ### Integration Notifications
 

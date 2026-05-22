@@ -114,9 +114,10 @@ Goal: notify administrators when action is needed.
 Delivered:
 - Apprise notification integration for newline-separated notification target URLs.
 - Notification settings UI can save Apprise targets, keeps target URLs redacted after save, and can send a test notification.
+- Alert rules for new sender source, compliance drop, DMARC failures above threshold, and missing reports.
+- Notification settings UI can evaluate active alerts and send the current alert summary on demand.
 
 Planned:
-- Alert rules for new sender source, compliance drop, DMARC failures above threshold, and missing reports.
 - Daily/weekly summary notifications.
 - Alert history.
 
