@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.setting import Setting
+from app.services.alert_rules import evaluate_alert_rules, send_current_alerts
 from app.services.notifications import send_notification
 
 router = APIRouter()
@@ -127,6 +128,55 @@ SETTING_DEFAULTS: List[Dict[str, Any]] = [
         "value_type": "string",
         "category": "notifications",
     },
+    {
+        "key": "notifications.alert_new_sources_enabled",
+        "value": "true",
+        "description": "Alert when a new sending source appears in recent DMARC reports",
+        "value_type": "boolean",
+        "category": "notifications",
+    },
+    {
+        "key": "notifications.alert_compliance_drop_enabled",
+        "value": "true",
+        "description": "Alert when DMARC compliance drops by the configured percentage points",
+        "value_type": "boolean",
+        "category": "notifications",
+    },
+    {
+        "key": "notifications.alert_compliance_drop_points",
+        "value": "10",
+        "description": "Minimum compliance-rate drop, in percentage points, before alerting",
+        "value_type": "integer",
+        "category": "notifications",
+    },
+    {
+        "key": "notifications.alert_failure_threshold_enabled",
+        "value": "true",
+        "description": "Alert when DMARC failures exceed the configured daily threshold",
+        "value_type": "boolean",
+        "category": "notifications",
+    },
+    {
+        "key": "notifications.alert_failure_threshold_count",
+        "value": "100",
+        "description": "Minimum failed message count in the last day before alerting",
+        "value_type": "integer",
+        "category": "notifications",
+    },
+    {
+        "key": "notifications.alert_missing_reports_enabled",
+        "value": "true",
+        "description": "Alert when a monitored domain has not received recent DMARC reports",
+        "value_type": "boolean",
+        "category": "notifications",
+    },
+    {
+        "key": "notifications.alert_missing_reports_days",
+        "value": "2",
+        "description": "Number of days without DMARC reports before alerting",
+        "value_type": "integer",
+        "category": "notifications",
+    },
 ]
 
 # Keys whose values should be redacted in GET responses (treated as secrets)
@@ -216,6 +266,19 @@ class NotificationTestResponse(BaseModel):
     error: Optional[str] = None
 
 
+class AlertRulesResponse(BaseModel):
+    """Current alert-rule evaluation response."""
+
+    alerts: List[Dict[str, Any]]
+
+
+class AlertNotificationResponse(BaseModel):
+    """Alert-rule evaluation plus notification delivery status."""
+
+    alerts: List[Dict[str, Any]]
+    notification: Dict[str, Any]
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -259,6 +322,33 @@ async def test_notification_settings(
             detail=result.to_dict(),
         )
     return result.to_dict()
+
+
+@router.get("/notifications/alerts", response_model=AlertRulesResponse)
+async def evaluate_notification_alerts(
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+) -> AlertRulesResponse:
+    """Evaluate enabled notification alert rules against current DMARC data."""
+    _seed_defaults(db)
+    return {"alerts": evaluate_alert_rules(db)}
+
+
+@router.post("/notifications/alerts/send", response_model=AlertNotificationResponse)
+async def send_notification_alerts(
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+) -> AlertNotificationResponse:
+    """Evaluate current alert rules and send a notification summary when needed."""
+    _seed_defaults(db)
+    result = send_current_alerts(db)
+    notification = result["notification"]
+    if result["alerts"] and not notification.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result,
+        )
+    return result
 
 
 @router.get("/{key:path}", response_model=SettingResponse)

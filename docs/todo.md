@@ -165,7 +165,7 @@ Status: Complete for the delivered reporting milestone. Alert-specific dashboard
 - [x] Add backup/restore guidance for database deployments
 - [x] Add release checklist covering migrations, tests, and smoke checks
 - [x] Add Apprise notification delivery and test notification support
-- [ ] Add alert rules for new sender source, compliance drop, DMARC failures above threshold, and missing reports
+- [x] Add alert rules for new sender source, compliance drop, DMARC failures above threshold, and missing reports
 - [ ] Add daily and weekly summary notifications
 - [ ] Add alert history
 - [ ] DNS health guidance and Cloudflare read-only inspection
