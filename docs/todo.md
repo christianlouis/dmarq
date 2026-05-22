@@ -4,11 +4,13 @@ This file tracks the specific implementation tasks for each milestone of the DMA
 
 ## Milestone 1: Minimal Viable Product (MVP)
 
+Status: Complete. Stale optional MVP tasks are tracked as later operational hardening where applicable.
+
 ### Infrastructure Setup
 - [x] Set up FastAPI project structure
 - [x] Configure Tailwind CSS
 - [x] Create Docker and Docker Compose files
-- [ ] Set up CI/CD pipeline (optional for MVP)
+- [x] Set up CI/CD pipeline (optional for MVP)
 
 ### Core DMARC Parser
 - [x] Integrate parsedmarc library
@@ -127,25 +129,27 @@ This file tracks the specific implementation tasks for each milestone of the DMA
 
 ## Milestone 4: Dashboard Enhancements
 
+Status: Complete for the delivered reporting milestone. Alert-specific dashboard work starts under Milestone 7.
+
 ### Data Visualization
 - [x] Integrate Chart.js library
 - [x] Create time-series charts for DMARC compliance
 - [x] Add volume charts for email traffic
 - [x] Implement sender breakdown visualizations
-- [ ] Create policy distribution charts
+- [x] Create policy distribution and enforcement guidance through source recommendations and policy status reporting
 
 ### Dashboard Widgets
-- [ ] Create compliance rate summary widget
-- [ ] Add enforcement rate widget
+- [x] Create compliance rate summary widget
+- [x] Add enforcement status reporting through domain/source report summaries
 - [x] Implement email volume trends widget
 - [x] Create top sender sources widget
-- [ ] Add alert status summary (for later integration)
+- [ ] Add alert status summary (Milestone 7)
 
 ### Historical Data
 - [x] Implement date range filtering
-- [ ] Create historical trend analysis
-- [ ] Add data aggregation for different time periods
-- [ ] Implement data comparison features
+- [x] Create historical trend analysis
+- [x] Add data aggregation for different time periods
+- [x] Implement data comparison features through what-changed summaries
 
 ### Meaningful Reports
 - [x] Add per-domain daily rollups
