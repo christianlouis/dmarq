@@ -71,9 +71,9 @@ Delivered:
 Exit criteria:
 - A user can connect a mailbox, run a backfill, see exactly what was imported or skipped, and trust that totals are not double-counted.
 
-## Milestone 5: Dashboard and Meaningful Reports - In Progress
+## Milestone 5: Dashboard and Meaningful Reports - Complete
 
-Status: In progress
+Status: Complete
 
 Goal: convert raw DMARC data into useful operational reporting.
 
@@ -83,6 +83,7 @@ Delivered:
 - Per-domain report timeline and daily rollups.
 - Exportable reports for a selected domain and date range.
 - Clear recommendations for common cases: unknown source, SPF-only pass, DKIM-only pass, full fail, and policy not enforced.
+- What changed summaries for newly observed sources and sudden compliance drops.
 
 Exit criteria:
 - A domain owner can answer: who is sending as my domain, what is failing, what changed recently, and what should I fix next?

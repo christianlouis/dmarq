@@ -177,7 +177,7 @@ class StatsSummarizer:
 
         # First check if we have cached stats
         cached_stats = self.get_cached_summary(domain_id, period_days=period_days)
-        if cached_stats:
+        if cached_stats and "change_summary" in cached_stats:
             return cached_stats
 
         if domain_id is None:
@@ -223,6 +223,9 @@ class StatsSummarizer:
         # Compliance trend over recent days
         compliance_trend = self._get_compliance_trend(db, days=period_days)
 
+        # Recently changed source and compliance signals
+        change_summary = self._get_change_summary(db, days=period_days, trend=compliance_trend)
+
         return {
             "total_domains": total_domains,
             "total_emails": total_emails,
@@ -231,6 +234,7 @@ class StatsSummarizer:
             "reports_processed": reports_processed,
             "top_sources": top_sources,
             "compliance_trend": compliance_trend,
+            "change_summary": change_summary,
         }
 
     def _calculate_domain_statistics(
@@ -248,6 +252,7 @@ class StatsSummarizer:
                 "reports_processed": 0,
                 "sources": [],
                 "compliance_trend": [],
+                "change_summary": [],
             }
 
         # Aggregate email counts for this domain
@@ -285,6 +290,14 @@ class StatsSummarizer:
         # Compliance trend for this domain
         compliance_trend = self._get_compliance_trend(db, domain.id, days=period_days)
 
+        # Recently changed source and compliance signals
+        change_summary = self._get_change_summary(
+            db,
+            domain.id,
+            days=period_days,
+            trend=compliance_trend,
+        )
+
         return {
             "domain": domain_id,
             "total_emails": total_emails,
@@ -293,6 +306,7 @@ class StatsSummarizer:
             "reports_processed": reports_processed,
             "sources": sources,
             "compliance_trend": compliance_trend,
+            "change_summary": change_summary,
         }
 
     def _get_top_sources(self, db: Session, limit: int = 10) -> List[Dict[str, Any]]:
@@ -481,3 +495,105 @@ class StatsSummarizer:
             )
 
         return trend
+
+    def _get_change_summary(
+        self,
+        db: Session,
+        domain_db_id: Optional[int] = None,
+        days: int = 30,
+        trend: Optional[List[Dict[str, Any]]] = None,
+        limit: int = 5,
+    ) -> List[Dict[str, Any]]:
+        """Return notable source and compliance changes for the reporting window."""
+        days = max(1, int(days or 30))
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        cutoff_ts = int(cutoff.timestamp())
+        changes: List[Dict[str, Any]] = []
+
+        current_query = (
+            db.query(
+                Domain.name.label("domain"),
+                ReportRecord.source_ip.label("source_ip"),
+                func.sum(ReportRecord.count).label("message_count"),
+            )
+            .join(DMARCReport, ReportRecord.report_id == DMARCReport.id)
+            .join(Domain, DMARCReport.domain_id == Domain.id)
+            .filter(DMARCReport.begin_date >= cutoff_ts)
+        )
+        previous_query = (
+            db.query(Domain.name.label("domain"), ReportRecord.source_ip.label("source_ip"))
+            .join(DMARCReport, ReportRecord.report_id == DMARCReport.id)
+            .join(Domain, DMARCReport.domain_id == Domain.id)
+            .filter(DMARCReport.begin_date < cutoff_ts)
+        )
+
+        if domain_db_id is not None:
+            current_query = current_query.filter(DMARCReport.domain_id == domain_db_id)
+            previous_query = previous_query.filter(DMARCReport.domain_id == domain_db_id)
+
+        previous_sources = {(row.domain, row.source_ip) for row in previous_query.distinct().all()}
+        current_sources = (
+            current_query.group_by(Domain.name, ReportRecord.source_ip)
+            .order_by(func.sum(ReportRecord.count).desc())
+            .all()
+        )
+
+        for row in current_sources:
+            source_key = (row.domain, row.source_ip)
+            if source_key in previous_sources:
+                continue
+            changes.append(
+                {
+                    "type": "new_source",
+                    "severity": "warning",
+                    "title": "New sending source",
+                    "domain": row.domain,
+                    "source_ip": row.source_ip,
+                    "message_count": int(row.message_count or 0),
+                    "detail": (
+                        f"{row.source_ip} first appeared for {row.domain} in the last "
+                        f"{days} days with {int(row.message_count or 0)} messages."
+                    ),
+                    "action": "Review whether this source is legitimate before changing SPF or DKIM.",
+                }
+            )
+            if len(changes) >= limit:
+                break
+
+        compliance_drop = self._build_compliance_drop_change(trend or [])
+        if compliance_drop:
+            changes.append(compliance_drop)
+
+        return changes
+
+    @staticmethod
+    def _build_compliance_drop_change(trend: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Return a change item when the latest compliance point drops sharply."""
+        if len(trend) < 2:
+            return None
+
+        previous = trend[-2]
+        current = trend[-1]
+        previous_rate = float(previous.get("compliance_rate", previous.get("rate", 0)) or 0)
+        current_rate = float(current.get("compliance_rate", current.get("rate", 0)) or 0)
+        drop = round(previous_rate - current_rate, 1)
+        failed = int(current.get("failed", 0) or 0)
+
+        if drop < 10 or failed <= 0:
+            return None
+
+        return {
+            "type": "compliance_drop",
+            "severity": "error" if drop >= 25 else "warning",
+            "title": "Compliance dropped",
+            "date": current.get("date"),
+            "previous_rate": previous_rate,
+            "current_rate": current_rate,
+            "drop": drop,
+            "failed": failed,
+            "detail": (
+                f"Compliance fell from {previous_rate}% to {current_rate}% "
+                f"on {current.get('date')}."
+            ),
+            "action": "Review sources from that date and prioritize any new or failing senders.",
+        }

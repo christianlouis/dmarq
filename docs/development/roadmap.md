@@ -36,12 +36,9 @@ Recently improved:
 Implementation note:
 - The legacy `ReportStore` remains as a projection layer for existing report/dashboard code, but durable report data now lives in the database.
 
-## Active Milestone: Meaningful Reports
+## Completed Milestone: Meaningful Reports
 
 Objective: turn parsed DMARC data into administrator-friendly reports.
-
-Priority tasks:
-- Add "what changed" summaries for newly observed senders and sudden compliance drops.
 
 Delivered:
 - Dashboard time-series charts show daily mail volume, compliance rate, and failure rate.
@@ -49,6 +46,7 @@ Delivered:
 - Per-domain timelines include daily volume, pass, fail, compliance-rate, and failure-rate rollups.
 - Domain reports can be exported to CSV for a selected date range.
 - Source reports include actionable recommendations for unknown sources, SPF-only passes, DKIM-only passes, full failures, and unenforced policies.
+- What changed summaries identify newly observed senders and sudden compliance drops.
 
 Quality bar:
 - A domain owner can understand who sends mail as their domain, which sources fail, and what to fix next.
