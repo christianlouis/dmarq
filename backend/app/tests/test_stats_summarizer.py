@@ -200,6 +200,120 @@ def _seed_recent_trend_records(db, domain_name="example.com"):
     return domain
 
 
+def _seed_new_source_records(db, domain_name="example.com"):
+    """Insert an old source and a current first-seen source."""
+    domain = Domain(name=domain_name)
+    db.add(domain)
+    db.flush()
+
+    old_report = DMARCReport(
+        domain_id=domain.id,
+        report_id=f"{domain_name}-old-source",
+        org_name="google.com",
+        begin_date=_timestamp_days_ago(10),
+        end_date=_timestamp_days_ago(10) + 3600,
+        policy="none",
+    )
+    current_report = DMARCReport(
+        domain_id=domain.id,
+        report_id=f"{domain_name}-new-source",
+        org_name="google.com",
+        begin_date=_timestamp_days_ago(1),
+        end_date=_timestamp_days_ago(1) + 3600,
+        policy="none",
+    )
+    db.add_all([old_report, current_report])
+    db.flush()
+
+    db.add_all(
+        [
+            ReportRecord(
+                report_id=old_report.id,
+                source_ip="203.0.113.20",
+                count=12,
+                disposition="none",
+                dkim="pass",
+                spf="pass",
+            ),
+            ReportRecord(
+                report_id=current_report.id,
+                source_ip="203.0.113.21",
+                count=7,
+                disposition="none",
+                dkim="pass",
+                spf="fail",
+            ),
+        ]
+    )
+    db.flush()
+    return domain
+
+
+def _seed_compliance_drop_records(db, domain_name="example.com"):
+    """Insert a recent compliance drop with a source that is not new."""
+    domain = Domain(name=domain_name)
+    db.add(domain)
+    db.flush()
+
+    old_report = DMARCReport(
+        domain_id=domain.id,
+        report_id=f"{domain_name}-known-source",
+        org_name="google.com",
+        begin_date=_timestamp_days_ago(10),
+        end_date=_timestamp_days_ago(10) + 3600,
+        policy="none",
+    )
+    previous_report = DMARCReport(
+        domain_id=domain.id,
+        report_id=f"{domain_name}-passing-day",
+        org_name="google.com",
+        begin_date=_timestamp_days_ago(2),
+        end_date=_timestamp_days_ago(2) + 3600,
+        policy="none",
+    )
+    current_report = DMARCReport(
+        domain_id=domain.id,
+        report_id=f"{domain_name}-failing-day",
+        org_name="google.com",
+        begin_date=_timestamp_days_ago(0),
+        end_date=_timestamp_days_ago(0) + 3600,
+        policy="none",
+    )
+    db.add_all([old_report, previous_report, current_report])
+    db.flush()
+
+    db.add_all(
+        [
+            ReportRecord(
+                report_id=old_report.id,
+                source_ip="203.0.113.30",
+                count=3,
+                disposition="none",
+                dkim="pass",
+                spf="pass",
+            ),
+            ReportRecord(
+                report_id=previous_report.id,
+                source_ip="203.0.113.30",
+                count=10,
+                disposition="none",
+                dkim="pass",
+                spf="pass",
+            ),
+            ReportRecord(
+                report_id=current_report.id,
+                source_ip="203.0.113.30",
+                count=10,
+                disposition="none",
+                dkim="fail",
+                spf="fail",
+            ),
+        ]
+    )
+    db.flush()
+    return domain
+
+
 def test_auth_status_from_counts_returns_none_without_results():
     assert _auth_status_from_counts(0, 0) == "none"
 
@@ -289,6 +403,31 @@ class TestStatsSummarizerGlobal:
         assert len(stats["compliance_trend"]) == 1
         assert stats["compliance_trend"][0]["total"] == 5
 
+    def test_global_change_summary_detects_new_source(self, db_session, summarizer):
+        _seed_new_source_records(db_session)
+        db_session.commit()
+
+        stats = summarizer.calculate_summary_statistics(db_session, period_days=7)
+        new_sources = [item for item in stats["change_summary"] if item["type"] == "new_source"]
+
+        assert len(new_sources) == 1
+        assert new_sources[0]["domain"] == "example.com"
+        assert new_sources[0]["source_ip"] == "203.0.113.21"
+        assert new_sources[0]["message_count"] == 7
+
+    def test_global_change_summary_detects_compliance_drop(self, db_session, summarizer):
+        _seed_compliance_drop_records(db_session)
+        db_session.commit()
+
+        stats = summarizer.calculate_summary_statistics(db_session, period_days=7)
+        drops = [item for item in stats["change_summary"] if item["type"] == "compliance_drop"]
+
+        assert len(drops) == 1
+        assert drops[0]["previous_rate"] == 100.0
+        assert drops[0]["current_rate"] == 0.0
+        assert drops[0]["drop"] == 100.0
+        assert drops[0]["failed"] == 10
+
 
 class TestStatsSummarizerDomain:
     """Tests for domain-specific statistics."""
@@ -357,6 +496,20 @@ class TestStatsSummarizerDomain:
         )
         assert [point["total"] for point in stats["compliance_trend"]] == [10, 5]
 
+    def test_domain_change_summary_isolated_to_domain(self, db_session, summarizer):
+        _seed_new_source_records(db_session, "example.com")
+        _seed_new_source_records(db_session, "other.org")
+        db_session.commit()
+
+        stats = summarizer.calculate_summary_statistics(
+            db_session, domain_id="example.com", period_days=7
+        )
+        new_sources = [item for item in stats["change_summary"] if item["type"] == "new_source"]
+
+        assert len(new_sources) == 1
+        assert new_sources[0]["domain"] == "example.com"
+        assert new_sources[0]["source_ip"] == "203.0.113.21"
+
 
 class TestStatsSummarizerCaching:
     """Tests for the caching layer."""
@@ -388,3 +541,13 @@ class TestStatsSummarizerCaching:
 
         assert len(stats_7_days["compliance_trend"]) == 2
         assert len(stats_1_day["compliance_trend"]) == 1
+
+    def test_old_cache_without_change_summary_is_refreshed(self, db_session, summarizer):
+        _seed_new_source_records(db_session)
+        db_session.commit()
+        summarizer.save_summary({"total_domains": 99}, period_days=7)
+
+        stats = summarizer.calculate_summary_statistics(db_session, period_days=7)
+
+        assert stats["total_domains"] == 1
+        assert "change_summary" in stats
