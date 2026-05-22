@@ -131,14 +131,14 @@ This file tracks the specific implementation tasks for each milestone of the DMA
 - [x] Integrate Chart.js library
 - [x] Create time-series charts for DMARC compliance
 - [x] Add volume charts for email traffic
-- [ ] Implement sender breakdown visualizations
+- [x] Implement sender breakdown visualizations
 - [ ] Create policy distribution charts
 
 ### Dashboard Widgets
 - [ ] Create compliance rate summary widget
 - [ ] Add enforcement rate widget
 - [x] Implement email volume trends widget
-- [ ] Create top sender sources widget
+- [x] Create top sender sources widget
 - [ ] Add alert status summary (for later integration)
 
 ### Historical Data

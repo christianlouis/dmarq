@@ -48,6 +48,7 @@ Priority tasks:
 
 Delivered:
 - Dashboard time-series charts show daily mail volume, compliance rate, and failure rate.
+- Top sending sources show DMARC, SPF, and DKIM pass/fail breakdowns on the dashboard.
 
 Quality bar:
 - A domain owner can understand who sends mail as their domain, which sources fail, and what to fix next.
