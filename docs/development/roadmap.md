@@ -1,6 +1,6 @@
 # DMARQ Development Roadmap
 
-Last updated: 2026-05-22
+Last updated: 2026-05-23
 
 This roadmap tracks implementation status and near-term engineering priorities. The project has moved beyond the initial MVP and now needs production-grade import visibility, better reporting, and hardened operations.
 
@@ -89,3 +89,51 @@ Follow-up:
 - Forensic/RUF report support.
 
 See [milestones.md](../milestones.md) for the full milestone breakdown and exit criteria.
+
+## Roadmap Extension (Beyond the Current Milestones)
+
+The milestone breakdown in `docs/milestones.md` is intentionally focused on exit criteria. This section adds a product-oriented view: a feature landscape (themes), priority, and a tentative release plan for what comes after the currently defined scope.
+
+### Feature Landscape (Themes)
+
+**Standards & coverage**
+- Track DMARC report format changes and keep parsing/export stable across real-world variants.
+- Expand to adjacent email-auth posture checks where that directly helps operators take action.
+
+**Ingestion & reliability**
+- Add connectors (notably Microsoft 365) and higher-volume import patterns.
+- Improve import observability (auditable outcomes), retention controls, and backfill ergonomics.
+
+**Remediation & change management**
+- Strengthen DNS posture guidance and close the loop from “finding” to “fix plan”.
+- Keep provider integrations read-only by default, with explicit and auditable change workflows when enabled.
+
+**Integrations & automation**
+- Add APIs and webhooks to feed security and operations workflows (SIEM, ticketing, chatops).
+
+**Governance (teams / MSP)**
+- Workspaces, domain ownership, audit trails, and operator-friendly management for multi-org deployments.
+
+**Optional AI + MCP**
+- Opt-in, privacy-preserving assistance for summarization and remediation planning.
+- Provide a clean automation surface for agents (read-only first).
+
+### Priority (Now / Next / Later)
+
+- **Now**: finish Milestones 8–9 (DNS health guidance + setup/ops polish).
+- **Next**: Milestones 10–12 (failure reports, DMARC format compatibility, Microsoft 365 ingestion).
+- **Later**: Milestones 13–16 (posture suite beyond DMARC, public API/webhooks, MSP/workspaces, AI/MCP).
+
+### Tentative Release Plan (Subject to Change)
+
+| Release | Target window | Primary milestones |
+| --- | --- | --- |
+| `0.4.0` | 2026 Q3 | 8–9 |
+| `0.5.0` | 2026 Q4 | 10–11 |
+| `0.6.0` | 2027 Q1 | 12 |
+| `0.7.0` | 2027 Q2 | 13–14 |
+| `0.8.0` | 2027 Q3 | 15–16 |
+
+Notes:
+- Releases are planned as *themes*, not promises; reprioritize based on what production deployments surface.
+- “AI + MCP” is explicitly opt-in and should default to safe, privacy-preserving, read-only behavior.
