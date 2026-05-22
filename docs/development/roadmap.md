@@ -83,7 +83,7 @@ Follow-up:
 
 ## Later Milestones
 
-- Notifications and alert rules. Apprise delivery, test notifications, alert-rule evaluation, and scheduled daily/weekly summaries are in place; alert history remains.
+- Notifications and alert rules. Apprise delivery, test notifications, alert-rule evaluation, scheduled daily/weekly summaries, and alert history are in place.
 - DNS health and Cloudflare read-only inspection.
 - Guided setup and operator health screens.
 - Forensic/RUF report support.

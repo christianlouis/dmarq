@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.models.domain import Domain
 from app.models.report import DMARCReport, ReportRecord
 from app.models.setting import Setting
+from app.services.alert_history import record_alert_evaluation
 from app.services.alert_rules import evaluate_alert_rules
 from app.services.notifications import send_notification
 
@@ -237,6 +238,7 @@ def format_summary_body(summary: Dict[str, Any]) -> str:
 def send_summary_notification(db: Session, period: str = "daily") -> Dict[str, Any]:
     """Build and send a daily or weekly summary notification."""
     summary = build_summary(db, period)
+    record_alert_evaluation(db, summary["alerts"])
     title = (
         f"DMARQ {period} summary: "
         f"{summary['total_messages']} message(s), {len(summary['alerts'])} alert(s)"

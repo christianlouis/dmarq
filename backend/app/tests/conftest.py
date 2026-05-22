@@ -6,6 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+import app.models.alert  # noqa: F401  # pylint: disable=unused-import
 import app.models.domain  # noqa: F401  # pylint: disable=unused-import
 import app.models.mail_source as _mail_source_model  # noqa: F401  # pylint: disable=unused-import
 import app.models.mail_source_import  # noqa: F401  # pylint: disable=unused-import

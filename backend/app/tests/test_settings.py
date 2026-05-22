@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.models.alert import AlertHistory
 from app.models.domain import Domain
 from app.models.report import DMARCReport, ReportRecord
 from app.models.setting import Setting
@@ -415,6 +416,58 @@ class TestSettingsAPI:
         assert data["alerts"]
         assert sent_messages[0]["title"].startswith("DMARQ alert summary")
         assert "DMARC failures above threshold" in sent_messages[0]["body"]
+
+    def test_notification_alert_history_records_and_resolves_alerts(
+        self,
+        authed_client: TestClient,
+        db_session: Session,
+    ):
+        """Alert evaluations persist active history and resolve missing alerts."""
+        domain = _add_domain(db_session, "history.example")
+        _add_report_record(
+            db_session,
+            domain,
+            report_id="history-failing-day",
+            days_ago=0,
+            source_ip="203.0.113.45",
+            count=200,
+            dkim="fail",
+            spf="fail",
+        )
+        db_session.commit()
+
+        res = authed_client.get("/api/v1/settings/notifications/alerts")
+
+        assert res.status_code == 200
+        history_res = authed_client.get("/api/v1/settings/notifications/alerts/history")
+        assert history_res.status_code == 200
+        history = history_res.json()["history"]
+        assert history
+        assert any(item["is_active"] for item in history)
+        assert db_session.query(AlertHistory).count() == len(history)
+
+        authed_client.post(
+            "/api/v1/settings/bulk",
+            json={
+                "settings": {
+                    "notifications.alert_new_sources_enabled": "false",
+                    "notifications.alert_failure_threshold_enabled": "false",
+                    "notifications.alert_missing_reports_enabled": "false",
+                    "notifications.alert_compliance_drop_enabled": "false",
+                }
+            },
+        )
+
+        res = authed_client.get("/api/v1/settings/notifications/alerts")
+
+        assert res.status_code == 200
+        assert res.json()["alerts"] == []
+        resolved_res = authed_client.get(
+            "/api/v1/settings/notifications/alerts/history?active=false"
+        )
+        resolved = resolved_res.json()["history"]
+        assert resolved
+        assert all(item["is_active"] is False for item in resolved)
 
     def test_notification_summary_preview_returns_recent_activity(
         self,

@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.setting import Setting
+from app.services.alert_history import list_alert_history, record_alert_evaluation
 from app.services.alert_rules import evaluate_alert_rules, send_current_alerts
 from app.services.notifications import send_notification
 from app.services.summary_notifications import build_summary, send_summary_notification
@@ -322,6 +323,12 @@ class AlertNotificationResponse(BaseModel):
     notification: Dict[str, Any]
 
 
+class AlertHistoryResponse(BaseModel):
+    """Persisted alert history response."""
+
+    history: List[Dict[str, Any]]
+
+
 class SummaryResponse(BaseModel):
     """Current DMARC summary notification preview."""
 
@@ -387,7 +394,9 @@ async def evaluate_notification_alerts(
 ) -> AlertRulesResponse:
     """Evaluate enabled notification alert rules against current DMARC data."""
     _seed_defaults(db)
-    return {"alerts": evaluate_alert_rules(db)}
+    alerts = evaluate_alert_rules(db)
+    record_alert_evaluation(db, alerts)
+    return {"alerts": alerts}
 
 
 @router.post("/notifications/alerts/send", response_model=AlertNotificationResponse)
@@ -405,6 +414,17 @@ async def send_notification_alerts(
             detail=result,
         )
     return result
+
+
+@router.get("/notifications/alerts/history", response_model=AlertHistoryResponse)
+async def get_notification_alert_history(
+    active: Optional[bool] = None,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+) -> AlertHistoryResponse:
+    """Return persisted alert history rows."""
+    return {"history": list_alert_history(db, active=active, limit=max(1, min(limit, 200)))}
 
 
 @router.get("/notifications/summary", response_model=SummaryResponse)
