@@ -61,10 +61,11 @@ Recently delivered:
 - Tests now cover a real Google-style ZIP attachment path rather than only mocked parser behavior.
 - Mail source imports now persist sanitized import-history records for manual and scheduled polls.
 - Uploaded, Gmail-imported, and IMAP-imported reports are now persisted to report/record tables and can be reloaded into report/domain views.
+- Mail source import history is now visible from the Mail Sources UI.
+- The current Alpine-based UI can run under the configured CSP, so dynamic tables render in real browsers.
 
 Next tasks:
 - Add per-import result details: skipped duplicates, parse failures, unsupported attachments, and imported report IDs.
-- Add a UI import history view for each mail source.
 - Add mailbox search controls for date range/backfill without requiring code changes.
 - Improve source aggregation so each sender IP keeps pass/fail totals instead of only the latest result.
 
