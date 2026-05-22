@@ -204,97 +204,49 @@
         {% endcall %}
     {% endcall %}
 
-    <!-- ── Email Notifications ─────────────────────────────────────────────── -->
+    <!-- ── Notifications ──────────────────────────────────────────────────── -->
     {% call card() %}
         {% call card_header() %}
-            {% call card_title() %}Email Notifications{% endcall %}
-            {% call card_description() %}Send alerts when DMARC failures are detected{% endcall %}
+            {% call card_title() %}Notifications{% endcall %}
+            {% call card_description() %}Send alerts through Apprise-compatible targets{% endcall %}
         {% endcall %}
         {% call card_content() %}
             <form @submit.prevent="saveCategory('notifications')" class="space-y-4">
                 <div class="form-control">
                     <label class="label cursor-pointer justify-start gap-3">
                         <input type="checkbox"
-                            :checked="s['notifications.email_enabled'] === 'true'"
-                            @change="s['notifications.email_enabled'] = $event.target.checked ? 'true' : 'false'"
+                            :checked="s['notifications.apprise_enabled'] === 'true'"
+                            @change="s['notifications.apprise_enabled'] = $event.target.checked ? 'true' : 'false'"
                             class="checkbox checkbox-primary" />
-                        <span class="label-text font-medium">Enable email notifications</span>
+                        <span class="label-text font-medium">Enable notifications</span>
                     </label>
                 </div>
 
-                <template x-if="s['notifications.email_enabled'] === 'true'">
+                <template x-if="s['notifications.apprise_enabled'] === 'true'">
                     <div class="space-y-4">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div class="form-control w-full">
-                                <label class="label"><span class="label-text font-medium">From Address</span></label>
-                                <input type="email" x-model="s['notifications.email_from']"
-                                    class="input input-bordered w-full"
-                                    placeholder="noreply@example.com" />
-                            </div>
-                            <div class="form-control w-full">
-                                <label class="label"><span class="label-text font-medium">Recipient(s)</span></label>
-                                <input type="text" x-model="s['notifications.email_to']"
-                                    class="input input-bordered w-full"
-                                    placeholder="admin@example.com, security@example.com" />
-                                <label class="label"><span class="label-text-alt text-muted-foreground">Comma-separated email addresses</span></label>
-                            </div>
+                        <div class="form-control w-full">
+                            <label class="label"><span class="label-text font-medium">Apprise Target URLs</span></label>
+                            <textarea x-model="s['notifications.apprise_urls']"
+                                class="textarea textarea-bordered w-full min-h-32 font-mono text-sm"
+                                placeholder="mailto://user:password@example.com&#10;slack://token-a/token-b/token-c/channel"></textarea>
+                            <label class="label"><span class="label-text-alt text-muted-foreground">One target per line. Values are redacted after saving.</span></label>
                         </div>
 
-                        <div class="divider text-sm">SMTP Configuration</div>
-
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div class="form-control w-full">
-                                <label class="label"><span class="label-text font-medium">SMTP Host</span></label>
-                                <input type="text" x-model="s['notifications.smtp_host']"
-                                    class="input input-bordered w-full"
-                                    placeholder="smtp.example.com" />
-                            </div>
-                            <div class="form-control w-full">
-                                <label class="label"><span class="label-text font-medium">SMTP Port</span></label>
-                                <input type="number" x-model.number="s['notifications.smtp_port']"
-                                    class="input input-bordered w-full"
-                                    placeholder="587" min="1" max="65535" />
-                            </div>
-                        </div>
-
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div class="form-control w-full">
-                                <label class="label"><span class="label-text font-medium">SMTP Username</span></label>
-                                <input type="text" x-model="s['notifications.smtp_username']"
-                                    class="input input-bordered w-full"
-                                    placeholder="smtpuser@example.com" />
-                            </div>
-                            <div class="form-control w-full">
-                                <label class="label"><span class="label-text font-medium">SMTP Password</span></label>
-                                <div class="relative">
-                                    <input :type="showSmtpPw ? 'text' : 'password'"
-                                        x-model="s['notifications.smtp_password']"
-                                        class="input input-bordered w-full pr-10"
-                                        placeholder="••••••••" />
-                                    <button type="button"
-                                        class="absolute right-2 top-3 text-muted-foreground hover:text-foreground"
-                                        @click="showSmtpPw = !showSmtpPw">
-                                        <svg x-show="!showSmtpPw" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-                                        <svg x-show="showSmtpPw" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
-                                    </button>
-                                </div>
-                                <label class="label"><span class="label-text-alt text-muted-foreground">Leave as-is to keep existing password</span></label>
-                            </div>
-                        </div>
-
-                        <div class="form-control">
-                            <label class="label cursor-pointer justify-start gap-3">
-                                <input type="checkbox"
-                                    :checked="s['notifications.smtp_use_tls'] === 'true'"
-                                    @change="s['notifications.smtp_use_tls'] = $event.target.checked ? 'true' : 'false'"
-                                    class="checkbox checkbox-primary" />
-                                <span class="label-text font-medium">Use TLS (STARTTLS)</span>
-                            </label>
-                        </div>
                     </div>
                 </template>
 
-                <div class="flex justify-end">
+                <div class="flex flex-col sm:flex-row justify-end gap-2">
+                    <button type="button" class="btn btn-outline btn-md" :disabled="saving || testingNotification" @click="sendTestNotification()">
+                        <template x-if="!testingNotification">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
+                                <path d="m22 2-7 20-4-9-9-4Z"></path>
+                                <path d="M22 2 11 13"></path>
+                            </svg>
+                        </template>
+                        <template x-if="testingNotification"><span class="loading loading-spinner loading-xs mr-2"></span></template>
+                        Send Test
+                    </button>
                     <button type="submit" class="btn btn-default btn-md" :disabled="saving">
                         <template x-if="!saving">
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
@@ -339,8 +291,8 @@ function settingsApp() {
         saving: false,
         flashMsg: '',
         flashOk: true,
+        testingNotification: false,
         showCfToken: false,
-        showSmtpPw: false,
 
         // Session cookie is sent automatically by the browser (httpOnly, same-origin).
         // No manual auth header needed for API calls from the UI.
@@ -392,6 +344,28 @@ function settingsApp() {
                 this.showFlash('Error saving settings: ' + err.message, false);
             } finally {
                 this.saving = false;
+            }
+        },
+
+        async sendTestNotification() {
+            this.testingNotification = true;
+            try {
+                await this.saveCategory('notifications');
+                const res = await fetch('/api/v1/settings/notifications/test', {
+                    method: 'POST',
+                    headers: this.apiHeaders(),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    const detail = data.detail || {};
+                    this.showFlash('Test failed: ' + (detail.message || data.detail || res.statusText), false);
+                } else {
+                    this.showFlash('Test notification sent.', true);
+                }
+            } catch (err) {
+                this.showFlash('Error sending test notification: ' + err.message, false);
+            } finally {
+                this.testingNotification = false;
             }
         },
 

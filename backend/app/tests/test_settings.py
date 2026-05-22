@@ -49,6 +49,8 @@ class TestSettingsAPI:
         assert "general.app_name" in keys
         assert "dmarc.default_policy" in keys
         assert "cloudflare.api_token" in keys
+        assert "notifications.apprise_enabled" in keys
+        assert "notifications.apprise_urls" in keys
 
     def test_list_settings_filter_by_category(self, authed_client: TestClient):
         """GET /api/v1/settings?category=dmarc returns only dmarc settings."""
@@ -125,6 +127,17 @@ class TestSettingsAPI:
         assert res.status_code == 200
         assert res.json()["value"] == "**redacted**"
 
+    def test_apprise_urls_are_redacted_in_response(self, authed_client: TestClient):
+        """Apprise target URLs are treated as notification secrets."""
+        authed_client.get("/api/v1/settings")
+        authed_client.put(
+            "/api/v1/settings/notifications.apprise_urls",
+            json={"value": "mailto://user:password@example.com"},
+        )
+        res = authed_client.get("/api/v1/settings/notifications.apprise_urls")
+        assert res.status_code == 200
+        assert res.json()["value"] == "**redacted**"
+
     def test_redacted_placeholder_does_not_overwrite(self, authed_client: TestClient):
         """Sending **redacted** back to PUT should not overwrite the stored value."""
         authed_client.get("/api/v1/settings")
@@ -148,3 +161,55 @@ class TestSettingsAPI:
         """Unauthenticated requests to settings endpoints return 403."""
         res = client.get("/api/v1/settings")
         assert res.status_code in (401, 403)
+
+    def test_test_notification_sends_via_apprise(self, authed_client: TestClient, monkeypatch):
+        """POST /settings/notifications/test sends a sanitized Apprise test notification."""
+
+        class FakeApprise:
+            instances = []
+
+            def __init__(self):
+                self.urls = []
+                self.messages = []
+                FakeApprise.instances.append(self)
+
+            def add(self, url):
+                self.urls.append(url)
+                return True
+
+            def notify(self, *, title, body):
+                self.messages.append({"title": title, "body": body})
+                return True
+
+        monkeypatch.setattr("app.services.notifications.apprise.Apprise", FakeApprise)
+
+        authed_client.get("/api/v1/settings")
+        authed_client.post(
+            "/api/v1/settings/bulk",
+            json={
+                "settings": {
+                    "notifications.apprise_enabled": "true",
+                    "notifications.apprise_urls": "mailto://user:password@example.com",
+                }
+            },
+        )
+
+        res = authed_client.post("/api/v1/settings/notifications/test")
+
+        assert res.status_code == 200
+        data = res.json()
+        assert data["success"] is True
+        assert data["configured_targets"] == 1
+        assert "password" not in str(data)
+        assert FakeApprise.instances[0].messages[0]["title"] == "DMARQ test notification"
+
+    def test_test_notification_without_targets_returns_400(self, authed_client: TestClient):
+        """Test notification returns a useful error when no target is configured."""
+        authed_client.get("/api/v1/settings")
+
+        res = authed_client.post("/api/v1/settings/notifications/test")
+
+        assert res.status_code == 400
+        detail = res.json()["detail"]
+        assert detail["success"] is False
+        assert detail["message"] == "No notification targets are configured."

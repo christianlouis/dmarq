@@ -107,15 +107,18 @@ Exit criteria:
 
 ## Milestone 7: Notifications and Alert Rules
 
-Status: Planned
+Status: In progress
 
 Goal: notify administrators when action is needed.
 
+Delivered:
+- Apprise notification integration for newline-separated notification target URLs.
+- Notification settings UI can save Apprise targets, keeps target URLs redacted after save, and can send a test notification.
+
 Planned:
-- Apprise notification integration.
 - Alert rules for new sender source, compliance drop, DMARC failures above threshold, and missing reports.
 - Daily/weekly summary notifications.
-- Alert history and test-notification UI.
+- Alert history.
 
 Exit criteria:
 - A user can receive meaningful alerts without opening the dashboard daily.
