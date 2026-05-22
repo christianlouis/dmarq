@@ -278,4 +278,4 @@ Regular backups of the database should be configured:
 - For SQLite: Simple file copy or SQLite's `.backup` command
 - For PostgreSQL: `pg_dump` command or continuous archiving with WAL
 
-See the [Deployment Guide](../deployment/docker.md) for more information on database backup strategies.
+See [Database Backup and Restore](../deployment/backups.md) for backup, restore, and verification commands.

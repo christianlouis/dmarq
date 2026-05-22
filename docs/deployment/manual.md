@@ -312,22 +312,4 @@ tail -f /path/to/dmarq/logs/dmarq.log
 
 ### Database Backups
 
-For PostgreSQL backups:
-
-```bash
-# Create a backup
-pg_dump -U dmarq dmarq > dmarq_backup_$(date +%Y%m%d).sql
-
-# Restore from a backup
-psql -U dmarq dmarq < dmarq_backup_file.sql
-```
-
-For SQLite backups:
-
-```bash
-# Create a backup
-sqlite3 /path/to/data/dmarq.db .dump > dmarq_backup_$(date +%Y%m%d).sql
-
-# Restore from a backup
-cat dmarq_backup_file.sql | sqlite3 /path/to/data/dmarq.db
-```
+Back up the database before upgrades and on a regular schedule. See [Database Backup and Restore](backups.md) for SQLite and PostgreSQL backup, restore, and verification commands.

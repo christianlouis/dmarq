@@ -99,9 +99,9 @@ Delivered:
 - Raw mailbox/OAuth secrets are redacted from mail-source diagnostics, import history, and OAuth error logs.
 - Admin authentication contexts no longer carry raw API keys after validation.
 - Production startup checks now fail early for missing stable secrets, missing auth configuration, auth-disabled mode, or disabled Logto TLS verification.
+- Database backup and restore guidance now covers SQLite and PostgreSQL deployments, restore verification, and upgrade safety checks.
 
 Planned:
-- Add backup/restore guidance for database deployments.
 - Add release checklist covering migrations, tests, and smoke checks.
 
 Exit criteria:
