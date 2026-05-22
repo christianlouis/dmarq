@@ -9,18 +9,50 @@ from app.models.mail_source_import import MailSourceImport
 
 MAX_STORED_ERRORS = 10
 MAX_ERROR_LENGTH = 500
+MAX_STORED_DETAILS = 50
+MAX_DETAIL_VALUE_LENGTH = 300
+DETAIL_FIELDS = {
+    "status",
+    "reason",
+    "message_id",
+    "filename",
+    "domain",
+    "report_id",
+    "error",
+}
 
 
 def _sanitize_error(value: object) -> str:
     """Return a compact, log-safe error string for storage and UI display."""
     text = str(value).replace("\r", "").replace("\n", " ").strip()
     if len(text) > MAX_ERROR_LENGTH:
-        return text[: MAX_ERROR_LENGTH - 1] + "..."
+        return text[: MAX_ERROR_LENGTH - 3] + "..."
     return text
 
 
 def _json_list(values: Optional[Iterable[Any]]) -> str:
     return json.dumps([str(value) for value in values or []])
+
+
+def _sanitize_detail_value(value: object) -> str:
+    text = _sanitize_error(value)
+    if len(text) > MAX_DETAIL_VALUE_LENGTH:
+        return text[: MAX_DETAIL_VALUE_LENGTH - 3] + "..."
+    return text
+
+
+def _json_details(values: Optional[Iterable[Any]]) -> str:
+    details = []
+    for value in list(values or [])[:MAX_STORED_DETAILS]:
+        if not isinstance(value, dict):
+            continue
+        entry = {}
+        for key in DETAIL_FIELDS:
+            if key in value and value[key] not in (None, ""):
+                entry[key] = _sanitize_detail_value(value[key])
+        if entry:
+            details.append(entry)
+    return json.dumps(details)
 
 
 def record_import_attempt(
@@ -47,6 +79,7 @@ def record_import_attempt(
         error_count=len(result_errors),
         new_domains=_json_list(results.get("new_domains", [])),
         errors=json.dumps(errors),
+        details=_json_details(results.get("details", [])),
         started_at=started_at,
         finished_at=datetime.utcnow(),
     )

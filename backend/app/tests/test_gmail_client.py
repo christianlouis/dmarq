@@ -439,6 +439,8 @@ class TestProcessMessage:
         assert count == 0
         assert len(stats["errors"]) == 1
         assert "bad-id" in stats["errors"][0]
+        assert stats["details"][0]["status"] == "error"
+        assert stats["details"][0]["message_id"] == "bad-id"
 
 
 # ===========================================================================
@@ -463,9 +465,36 @@ class TestProcessAttachments:
         raw = _make_raw_email([{"filename": "photo.png", "content": b"\x89PNG"}])
         msg = email_mod.message_from_bytes(raw)
         stats = {"reports_found": 0, "errors": []}
-        count = client._process_attachments(msg, stats)
+        count = client._process_attachments(msg, stats, message_id="msg-1")
         assert count == 0
         assert stats["reports_found"] == 0
+        assert stats["details"] == [
+            {
+                "status": "skipped",
+                "reason": "unsupported_attachment",
+                "message_id": "msg-1",
+                "filename": "photo.png",
+            }
+        ]
+
+    def test_inline_dmarc_attachment_is_skipped(self):
+        client = _make_client()
+        raw = _make_raw_email(
+            [
+                {
+                    "filename": "report.xml",
+                    "content": SAMPLE_XML.encode(),
+                    "disposition": "inline",
+                }
+            ]
+        )
+        msg = email_mod.message_from_bytes(raw)
+        stats = {"reports_found": 0, "errors": []}
+
+        count = client._process_attachments(msg, stats)
+
+        assert count == 0
+        assert stats.get("details") is None
 
     def test_google_style_zip_attachment_is_parsed(self):
         """A Google DMARC ZIP attachment is parsed and counted."""
@@ -485,6 +514,9 @@ class TestProcessAttachments:
 
         assert count == 1
         assert stats["reports_found"] == 1
+        assert stats["details"][0]["status"] == "imported"
+        assert stats["details"][0]["filename"].endswith(".zip")
+        assert stats["details"][0]["report_id"] == "123456789"
         assert "example.com" in client.report_store.get_domains()
 
     def test_google_style_zip_attachment_is_persisted(self, db_session):
@@ -524,6 +556,8 @@ class TestProcessAttachments:
 
         assert client._process_attachments(msg, first_stats) == 1
         assert client._process_attachments(msg, second_stats) == 0
+        assert second_stats["details"][0]["status"] == "duplicate"
+        assert second_stats["details"][0]["report_id"] == "123456789"
         assert client.report_store.get_domain_summary("example.com")["reports_processed"] == 1
 
     def test_dmarc_attachment_with_empty_content_skipped(self):
@@ -537,6 +571,8 @@ class TestProcessAttachments:
         # Empty payload → `get_payload(decode=True)` returns b"" which is
         # falsy, so the attachment is skipped
         assert count == 0
+        assert stats["details"][0]["status"] == "skipped"
+        assert stats["details"][0]["reason"] == "empty_attachment"
 
     def test_parse_exception_adds_error_and_continues(self):
         """A parse error should be recorded in stats but not raise."""
@@ -567,6 +603,9 @@ class TestProcessAttachments:
 
         assert len(stats["errors"]) == 1
         assert "bad.xml" in stats["errors"][0]
+        assert stats["details"][0]["status"] == "error"
+        assert stats["details"][0]["filename"] == "bad.xml"
+        assert stats["details"][1]["status"] == "imported"
         assert count == 1  # second attachment still parsed
 
 
@@ -622,6 +661,9 @@ class TestFetchReports:
         call_args = mock_proc.call_args_list[0][0]
         assert call_args[1] == "id2"
         assert result["processed"] == 1
+        assert result["details"][0]["status"] == "skipped"
+        assert result["details"][0]["reason"] == "already_ingested_message"
+        assert result["details"][0]["message_id"] == "id1"
 
     def test_tracks_new_ingested_ids(self):
         client = _make_client()

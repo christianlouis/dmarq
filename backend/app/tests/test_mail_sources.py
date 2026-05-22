@@ -3,6 +3,8 @@ Tests for MailSource model and mail-sources API endpoints.
 """
 
 import asyncio
+import json
+from datetime import datetime
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, urlparse
 
@@ -12,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.models.mail_source import MailSource
 from app.models.mail_source_import import MailSourceImport
+from app.services.import_history import record_import_attempt
 
 
 class TestMailSourceModel:
@@ -95,6 +98,7 @@ class TestMailSourceImportModel:
             error_count=1,
             new_domains='["example.com"]',
             errors='["bad attachment"]',
+            details='[{"status": "imported", "filename": "report.xml"}]',
         )
         db_session.add(row)
         db_session.commit()
@@ -103,7 +107,50 @@ class TestMailSourceImportModel:
         assert row.id is not None
         assert row.mail_source_id == source.id
         assert row.duplicate_reports == 1
+        assert '"imported"' in row.details
         assert row.mail_source.name == "History Source"
+
+    def test_record_import_attempt_sanitizes_details(self, db_session: Session):
+        source = MailSource(name="Detail Sanitizer", method="IMAP")
+        db_session.add(source)
+        db_session.commit()
+        db_session.refresh(source)
+
+        attempt = record_import_attempt(
+            db_session,
+            source,
+            {
+                "success": True,
+                "errors": ["x" * 600],
+                "details": [
+                    "skip-me",
+                    {"status": "imported", "filename": "a" * 400, "ignored": "secret"},
+                ],
+            },
+            started_at=datetime.utcnow(),
+            trigger="manual",
+        )
+
+        details = json.loads(attempt.details)
+        errors = json.loads(attempt.errors)
+        assert len(errors[0]) == 500
+        assert details[0]["status"] == "imported"
+        assert len(details[0]["filename"]) == 300
+        assert "ignored" not in details[0]
+
+
+class TestImportHistoryDecoding:
+    """Unit tests for import-history JSON decoding helpers."""
+
+    def test_decode_details_handles_empty_and_malformed_values(self):
+        from app.api.api_v1.endpoints.mail_sources import _decode_json_details
+
+        assert _decode_json_details(None) == []
+        assert _decode_json_details("not-json") == []
+        assert _decode_json_details('{"not": "a list"}') == []
+        assert _decode_json_details('["skip", {"status": "imported", "report_id": 123}]') == [
+            {"status": "imported", "report_id": "123"}
+        ]
 
 
 class TestMailSourcesAPI:
@@ -267,6 +314,7 @@ class TestMailSourcesAPIAuthed:
                 error_count=1,
                 new_domains='["example.com"]',
                 errors='["sanitized error"]',
+                details='[{"status": "duplicate", "report_id": "abc-123"}]',
             )
         )
         db_session.commit()
@@ -281,6 +329,7 @@ class TestMailSourcesAPIAuthed:
         assert data[0]["duplicate_reports"] == 1
         assert data[0]["new_domains"] == ["example.com"]
         assert data[0]["errors"] == ["sanitized error"]
+        assert data[0]["details"] == [{"status": "duplicate", "report_id": "abc-123"}]
 
     def test_list_import_history_handles_malformed_json(
         self, authed_client: TestClient, db_session: Session
@@ -297,6 +346,7 @@ class TestMailSourcesAPIAuthed:
                 status="warning",
                 new_domains="not-json",
                 errors='{"not": "a list"}',
+                details='{"not": "a list"}',
             )
         )
         db_session.commit()
@@ -306,6 +356,7 @@ class TestMailSourcesAPIAuthed:
         assert resp.status_code == 200
         assert resp.json()[0]["new_domains"] == []
         assert resp.json()[0]["errors"] == []
+        assert resp.json()[0]["details"] == []
 
     def test_list_import_history_unknown_source_returns_404(self, authed_client: TestClient):
         resp = authed_client.get("/api/v1/mail-sources/99999/imports")
@@ -764,6 +815,7 @@ class TestManualSourceFetchEndpoint:
             "duplicate_reports": 1,
             "new_domains": ["example.com"],
             "errors": ["bad attachment\nwith newline"],
+            "details": [{"status": "error", "filename": "bad.xml"}],
         }
 
         with (
@@ -780,6 +832,10 @@ class TestManualSourceFetchEndpoint:
         assert data["duplicate_reports"] == 1
         assert data["error_count"] == 1
         assert "bad attachment with newline" in caplog.text
+        history_resp = authed_client.get(f"/api/v1/mail-sources/{source_id}/imports")
+        assert history_resp.json()[0]["details"] == [
+            {"status": "error", "filename": "bad.xml"}
+        ]
         mock_imap.fetch_reports.assert_called_once_with(days=30)
 
     def test_fetch_gmail_source(self, authed_client: TestClient, db_session: Session):
@@ -807,6 +863,7 @@ class TestManualSourceFetchEndpoint:
             "new_domains": [],
             "errors": [],
             "new_ingested_ids": ["id1"],
+            "details": [{"status": "imported", "report_id": "abc-123"}],
         }
         mock_gmail.get_refreshed_tokens.return_value = None
 

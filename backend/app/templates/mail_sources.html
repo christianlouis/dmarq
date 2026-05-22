@@ -178,6 +178,7 @@
                                     <th>Duplicates</th>
                                     <th>New Domains</th>
                                     <th>Errors</th>
+                                    <th>Details</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -204,6 +205,32 @@
                                                 </details>
                                             </template>
                                             <template x-if="!entry.errors || entry.errors.length === 0">
+                                                <span class="text-muted-foreground">None</span>
+                                            </template>
+                                        </td>
+                                        <td>
+                                            <template x-if="entry.details && entry.details.length">
+                                                <details class="max-w-sm">
+                                                    <summary class="cursor-pointer" x-text="formatDetailsSummary(entry.details)"></summary>
+                                                    <div class="mt-2 space-y-2 text-xs">
+                                                        <template x-for="detail in entry.details" :key="`${detail.status}-${detail.message_id || ''}-${detail.filename || ''}-${detail.report_id || ''}`">
+                                                            <div class="rounded border border-base-300 p-2">
+                                                                <div class="flex flex-wrap items-center gap-2">
+                                                                    <span class="badge badge-sm" :class="detailBadgeClass(detail.status)" x-text="detail.status"></span>
+                                                                    <span class="font-mono" x-show="detail.report_id" x-text="detail.report_id"></span>
+                                                                </div>
+                                                                <div class="mt-1 text-muted-foreground">
+                                                                    <span x-show="detail.filename" x-text="detail.filename"></span>
+                                                                    <span x-show="detail.domain" x-text="` • ${detail.domain}`"></span>
+                                                                    <span x-show="detail.reason" x-text="` • ${(detail.reason || '').replaceAll('_', ' ')}`"></span>
+                                                                    <span x-show="detail.error" x-text="` • ${detail.error}`"></span>
+                                                                </div>
+                                                            </div>
+                                                        </template>
+                                                    </div>
+                                                </details>
+                                            </template>
+                                            <template x-if="!entry.details || entry.details.length === 0">
                                                 <span class="text-muted-foreground">None</span>
                                             </template>
                                         </td>
@@ -579,10 +606,28 @@ function mailSourcesApp() {
             return value && value.length ? value.join(', ') : '—';
         },
 
+        formatDetailsSummary(details) {
+            const counts = details.reduce((acc, detail) => {
+                const key = detail.status || 'unknown';
+                acc[key] = (acc[key] || 0) + 1;
+                return acc;
+            }, {});
+            return Object.entries(counts)
+                .map(([key, count]) => `${count} ${key}`)
+                .join(', ');
+        },
+
         statusBadgeClass(status) {
             if (status === 'success') return 'badge-success';
             if (status === 'warning') return 'badge-warning';
             if (status === 'failed') return 'badge-error';
+            return 'badge-outline';
+        },
+
+        detailBadgeClass(status) {
+            if (status === 'imported') return 'badge-success';
+            if (status === 'duplicate' || status === 'skipped') return 'badge-warning';
+            if (status === 'error') return 'badge-error';
             return 'badge-outline';
         },
 
