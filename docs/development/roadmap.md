@@ -29,6 +29,7 @@ Recently improved:
 - Mail source import history is visible in the Mail Sources UI.
 - Individual mail sources can be manually imported from the Mail Sources UI.
 - Import-history rows include sanitized per-attachment outcomes and imported report IDs.
+- Mail source backfills can be launched from the UI with configurable search windows.
 - The current Alpine-based UI is allowed by CSP and renders dynamic tables in real browsers.
 
 Implementation note:
@@ -39,7 +40,6 @@ Implementation note:
 Objective: make mailbox imports auditable and make report totals trustworthy.
 
 Priority tasks:
-- Add mailbox search controls for date-range backfills.
 - Report duplicate skips separately from parse failures.
 - Improve source rollups so a source IP tracks pass/fail counts over time.
 
