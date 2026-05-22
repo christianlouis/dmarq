@@ -7,6 +7,7 @@ persisting anything.  Gmail API sources additionally have OAuth2 helper
 endpoints (authorize-url, callback, fetch).
 """
 
+import json
 import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -18,8 +19,10 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.mail_source import MailSource
+from app.models.mail_source_import import MailSourceImport
 from app.services.gmail_client import GmailClient
 from app.services.imap_client import IMAPClient
+from app.services.import_history import record_import_attempt
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -105,6 +108,24 @@ class GmailCallbackRequest(BaseModel):
     redirect_uri: str
 
 
+class MailSourceImportResponse(BaseModel):
+    """Sanitized import-history entry for a mail source."""
+
+    id: int
+    mail_source_id: int
+    trigger: str
+    status: str
+    processed: int
+    reports_found: int
+    duplicate_reports: int
+    error_count: int
+    new_domains: List[str]
+    errors: List[str]
+    started_at: datetime
+    finished_at: datetime
+    created_at: datetime
+
+
 # ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
@@ -146,6 +167,38 @@ def _source_to_response(source: MailSource) -> MailSourceResponse:
         gmail_client_secret="**redacted**" if source.gmail_client_secret else None,
         gmail_email=source.gmail_email,
         gmail_connected=bool(source.gmail_access_token),
+    )
+
+
+def _decode_json_list(value: Optional[str]) -> List[str]:
+    """Decode a JSON list stored on import history rows."""
+    if not value:
+        return []
+    try:
+        decoded = json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(decoded, list):
+        return []
+    return [str(item) for item in decoded]
+
+
+def _import_to_response(row: MailSourceImport) -> MailSourceImportResponse:
+    """Convert an import-history ORM row to an API response."""
+    return MailSourceImportResponse(
+        id=row.id,
+        mail_source_id=row.mail_source_id,
+        trigger=row.trigger,
+        status=row.status,
+        processed=row.processed,
+        reports_found=row.reports_found,
+        duplicate_reports=row.duplicate_reports,
+        error_count=row.error_count,
+        new_domains=_decode_json_list(row.new_domains),
+        errors=_decode_json_list(row.errors),
+        started_at=row.started_at,
+        finished_at=row.finished_at,
+        created_at=row.created_at,
     )
 
 
@@ -203,6 +256,26 @@ async def get_mail_source(
     """Return a single mail source by ID (password redacted)."""
     source = _get_source_or_404(source_id, db)
     return _source_to_response(source)
+
+
+@router.get("/{source_id}/imports", response_model=List[MailSourceImportResponse])
+async def list_mail_source_imports(
+    source_id: int,
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+) -> List[MailSourceImportResponse]:
+    """Return recent sanitized import attempts for one mail source."""
+    _get_source_or_404(source_id, db)
+    safe_limit = min(max(limit, 1), 100)
+    rows = (
+        db.query(MailSourceImport)
+        .filter(MailSourceImport.mail_source_id == source_id)
+        .order_by(MailSourceImport.started_at.desc(), MailSourceImport.id.desc())
+        .limit(safe_limit)
+        .all()
+    )
+    return [_import_to_response(row) for row in rows]
 
 
 @router.put("/{source_id}", response_model=MailSourceResponse)
@@ -608,6 +681,7 @@ async def gmail_fetch_reports(
         already_ingested_ids=already,
     )
 
+    started_at = datetime.utcnow()
     results = client.fetch_reports()
 
     # Persist updated ingested IDs and any refreshed tokens
@@ -622,6 +696,7 @@ async def gmail_fetch_reports(
             source.gmail_refresh_token = refreshed["refresh_token"]
 
     source.last_checked = datetime.utcnow()
+    record_import_attempt(db, source, results, started_at=started_at, trigger="manual")
     db.commit()
 
     logger.info(

@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text
+from sqlalchemy.orm import relationship
 
 from app.core.database import Base
 
@@ -62,6 +63,12 @@ class MailSource(Base):
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    imports = relationship(
+        "MailSourceImport",
+        back_populates="mail_source",
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self):
         return f"<MailSource id={self.id} name={self.name!r} method={self.method!r}>"

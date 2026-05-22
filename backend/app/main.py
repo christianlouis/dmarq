@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 import app.models.domain  # noqa: F401 – ensure Domain/UserDomain tables are registered
+import app.models.mail_source_import  # noqa: F401 – ensure import history table is registered
 import app.models.report  # noqa: F401 – ensure DMARCReport/ReportRecord tables are registered
 import app.models.setting  # noqa: F401 – ensure Setting table is registered
 import app.models.user  # noqa: F401 – ensure User table is registered
@@ -22,6 +23,7 @@ from app.middleware.security import SecurityHeadersMiddleware
 from app.models.mail_source import MailSource  # noqa: F401 – ensure table is registered
 from app.services.gmail_client import GmailClient
 from app.services.imap_client import IMAPClient
+from app.services.import_history import record_import_attempt
 from app.services.report_store import ReportStore
 
 # Set up logging
@@ -45,6 +47,7 @@ def _poll_single_imap_source(source: MailSource) -> None:
         password=source.password,
         delete_emails=False,
     )
+    started_at = datetime.utcnow()
     results = imap_client.fetch_reports(days=9999)
 
     db = SessionLocal()
@@ -52,6 +55,7 @@ def _poll_single_imap_source(source: MailSource) -> None:
         src = db.query(MailSource).get(source.id)
         if src:
             src.last_checked = datetime.utcnow()
+            record_import_attempt(db, src, results, started_at=started_at, trigger="scheduled")
             db.commit()
     finally:
         db.close()
@@ -95,6 +99,7 @@ def _poll_single_gmail_source(source: MailSource) -> None:
         already_ingested_ids=already,
     )
 
+    started_at = datetime.utcnow()
     results = client.fetch_reports()
 
     db = SessionLocal()
@@ -112,6 +117,7 @@ def _poll_single_gmail_source(source: MailSource) -> None:
                     src.gmail_refresh_token = refreshed["refresh_token"]
 
             src.last_checked = datetime.utcnow()
+            record_import_attempt(db, src, results, started_at=started_at, trigger="scheduled")
             db.commit()
     finally:
         db.close()
@@ -517,9 +523,11 @@ def _trigger_poll_imap_source(source: MailSource, db) -> dict:
         password=source.password,
         delete_emails=False,
     )
+    started_at = datetime.utcnow()
     results = imap_client.fetch_reports(days=7)
     last_check_time = datetime.now()
     source.last_checked = datetime.utcnow()
+    record_import_attempt(db, source, results, started_at=started_at, trigger="manual")
     db.commit()
     return {
         "source_id": source.id,
@@ -543,6 +551,7 @@ def _trigger_poll_gmail_source(source: MailSource, db) -> dict:
         refresh_token=source.gmail_refresh_token or "",
         already_ingested_ids=already,
     )
+    started_at = datetime.utcnow()
     results = gmail_client.fetch_reports()
     last_check_time = datetime.now()
 
@@ -555,6 +564,7 @@ def _trigger_poll_gmail_source(source: MailSource, db) -> dict:
         if "refresh_token" in refreshed:
             source.gmail_refresh_token = refreshed["refresh_token"]
     source.last_checked = datetime.utcnow()
+    record_import_attempt(db, source, results, started_at=started_at, trigger="manual")
     db.commit()
     return {
         "source_id": source.id,

@@ -29,18 +29,24 @@ Delivered:
 - Duplicate report protection for both Gmail and IMAP imports.
 - Background polling and manual poll hooks for configured mail sources.
 
-## Milestone 3: Persistence, Domain Management, and Auth Foundation - Complete
+## Milestone 3: Database Foundation, Domain Management, and Auth Foundation - In Progress
 
-Status: Complete
+Status: In progress
 
 Delivered:
 - SQLAlchemy models and Alembic migrations.
 - SQLite/PostgreSQL-compatible database configuration.
 - Domain management APIs and UI.
-- Report and source persistence.
+- Report and source database models.
 - Settings and mail source persistence.
 - Logto-based auth integration plus an explicit local development auth-disabled mode.
 - Security middleware, safer default secret generation, and security-focused tests.
+
+Remaining before this milestone is complete:
+- Persist parsed DMARC reports and report records through the database-backed models.
+- Load or query persisted reports after restart so dashboards do not depend on process memory.
+- Move report/domain summary endpoints from the in-memory `ReportStore` to database queries.
+- Keep duplicate report detection consistent across upload, IMAP, and Gmail after persistence is enabled.
 
 ## Milestone 4: Reporting Quality and Import Confidence - In Progress
 
@@ -52,10 +58,11 @@ Recently delivered:
 - Gmail import now handles real inbox metadata patterns and Google-style ZIP filenames.
 - Gmail/IMAP imports skip duplicate report IDs to avoid inflated totals.
 - Tests now cover a real Google-style ZIP attachment path rather than only mocked parser behavior.
+- Mail source imports now persist sanitized import-history records for manual and scheduled polls.
 
 Next tasks:
+- Finish Milestone 3 report persistence before expanding report features.
 - Add per-import result details: skipped duplicates, parse failures, unsupported attachments, and imported report IDs.
-- Store failed import attempts with enough metadata to retry or diagnose them without exposing secrets.
 - Add a UI import history view for each mail source.
 - Add mailbox search controls for date range/backfill without requiring code changes.
 - Improve source aggregation so each sender IP keeps pass/fail totals instead of only the latest result.

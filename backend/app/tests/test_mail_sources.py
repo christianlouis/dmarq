@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.models.mail_source import MailSource
+from app.models.mail_source_import import MailSourceImport
 
 
 class TestMailSourceModel:
@@ -73,6 +74,36 @@ class TestMailSourceModel:
 
         all_sources = db_session.query(MailSource).all()
         assert len(all_sources) == 3
+
+
+class TestMailSourceImportModel:
+    """Unit tests for persisted mail source import history."""
+
+    def test_create_import_history_row(self, db_session: Session):
+        source = MailSource(name="History Source", method="GMAIL_API")
+        db_session.add(source)
+        db_session.commit()
+        db_session.refresh(source)
+
+        row = MailSourceImport(
+            mail_source_id=source.id,
+            trigger="manual",
+            status="warning",
+            processed=3,
+            reports_found=2,
+            duplicate_reports=1,
+            error_count=1,
+            new_domains='["example.com"]',
+            errors='["bad attachment"]',
+        )
+        db_session.add(row)
+        db_session.commit()
+        db_session.refresh(row)
+
+        assert row.id is not None
+        assert row.mail_source_id == source.id
+        assert row.duplicate_reports == 1
+        assert row.mail_source.name == "History Source"
 
 
 class TestMailSourcesAPI:
@@ -218,6 +249,42 @@ class TestMailSourcesAPIAuthed:
         assert resp.status_code == 200
         assert resp.json()["id"] == source_id
         assert resp.json()["name"] == "Get Test"
+
+    def test_list_import_history(self, authed_client: TestClient, db_session: Session):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources", json={"name": "History API", "method": "IMAP"}
+        )
+        source_id = create_resp.json()["id"]
+
+        db_session.add(
+            MailSourceImport(
+                mail_source_id=source_id,
+                trigger="manual",
+                status="warning",
+                processed=2,
+                reports_found=1,
+                duplicate_reports=1,
+                error_count=1,
+                new_domains='["example.com"]',
+                errors='["sanitized error"]',
+            )
+        )
+        db_session.commit()
+
+        resp = authed_client.get(f"/api/v1/mail-sources/{source_id}/imports")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["mail_source_id"] == source_id
+        assert data[0]["status"] == "warning"
+        assert data[0]["duplicate_reports"] == 1
+        assert data[0]["new_domains"] == ["example.com"]
+        assert data[0]["errors"] == ["sanitized error"]
+
+    def test_list_import_history_unknown_source_returns_404(self, authed_client: TestClient):
+        resp = authed_client.get("/api/v1/mail-sources/99999/imports")
+        assert resp.status_code == 404
 
     def test_get_nonexistent_source_returns_404(self, authed_client: TestClient):
         resp = authed_client.get("/api/v1/mail-sources/99999")

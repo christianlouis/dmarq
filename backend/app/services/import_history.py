@@ -1,0 +1,54 @@
+import json
+from datetime import datetime
+from typing import Any, Dict, Iterable, Optional
+
+from sqlalchemy.orm import Session
+
+from app.models.mail_source import MailSource
+from app.models.mail_source_import import MailSourceImport
+
+MAX_STORED_ERRORS = 10
+MAX_ERROR_LENGTH = 500
+
+
+def _sanitize_error(value: object) -> str:
+    """Return a compact, log-safe error string for storage and UI display."""
+    text = str(value).replace("\r", "").replace("\n", " ").strip()
+    if len(text) > MAX_ERROR_LENGTH:
+        return text[: MAX_ERROR_LENGTH - 1] + "..."
+    return text
+
+
+def _json_list(values: Optional[Iterable[Any]]) -> str:
+    return json.dumps([str(value) for value in values or []])
+
+
+def record_import_attempt(
+    db: Session,
+    source: MailSource,
+    results: Dict[str, Any],
+    *,
+    started_at: datetime,
+    trigger: str,
+) -> MailSourceImport:
+    """Persist a sanitized summary of a mail source import attempt."""
+    result_errors = list(results.get("errors") or [])
+    errors = [_sanitize_error(error) for error in result_errors[:MAX_STORED_ERRORS]]
+    success = bool(results.get("success", False))
+    status = "success" if success and not errors else "warning" if success else "failed"
+
+    attempt = MailSourceImport(
+        mail_source_id=source.id,
+        trigger=trigger,
+        status=status,
+        processed=int(results.get("processed", 0) or 0),
+        reports_found=int(results.get("reports_found", 0) or 0),
+        duplicate_reports=int(results.get("duplicate_reports", 0) or 0),
+        error_count=len(result_errors),
+        new_domains=_json_list(results.get("new_domains", [])),
+        errors=json.dumps(errors),
+        started_at=started_at,
+        finished_at=datetime.utcnow(),
+    )
+    db.add(attempt)
+    return attempt
