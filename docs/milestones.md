@@ -88,9 +88,9 @@ Delivered:
 Exit criteria:
 - A domain owner can answer: who is sending as my domain, what is failing, what changed recently, and what should I fix next?
 
-## Milestone 6: Production Secret Handling and Deployment Hardening
+## Milestone 6: Production Secret Handling and Deployment Hardening - Complete
 
-Status: In progress
+Status: Complete
 
 Goal: make production deployments safer and easier to operate.
 
@@ -101,8 +101,6 @@ Delivered:
 - Production startup checks now fail early for missing stable secrets, missing auth configuration, auth-disabled mode, or disabled Logto TLS verification.
 - Database backup and restore guidance now covers SQLite and PostgreSQL deployments, restore verification, and upgrade safety checks.
 - A release checklist now covers pre-merge checks, migrations, release automation, smoke checks, and rollback readiness.
-
-Planned:
 
 Exit criteria:
 - A self-hosted deployment can be configured without copying secrets into source-controlled files or chat logs.

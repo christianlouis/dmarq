@@ -64,12 +64,9 @@ Delivered:
 Quality bar:
 - Importing the same mailbox twice does not change aggregate totals, parse failures are visible, and source totals are not overwritten by the latest result.
 
-## Production Hardening
+## Completed Milestone: Production Hardening
 
 Objective: make self-hosted deployments safer.
-
-Priority tasks:
-- Use the production hardening docs in at least one real production upgrade and capture any gaps.
 
 Delivered:
 - Documented a 1Password secret-injection deployment flow for local, Docker Compose, and systemd deployments.
@@ -77,6 +74,12 @@ Delivered:
 - Added production startup validation for stable secrets, configured auth, auth-disabled mode, and Logto TLS verification.
 - Added database backup and restore guidance for SQLite and PostgreSQL deployments.
 - Added a release checklist covering migrations, tests, smoke checks, release automation, and rollback readiness.
+
+Quality bar:
+- A self-hosted deployment can be configured without copying secrets into source-controlled files or chat logs.
+
+Follow-up:
+- Use the production hardening docs in at least one real production upgrade and capture any gaps.
 
 ## Later Milestones
 
