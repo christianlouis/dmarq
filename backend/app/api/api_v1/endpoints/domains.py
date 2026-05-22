@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models.domain import Domain
+from app.services.dns_cache import resolve_domain_dns_cached
 from app.services.dns_resolver import (
     DomainDNSResult,
     extract_dmarc_policy,
@@ -64,6 +65,8 @@ class DNSRecordResponse(BaseModel):
     spfRecord: Optional[str] = None
     dkim: bool
     dkimSelectors: List[str] = []
+    cached: bool = False
+    checkedAt: Optional[str] = None
 
 
 class TimelinePoint(BaseModel):
@@ -201,17 +204,17 @@ async def get_domains_summary(db: Session = Depends(get_db)):
     """
     Get summary statistics for all domains, formatted for the dashboard.
 
-    Performs live DNS lookups for each domain concurrently and includes the
-    results (DMARC/SPF/DKIM status and live DMARC policy) in the per-domain
-    entries.  A per-domain timeout of 10 s prevents slow DNS responses from
-    blocking the page load.
+    Performs cached DNS lookups for each domain and includes the results
+    (DMARC/SPF/DKIM status and live DMARC policy) in the per-domain entries.
+    A per-domain timeout of 10 s prevents slow DNS responses from blocking the
+    page load.
     """
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
     domains = store.get_domains()
     summaries = store.get_all_domain_summaries()
 
-    # Perform DNS checks concurrently for all domains
+    # Perform DNS checks for all domains, reusing fresh cached results.
     provider = get_default_provider()
     manual_selectors_by_domain = _get_domain_selectors_map_from_db(db, domains)
 
@@ -220,15 +223,20 @@ async def get_domains_summary(db: Session = Depends(get_db)):
         report_selectors = _get_selectors_from_reports(store, domain_name)
         combined = list(dict.fromkeys(manual_selectors + report_selectors))
         try:
-            return await asyncio.wait_for(
-                provider.check_domain(domain_name, selectors=combined),
+            result, cached, checked_at = await asyncio.wait_for(
+                resolve_domain_dns_cached(db, provider, domain_name, selectors=combined),
                 timeout=10.0,
             )
+            result.cached = cached  # type: ignore[attr-defined]
+            result.checked_at = checked_at  # type: ignore[attr-defined]
+            return result
         except (asyncio.TimeoutError, LookupError, OSError) as exc:
             logger.warning("DNS check failed for %s: %s", domain_name, exc)
             return DomainDNSResult()
 
-    dns_results = await asyncio.gather(*[_dns_for_domain(d) for d in domains])
+    dns_results = []
+    for domain_name in domains:
+        dns_results.append(await _dns_for_domain(domain_name))
 
     # Calculate overall statistics
     total_domains = len(domains)
@@ -266,6 +274,12 @@ async def get_domains_summary(db: Session = Depends(get_db)):
                 "dmarc_policy": dmarc_policy,
                 "spf_status": dns.spf,
                 "dkim_status": dns.dkim,
+                "dns_cached": getattr(dns, "cached", False),
+                "dns_checked_at": (
+                    getattr(dns, "checked_at", None).isoformat()
+                    if getattr(dns, "checked_at", None)
+                    else None
+                ),
             }
         )
 
@@ -375,6 +389,7 @@ async def get_domain_stats(
 @router.get("/{domain_id}/dns", response_model=DNSRecordResponse)
 async def get_domain_dns_records(
     domain_id: str = Path(..., title="The domain ID or name"),
+    refresh: bool = Query(False, title="Refresh cached DNS result"),
     db: Session = Depends(get_db),
 ):
     """
@@ -399,7 +414,13 @@ async def get_domain_dns_records(
     combined_selectors = list(dict.fromkeys(manual_selectors + report_selectors))
 
     provider = get_default_provider()
-    result = await provider.check_domain(domain_id, selectors=combined_selectors)
+    result, cached, checked_at = await resolve_domain_dns_cached(
+        db,
+        provider,
+        domain_id,
+        selectors=combined_selectors,
+        refresh=refresh,
+    )
 
     return DNSRecordResponse(
         dmarc=result.dmarc,
@@ -408,6 +429,8 @@ async def get_domain_dns_records(
         spfRecord=result.spf_record,
         dkim=result.dkim,
         dkimSelectors=result.dkim_selectors,
+        cached=cached,
+        checkedAt=checked_at.isoformat(),
     )
 
 
@@ -674,7 +697,11 @@ def _source_recommendations(
             )
         )
 
-    if spf_result == "pass" and dkim_result in {"fail", "mixed", "unknown", "none"} and dmarc_passed:
+    if (
+        spf_result == "pass"
+        and dkim_result in {"fail", "mixed", "unknown", "none"}
+        and dmarc_passed
+    ):
         recommendations.append(
             SourceRecommendation(
                 type="spf_only_pass",
@@ -688,7 +715,11 @@ def _source_recommendations(
             )
         )
 
-    if dkim_result == "pass" and spf_result in {"fail", "mixed", "unknown", "none"} and dmarc_passed:
+    if (
+        dkim_result == "pass"
+        and spf_result in {"fail", "mixed", "unknown", "none"}
+        and dmarc_passed
+    ):
         action = "Authorize this service in SPF, or confirm SPF is intentionally handled elsewhere."
         if spf_fix_hint:
             action = f"Add {spf_fix_hint} to your SPF record if this service is legitimate."
@@ -708,9 +739,7 @@ def _source_recommendations(
             "both SPF authorization and DKIM signing."
         )
         if spf_fix_hint:
-            action = (
-                f"If legitimate, add {spf_fix_hint} to SPF and enable DKIM signing for this service."
-            )
+            action = f"If legitimate, add {spf_fix_hint} to SPF and enable DKIM signing for this service."
         recommendations.append(
             SourceRecommendation(
                 type="full_fail",

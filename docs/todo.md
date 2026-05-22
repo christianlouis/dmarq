@@ -168,6 +168,7 @@ Status: Complete for the delivered reporting milestone. Alert-specific dashboard
 - [x] Add alert rules for new sender source, compliance drop, DMARC failures above threshold, and missing reports
 - [x] Add daily and weekly summary notifications
 - [x] Add alert history
+- [x] Add cached DMARC/SPF/DKIM DNS checks and report-discovered DKIM selectors
 - [ ] DNS health guidance and Cloudflare read-only inspection
 - [ ] Guided setup and operator health pages
 - [ ] Forensic/RUF report support

@@ -109,6 +109,14 @@ policy if long-term storage size matters.
 | `CF_API_TOKEN` | Cloudflare API token | - | `your_cloudflare_api_token` |
 | `CF_ZONE_ID` | Cloudflare Zone ID | - | `your_cloudflare_zone_id` |
 
+### DNS Result Cache
+
+DMARC, SPF, and DKIM DNS checks are cached in the database-backed `dns_cache`
+table for 15 minutes per domain, DNS provider, and DKIM selector set. Domain DNS
+API responses include whether the result came from cache and when it was
+checked. Use `?refresh=true` on the domain DNS endpoint to bypass a fresh cache
+entry for operational rechecks.
+
 ### Advanced Configuration
 
 | Variable | Description | Default | Example |

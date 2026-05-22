@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 
 from app.api.api_v1.endpoints import domains as domains_endpoint
 from app.api.api_v1.endpoints.domains import _spf_fix_hint
+from app.models.dns_cache import DNSCache
 from app.models.domain import Domain
 from app.services.dns_resolver import DomainDNSResult
 from app.services.report_store import ReportStore
@@ -254,6 +255,43 @@ def test_dns_endpoint_returns_real_data(client: TestClient):
     assert data["spf"] is True
     assert data["dkim"] is True
     assert "p=none" in data["dmarcRecord"]
+    assert data["cached"] is False
+    assert data["checkedAt"] is not None
+
+
+def test_dns_endpoint_uses_cached_result(client: TestClient, db_session):
+    """Repeated DNS checks reuse a fresh cached result."""
+    mock_provider = AsyncMock(check_domain=AsyncMock(return_value=MOCK_DNS_RESULT))
+
+    with patch(
+        "app.api.api_v1.endpoints.domains.get_default_provider",
+        return_value=mock_provider,
+    ):
+        first = client.get(f"/api/v1/domains/{DOMAIN}/dns")
+        second = client.get(f"/api/v1/domains/{DOMAIN}/dns")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["cached"] is False
+    assert second.json()["cached"] is True
+    assert mock_provider.check_domain.await_count == 1
+    assert db_session.query(DNSCache).count() == 1
+
+
+def test_dns_endpoint_refresh_bypasses_cache(client: TestClient):
+    """The refresh query parameter forces a new DNS lookup."""
+    mock_provider = AsyncMock(check_domain=AsyncMock(return_value=MOCK_DNS_RESULT))
+
+    with patch(
+        "app.api.api_v1.endpoints.domains.get_default_provider",
+        return_value=mock_provider,
+    ):
+        client.get(f"/api/v1/domains/{DOMAIN}/dns")
+        refreshed = client.get(f"/api/v1/domains/{DOMAIN}/dns?refresh=true")
+
+    assert refreshed.status_code == 200
+    assert refreshed.json()["cached"] is False
+    assert mock_provider.check_domain.await_count == 2
 
 
 def test_dns_endpoint_uses_manual_selectors(client: TestClient):
