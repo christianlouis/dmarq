@@ -132,6 +132,51 @@ def test_get_domain_sources_returns_200(seeded_client: TestClient):
     assert source["dmarc"] == "pass"
 
 
+def test_get_domain_sources_returns_rollup_counts(client: TestClient):
+    """Endpoint reports pass/fail totals instead of only the latest IP result."""
+    report = {
+        **REPORT_DICT_POLICY,
+        "report_id": "rpt-mixed-source",
+        "records": [
+            {
+                "source_ip": "209.85.220.9",
+                "count": 4,
+                "disposition": "none",
+                "dkim_result": "pass",
+                "spf_result": "fail",
+                "header_from": DOMAIN,
+            },
+            {
+                "source_ip": "209.85.220.9",
+                "count": 6,
+                "disposition": "quarantine",
+                "dkim_result": "fail",
+                "spf_result": "fail",
+                "header_from": DOMAIN,
+            },
+        ],
+        "summary": {"total_count": 10, "passed_count": 4, "failed_count": 6},
+    }
+    ReportStore.get_instance().add_report(report)
+
+    response = client.get(f"/api/v1/domains/{DOMAIN}/sources")
+
+    assert response.status_code == 200
+    source = response.json()["sources"][0]
+    assert source["ip"] == "209.85.220.9"
+    assert source["count"] == 10
+    assert source["spf"] == "fail"
+    assert source["dkim"] == "mixed"
+    assert source["dmarc"] == "mixed"
+    assert source["spf_pass_count"] == 0
+    assert source["spf_fail_count"] == 10
+    assert source["dkim_pass_count"] == 4
+    assert source["dkim_fail_count"] == 6
+    assert source["dmarc_pass_count"] == 4
+    assert source["dmarc_fail_count"] == 6
+    assert source["disposition_counts"] == {"none": 4, "quarantine": 6}
+
+
 def test_get_domain_sources_days_param_accepted(seeded_client: TestClient):
     """The 'days' query parameter is accepted without raising a TypeError."""
     response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources?days=7")

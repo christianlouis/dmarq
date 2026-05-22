@@ -287,11 +287,21 @@
                                             <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-red-100 text-red-800">Fail</span>
                                         </div>
                                     </template>
-                                    <template x-if="source.spf === 'neutral' || source.spf === 'none'">
+                                    <template x-if="source.spf === 'mixed'">
+                                        <div class="tooltip" data-tip="This IP has both SPF passes and failures">
+                                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-yellow-100 text-yellow-800">Mixed</span>
+                                        </div>
+                                    </template>
+                                    <template x-if="source.spf !== 'pass' && source.spf !== 'fail' && source.spf !== 'mixed'">
                                         <div class="tooltip" :data-tip="'SPF returned: ' + source.spf">
                                             <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-800" x-text="source.spf"></span>
                                         </div>
                                     </template>
+                                    <div class="mt-1 text-xs text-muted-foreground">
+                                        <span x-text="(source.spf_pass_count || 0) + ' pass'"></span>
+                                        <span> / </span>
+                                        <span x-text="(source.spf_fail_count || 0) + ' fail'"></span>
+                                    </div>
                                 {% endcall %}
                                 {% call td() %}
                                     <template x-if="source.dkim === 'pass'">
@@ -304,11 +314,21 @@
                                             <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-red-100 text-red-800">Fail</span>
                                         </div>
                                     </template>
-                                    <template x-if="source.dkim === 'neutral' || source.dkim === 'none'">
+                                    <template x-if="source.dkim === 'mixed'">
+                                        <div class="tooltip" data-tip="This IP has both DKIM passes and failures">
+                                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-yellow-100 text-yellow-800">Mixed</span>
+                                        </div>
+                                    </template>
+                                    <template x-if="source.dkim !== 'pass' && source.dkim !== 'fail' && source.dkim !== 'mixed'">
                                         <div class="tooltip" :data-tip="'DKIM returned: ' + source.dkim">
                                             <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-800" x-text="source.dkim"></span>
                                         </div>
                                     </template>
+                                    <div class="mt-1 text-xs text-muted-foreground">
+                                        <span x-text="(source.dkim_pass_count || 0) + ' pass'"></span>
+                                        <span> / </span>
+                                        <span x-text="(source.dkim_fail_count || 0) + ' fail'"></span>
+                                    </div>
                                 {% endcall %}
                                 {% call td() %}
                                     <template x-if="source.dmarc === 'pass'">
@@ -321,6 +341,16 @@
                                             <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-red-100 text-red-800">Fail</span>
                                         </div>
                                     </template>
+                                    <template x-if="source.dmarc === 'mixed'">
+                                        <div class="tooltip" data-tip="This IP has both DMARC passes and failures">
+                                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-yellow-100 text-yellow-800">Mixed</span>
+                                        </div>
+                                    </template>
+                                    <div class="mt-1 text-xs text-muted-foreground">
+                                        <span x-text="(source.dmarc_pass_count || 0) + ' pass'"></span>
+                                        <span> / </span>
+                                        <span x-text="(source.dmarc_fail_count || 0) + ' fail'"></span>
+                                    </div>
                                 {% endcall %}
                                 {% call td() %}
                                     <template x-if="source.disposition === 'none'">

@@ -13,7 +13,7 @@ import app.models.user  # noqa: F401
 from app.core.database import Base
 from app.models.domain import Domain
 from app.models.report import DMARCReport, ReportRecord
-from app.utils.stats_summarizer import StatsSummarizer
+from app.utils.stats_summarizer import StatsSummarizer, _auth_status_from_counts
 
 
 @pytest.fixture()
@@ -81,6 +81,51 @@ def _seed_domain_and_reports(db, domain_name="example.com"):
     return domain
 
 
+def _seed_mixed_source_records(db, domain_name="example.com"):
+    """Insert multiple auth outcomes for one source IP."""
+    domain = Domain(name=domain_name)
+    db.add(domain)
+    db.flush()
+
+    report = DMARCReport(
+        domain_id=domain.id,
+        report_id="rpt-mixed",
+        org_name="google.com",
+        begin_date=1597449600,
+        end_date=1597535999,
+        policy="none",
+    )
+    db.add(report)
+    db.flush()
+
+    db.add_all(
+        [
+            ReportRecord(
+                report_id=report.id,
+                source_ip="203.0.113.55",
+                count=8,
+                disposition="none",
+                dkim="pass",
+                spf="fail",
+            ),
+            ReportRecord(
+                report_id=report.id,
+                source_ip="203.0.113.55",
+                count=2,
+                disposition="reject",
+                dkim="fail",
+                spf="fail",
+            ),
+        ]
+    )
+    db.flush()
+    return domain
+
+
+def test_auth_status_from_counts_returns_none_without_results():
+    assert _auth_status_from_counts(0, 0) == "none"
+
+
 class TestStatsSummarizerGlobal:
     """Tests for global statistics."""
 
@@ -113,6 +158,24 @@ class TestStatsSummarizerGlobal:
         # Sorted by count descending
         assert stats["top_sources"][0]["ip"] == "203.0.113.1"
         assert stats["top_sources"][0]["count"] == 5
+
+    def test_global_top_sources_include_pass_fail_rollups(self, db_session, summarizer):
+        _seed_mixed_source_records(db_session)
+        db_session.commit()
+
+        stats = summarizer.calculate_summary_statistics(db_session)
+        source = stats["top_sources"][0]
+        assert source["ip"] == "203.0.113.55"
+        assert source["count"] == 10
+        assert source["spf_pass_count"] == 0
+        assert source["spf_fail_count"] == 10
+        assert source["dkim_pass_count"] == 8
+        assert source["dkim_fail_count"] == 2
+        assert source["dmarc_pass_count"] == 8
+        assert source["dmarc_fail_count"] == 2
+        assert source["spf"] == "fail"
+        assert source["dkim"] == "mixed"
+        assert source["dmarc"] == "mixed"
 
     def test_multiple_domains(self, db_session, summarizer):
         _seed_domain_and_reports(db_session, "example.com")
@@ -154,6 +217,24 @@ class TestStatsSummarizerDomain:
         # First source should be the highest count
         assert stats["sources"][0]["ip"] == "203.0.113.1"
         assert stats["sources"][0]["count"] == 5
+
+    def test_domain_sources_group_by_ip_with_pass_fail_rollups(self, db_session, summarizer):
+        _seed_mixed_source_records(db_session, "example.com")
+        db_session.commit()
+
+        stats = summarizer.calculate_summary_statistics(db_session, domain_id="example.com")
+        assert len(stats["sources"]) == 1
+        source = stats["sources"][0]
+        assert source["ip"] == "203.0.113.55"
+        assert source["count"] == 10
+        assert source["spf_fail_count"] == 10
+        assert source["dkim_pass_count"] == 8
+        assert source["dkim_fail_count"] == 2
+        assert source["dmarc_pass_count"] == 8
+        assert source["dmarc_fail_count"] == 2
+        assert source["spf"] == "fail"
+        assert source["dkim"] == "mixed"
+        assert source["dmarc"] == "mixed"
 
     def test_domain_isolation(self, db_session, summarizer):
         """Stats for one domain should not include data from another."""
