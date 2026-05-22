@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.redaction import redact_sensitive_text, sanitize_for_log
 from app.core.security import require_admin_auth
 from app.models.mail_source import MailSource
 from app.models.mail_source_import import MailSourceImport
@@ -134,7 +135,12 @@ class MailSourceImportResponse(BaseModel):
 
 def _sanitize_for_log(value: object) -> str:
     """Remove CR/LF characters from a value to prevent log injection attacks."""
-    return str(value).replace("\r", "").replace("\n", " ")
+    return sanitize_for_log(value)
+
+
+def _redact_sensitive_text(value: object) -> str:
+    """Remove log-injection characters and redact secret-like diagnostic text."""
+    return redact_sensitive_text(value)
 
 
 def _get_source_or_404(source_id: int, db: Session) -> MailSource:
@@ -404,7 +410,7 @@ async def fetch_mail_source(
         logger.warning(
             "Manual fetch warning for source id=%d: %s",
             int(source_id),
-            _sanitize_for_log(err),
+            _redact_sensitive_text(err),
         )
 
     return _fetch_response(source, results)
@@ -500,7 +506,7 @@ async def test_stored_mail_source(
             logger.error(
                 "Gmail API test failed for source id=%d: %s",
                 int(source_id),
-                _sanitize_for_log(exc),
+                _redact_sensitive_text(exc),
             )
             return {
                 "success": False,
@@ -672,7 +678,7 @@ async def gmail_oauth_callback(
         logger.error(
             "Gmail token exchange error for source id=%d: %s",
             int(source_id),
-            _sanitize_for_log(exc),
+            _redact_sensitive_text(exc),
         )
         html = (
             "<html><body><p>Token exchange failed. "
@@ -746,9 +752,14 @@ async def gmail_oauth_callback_post(
             redirect_uri=payload.redirect_uri,
         )
     except ValueError as exc:
+        logger.error(
+            "Gmail token exchange error for source id=%d: %s",
+            int(source_id),
+            _redact_sensitive_text(exc),
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
+            detail="Token exchange failed. Please check the Gmail connection settings and try again.",
         ) from exc
 
     access_token = token_data.get("access_token")
@@ -843,7 +854,7 @@ async def gmail_fetch_reports(
         logger.warning(
             "Gmail fetch warning for source id=%d: %s",
             int(source_id),
-            _sanitize_for_log(err),
+            _redact_sensitive_text(err),
         )
 
     return {

@@ -4,6 +4,7 @@ Tests for MailSource model and mail-sources API endpoints.
 
 import asyncio
 import json
+import logging
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, urlparse
@@ -137,6 +138,34 @@ class TestMailSourceImportModel:
         assert details[0]["status"] == "imported"
         assert len(details[0]["filename"]) == 300
         assert "ignored" not in details[0]
+
+    def test_record_import_attempt_redacts_sensitive_values(self, db_session: Session):
+        source = MailSource(name="Secret Sanitizer", method="GMAIL_API")
+        db_session.add(source)
+        db_session.commit()
+        db_session.refresh(source)
+
+        attempt = record_import_attempt(
+            db_session,
+            source,
+            {
+                "success": False,
+                "errors": ["provider returned access_token=ya29.raw-token"],
+                "details": [
+                    {
+                        "status": "failed",
+                        "error": 'oauth failed: {"client_secret":"GOCSPX-raw-secret"}',
+                    },
+                ],
+            },
+            started_at=datetime.utcnow(),
+            trigger="manual",
+        )
+
+        assert "ya29.raw-token" not in attempt.errors
+        assert "GOCSPX-raw-secret" not in attempt.details
+        assert "**redacted**" in attempt.errors
+        assert "**redacted**" in attempt.details
 
 
 class TestImportHistoryDecoding:
@@ -1058,6 +1087,25 @@ class TestSanitizeForLog:
 
         assert _sanitize_for_log("example.com") == "example.com"
 
+    def test_redacts_sensitive_key_values(self):
+        from app.api.api_v1.endpoints.mail_sources import _redact_sensitive_text
+
+        text = _redact_sensitive_text(
+            'Token exchange failed: access_token=ya29.secret client_secret="GOCSPX-secret"'
+        )
+
+        assert "ya29.secret" not in text
+        assert "GOCSPX-secret" not in text
+        assert text.count("**redacted**") == 2
+
+    def test_redacts_bearer_tokens(self):
+        from app.api.api_v1.endpoints.mail_sources import _redact_sensitive_text
+
+        text = _redact_sensitive_text("Authorization failed for Bearer ya29.long-secret-token")
+
+        assert "ya29.long-secret-token" not in text
+        assert "Bearer **redacted**" in text
+
 
 # ---------------------------------------------------------------------------
 # Source-to-response helper (password masking)
@@ -1164,7 +1212,9 @@ class TestGmailCallbackGet:
         resp = authed_client.get(f"/api/v1/mail-sources/{source_id}/gmail/callback?code=xyz")
         assert resp.status_code == 404
 
-    def test_callback_token_exchange_error_returns_html_400(self, authed_client: TestClient):
+    def test_callback_token_exchange_error_returns_html_400(
+        self, authed_client: TestClient, caplog
+    ):
         """Token exchange raises ValueError – return a user-facing HTML error page."""
         create_resp = authed_client.post(
             "/api/v1/mail-sources",
@@ -1172,14 +1222,20 @@ class TestGmailCallbackGet:
         )
         source_id = create_resp.json()["id"]
 
+        caplog.set_level(logging.ERROR, logger="app.api.api_v1.endpoints.mail_sources")
         with patch(
             "app.api.api_v1.endpoints.mail_sources.GmailClient.exchange_code_for_tokens",
-            side_effect=ValueError("bad token"),
+            side_effect=ValueError(
+                "bad token access_token=ya29.raw-token client_secret=GOCSPX-raw-secret"
+            ),
         ):
             resp = authed_client.get(f"/api/v1/mail-sources/{source_id}/gmail/callback?code=abc")
 
         assert resp.status_code == 400
         assert "token exchange failed" in resp.text.lower() or "failed" in resp.text.lower()
+        assert "ya29.raw-token" not in caplog.text
+        assert "GOCSPX-raw-secret" not in caplog.text
+        assert "**redacted**" in caplog.text
 
     def test_callback_no_access_token_returns_html_400(self, authed_client: TestClient):
         """Exchange succeeds but Google returns no access token – HTML 400."""
@@ -1270,16 +1326,21 @@ class TestGmailCallbackPost:
         )
         assert resp.status_code == 400
 
-    def test_post_callback_token_exchange_error_returns_400(self, authed_client: TestClient):
+    def test_post_callback_token_exchange_error_returns_400(
+        self, authed_client: TestClient, caplog
+    ):
         create_resp = authed_client.post(
             "/api/v1/mail-sources",
             json={"name": "Post TokenErr", "method": "GMAIL_API"},
         )
         source_id = create_resp.json()["id"]
 
+        caplog.set_level(logging.ERROR, logger="app.api.api_v1.endpoints.mail_sources")
         with patch(
             "app.api.api_v1.endpoints.mail_sources.GmailClient.exchange_code_for_tokens",
-            side_effect=ValueError("bad exchange"),
+            side_effect=ValueError(
+                "bad exchange refresh_token=1//raw-refresh client_secret=GOCSPX-raw-secret"
+            ),
         ):
             resp = authed_client.post(
                 f"/api/v1/mail-sources/{source_id}/gmail/callback",
@@ -1287,6 +1348,14 @@ class TestGmailCallbackPost:
             )
 
         assert resp.status_code == 400
+        assert resp.json()["detail"] == (
+            "Token exchange failed. Please check the Gmail connection settings and try again."
+        )
+        assert "1//raw-refresh" not in resp.text
+        assert "GOCSPX-raw-secret" not in resp.text
+        assert "1//raw-refresh" not in caplog.text
+        assert "GOCSPX-raw-secret" not in caplog.text
+        assert "**redacted**" in caplog.text
 
     def test_post_callback_no_access_token_returns_400(self, authed_client: TestClient):
         create_resp = authed_client.post(
