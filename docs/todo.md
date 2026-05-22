@@ -159,6 +159,7 @@ This file tracks the specific implementation tasks for each milestone of the DMA
 - [x] Redact mailbox/OAuth secrets from diagnostics, logs, import history, and auth contexts
 - [x] Add startup checks for production-critical configuration
 - [x] Add backup/restore guidance for database deployments
+- [x] Add release checklist covering migrations, tests, and smoke checks
 - [ ] Apprise notifications and alert rules
 - [ ] DNS health guidance and Cloudflare read-only inspection
 - [ ] Guided setup and operator health pages

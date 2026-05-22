@@ -219,6 +219,8 @@ docker-compose --profile production up -d
 
 ## Updating DMARQ
 
+Before updating a production deployment, follow the [Release Checklist](release-checklist.md) and create a database backup.
+
 To update to a newer version:
 
 ```bash

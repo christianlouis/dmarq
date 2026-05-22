@@ -240,6 +240,8 @@ sudo systemctl enable dmarq-celery
 
 ## Updating DMARQ
 
+Before updating a production deployment, follow the [Release Checklist](release-checklist.md) and create a database backup.
+
 To update to a newer version:
 
 ```bash
