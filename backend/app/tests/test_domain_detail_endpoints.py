@@ -14,6 +14,7 @@ from io import StringIO
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api.api_v1.endpoints import domains as domains_endpoint
 from app.services.report_store import ReportStore
 
 # ---------------------------------------------------------------------------
@@ -240,6 +241,108 @@ def test_get_domain_sources_returns_rollup_counts(client: TestClient):
     assert source["dmarc_pass_count"] == 4
     assert source["dmarc_fail_count"] == 6
     assert source["disposition_counts"] == {"none": 4, "quarantine": 6}
+
+
+def test_get_domain_sources_returns_recommendations(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    """Endpoint includes actionable guidance for common failure patterns."""
+
+    async def fake_ptr_lookup(_provider, _ip, timeout=3.0):  # pylint: disable=unused-argument
+        return "sender.example.net"
+
+    monkeypatch.setattr(domains_endpoint, "_safe_ptr_lookup", fake_ptr_lookup)
+    report = {
+        **REPORT_DICT_POLICY,
+        "report_id": "rpt-full-fail",
+        "records": [
+            {
+                "source_ip": "192.0.2.10",
+                "count": 3,
+                "disposition": "none",
+                "dkim_result": "fail",
+                "spf_result": "fail",
+                "header_from": DOMAIN,
+            }
+        ],
+        "summary": {"total_count": 3, "passed_count": 0, "failed_count": 3},
+    }
+    ReportStore.get_instance().add_report(report)
+
+    response = client.get(f"/api/v1/domains/{DOMAIN}/sources")
+
+    assert response.status_code == 200
+    source = response.json()["sources"][0]
+    recommendation_types = {item["type"] for item in source["recommendations"]}
+    assert recommendation_types == {"full_fail", "policy_not_enforced"}
+    assert source["spf_fix_hint"] == "ip4:192.0.2.10"
+
+
+def test_source_recommendations_cover_common_cases():
+    """Recommendation builder handles the milestone source patterns."""
+    cases = [
+        (
+            {
+                "source_ip": "192.0.2.20",
+                "spf_result": "pass",
+                "dkim_result": "fail",
+                "dmarc_result": "pass",
+                "dmarc_pass_count": 8,
+                "dmarc_fail_count": 0,
+                "disposition": "none",
+            },
+            "mail.example.net",
+            None,
+            {"spf_only_pass"},
+        ),
+        (
+            {
+                "source_ip": "192.0.2.21",
+                "spf_result": "fail",
+                "dkim_result": "pass",
+                "dmarc_result": "pass",
+                "dmarc_pass_count": 8,
+                "dmarc_fail_count": 0,
+                "disposition": "none",
+            },
+            "mail.example.net",
+            "ip4:192.0.2.21",
+            {"dkim_only_pass"},
+        ),
+        (
+            {
+                "source_ip": "192.0.2.22",
+                "spf_result": "fail",
+                "dkim_result": "fail",
+                "dmarc_result": "fail",
+                "dmarc_pass_count": 0,
+                "dmarc_fail_count": 8,
+                "disposition": "none",
+                "disposition_counts": {"none": 8},
+            },
+            "mail.example.net",
+            "ip4:192.0.2.22",
+            {"full_fail", "policy_not_enforced"},
+        ),
+        (
+            {
+                "source_ip": "192.0.2.23",
+                "spf_result": "fail",
+                "dkim_result": "fail",
+                "dmarc_result": "fail",
+                "dmarc_pass_count": 0,
+                "dmarc_fail_count": 8,
+                "disposition": "quarantine",
+            },
+            None,
+            "ip4:192.0.2.23",
+            {"unknown_source", "full_fail"},
+        ),
+    ]
+
+    for source, hostname, spf_fix_hint, expected_types in cases:
+        recommendations = domains_endpoint._source_recommendations(  # pylint: disable=protected-access
+            source["source_ip"], source, hostname, spf_fix_hint
+        )
+        assert {item.type for item in recommendations} == expected_types
 
 
 def test_get_domain_sources_days_param_accepted(seeded_client: TestClient):

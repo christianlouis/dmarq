@@ -152,7 +152,7 @@ This file tracks the specific implementation tasks for each milestone of the DMA
 - [x] Add sender/source pass/fail totals
 - [ ] Add newly observed source detection
 - [x] Add exportable domain reports
-- [ ] Add actionable recommendations for common DMARC failure patterns
+- [x] Add actionable recommendations for common DMARC failure patterns
 
 ## Future Milestones
 - [ ] Production secret handling guide using 1Password injection

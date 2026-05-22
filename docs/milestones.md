@@ -82,8 +82,6 @@ Delivered:
 - Top sender/source reports with pass/fail breakdowns.
 - Per-domain report timeline and daily rollups.
 - Exportable reports for a selected domain and date range.
-
-Planned:
 - Clear recommendations for common cases: unknown source, SPF-only pass, DKIM-only pass, full fail, and policy not enforced.
 
 Exit criteria:
