@@ -16,6 +16,7 @@ from zipfile import ZipFile
 
 import pytest
 
+from app.models.report import DMARCReport
 from app.services.imap_client import IMAPClient
 from app.services.report_store import ReportStore
 
@@ -411,7 +412,7 @@ class TestHasDmarcAttachments:
 
 
 class TestProcessAttachments:
-    def _make_client(self):
+    def _make_client(self, db=None):
         with patch("app.services.imap_client.get_settings") as mock_settings:
             mock_settings.return_value = MagicMock(
                 IMAP_SERVER="imap.example.com",
@@ -419,7 +420,7 @@ class TestProcessAttachments:
                 IMAP_USERNAME="u",
                 IMAP_PASSWORD="p",
             )
-            return IMAPClient()
+            return IMAPClient(db=db)
 
     def test_processes_xml_attachment(self):
         client = self._make_client()
@@ -437,6 +438,17 @@ class TestProcessAttachments:
         )
         count = client._process_attachments(msg)
         assert count == 1
+
+    def test_processes_xml_attachment_persists_report(self, db_session):
+        client = self._make_client(db=db_session)
+        msg = email.message_from_bytes(
+            _make_email_with_attachment("report.xml", MINIMAL_DMARC_XML, "application/xml")
+        )
+
+        count = client._process_attachments(msg)
+
+        assert count == 1
+        assert db_session.query(DMARCReport).filter_by(report_id="abc-123").count() == 1
 
     def test_bad_attachment_does_not_raise(self):
         client = self._make_client()

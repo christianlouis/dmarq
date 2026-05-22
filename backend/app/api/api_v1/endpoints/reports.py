@@ -1,10 +1,18 @@
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
+from app.core.database import get_db
 from app.services.dmarc_parser import DMARCParser
+from app.services.report_persistence import (
+    delete_persisted_report,
+    hydrate_report_store_from_db,
+    report_exists,
+    save_parsed_report,
+)
 from app.services.report_store import ReportStore
 from app.utils.domain_validator import DomainValidationError, validate_domain
 
@@ -157,7 +165,7 @@ class PaginatedReportResponse(BaseModel):
 
 
 @router.post("/upload", response_model=UploadResponse)
-async def upload_report(file: UploadFile = File(...)):
+async def upload_report(file: UploadFile = File(...), db: Session = Depends(get_db)):
     """
     Upload and process a DMARC aggregate report file (XML, ZIP, or GZIP)
 
@@ -195,7 +203,9 @@ async def upload_report(file: UploadFile = File(...)):
         # Check for duplicate report before storing
         store = ReportStore.get_instance()
         report_id = report.get("report_id", "")
-        if report_id and store.has_report(domain, report_id):
+        if report_id and (
+            store.has_report(domain, report_id) or report_exists(db, domain, report_id)
+        ):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=(
@@ -205,6 +215,8 @@ async def upload_report(file: UploadFile = File(...)):
             )
 
         # Store the report
+        save_parsed_report(db, report)
+        db.commit()
         store.add_report(report)
 
         processed_records = report.get("summary", {}).get("total_count", 0)
@@ -231,11 +243,12 @@ async def upload_report(file: UploadFile = File(...)):
 
 
 @router.get("", response_model=List[AllReportsItem])
-async def get_all_reports():
+async def get_all_reports(db: Session = Depends(get_db)):
     """
     Get all DMARC reports across all domains, sorted by end_date descending.
     """
     store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
     domains = store.get_domains()
 
     all_reports: List[AllReportsItem] = []
@@ -267,20 +280,22 @@ async def get_all_reports():
 
 
 @router.get("/domains", response_model=List[str])
-async def get_domains():
+async def get_domains(db: Session = Depends(get_db)):
     """
     Get list of all domains with reports
     """
     store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
     return store.get_domains()
 
 
 @router.get("/domain/{domain}/summary", response_model=DomainSummary)
-async def get_domain_summary(domain: str):
+async def get_domain_summary(domain: str, db: Session = Depends(get_db)):
     """
     Get summary statistics for a specific domain
     """
     store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
     summary = store.get_domain_summary(domain)
 
     if not summary:
@@ -292,22 +307,24 @@ async def get_domain_summary(domain: str):
 
 
 @router.get("/summary", response_model=List[DomainSummary])
-async def get_all_summaries():
+async def get_all_summaries(db: Session = Depends(get_db)):
     """
     Get summary statistics for all domains
     """
     store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
     all_summaries = store.get_all_domain_summaries()
 
     return [DomainSummary(domain=domain, **summary) for domain, summary in all_summaries.items()]
 
 
 @router.get("/domain/{domain}/reports", response_model=List[ReportSummary])
-async def get_domain_reports(domain: str):
+async def get_domain_reports(domain: str, db: Session = Depends(get_db)):
     """
     Get all reports for a specific domain
     """
     store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
     reports = store.get_domain_reports(domain)
 
     if not reports:
@@ -336,6 +353,7 @@ async def get_domain_reports_paginated(
     page_size: int = 10,
     sort_by: str = "end_date",
     sort_order: str = "desc",
+    db: Session = Depends(get_db),
 ):
     """
     Get paginated reports for a specific domain with sorting options
@@ -348,6 +366,7 @@ async def get_domain_reports_paginated(
         sort_order: Sort order (asc or desc)
     """
     store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
     all_reports = store.get_domain_reports(domain)
 
     if not all_reports:
@@ -404,7 +423,7 @@ class DeleteReportResponse(BaseModel):
     "/domain/{domain}/reports/{report_id}",
     response_model=DeleteReportResponse,
 )
-async def delete_report(domain: str, report_id: str):
+async def delete_report(domain: str, report_id: str, db: Session = Depends(get_db)):
     """
     Delete a single DMARC report for a domain.
 
@@ -412,7 +431,10 @@ async def delete_report(domain: str, report_id: str):
     that aggregated numbers remain accurate after deletion.
     """
     store = ReportStore.get_instance()
-    deleted = store.delete_report(domain, report_id)
+    deleted_from_db = delete_persisted_report(db, domain, report_id)
+    if deleted_from_db:
+        db.commit()
+    deleted = store.delete_report(domain, report_id) or deleted_from_db
 
     if not deleted:
         raise HTTPException(
@@ -473,11 +495,12 @@ class ReportDetail(BaseModel):
 
 
 @router.get("/{report_id}", response_model=ReportDetail)
-async def get_report_by_id(report_id: str):
+async def get_report_by_id(report_id: str, db: Session = Depends(get_db)):
     """
     Get full details for a single DMARC report by its report ID.
     """
     store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
     report = store.get_report_by_id(report_id)
 
     if report is None:

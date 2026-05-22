@@ -24,24 +24,13 @@ Recently improved:
 - Gmail and IMAP imports now skip duplicate domain/report IDs.
 - Tests cover Google-style DMARC ZIP attachment imports.
 - Mail source imports now create sanitized import-history records for manual and scheduled polls.
+- Parsed upload, Gmail, and IMAP reports are now persisted to `dmarc_reports` and `report_records`.
+- Report/domain API reads can hydrate the dashboard projection from persisted data after restart.
 
-Important gap:
-- Parsed DMARC report data is still served primarily from the in-memory `ReportStore`. The database schema exists, but report upload/import paths and dashboard read paths must be completed before the persistence milestone can be called done.
+Implementation note:
+- The legacy `ReportStore` remains as a projection layer for existing report/dashboard code, but durable report data now lives in the database.
 
-## Active Milestone: Finish Report Persistence
-
-Objective: complete the database-backed report storage promised by Milestone 3.
-
-Priority tasks:
-- Add a report persistence service that converts parsed DMARC report dicts into `Domain`, `DMARCReport`, and `ReportRecord` rows.
-- Load or query persisted reports for dashboard, domain, and report endpoints.
-- Add duplicate report detection against the database.
-- Keep tests covering upload, Gmail import, IMAP import, and restart-style reload behavior.
-
-Quality bar:
-- Uploading or importing a report survives application restart and remains visible in report/domain endpoints.
-
-## Next Milestone: Reporting Quality and Import Confidence
+## Active Milestone: Reporting Quality and Import Confidence
 
 Objective: make mailbox imports auditable and make report totals trustworthy.
 
@@ -57,7 +46,7 @@ Quality bar:
 - Parse failures must be visible and actionable.
 - The user should be able to tell whether a mail source is healthy without reading logs.
 
-## Following Milestone: Meaningful Reports
+## Next Milestone: Meaningful Reports
 
 Objective: turn parsed DMARC data into administrator-friendly reports.
 

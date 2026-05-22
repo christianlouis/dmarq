@@ -19,6 +19,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.models.report import DMARCReport
 from app.services.gmail_client import GmailClient
 from app.services.report_store import ReportStore
 from app.tests.test_data import SAMPLE_XML
@@ -32,6 +33,7 @@ def _make_client(
     access_token: str = "acc",
     refresh_token: str = "ref",
     already_ingested: Optional[list] = None,
+    db=None,
 ) -> GmailClient:
     """Instantiate a GmailClient with real Credentials mocked out."""
     with patch("app.services.gmail_client.Credentials") as mock_creds_class:
@@ -46,6 +48,7 @@ def _make_client(
             access_token=access_token,
             refresh_token=refresh_token,
             already_ingested_ids=already_ingested or [],
+            db=db,
         )
         # Expose the mock so tests can manipulate it
         client._mock_creds = mock_creds  # type: ignore[attr-defined]
@@ -483,6 +486,25 @@ class TestProcessAttachments:
         assert count == 1
         assert stats["reports_found"] == 1
         assert "example.com" in client.report_store.get_domains()
+
+    def test_google_style_zip_attachment_is_persisted(self, db_session):
+        """Gmail imports write parsed DMARC reports to the database when a DB is provided."""
+        client = _make_client(db=db_session)
+        raw = _make_raw_email(
+            [
+                {
+                    "filename": "google.com!example.com!1597449600!1597535999.zip",
+                    "content": _zip_xml(),
+                }
+            ]
+        )
+        msg = email_mod.message_from_bytes(raw)
+        stats = {"reports_found": 0, "errors": []}
+
+        count = client._process_attachments(msg, stats)
+
+        assert count == 1
+        assert db_session.query(DMARCReport).filter_by(report_id="123456789").count() == 1
 
     def test_duplicate_report_is_skipped(self):
         """Repeated imports of the same domain/report ID should not inflate totals."""

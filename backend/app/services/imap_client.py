@@ -7,6 +7,7 @@ from typing import Any, Dict, Tuple
 
 from app.core.config import get_settings
 from app.services.dmarc_parser import DMARCParser
+from app.services.report_persistence import report_exists, save_parsed_report
 from app.services.report_store import ReportStore
 
 # Setup logger
@@ -25,6 +26,7 @@ class IMAPClient:
         username: str = None,
         password: str = None,
         delete_emails: bool = False,
+        db: Any = None,
     ):
         """
         Initialize the IMAP client with credentials
@@ -35,6 +37,7 @@ class IMAPClient:
             username: IMAP username (if None, uses settings)
             password: IMAP password (if None, uses settings)
             delete_emails: Whether to delete emails after processing (default: False)
+            db: Optional SQLAlchemy session used to persist imported reports
         """
         settings = get_settings()
 
@@ -43,6 +46,7 @@ class IMAPClient:
         self.username = username or settings.IMAP_USERNAME
         self.password = password or settings.IMAP_PASSWORD
         self.delete_emails = delete_emails
+        self.db = db
 
         self.report_store = ReportStore.get_instance()
 
@@ -389,7 +393,13 @@ class IMAPClient:
 
                             domain = report.get("domain", "unknown")
                             report_id = report.get("report_id", "")
-                            if report_id and self.report_store.has_report(domain, report_id):
+                            if report_id and (
+                                self.report_store.has_report(domain, report_id)
+                                or (
+                                    self.db is not None
+                                    and report_exists(self.db, domain, report_id)
+                                )
+                            ):
                                 logger.info(
                                     "Skipping duplicate DMARC report %s for %s",
                                     report_id,
@@ -402,6 +412,8 @@ class IMAPClient:
                                 continue
 
                             # Add the report to the store
+                            if self.db is not None:
+                                save_parsed_report(self.db, report)
                             self.report_store.add_report(report)
 
                             reports_found += 1

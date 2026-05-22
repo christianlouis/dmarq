@@ -24,6 +24,7 @@ from app.models.mail_source import MailSource  # noqa: F401 – ensure table is 
 from app.services.gmail_client import GmailClient
 from app.services.imap_client import IMAPClient
 from app.services.import_history import record_import_attempt
+from app.services.report_persistence import hydrate_report_store_from_db
 from app.services.report_store import ReportStore
 
 # Set up logging
@@ -40,19 +41,20 @@ def _poll_single_imap_source(source: MailSource) -> None:
     """Fetch DMARC reports for a single IMAP mail source and update its last_checked timestamp."""
     global last_check_time  # pylint: disable=global-statement
 
-    imap_client = IMAPClient(
-        server=source.server,
-        port=source.port or 993,
-        username=source.username,
-        password=source.password,
-        delete_emails=False,
-    )
-    started_at = datetime.utcnow()
-    results = imap_client.fetch_reports(days=9999)
-
     db = SessionLocal()
     try:
         src = db.query(MailSource).get(source.id)
+        poll_source = src or source
+        imap_client = IMAPClient(
+            server=poll_source.server,
+            port=poll_source.port or 993,
+            username=poll_source.username,
+            password=poll_source.password,
+            delete_emails=False,
+            db=db,
+        )
+        started_at = datetime.utcnow()
+        results = imap_client.fetch_reports(days=9999)
         if src:
             src.last_checked = datetime.utcnow()
             record_import_attempt(db, src, results, started_at=started_at, trigger="scheduled")
@@ -90,21 +92,22 @@ def _poll_single_gmail_source(source: MailSource) -> None:
         )
         return
 
-    already = GmailClient.load_ingested_ids(source.gmail_ingested_ids)
-    client = GmailClient(
-        client_id=source.gmail_client_id or "",
-        client_secret=source.gmail_client_secret or "",
-        access_token=source.gmail_access_token,
-        refresh_token=source.gmail_refresh_token or "",
-        already_ingested_ids=already,
-    )
-
-    started_at = datetime.utcnow()
-    results = client.fetch_reports()
-
     db = SessionLocal()
     try:
         src = db.query(MailSource).get(source.id)
+        poll_source = src or source
+        already = GmailClient.load_ingested_ids(poll_source.gmail_ingested_ids)
+        client = GmailClient(
+            client_id=poll_source.gmail_client_id or "",
+            client_secret=poll_source.gmail_client_secret or "",
+            access_token=poll_source.gmail_access_token,
+            refresh_token=poll_source.gmail_refresh_token or "",
+            already_ingested_ids=already,
+            db=db,
+        )
+
+        started_at = datetime.utcnow()
+        results = client.fetch_reports()
         if src:
             if results.get("new_ingested_ids"):
                 all_ids = list(dict.fromkeys(already + results["new_ingested_ids"]))
@@ -431,6 +434,11 @@ async def domains(request: Request):
 async def domain_details(request: Request, domain_id: str):
     """View detailed reports for a specific domain"""
     store = ReportStore.get_instance()
+    db = SessionLocal()
+    try:
+        hydrate_report_store_from_db(db, store)
+    finally:
+        db.close()
     known_domains = store.get_domains()
 
     if domain_id not in known_domains:
@@ -522,6 +530,7 @@ def _trigger_poll_imap_source(source: MailSource, db) -> dict:
         username=source.username,
         password=source.password,
         delete_emails=False,
+        db=db,
     )
     started_at = datetime.utcnow()
     results = imap_client.fetch_reports(days=7)
@@ -550,6 +559,7 @@ def _trigger_poll_gmail_source(source: MailSource, db) -> dict:
         access_token=source.gmail_access_token,
         refresh_token=source.gmail_refresh_token or "",
         already_ingested_ids=already,
+        db=db,
     )
     started_at = datetime.utcnow()
     results = gmail_client.fetch_reports()

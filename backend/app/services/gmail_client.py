@@ -21,6 +21,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from app.services.dmarc_parser import DMARCParser
+from app.services.report_persistence import report_exists, save_parsed_report
 from app.services.report_store import ReportStore
 
 logger = logging.getLogger(__name__)
@@ -74,12 +75,14 @@ class GmailClient:
         access_token: str,
         refresh_token: str,
         already_ingested_ids: Optional[List[str]] = None,
+        db: Any = None,
     ):
         self.client_id = client_id
         self.client_secret = client_secret
         self._initial_access_token = access_token
         self.already_ingested_ids: List[str] = list(already_ingested_ids or [])
         self.report_store = ReportStore.get_instance()
+        self.db = db
 
         self.credentials = Credentials(
             token=access_token,
@@ -337,10 +340,15 @@ class GmailClient:
         """Store a parsed report unless that domain/report ID is already present."""
         domain = report.get("domain", "unknown")
         report_id = report.get("report_id", "")
-        if report_id and self.report_store.has_report(domain, report_id):
+        if report_id and (
+            self.report_store.has_report(domain, report_id)
+            or (self.db is not None and report_exists(self.db, domain, report_id))
+        ):
             logger.info("Skipping duplicate DMARC report %s for %s", report_id, domain)
             return False
 
+        if self.db is not None:
+            save_parsed_report(self.db, report)
         self.report_store.add_report(report)
         return True
 

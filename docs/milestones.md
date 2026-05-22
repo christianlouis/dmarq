@@ -29,24 +29,25 @@ Delivered:
 - Duplicate report protection for both Gmail and IMAP imports.
 - Background polling and manual poll hooks for configured mail sources.
 
-## Milestone 3: Database Foundation, Domain Management, and Auth Foundation - In Progress
+## Milestone 3: Database Foundation, Domain Management, and Auth Foundation - Complete
 
-Status: In progress
+Status: Complete
 
 Delivered:
 - SQLAlchemy models and Alembic migrations.
 - SQLite/PostgreSQL-compatible database configuration.
 - Domain management APIs and UI.
 - Report and source database models.
+- Database-backed persistence for uploaded DMARC reports.
+- Database-backed persistence for Gmail and IMAP imported reports.
+- Duplicate report detection against persisted report data.
+- Report/domain API reads can hydrate their dashboard projection from persisted reports after restart.
 - Settings and mail source persistence.
 - Logto-based auth integration plus an explicit local development auth-disabled mode.
 - Security middleware, safer default secret generation, and security-focused tests.
 
-Remaining before this milestone is complete:
-- Persist parsed DMARC reports and report records through the database-backed models.
-- Load or query persisted reports after restart so dashboards do not depend on process memory.
-- Move report/domain summary endpoints from the in-memory `ReportStore` to database queries.
-- Keep duplicate report detection consistent across upload, IMAP, and Gmail after persistence is enabled.
+Implementation note:
+- The existing `ReportStore` remains as a compatibility projection for dashboard/report code, but persisted database rows are now the durable source for uploads and mailbox imports.
 
 ## Milestone 4: Reporting Quality and Import Confidence - In Progress
 
@@ -59,9 +60,9 @@ Recently delivered:
 - Gmail/IMAP imports skip duplicate report IDs to avoid inflated totals.
 - Tests now cover a real Google-style ZIP attachment path rather than only mocked parser behavior.
 - Mail source imports now persist sanitized import-history records for manual and scheduled polls.
+- Uploaded, Gmail-imported, and IMAP-imported reports are now persisted to report/record tables and can be reloaded into report/domain views.
 
 Next tasks:
-- Finish Milestone 3 report persistence before expanding report features.
 - Add per-import result details: skipped duplicates, parse failures, unsupported attachments, and imported report IDs.
 - Add a UI import history view for each mail source.
 - Add mailbox search controls for date range/backfill without requiring code changes.
