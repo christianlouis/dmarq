@@ -115,6 +115,38 @@
             {% endcall %}
         {% endcall %}
     </div>
+
+    <!-- Top Sending Sources -->
+    <div x-show="hasDomainData" x-cloak>
+        {% call card() %}
+            {% call card_header() %}
+                {% call card_title() %}Top Sending Sources{% endcall %}
+                {% call card_description() %}
+                    Sender IPs with authentication pass and fail breakdowns
+                {% endcall %}
+            {% endcall %}
+            {% call card_content() %}
+                <div class="overflow-x-auto">
+                    {% call table() %}
+                        {% call thead() %}
+                            {% call tr() %}
+                                {% call th() %}Source{% endcall %}
+                                {% call th() %}Messages{% endcall %}
+                                {% call th() %}DMARC{% endcall %}
+                                {% call th() %}SPF{% endcall %}
+                                {% call th() %}DKIM{% endcall %}
+                            {% endcall %}
+                        {% endcall %}
+                        {% call tbody() %}
+                            <tbody id="top-sources-table-body">
+                                <!-- Source data will be populated here via JavaScript -->
+                            </tbody>
+                        {% endcall %}
+                    {% endcall %}
+                </div>
+            {% endcall %}
+        {% endcall %}
+    </div>
     
     <!-- Domain Compliance Table -->
     <div x-show="hasDomainData" x-cloak>
@@ -273,30 +305,33 @@ function dashboardApp() {
                     this.hasDomainData = true;
                     this.updateDashboardStats(data);
                     this.populateDomainsTable(data.domains);
-                    this.$nextTick(() => this.fetchDashboardTrends());
+                    this.$nextTick(() => this.fetchDashboardStats());
                 } else {
                     this.hasDomainData = false;
                     this.clearDashboardCharts();
+                    this.populateTopSources([]);
                 }
             } catch (error) {
                 console.error('Error fetching domain summary:', error);
                 this.hasDomainData = false;
                 this.clearDashboardCharts();
+                this.populateTopSources([]);
             }
         },
 
-        async fetchDashboardTrends() {
+        async fetchDashboardStats() {
             try {
                 const response = await fetch('/api/v1/stats/dashboard?period_days=30');
                 if (!response.ok) {
-                    console.error('Error fetching dashboard trends:', response.status);
+                    console.error('Error fetching dashboard stats:', response.status);
                     return;
                 }
 
                 const data = await response.json();
                 this.renderDashboardCharts(data.compliance_trend || []);
+                this.populateTopSources(data.top_sources || []);
             } catch (error) {
-                console.error('Error fetching dashboard trends:', error);
+                console.error('Error fetching dashboard stats:', error);
             }
         },
         
@@ -470,6 +505,91 @@ function dashboardApp() {
 
         formatLargeNumber(value) {
             return new Intl.NumberFormat(undefined, { notation: 'compact' }).format(value);
+        },
+
+        populateTopSources(sources) {
+            const tableBody = document.getElementById('top-sources-table-body');
+            if (!tableBody) return;
+
+            tableBody.textContent = '';
+
+            if (!sources || !sources.length) {
+                const emptyRow = document.createElement('tr');
+                emptyRow.className = 'table-row';
+                const emptyCell = document.createElement('td');
+                emptyCell.className = 'table-cell text-muted-foreground';
+                emptyCell.colSpan = 5;
+                emptyCell.textContent = 'No sending source data available';
+                emptyRow.appendChild(emptyCell);
+                tableBody.appendChild(emptyRow);
+                return;
+            }
+
+            sources.forEach(source => {
+                const row = document.createElement('tr');
+                row.className = 'table-row';
+
+                row.appendChild(this.createTextCell(source.ip || 'Unknown', 'font-mono text-sm'));
+                row.appendChild(this.createTextCell(this.formatLargeNumber(source.count || 0)));
+                row.appendChild(this.createAuthCell(
+                    source.dmarc,
+                    source.dmarc_pass_count || 0,
+                    source.dmarc_fail_count || 0
+                ));
+                row.appendChild(this.createAuthCell(
+                    source.spf,
+                    source.spf_pass_count || 0,
+                    source.spf_fail_count || 0
+                ));
+                row.appendChild(this.createAuthCell(
+                    source.dkim,
+                    source.dkim_pass_count || 0,
+                    source.dkim_fail_count || 0
+                ));
+
+                tableBody.appendChild(row);
+            });
+        },
+
+        createTextCell(value, innerClass = '') {
+            const cell = document.createElement('td');
+            cell.className = 'table-cell';
+            const content = document.createElement('span');
+            if (innerClass) content.className = innerClass;
+            content.textContent = value;
+            cell.appendChild(content);
+            return cell;
+        },
+
+        createAuthCell(status, passCount, failCount) {
+            const cell = document.createElement('td');
+            cell.className = 'table-cell';
+
+            const wrapper = document.createElement('div');
+            wrapper.className = 'flex flex-col gap-1';
+            wrapper.appendChild(this.createStatusBadge(status));
+
+            const counts = document.createElement('span');
+            counts.className = 'text-xs text-muted-foreground whitespace-nowrap';
+            counts.textContent = `${this.formatLargeNumber(passCount)} pass / ${this.formatLargeNumber(failCount)} fail`;
+            wrapper.appendChild(counts);
+
+            cell.appendChild(wrapper);
+            return cell;
+        },
+
+        createStatusBadge(status) {
+            const normalized = status || 'none';
+            const badge = document.createElement('span');
+            const styles = {
+                pass: 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300',
+                fail: 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300',
+                mixed: 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300',
+                none: 'bg-muted text-muted-foreground'
+            };
+            badge.className = `inline-flex w-fit items-center rounded-md px-2 py-1 text-xs font-medium ${styles[normalized] || styles.none}`;
+            badge.textContent = normalized.charAt(0).toUpperCase() + normalized.slice(1);
+            return badge;
         },
         
         populateDomainsTable(domains) {
