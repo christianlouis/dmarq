@@ -8,6 +8,8 @@ The pipeline is defined in two workflow files:
 | `.github/workflows/ci.yml` | Lint → Test → Security → Docker → GitOps | Push to `main`/`develop`, pull requests, weekly schedule |
 | `.github/workflows/release.yml` | Semantic versioning & changelog | Push to `main` |
 
+Use the [Release Checklist](../deployment/release-checklist.md) before merging production changes and after the deployment updates.
+
 ---
 
 ## Pipeline Stages

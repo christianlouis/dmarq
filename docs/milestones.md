@@ -100,9 +100,9 @@ Delivered:
 - Admin authentication contexts no longer carry raw API keys after validation.
 - Production startup checks now fail early for missing stable secrets, missing auth configuration, auth-disabled mode, or disabled Logto TLS verification.
 - Database backup and restore guidance now covers SQLite and PostgreSQL deployments, restore verification, and upgrade safety checks.
+- A release checklist now covers pre-merge checks, migrations, release automation, smoke checks, and rollback readiness.
 
 Planned:
-- Add release checklist covering migrations, tests, and smoke checks.
 
 Exit criteria:
 - A self-hosted deployment can be configured without copying secrets into source-controlled files or chat logs.
