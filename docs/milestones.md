@@ -1,6 +1,6 @@
 # DMARQ Milestones
 
-Last updated: 2026-05-22
+Last updated: 2026-05-23
 
 DMARQ is now past the original MVP phase. The current product can parse DMARC aggregate reports, import reports from mailboxes, persist data, and present domain/report summaries through the FastAPI/Jinja application. The next work should focus on making ingestion more reliable at production scale and turning the collected data into clearer operational reports.
 
@@ -169,3 +169,95 @@ Planned:
 
 Exit criteria:
 - A security analyst can inspect individual failure reports without mixing them into aggregate statistics.
+
+## Milestone 11: DMARC Format Compatibility (DMARCbis) and Standards Alignment
+
+Status: Planned
+
+Goal: keep DMARQ compatible with evolving DMARC report formats and nomenclature without breaking existing imports.
+
+Planned:
+- Add parser compatibility for newer aggregate report schemas/namespaces.
+- Store newly introduced fields with safe defaults.
+- Update CSV export and domain/source reporting to include new metadata where it improves operator actionability.
+- Add fixture-driven tests for representative real-world DMARCbis-style reports.
+- Update documentation to clarify supported formats and terminology.
+
+Exit criteria:
+- A DMARCbis-style aggregate report can be imported via upload/IMAP/Gmail and renders correctly in dashboards and exports.
+
+## Milestone 12: Enterprise Mail Sources (Microsoft 365) and Connector Framework
+
+Status: Planned
+
+Goal: make mailbox ingestion work for the most common enterprise setups without relying on IMAP.
+
+Planned:
+- Microsoft 365 mail source using OAuth (Graph) with least-privilege scopes.
+- Shared mailbox and folder selection support for DMARC report collection.
+- Import-history parity with existing sources (auditable attachment outcomes, duplicates, parse failures).
+- Backfill support with safe throttling and progressive search windows.
+- Secret handling mirrors existing guidance (no raw secrets in logs; 1Password-friendly).
+
+Exit criteria:
+- A user can connect an Exchange Online mailbox, run an initial backfill, and then run scheduled polls with visible and trustworthy import history.
+
+## Milestone 13: Email Security Posture (Beyond DMARC)
+
+Status: Backlog
+
+Goal: turn DMARQ into a broader email authentication posture console (still privacy-first and self-hostable).
+
+Planned:
+- MTA-STS posture: DNS record evaluation + policy fetch validation (plus optional helper tooling).
+- TLS reporting posture: ingest and summarize TLS report data (where available) with actionable failure grouping.
+- BIMI posture: record validation + readiness checks + operator guidance.
+- Extended DNS checks that support the posture surface (e.g., MX/BIMI; optional DANE/TLSA where relevant).
+
+Exit criteria:
+- An operator can see “what’s missing” and “what’s risky” across email-auth posture in one place, with clear next actions.
+
+## Milestone 14: Public API, Webhooks, and Core Integrations
+
+Status: Backlog
+
+Goal: let DMARQ integrate cleanly into existing security and operations workflows.
+
+Planned:
+- A stable, documented read-only API surface for posture and reporting queries.
+- Webhook event delivery for key events (new sender source, compliance drop, missing reports, alert lifecycle).
+- Integration templates for SIEM and ticketing workflows (export formats, payload schemas, examples).
+- Token/scoping model for API access that matches governance needs (service accounts, least privilege).
+
+Exit criteria:
+- A user can automate downstream workflows without scraping HTML or reverse-engineering internal APIs.
+
+## Milestone 15: Workspaces / MSP Mode (Multi-Org Governance)
+
+Status: Backlog
+
+Goal: support multi-org deployments (e.g., MSPs) with strong isolation, ownership, and operator ergonomics.
+
+Planned:
+- Workspace/tenant concept with clear domain ownership.
+- Workspace-scoped RBAC and audit logs.
+- Templates for onboarding new workspaces (domains + mail sources + notifications).
+- Cross-workspace operator views for MSP admins, without weakening tenant isolation.
+
+Exit criteria:
+- A single deployment can safely manage multiple client domains with clear boundaries and governance.
+
+## Milestone 16: Optional AI + MCP Automation Layer
+
+Status: Backlog
+
+Goal: provide opt-in assistance and agent-friendly automation without compromising privacy or safety.
+
+Planned:
+- Evidence-first summaries and remediation plans that link back to the underlying DMARC data.
+- Pluggable model provider support with strong redaction and “no secrets in prompts” guarantees.
+- A DMARQ MCP server that starts read-only (posture queries, reports, recommendations).
+- Optional action tools (e.g., proposing DNS changes) gated behind explicit human confirmation and audit logging.
+
+Exit criteria:
+- Users can enable AI/agent workflows intentionally, understand what data is shared, and keep deployments safe by default.
