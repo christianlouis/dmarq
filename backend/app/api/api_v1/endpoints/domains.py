@@ -1,10 +1,13 @@
 import asyncio
+import csv
+import io
 import ipaddress
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -443,6 +446,85 @@ async def get_domain_reports(
     return DomainReportsResponse(reports=report_entries, compliance_timeline=timeline)
 
 
+@router.get("/{domain_id}/reports/export")
+async def export_domain_reports(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    start_date: Optional[date] = Query(None, title="Start date for exported reports"),
+    end_date: Optional[date] = Query(None, title="End date for exported reports"),
+    db: Session = Depends(get_db),
+):
+    """
+    Export DMARC report summaries for a specific domain as CSV.
+    """
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="start_date must be on or before end_date",
+        )
+
+    store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
+
+    if domain_id not in store.get_domains():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Domain not found",
+        )
+
+    reports = [
+        report
+        for report in store.get_domain_reports(domain_id, limit=10000)
+        if _report_in_export_range(report, start_date, end_date)
+    ]
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "domain",
+            "report_id",
+            "org_name",
+            "begin_date",
+            "end_date",
+            "total_emails",
+            "passed",
+            "failed",
+            "pass_rate",
+            "policy",
+        ]
+    )
+
+    for report in reports:
+        summary = report.get("summary", {})
+        total = int(summary.get("total_count", report.get("total_count", 0)) or 0)
+        passed = int(summary.get("passed_count", report.get("passed_count", 0)) or 0)
+        failed = int(summary.get("failed_count", report.get("failed_count", 0)) or 0)
+        policy = report.get("policy", "none")
+        if isinstance(policy, dict):
+            policy = policy.get("p", "none")
+        writer.writerow(
+            [
+                domain_id,
+                report.get("report_id", "unknown"),
+                report.get("org_name", "Unknown Organization"),
+                _format_report_date(report.get("begin_timestamp") or report.get("begin_date")),
+                _format_report_date(report.get("end_timestamp") or report.get("end_date")),
+                total,
+                passed,
+                failed,
+                report.get("pass_rate", 0.0),
+                policy,
+            ]
+        )
+
+    filename = f"{domain_id.replace('/', '_')}-dmarc-reports.csv"
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 def _build_compliance_timeline(store: ReportStore, domain: str) -> List[TimelinePoint]:
     """
     Build a compliance timeline from actual report data stored in ReportStore.
@@ -499,6 +581,35 @@ def _build_compliance_timeline(store: ReportStore, domain: str) -> List[Timeline
         )
 
     return timeline
+
+
+def _report_in_export_range(
+    report: Dict[str, Any], start_date: Optional[date], end_date: Optional[date]
+) -> bool:
+    report_date = _report_date(report.get("begin_timestamp") or report.get("begin_date"))
+    if report_date is None:
+        return False
+    if start_date and report_date < start_date:
+        return False
+    if end_date and report_date > end_date:
+        return False
+    return True
+
+
+def _report_date(value: Any) -> Optional[date]:
+    if isinstance(value, (int, float)) and value > 0:
+        return datetime.fromtimestamp(value, tz=timezone.utc).date()
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value).date()
+        except (ValueError, TypeError):
+            return None
+    return None
+
+
+def _format_report_date(value: Any) -> str:
+    report_date = _report_date(value)
+    return report_date.isoformat() if report_date else ""
 
 
 def _spf_fix_hint(ip: str, spf_result: str, failed_count: int = 0) -> Optional[str]:

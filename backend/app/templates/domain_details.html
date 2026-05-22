@@ -409,7 +409,29 @@
         <!-- Recent Reports -->
         {% call card() %}
             {% call card_header() %}
-                {% call card_title() %}Recent Reports{% endcall %}
+                <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                        {% call card_title() %}Recent Reports{% endcall %}
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <input
+                            x-model="filters.exportStartDate"
+                            type="date"
+                            class="input input-sm input-bordered"
+                            aria-label="Export start date"
+                        >
+                        <input
+                            x-model="filters.exportEndDate"
+                            type="date"
+                            class="input input-sm input-bordered"
+                            aria-label="Export end date"
+                        >
+                        <a :href="exportReportsUrl" class="btn btn-sm btn-outline">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-1"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+                            CSV
+                        </a>
+                    </div>
+                </div>
                 {% call card_description() %}
                     Latest DMARC reports received for this domain
                 {% endcall %}
@@ -498,7 +520,9 @@ function domainDetailsApp(domainId) {
         complianceChart: null,
         filters: {
             dateRange: '30',
-            sourceFilter: ''
+            sourceFilter: '',
+            exportStartDate: '',
+            exportEndDate: ''
         },
 
         init() {
@@ -520,6 +544,15 @@ function domainDetailsApp(domainId) {
                 if (!this.filters.sourceFilter) return true;
                 return source.ip.toLowerCase().includes(this.filters.sourceFilter.toLowerCase());
             });
+        },
+
+        get exportReportsUrl() {
+            const params = new URLSearchParams();
+            if (this.filters.exportStartDate) params.set('start_date', this.filters.exportStartDate);
+            if (this.filters.exportEndDate) params.set('end_date', this.filters.exportEndDate);
+            const query = params.toString();
+            const baseUrl = `/api/v1/domains/${encodeURIComponent(this.domainId)}/reports/export`;
+            return query ? `${baseUrl}?${query}` : baseUrl;
         },
 
         get dkimLiveText() {

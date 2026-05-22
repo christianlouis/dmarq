@@ -81,9 +81,9 @@ Delivered:
 - Dashboard trend charts for volume, compliance rate, and failure rate.
 - Top sender/source reports with pass/fail breakdowns.
 - Per-domain report timeline and daily rollups.
+- Exportable reports for a selected domain and date range.
 
 Planned:
-- Exportable reports for a selected domain and date range.
 - Clear recommendations for common cases: unknown source, SPF-only pass, DKIM-only pass, full fail, and policy not enforced.
 
 Exit criteria:

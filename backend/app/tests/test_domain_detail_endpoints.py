@@ -8,6 +8,9 @@ the Pydantic response models, including the policy-dict extraction and
 the use of begin_timestamp/end_timestamp integers for date fields.
 """
 
+import csv
+from io import StringIO
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -110,6 +113,68 @@ def test_get_domain_reports_timestamps_are_integers(seeded_client: TestClient):
 def test_get_domain_reports_unknown_domain_returns_404(client: TestClient):
     """Returns 404 when the requested domain has no reports."""
     response = client.get("/api/v1/domains/no-such-domain.example.com/reports")
+    assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/domains/{domain_id}/reports/export
+# ---------------------------------------------------------------------------
+
+
+def test_export_domain_reports_returns_csv(seeded_client: TestClient):
+    """CSV export includes report summary rows for the requested domain."""
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/reports/export")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert "attachment" in response.headers["content-disposition"]
+
+    rows = list(csv.DictReader(StringIO(response.text)))
+    assert len(rows) == 1
+    assert rows[0]["domain"] == DOMAIN
+    assert rows[0]["report_id"] == "rpt-dict-policy"
+    assert rows[0]["begin_date"] == "2020-08-15"
+    assert rows[0]["total_emails"] == "10"
+    assert rows[0]["passed"] == "10"
+    assert rows[0]["failed"] == "0"
+    assert rows[0]["policy"] == "reject"
+
+
+def test_export_domain_reports_filters_by_date_range(client: TestClient):
+    """CSV export only includes reports inside the requested date range."""
+    ReportStore.get_instance().add_report(REPORT_DICT_POLICY)
+    ReportStore.get_instance().add_report(
+        {
+            **REPORT_STR_POLICY,
+            "report_id": "rpt-next-day",
+            "begin_date": "2020-08-16T00:00:00",
+            "end_date": "2020-08-16T23:59:59",
+            "begin_timestamp": 1597536000,
+            "end_timestamp": 1597622399,
+        }
+    )
+
+    response = client.get(
+        f"/api/v1/domains/{DOMAIN}/reports/export?start_date=2020-08-16&end_date=2020-08-16"
+    )
+
+    assert response.status_code == 200
+    rows = list(csv.DictReader(StringIO(response.text)))
+    assert [row["report_id"] for row in rows] == ["rpt-next-day"]
+
+
+def test_export_domain_reports_rejects_invalid_date_order(seeded_client: TestClient):
+    """CSV export validates that the start date is not after the end date."""
+    response = seeded_client.get(
+        f"/api/v1/domains/{DOMAIN}/reports/export?start_date=2020-08-17&end_date=2020-08-16"
+    )
+
+    assert response.status_code == 422
+
+
+def test_export_domain_reports_unknown_domain_returns_404(client: TestClient):
+    """Returns 404 when exporting a domain with no reports."""
+    response = client.get("/api/v1/domains/no-such-domain.example.com/reports/export")
     assert response.status_code == 404
 
 
