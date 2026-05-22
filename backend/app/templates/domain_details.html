@@ -116,7 +116,7 @@
             {% call card_header() %}
                 {% call card_title() %}Compliance Over Time{% endcall %}
                 {% call card_description() %}
-                    DMARC pass rate for the past 30 days
+                    Daily DMARC volume, pass rate, and failure rate
                 {% endcall %}
             {% endcall %}
             {% call card_content() %}
@@ -636,7 +636,7 @@ function domainDetailsApp(domainId) {
         },
         
         initComplianceChart(timelineData) {
-            if (!timelineData) return;
+            if (!timelineData || !timelineData.length) return;
             
             const ctx = document.getElementById('compliance-chart').getContext('2d');
             
@@ -646,6 +646,8 @@ function domainDetailsApp(domainId) {
             
             const labels = timelineData.map(item => item.date);
             const complianceData = timelineData.map(item => item.compliance_rate);
+            const failureData = timelineData.map(item => item.failure_rate || 0);
+            const volumeData = timelineData.map(item => item.volume || item.total || 0);
             
             // Calculate the threshold line data (recommended 98% for policy advancement)
             const thresholdData = Array(labels.length).fill(98);
@@ -658,6 +660,7 @@ function domainDetailsApp(domainId) {
                         {
                             label: 'Compliance Rate',
                             data: complianceData,
+                            yAxisID: 'yRate',
                             borderColor: 'rgb(59, 130, 246)', // blue-500
                             backgroundColor: 'rgba(59, 130, 246, 0.1)',
                             tension: 0.4,
@@ -667,8 +670,32 @@ function domainDetailsApp(domainId) {
                             pointHoverRadius: 5
                         },
                         {
+                            label: 'Failure Rate',
+                            data: failureData,
+                            yAxisID: 'yRate',
+                            borderColor: 'rgb(220, 38, 38)',
+                            backgroundColor: 'rgba(220, 38, 38, 0.08)',
+                            tension: 0.4,
+                            fill: false,
+                            pointBackgroundColor: 'rgb(220, 38, 38)',
+                            pointRadius: 3,
+                            pointHoverRadius: 5
+                        },
+                        {
+                            label: 'Message Volume',
+                            type: 'bar',
+                            data: volumeData,
+                            yAxisID: 'yVolume',
+                            backgroundColor: 'rgba(107, 114, 128, 0.22)',
+                            borderColor: 'rgba(107, 114, 128, 0.5)',
+                            borderWidth: 1,
+                            borderRadius: 4,
+                            maxBarThickness: 28
+                        },
+                        {
                             label: 'Recommended Threshold (98%)',
                             data: thresholdData,
+                            yAxisID: 'yRate',
                             borderColor: 'rgba(220, 38, 38, 0.6)', // red-600 with opacity
                             borderDash: [5, 5],
                             pointRadius: 0,
@@ -682,7 +709,9 @@ function domainDetailsApp(domainId) {
                     responsive: true,
                     maintainAspectRatio: false,
                     scales: {
-                        y: {
+                        yRate: {
+                            type: 'linear',
+                            position: 'left',
                             beginAtZero: false,
                             min: Math.max(0, Math.min(...complianceData) - 10), // Dynamic min value
                             max: 100,
@@ -698,6 +727,24 @@ function domainDetailsApp(domainId) {
                             },
                             grid: {
                                 color: 'rgba(0, 0, 0, 0.05)'
+                            }
+                        },
+                        yVolume: {
+                            type: 'linear',
+                            position: 'right',
+                            beginAtZero: true,
+                            ticks: {
+                                precision: 0
+                            },
+                            title: {
+                                display: true,
+                                text: 'Messages',
+                                font: {
+                                    weight: 'bold'
+                                }
+                            },
+                            grid: {
+                                drawOnChartArea: false
                             }
                         },
                         x: {
@@ -728,6 +775,12 @@ function domainDetailsApp(domainId) {
                                     if (context.dataset.label === 'Compliance Rate') {
                                         return `Compliance: ${context.parsed.y}%`;
                                     }
+                                    if (context.dataset.label === 'Failure Rate') {
+                                        return `Failures: ${context.parsed.y}%`;
+                                    }
+                                    if (context.dataset.label === 'Message Volume') {
+                                        return `Messages: ${context.parsed.y}`;
+                                    }
                                     return context.dataset.label;
                                 },
                                 title: function(context) {
@@ -747,6 +800,7 @@ function domainDetailsApp(domainId) {
                             annotations: {
                                 box1: {
                                     type: 'box',
+                                    yScaleID: 'yRate',
                                     yMin: 90,
                                     yMax: 100,
                                     backgroundColor: 'rgba(34, 197, 94, 0.05)',

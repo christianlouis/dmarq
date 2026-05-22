@@ -148,7 +148,7 @@ This file tracks the specific implementation tasks for each milestone of the DMA
 - [ ] Implement data comparison features
 
 ### Meaningful Reports
-- [ ] Add per-domain daily rollups
+- [x] Add per-domain daily rollups
 - [x] Add sender/source pass/fail totals
 - [ ] Add newly observed source detection
 - [ ] Add exportable domain reports

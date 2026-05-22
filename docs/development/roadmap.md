@@ -41,7 +41,6 @@ Implementation note:
 Objective: turn parsed DMARC data into administrator-friendly reports.
 
 Priority tasks:
-- Add per-domain daily rollups.
 - Add "what changed" summaries for newly observed senders and sudden compliance drops.
 - Add exportable reports for a domain and date range.
 - Add actionable recommendations for common SPF, DKIM, and DMARC failure patterns.
@@ -49,6 +48,7 @@ Priority tasks:
 Delivered:
 - Dashboard time-series charts show daily mail volume, compliance rate, and failure rate.
 - Top sending sources show DMARC, SPF, and DKIM pass/fail breakdowns on the dashboard.
+- Per-domain timelines include daily volume, pass, fail, compliance-rate, and failure-rate rollups.
 
 Quality bar:
 - A domain owner can understand who sends mail as their domain, which sources fail, and what to fix next.
