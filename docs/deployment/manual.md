@@ -39,7 +39,7 @@ pip install -r requirements.txt
 
 ### 3. Configure Environment Variables
 
-Create a `.env` file in the backend directory with your configuration:
+Create a `.env` file in the backend directory with your configuration. For production, prefer a 1Password-mounted `.env` file; see [Secret Handling with 1Password](secrets.md).
 
 ```
 # Database Configuration

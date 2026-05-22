@@ -10,6 +10,8 @@ DMARQ can be configured through:
 2. A `.env` file
 3. The web-based configuration wizard (on first run)
 
+For production secrets, use the [1Password secret handling guide](secrets.md) so sensitive values are injected into the DMARQ process without being committed or copied into deployment notes.
+
 ## Core Settings
 
 ### Database Configuration
@@ -164,9 +166,12 @@ DMARQ uses the following order of precedence for configuration:
 
 For sensitive information like passwords and API tokens, we recommend:
 
-1. Use environment variables instead of committing them to files
-2. For Docker, use Docker secrets or environment files that are not stored in version control
-3. For production systems, consider using a secrets manager like HashiCorp Vault or AWS Secrets Manager
+1. Use 1Password Environments or another deployment secrets manager instead of committing secrets to files
+2. Inject secrets as environment variables or a locally mounted env file that is not stored in version control
+3. Keep separate secret bundles for development, preprod, and production
+4. Rotate credentials from the secret manager first, then restart DMARQ so it receives the new values
+
+See [Secret Handling with 1Password](secrets.md) for the recommended production workflow.
 
 ## Runtime Configuration Changes
 

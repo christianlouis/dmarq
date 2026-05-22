@@ -90,12 +90,14 @@ Exit criteria:
 
 ## Milestone 6: Production Secret Handling and Deployment Hardening
 
-Status: Planned
+Status: In progress
 
 Goal: make production deployments safer and easier to operate.
 
+Delivered:
+- 1Password-based secret injection flow for local, Docker Compose, and systemd deployments.
+
 Planned:
-- Document a 1Password-based secret injection flow for local and containerized deployments.
 - Avoid exposing raw mailbox/OAuth secrets in logs, UI responses, and diagnostics.
 - Add startup checks for production-critical configuration.
 - Add backup/restore guidance for database deployments.

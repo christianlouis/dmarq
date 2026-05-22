@@ -24,7 +24,7 @@ The fastest way to get DMARQ running is to use Docker Compose:
 
 2. **Configure environment variables**
 
-   Create a `.env` file in the project root:
+   Create a `.env` file in the project root. For production, prefer a 1Password-mounted `.env` file; see [Secret Handling with 1Password](secrets.md).
 
    ```
    # Database Configuration
@@ -129,6 +129,8 @@ volumes:
 ### Environment Variables
 
 All configuration in the Docker setup is done via environment variables, either directly in the `docker-compose.yml` file or through a separate `.env` file. See the [Configuration](configuration.md) page for detailed information about all available variables.
+
+For production, store secret values in 1Password Environments and inject them into Compose with a mounted `.env` file or your deployment runner's secret-injection feature. Do not commit `.env` files that contain `SECRET_KEY`, database credentials, IMAP passwords, OAuth secrets, or API tokens.
 
 ### Volumes
 

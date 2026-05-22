@@ -69,11 +69,13 @@ Quality bar:
 Objective: make self-hosted deployments safer.
 
 Priority tasks:
-- Document a 1Password secret-injection deployment flow.
 - Keep raw secrets out of diagnostics, logs, and UI responses.
 - Add startup validation for production settings.
 - Add backup and restore documentation.
 - Add a release checklist covering migrations, tests, and smoke checks.
+
+Delivered:
+- Documented a 1Password secret-injection deployment flow for local, Docker Compose, and systemd deployments.
 
 ## Later Milestones
 
