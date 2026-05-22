@@ -18,6 +18,7 @@ from app.api.api_v1.api import api_router
 from app.core.config import get_settings
 from app.core.database import Base, SessionLocal, engine
 from app.core.security import add_api_key, generate_api_key, require_admin_auth
+from app.core.startup_checks import run_startup_checks
 from app.middleware.auth import AuthRedirectMiddleware
 from app.middleware.security import SecurityHeadersMiddleware
 from app.models.mail_source import MailSource  # noqa: F401 – ensure table is registered
@@ -315,6 +316,8 @@ def create_app() -> FastAPI:
     async def startup_event():
         """Initialize background tasks and security on application startup"""
         global background_task  # pylint: disable=global-statement
+
+        run_startup_checks(settings)
 
         # Ensure all tables exist (no-op if already present)
         Base.metadata.create_all(bind=engine)

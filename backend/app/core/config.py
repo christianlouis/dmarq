@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     # Base
     PROJECT_NAME: str = "DMARQ"
     API_V1_STR: str = "/api/v1"
+    ENVIRONMENT: str = "development"
 
     # Database
     # Default to a sub-directory so the SQLite file lives in a location that
@@ -62,6 +63,7 @@ class Settings(BaseSettings):
     #     by an external auth proxy (e.g. Authelia, OAuth2 Proxy, Traefik Forward Auth).
     #     Never expose an AUTH_DISABLED instance directly to the internet.
     AUTH_DISABLED: bool = False
+    ALLOW_AUTH_DISABLED_IN_PRODUCTION: bool = False
 
     # ── Logto OIDC ────────────────────────────────────────────────────────────
     # Set these to enable Logto-based authentication.
@@ -79,11 +81,17 @@ class Settings(BaseSettings):
     LOGTO_APP_SECRET: Optional[str] = None
     LOGTO_REDIRECT_URI: Optional[str] = None
     LOGTO_SKIP_SSL_VERIFY: bool = False
+    ALLOW_LOGTO_SKIP_SSL_VERIFY_IN_PRODUCTION: bool = False
 
     @property
     def logto_configured(self) -> bool:
         """Return True when the minimum Logto settings are present."""
         return bool(self.LOGTO_ENDPOINT and self.LOGTO_APP_ID and self.LOGTO_APP_SECRET)
+
+    @property
+    def is_production(self) -> bool:
+        """Return True when the app is explicitly running in production mode."""
+        return self.ENVIRONMENT.strip().lower() in {"prod", "production"}
 
     @validator("ADMIN_API_KEY", pre=True, always=True)
     @classmethod
@@ -101,12 +109,20 @@ class Settings(BaseSettings):
         return v or None
 
     @validator("SECRET_KEY", pre=True, always=True)
-    def validate_secret_key(cls, v: Optional[str]) -> str:  # pylint: disable=no-self-argument
+    def validate_secret_key(  # pylint: disable=no-self-argument
+        cls, v: Optional[str], values
+    ) -> str:
         """Validate and generate SECRET_KEY if not provided."""
         # Default insecure key that should never be used
         DEFAULT_INSECURE_KEY = "CHANGE_THIS_TO_A_RANDOM_SECRET_IN_PRODUCTION"
+        environment = str(values.get("ENVIRONMENT", "development")).strip().lower()
+        is_production = environment in {"prod", "production"}
 
         if v is None or v == "" or v == DEFAULT_INSECURE_KEY:
+            if is_production:
+                raise ValueError(
+                    "SECRET_KEY must be set to a stable random value when ENVIRONMENT=production."
+                )
             # Generate a secure random key
             generated_key = secrets.token_hex(32)
             logger.warning(
@@ -119,6 +135,10 @@ class Settings(BaseSettings):
 
         # Check if key is too short
         if len(v) < 32:
+            if is_production:
+                raise ValueError(
+                    "SECRET_KEY must be at least 32 characters when ENVIRONMENT=production."
+                )
             logger.warning(
                 "SECRET_KEY is too short (%s characters). "
                 "Recommended minimum is 32 characters for security.",

@@ -6,6 +6,8 @@ previously caused a JSONDecodeError in pydantic_settings v2 before validators
 could run (see: pydantic_settings sources/providers/env.py decode_complex_value).
 """
 
+import pytest
+
 from app.core.config import Settings
 from app.core.database import _ensure_sqlite_dir, _make_sync_db_url
 
@@ -184,3 +186,125 @@ class TestLogtoSettings:
         settings = Settings()
 
         assert settings.LOGTO_SKIP_SSL_VERIFY is True
+
+
+class TestProductionStartupSettings:
+    """Tests for production-critical settings and startup validation."""
+
+    def test_environment_defaults_to_development(self):
+        settings = Settings()
+
+        assert settings.ENVIRONMENT == "development"
+        assert settings.is_production is False
+
+    def test_production_requires_stable_secret_key(self):
+        with pytest.raises(Exception) as excinfo:
+            Settings(ENVIRONMENT="production")
+
+        assert "SECRET_KEY" in str(excinfo.value)
+
+    def test_production_rejects_short_secret_key(self):
+        with pytest.raises(Exception) as excinfo:
+            Settings(ENVIRONMENT="production", SECRET_KEY="short")
+
+        assert "SECRET_KEY" in str(excinfo.value)
+
+    def test_production_startup_passes_with_admin_key(self):
+        from app.core.startup_checks import validate_startup_configuration
+
+        settings = Settings(
+            ENVIRONMENT="production",
+            SECRET_KEY="s" * 32,
+            ADMIN_API_KEY="a" * 64,
+            DATABASE_URL="postgresql://dmarq:password@db/dmarq",
+        )
+
+        result = validate_startup_configuration(settings)
+
+        assert result.ok is True
+        assert result.errors == ()
+
+    def test_production_startup_requires_auth_path(self):
+        from app.core.startup_checks import validate_startup_configuration
+
+        settings = Settings(
+            ENVIRONMENT="production",
+            SECRET_KEY="s" * 32,
+            DATABASE_URL="postgresql://dmarq:password@db/dmarq",
+        )
+
+        result = validate_startup_configuration(settings)
+
+        assert result.ok is False
+        assert any("Logto settings or ADMIN_API_KEY" in error for error in result.errors)
+
+    def test_production_startup_rejects_auth_disabled_without_override(self):
+        from app.core.startup_checks import validate_startup_configuration
+
+        settings = Settings(
+            ENVIRONMENT="production",
+            SECRET_KEY="s" * 32,
+            AUTH_DISABLED=True,
+            DATABASE_URL="postgresql://dmarq:password@db/dmarq",
+        )
+
+        result = validate_startup_configuration(settings)
+
+        assert any("AUTH_DISABLED=true" in error for error in result.errors)
+
+    def test_production_startup_allows_auth_disabled_with_explicit_override(self):
+        from app.core.startup_checks import validate_startup_configuration
+
+        settings = Settings(
+            ENVIRONMENT="production",
+            SECRET_KEY="s" * 32,
+            AUTH_DISABLED=True,
+            ALLOW_AUTH_DISABLED_IN_PRODUCTION=True,
+            DATABASE_URL="postgresql://dmarq:password@db/dmarq",
+        )
+
+        result = validate_startup_configuration(settings)
+
+        assert result.ok is True
+
+    def test_production_startup_rejects_logto_ssl_skip_without_override(self):
+        from app.core.startup_checks import validate_startup_configuration
+
+        settings = Settings(
+            ENVIRONMENT="production",
+            SECRET_KEY="s" * 32,
+            ADMIN_API_KEY="a" * 64,
+            LOGTO_SKIP_SSL_VERIFY=True,
+            DATABASE_URL="postgresql://dmarq:password@db/dmarq",
+        )
+
+        result = validate_startup_configuration(settings)
+
+        assert any("LOGTO_SKIP_SSL_VERIFY=true" in error for error in result.errors)
+
+    def test_production_startup_warns_for_sqlite(self):
+        from app.core.startup_checks import validate_startup_configuration
+
+        settings = Settings(
+            ENVIRONMENT="production",
+            SECRET_KEY="s" * 32,
+            ADMIN_API_KEY="a" * 64,
+            DATABASE_URL="sqlite:///./data/dmarq.db",
+        )
+
+        result = validate_startup_configuration(settings)
+
+        assert result.ok is True
+        assert any("SQLite" in warning for warning in result.warnings)
+
+    def test_run_startup_checks_raises_for_unsafe_production(self):
+        from app.core.startup_checks import StartupConfigurationError, run_startup_checks
+
+        settings = Settings(
+            ENVIRONMENT="production",
+            SECRET_KEY="s" * 32,
+            DATABASE_URL="postgresql://dmarq:password@db/dmarq",
+        )
+
+        with pytest.raises(StartupConfigurationError):
+            run_startup_checks(settings)
