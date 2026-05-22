@@ -259,15 +259,7 @@ docker-compose ps
 
 ### Database Backups
 
-For PostgreSQL backups:
-
-```bash
-# Create a backup
-docker-compose exec db pg_dump -U dmarq dmarq > backup_$(date +%Y%m%d).sql
-
-# Restore from a backup
-cat backup_file.sql | docker-compose exec -T db psql -U dmarq dmarq
-```
+Back up the database before upgrades and on a regular schedule. See [Database Backup and Restore](backups.md) for SQLite and PostgreSQL backup, restore, and verification commands.
 
 ## Troubleshooting
 
