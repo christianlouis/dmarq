@@ -23,6 +23,7 @@ from app.core.security import require_admin_auth
 from app.models.setting import Setting
 from app.services.alert_rules import evaluate_alert_rules, send_current_alerts
 from app.services.notifications import send_notification
+from app.services.summary_notifications import build_summary, send_summary_notification
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -177,6 +178,48 @@ SETTING_DEFAULTS: List[Dict[str, Any]] = [
         "value_type": "integer",
         "category": "notifications",
     },
+    {
+        "key": "notifications.summary_daily_enabled",
+        "value": "false",
+        "description": "Send one daily DMARC activity summary notification",
+        "value_type": "boolean",
+        "category": "notifications",
+    },
+    {
+        "key": "notifications.summary_weekly_enabled",
+        "value": "false",
+        "description": "Send one weekly DMARC activity summary notification",
+        "value_type": "boolean",
+        "category": "notifications",
+    },
+    {
+        "key": "notifications.summary_send_hour_utc",
+        "value": "8",
+        "description": "UTC hour when scheduled summary notifications can be sent",
+        "value_type": "integer",
+        "category": "notifications",
+    },
+    {
+        "key": "notifications.summary_weekday_utc",
+        "value": "0",
+        "description": "UTC weekday for weekly summaries, where 0 is Monday",
+        "value_type": "integer",
+        "category": "notifications",
+    },
+    {
+        "key": "notifications.summary_daily_last_sent_date",
+        "value": "",
+        "description": "Internal date marker for the last sent daily summary",
+        "value_type": "string",
+        "category": "notifications",
+    },
+    {
+        "key": "notifications.summary_weekly_last_sent_week",
+        "value": "",
+        "description": "Internal ISO week marker for the last sent weekly summary",
+        "value_type": "string",
+        "category": "notifications",
+    },
 ]
 
 # Keys whose values should be redacted in GET responses (treated as secrets)
@@ -279,6 +322,19 @@ class AlertNotificationResponse(BaseModel):
     notification: Dict[str, Any]
 
 
+class SummaryResponse(BaseModel):
+    """Current DMARC summary notification preview."""
+
+    summary: Dict[str, Any]
+
+
+class SummaryNotificationResponse(BaseModel):
+    """DMARC summary plus notification delivery status."""
+
+    summary: Dict[str, Any]
+    notification: Dict[str, Any]
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -344,6 +400,48 @@ async def send_notification_alerts(
     result = send_current_alerts(db)
     notification = result["notification"]
     if result["alerts"] and not notification.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result,
+        )
+    return result
+
+
+@router.get("/notifications/summary", response_model=SummaryResponse)
+async def preview_notification_summary(
+    period: str = "daily",
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+) -> SummaryResponse:
+    """Preview a daily or weekly DMARC summary notification."""
+    _seed_defaults(db)
+    try:
+        summary = build_summary(db, period)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    return {"summary": summary}
+
+
+@router.post("/notifications/summary/send", response_model=SummaryNotificationResponse)
+async def send_notification_summary(
+    period: str = "daily",
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+) -> SummaryNotificationResponse:
+    """Send a daily or weekly DMARC summary notification immediately."""
+    _seed_defaults(db)
+    try:
+        result = send_summary_notification(db, period)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    notification = result["notification"]
+    if not notification.get("success"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=result,

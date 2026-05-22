@@ -92,6 +92,10 @@ from API responses.
 | `notifications.alert_failure_threshold_count` | Failed messages in the last day before alerting | `100` | `250` |
 | `notifications.alert_missing_reports_enabled` | Alert when a monitored domain stops receiving reports | `true` | `true` |
 | `notifications.alert_missing_reports_days` | Days without reports before alerting | `2` | `3` |
+| `notifications.summary_daily_enabled` | Send one daily DMARC activity summary | `false` | `true` |
+| `notifications.summary_weekly_enabled` | Send one weekly DMARC activity summary | `false` | `true` |
+| `notifications.summary_send_hour_utc` | UTC hour for scheduled summaries | `8` | `7` |
+| `notifications.summary_weekday_utc` | UTC weekday for weekly summaries, where 0 is Monday | `0` | `4` |
 
 ### Cloudflare Integration
 

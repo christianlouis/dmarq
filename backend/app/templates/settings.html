@@ -307,7 +307,92 @@
                     </template>
                 </div>
 
+                <div class="border-t border-border pt-4 space-y-4">
+                    <div>
+                        <h3 class="text-sm font-semibold">Summary Notifications</h3>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="form-control">
+                            <label class="label cursor-pointer justify-start gap-3">
+                                <input type="checkbox"
+                                    :checked="s['notifications.summary_daily_enabled'] === 'true'"
+                                    @change="s['notifications.summary_daily_enabled'] = $event.target.checked ? 'true' : 'false'"
+                                    class="checkbox checkbox-primary" />
+                                <span class="label-text font-medium">Daily summary</span>
+                            </label>
+                        </div>
+
+                        <div class="form-control">
+                            <label class="label cursor-pointer justify-start gap-3">
+                                <input type="checkbox"
+                                    :checked="s['notifications.summary_weekly_enabled'] === 'true'"
+                                    @change="s['notifications.summary_weekly_enabled'] = $event.target.checked ? 'true' : 'false'"
+                                    class="checkbox checkbox-primary" />
+                                <span class="label-text font-medium">Weekly summary</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div class="form-control w-full">
+                            <label class="label"><span class="label-text font-medium">Send Hour (UTC)</span></label>
+                            <input type="number" x-model.number="s['notifications.summary_send_hour_utc']"
+                                class="input input-bordered w-full" min="0" max="23" />
+                        </div>
+                        <div class="form-control w-full">
+                            <label class="label"><span class="label-text font-medium">Weekly Day</span></label>
+                            <select x-model="s['notifications.summary_weekday_utc']" class="input input-bordered w-full">
+                                <option value="0">Monday</option>
+                                <option value="1">Tuesday</option>
+                                <option value="2">Wednesday</option>
+                                <option value="3">Thursday</option>
+                                <option value="4">Friday</option>
+                                <option value="5">Saturday</option>
+                                <option value="6">Sunday</option>
+                            </select>
+                        </div>
+                        <div class="form-control w-full">
+                            <label class="label"><span class="label-text font-medium">Preview Period</span></label>
+                            <select x-model="summaryPeriod" class="input input-bordered w-full">
+                                <option value="daily">Daily</option>
+                                <option value="weekly">Weekly</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <template x-if="summaryPreview">
+                        <div class="alert alert-info">
+                            <span x-text="`${summaryPreview.total_messages} messages, ${summaryPreview.reports_processed} reports, ${summaryPreview.alerts.length} active alerts.`"></span>
+                        </div>
+                    </template>
+                </div>
+
                 <div class="flex flex-col sm:flex-row justify-end gap-2">
+                    <button type="button" class="btn btn-outline btn-md" :disabled="saving || previewingSummary" @click="previewSummary()">
+                        <template x-if="!previewingSummary">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
+                                <path d="M3 3v18h18"></path>
+                                <path d="M18 17V9"></path>
+                                <path d="M13 17V5"></path>
+                                <path d="M8 17v-3"></path>
+                            </svg>
+                        </template>
+                        <template x-if="previewingSummary"><span class="loading loading-spinner loading-xs mr-2"></span></template>
+                        Preview Summary
+                    </button>
+                    <button type="button" class="btn btn-outline btn-md" :disabled="saving || sendingSummary" @click="sendSummaryNow()">
+                        <template x-if="!sendingSummary">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
+                                <path d="M3 3v18h18"></path>
+                                <path d="m19 9-5 5-4-4-3 3"></path>
+                            </svg>
+                        </template>
+                        <template x-if="sendingSummary"><span class="loading loading-spinner loading-xs mr-2"></span></template>
+                        Send Summary Now
+                    </button>
                     <button type="button" class="btn btn-outline btn-md" :disabled="saving || checkingAlerts" @click="checkAlerts()">
                         <template x-if="!checkingAlerts">
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
@@ -388,6 +473,10 @@ function settingsApp() {
         checkingAlerts: false,
         sendingAlerts: false,
         alertPreview: null,
+        previewingSummary: false,
+        sendingSummary: false,
+        summaryPeriod: 'daily',
+        summaryPreview: null,
         showCfToken: false,
 
         // Session cookie is sent automatically by the browser (httpOnly, same-origin).
@@ -507,6 +596,51 @@ function settingsApp() {
                 this.showFlash('Error sending alerts: ' + err.message, false);
             } finally {
                 this.sendingAlerts = false;
+            }
+        },
+
+        async previewSummary() {
+            this.previewingSummary = true;
+            try {
+                await this.saveCategory('notifications');
+                const res = await fetch(`/api/v1/settings/notifications/summary?period=${this.summaryPeriod}`, {
+                    headers: this.apiHeaders(),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    this.showFlash('Summary preview failed: ' + (data.detail || res.statusText), false);
+                } else {
+                    this.summaryPreview = data.summary;
+                    this.showFlash('Summary preview updated.', true);
+                }
+            } catch (err) {
+                this.showFlash('Error previewing summary: ' + err.message, false);
+            } finally {
+                this.previewingSummary = false;
+            }
+        },
+
+        async sendSummaryNow() {
+            this.sendingSummary = true;
+            try {
+                await this.saveCategory('notifications');
+                const res = await fetch(`/api/v1/settings/notifications/summary/send?period=${this.summaryPeriod}`, {
+                    method: 'POST',
+                    headers: this.apiHeaders(),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    const detail = data.detail || {};
+                    const notification = detail.notification || {};
+                    this.showFlash('Summary send failed: ' + (notification.message || data.detail || res.statusText), false);
+                } else {
+                    this.summaryPreview = data.summary;
+                    this.showFlash('Summary notification sent.', true);
+                }
+            } catch (err) {
+                this.showFlash('Error sending summary: ' + err.message, false);
+            } finally {
+                this.sendingSummary = false;
             }
         },
 

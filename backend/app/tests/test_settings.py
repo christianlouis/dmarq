@@ -11,6 +11,7 @@ from app.models.domain import Domain
 from app.models.report import DMARCReport, ReportRecord
 from app.models.setting import Setting
 from app.services.notifications import NotificationResult
+from app.services.summary_notifications import send_due_scheduled_summaries
 
 
 def _timestamp_days_ago(days: int) -> int:
@@ -106,6 +107,10 @@ class TestSettingsAPI:
         assert "notifications.alert_compliance_drop_points" in keys
         assert "notifications.alert_failure_threshold_count" in keys
         assert "notifications.alert_missing_reports_days" in keys
+        assert "notifications.summary_daily_enabled" in keys
+        assert "notifications.summary_weekly_enabled" in keys
+        assert "notifications.summary_send_hour_utc" in keys
+        assert "notifications.summary_weekday_utc" in keys
 
     def test_list_settings_filter_by_category(self, authed_client: TestClient):
         """GET /api/v1/settings?category=dmarc returns only dmarc settings."""
@@ -410,3 +415,154 @@ class TestSettingsAPI:
         assert data["alerts"]
         assert sent_messages[0]["title"].startswith("DMARQ alert summary")
         assert "DMARC failures above threshold" in sent_messages[0]["body"]
+
+    def test_notification_summary_preview_returns_recent_activity(
+        self,
+        authed_client: TestClient,
+        db_session: Session,
+    ):
+        """GET /settings/notifications/summary returns a daily summary preview."""
+        domain = _add_domain(db_session, "summary.example")
+        _add_report_record(
+            db_session,
+            domain,
+            report_id="summary-recent",
+            days_ago=0,
+            source_ip="203.0.113.50",
+            count=25,
+        )
+        _add_report_record(
+            db_session,
+            domain,
+            report_id="summary-old",
+            days_ago=3,
+            source_ip="203.0.113.51",
+            count=99,
+        )
+        db_session.commit()
+
+        res = authed_client.get("/api/v1/settings/notifications/summary?period=daily")
+
+        assert res.status_code == 200
+        summary = res.json()["summary"]
+        assert summary["period"] == "daily"
+        assert summary["total_messages"] == 25
+        assert summary["reports_processed"] == 1
+        assert summary["top_domains"][0]["domain"] == "summary.example"
+
+    def test_notification_summary_send_uses_apprise_summary(
+        self,
+        authed_client: TestClient,
+        db_session: Session,
+        monkeypatch,
+    ):
+        """POST /settings/notifications/summary/send sends the selected summary."""
+        sent_messages = []
+
+        def fake_send_notification(
+            db, *, title, body, force=False
+        ):  # pylint: disable=unused-argument
+            sent_messages.append({"title": title, "body": body})
+            return NotificationResult(
+                success=True,
+                message="Notification sent.",
+                configured_targets=1,
+            )
+
+        monkeypatch.setattr(
+            "app.services.summary_notifications.send_notification",
+            fake_send_notification,
+        )
+
+        domain = _add_domain(db_session, "weekly.example")
+        _add_report_record(
+            db_session,
+            domain,
+            report_id="weekly-recent",
+            days_ago=2,
+            source_ip="203.0.113.60",
+            count=40,
+        )
+        db_session.commit()
+
+        res = authed_client.post("/api/v1/settings/notifications/summary/send?period=weekly")
+
+        assert res.status_code == 200
+        data = res.json()
+        assert data["notification"]["success"] is True
+        assert data["summary"]["period"] == "weekly"
+        assert sent_messages[0]["title"].startswith("DMARQ weekly summary")
+        assert "Weekly DMARC summary" in sent_messages[0]["body"]
+
+    def test_due_scheduled_summaries_send_once_per_period(
+        self,
+        db_session: Session,
+        monkeypatch,
+    ):
+        """Scheduled summaries respect enabled settings and last-sent markers."""
+        sent_messages = []
+
+        def fake_send_notification(
+            db, *, title, body, force=False
+        ):  # pylint: disable=unused-argument
+            sent_messages.append({"title": title, "body": body})
+            return NotificationResult(
+                success=True,
+                message="Notification sent.",
+                configured_targets=1,
+            )
+
+        monkeypatch.setattr(
+            "app.services.summary_notifications.send_notification",
+            fake_send_notification,
+        )
+
+        db_session.add_all(
+            [
+                Setting(
+                    key="notifications.summary_daily_enabled",
+                    value="true",
+                    category="notifications",
+                ),
+                Setting(
+                    key="notifications.summary_weekly_enabled",
+                    value="true",
+                    category="notifications",
+                ),
+                Setting(
+                    key="notifications.summary_send_hour_utc",
+                    value="8",
+                    category="notifications",
+                ),
+                Setting(
+                    key="notifications.summary_weekday_utc",
+                    value="0",
+                    category="notifications",
+                ),
+            ]
+        )
+        domain = _add_domain(db_session, "scheduled.example")
+        _add_report_record(
+            db_session,
+            domain,
+            report_id="scheduled-recent",
+            days_ago=0,
+            source_ip="203.0.113.70",
+            count=12,
+        )
+        db_session.commit()
+        now = datetime(2026, 5, 18, 8, 30, tzinfo=timezone.utc)
+
+        first = send_due_scheduled_summaries(db_session, now=now)
+        second = send_due_scheduled_summaries(db_session, now=now)
+
+        assert set(first) == {"daily", "weekly"}
+        assert second == {}
+        assert len(sent_messages) == 2
+        assert (
+            db_session.query(Setting)
+            .filter(Setting.key == "notifications.summary_daily_last_sent_date")
+            .first()
+            .value
+            == "2026-05-18"
+        )

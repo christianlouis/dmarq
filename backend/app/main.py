@@ -27,6 +27,7 @@ from app.services.imap_client import IMAPClient
 from app.services.import_history import record_import_attempt
 from app.services.report_persistence import hydrate_report_store_from_db
 from app.services.report_store import ReportStore
+from app.services.summary_notifications import send_due_scheduled_summaries
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -180,6 +181,25 @@ def _poll_all_enabled_sources() -> list[MailSource]:
     return enabled_sources
 
 
+def _send_due_summary_notifications() -> None:
+    """Send scheduled summary notifications when their configured cadence is due."""
+    db = SessionLocal()
+    try:
+        results = send_due_scheduled_summaries(db)
+        for period, result in results.items():
+            notification = result.get("notification", {})
+            if notification.get("success"):
+                logger.info("Sent %s DMARC summary notification", period)
+            else:
+                logger.warning(
+                    "%s DMARC summary notification was not sent: %s",
+                    period.capitalize(),
+                    notification.get("message", "Unknown error"),
+                )
+    finally:
+        db.close()
+
+
 def _next_sleep_seconds(
     min_sleep: int = 60, enabled_sources: list[MailSource] | None = None
 ) -> int:
@@ -206,6 +226,7 @@ async def scheduled_imap_polling():
             logger.info("Starting scheduled IMAP polling for DMARC reports")
             try:
                 enabled_sources = _poll_all_enabled_sources()
+                _send_due_summary_notifications()
             except Exception as e:  # pylint: disable=broad-exception-caught
                 logger.error("Error in IMAP polling task: %s", str(e))
                 enabled_sources = None

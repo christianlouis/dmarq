@@ -54,6 +54,15 @@ Set alert rules and thresholds in **Settings** > **Notifications**:
 Use **Check Alerts** to preview the current alert count, or **Send Alerts Now** to
 send the current alert summary through the configured Apprise targets.
 
+### Summary Notifications
+
+Configure daily or weekly summaries in **Settings** > **Notifications**:
+
+- **Daily Summary**: sends one summary after the configured UTC hour each day
+- **Weekly Summary**: sends one summary on the configured UTC weekday
+- **Preview Summary**: shows message volume, report count, and active alert count
+- **Send Summary Now**: sends the selected daily or weekly summary immediately
+
 ### Integration Notifications
 
 Apprise supports email, Slack, Teams, Discord, generic webhooks, and many other

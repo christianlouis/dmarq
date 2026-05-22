@@ -116,9 +116,9 @@ Delivered:
 - Notification settings UI can save Apprise targets, keeps target URLs redacted after save, and can send a test notification.
 - Alert rules for new sender source, compliance drop, DMARC failures above threshold, and missing reports.
 - Notification settings UI can evaluate active alerts and send the current alert summary on demand.
+- Daily and weekly DMARC summary notifications, including scheduled delivery and manual preview/send controls.
 
 Planned:
-- Daily/weekly summary notifications.
 - Alert history.
 
 Exit criteria:
