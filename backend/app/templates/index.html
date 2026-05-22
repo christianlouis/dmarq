@@ -84,6 +84,37 @@
             {% endcall %}
         {% endcall %}
     </div>
+
+    <!-- Dashboard Trends -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4" x-show="hasDomainData" x-cloak>
+        {% call card() %}
+            {% call card_header() %}
+                {% call card_title() %}Mail Volume Trend{% endcall %}
+                {% call card_description() %}
+                    Daily DMARC mail volume over the last 30 days
+                {% endcall %}
+            {% endcall %}
+            {% call card_content() %}
+                <div class="h-64">
+                    <canvas id="volume-trend-chart" aria-label="Daily DMARC mail volume trend"></canvas>
+                </div>
+            {% endcall %}
+        {% endcall %}
+
+        {% call card() %}
+            {% call card_header() %}
+                {% call card_title() %}Authentication Trend{% endcall %}
+                {% call card_description() %}
+                    Daily compliance and failure rates over the last 30 days
+                {% endcall %}
+            {% endcall %}
+            {% call card_content() %}
+                <div class="h-64">
+                    <canvas id="compliance-trend-chart" aria-label="Daily DMARC compliance and failure trend"></canvas>
+                </div>
+            {% endcall %}
+        {% endcall %}
+    </div>
     
     <!-- Domain Compliance Table -->
     <div x-show="hasDomainData" x-cloak>
@@ -184,10 +215,13 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="/static/js/chart.umd.min.js"></script>
 <script>
 function dashboardApp() {
     return {
         hasDomainData: false,
+        volumeTrendChart: null,
+        complianceTrendChart: null,
         
         init() {
             // Fetch domain summary on page load
@@ -239,12 +273,30 @@ function dashboardApp() {
                     this.hasDomainData = true;
                     this.updateDashboardStats(data);
                     this.populateDomainsTable(data.domains);
+                    this.$nextTick(() => this.fetchDashboardTrends());
                 } else {
                     this.hasDomainData = false;
+                    this.clearDashboardCharts();
                 }
             } catch (error) {
                 console.error('Error fetching domain summary:', error);
                 this.hasDomainData = false;
+                this.clearDashboardCharts();
+            }
+        },
+
+        async fetchDashboardTrends() {
+            try {
+                const response = await fetch('/api/v1/stats/dashboard?period_days=30');
+                if (!response.ok) {
+                    console.error('Error fetching dashboard trends:', response.status);
+                    return;
+                }
+
+                const data = await response.json();
+                this.renderDashboardCharts(data.compliance_trend || []);
+            } catch (error) {
+                console.error('Error fetching dashboard trends:', error);
             }
         },
         
@@ -260,6 +312,164 @@ function dashboardApp() {
             if (totalEmails) totalEmails.textContent = data.total_emails || 0;
             if (passRate) passRate.textContent = `${data.overall_pass_rate || 0}%`;
             if (reportsProcessed) reportsProcessed.textContent = data.reports_processed || 0;
+        },
+
+        renderDashboardCharts(trendData) {
+            if (!window.Chart || !trendData.length) {
+                this.clearDashboardCharts();
+                return;
+            }
+
+            this.renderVolumeTrend(trendData);
+            this.renderComplianceTrend(trendData);
+        },
+
+        renderVolumeTrend(trendData) {
+            const canvas = document.getElementById('volume-trend-chart');
+            if (!canvas) return;
+
+            const labels = trendData.map(item => item.date);
+            const volumes = trendData.map(item => item.volume || item.total || 0);
+
+            if (this.volumeTrendChart) {
+                this.volumeTrendChart.destroy();
+            }
+
+            this.volumeTrendChart = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Messages',
+                        data: volumes,
+                        backgroundColor: 'rgba(37, 99, 235, 0.72)',
+                        borderColor: 'rgb(37, 99, 235)',
+                        borderWidth: 1,
+                        borderRadius: 4,
+                        maxBarThickness: 28
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                precision: 0,
+                                callback: value => this.formatLargeNumber(value)
+                            },
+                            title: {
+                                display: true,
+                                text: 'Messages'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                display: false
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: context => `${this.formatLargeNumber(context.parsed.y)} messages`
+                            }
+                        }
+                    }
+                }
+            });
+        },
+
+        renderComplianceTrend(trendData) {
+            const canvas = document.getElementById('compliance-trend-chart');
+            if (!canvas) return;
+
+            const labels = trendData.map(item => item.date);
+            const complianceRates = trendData.map(item => item.compliance_rate ?? item.rate ?? 0);
+            const failureRates = trendData.map(item => item.failure_rate ?? 0);
+
+            if (this.complianceTrendChart) {
+                this.complianceTrendChart.destroy();
+            }
+
+            this.complianceTrendChart = new Chart(canvas.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [
+                        {
+                            label: 'Compliance Rate',
+                            data: complianceRates,
+                            borderColor: 'rgb(22, 163, 74)',
+                            backgroundColor: 'rgba(22, 163, 74, 0.12)',
+                            pointBackgroundColor: 'rgb(22, 163, 74)',
+                            pointRadius: 3,
+                            pointHoverRadius: 5,
+                            tension: 0.35,
+                            fill: true
+                        },
+                        {
+                            label: 'Failure Rate',
+                            data: failureRates,
+                            borderColor: 'rgb(220, 38, 38)',
+                            backgroundColor: 'rgba(220, 38, 38, 0.08)',
+                            pointBackgroundColor: 'rgb(220, 38, 38)',
+                            pointRadius: 3,
+                            pointHoverRadius: 5,
+                            tension: 0.35,
+                            fill: false
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            ticks: {
+                                callback: value => `${value}%`
+                            },
+                            title: {
+                                display: true,
+                                text: 'Rate'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                display: false
+                            }
+                        }
+                    },
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: context => `${context.dataset.label}: ${context.parsed.y}%`
+                            }
+                        }
+                    }
+                }
+            });
+        },
+
+        clearDashboardCharts() {
+            if (this.volumeTrendChart) {
+                this.volumeTrendChart.destroy();
+                this.volumeTrendChart = null;
+            }
+            if (this.complianceTrendChart) {
+                this.complianceTrendChart.destroy();
+                this.complianceTrendChart = null;
+            }
+        },
+
+        formatLargeNumber(value) {
+            return new Intl.NumberFormat(undefined, { notation: 'compact' }).format(value);
         },
         
         populateDomainsTable(domains) {

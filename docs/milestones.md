@@ -77,8 +77,10 @@ Status: In progress
 
 Goal: convert raw DMARC data into useful operational reporting.
 
-Planned:
+Delivered:
 - Dashboard trend charts for volume, compliance rate, and failure rate.
+
+Planned:
 - Top sender/source reports with pass/fail breakdowns.
 - Per-domain report timeline and daily rollups.
 - Exportable reports for a selected domain and date range.

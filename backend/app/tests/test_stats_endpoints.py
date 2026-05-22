@@ -32,6 +32,16 @@ class TestDashboardStatistics:
         data = response.json()
         assert data["period_days"] == 7
 
+    def test_dashboard_passes_period_days_to_summarizer(self, client: TestClient):
+        with patch("app.api.api_v1.endpoints.stats.StatsSummarizer") as MockSummarizer:
+            mock_instance = MagicMock()
+            mock_instance.calculate_summary_statistics.return_value = {"total": 0}
+            MockSummarizer.return_value = mock_instance
+
+            response = client.get("/api/v1/stats/dashboard?period_days=7")
+            assert response.status_code == 200
+            assert mock_instance.calculate_summary_statistics.call_args.kwargs["period_days"] == 7
+
     def test_dashboard_force_refresh(self, client: TestClient):
         """force_refresh=true should trigger cache invalidation without error."""
         response = client.get("/api/v1/stats/dashboard?force_refresh=true")
@@ -84,6 +94,17 @@ class TestDomainStatistics:
         assert response.status_code == 200
         data = response.json()
         assert data["period_days"] == 14
+
+    def test_domain_stats_passes_period_days_to_summarizer(self, client: TestClient):
+        with patch("app.api.api_v1.endpoints.stats.StatsSummarizer") as MockSummarizer:
+            mock_instance = MagicMock()
+            mock_instance.calculate_summary_statistics.return_value = {"total": 0}
+            MockSummarizer.return_value = mock_instance
+
+            response = client.get("/api/v1/stats/domain/example.com?period_days=14")
+            assert response.status_code == 200
+            assert mock_instance.calculate_summary_statistics.call_args.args[1] == "example.com"
+            assert mock_instance.calculate_summary_statistics.call_args.kwargs["period_days"] == 14
 
     def test_domain_stats_force_refresh(self, client: TestClient):
         response = client.get("/api/v1/stats/domain/example.com?force_refresh=true")

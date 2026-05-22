@@ -2,6 +2,7 @@
 
 import shutil
 import tempfile
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import create_engine
@@ -122,6 +123,83 @@ def _seed_mixed_source_records(db, domain_name="example.com"):
     return domain
 
 
+def _timestamp_days_ago(days):
+    return int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp())
+
+
+def _seed_recent_trend_records(db, domain_name="example.com"):
+    """Insert recent reports across multiple days for trend calculations."""
+    domain = Domain(name=domain_name)
+    db.add(domain)
+    db.flush()
+
+    report1 = DMARCReport(
+        domain_id=domain.id,
+        report_id=f"{domain_name}-recent-1",
+        org_name="google.com",
+        begin_date=_timestamp_days_ago(2),
+        end_date=_timestamp_days_ago(2) + 3600,
+        policy="none",
+    )
+    report2 = DMARCReport(
+        domain_id=domain.id,
+        report_id=f"{domain_name}-recent-2",
+        org_name="google.com",
+        begin_date=_timestamp_days_ago(0),
+        end_date=_timestamp_days_ago(0) + 3600,
+        policy="none",
+    )
+    report3 = DMARCReport(
+        domain_id=domain.id,
+        report_id=f"{domain_name}-old",
+        org_name="google.com",
+        begin_date=_timestamp_days_ago(20),
+        end_date=_timestamp_days_ago(20) + 3600,
+        policy="none",
+    )
+    db.add_all([report1, report2, report3])
+    db.flush()
+
+    db.add_all(
+        [
+            ReportRecord(
+                report_id=report1.id,
+                source_ip="203.0.113.10",
+                count=6,
+                disposition="none",
+                dkim="pass",
+                spf="fail",
+            ),
+            ReportRecord(
+                report_id=report1.id,
+                source_ip="203.0.113.11",
+                count=4,
+                disposition="reject",
+                dkim="fail",
+                spf="fail",
+            ),
+            ReportRecord(
+                report_id=report2.id,
+                source_ip="203.0.113.12",
+                count=5,
+                disposition="none",
+                dkim="pass",
+                spf="pass",
+            ),
+            ReportRecord(
+                report_id=report3.id,
+                source_ip="203.0.113.13",
+                count=99,
+                disposition="none",
+                dkim="pass",
+                spf="pass",
+            ),
+        ]
+    )
+    db.flush()
+    return domain
+
+
 def test_auth_status_from_counts_returns_none_without_results():
     assert _auth_status_from_counts(0, 0) == "none"
 
@@ -187,6 +265,30 @@ class TestStatsSummarizerGlobal:
         assert stats["total_emails"] == 16  # 8 * 2
         assert stats["reports_processed"] == 2
 
+    def test_global_trend_includes_volume_and_failure_rate(self, db_session, summarizer):
+        _seed_recent_trend_records(db_session)
+        db_session.commit()
+
+        stats = summarizer.calculate_summary_statistics(db_session, period_days=7)
+        assert len(stats["compliance_trend"]) == 2
+
+        first_day = stats["compliance_trend"][0]
+        assert first_day["total"] == 10
+        assert first_day["volume"] == 10
+        assert first_day["passed"] == 6
+        assert first_day["failed"] == 4
+        assert first_day["rate"] == 60.0
+        assert first_day["compliance_rate"] == 60.0
+        assert first_day["failure_rate"] == 40.0
+
+    def test_global_trend_respects_period_days(self, db_session, summarizer):
+        _seed_recent_trend_records(db_session)
+        db_session.commit()
+
+        stats = summarizer.calculate_summary_statistics(db_session, period_days=1)
+        assert len(stats["compliance_trend"]) == 1
+        assert stats["compliance_trend"][0]["total"] == 5
+
 
 class TestStatsSummarizerDomain:
     """Tests for domain-specific statistics."""
@@ -245,6 +347,16 @@ class TestStatsSummarizerDomain:
         stats = summarizer.calculate_summary_statistics(db_session, domain_id="example.com")
         assert stats["total_emails"] == 8  # Only example.com's data
 
+    def test_domain_trend_isolation(self, db_session, summarizer):
+        _seed_recent_trend_records(db_session, "example.com")
+        _seed_recent_trend_records(db_session, "other.org")
+        db_session.commit()
+
+        stats = summarizer.calculate_summary_statistics(
+            db_session, domain_id="example.com", period_days=7
+        )
+        assert [point["total"] for point in stats["compliance_trend"]] == [10, 5]
+
 
 class TestStatsSummarizerCaching:
     """Tests for the caching layer."""
@@ -266,3 +378,13 @@ class TestStatsSummarizerCaching:
         # Should recalculate after invalidation
         stats = summarizer.calculate_summary_statistics(db_session)
         assert stats["total_domains"] == 1
+
+    def test_period_days_uses_separate_cache_files(self, db_session, summarizer):
+        _seed_recent_trend_records(db_session)
+        db_session.commit()
+
+        stats_7_days = summarizer.calculate_summary_statistics(db_session, period_days=7)
+        stats_1_day = summarizer.calculate_summary_statistics(db_session, period_days=1)
+
+        assert len(stats_7_days["compliance_trend"]) == 2
+        assert len(stats_1_day["compliance_trend"]) == 1

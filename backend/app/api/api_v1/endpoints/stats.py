@@ -13,7 +13,7 @@ router = APIRouter()
 async def get_dashboard_statistics(
     db: Session = Depends(get_db),
     force_refresh: bool = Query(False, title="Force refresh of statistics"),
-    period_days: int = Query(30, title="Period in days for time-based statistics"),
+    period_days: int = Query(30, ge=1, le=365, title="Period in days for time-based statistics"),
 ) -> Dict[str, Any]:
     """
     Get optimized statistics for the dashboard using cached data when possible.
@@ -34,7 +34,7 @@ async def get_dashboard_statistics(
         stats_summarizer.invalidate_cache()
 
     # Get statistics (from cache or calculate if needed)
-    stats = stats_summarizer.calculate_summary_statistics(db)
+    stats = stats_summarizer.calculate_summary_statistics(db, period_days=period_days)
 
     # Add version and timestamp
     stats["api_version"] = "1.0"
@@ -48,7 +48,7 @@ async def get_domain_statistics(
     domain_id: str = Path(..., title="The domain ID or name"),
     db: Session = Depends(get_db),
     force_refresh: bool = Query(False, title="Force refresh of statistics"),
-    period_days: int = Query(30, title="Period in days for time-based statistics"),
+    period_days: int = Query(30, ge=1, le=365, title="Period in days for time-based statistics"),
 ) -> Dict[str, Any]:
     """
     Get optimized statistics for a specific domain using cached data when possible.
@@ -69,7 +69,7 @@ async def get_domain_statistics(
         stats_summarizer.invalidate_cache(domain_id)
 
     # Get domain statistics (from cache or calculate if needed)
-    stats = stats_summarizer.calculate_summary_statistics(db, domain_id)
+    stats = stats_summarizer.calculate_summary_statistics(db, domain_id, period_days=period_days)
 
     # Add version and timestamp
     stats["api_version"] = "1.0"
