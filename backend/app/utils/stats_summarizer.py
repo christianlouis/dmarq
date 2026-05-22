@@ -52,7 +52,10 @@ class StatsSummarizer:
         os.makedirs(self.cache_dir, exist_ok=True)
 
     def get_cached_summary(
-        self, domain_id: Optional[str] = None, max_age_minutes: int = 60
+        self,
+        domain_id: Optional[str] = None,
+        max_age_minutes: int = 60,
+        period_days: int = 30,
     ) -> Optional[Dict[str, Any]]:
         """
         Get cached summary statistics if available and not too old
@@ -61,11 +64,12 @@ class StatsSummarizer:
             domain_id: Optional domain ID to get domain-specific stats
                        If None, gets global summary
             max_age_minutes: Maximum age of cache in minutes
+            period_days: Number of days used for time-based trend data
 
         Returns:
             Cached statistics or None if not available or too old
         """
-        cache_file = self._get_cache_filename(domain_id)
+        cache_file = self._get_cache_filename(domain_id, period_days)
 
         try:
             if not os.path.exists(cache_file):
@@ -86,18 +90,21 @@ class StatsSummarizer:
             logger.warning("Error reading cache file %s: %s", cache_file, str(e))
             return None
 
-    def save_summary(self, stats: Dict[str, Any], domain_id: Optional[str] = None) -> bool:
+    def save_summary(
+        self, stats: Dict[str, Any], domain_id: Optional[str] = None, period_days: int = 30
+    ) -> bool:
         """
         Save summary statistics to cache
 
         Args:
             stats: Dictionary of statistics to cache
             domain_id: Optional domain ID for domain-specific stats
+            period_days: Number of days used for time-based trend data
 
         Returns:
             True if save was successful, False otherwise
         """
-        cache_file = self._get_cache_filename(domain_id)
+        cache_file = self._get_cache_filename(domain_id, period_days)
 
         try:
             # Add timestamp
@@ -121,34 +128,39 @@ class StatsSummarizer:
                        If None, invalidates global summary cache
         """
         if domain_id is None:
-            # Invalidate all caches
-            cache_file = self._get_cache_filename()
-            if os.path.exists(cache_file):
-                os.remove(cache_file)
+            self._remove_cache_files("global_summary")
         else:
-            # Invalidate specific domain cache
-            cache_file = self._get_cache_filename(domain_id)
-            if os.path.exists(cache_file):
-                os.remove(cache_file)
+            safe_domain = domain_id.replace(".", "_").replace("/", "_")
+            self._remove_cache_files(f"domain_{safe_domain}")
 
-    def _get_cache_filename(self, domain_id: Optional[str] = None) -> str:
+    def _remove_cache_files(self, prefix: str) -> None:
+        """Remove cached summary files that begin with the provided prefix."""
+        for filename in os.listdir(self.cache_dir):
+            if filename.startswith(prefix) and filename.endswith(".json"):
+                os.remove(os.path.join(self.cache_dir, filename))
+
+    def _get_cache_filename(
+        self, domain_id: Optional[str] = None, period_days: int = 30
+    ) -> str:
         """
         Get the filename for a cache file
 
         Args:
             domain_id: Optional domain ID for domain-specific cache
+            period_days: Number of days used for time-based trend data
 
         Returns:
             Path to the cache file
         """
+        period_days = max(1, int(period_days or 30))
         if domain_id is None:
-            return os.path.join(self.cache_dir, "global_summary.json")
+            return os.path.join(self.cache_dir, f"global_summary_{period_days}d.json")
         # Sanitize domain_id to use as filename
         safe_domain = domain_id.replace(".", "_").replace("/", "_")
-        return os.path.join(self.cache_dir, f"domain_{safe_domain}.json")
+        return os.path.join(self.cache_dir, f"domain_{safe_domain}_{period_days}d.json")
 
     def calculate_summary_statistics(
-        self, db: Session, domain_id: Optional[str] = None
+        self, db: Session, domain_id: Optional[str] = None, period_days: int = 30
     ) -> Dict[str, Any]:
         """
         Calculate summary statistics from the database
@@ -156,26 +168,29 @@ class StatsSummarizer:
         Args:
             db: Database session
             domain_id: Optional domain ID to calculate domain-specific stats
+            period_days: Number of days used for time-based trend data
 
         Returns:
             Dictionary with summary statistics
         """
+        period_days = max(1, int(period_days or 30))
+
         # First check if we have cached stats
-        cached_stats = self.get_cached_summary(domain_id)
+        cached_stats = self.get_cached_summary(domain_id, period_days=period_days)
         if cached_stats:
             return cached_stats
 
         if domain_id is None:
-            stats = self._calculate_global_statistics(db)
+            stats = self._calculate_global_statistics(db, period_days)
         else:
-            stats = self._calculate_domain_statistics(db, domain_id)
+            stats = self._calculate_domain_statistics(db, domain_id, period_days)
 
         # Cache the statistics
-        self.save_summary(stats, domain_id)
+        self.save_summary(stats, domain_id, period_days)
 
         return stats
 
-    def _calculate_global_statistics(self, db: Session) -> Dict[str, Any]:
+    def _calculate_global_statistics(self, db: Session, period_days: int = 30) -> Dict[str, Any]:
         """Calculate global statistics across all domains from the database."""
         # Count total domains
         total_domains = db.query(func.count(Domain.id)).scalar() or 0
@@ -206,7 +221,7 @@ class StatsSummarizer:
         top_sources = self._get_top_sources(db)
 
         # Compliance trend over recent days
-        compliance_trend = self._get_compliance_trend(db)
+        compliance_trend = self._get_compliance_trend(db, days=period_days)
 
         return {
             "total_domains": total_domains,
@@ -218,7 +233,9 @@ class StatsSummarizer:
             "compliance_trend": compliance_trend,
         }
 
-    def _calculate_domain_statistics(self, db: Session, domain_id: str) -> Dict[str, Any]:
+    def _calculate_domain_statistics(
+        self, db: Session, domain_id: str, period_days: int = 30
+    ) -> Dict[str, Any]:
         """Calculate statistics for a specific domain from the database."""
         # Look up the domain by name
         domain = db.query(Domain).filter(Domain.name == domain_id).first()
@@ -266,7 +283,7 @@ class StatsSummarizer:
         sources = self._get_domain_sources(db, domain.id)
 
         # Compliance trend for this domain
-        compliance_trend = self._get_compliance_trend(db, domain.id)
+        compliance_trend = self._get_compliance_trend(db, domain.id, days=period_days)
 
         return {
             "domain": domain_id,
@@ -445,7 +462,22 @@ class StatsSummarizer:
         trend = []
         for date_str in sorted(daily.keys()):
             data = daily[date_str]
-            rate = round((data["passed"] / data["total"]) * 100, 1) if data["total"] > 0 else 0.0
-            trend.append({"date": date_str, "rate": rate})
+            total = data["total"]
+            passed = data["passed"]
+            failed = max(0, total - passed)
+            compliance_rate = round((passed / total) * 100, 1) if total > 0 else 0.0
+            failure_rate = round((failed / total) * 100, 1) if total > 0 else 0.0
+            trend.append(
+                {
+                    "date": date_str,
+                    "total": total,
+                    "volume": total,
+                    "passed": passed,
+                    "failed": failed,
+                    "rate": compliance_rate,
+                    "compliance_rate": compliance_rate,
+                    "failure_rate": failure_rate,
+                }
+            )
 
         return trend
