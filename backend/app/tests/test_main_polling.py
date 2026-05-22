@@ -79,7 +79,6 @@ def test_poll_single_imap_source_passes_configured_folder():
         port=993,
         username="u",
         password="p",
-        delete_emails=False,
         folder="Junk Mail",
         db=db,
     )

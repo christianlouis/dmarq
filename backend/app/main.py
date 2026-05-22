@@ -3,11 +3,12 @@ import logging
 import os
 from datetime import datetime
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.concurrency import run_in_threadpool
 
 import app.models.alert  # noqa: F401 – ensure AlertHistory table is registered
 import app.models.dns_cache  # noqa: F401 – ensure DNSCache table is registered
@@ -54,7 +55,6 @@ def _poll_single_imap_source(source: MailSource) -> None:
             port=poll_source.port or 993,
             username=poll_source.username,
             password=poll_source.password,
-            delete_emails=False,
             folder=poll_source.folder,
             db=db,
         )
@@ -547,7 +547,7 @@ async def health():
 # ---------------------------------------------------------------------------
 
 
-def _trigger_poll_imap_source(source: MailSource, db) -> dict:
+def _trigger_poll_imap_source(source: MailSource, db, days: int = 7) -> dict:
     """Poll a single IMAP source and return a result dict for the API response."""
     global last_check_time  # pylint: disable=global-statement
 
@@ -556,12 +556,11 @@ def _trigger_poll_imap_source(source: MailSource, db) -> dict:
         port=source.port or 993,
         username=source.username,
         password=source.password,
-        delete_emails=False,
         folder=source.folder,
         db=db,
     )
     started_at = datetime.utcnow()
-    results = imap_client.fetch_reports(days=7)
+    results = imap_client.fetch_reports(days=days)
     last_check_time = datetime.now()
     source.last_checked = datetime.utcnow()
     record_import_attempt(db, source, results, started_at=started_at, trigger="manual")
@@ -614,7 +613,7 @@ def _trigger_poll_gmail_source(source: MailSource, db) -> dict:
     }
 
 
-def _poll_source_for_trigger(source: MailSource, db) -> dict:
+def _poll_source_for_trigger(source: MailSource, db, days: int = 7) -> dict:
     """Dispatch a single mail source for the manual trigger-poll endpoint.
 
     Returns a result/summary dict that is included in the API response.
@@ -639,7 +638,7 @@ def _poll_source_for_trigger(source: MailSource, db) -> dict:
             }
     if source.method == "IMAP":
         try:
-            return _trigger_poll_imap_source(source, db)
+            return _trigger_poll_imap_source(source, db, days=days)
         except Exception as e:  # pylint: disable=broad-exception-caught
             logger.error("Error polling mail source id=%d: %s", source.id, str(e))
             return {
@@ -656,14 +655,8 @@ def _poll_source_for_trigger(source: MailSource, db) -> dict:
     }
 
 
-# API endpoint to manually trigger IMAP polling
-@app.post("/api/v1/admin/trigger-poll")
-async def trigger_imap_poll(auth: dict = Depends(require_admin_auth)):
-    """
-    Manually trigger IMAP polling for all enabled mail sources (admin only).
-
-    Security: Requires either X-API-Key header or Bearer token
-    """
+def _poll_enabled_sources_for_trigger(days: int) -> list[dict]:
+    """Poll all enabled mail sources for the manual trigger-poll endpoint."""
     results_summary = []
     db = SessionLocal()
     try:
@@ -671,22 +664,39 @@ async def trigger_imap_poll(auth: dict = Depends(require_admin_auth)):
             db.query(MailSource).filter(MailSource.enabled == True).all()  # noqa: E712
         )
 
-        if not enabled_sources:
-            return {
-                "success": True,
-                "message": "No enabled mail sources configured.",
-                "sources_polled": 0,
-                "authenticated_by": auth.get("auth_type"),
-            }
-
         for source in enabled_sources:
-            results_summary.append(_poll_source_for_trigger(source, db))
+            results_summary.append(_poll_source_for_trigger(source, db, days=days))
     finally:
         db.close()
+
+    return results_summary
+
+
+# API endpoint to manually trigger IMAP polling
+@app.post("/api/v1/admin/trigger-poll")
+async def trigger_imap_poll(
+    auth: dict = Depends(require_admin_auth),
+    days: int = Query(7, ge=1, le=365, title="Number of days to fetch for IMAP sources"),
+):
+    """
+    Manually trigger IMAP polling for all enabled mail sources (admin only).
+
+    Security: Requires either X-API-Key header or Bearer token
+    """
+    results_summary = await run_in_threadpool(_poll_enabled_sources_for_trigger, days)
+    if not results_summary:
+        return {
+            "success": True,
+            "message": "No enabled mail sources configured.",
+            "sources_polled": 0,
+            "days": days,
+            "authenticated_by": auth.get("auth_type"),
+        }
 
     return {
         "success": all(r.get("success", True) for r in results_summary),
         "timestamp": last_check_time.isoformat() if last_check_time else None,
+        "days": days,
         "sources": results_summary,
         "authenticated_by": auth.get("auth_type"),
     }

@@ -83,7 +83,10 @@ class TestImapFetchReports:
             "errors": [],
         }
 
-        with patch("app.api.api_v1.endpoints.imap.IMAPClient", return_value=mock_client):
+        with (
+            patch("app.api.api_v1.endpoints.imap.IMAPClient", return_value=mock_client),
+            patch("app.api.api_v1.endpoints.imap.SessionLocal", return_value=MagicMock()),
+        ):
             response = authed_client.post("/api/v1/imap/fetch-reports?days=7")
 
         assert response.status_code == 200
@@ -103,7 +106,10 @@ class TestImapFetchReports:
     def test_fetch_background_for_long_range(self, authed_client: TestClient):
         """Days > 14 should queue a background task."""
         mock_client = MagicMock()
-        with patch("app.api.api_v1.endpoints.imap.IMAPClient", return_value=mock_client):
+        with (
+            patch("app.api.api_v1.endpoints.imap.IMAPClient", return_value=mock_client),
+            patch("app.api.api_v1.endpoints.imap.SessionLocal", return_value=MagicMock()),
+        ):
             response = authed_client.post("/api/v1/imap/fetch-reports?days=30")
 
         assert response.status_code == 200
@@ -121,7 +127,10 @@ class TestImapFetchReports:
             "errors": ["Could not parse email 1"],
         }
 
-        with patch("app.api.api_v1.endpoints.imap.IMAPClient", return_value=mock_client):
+        with (
+            patch("app.api.api_v1.endpoints.imap.IMAPClient", return_value=mock_client),
+            patch("app.api.api_v1.endpoints.imap.SessionLocal", return_value=MagicMock()),
+        ):
             response = authed_client.post("/api/v1/imap/fetch-reports?days=3")
 
         assert response.status_code == 200
@@ -132,7 +141,10 @@ class TestImapFetchReports:
         mock_client = MagicMock()
         mock_client.fetch_reports.side_effect = RuntimeError("unexpected")
 
-        with patch("app.api.api_v1.endpoints.imap.IMAPClient", return_value=mock_client):
+        with (
+            patch("app.api.api_v1.endpoints.imap.IMAPClient", return_value=mock_client),
+            patch("app.api.api_v1.endpoints.imap.SessionLocal", return_value=MagicMock()),
+        ):
             response = authed_client.post("/api/v1/imap/fetch-reports?days=5")
 
         assert response.status_code == 500

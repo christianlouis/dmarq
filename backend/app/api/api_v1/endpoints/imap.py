@@ -4,9 +4,9 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
-from app.core.database import SessionLocal, get_db
+from app.core.database import SessionLocal
 from app.core.security import require_admin_auth
 from app.services.imap_client import IMAPClient
 
@@ -24,18 +24,24 @@ class IMAPTestRequest(BaseModel):
     ssl: bool = True
 
 
-def _fetch_imap_reports_background(days: int, delete_emails: bool) -> None:
-    """Fetch IMAP reports with a standalone DB session for background imports."""
+def _fetch_imap_reports_sync(days: int, delete_emails: Optional[bool]) -> Dict[str, Any]:
+    """Fetch IMAP reports with a standalone DB session."""
     db = SessionLocal()
     try:
         imap_client = IMAPClient(delete_emails=delete_emails, db=db)
-        imap_client.fetch_reports(days=days)
+        results = imap_client.fetch_reports(days=days)
         db.commit()
+        return results
     except Exception:
         db.rollback()
         raise
     finally:
         db.close()
+
+
+def _fetch_imap_reports_background(days: int, delete_emails: Optional[bool]) -> None:
+    """Fetch IMAP reports from a FastAPI background task."""
+    _fetch_imap_reports_sync(days, delete_emails)
 
 
 @router.post("/test-connection")
@@ -73,9 +79,8 @@ async def test_imap_connection(
 async def fetch_imap_reports(
     background_tasks: BackgroundTasks,
     _auth: dict = Depends(require_admin_auth),
-    db: Session = Depends(get_db),
     days: int = 7,
-    delete_emails: bool = False,
+    delete_emails: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """
     Fetch DMARC reports from the configured IMAP mailbox
@@ -85,8 +90,6 @@ async def fetch_imap_reports(
     # Security: Validate parameters
     if days < 1 or days > 365:
         raise HTTPException(status_code=400, detail="Days parameter must be between 1 and 365")
-
-    imap_client = IMAPClient(delete_emails=delete_emails, db=db)
 
     # Run in background if it might take a while
     if days > 14:
@@ -99,8 +102,7 @@ async def fetch_imap_reports(
 
     # Otherwise run immediately
     try:
-        results = imap_client.fetch_reports(days=days)
-        db.commit()
+        results = await run_in_threadpool(_fetch_imap_reports_sync, days, delete_emails)
 
         return {
             "success": results["success"],

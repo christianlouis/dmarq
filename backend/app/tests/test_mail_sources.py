@@ -875,9 +875,7 @@ class TestManualSourceFetchEndpoint:
         assert data["error_count"] == 1
         assert "bad attachment with newline" in caplog.text
         history_resp = authed_client.get(f"/api/v1/mail-sources/{source_id}/imports")
-        assert history_resp.json()[0]["details"] == [
-            {"status": "error", "filename": "bad.xml"}
-        ]
+        assert history_resp.json()[0]["details"] == [{"status": "error", "filename": "bad.xml"}]
         mock_imap.fetch_reports.assert_called_once_with(days=30)
 
     def test_fetch_gmail_source(self, authed_client: TestClient, db_session: Session):
@@ -1806,7 +1804,32 @@ class TestTriggerPollImapSource:
         assert result["processed"] == 3
         assert result["reports_found"] == 2
         assert result["new_domains"] == ["dom.example"]
+        mock_imap.fetch_reports.assert_called_once_with(days=7)
         mock_db.commit.assert_called_once()
+
+    def test_uses_requested_days(self):
+        from app.main import _trigger_poll_imap_source
+
+        src = MagicMock()
+        src.id = 5
+        src.name = "My IMAP"
+        src.server = "imap.example.com"
+        src.port = 993
+        src.username = "u"
+        src.password = "p"
+
+        mock_imap = MagicMock()
+        mock_imap.fetch_reports.return_value = {
+            "success": True,
+            "processed": 0,
+            "reports_found": 0,
+            "new_domains": [],
+        }
+
+        with patch("app.main.IMAPClient", return_value=mock_imap):
+            _trigger_poll_imap_source(src, MagicMock(), days=30)
+
+        mock_imap.fetch_reports.assert_called_once_with(days=30)
 
 
 class TestTriggerPollGmailSource:
@@ -1938,7 +1961,7 @@ class TestPollSourceForTrigger:
             result = _poll_source_for_trigger(src, MagicMock())
 
         assert result is expected
-        mock_fn.assert_called_once()
+        assert mock_fn.call_args.kwargs["days"] == 7
 
     def test_imap_exception_returns_failure_dict(self):
         from app.main import _poll_source_for_trigger
@@ -2092,15 +2115,20 @@ class TestTriggerPollEndpoint:
             with TestClient(main_app) as tc:
                 with (
                     patch("app.main.SessionLocal", return_value=mock_db),
-                    patch("app.main._poll_source_for_trigger", return_value=mock_result),
+                    patch(
+                        "app.main._poll_source_for_trigger", return_value=mock_result
+                    ) as mock_poll,
                 ):
-                    resp = tc.post("/api/v1/admin/trigger-poll")
+                    resp = tc.post("/api/v1/admin/trigger-poll?days=30")
 
             assert resp.status_code == 200
             data = resp.json()
+            assert data["days"] == 30
             assert "sources" in data
             assert len(data["sources"]) == 1
             assert data["sources"][0]["success"] is True
+            assert mock_result == data["sources"][0]
+            assert mock_poll.call_args.kwargs["days"] == 30
         finally:
             main_app.dependency_overrides.clear()
 

@@ -62,6 +62,7 @@ For database operations, use the [Database Backup and Restore](backups.md) guide
 | `IMAP_FOLDER` | IMAP folder to check | `INBOX` | `DMARC`, `reports` |
 | `IMAP_MARK_AS_READ` | Mark processed emails as read | `true` | `true`, `false` |
 | `IMAP_ARCHIVE_FOLDER` | Folder to move processed emails to | - | `Processed`, `Archive` |
+| `DELETE_IMPORTED_EMAILS` | Delete IMAP emails after a DMARC report is successfully imported | `false` | `true`, `false` |
 
 ### Application Settings
 
@@ -108,6 +109,7 @@ policy if long-term storage size matters.
 | `CF_ENABLED` | Enable Cloudflare integration | `false` | `true`, `false` |
 | `CF_API_TOKEN` | Cloudflare API token | - | `your_cloudflare_api_token` |
 | `CF_ZONE_ID` | Cloudflare Zone ID | - | `your_cloudflare_zone_id` |
+| `WEBHOOK_SECRET` | Required secret for inbound email worker webhooks | - | `openssl rand -hex 32` |
 
 ### DNS Result Cache
 

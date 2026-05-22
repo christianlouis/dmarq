@@ -45,9 +45,11 @@ The fastest way to get DMARQ running is to use Docker Compose:
    # IMAP_PASSWORD=your_secure_password
    # IMAP_USE_SSL=true
    # IMAP_POLLING_INTERVAL=60
+   # DELETE_IMPORTED_EMAILS=false
 
    # Security Settings
    SECRET_KEY=generate_a_secure_random_key
+   # WEBHOOK_SECRET=generate_a_separate_webhook_secret
    ALLOWED_HOSTS=localhost,127.0.0.1
    ```
 
@@ -104,7 +106,9 @@ services:
       - IMAP_PASSWORD=${IMAP_PASSWORD:-}
       - IMAP_USE_SSL=${IMAP_USE_SSL:-true}
       - IMAP_POLLING_INTERVAL=${IMAP_POLLING_INTERVAL:-60}
+      - DELETE_IMPORTED_EMAILS=${DELETE_IMPORTED_EMAILS:-false}
       - SECRET_KEY=${SECRET_KEY:-insecure_key_change_me_in_production}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1}
     depends_on:
       - db
