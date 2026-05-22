@@ -427,8 +427,12 @@ class TestProcessAttachments:
         msg = email.message_from_bytes(
             _make_email_with_attachment("report.xml", MINIMAL_DMARC_XML, "application/xml")
         )
-        count = client._process_attachments(msg)
+        stats = {"processed": 0, "reports_found": 0, "errors": []}
+        count = client._process_attachments(msg, stats, message_id="1")
         assert count == 1
+        assert stats["details"][0]["status"] == "imported"
+        assert stats["details"][0]["message_id"] == "1"
+        assert stats["details"][0]["report_id"] == "abc-123"
 
     def test_processes_zip_attachment(self):
         client = self._make_client()
@@ -450,12 +454,73 @@ class TestProcessAttachments:
         assert count == 1
         assert db_session.query(DMARCReport).filter_by(report_id="abc-123").count() == 1
 
+    def test_duplicate_report_adds_detail(self):
+        client = self._make_client()
+        msg = email.message_from_bytes(
+            _make_email_with_attachment("report.xml", MINIMAL_DMARC_XML, "application/xml")
+        )
+        first_stats = {"processed": 0, "reports_found": 0, "errors": []}
+        second_stats = {"processed": 0, "reports_found": 0, "errors": []}
+
+        assert client._process_attachments(msg, first_stats) == 1
+        assert client._process_attachments(msg, second_stats) == 0
+        assert second_stats["details"][0]["status"] == "duplicate"
+        assert second_stats["details"][0]["report_id"] == "abc-123"
+
     def test_bad_attachment_does_not_raise(self):
         client = self._make_client()
         msg = email.message_from_bytes(_make_email_with_attachment("report.xml", b"not xml at all"))
         # Should not raise; just returns 0
-        count = client._process_attachments(msg)
+        stats = {"processed": 0, "reports_found": 0, "errors": []}
+        count = client._process_attachments(msg, stats)
         assert count == 0
+        assert stats["errors"]
+        assert stats["details"][0]["status"] == "error"
+        assert stats["details"][0]["filename"] == "report.xml"
+
+    def test_empty_attachment_adds_detail(self):
+        client = self._make_client()
+        msg = email.message_from_bytes(_make_email_with_attachment("report.xml", b""))
+        stats = {"processed": 0, "reports_found": 0, "errors": []}
+
+        count = client._process_attachments(msg, stats)
+
+        assert count == 0
+        assert stats["details"][0]["status"] == "skipped"
+        assert stats["details"][0]["reason"] == "empty_attachment"
+
+    def test_unsupported_attachment_adds_detail(self):
+        client = self._make_client()
+        msg = email.message_from_bytes(
+            _make_email_with_attachment("notes.txt", b"not xml", "text/plain")
+        )
+        stats = {"processed": 0, "reports_found": 0, "errors": []}
+
+        count = client._process_attachments(msg, stats, message_id="2")
+
+        assert count == 0
+        assert stats["details"] == [
+            {
+                "status": "skipped",
+                "reason": "unsupported_attachment",
+                "message_id": "2",
+                "filename": "notes.txt",
+            }
+        ]
+
+    def test_attachment_without_filename_is_skipped(self):
+        client = self._make_client()
+        msg = MIMEMultipart()
+        msg.attach(MIMEText("body"))
+        part = MIMEApplication(MINIMAL_DMARC_XML)
+        part["Content-Disposition"] = "attachment"
+        msg.attach(part)
+        stats = {"processed": 0, "reports_found": 0, "errors": []}
+
+        count = client._process_attachments(msg, stats)
+
+        assert count == 0
+        assert stats.get("details") is None
 
     def test_no_attachments_returns_zero(self):
         client = self._make_client()
@@ -497,6 +562,7 @@ class TestProcessSingleEmail:
 
         assert stats["processed"] == 1
         assert stats["reports_found"] == 1
+        assert stats["details"][0]["status"] == "imported"
 
     def test_fetch_error_skips_email(self):
         client = self._make_client()
@@ -507,6 +573,8 @@ class TestProcessSingleEmail:
         client._process_single_email(mock_mail, b"1", stats)
 
         assert stats["processed"] == 0
+        assert stats["details"][0]["status"] == "error"
+        assert stats["details"][0]["reason"] == "message_fetch_failed"
 
     def test_exception_adds_to_errors(self):
         client = self._make_client()
@@ -517,6 +585,7 @@ class TestProcessSingleEmail:
         client._process_single_email(mock_mail, b"1", stats)
 
         assert len(stats["errors"]) == 1
+        assert stats["details"][0]["reason"] == "message_processing_failed"
 
     def test_marks_deleted_when_flag_set(self):
         client = self._make_client()
@@ -599,6 +668,7 @@ class TestFetchReports:
 
         assert result["success"] is True
         assert result["reports_found"] >= 1
+        assert result["details"][0]["status"] == "imported"
 
     def test_connection_error_returns_failure(self):
         client = self._make_client()

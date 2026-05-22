@@ -140,17 +140,24 @@ class IMAPClient:
 
     def _process_single_email(self, mail, email_id: bytes, stats: dict) -> None:
         """Fetch, parse, and store DMARC attachments from one email message."""
+        message_id = email_id.decode("utf-8", errors="replace")
         try:
             status, msg_data = mail.fetch(email_id, "(RFC822)")
             if status != "OK":
                 logger.error("Error fetching email ID %s", email_id)
+                self._append_detail(
+                    stats,
+                    status="error",
+                    reason="message_fetch_failed",
+                    message_id=message_id,
+                )
                 return
 
             raw_email = msg_data[0][1]
             msg = email.message_from_bytes(raw_email)
 
             if self._is_dmarc_report_email(msg):
-                reports_found = self._process_attachments(msg, stats)
+                reports_found = self._process_attachments(msg, stats, message_id=message_id)
                 stats["reports_found"] += reports_found
 
                 # Mark email as read (and optionally delete)
@@ -163,6 +170,13 @@ class IMAPClient:
             error_msg = f"Error processing email ID {email_id}: {str(e)}"
             logger.error(error_msg)
             stats["errors"].append(error_msg)
+            self._append_detail(
+                stats,
+                status="error",
+                reason="message_processing_failed",
+                message_id=message_id,
+                error=str(e),
+            )
 
     def fetch_reports(self, days: int = 7) -> Dict[str, Any]:
         """
@@ -185,6 +199,7 @@ class IMAPClient:
             "duplicate_reports": 0,
             "new_domains": [],
             "errors": [],
+            "details": [],
         }
 
         try:
@@ -334,12 +349,7 @@ class IMAPClient:
                     filename = self._decode_email_header(filename)
 
                     # Check file extension
-                    if (
-                        filename.lower().endswith(".xml")
-                        or filename.lower().endswith(".zip")
-                        or filename.lower().endswith(".gz")
-                        or filename.lower().endswith(".gzip")
-                    ):
+                    if self._is_dmarc_filename(filename):
                         return True
 
                 # Check content type
@@ -355,7 +365,115 @@ class IMAPClient:
 
         return False
 
-    def _process_attachments(self, msg: email.message.Message, stats: dict | None = None) -> int:
+    @staticmethod
+    def _is_dmarc_filename(filename: str) -> bool:
+        lower = filename.lower()
+        return (
+            lower.endswith(".xml")
+            or lower.endswith(".zip")
+            or lower.endswith(".gz")
+            or lower.endswith(".gzip")
+        )
+
+    @staticmethod
+    def _append_detail(stats: dict | None, **detail: str) -> None:
+        """Append a compact attachment/message outcome to the import stats."""
+        if stats is None:
+            return
+        stats.setdefault("details", []).append(
+            {key: value for key, value in detail.items() if value}
+        )
+
+    def _store_report_if_new(
+        self,
+        report: Dict[str, Any],
+        *,
+        filename: str,
+        stats: dict | None,
+        message_id: str | None,
+    ) -> bool:
+        domain = report.get("domain", "unknown")
+        report_id = report.get("report_id", "")
+        if report_id and (
+            self.report_store.has_report(domain, report_id)
+            or (self.db is not None and report_exists(self.db, domain, report_id))
+        ):
+            logger.info("Skipping duplicate DMARC report %s for %s", report_id, domain)
+            if stats is not None:
+                stats["duplicate_reports"] = stats.get("duplicate_reports", 0) + 1
+            self._append_detail(
+                stats,
+                status="duplicate",
+                message_id=message_id,
+                filename=filename,
+                domain=str(domain),
+                report_id=str(report_id),
+            )
+            return False
+
+        if self.db is not None:
+            save_parsed_report(self.db, report)
+        self.report_store.add_report(report)
+        self._append_detail(
+            stats,
+            status="imported",
+            message_id=message_id,
+            filename=filename,
+            domain=str(domain),
+            report_id=str(report_id),
+        )
+        return True
+
+    def _process_dmarc_attachment(
+        self,
+        part: email.message.Message,
+        *,
+        filename: str,
+        stats: dict | None,
+        message_id: str | None,
+    ) -> bool:
+        try:
+            content = part.get_payload(decode=True)
+            if not content:
+                self._append_detail(
+                    stats,
+                    status="skipped",
+                    reason="empty_attachment",
+                    message_id=message_id,
+                    filename=filename,
+                )
+                return False
+
+            report = DMARCParser.parse_file(content, filename)
+            stored = self._store_report_if_new(
+                report,
+                filename=filename,
+                stats=stats,
+                message_id=message_id,
+            )
+            if stored:
+                logger.info("Successfully processed DMARC report: %s", filename)
+            return stored
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.error("Error processing attachment %s: %s", filename, str(exc))
+            if stats is not None:
+                stats.setdefault("errors", []).append(f"Failed to parse {filename}: {exc}")
+            self._append_detail(
+                stats,
+                status="error",
+                reason="parse_failed",
+                message_id=message_id,
+                filename=filename,
+                error=str(exc),
+            )
+            return False
+
+    def _process_attachments(
+        self,
+        msg: email.message.Message,
+        stats: dict | None = None,
+        message_id: str | None = None,
+    ) -> int:
         """
         Process email attachments that might be DMARC reports
 
@@ -368,57 +486,30 @@ class IMAPClient:
         reports_found = 0
 
         for part in msg.walk():
-            content_disposition = part.get_content_disposition()
+            if part.get_content_disposition() != "attachment":
+                continue
 
-            if content_disposition == "attachment":
-                filename = part.get_filename()
-                if filename:
-                    # Decode filename if needed
-                    filename = self._decode_email_header(filename)
+            filename = part.get_filename()
+            if not filename:
+                continue
 
-                    # Check if it's a likely DMARC report file
-                    if (
-                        filename.lower().endswith(".xml")
-                        or filename.lower().endswith(".zip")
-                        or filename.lower().endswith(".gz")
-                        or filename.lower().endswith(".gzip")
-                    ):
+            filename = self._decode_email_header(filename)
+            if not self._is_dmarc_filename(filename):
+                self._append_detail(
+                    stats,
+                    status="skipped",
+                    reason="unsupported_attachment",
+                    message_id=message_id,
+                    filename=filename,
+                )
+                continue
 
-                        try:
-                            # Get attachment content
-                            content = part.get_payload(decode=True)
-
-                            # Parse the DMARC report
-                            report = DMARCParser.parse_file(content, filename)
-
-                            domain = report.get("domain", "unknown")
-                            report_id = report.get("report_id", "")
-                            if report_id and (
-                                self.report_store.has_report(domain, report_id)
-                                or (
-                                    self.db is not None
-                                    and report_exists(self.db, domain, report_id)
-                                )
-                            ):
-                                logger.info(
-                                    "Skipping duplicate DMARC report %s for %s",
-                                    report_id,
-                                    domain,
-                                )
-                                if stats is not None:
-                                    stats["duplicate_reports"] = (
-                                        stats.get("duplicate_reports", 0) + 1
-                                    )
-                                continue
-
-                            # Add the report to the store
-                            if self.db is not None:
-                                save_parsed_report(self.db, report)
-                            self.report_store.add_report(report)
-
-                            reports_found += 1
-                            logger.info("Successfully processed DMARC report: %s", filename)
-                        except Exception as e:  # pylint: disable=broad-exception-caught
-                            logger.error("Error processing attachment %s: %s", filename, str(e))
+            if self._process_dmarc_attachment(
+                part,
+                filename=filename,
+                stats=stats,
+                message_id=message_id,
+            ):
+                reports_found += 1
 
         return reports_found

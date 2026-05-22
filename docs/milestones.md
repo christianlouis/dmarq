@@ -63,10 +63,10 @@ Recently delivered:
 - Uploaded, Gmail-imported, and IMAP-imported reports are now persisted to report/record tables and can be reloaded into report/domain views.
 - Mail source import history is now visible from the Mail Sources UI.
 - A single mail source can be manually imported from the Mail Sources UI, with the result recorded in import history.
+- Import history now includes per-attachment details for imported reports, duplicates, parse errors, unsupported attachments, and imported report IDs.
 - The current Alpine-based UI can run under the configured CSP, so dynamic tables render in real browsers.
 
 Next tasks:
-- Add per-import result details: skipped duplicates, parse failures, unsupported attachments, and imported report IDs.
 - Add mailbox search controls for date range/backfill without requiring code changes.
 - Improve source aggregation so each sender IP keeps pass/fail totals instead of only the latest result.
 

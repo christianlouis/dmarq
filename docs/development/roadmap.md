@@ -28,6 +28,7 @@ Recently improved:
 - Report/domain API reads can hydrate the dashboard projection from persisted data after restart.
 - Mail source import history is visible in the Mail Sources UI.
 - Individual mail sources can be manually imported from the Mail Sources UI.
+- Import-history rows include sanitized per-attachment outcomes and imported report IDs.
 - The current Alpine-based UI is allowed by CSP and renders dynamic tables in real browsers.
 
 Implementation note:
@@ -38,9 +39,8 @@ Implementation note:
 Objective: make mailbox imports auditable and make report totals trustworthy.
 
 Priority tasks:
-- Expand import attempts with message ID, source, attachment filename, outcome, and sanitized error details.
+- Add mailbox search controls for date-range backfills.
 - Report duplicate skips separately from parse failures.
-- Add backfill controls for Gmail and IMAP sources.
 - Improve source rollups so a source IP tracks pass/fail counts over time.
 
 Quality bar:

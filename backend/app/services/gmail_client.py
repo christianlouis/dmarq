@@ -214,6 +214,7 @@ class GmailClient:
             "new_domains": [],
             "errors": [],
             "new_ingested_ids": [],
+            "details": [],
         }
 
         try:
@@ -232,6 +233,12 @@ class GmailClient:
 
         for msg_id in message_ids:
             if msg_id in self.already_ingested_ids:
+                self._append_detail(
+                    stats,
+                    status="skipped",
+                    reason="already_ingested_message",
+                    message_id=msg_id,
+                )
                 continue
 
             stats["processed"] += 1
@@ -292,6 +299,11 @@ class GmailClient:
 
         return ids
 
+    @staticmethod
+    def _append_detail(stats: dict, **detail: str) -> None:
+        """Append a compact attachment/message outcome to the import stats."""
+        stats.setdefault("details", []).append({key: value for key, value in detail.items() if value})
+
     def _process_message(self, service, msg_id: str, stats: dict) -> int:
         """
         Download a Gmail message and process any DMARC-report attachments.
@@ -305,11 +317,17 @@ class GmailClient:
         except HttpError as exc:
             logger.error("Gmail API: failed to fetch message %s: %s", msg_id, exc)
             stats["errors"].append(f"Failed to fetch message {msg_id}")
+            self._append_detail(
+                stats,
+                status="error",
+                reason="message_fetch_failed",
+                message_id=msg_id,
+            )
             return 0
 
         raw_bytes = base64.urlsafe_b64decode(msg_data.get("raw", ""))
         msg = email.message_from_bytes(raw_bytes)
-        return self._process_attachments(msg, stats)
+        return self._process_attachments(msg, stats, message_id=msg_id)
 
     @staticmethod
     def _decode_part_filename(part: email.message.Message) -> str:
@@ -352,33 +370,81 @@ class GmailClient:
         self.report_store.add_report(report)
         return True
 
-    def _process_attachments(self, msg: email.message.Message, stats: dict) -> int:
+    def _process_attachments(
+        self,
+        msg: email.message.Message,
+        stats: dict,
+        message_id: Optional[str] = None,
+    ) -> int:
         """Walk a parsed email message and extract DMARC report attachments."""
         reports_found = 0
 
         for part in msg.walk():
             filename = self._decode_part_filename(part)
-            if not filename or not self._is_dmarc_attachment(filename):
+            if not filename:
                 continue
 
             disposition = part.get_content_disposition()
             if disposition not in ("attachment", None):
                 continue
 
+            if not self._is_dmarc_attachment(filename):
+                self._append_detail(
+                    stats,
+                    status="skipped",
+                    reason="unsupported_attachment",
+                    message_id=message_id,
+                    filename=filename,
+                )
+                continue
+
             content = part.get_payload(decode=True)
             if not content:
+                self._append_detail(
+                    stats,
+                    status="skipped",
+                    reason="empty_attachment",
+                    message_id=message_id,
+                    filename=filename,
+                )
                 continue
 
             try:
                 report = DMARCParser.parse_file(content, filename)
+                domain = str(report.get("domain", "unknown"))
+                report_id = str(report.get("report_id", ""))
                 if self._store_report_if_new(report):
                     stats["reports_found"] += 1
                     reports_found += 1
+                    self._append_detail(
+                        stats,
+                        status="imported",
+                        message_id=message_id,
+                        filename=filename,
+                        domain=domain,
+                        report_id=report_id,
+                    )
                 else:
                     stats["duplicate_reports"] = stats.get("duplicate_reports", 0) + 1
+                    self._append_detail(
+                        stats,
+                        status="duplicate",
+                        message_id=message_id,
+                        filename=filename,
+                        domain=domain,
+                        report_id=report_id,
+                    )
             except Exception as exc:  # pylint: disable=broad-exception-caught
                 logger.error("Failed to parse DMARC attachment %s: %s", filename, exc)
                 stats["errors"].append(f"Failed to parse {filename}: {exc}")
+                self._append_detail(
+                    stats,
+                    status="error",
+                    reason="parse_failed",
+                    message_id=message_id,
+                    filename=filename,
+                    error=str(exc),
+                )
 
         return reports_found
 

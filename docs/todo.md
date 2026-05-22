@@ -92,6 +92,7 @@ This file tracks the specific implementation tasks for each milestone of the DMA
 - [x] Count duplicate skips separately from parse failures
 - [x] Show recent import history in the Mail Sources UI
 - [x] Add manual import trigger per mail source
+- [x] Add per-import result details for duplicates, parse failures, unsupported attachments, and imported report IDs
 - [ ] Add retry/backfill controls per mail source
 
 ## Milestone 3: Database Integration

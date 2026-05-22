@@ -121,6 +121,7 @@ class MailSourceImportResponse(BaseModel):
     error_count: int
     new_domains: List[str]
     errors: List[str]
+    details: List[Dict[str, str]]
     started_at: datetime
     finished_at: datetime
     created_at: datetime
@@ -183,6 +184,24 @@ def _decode_json_list(value: Optional[str]) -> List[str]:
     return [str(item) for item in decoded]
 
 
+def _decode_json_details(value: Optional[str]) -> List[Dict[str, str]]:
+    """Decode a sanitized JSON detail list stored on import history rows."""
+    if not value:
+        return []
+    try:
+        decoded = json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(decoded, list):
+        return []
+
+    details: List[Dict[str, str]] = []
+    for item in decoded:
+        if isinstance(item, dict):
+            details.append({str(key): str(val) for key, val in item.items()})
+    return details
+
+
 def _import_to_response(row: MailSourceImport) -> MailSourceImportResponse:
     """Convert an import-history ORM row to an API response."""
     return MailSourceImportResponse(
@@ -196,6 +215,7 @@ def _import_to_response(row: MailSourceImport) -> MailSourceImportResponse:
         error_count=row.error_count,
         new_domains=_decode_json_list(row.new_domains),
         errors=_decode_json_list(row.errors),
+        details=_decode_json_details(row.details),
         started_at=row.started_at,
         finished_at=row.finished_at,
         created_at=row.created_at,
