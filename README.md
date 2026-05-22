@@ -4,34 +4,38 @@
 
 🌐 [Live Demo (soon)](https://app.dmarq.org)  
 🔒 Self-hosted. Secure. Beautifully visual.  
-🛠️ Docker-deployable. Cloudflare-integrated.  
-📬 Aggregate & forensic report support.
+🛠️ Docker-deployable. DNS posture checks (Cloudflare inspection planned).  
+📬 Aggregate report support (failure/forensic reports planned).
 
 ---
 
 ## 💡 What is DMARQ?
 
-DMARQ ingests and visualizes DMARC (Domain-based Message Authentication, Reporting & Conformance) reports — both aggregate and forensic — to help domain owners understand who is sending emails on their behalf and whether those messages are properly authenticated using SPF and DKIM.
+DMARQ ingests and visualizes DMARC (Domain-based Message Authentication, Reporting & Conformance) reports — primarily aggregate (RUA) reports today — to help domain owners understand who is sending emails on their behalf and whether those messages are properly authenticated using SPF and DKIM.
 
 No more guessing. See which services are passing DMARC, which are failing, and how to fix them — all in one clear dashboard.
 
 ---
 
-## 🚀 Current Status - Milestone 1 Completed
+## 🚀 Current Status (Milestones 1–7 Complete)
 
-We have achieved **Milestone 1: Basic DMARC Monitoring**. This milestone includes:
+DMARQ currently supports end-to-end aggregate DMARC monitoring with mailbox ingestion, persistence, reporting, DNS checks, and notifications.
 
-- ✅ DMARC XML report parsing (supports XML, ZIP, and GZIP formats)
-- ✅ In-memory storage of report data for up to 5 domains
-- ✅ Simple dashboard UI showing DMARC compliance statistics
-- ✅ Support for uploading and processing DMARC aggregate reports
-- ✅ Domain overview with compliance rates and email statistics
+Included:
 
-You can now:
-1. Upload DMARC aggregate reports via the web interface
-2. View summary statistics across all monitored domains
-3. Drill down into domain-specific details and reports
-4. Track compliance rates and authentication failures
+- ✅ DMARC aggregate XML report parsing (XML, ZIP, GZIP)
+- ✅ Upload ingestion + mailbox ingestion (IMAP + Gmail OAuth)
+- ✅ Database persistence (SQLite/PostgreSQL) + migrations
+- ✅ Dashboard trends, domain timelines, and sender/source analytics
+- ✅ Import history + backfills for mail sources
+- ✅ Alerts & notifications via Apprise (test send, alert rules, daily/weekly summaries)
+- ✅ DNS checks (DMARC/SPF/DKIM) with DKIM selector discovery from report data
+
+Up next:
+
+- 🔜 DNS health guidance + optional Cloudflare read-only inspection (Milestone 8)
+- 🔜 Setup and operations polish (Milestone 9)
+- 🧊 Failure/forensic report support (RUF) (Milestone 10)
 
 ---
 
@@ -39,24 +43,23 @@ You can now:
 
 ### 📊 Dashboard & Reports
 - **DMARC Compliance Rate**: Track pass/fail rates over time
-- **Enforcement Rate**: Visualize policy strength and adoption
 - **Volume & Trends**: Identify traffic spikes and anomalies
 - **Top Sending Sources**: Detect unknown or unauthorized senders
-- **Forensic Reports**: Analyze failure samples (RFC 6591 support)
+- **Actionable Recommendations**: Prioritize what to fix next
+- **Export**: CSV export for selected domains and date ranges
 
 ### 🛡 DNS Record Health
-- Inspect **SPF**, **DKIM**, **DMARC**, **MX**, and **BIMI** records
+- Inspect **SPF**, **DKIM**, and **DMARC** records
+- Discover likely **DKIM selectors** from report data
 - Show which records are missing, broken, or invalid
-- Get **fix suggestions** tailored to your provider (e.g., Google, Microsoft)
-- 🔒 No automatic changes — all DNS updates require explicit confirmation
+- 🔒 No automatic changes — all DNS updates require explicit confirmation (when remediation workflows are added)
 
-### 🌐 Cloudflare Integration
-- Automatically discover domains in your Cloudflare account
-- Fetch and analyze relevant DNS records
-- Suggest missing or malformed entries
-- Track configuration changes over time (coming soon)
+### 🌐 Cloudflare Integration (Planned)
+- Optional read-only domain discovery and DNS inspection
+- Suggestions for missing or malformed entries
+- Track configuration changes over time
 
-### ⚙️ Web-Based Setup Wizard
+### ⚙️ Web-Based Setup Wizard (Planned / In Progress)
 - Guided onboarding experience (no CLI setup required)
 - Store all configuration in a secure internal database
 - Seed config with environment variables for headless deployment
@@ -64,14 +67,13 @@ You can now:
 ### 🚨 Alerts & Notifications
 - Integration with [Apprise](https://github.com/caronc/apprise)
 - Email, Slack, webhook, and more
-- Alert on new failures, compliance drops, or unknown senders
+- Alert on new senders, compliance drops, elevated failures, or missing reports
 - Daily and weekly DMARC summaries
 - Alert history for active and resolved alerts
 
-### 🔐 User Management
-- Built-in authentication via **FastAPI Users**
-- JWT-secured API endpoints
-- Admin dashboard access control
+### 🔐 Authentication
+- Logto-based authentication integration
+- Explicit auth-disabled mode for local development
 
 ---
 
@@ -138,16 +140,15 @@ settings.
 
 ---
 
-## 🧪 Development Roadmap
+## 🧭 Development Roadmap
 
-- ✅ **Milestone 1**: Basic DMARC Monitoring (up to 5 domains)
-- ✅ **Milestone 2**: IMAP Integration
-- ✅ **Milestone 3**: Database Persistence
-- 🔜 **Milestone 4**: Enhanced Dashboard & Visualization
-- 🔜 **Milestone 5**: User Authentication & Multi-User Support
+- ✅ **Milestones 1–7**: Parsing, ingestion (upload/IMAP/Gmail), persistence, reporting, notifications, production hardening
+- 🔜 **Milestone 8**: DNS health guidance + Cloudflare read-only inspection
+- 🔜 **Milestone 9**: Setup and operations polish
+- 🧊 **Milestone 10**: Failure/forensic report support (RUF)
+- 🧠 **Milestones 11–16**: DMARC format compatibility, Microsoft 365 ingestion, broader email posture, APIs/webhooks, workspaces/MSP, AI/MCP (see docs)
 
-See the full [Roadmap](docs/development/roadmap.md) and [TODO](TODO.md) for details
-on what is planned vs. what is currently implemented.
+See the full [Roadmap](docs/development/roadmap.md) and [Milestones](docs/milestones.md).
 
 ---
 
@@ -172,7 +173,7 @@ automated versioning and changelog generation.
 Unlike most commercial DMARC tools, DMARQ gives you:
 - 🔍 Full visibility without third-party access to your reports
 - 🧠 Intelligence-driven suggestions, not just raw data
-- 🎨 A beautiful, intuitive dashboard with real-time insights
+- 🎨 A beautiful, intuitive dashboard with actionable insights
 - 💻 Self-hosted flexibility with modern developer practices
 
 Let's build better email security — together.
