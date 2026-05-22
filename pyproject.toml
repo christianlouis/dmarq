@@ -1,6 +1,6 @@
 [project]
 name = "dmarq"
-version = "1.26.0"
+version = "1.27.0"
 description = "A modern, privacy-conscious DMARC monitoring and analysis platform"
 readme = "README.md"
 license = {text = "MIT"}
