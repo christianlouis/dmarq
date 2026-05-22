@@ -146,7 +146,7 @@ class IMAPClient:
             msg = email.message_from_bytes(raw_email)
 
             if self._is_dmarc_report_email(msg):
-                reports_found = self._process_attachments(msg)
+                reports_found = self._process_attachments(msg, stats)
                 stats["reports_found"] += reports_found
 
                 # Mark email as read (and optionally delete)
@@ -178,6 +178,7 @@ class IMAPClient:
             "success": True,
             "processed": 0,
             "reports_found": 0,
+            "duplicate_reports": 0,
             "new_domains": [],
             "errors": [],
         }
@@ -350,7 +351,7 @@ class IMAPClient:
 
         return False
 
-    def _process_attachments(self, msg: email.message.Message) -> int:
+    def _process_attachments(self, msg: email.message.Message, stats: dict | None = None) -> int:
         """
         Process email attachments that might be DMARC reports
 
@@ -394,6 +395,10 @@ class IMAPClient:
                                     report_id,
                                     domain,
                                 )
+                                if stats is not None:
+                                    stats["duplicate_reports"] = (
+                                        stats.get("duplicate_reports", 0) + 1
+                                    )
                                 continue
 
                             # Add the report to the store

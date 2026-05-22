@@ -25,6 +25,8 @@ if database_url:
 # Import all models so that autogenerate can detect them
 from app.core.database import Base  # noqa: E402
 import app.models.domain  # noqa: E402, F401
+import app.models.mail_source  # noqa: E402, F401
+import app.models.mail_source_import  # noqa: E402, F401
 import app.models.report  # noqa: E402, F401
 import app.models.setting  # noqa: E402, F401
 import app.models.user  # noqa: E402, F401

@@ -88,8 +88,8 @@ This file tracks the specific implementation tasks for each milestone of the DMA
 ### Duplicate and Error Handling
 - [x] Skip duplicate domain/report IDs during Gmail imports
 - [x] Skip duplicate domain/report IDs during IMAP imports
-- [ ] Persist sanitized import errors for UI review
-- [ ] Count duplicate skips separately from parse failures
+- [x] Persist sanitized import errors for API/UI review
+- [x] Count duplicate skips separately from parse failures
 - [ ] Add retry/backfill controls per mail source
 
 ## Milestone 3: Database Integration
@@ -101,11 +101,14 @@ This file tracks the specific implementation tasks for each milestone of the DMA
 - [x] Implement data access layer
 
 ### Model Migration
-- [x] Convert in-memory models to database models
+- [ ] Convert report ingestion and dashboard reads from in-memory storage to database-backed storage
 - [x] Create Domain table
 - [x] Create AggregateReport table
 - [x] Create ReportRecord table for sender details
 - [x] Implement relationships between models
+- [ ] Persist parsed upload reports to `dmarc_reports` and `report_records`
+- [ ] Persist parsed Gmail/IMAP reports to `dmarc_reports` and `report_records`
+- [ ] Load/query persisted reports after app restart
 
 ### Domain Management
 - [x] Create UI for adding/editing domains

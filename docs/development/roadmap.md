@@ -12,7 +12,7 @@ Complete:
 - Upload validation and archive safety checks.
 - IMAP mailbox ingestion.
 - Gmail OAuth ingestion.
-- Persistent database models and migrations.
+- Persistent database models and migrations for domains, reports, records, settings, users, and mail sources.
 - Domain, report, settings, and mail source APIs.
 - Dashboard and domain detail views.
 - Logto auth integration and local development auth-disabled mode.
@@ -23,13 +23,30 @@ Recently improved:
 - Gmail import now uses the same parser path as uploads and IMAP.
 - Gmail and IMAP imports now skip duplicate domain/report IDs.
 - Tests cover Google-style DMARC ZIP attachment imports.
+- Mail source imports now create sanitized import-history records for manual and scheduled polls.
 
-## Active Milestone: Reporting Quality and Import Confidence
+Important gap:
+- Parsed DMARC report data is still served primarily from the in-memory `ReportStore`. The database schema exists, but report upload/import paths and dashboard read paths must be completed before the persistence milestone can be called done.
+
+## Active Milestone: Finish Report Persistence
+
+Objective: complete the database-backed report storage promised by Milestone 3.
+
+Priority tasks:
+- Add a report persistence service that converts parsed DMARC report dicts into `Domain`, `DMARCReport`, and `ReportRecord` rows.
+- Load or query persisted reports for dashboard, domain, and report endpoints.
+- Add duplicate report detection against the database.
+- Keep tests covering upload, Gmail import, IMAP import, and restart-style reload behavior.
+
+Quality bar:
+- Uploading or importing a report survives application restart and remains visible in report/domain endpoints.
+
+## Next Milestone: Reporting Quality and Import Confidence
 
 Objective: make mailbox imports auditable and make report totals trustworthy.
 
 Priority tasks:
-- Persist import attempts with message ID, source, attachment filename, outcome, and sanitized error details.
+- Expand import attempts with message ID, source, attachment filename, outcome, and sanitized error details.
 - Show import history on mail source detail pages.
 - Report duplicate skips separately from parse failures.
 - Add backfill controls for Gmail and IMAP sources.
@@ -40,7 +57,7 @@ Quality bar:
 - Parse failures must be visible and actionable.
 - The user should be able to tell whether a mail source is healthy without reading logs.
 
-## Next Milestone: Meaningful Reports
+## Following Milestone: Meaningful Reports
 
 Objective: turn parsed DMARC data into administrator-friendly reports.
 

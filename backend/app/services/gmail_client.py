@@ -207,6 +207,7 @@ class GmailClient:
             "success": True,
             "processed": 0,
             "reports_found": 0,
+            "duplicate_reports": 0,
             "new_domains": [],
             "errors": [],
             "new_ingested_ids": [],
@@ -365,6 +366,8 @@ class GmailClient:
                 if self._store_report_if_new(report):
                     stats["reports_found"] += 1
                     reports_found += 1
+                else:
+                    stats["duplicate_reports"] = stats.get("duplicate_reports", 0) + 1
             except Exception as exc:  # pylint: disable=broad-exception-caught
                 logger.error("Failed to parse DMARC attachment %s: %s", filename, exc)
                 stats["errors"].append(f"Failed to parse {filename}: {exc}")
