@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text
 from sqlalchemy.orm import relationship
 
+from app.core.credential_encryption import decrypt_secret, encrypt_secret, is_encrypted_secret
 from app.core.database import Base
 
 
@@ -33,21 +34,15 @@ class MailSource(Base):
     server = Column(String, nullable=True)
     port = Column(Integer, nullable=True, default=993)
     username = Column(String, nullable=True)
-    # NOTE: password is stored in plaintext.  In a production environment this
-    # field should be encrypted at the application layer before persisting.
-    password = Column(Text, nullable=True)
+    _password = Column("password", Text, nullable=True)
     use_ssl = Column(Boolean, default=True)
     folder = Column(String, default="INBOX")
 
     # Gmail API OAuth2 credentials (used by GMAIL_API method)
-    # NOTE: tokens and secrets are stored in plaintext – in a production
-    # environment these fields should be encrypted at the application layer
-    # (e.g. using Fernet/AES) before persisting, the same way IMAP passwords
-    # should be.  Treat database access as equivalent to credential access.
     gmail_client_id = Column(String, nullable=True)
-    gmail_client_secret = Column(Text, nullable=True)
-    gmail_access_token = Column(Text, nullable=True)
-    gmail_refresh_token = Column(Text, nullable=True)
+    _gmail_client_secret = Column("gmail_client_secret", Text, nullable=True)
+    _gmail_access_token = Column("gmail_access_token", Text, nullable=True)
+    _gmail_refresh_token = Column("gmail_refresh_token", Text, nullable=True)
     # Email address of the authorised Gmail account
     gmail_email = Column(String, nullable=True)
     # JSON-encoded list of Gmail message IDs that have already been ingested
@@ -72,3 +67,56 @@ class MailSource(Base):
 
     def __repr__(self):
         return f"<MailSource id={self.id} name={self.name!r} method={self.method!r}>"
+
+    def encrypt_legacy_secrets(self) -> bool:
+        """Encrypt any legacy plaintext secrets already stored on this row."""
+        changed = False
+        secret_fields = {
+            "password": self._password,
+            "gmail_client_secret": self._gmail_client_secret,
+            "gmail_access_token": self._gmail_access_token,
+            "gmail_refresh_token": self._gmail_refresh_token,
+        }
+
+        for public_name, stored_value in secret_fields.items():
+            if stored_value and not is_encrypted_secret(stored_value):
+                setattr(self, public_name, stored_value)
+                changed = True
+
+        return changed
+
+    @property
+    def password(self):
+        """Return the decrypted IMAP password, if present."""
+        return decrypt_secret(self._password)
+
+    @password.setter
+    def password(self, value):
+        self._password = encrypt_secret(value)
+
+    @property
+    def gmail_client_secret(self):
+        """Return the decrypted Gmail OAuth client secret, if present."""
+        return decrypt_secret(self._gmail_client_secret)
+
+    @gmail_client_secret.setter
+    def gmail_client_secret(self, value):
+        self._gmail_client_secret = encrypt_secret(value)
+
+    @property
+    def gmail_access_token(self):
+        """Return the decrypted Gmail OAuth access token, if present."""
+        return decrypt_secret(self._gmail_access_token)
+
+    @gmail_access_token.setter
+    def gmail_access_token(self, value):
+        self._gmail_access_token = encrypt_secret(value)
+
+    @property
+    def gmail_refresh_token(self):
+        """Return the decrypted Gmail OAuth refresh token, if present."""
+        return decrypt_secret(self._gmail_refresh_token)
+
+    @gmail_refresh_token.setter
+    def gmail_refresh_token(self, value):
+        self._gmail_refresh_token = encrypt_secret(value)
