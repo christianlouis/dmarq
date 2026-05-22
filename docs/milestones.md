@@ -64,10 +64,10 @@ Recently delivered:
 - Mail source import history is now visible from the Mail Sources UI.
 - A single mail source can be manually imported from the Mail Sources UI, with the result recorded in import history.
 - Import history now includes per-attachment details for imported reports, duplicates, parse errors, unsupported attachments, and imported report IDs.
+- Mail sources can be backfilled from the UI with 7-day, 30-day, 90-day, or custom search windows.
 - The current Alpine-based UI can run under the configured CSP, so dynamic tables render in real browsers.
 
 Next tasks:
-- Add mailbox search controls for date range/backfill without requiring code changes.
 - Improve source aggregation so each sender IP keeps pass/fail totals instead of only the latest result.
 
 Exit criteria:
