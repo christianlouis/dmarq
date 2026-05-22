@@ -140,13 +140,13 @@ Notes:
 
 ### Roadmap Tracking (GitHub)
 
-- Release plan: #167
-- Milestone 8: #158
-- Milestone 9: #161
-- Milestone 10: #166
-- Milestone 11: #129
-- Milestone 12: #133
-- Milestone 13: #138
-- Milestone 14: #143
-- Milestone 15: #148
-- Milestone 16: #153
+- Release plan: [Issue #167](https://github.com/christianlouis/dmarq/issues/167)
+- Milestone 8: [Issue #158](https://github.com/christianlouis/dmarq/issues/158)
+- Milestone 9: [Issue #161](https://github.com/christianlouis/dmarq/issues/161)
+- Milestone 10: [Issue #166](https://github.com/christianlouis/dmarq/issues/166)
+- Milestone 11: [Issue #129](https://github.com/christianlouis/dmarq/issues/129)
+- Milestone 12: [Issue #133](https://github.com/christianlouis/dmarq/issues/133)
+- Milestone 13: [Issue #138](https://github.com/christianlouis/dmarq/issues/138)
+- Milestone 14: [Issue #143](https://github.com/christianlouis/dmarq/issues/143)
+- Milestone 15: [Issue #148](https://github.com/christianlouis/dmarq/issues/148)
+- Milestone 16: [Issue #153](https://github.com/christianlouis/dmarq/issues/153)
