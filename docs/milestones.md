@@ -113,11 +113,12 @@ Goal: notify administrators when action is needed.
 
 Delivered:
 - Apprise notification integration for newline-separated notification target URLs.
-- Notification settings UI can save Apprise targets, keeps target URLs redacted after save, and can send a test notification.
+- Notification settings UI can save Apprise targets, stores target URLs encrypted, keeps target URLs redacted after save, and can send a test notification.
 - Alert rules for new sender source, compliance drop, DMARC failures above threshold, and missing reports.
 - Notification settings UI can evaluate active alerts and send the current alert summary on demand.
 - Daily and weekly DMARC summary notifications, including scheduled delivery and manual preview/send controls.
 - Alert history records active and resolved alerts with first-seen, last-seen, observed-count, and payload metadata.
+- Outbound notifications are rate-limited, email addresses are redacted by default, and notification configuration changes are audited without raw secrets.
 
 Exit criteria:
 - A user can receive meaningful alerts without opening the dashboard daily.

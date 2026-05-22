@@ -18,10 +18,16 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.core.credential_encryption import decrypt_secret, encrypt_secret, is_encrypted_secret
 from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.setting import Setting
-from app.services.alert_history import list_alert_history, record_alert_evaluation
+from app.services.alert_history import (
+    list_alert_config_audit,
+    list_alert_history,
+    record_alert_config_change,
+    record_alert_evaluation,
+)
 from app.services.alert_rules import evaluate_alert_rules, send_current_alerts
 from app.services.notifications import send_notification
 from app.services.summary_notifications import build_summary, send_summary_notification
@@ -127,6 +133,27 @@ SETTING_DEFAULTS: List[Dict[str, Any]] = [
         "key": "notifications.apprise_urls",
         "value": "",
         "description": "Newline-separated Apprise notification target URLs",
+        "value_type": "string",
+        "category": "notifications",
+    },
+    {
+        "key": "notifications.min_send_interval_minutes",
+        "value": "15",
+        "description": "Minimum minutes between outbound notification deliveries",
+        "value_type": "integer",
+        "category": "notifications",
+    },
+    {
+        "key": "notifications.redact_pii_enabled",
+        "value": "true",
+        "description": "Redact email addresses from outbound notification titles and bodies",
+        "value_type": "boolean",
+        "category": "notifications",
+    },
+    {
+        "key": "notifications.last_sent_at",
+        "value": "",
+        "description": "Internal timestamp for outbound notification rate limiting",
         "value_type": "string",
         "category": "notifications",
     },
@@ -250,11 +277,61 @@ def _seed_defaults(db: Session) -> None:
                     category=defaults["category"],
                 )
             )
+    _migrate_plaintext_secret_settings(db)
     db.commit()
 
 
 def _get_setting(key: str, db: Session) -> Optional[Setting]:
     return db.query(Setting).filter(Setting.key == key).first()
+
+
+def _migrate_plaintext_secret_settings(db: Session) -> None:
+    """Encrypt legacy plaintext secret settings opportunistically."""
+    rows = db.query(Setting).filter(Setting.key.in_(_SECRET_KEYS)).all()
+    for row in rows:
+        if row.value and not is_encrypted_secret(row.value):
+            row.value = encrypt_secret(row.value)
+
+
+def _stored_value_for_setting(key: str, value: Optional[str]) -> Optional[str]:
+    if key in _SECRET_KEYS:
+        return encrypt_secret(value)
+    return value
+
+
+def _plain_value_for_setting(key: str, value: Optional[str]) -> Optional[str]:
+    if key not in _SECRET_KEYS:
+        return value
+    return decrypt_secret(value)
+
+
+def _audit_value_for_setting(key: str, value: Optional[str]) -> Optional[str]:
+    if key in _SECRET_KEYS:
+        return "[redacted]" if value else ""
+    return value
+
+
+def _should_audit_setting(key: str) -> bool:
+    return key.startswith("notifications.")
+
+
+def _audit_setting_change(
+    db: Session,
+    *,
+    key: str,
+    old_plain: Optional[str],
+    new_plain: Optional[str],
+    auth_context: Optional[Dict[str, Any]],
+) -> None:
+    if not _should_audit_setting(key) or old_plain == new_plain:
+        return
+    record_alert_config_change(
+        db,
+        key=key,
+        old_value=_audit_value_for_setting(key, old_plain),
+        new_value=_audit_value_for_setting(key, new_plain),
+        auth_context=auth_context,
+    )
 
 
 def _row_to_dict(row: Setting, redact_secrets: bool = True) -> Dict[str, Any]:
@@ -307,6 +384,7 @@ class NotificationTestResponse(BaseModel):
     configured_targets: int = 0
     invalid_targets: int = 0
     skipped: bool = False
+    rate_limited: bool = False
     error: Optional[str] = None
 
 
@@ -327,6 +405,12 @@ class AlertHistoryResponse(BaseModel):
     """Persisted alert history response."""
 
     history: List[Dict[str, Any]]
+
+
+class AlertConfigurationAuditResponse(BaseModel):
+    """Persisted alert configuration audit response."""
+
+    audit: List[Dict[str, Any]]
 
 
 class SummaryResponse(BaseModel):
@@ -427,6 +511,16 @@ async def get_notification_alert_history(
     return {"history": list_alert_history(db, active=active, limit=max(1, min(limit, 200)))}
 
 
+@router.get("/notifications/config-audit", response_model=AlertConfigurationAuditResponse)
+async def get_notification_config_audit(
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+) -> AlertConfigurationAuditResponse:
+    """Return recent notification and alert-rule configuration changes."""
+    return {"audit": list_alert_config_audit(db, limit=max(1, min(limit, 200)))}
+
+
 @router.get("/notifications/summary", response_model=SummaryResponse)
 async def preview_notification_summary(
     period: str = "daily",
@@ -495,23 +589,41 @@ async def update_setting(
 ) -> SettingResponse:
     """Update or create a single setting."""
     row = _get_setting(key, db)
+    new_value = payload.value
     if row is None:
         # Find matching default metadata
         default_meta = next((d for d in SETTING_DEFAULTS if d["key"] == key), None)
+        new_plain = _plain_value_for_setting(key, new_value)
         row = Setting(
             key=key,
-            value=payload.value,
+            value=_stored_value_for_setting(key, new_value),
             description=default_meta["description"] if default_meta else None,
             value_type=default_meta["value_type"] if default_meta else "string",
             category=default_meta["category"] if default_meta else "general",
         )
         db.add(row)
+        _audit_setting_change(
+            db,
+            key=key,
+            old_plain=None,
+            new_plain=new_plain,
+            auth_context=_auth,
+        )
     else:
         # For secret keys, only update if not the redacted placeholder
         if key in _SECRET_KEYS and payload.value == "**redacted**":
             db.refresh(row)
             return _row_to_dict(row)
-        row.value = payload.value
+        old_plain = _plain_value_for_setting(key, row.value)
+        new_plain = _plain_value_for_setting(key, new_value)
+        row.value = _stored_value_for_setting(key, new_value)
+        _audit_setting_change(
+            db,
+            key=key,
+            old_plain=old_plain,
+            new_plain=new_plain,
+            auth_context=_auth,
+        )
     db.commit()
     db.refresh(row)
     return _row_to_dict(row)
@@ -533,20 +645,37 @@ async def bulk_update_settings(
         row = _get_setting(key, db)
         if row is None:
             default_meta = next((d for d in SETTING_DEFAULTS if d["key"] == key), None)
+            new_plain = _plain_value_for_setting(key, value)
             row = Setting(
                 key=key,
-                value=value,
+                value=_stored_value_for_setting(key, value),
                 description=default_meta["description"] if default_meta else None,
                 value_type=default_meta["value_type"] if default_meta else "string",
                 category=default_meta["category"] if default_meta else "general",
             )
             db.add(row)
+            _audit_setting_change(
+                db,
+                key=key,
+                old_plain=None,
+                new_plain=new_plain,
+                auth_context=_auth,
+            )
         else:
             # Skip secret placeholder updates
             if key in _SECRET_KEYS and value == "**redacted**":
                 results.append(_row_to_dict(row))
                 continue
-            row.value = value
+            old_plain = _plain_value_for_setting(key, row.value)
+            new_plain = _plain_value_for_setting(key, value)
+            row.value = _stored_value_for_setting(key, value)
+            _audit_setting_change(
+                db,
+                key=key,
+                old_plain=old_plain,
+                new_plain=new_plain,
+                auth_context=_auth,
+            )
         results.append(_row_to_dict(row))
     db.commit()
     # Re-read rows to get updated_at timestamps

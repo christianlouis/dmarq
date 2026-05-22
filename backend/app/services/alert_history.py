@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
-from app.models.alert import AlertHistory
+from app.models.alert import AlertConfigurationAudit, AlertHistory
 
 
 def _json_dumps(value: Dict[str, Any]) -> str:
@@ -125,3 +125,64 @@ def list_alert_history(
         query.order_by(AlertHistory.last_seen_at.desc(), AlertHistory.id.desc()).limit(limit).all()
     )
     return [_row_to_dict(row) for row in rows]
+
+
+def _actor_from_auth(auth_context: Optional[Dict[str, Any]]) -> Dict[str, Optional[str]]:
+    auth_context = auth_context or {}
+    user_id = auth_context.get("user_id")
+    if user_id is not None:
+        changed_by = str(user_id)
+    elif auth_context.get("payload", {}).get("sub"):
+        changed_by = str(auth_context["payload"]["sub"])
+    else:
+        changed_by = str(auth_context.get("auth_type") or "unknown")
+    return {
+        "changed_by": changed_by,
+        "auth_type": str(auth_context.get("auth_type") or "unknown"),
+    }
+
+
+def record_alert_config_change(
+    db: Session,
+    *,
+    key: str,
+    old_value: Optional[str],
+    new_value: Optional[str],
+    auth_context: Optional[Dict[str, Any]] = None,
+    changed_at: Optional[datetime] = None,
+) -> None:
+    """Record one sanitized alert/notification setting change."""
+    actor = _actor_from_auth(auth_context)
+    db.add(
+        AlertConfigurationAudit(
+            key=key,
+            old_value=old_value,
+            new_value=new_value,
+            changed_by=actor["changed_by"],
+            auth_type=actor["auth_type"],
+            changed_at=changed_at or datetime.utcnow(),
+        )
+    )
+
+
+def _config_audit_row_to_dict(row: AlertConfigurationAudit) -> Dict[str, Any]:
+    return {
+        "id": row.id,
+        "key": row.key,
+        "old_value": row.old_value,
+        "new_value": row.new_value,
+        "changed_by": row.changed_by,
+        "auth_type": row.auth_type,
+        "changed_at": row.changed_at.isoformat() if row.changed_at else None,
+    }
+
+
+def list_alert_config_audit(db: Session, *, limit: int = 50) -> List[Dict[str, Any]]:
+    """Return recent alert/notification configuration changes."""
+    rows = (
+        db.query(AlertConfigurationAudit)
+        .order_by(AlertConfigurationAudit.changed_at.desc(), AlertConfigurationAudit.id.desc())
+        .limit(limit)
+        .all()
+    )
+    return [_config_audit_row_to_dict(row) for row in rows]

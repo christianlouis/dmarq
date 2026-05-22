@@ -80,12 +80,14 @@ For database operations, use the [Database Backup and Restore](backups.md) guide
 DMARQ stores notification targets in the web settings table. Configure them under
 **Settings** > **Notifications** and use newline-separated Apprise URLs, such as
 email, Slack, Teams, Discord, or webhook targets. Saved target URLs are redacted
-from API responses.
+from API responses and encrypted at rest with the application `SECRET_KEY`.
 
 | Setting | Description | Default | Example |
 |---------|-------------|---------|---------|
 | `notifications.apprise_enabled` | Enable Apprise notification delivery | `false` | `true` |
 | `notifications.apprise_urls` | Newline-separated Apprise target URLs | - | `mailto://user:pass@example.com` |
+| `notifications.min_send_interval_minutes` | Minimum minutes between outbound notification deliveries | `15` | `30` |
+| `notifications.redact_pii_enabled` | Redact email addresses from outbound notification text | `true` | `true` |
 | `notifications.alert_new_sources_enabled` | Alert on newly observed sending sources | `true` | `true` |
 | `notifications.alert_compliance_drop_enabled` | Alert on recent compliance-rate drops | `true` | `true` |
 | `notifications.alert_compliance_drop_points` | Minimum compliance-rate drop in percentage points | `10` | `15` |
@@ -98,9 +100,11 @@ from API responses.
 | `notifications.summary_send_hour_utc` | UTC hour for scheduled summaries | `8` | `7` |
 | `notifications.summary_weekday_utc` | UTC weekday for weekly summaries, where 0 is Monday | `0` | `4` |
 
-Alert history is stored in the database-backed `alert_history` table. Current
-retention is indefinite; prune old resolved rows according to your operational
-policy if long-term storage size matters.
+Alert history is stored in the database-backed `alert_history` table.
+Notification and alert-rule configuration changes are stored in
+`alert_configuration_audit` with secret values sanitized. Current retention is
+indefinite; prune old resolved history and audit rows according to your
+operational policy if long-term storage size matters.
 
 ### Cloudflare Integration
 
