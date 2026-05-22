@@ -13,6 +13,14 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models.domain import Domain
+from app.services.cloudflare_dns import (
+    analyze_dns_records,
+    discover_cloudflare_zones,
+    get_zone_for_domain,
+    import_cloudflare_domains,
+    list_dns_record_changes,
+    sync_dns_record_changes,
+)
 from app.services.dns_cache import resolve_domain_dns_cached
 from app.services.dns_resolver import (
     DomainDNSResult,
@@ -67,6 +75,48 @@ class DNSRecordResponse(BaseModel):
     dkimSelectors: List[str] = []
     cached: bool = False
     checkedAt: Optional[str] = None
+
+
+class CloudflareZoneResponse(BaseModel):
+    """Cloudflare zone available for import."""
+
+    id: str
+    name: str
+    status: Optional[str] = None
+    account_name: Optional[str] = None
+    imported: bool = False
+
+
+class CloudflareImportRequest(BaseModel):
+    """Optional list of Cloudflare domains to import."""
+
+    domains: Optional[List[str]] = None
+
+
+class CloudflareImportResponse(BaseModel):
+    """Cloudflare domain import summary."""
+
+    imported: List[str]
+    existing: List[str]
+    skipped: List[str]
+    total_discovered: int
+
+
+class CloudflareDNSAnalysisResponse(BaseModel):
+    """Cloudflare-managed DNS analysis and recent change details."""
+
+    zone: Dict[str, Any]
+    records: List[Dict[str, Any]]
+    checks: Dict[str, Any]
+    suggestions: List[Dict[str, str]]
+    changes: List[Dict[str, Any]]
+    history: List[Dict[str, Any]]
+
+
+class DNSChangeHistoryResponse(BaseModel):
+    """Recent DNS record changes for a domain."""
+
+    history: List[Dict[str, Any]]
 
 
 class TimelinePoint(BaseModel):
@@ -199,6 +249,40 @@ def _get_domain_selectors_map_from_db(db: Session, domain_names: List[str]) -> D
     return selectors_by_domain
 
 
+def _policy_enforcement_suggestions(
+    dmarc_policy: Optional[str],
+    summary: Dict[str, Any],
+) -> List[Dict[str, str]]:
+    """Suggest policy enforcement when report history supports moving beyond monitoring."""
+    if dmarc_policy != "none":
+        return []
+    total_count = int(summary.get("total_count", 0) or 0)
+    compliance_rate = float(summary.get("compliance_rate", 0.0) or 0.0)
+    if total_count >= 100 and compliance_rate >= 98.0:
+        return [
+            {
+                "type": "policy_enforcement_ready",
+                "severity": "info",
+                "message": (
+                    "Recent reports show very high DMARC compliance. Consider moving from "
+                    "p=none to p=quarantine with a limited pct value."
+                ),
+            }
+        ]
+    if total_count >= 100 and compliance_rate >= 90.0:
+        return [
+            {
+                "type": "policy_enforcement_review",
+                "severity": "info",
+                "message": (
+                    "DMARC compliance is trending high. Review remaining failures before "
+                    "moving the domain policy beyond p=none."
+                ),
+            }
+        ]
+    return []
+
+
 @router.get("/summary", response_model=DomainSummaryResponse)
 async def get_domains_summary(db: Session = Depends(get_db)):
     """
@@ -215,7 +299,7 @@ async def get_domains_summary(db: Session = Depends(get_db)):
     summaries = store.get_all_domain_summaries()
 
     # Perform DNS checks for all domains, reusing fresh cached results.
-    provider = get_default_provider()
+    provider = get_default_provider(db)
     manual_selectors_by_domain = _get_domain_selectors_map_from_db(db, domains)
 
     async def _dns_for_domain(domain_name: str) -> DomainDNSResult:
@@ -413,7 +497,7 @@ async def get_domain_dns_records(
     report_selectors = _get_selectors_from_reports(store, domain_id)
     combined_selectors = list(dict.fromkeys(manual_selectors + report_selectors))
 
-    provider = get_default_provider()
+    provider = get_default_provider(db)
     result, cached, checked_at = await resolve_domain_dns_cached(
         db,
         provider,
@@ -432,6 +516,84 @@ async def get_domain_dns_records(
         cached=cached,
         checkedAt=checked_at.isoformat(),
     )
+
+
+@router.get("/cloudflare/discover", response_model=List[CloudflareZoneResponse])
+async def discover_cloudflare_domains(db: Session = Depends(get_db)):
+    """Discover active Cloudflare zones visible to the configured API token."""
+    try:
+        return await discover_cloudflare_zones(db)
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.post("/cloudflare/import", response_model=CloudflareImportResponse)
+async def import_cloudflare_domain_zones(
+    payload: CloudflareImportRequest,
+    db: Session = Depends(get_db),
+):
+    """Import selected, or all, Cloudflare zones as monitored domains."""
+    try:
+        return await import_cloudflare_domains(db, requested_domains=payload.domains)
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.get("/{domain_id}/dns/cloudflare", response_model=CloudflareDNSAnalysisResponse)
+async def get_cloudflare_domain_dns_analysis(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    db: Session = Depends(get_db),
+):
+    """Analyze Cloudflare-managed DNS records and persist detected changes."""
+    try:
+        zone_data = await get_zone_for_domain(db, domain_id)
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    records = zone_data["records"]
+    changes = sync_dns_record_changes(
+        db,
+        domain=domain_id,
+        zone_id=zone_data["id"],
+        records=records,
+    )
+    analysis = analyze_dns_records(domain_id, records)
+    store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
+    analysis["suggestions"].extend(
+        _policy_enforcement_suggestions(
+            analysis["checks"].get("dmarc_policy"),
+            store.get_domain_summary(domain_id),
+        )
+    )
+    history = list_dns_record_changes(db, domain_id)
+    return CloudflareDNSAnalysisResponse(
+        zone={"id": zone_data["id"], "name": zone_data["name"]},
+        records=analysis["records"],
+        checks=analysis["checks"],
+        suggestions=analysis["suggestions"],
+        changes=changes,
+        history=history,
+    )
+
+
+@router.get("/{domain_id}/dns/history", response_model=DNSChangeHistoryResponse)
+async def get_domain_dns_change_history(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    limit: int = Query(50, title="Maximum number of change events to return"),
+    db: Session = Depends(get_db),
+):
+    """Return recent provider-backed DNS record changes for a domain."""
+    return DNSChangeHistoryResponse(history=list_dns_record_changes(db, domain_id, limit=limit))
 
 
 @router.get("/{domain_id}/reports", response_model=DomainReportsResponse)
@@ -800,7 +962,7 @@ async def get_domain_sources(
         )
 
     sources = store.get_domain_sources(domain_id, days=days)
-    provider = get_default_provider()
+    provider = get_default_provider(db)
 
     ips = [s.get("source_ip", "unknown") for s in sources]
     hostnames = await asyncio.gather(*[_safe_ptr_lookup(provider, ip) for ip in ips])

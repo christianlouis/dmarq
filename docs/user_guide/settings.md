@@ -103,11 +103,17 @@ DMARQ provides an API for integration with other systems:
 
 If you use Cloudflare for DNS management:
 
-1. Navigate to **Settings** > **Integrations** > **Cloudflare**
+1. Navigate to **Settings** > **Cloudflare Integration**
 2. Configure:
    - **API Token**: Your Cloudflare API token
-   - **Zone ID**: The Cloudflare Zone ID for your domain
-   - **Permissions**: What actions DMARQ can take on your DNS records
+   - **Zone ID**: Optional Cloudflare Zone ID for a single domain
+3. Use **Discover** to list zones visible to the token.
+4. Use **Import New** to create monitored domain rows for discovered zones that are not already tracked.
+
+The token only needs read access for zone and DNS record inspection. DMARQ uses
+it to fetch managed DNS records, detect missing or malformed DMARC/SPF/DKIM
+entries, and record DNS additions, modifications, or removals over time. DMARQ
+does not automatically change Cloudflare DNS records.
 
 ### Other Integrations
 

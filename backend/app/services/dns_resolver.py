@@ -11,7 +11,7 @@ import ipaddress
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -239,24 +239,16 @@ class SystemDNSProvider(BaseDNSProvider):
 
 
 class CloudflareDNSProvider(BaseDNSProvider):
-    """DNS provider using Cloudflare's DNS-over-HTTPS (DoH) endpoint.
+    """DNS provider using Cloudflare DoH and, when configured, the REST API.
 
-    This provider resolves DNS queries via Cloudflare's public DoH API
-    (``1.1.1.1`` / ``cloudflare-dns.com``).  When *api_token* and *zone_id*
-    are supplied, future versions will also support reading and writing DNS
-    records directly through the Cloudflare REST API, enabling automated DNS
-    synchronisation.
-
-    Current status
-    --------------
-    * DoH-based lookups are fully functional.
-    * Direct Cloudflare API integration (zone management, record sync) is
-      reserved for a future release.
+    Public DNS lookups continue to use Cloudflare's DNS-over-HTTPS endpoint.
+    If an API token is supplied, the provider can also discover account zones
+    and read managed DNS records directly from the Cloudflare REST API.
     """
 
     #: Cloudflare DNS-over-HTTPS endpoint (JSON wire format)
     CLOUDFLARE_DOH_URL: str = "https://cloudflare-dns.com/dns-query"
-    #: Cloudflare REST API base URL (for future zone-management support)
+    #: Cloudflare REST API base URL
     CLOUDFLARE_API_BASE: str = "https://api.cloudflare.com/client/v4"
 
     def __init__(
@@ -268,14 +260,120 @@ class CloudflareDNSProvider(BaseDNSProvider):
         Parameters
         ----------
         api_token:
-            Cloudflare API token.  Required for future DNS record management;
-            not needed for read-only DoH lookups.
+            Cloudflare API token. Required for zone discovery and managed
+            DNS record reads; not needed for read-only DoH lookups.
         zone_id:
-            Cloudflare zone identifier.  Required for future DNS record
-            management.
+            Optional Cloudflare zone identifier used as a preferred zone.
         """
         self.api_token = api_token
         self.zone_id = zone_id
+
+    def _auth_headers(self) -> Dict[str, str]:
+        if not self.api_token:
+            raise LookupError("Cloudflare API token is not configured")
+        return {
+            "Authorization": f"Bearer {self.api_token}",
+            "Accept": "application/json",
+        }
+
+    async def _api_get(
+        self,
+        path: str,
+        *,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Call Cloudflare's REST API and return the decoded response."""
+        import httpx  # type: ignore[import]
+
+        url = f"{self.CLOUDFLARE_API_BASE}{path}"
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url,
+                    params=params,
+                    headers=self._auth_headers(),
+                    timeout=DNS_TIMEOUT,
+                )
+                response.raise_for_status()
+                data = response.json()
+        except (httpx.RequestError, httpx.HTTPStatusError, httpx.TimeoutException) as exc:
+            raise LookupError(f"Cloudflare API request failed for {path}: {exc}") from exc
+
+        if not data.get("success", False):
+            errors = data.get("errors") or []
+            message = "; ".join(str(error.get("message", error)) for error in errors[:3])
+            raise LookupError(message or f"Cloudflare API request failed for {path}")
+        return data
+
+    async def list_zones(self) -> List[Dict[str, Any]]:
+        """Return all zones visible to the configured Cloudflare API token."""
+        zones: List[Dict[str, Any]] = []
+        page = 1
+        while True:
+            data = await self._api_get(
+                "/zones",
+                params={"page": page, "per_page": 50, "status": "active"},
+            )
+            result = data.get("result") or []
+            if not isinstance(result, list):
+                return zones
+            zones.extend(result)
+            info = data.get("result_info") or {}
+            total_pages = int(info.get("total_pages") or 1)
+            if page >= total_pages:
+                return zones
+            page += 1
+
+    async def find_zone_for_domain(self, domain: str) -> Optional[Dict[str, Any]]:
+        """Return the best matching Cloudflare zone for *domain*."""
+        zones = await self.list_zones()
+        domain_lc = domain.rstrip(".").lower()
+        matches = [
+            zone
+            for zone in zones
+            if isinstance(zone.get("name"), str)
+            and (
+                domain_lc == zone["name"].lower() or domain_lc.endswith(f".{zone['name'].lower()}")
+            )
+        ]
+        if not matches:
+            return None
+        return sorted(matches, key=lambda zone: len(zone.get("name", "")), reverse=True)[0]
+
+    async def list_dns_records(
+        self,
+        *,
+        zone_id: Optional[str] = None,
+        name: Optional[str] = None,
+        record_type: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Return DNS records for a Cloudflare zone."""
+        resolved_zone_id = zone_id or self.zone_id
+        if not resolved_zone_id:
+            raise LookupError("Cloudflare zone ID is not configured")
+
+        records: List[Dict[str, Any]] = []
+        page = 1
+        while True:
+            params: Dict[str, Any] = {"page": page, "per_page": 100}
+            if name:
+                params["name"] = name
+            if record_type:
+                params["type"] = record_type
+
+            data = await self._api_get(
+                f"/zones/{resolved_zone_id}/dns_records",
+                params=params,
+            )
+            result = data.get("result") or []
+            if not isinstance(result, list):
+                return records
+            records.extend(result)
+            info = data.get("result_info") or {}
+            total_pages = int(info.get("total_pages") or 1)
+            if page >= total_pages:
+                return records
+            page += 1
 
     async def lookup_txt(self, name: str) -> List[str]:
         """Resolve TXT records via Cloudflare's DoH endpoint (JSON format)."""
@@ -332,13 +430,42 @@ class CloudflareDNSProvider(BaseDNSProvider):
         return None
 
 
-def get_default_provider() -> BaseDNSProvider:
-    """Return the default DNS provider (system resolver).
+def _decrypt_setting_value(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return value
+    try:
+        from app.core.credential_encryption import decrypt_secret
 
-    In a future release this function will inspect application settings and
-    return a ``CloudflareDNSProvider`` when Cloudflare credentials are
-    configured.
-    """
+        return decrypt_secret(value)
+    except Exception:
+        return value
+
+
+def _setting_value(db: Any, key: str) -> Optional[str]:
+    if db is None:
+        return None
+    try:
+        from app.models.setting import Setting
+
+        row = db.query(Setting).filter(Setting.key == key).first()
+        return row.value if row is not None else None
+    except Exception:
+        return None
+
+
+def get_default_provider(db: Any = None) -> BaseDNSProvider:
+    """Return the configured default DNS provider."""
+    resolver = (_setting_value(db, "dns.resolver") or "").strip().lower()
+    if resolver == "cloudflare":
+        from app.core.config import get_settings
+
+        settings = get_settings()
+        api_token = _decrypt_setting_value(_setting_value(db, "cloudflare.api_token"))
+        zone_id = _setting_value(db, "cloudflare.zone_id")
+        return CloudflareDNSProvider(
+            api_token=api_token or settings.CLOUDFLARE_API_TOKEN,
+            zone_id=zone_id or settings.CLOUDFLARE_ZONE_ID,
+        )
     return SystemDNSProvider()
 
 
