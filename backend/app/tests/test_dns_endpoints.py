@@ -14,6 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.api_v1.endpoints import domains as domains_endpoint
+from app.api.api_v1.endpoints.domains import _spf_fix_hint
 from app.models.domain import Domain
 from app.services.dns_resolver import DomainDNSResult
 from app.services.report_store import ReportStore
@@ -187,6 +188,32 @@ def test_get_selectors_includes_report_selectors(client: TestClient):
     data = response.json()
     # The MINIMAL_REPORT has a record with selector "google" in its dkim auth results
     assert "google" in data["report_selectors"]
+
+
+def test_get_selectors_ignores_missing_dkim_detail_lists(client: TestClient):
+    """Missing or malformed DKIM auth-detail arrays should not break selectors."""
+    ReportStore.get_instance().add_report(
+        {
+            **MINIMAL_REPORT,
+            "report_id": "missing-dkim-details",
+            "records": [
+                {
+                    "source_ip": "203.0.113.10",
+                    "count": 1,
+                    "disposition": "none",
+                    "dkim_result": "pass",
+                    "spf_result": "pass",
+                    "dkim": ["not-a-dict", {"selector": "mail"}],
+                    "spf": None,
+                }
+            ],
+        }
+    )
+
+    response = client.get(f"/api/v1/domains/{DOMAIN}/selectors")
+
+    assert response.status_code == 200
+    assert "mail" in response.json()["report_selectors"]
 
 
 def test_get_selectors_report_selector_moves_to_manual_when_added(client: TestClient):
@@ -425,3 +452,8 @@ def test_sources_endpoint_no_fix_hint_when_spf_passes(client: TestClient):
     passing = next((s for s in sources if s["ip"] == "1.2.3.4"), None)
     if passing is not None:
         assert passing["spf_fix_hint"] is None
+
+
+def test_spf_fix_hint_returns_none_for_invalid_ip_with_failures():
+    """Invalid source IP values should not generate SPF snippets."""
+    assert _spf_fix_hint("not-an-ip", "mixed", failed_count=3) is None

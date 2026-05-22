@@ -49,13 +49,13 @@ Delivered:
 Implementation note:
 - The existing `ReportStore` remains as a compatibility projection for dashboard/report code, but persisted database rows are now the durable source for uploads and mailbox imports.
 
-## Milestone 4: Reporting Quality and Import Confidence - In Progress
+## Milestone 4: Reporting Quality and Import Confidence - Complete
 
-Status: In progress
+Status: Complete
 
 Goal: make reports trustworthy for day-to-day administration and make import failures obvious.
 
-Recently delivered:
+Delivered:
 - Gmail import now handles real inbox metadata patterns and Google-style ZIP filenames.
 - Gmail/IMAP imports skip duplicate report IDs to avoid inflated totals.
 - Tests now cover a real Google-style ZIP attachment path rather than only mocked parser behavior.
@@ -66,16 +66,14 @@ Recently delivered:
 - Import history now includes per-attachment details for imported reports, duplicates, parse errors, unsupported attachments, and imported report IDs.
 - Mail sources can be backfilled from the UI with 7-day, 30-day, 90-day, or custom search windows.
 - The current Alpine-based UI can run under the configured CSP, so dynamic tables render in real browsers.
-
-Next tasks:
-- Improve source aggregation so each sender IP keeps pass/fail totals instead of only the latest result.
+- Source aggregation now keeps per-sender-IP SPF, DKIM, DMARC, and disposition totals instead of overwriting each IP with only the latest result.
 
 Exit criteria:
 - A user can connect a mailbox, run a backfill, see exactly what was imported or skipped, and trust that totals are not double-counted.
 
-## Milestone 5: Dashboard and Meaningful Reports - Next
+## Milestone 5: Dashboard and Meaningful Reports - In Progress
 
-Status: Planned
+Status: In progress
 
 Goal: convert raw DMARC data into useful operational reporting.
 

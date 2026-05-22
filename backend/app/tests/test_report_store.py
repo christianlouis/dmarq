@@ -1,4 +1,4 @@
-from app.services.report_store import ReportStore
+from app.services.report_store import ReportStore, _auth_status_from_counts, _dominant_result
 
 
 def _sample_report(domain: str = "example.com") -> dict:
@@ -90,6 +90,81 @@ class TestReportStore:
 
         assert [source["source_ip"] for source in sources] == ["203.0.113.2", "203.0.113.1"]
         assert [source["count"] for source in sources] == [12, 5]
+
+    def test_get_domain_sources_rolls_up_pass_fail_counts_per_ip(self):
+        store = ReportStore.get_instance()
+        report = _sample_report("test.com")
+        report["records"] = [
+            {
+                "source_ip": "203.0.113.9",
+                "count": 7,
+                "disposition": "none",
+                "dkim_result": "pass",
+                "spf_result": "fail",
+                "header_from": "test.com",
+            },
+            {
+                "source_ip": "203.0.113.9",
+                "count": 3,
+                "disposition": "quarantine",
+                "dkim_result": "fail",
+                "spf_result": "pass",
+                "header_from": "test.com",
+            },
+            {
+                "source_ip": "203.0.113.9",
+                "count": 2,
+                "disposition": "reject",
+                "dkim_result": "fail",
+                "spf_result": "fail",
+                "header_from": "test.com",
+            },
+        ]
+
+        store.add_report(report)
+
+        source = store.get_domain_sources("test.com")[0]
+        assert source["source_ip"] == "203.0.113.9"
+        assert source["count"] == 12
+        assert source["spf_result"] == "mixed"
+        assert source["dkim_result"] == "mixed"
+        assert source["dmarc_result"] == "mixed"
+        assert source["spf_pass_count"] == 3
+        assert source["spf_fail_count"] == 9
+        assert source["dkim_pass_count"] == 7
+        assert source["dkim_fail_count"] == 5
+        assert source["dmarc_pass_count"] == 10
+        assert source["dmarc_fail_count"] == 2
+        assert source["disposition_counts"] == {"none": 7, "quarantine": 3, "reject": 2}
+
+    def test_get_domain_sources_rolls_up_unknown_auth_results(self):
+        store = ReportStore.get_instance()
+        report = _sample_report("test.com")
+        report["records"] = [
+            {
+                "source_ip": "203.0.113.10",
+                "count": 4,
+                "disposition": "none",
+                "dkim_result": "temperror",
+                "spf_result": "neutral",
+                "header_from": "test.com",
+            }
+        ]
+
+        store.add_report(report)
+
+        source = store.get_domain_sources("test.com")[0]
+        assert source["spf_result"] == "unknown"
+        assert source["dkim_result"] == "unknown"
+        assert source["spf_unknown_count"] == 4
+        assert source["dkim_unknown_count"] == 4
+        assert source["dmarc_result"] == "fail"
+
+    def test_dominant_result_returns_default_for_empty_counts(self):
+        assert _dominant_result({}) == "none"
+
+    def test_auth_status_returns_none_without_counts(self):
+        assert _auth_status_from_counts(0, 0) == "none"
 
     def test_clear(self):
         store = ReportStore.get_instance()

@@ -14,6 +14,17 @@ from app.models.report import DMARCReport, ReportRecord
 logger = logging.getLogger(__name__)
 
 
+def _auth_status_from_counts(pass_count: int, fail_count: int) -> str:
+    """Return pass, fail, mixed, or none from aggregate pass/fail counts."""
+    if pass_count > 0 and fail_count > 0:
+        return "mixed"
+    if pass_count > 0:
+        return "pass"
+    if fail_count > 0:
+        return "fail"
+    return "none"
+
+
 class StatsSummarizer:
     """
     Utility class for summarizing and caching dashboard statistics
@@ -273,29 +284,29 @@ class StatsSummarizer:
             db.query(
                 ReportRecord.source_ip,
                 func.sum(ReportRecord.count).label("total_count"),
+                func.sum(case((ReportRecord.spf == "pass", ReportRecord.count), else_=0)).label(
+                    "spf_pass_count"
+                ),
+                func.sum(case((ReportRecord.spf == "fail", ReportRecord.count), else_=0)).label(
+                    "spf_fail_count"
+                ),
+                func.sum(case((ReportRecord.dkim == "pass", ReportRecord.count), else_=0)).label(
+                    "dkim_pass_count"
+                ),
+                func.sum(case((ReportRecord.dkim == "fail", ReportRecord.count), else_=0)).label(
+                    "dkim_fail_count"
+                ),
+                func.sum(
+                    case(
+                        (
+                            (ReportRecord.dkim == "pass") | (ReportRecord.spf == "pass"),
+                            ReportRecord.count,
+                        ),
+                        else_=0,
+                    )
+                ).label("dmarc_pass_count"),
             )
             .group_by(ReportRecord.source_ip)
-            .order_by(func.sum(ReportRecord.count).desc())
-            .limit(limit)
-            .all()
-        )
-
-        return [{"ip": row.source_ip, "count": int(row.total_count)} for row in results]
-
-    def _get_domain_sources(
-        self, db: Session, domain_db_id: int, limit: int = 10
-    ) -> List[Dict[str, Any]]:
-        """Get top sending sources for a specific domain."""
-        results = (
-            db.query(
-                ReportRecord.source_ip,
-                func.sum(ReportRecord.count).label("total_count"),
-                ReportRecord.spf,
-                ReportRecord.dkim,
-            )
-            .join(DMARCReport, ReportRecord.report_id == DMARCReport.id)
-            .filter(DMARCReport.domain_id == domain_db_id)
-            .group_by(ReportRecord.source_ip, ReportRecord.spf, ReportRecord.dkim)
             .order_by(func.sum(ReportRecord.count).desc())
             .limit(limit)
             .all()
@@ -305,8 +316,84 @@ class StatsSummarizer:
             {
                 "ip": row.source_ip,
                 "count": int(row.total_count),
-                "spf": row.spf or "unknown",
-                "dkim": row.dkim or "unknown",
+                "spf_pass_count": int(row.spf_pass_count or 0),
+                "spf_fail_count": int(row.spf_fail_count or 0),
+                "dkim_pass_count": int(row.dkim_pass_count or 0),
+                "dkim_fail_count": int(row.dkim_fail_count or 0),
+                "dmarc_pass_count": int(row.dmarc_pass_count or 0),
+                "dmarc_fail_count": int(row.total_count) - int(row.dmarc_pass_count or 0),
+                "spf": _auth_status_from_counts(
+                    int(row.spf_pass_count or 0), int(row.spf_fail_count or 0)
+                ),
+                "dkim": _auth_status_from_counts(
+                    int(row.dkim_pass_count or 0), int(row.dkim_fail_count or 0)
+                ),
+                "dmarc": _auth_status_from_counts(
+                    int(row.dmarc_pass_count or 0),
+                    int(row.total_count) - int(row.dmarc_pass_count or 0),
+                ),
+            }
+            for row in results
+        ]
+
+    def _get_domain_sources(
+        self, db: Session, domain_db_id: int, limit: int = 10
+    ) -> List[Dict[str, Any]]:
+        """Get top sending sources for a specific domain."""
+        results = (
+            db.query(
+                ReportRecord.source_ip,
+                func.sum(ReportRecord.count).label("total_count"),
+                func.sum(case((ReportRecord.spf == "pass", ReportRecord.count), else_=0)).label(
+                    "spf_pass_count"
+                ),
+                func.sum(case((ReportRecord.spf == "fail", ReportRecord.count), else_=0)).label(
+                    "spf_fail_count"
+                ),
+                func.sum(case((ReportRecord.dkim == "pass", ReportRecord.count), else_=0)).label(
+                    "dkim_pass_count"
+                ),
+                func.sum(case((ReportRecord.dkim == "fail", ReportRecord.count), else_=0)).label(
+                    "dkim_fail_count"
+                ),
+                func.sum(
+                    case(
+                        (
+                            (ReportRecord.dkim == "pass") | (ReportRecord.spf == "pass"),
+                            ReportRecord.count,
+                        ),
+                        else_=0,
+                    )
+                ).label("dmarc_pass_count"),
+            )
+            .join(DMARCReport, ReportRecord.report_id == DMARCReport.id)
+            .filter(DMARCReport.domain_id == domain_db_id)
+            .group_by(ReportRecord.source_ip)
+            .order_by(func.sum(ReportRecord.count).desc())
+            .limit(limit)
+            .all()
+        )
+
+        return [
+            {
+                "ip": row.source_ip,
+                "count": int(row.total_count),
+                "spf_pass_count": int(row.spf_pass_count or 0),
+                "spf_fail_count": int(row.spf_fail_count or 0),
+                "dkim_pass_count": int(row.dkim_pass_count or 0),
+                "dkim_fail_count": int(row.dkim_fail_count or 0),
+                "dmarc_pass_count": int(row.dmarc_pass_count or 0),
+                "dmarc_fail_count": int(row.total_count) - int(row.dmarc_pass_count or 0),
+                "spf": _auth_status_from_counts(
+                    int(row.spf_pass_count or 0), int(row.spf_fail_count or 0)
+                ),
+                "dkim": _auth_status_from_counts(
+                    int(row.dkim_pass_count or 0), int(row.dkim_fail_count or 0)
+                ),
+                "dmarc": _auth_status_from_counts(
+                    int(row.dmarc_pass_count or 0),
+                    int(row.total_count) - int(row.dmarc_pass_count or 0),
+                ),
             }
             for row in results
         ]

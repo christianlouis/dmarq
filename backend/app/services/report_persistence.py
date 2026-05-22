@@ -160,8 +160,8 @@ def persisted_report_to_dict(report: DMARCReport) -> Dict[str, Any]:
                 "dkim_result": dkim_result,
                 "spf_result": spf_result,
                 "header_from": record.header_from or "",
-                "dkim": _loads_json_list(record.dkim_auth_details),
-                "spf": _loads_json_list(record.spf_auth_details),
+                "dkim": _loads_json_list(record.dkim_auth_details) or [],
+                "spf": _loads_json_list(record.spf_auth_details) or [],
             }
         )
 

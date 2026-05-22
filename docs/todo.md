@@ -149,7 +149,7 @@ This file tracks the specific implementation tasks for each milestone of the DMA
 
 ### Meaningful Reports
 - [ ] Add per-domain daily rollups
-- [ ] Add sender/source pass/fail totals
+- [x] Add sender/source pass/fail totals
 - [ ] Add newly observed source detection
 - [ ] Add exportable domain reports
 - [ ] Add actionable recommendations for common DMARC failure patterns

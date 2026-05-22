@@ -31,36 +31,37 @@ Recently improved:
 - Import-history rows include sanitized per-attachment outcomes and imported report IDs.
 - Mail source backfills can be launched from the UI with configurable search windows.
 - The current Alpine-based UI is allowed by CSP and renders dynamic tables in real browsers.
+- Sending-source summaries now retain SPF, DKIM, DMARC, and disposition pass/fail totals per IP instead of showing only the latest result.
 
 Implementation note:
 - The legacy `ReportStore` remains as a projection layer for existing report/dashboard code, but durable report data now lives in the database.
 
-## Active Milestone: Reporting Quality and Import Confidence
-
-Objective: make mailbox imports auditable and make report totals trustworthy.
-
-Priority tasks:
-- Report duplicate skips separately from parse failures.
-- Improve source rollups so a source IP tracks pass/fail counts over time.
-
-Quality bar:
-- Importing the same mailbox twice must not change aggregate totals.
-- Parse failures must be visible and actionable.
-- The user should be able to tell whether a mail source is healthy without reading logs.
-
-## Next Milestone: Meaningful Reports
+## Active Milestone: Meaningful Reports
 
 Objective: turn parsed DMARC data into administrator-friendly reports.
 
 Priority tasks:
 - Add time-series charts for volume and compliance.
 - Add per-domain daily rollups.
-- Add sender/source breakdowns with SPF, DKIM, and disposition counts.
 - Add "what changed" summaries for newly observed senders and sudden compliance drops.
 - Add exportable reports for a domain and date range.
+- Add actionable recommendations for common SPF, DKIM, and DMARC failure patterns.
 
 Quality bar:
 - A domain owner can understand who sends mail as their domain, which sources fail, and what to fix next.
+
+## Completed Milestone: Reporting Quality and Import Confidence
+
+Objective: make mailbox imports auditable and make report totals trustworthy.
+
+Delivered:
+- Duplicate skips are reported separately from parse failures.
+- Import history exposes per-attachment results and sanitized errors.
+- Individual sources can be manually imported and backfilled from the UI.
+- Source rollups track pass/fail counts over time by sender IP.
+
+Quality bar:
+- Importing the same mailbox twice does not change aggregate totals, parse failures are visible, and source totals are not overwritten by the latest result.
 
 ## Production Hardening
 

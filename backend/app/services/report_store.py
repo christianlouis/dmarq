@@ -2,6 +2,26 @@ import threading
 from typing import Any, Dict, List, Optional
 
 
+def _auth_status_from_counts(pass_count: int, fail_count: int, unknown_count: int = 0) -> str:
+    """Return a compact status label for aggregated authentication results."""
+    if pass_count > 0 and fail_count > 0:
+        return "mixed"
+    if pass_count > 0:
+        return "pass"
+    if fail_count > 0:
+        return "fail"
+    if unknown_count > 0:
+        return "unknown"
+    return "none"
+
+
+def _dominant_result(counts: Dict[str, int], default: str = "none") -> str:
+    """Return the highest-volume result from a result/count mapping."""
+    if not counts:
+        return default
+    return max(counts.items(), key=lambda item: item[1])[0]
+
+
 class ReportStore:
     """
     In-memory store for DMARC reports
@@ -77,14 +97,65 @@ class ReportStore:
                 if source_ip not in sources:
                     sources[source_ip] = {
                         "count": 0,
-                        "spf_result": "unknown",
-                        "dkim_result": "unknown",
+                        "spf_pass_count": 0,
+                        "spf_fail_count": 0,
+                        "spf_unknown_count": 0,
+                        "dkim_pass_count": 0,
+                        "dkim_fail_count": 0,
+                        "dkim_unknown_count": 0,
+                        "dmarc_pass_count": 0,
+                        "dmarc_fail_count": 0,
+                        "disposition_counts": {},
+                        "spf_result": "none",
+                        "dkim_result": "none",
+                        "dmarc_result": "none",
                         "disposition": "none",
                     }
-                sources[source_ip]["count"] += record.get("count", 0)
-                sources[source_ip]["spf_result"] = record.get("spf_result", "unknown")
-                sources[source_ip]["dkim_result"] = record.get("dkim_result", "unknown")
-                sources[source_ip]["disposition"] = record.get("disposition", "none")
+                count = int(record.get("count") or 0)
+                spf_result = record.get("spf_result", "unknown") or "unknown"
+                dkim_result = record.get("dkim_result", "unknown") or "unknown"
+                disposition = record.get("disposition", "none") or "none"
+                source = sources[source_ip]
+
+                source["count"] += count
+
+                if spf_result == "pass":
+                    source["spf_pass_count"] += count
+                elif spf_result == "fail":
+                    source["spf_fail_count"] += count
+                else:
+                    source["spf_unknown_count"] += count
+
+                if dkim_result == "pass":
+                    source["dkim_pass_count"] += count
+                elif dkim_result == "fail":
+                    source["dkim_fail_count"] += count
+                else:
+                    source["dkim_unknown_count"] += count
+
+                if spf_result == "pass" or dkim_result == "pass":
+                    source["dmarc_pass_count"] += count
+                else:
+                    source["dmarc_fail_count"] += count
+
+                disposition_counts = source["disposition_counts"]
+                disposition_counts[disposition] = disposition_counts.get(disposition, 0) + count
+
+                source["spf_result"] = _auth_status_from_counts(
+                    source["spf_pass_count"],
+                    source["spf_fail_count"],
+                    source["spf_unknown_count"],
+                )
+                source["dkim_result"] = _auth_status_from_counts(
+                    source["dkim_pass_count"],
+                    source["dkim_fail_count"],
+                    source["dkim_unknown_count"],
+                )
+                source["dmarc_result"] = _auth_status_from_counts(
+                    source["dmarc_pass_count"],
+                    source["dmarc_fail_count"],
+                )
+                source["disposition"] = _dominant_result(disposition_counts)
 
         total = summary["total_count"]
         summary["compliance_rate"] = (

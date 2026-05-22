@@ -91,6 +91,13 @@ class SourceEntry(BaseModel):
     dkim: str
     dmarc: str
     disposition: str
+    spf_pass_count: int = 0
+    spf_fail_count: int = 0
+    dkim_pass_count: int = 0
+    dkim_fail_count: int = 0
+    dmarc_pass_count: int = 0
+    dmarc_fail_count: int = 0
+    disposition_counts: Dict[str, int] = Field(default_factory=dict)
     hostname: Optional[str] = None
     spf_fix_hint: Optional[str] = None
 
@@ -135,7 +142,10 @@ def _get_selectors_from_reports(store: "ReportStore", domain: str) -> List[str]:
     selectors: List[str] = []
     for report in store.get_domain_reports(domain):
         for record in report.get("records", []):
-            for dkim_entry in record.get("dkim", []):
+            dkim_entries = record.get("dkim") or []
+            for dkim_entry in dkim_entries:
+                if not isinstance(dkim_entry, dict):
+                    continue
                 sel = dkim_entry.get("selector", "").strip()
                 if sel and sel not in selectors:
                     selectors.append(sel)
@@ -470,12 +480,12 @@ def _build_compliance_timeline(store: ReportStore, domain: str) -> List[Timeline
     return timeline
 
 
-def _spf_fix_hint(ip: str, spf_result: str) -> Optional[str]:
+def _spf_fix_hint(ip: str, spf_result: str, failed_count: int = 0) -> Optional[str]:
     """Return a copy-paste SPF mechanism (e.g. ``ip4:1.2.3.4``) for a failing IP.
 
     Returns ``None`` when SPF did not fail or when *ip* is not a valid address.
     """
-    if spf_result != "fail":
+    if spf_result != "fail" and failed_count <= 0:
         return None
     try:
         addr = ipaddress.ip_address(ip)
@@ -534,10 +544,18 @@ async def get_domain_sources(
                 count=source.get("count", 0),
                 spf=spf_result,
                 dkim=dkim_result,
-                dmarc=("pass" if spf_result == "pass" or dkim_result == "pass" else "fail"),
+                dmarc=source.get("dmarc_result")
+                or ("pass" if spf_result == "pass" or dkim_result == "pass" else "fail"),
                 disposition=source.get("disposition", "none"),
+                spf_pass_count=source.get("spf_pass_count", 0),
+                spf_fail_count=source.get("spf_fail_count", 0),
+                dkim_pass_count=source.get("dkim_pass_count", 0),
+                dkim_fail_count=source.get("dkim_fail_count", 0),
+                dmarc_pass_count=source.get("dmarc_pass_count", 0),
+                dmarc_fail_count=source.get("dmarc_fail_count", 0),
+                disposition_counts=source.get("disposition_counts", {}),
                 hostname=hostname,
-                spf_fix_hint=_spf_fix_hint(ip, spf_result),
+                spf_fix_hint=_spf_fix_hint(ip, spf_result, source.get("spf_fail_count", 0)),
             )
         )
 
