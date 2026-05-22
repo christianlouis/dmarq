@@ -73,8 +73,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # See: https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP
         csp_directives = [
             "default-src 'self'",
-            # TODO: Remove 'unsafe-inline' - requires moving inline scripts to external files  # pylint: disable=fixme
-            "script-src 'self' 'unsafe-inline'"
+            # TODO: Remove 'unsafe-inline' and 'unsafe-eval' - requires moving inline
+            # scripts to external files and replacing the standard Alpine CDN build
+            # with the CSP-compatible build.  # pylint: disable=fixme
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
             " https://cdn.tailwindcss.com https://cdn.jsdelivr.net",
             # TODO: Remove 'unsafe-inline' - requires moving inline styles to CSS or using nonces  # pylint: disable=fixme
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com"

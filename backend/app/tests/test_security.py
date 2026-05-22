@@ -123,6 +123,18 @@ class TestFileUploadSecurity:
             DMARCParser.parse_file(large_content, "test.xml")
 
 
+class TestSecurityHeaders:
+    """Test security headers that affect the browser UI."""
+
+    def test_csp_allows_current_alpine_runtime(self, client: TestClient):
+        """The current Alpine CDN build needs eval permission to render UI pages."""
+        response = client.get("/mail-sources")
+        csp = response.headers["Content-Security-Policy"]
+
+        assert "'unsafe-eval'" in csp
+        assert "https://cdn.jsdelivr.net" in csp
+
+
 class TestXMLParsingSecurity:
     """Test XML parsing security (defusedxml, XXE protection)."""
 
