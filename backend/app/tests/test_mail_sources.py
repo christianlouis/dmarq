@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, urlparse
 
@@ -168,6 +169,17 @@ class TestMailSourceImportModel:
         assert "**redacted**" in attempt.details
 
 
+def test_mail_source_folder_input_has_no_pattern_validation():
+    """The UI should not reject valid IMAP folder names containing spaces."""
+    template = (Path(__file__).resolve().parents[1] / "templates" / "mail_sources.html").read_text()
+    model_position = template.index('x-model="form.folder"')
+    input_start = template.rfind("<input", 0, model_position)
+    input_end = template.index(">", model_position)
+    folder_input = template[input_start:input_end]
+
+    assert "pattern=" not in folder_input
+
+
 class TestImportHistoryDecoding:
     """Unit tests for import-history JSON decoding helpers."""
 
@@ -292,7 +304,7 @@ class TestMailSourcesAPIAuthed:
             "username": "user@example.com",
             "password": "s3cr3t",
             "use_ssl": True,
-            "folder": "INBOX",
+            "folder": "Junk Mail",
             "polling_interval": 60,
             "enabled": True,
         }
@@ -302,6 +314,7 @@ class TestMailSourcesAPIAuthed:
         assert data["name"] == "My IMAP"
         assert data["method"] == "IMAP"
         assert data["server"] == "imap.example.com"
+        assert data["folder"] == "Junk Mail"
         assert data["password"] == "**redacted**"
         assert data["id"] is not None
 
