@@ -12,8 +12,10 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.core.credential_encryption import is_encrypted_secret
 from app.models.mail_source import MailSource
 from app.models.mail_source_import import MailSourceImport
 from app.services.import_history import record_import_attempt
@@ -51,6 +53,93 @@ class TestMailSourceModel:
         assert source.polling_interval == 60
         assert source.enabled is True
         assert source.last_checked is None
+
+    def test_imap_password_is_encrypted_at_rest(self, db_session: Session):
+        source = MailSource(name="Encrypted IMAP", method="IMAP", password="raw-secret")
+        db_session.add(source)
+        db_session.commit()
+        db_session.refresh(source)
+
+        stored = db_session.execute(
+            text("SELECT password FROM mail_sources WHERE id = :id"), {"id": source.id}
+        ).scalar_one()
+
+        assert source.password == "raw-secret"
+        assert stored != "raw-secret"
+        assert is_encrypted_secret(stored)
+
+    def test_gmail_oauth_secrets_are_encrypted_at_rest(self, db_session: Session):
+        source = MailSource(
+            name="Encrypted Gmail",
+            method="GMAIL_API",
+            gmail_client_secret="client-secret",
+            gmail_access_token="access-token",
+            gmail_refresh_token="refresh-token",
+        )
+        db_session.add(source)
+        db_session.commit()
+        db_session.refresh(source)
+
+        stored = db_session.execute(
+            text(
+                "SELECT gmail_client_secret, gmail_access_token, gmail_refresh_token "
+                "FROM mail_sources WHERE id = :id"
+            ),
+            {"id": source.id},
+        ).one()
+
+        assert source.gmail_client_secret == "client-secret"
+        assert source.gmail_access_token == "access-token"
+        assert source.gmail_refresh_token == "refresh-token"
+        assert stored.gmail_client_secret != "client-secret"
+        assert stored.gmail_access_token != "access-token"
+        assert stored.gmail_refresh_token != "refresh-token"
+        assert is_encrypted_secret(stored.gmail_client_secret)
+        assert is_encrypted_secret(stored.gmail_access_token)
+        assert is_encrypted_secret(stored.gmail_refresh_token)
+
+    def test_legacy_plaintext_mail_source_secret_remains_readable(self, db_session: Session):
+        db_session.execute(
+            text(
+                "INSERT INTO mail_sources (name, method, password) "
+                "VALUES (:name, :method, :password)"
+            ),
+            {"name": "Legacy IMAP", "method": "IMAP", "password": "legacy-secret"},
+        )
+        db_session.commit()
+
+        source = db_session.query(MailSource).filter_by(name="Legacy IMAP").one()
+
+        assert source.password == "legacy-secret"
+
+    def test_encrypt_legacy_secrets_rewrites_plaintext_storage(self, db_session: Session):
+        db_session.execute(
+            text(
+                "INSERT INTO mail_sources (name, method, password, gmail_access_token) "
+                "VALUES (:name, :method, :password, :token)"
+            ),
+            {
+                "name": "Legacy Rewrite",
+                "method": "GMAIL_API",
+                "password": "legacy-secret",
+                "token": "legacy-token",
+            },
+        )
+        db_session.commit()
+
+        source = db_session.query(MailSource).filter_by(name="Legacy Rewrite").one()
+        assert source.encrypt_legacy_secrets() is True
+        db_session.commit()
+
+        stored = db_session.execute(
+            text("SELECT password, gmail_access_token FROM mail_sources WHERE id = :id"),
+            {"id": source.id},
+        ).one()
+
+        assert source.password == "legacy-secret"
+        assert source.gmail_access_token == "legacy-token"
+        assert is_encrypted_secret(stored.password)
+        assert is_encrypted_secret(stored.gmail_access_token)
 
     def test_default_values(self, db_session: Session):
         source = MailSource(name="Minimal", method="IMAP")

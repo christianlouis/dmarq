@@ -287,6 +287,25 @@ def _migrate_imap_env_vars_to_db() -> None:
         db.close()
 
 
+def _encrypt_legacy_mail_source_secrets() -> None:
+    """Encrypt plaintext mail-source secrets left by earlier versions."""
+    db = SessionLocal()
+    try:
+        changed = 0
+        for source in db.query(MailSource).all():
+            if source.encrypt_legacy_secrets():
+                changed += 1
+
+        if changed:
+            db.commit()
+            logger.info("Encrypted legacy mail-source credentials for %d source(s).", changed)
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        db.rollback()
+        logger.error("Failed to encrypt legacy mail-source credentials: %s", str(e))
+    finally:
+        db.close()
+
+
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application"""
     application = FastAPI(
@@ -384,6 +403,7 @@ def create_app() -> FastAPI:
         # create an initial MailSource from those settings so existing deployments
         # continue to work without manual reconfiguration.
         _migrate_imap_env_vars_to_db()
+        _encrypt_legacy_mail_source_secrets()
 
         # Start background polling task (iterates over DB-enabled mail sources)
         logger.info("Starting IMAP polling background task")
