@@ -8,16 +8,20 @@ tests never make real network calls.
 import base64
 import email as email_mod
 import json
+import zipfile
 from email import encoders as email_encoders
 from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from io import BytesIO
 from typing import Optional
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from app.services.gmail_client import GmailClient
+from app.services.report_store import ReportStore
+from app.tests.test_data import SAMPLE_XML
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -80,6 +84,14 @@ def _make_raw_email(attachments: list) -> bytes:
 def _b64_raw(raw_bytes: bytes) -> str:
     """URL-safe base64-encode bytes (as Gmail API returns them)."""
     return base64.urlsafe_b64encode(raw_bytes).decode()
+
+
+def _zip_xml(xml: str = SAMPLE_XML, name: str = "report.xml") -> bytes:
+    """Create a small DMARC ZIP attachment."""
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr(name, xml.encode("utf-8"))
+    return buf.getvalue()
 
 
 # ===========================================================================
@@ -432,6 +444,9 @@ class TestProcessMessage:
 
 
 class TestProcessAttachments:
+    def setup_method(self):
+        ReportStore.get_instance().clear()
+
     def test_no_attachments_returns_zero(self):
         client = _make_client()
         msg = email_mod.message_from_bytes(b"From: a@b.com\r\nTo: c@d.com\r\n\r\nHello")
@@ -449,24 +464,45 @@ class TestProcessAttachments:
         assert count == 0
         assert stats["reports_found"] == 0
 
-    def test_dmarc_xml_attachment_is_parsed(self):
-        """A .xml attachment is parsed via DMARCParser and counts as a report."""
+    def test_google_style_zip_attachment_is_parsed(self):
+        """A Google DMARC ZIP attachment is parsed and counted."""
         client = _make_client()
-        raw = _make_raw_email([{"filename": "report.xml", "content": b"<xml_content/>"}])
+        raw = _make_raw_email(
+            [
+                {
+                    "filename": "google.com!example.com!1597449600!1597535999.zip",
+                    "content": _zip_xml(),
+                }
+            ]
+        )
         msg = email_mod.message_from_bytes(raw)
         stats = {"reports_found": 0, "errors": []}
 
-        mock_report = {"domain": "example.com", "records": []}
-        with patch("app.services.gmail_client.DMARCParser") as mock_parser_class:
-            mock_parser = MagicMock()
-            mock_parser.parse.return_value = [mock_report]
-            mock_parser_class.return_value = mock_parser
-            # Also mock report_store.add_report to avoid real persistence
-            with patch.object(client.report_store, "add_report"):
-                count = client._process_attachments(msg, stats)
+        count = client._process_attachments(msg, stats)
 
         assert count == 1
         assert stats["reports_found"] == 1
+        assert "example.com" in client.report_store.get_domains()
+
+    def test_duplicate_report_is_skipped(self):
+        """Repeated imports of the same domain/report ID should not inflate totals."""
+        client = _make_client()
+        raw = _make_raw_email(
+            [
+                {
+                    "filename": "google.com!example.com!1597449600!1597535999.zip",
+                    "content": _zip_xml(),
+                }
+            ]
+        )
+        msg = email_mod.message_from_bytes(raw)
+
+        first_stats = {"reports_found": 0, "errors": []}
+        second_stats = {"reports_found": 0, "errors": []}
+
+        assert client._process_attachments(msg, first_stats) == 1
+        assert client._process_attachments(msg, second_stats) == 0
+        assert client.report_store.get_domain_summary("example.com")["reports_processed"] == 1
 
     def test_dmarc_attachment_with_empty_content_skipped(self):
         """A DMARC-named attachment with truly empty payload is skipped gracefully."""
@@ -500,12 +536,10 @@ class TestProcessAttachments:
             call_count += 1
             if call_count == 1:
                 raise ValueError("bad xml")
-            return [good_report]
+            return good_report
 
         with patch("app.services.gmail_client.DMARCParser") as mock_parser_class:
-            mock_parser = MagicMock()
-            mock_parser.parse.side_effect = parse_side_effect
-            mock_parser_class.return_value = mock_parser
+            mock_parser_class.parse_file.side_effect = parse_side_effect
             with patch.object(client.report_store, "add_report"):
                 count = client._process_attachments(msg, stats)
 

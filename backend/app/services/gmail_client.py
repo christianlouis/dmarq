@@ -48,9 +48,10 @@ GMAIL_SCOPES = [
 DMARC_GMAIL_QUERY = (
     "has:attachment "
     "(filename:zip OR filename:gz OR filename:xml) "
-    "(subject:dmarc OR subject:report OR subject:rua "
+    "(subject:dmarc OR subject:report OR subject:rua OR subject:submitter "
     'OR subject:"aggregate report" OR subject:"domain report" '
-    "OR from:dmarc OR from:dmarc-noreply OR from:reports OR from:postmaster)"
+    'OR subject:"report domain" OR from:dmarc OR from:dmarc-noreply '
+    "OR from:noreply-dmarc-support OR from:reports OR from:postmaster)"
 )
 
 # How many message results to fetch per API page
@@ -331,16 +332,28 @@ class GmailClient:
             or lower.endswith(".gzip")
         )
 
+    def _store_report_if_new(self, report: Dict[str, Any]) -> bool:
+        """Store a parsed report unless that domain/report ID is already present."""
+        domain = report.get("domain", "unknown")
+        report_id = report.get("report_id", "")
+        if report_id and self.report_store.has_report(domain, report_id):
+            logger.info("Skipping duplicate DMARC report %s for %s", report_id, domain)
+            return False
+
+        self.report_store.add_report(report)
+        return True
+
     def _process_attachments(self, msg: email.message.Message, stats: dict) -> int:
         """Walk a parsed email message and extract DMARC report attachments."""
         reports_found = 0
 
         for part in msg.walk():
-            if part.get_content_disposition() != "attachment":
+            filename = self._decode_part_filename(part)
+            if not filename or not self._is_dmarc_attachment(filename):
                 continue
 
-            filename = self._decode_part_filename(part)
-            if not self._is_dmarc_attachment(filename):
+            disposition = part.get_content_disposition()
+            if disposition not in ("attachment", None):
                 continue
 
             content = part.get_payload(decode=True)
@@ -348,10 +361,8 @@ class GmailClient:
                 continue
 
             try:
-                parser = DMARCParser()
-                reports = parser.parse(content, filename)
-                for report in reports:
-                    self.report_store.add_report(report)
+                report = DMARCParser.parse_file(content, filename)
+                if self._store_report_if_new(report):
                     stats["reports_found"] += 1
                     reports_found += 1
             except Exception as exc:  # pylint: disable=broad-exception-caught

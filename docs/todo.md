@@ -75,6 +75,23 @@ This file tracks the specific implementation tasks for each milestone of the DMA
 - [x] Implement manual sync trigger button
 - [x] Add status indicators for background processes
 
+## Milestone 2A: Gmail and Mail Import Reliability
+
+### Gmail API Import
+- [x] Create Gmail OAuth mail source flow
+- [x] Search Gmail for likely DMARC aggregate report messages
+- [x] Match Google DMARC subjects like `Report domain: example.com Submitter: google.com`
+- [x] Parse Google-style ZIP attachments such as `google.com!example.com!begin!end.zip`
+- [x] Use the shared DMARC parser for Gmail imports
+- [x] Track ingested Gmail message IDs
+
+### Duplicate and Error Handling
+- [x] Skip duplicate domain/report IDs during Gmail imports
+- [x] Skip duplicate domain/report IDs during IMAP imports
+- [ ] Persist sanitized import errors for UI review
+- [ ] Count duplicate skips separately from parse failures
+- [ ] Add retry/backfill controls per mail source
+
 ## Milestone 3: Database Integration
 
 ### Database Setup
@@ -124,5 +141,16 @@ This file tracks the specific implementation tasks for each milestone of the DMA
 - [ ] Add data aggregation for different time periods
 - [ ] Implement data comparison features
 
+### Meaningful Reports
+- [ ] Add per-domain daily rollups
+- [ ] Add sender/source pass/fail totals
+- [ ] Add newly observed source detection
+- [ ] Add exportable domain reports
+- [ ] Add actionable recommendations for common DMARC failure patterns
+
 ## Future Milestones
-Additional tasks for Milestones 5-11 will be added as we approach those phases of development.
+- [ ] Production secret handling guide using 1Password injection
+- [ ] Apprise notifications and alert rules
+- [ ] DNS health guidance and Cloudflare read-only inspection
+- [ ] Guided setup and operator health pages
+- [ ] Forensic/RUF report support

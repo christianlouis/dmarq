@@ -386,6 +386,16 @@ class IMAPClient:
                             # Parse the DMARC report
                             report = DMARCParser.parse_file(content, filename)
 
+                            domain = report.get("domain", "unknown")
+                            report_id = report.get("report_id", "")
+                            if report_id and self.report_store.has_report(domain, report_id):
+                                logger.info(
+                                    "Skipping duplicate DMARC report %s for %s",
+                                    report_id,
+                                    domain,
+                                )
+                                continue
+
                             # Add the report to the store
                             self.report_store.add_report(report)
 
