@@ -84,7 +84,7 @@ def authed_client(test_app: FastAPI, db_session):  # pylint: disable=redefined-o
     """
 
     async def mock_admin_auth():
-        return {"auth_type": "api_key", "api_key": "test-key"}
+        return {"auth_type": "api_key"}
 
     def override_get_db():
         try:

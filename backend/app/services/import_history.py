@@ -4,6 +4,7 @@ from typing import Any, Dict, Iterable, Optional
 
 from sqlalchemy.orm import Session
 
+from app.core.redaction import redact_sensitive_text
 from app.models.mail_source import MailSource
 from app.models.mail_source_import import MailSourceImport
 
@@ -24,7 +25,7 @@ DETAIL_FIELDS = {
 
 def _sanitize_error(value: object) -> str:
     """Return a compact, log-safe error string for storage and UI display."""
-    text = str(value).replace("\r", "").replace("\n", " ").strip()
+    text = redact_sensitive_text(value).strip()
     if len(text) > MAX_ERROR_LENGTH:
         return text[: MAX_ERROR_LENGTH - 3] + "..."
     return text

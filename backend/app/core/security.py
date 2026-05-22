@@ -193,7 +193,7 @@ async def require_admin_auth(
 
     # 2. Static admin API key
     if api_key and verify_api_key(api_key):
-        return {"auth_type": "api_key", "api_key": api_key}
+        return {"auth_type": "api_key"}
 
     # 3. Bearer JWT (app-issued; also covers Bearer tokens set by older clients)
     if bearer:

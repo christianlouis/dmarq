@@ -96,9 +96,10 @@ Goal: make production deployments safer and easier to operate.
 
 Delivered:
 - 1Password-based secret injection flow for local, Docker Compose, and systemd deployments.
+- Raw mailbox/OAuth secrets are redacted from mail-source diagnostics, import history, and OAuth error logs.
+- Admin authentication contexts no longer carry raw API keys after validation.
 
 Planned:
-- Avoid exposing raw mailbox/OAuth secrets in logs, UI responses, and diagnostics.
 - Add startup checks for production-critical configuration.
 - Add backup/restore guidance for database deployments.
 - Add release checklist covering migrations, tests, and smoke checks.

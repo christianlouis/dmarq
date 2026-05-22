@@ -104,6 +104,7 @@ class TestRequireAdminAuth:
                 request=self._make_request(), api_key=key, bearer=None
             )
             assert result["auth_type"] == "api_key"
+            assert "api_key" not in result
         finally:
             from app.core.security import _api_keys
 
