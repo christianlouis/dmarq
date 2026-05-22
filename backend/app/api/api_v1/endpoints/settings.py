@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.setting import Setting
+from app.services.notifications import send_notification
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -113,59 +114,17 @@ SETTING_DEFAULTS: List[Dict[str, Any]] = [
     },
     # ── Notifications ─────────────────────────────────────────────────────────
     {
-        "key": "notifications.email_enabled",
+        "key": "notifications.apprise_enabled",
         "value": "false",
-        "description": "Send email notifications when new DMARC failures are detected",
+        "description": "Send notifications through configured Apprise target URLs",
         "value_type": "boolean",
         "category": "notifications",
     },
     {
-        "key": "notifications.email_from",
+        "key": "notifications.apprise_urls",
         "value": "",
-        "description": "From address used for notification emails",
+        "description": "Newline-separated Apprise notification target URLs",
         "value_type": "string",
-        "category": "notifications",
-    },
-    {
-        "key": "notifications.email_to",
-        "value": "",
-        "description": "Comma-separated list of recipient addresses for notifications",
-        "value_type": "string",
-        "category": "notifications",
-    },
-    {
-        "key": "notifications.smtp_host",
-        "value": "",
-        "description": "SMTP server hostname for sending notification emails",
-        "value_type": "string",
-        "category": "notifications",
-    },
-    {
-        "key": "notifications.smtp_port",
-        "value": "587",
-        "description": "SMTP server port",
-        "value_type": "integer",
-        "category": "notifications",
-    },
-    {
-        "key": "notifications.smtp_username",
-        "value": "",
-        "description": "SMTP authentication username",
-        "value_type": "string",
-        "category": "notifications",
-    },
-    {
-        "key": "notifications.smtp_password",
-        "value": "",
-        "description": "SMTP authentication password",
-        "value_type": "string",
-        "category": "notifications",
-    },
-    {
-        "key": "notifications.smtp_use_tls",
-        "value": "true",
-        "description": "Use TLS when connecting to the SMTP server",
-        "value_type": "boolean",
         "category": "notifications",
     },
 ]
@@ -173,6 +132,7 @@ SETTING_DEFAULTS: List[Dict[str, Any]] = [
 # Keys whose values should be redacted in GET responses (treated as secrets)
 _SECRET_KEYS = {
     "cloudflare.api_token",
+    "notifications.apprise_urls",
     "notifications.smtp_password",
 }
 
@@ -245,6 +205,17 @@ class SettingResponse(BaseModel):
     updated_at: Optional[str]
 
 
+class NotificationTestResponse(BaseModel):
+    """Sanitized response from a test notification send."""
+
+    success: bool
+    message: str
+    configured_targets: int = 0
+    invalid_targets: int = 0
+    skipped: bool = False
+    error: Optional[str] = None
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -267,6 +238,27 @@ async def list_settings(
         query = query.filter(Setting.category == category)
     rows = query.order_by(Setting.category, Setting.key).all()
     return [_row_to_dict(row) for row in rows]
+
+
+@router.post("/notifications/test", response_model=NotificationTestResponse)
+async def test_notification_settings(
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+) -> NotificationTestResponse:
+    """Send a test notification using the configured Apprise targets."""
+    _seed_defaults(db)
+    result = send_notification(
+        db,
+        title="DMARQ test notification",
+        body="This confirms that DMARQ can reach the configured notification target.",
+        force=True,
+    )
+    if not result.success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result.to_dict(),
+        )
+    return result.to_dict()
 
 
 @router.get("/{key:path}", response_model=SettingResponse)

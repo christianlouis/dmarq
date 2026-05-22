@@ -83,7 +83,7 @@ Follow-up:
 
 ## Later Milestones
 
-- Notifications and alert rules with Apprise.
+- Notifications and alert rules. Apprise delivery and test notifications are in place; alert rules, summaries, and alert history remain.
 - DNS health and Cloudflare read-only inspection.
 - Guided setup and operator health screens.
 - Forensic/RUF report support.

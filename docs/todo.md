@@ -164,7 +164,10 @@ Status: Complete for the delivered reporting milestone. Alert-specific dashboard
 - [x] Add startup checks for production-critical configuration
 - [x] Add backup/restore guidance for database deployments
 - [x] Add release checklist covering migrations, tests, and smoke checks
-- [ ] Apprise notifications and alert rules
+- [x] Add Apprise notification delivery and test notification support
+- [ ] Add alert rules for new sender source, compliance drop, DMARC failures above threshold, and missing reports
+- [ ] Add daily and weekly summary notifications
+- [ ] Add alert history
 - [ ] DNS health guidance and Cloudflare read-only inspection
 - [ ] Guided setup and operator health pages
 - [ ] Forensic/RUF report support

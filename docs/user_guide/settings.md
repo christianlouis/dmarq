@@ -29,15 +29,18 @@ System-wide settings are available to administrators:
 
 ## Notification Settings
 
-### Email Notifications
+### Apprise Notifications
 
-Configure how you receive email notifications:
+Configure where DMARQ sends notifications:
 
-1. Navigate to **Settings** > **Notifications** > **Email**
-2. Configure the following:
-   - **Email Address**: Where notifications will be sent
-   - **Notification Frequency**: Immediate, daily digest, or weekly summary
-   - **Notification Types**: Select which events trigger notifications
+1. Navigate to **Settings**.
+2. Open **Notifications**.
+3. Enable notifications.
+4. Add one Apprise target URL per line.
+5. Save and use **Send Test** to verify delivery.
+
+Target URLs are redacted after saving so credentials are not exposed through the
+settings API or page reloads.
 
 ### Alert Thresholds
 
@@ -52,11 +55,9 @@ Set thresholds for when alerts are triggered:
 
 ### Integration Notifications
 
-If you've enabled additional notification channels through Apprise:
-
-1. Navigate to **Settings** > **Notifications** > **Integrations**
-2. Configure each integration separately (Slack, Teams, Discord, etc.)
-3. Set which notification types go to each channel
+Apprise supports email, Slack, Teams, Discord, generic webhooks, and many other
+targets through the same notification field. Add each destination on a separate
+line.
 
 ## API Access
 

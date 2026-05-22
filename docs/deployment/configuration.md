@@ -74,18 +74,17 @@ For database operations, use the [Database Backup and Restore](backups.md) guide
 | `MAX_UPLOAD_SIZE` | Maximum file upload size (MB) | `10` | `20`, `50` |
 | `SESSION_LIFETIME` | Session lifetime in minutes | `1440` (24h) | `60`, `720` |
 
-### Alerting Configuration
+### Notification Configuration
 
-| Variable | Description | Default | Example |
-|----------|-------------|---------|---------|
-| `ALERTS_ENABLED` | Enable alerts | `false` | `true`, `false` |
-| `ALERT_EMAIL` | Email to send alerts to | - | `admin@example.com` |
-| `SMTP_SERVER` | SMTP server for sending alerts | - | `smtp.gmail.com` |
-| `SMTP_PORT` | SMTP port | `587` | `587`, `465` |
-| `SMTP_USERNAME` | SMTP username | - | `alerts@example.com` |
-| `SMTP_PASSWORD` | SMTP password | - | `smtp_password` |
-| `SMTP_USE_TLS` | Use TLS for SMTP | `true` | `true`, `false` |
-| `ALERT_THRESHOLD` | Compliance threshold for alerts | `90` | `80`, `95` |
+DMARQ stores notification targets in the web settings table. Configure them under
+**Settings** > **Notifications** and use newline-separated Apprise URLs, such as
+email, Slack, Teams, Discord, or webhook targets. Saved target URLs are redacted
+from API responses.
+
+| Setting | Description | Default | Example |
+|---------|-------------|---------|---------|
+| `notifications.apprise_enabled` | Enable Apprise notification delivery | `false` | `true` |
+| `notifications.apprise_urls` | Newline-separated Apprise target URLs | - | `mailto://user:pass@example.com` |
 
 ### Cloudflare Integration
 
@@ -143,18 +142,12 @@ IMAP_POLLING_INTERVAL=30
 IMAP_MARK_AS_READ=true
 ```
 
-### With Email Alerting
+### With Apprise Notifications
 
-```
-ALERTS_ENABLED=true
-ALERT_EMAIL=admin@example.com
-SMTP_SERVER=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USERNAME=alerts@example.com
-SMTP_PASSWORD=smtp_password
-SMTP_USE_TLS=true
-ALERT_THRESHOLD=95
-```
+1. Open **Settings** > **Notifications**.
+2. Enable notifications.
+3. Add one Apprise target URL per line.
+4. Save and use **Send Test** to verify delivery.
 
 ## Configuration Hierarchy
 
@@ -192,6 +185,6 @@ DMARQ validates your configuration on startup. If there are issues, they will be
 - Database connection parameters
 - Secret key presence and strength
 - IMAP credentials (if IMAP is enabled)
-- SMTP credentials (if alerting is enabled)
+- Notification targets can be tested from the settings page
 
 Check the application logs if you encounter startup issues related to configuration.
