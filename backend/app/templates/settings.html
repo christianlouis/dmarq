@@ -229,11 +229,28 @@
                             <textarea x-model="s['notifications.apprise_urls']"
                                 class="textarea textarea-bordered w-full min-h-32 font-mono text-sm"
                                 placeholder="mailto://user:password@example.com&#10;slack://token-a/token-b/token-c/channel"></textarea>
-                            <label class="label"><span class="label-text-alt text-muted-foreground">One target per line. Values are redacted after saving.</span></label>
+                            <label class="label"><span class="label-text-alt text-muted-foreground">One target per line. Values are encrypted at rest and redacted after saving.</span></label>
                         </div>
 
                     </div>
                 </template>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="form-control w-full">
+                        <label class="label"><span class="label-text font-medium">Minimum Send Interval</span></label>
+                        <input type="number" x-model.number="s['notifications.min_send_interval_minutes']"
+                            class="input input-bordered w-full" min="0" />
+                    </div>
+                    <div class="form-control">
+                        <label class="label cursor-pointer justify-start gap-3">
+                            <input type="checkbox"
+                                :checked="s['notifications.redact_pii_enabled'] === 'true'"
+                                @change="s['notifications.redact_pii_enabled'] = $event.target.checked ? 'true' : 'false'"
+                                class="checkbox checkbox-primary" />
+                            <span class="label-text font-medium">Redact email addresses in messages</span>
+                        </label>
+                    </div>
+                </div>
 
                 <div class="border-t border-border pt-4 space-y-4">
                     <div>
@@ -409,6 +426,44 @@
                     </div>
                 </div>
 
+                <div class="border-t border-border pt-4 space-y-4">
+                    <div class="flex items-center justify-between gap-3">
+                        <h3 class="text-sm font-semibold">Configuration Audit</h3>
+                        <button type="button" class="btn btn-outline btn-sm" :disabled="loadingConfigAudit" @click="loadConfigAudit()">
+                            <template x-if="!loadingConfigAudit">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
+                                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                                    <path d="M3 3v5h5"></path>
+                                    <path d="M12 7v5l4 2"></path>
+                                </svg>
+                            </template>
+                            <template x-if="loadingConfigAudit"><span class="loading loading-spinner loading-xs mr-2"></span></template>
+                            Refresh
+                        </button>
+                    </div>
+
+                    <template x-if="configAudit.length === 0">
+                        <div class="alert alert-info">
+                            <span>No configuration changes recorded yet.</span>
+                        </div>
+                    </template>
+
+                    <div class="space-y-2" x-show="configAudit.length > 0">
+                        <template x-for="item in configAudit" :key="item.id">
+                            <div class="rounded-md border border-border p-3">
+                                <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                                    <div>
+                                        <div class="text-sm font-semibold" x-text="item.key"></div>
+                                        <div class="text-sm text-muted-foreground" x-text="`${item.old_value || '(empty)'} -> ${item.new_value || '(empty)'}`"></div>
+                                    </div>
+                                    <div class="text-xs text-muted-foreground" x-text="new Date(item.changed_at).toLocaleString()"></div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
                 <div class="flex flex-col sm:flex-row justify-end gap-2">
                     <button type="button" class="btn btn-outline btn-md" :disabled="saving || previewingSummary" @click="previewSummary()">
                         <template x-if="!previewingSummary">
@@ -520,6 +575,8 @@ function settingsApp() {
         summaryPreview: null,
         loadingAlertHistory: false,
         alertHistory: [],
+        loadingConfigAudit: false,
+        configAudit: [],
         showCfToken: false,
 
         // Session cookie is sent automatically by the browser (httpOnly, same-origin).
@@ -544,6 +601,7 @@ function settingsApp() {
                 rows.forEach(r => { map[r.key] = r.value ?? ''; });
                 this.s = map;
                 await this.loadAlertHistory(false);
+                await this.loadConfigAudit(false);
             } catch (err) {
                 this.showFlash('Error loading settings: ' + err.message, false);
             }
@@ -567,6 +625,9 @@ function settingsApp() {
                 } else {
                     const rows = await res.json();
                     rows.forEach(r => { this.s[r.key] = r.value ?? ''; });
+                    if (category === 'notifications') {
+                        await this.loadConfigAudit(false);
+                    }
                     this.showFlash('Settings saved successfully.', true);
                 }
             } catch (err) {
@@ -714,6 +775,32 @@ function settingsApp() {
                 }
             } finally {
                 this.loadingAlertHistory = false;
+            }
+        },
+
+        async loadConfigAudit(showMessage = true) {
+            this.loadingConfigAudit = true;
+            try {
+                const res = await fetch('/api/v1/settings/notifications/config-audit?limit=10', {
+                    headers: this.apiHeaders(),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    if (showMessage) {
+                        this.showFlash('Configuration audit failed: ' + (data.detail || res.statusText), false);
+                    }
+                } else {
+                    this.configAudit = data.audit || [];
+                    if (showMessage) {
+                        this.showFlash('Configuration audit refreshed.', true);
+                    }
+                }
+            } catch (err) {
+                if (showMessage) {
+                    this.showFlash('Error loading configuration audit: ' + err.message, false);
+                }
+            } finally {
+                this.loadingConfigAudit = false;
             }
         },
 

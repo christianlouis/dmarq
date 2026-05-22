@@ -7,11 +7,13 @@ from datetime import datetime, timedelta, timezone
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.models.alert import AlertHistory
+from app.core.credential_encryption import decrypt_secret, is_encrypted_secret
+from app.models.alert import AlertConfigurationAudit, AlertHistory
 from app.models.domain import Domain
 from app.models.report import DMARCReport, ReportRecord
 from app.models.setting import Setting
-from app.services.notifications import NotificationResult
+from app.services.alert_history import list_alert_config_audit, record_alert_config_change
+from app.services.notifications import NotificationResult, send_notification
 from app.services.summary_notifications import send_due_scheduled_summaries
 
 
@@ -88,6 +90,13 @@ class TestSettingModel:
         assert "dns.resolver" in repr(row)
         assert "dns" in repr(row)
 
+    def test_alert_reprs(self):
+        alert = AlertHistory(rule="missing_reports", is_active=True)
+        audit = AlertConfigurationAudit(key="notifications.apprise_enabled")
+
+        assert "missing_reports" in repr(alert)
+        assert "notifications.apprise_enabled" in repr(audit)
+
 
 class TestSettingsAPI:
     """Integration tests for /api/v1/settings endpoints."""
@@ -112,6 +121,8 @@ class TestSettingsAPI:
         assert "notifications.summary_weekly_enabled" in keys
         assert "notifications.summary_send_hour_utc" in keys
         assert "notifications.summary_weekday_utc" in keys
+        assert "notifications.min_send_interval_minutes" in keys
+        assert "notifications.redact_pii_enabled" in keys
 
     def test_list_settings_filter_by_category(self, authed_client: TestClient):
         """GET /api/v1/settings?category=dmarc returns only dmarc settings."""
@@ -199,6 +210,48 @@ class TestSettingsAPI:
         assert res.status_code == 200
         assert res.json()["value"] == "**redacted**"
 
+    def test_apprise_urls_are_encrypted_at_rest(
+        self,
+        authed_client: TestClient,
+        db_session: Session,
+    ):
+        """Apprise target URLs are encrypted in the settings table."""
+        target = "mailto://user:password@example.com"
+        authed_client.get("/api/v1/settings")
+
+        res = authed_client.put(
+            "/api/v1/settings/notifications.apprise_urls",
+            json={"value": target},
+        )
+
+        assert res.status_code == 200
+        row = db_session.query(Setting).filter(Setting.key == "notifications.apprise_urls").first()
+        assert row is not None
+        assert row.value != target
+        assert is_encrypted_secret(row.value)
+        assert decrypt_secret(row.value) == target
+
+    def test_legacy_plaintext_secret_setting_is_migrated_on_read(
+        self,
+        authed_client: TestClient,
+        db_session: Session,
+    ):
+        """Plaintext secret settings are encrypted the next time defaults are seeded."""
+        db_session.add(
+            Setting(
+                key="notifications.apprise_urls",
+                value="mailto://user:password@example.com",
+                category="notifications",
+            )
+        )
+        db_session.commit()
+
+        res = authed_client.get("/api/v1/settings")
+
+        assert res.status_code == 200
+        row = db_session.query(Setting).filter(Setting.key == "notifications.apprise_urls").first()
+        assert is_encrypted_secret(row.value)
+
     def test_redacted_placeholder_does_not_overwrite(self, authed_client: TestClient):
         """Sending **redacted** back to PUT should not overwrite the stored value."""
         authed_client.get("/api/v1/settings")
@@ -263,6 +316,204 @@ class TestSettingsAPI:
         assert data["configured_targets"] == 1
         assert "password" not in str(data)
         assert FakeApprise.instances[0].messages[0]["title"] == "DMARQ test notification"
+
+    def test_notification_delivery_is_rate_limited(
+        self,
+        db_session: Session,
+        monkeypatch,
+    ):
+        """Non-forced notification sends respect the configured cooldown."""
+
+        class FakeApprise:
+            instances = []
+
+            def __init__(self):
+                self.messages = []
+                FakeApprise.instances.append(self)
+
+            def add(self, url):
+                return True
+
+            def notify(self, *, title, body):
+                self.messages.append({"title": title, "body": body})
+                return True
+
+        monkeypatch.setattr("app.services.notifications.apprise.Apprise", FakeApprise)
+        db_session.add_all(
+            [
+                Setting(
+                    key="notifications.apprise_enabled",
+                    value="true",
+                    category="notifications",
+                ),
+                Setting(
+                    key="notifications.apprise_urls",
+                    value="mailto://user:password@example.com",
+                    category="notifications",
+                ),
+                Setting(
+                    key="notifications.min_send_interval_minutes",
+                    value="15",
+                    category="notifications",
+                ),
+            ]
+        )
+        db_session.commit()
+
+        first = send_notification(db_session, title="First", body="First body")
+        second = send_notification(db_session, title="Second", body="Second body")
+
+        assert first.success is True
+        assert second.success is False
+        assert second.rate_limited is True
+        assert second.error == "rate_limited"
+        assert sum(len(instance.messages) for instance in FakeApprise.instances) == 1
+
+    def test_notification_delivery_edges_are_sanitized(
+        self,
+        db_session: Session,
+        monkeypatch,
+    ):
+        """Notification delivery handles disabled, invalid, and failed target paths."""
+
+        class FalseApprise:
+            def add(self, url):
+                return False
+
+        class RaisingApprise:
+            def add(self, url):
+                return True
+
+            def notify(self, *, title, body):
+                raise RuntimeError("delivery failed")
+
+        class NotDeliveredApprise:
+            def add(self, url):
+                return True
+
+            def notify(self, *, title, body):
+                return False
+
+        assert send_notification(db_session, title="Off", body="Body").skipped is True
+
+        db_session.add_all(
+            [
+                Setting(
+                    key="notifications.apprise_enabled",
+                    value="true",
+                    category="notifications",
+                ),
+                Setting(
+                    key="notifications.apprise_urls",
+                    value="mailto://user:password@example.com",
+                    category="notifications",
+                ),
+                Setting(
+                    key="notifications.min_send_interval_minutes",
+                    value="not-an-integer",
+                    category="notifications",
+                ),
+                Setting(
+                    key="notifications.last_sent_at",
+                    value="not-a-date",
+                    category="notifications",
+                ),
+            ]
+        )
+        db_session.commit()
+
+        monkeypatch.setattr("app.services.notifications.apprise.Apprise", FalseApprise)
+        invalid = send_notification(db_session, title="Invalid", body="Body")
+        assert invalid.success is False
+        assert invalid.invalid_targets == 1
+
+        monkeypatch.setattr("app.services.notifications.apprise.Apprise", RaisingApprise)
+        failed = send_notification(db_session, title="Raises", body="Body")
+        assert failed.error == "delivery_failed"
+
+        monkeypatch.setattr("app.services.notifications.apprise.Apprise", NotDeliveredApprise)
+        not_delivered = send_notification(db_session, title="No", body="Body")
+        assert not_delivered.error == "not_delivered"
+
+    def test_notification_decrypt_error_returns_no_targets(
+        self,
+        db_session: Session,
+        monkeypatch,
+    ):
+        """Unreadable encrypted target settings fail closed without exposing secrets."""
+        db_session.add_all(
+            [
+                Setting(
+                    key="notifications.apprise_enabled",
+                    value="true",
+                    category="notifications",
+                ),
+                Setting(
+                    key="notifications.apprise_urls",
+                    value="enc:v1:bad-token",
+                    category="notifications",
+                ),
+            ]
+        )
+        db_session.commit()
+
+        def raise_value_error(value):  # pylint: disable=unused-argument
+            raise ValueError("bad token")
+
+        monkeypatch.setattr("app.services.notifications.decrypt_secret", raise_value_error)
+
+        result = send_notification(db_session, title="Bad secret", body="Body")
+
+        assert result.success is False
+        assert result.message == "No notification targets are configured."
+
+    def test_notification_delivery_redacts_email_addresses(
+        self,
+        db_session: Session,
+        monkeypatch,
+    ):
+        """Outbound notification text redacts email addresses by default."""
+
+        class FakeApprise:
+            messages = []
+
+            def add(self, url):
+                return True
+
+            def notify(self, *, title, body):
+                self.messages.append({"title": title, "body": body})
+                return True
+
+        monkeypatch.setattr("app.services.notifications.apprise.Apprise", FakeApprise)
+        db_session.add_all(
+            [
+                Setting(
+                    key="notifications.apprise_enabled",
+                    value="true",
+                    category="notifications",
+                ),
+                Setting(
+                    key="notifications.apprise_urls",
+                    value="mailto://user:password@example.com",
+                    category="notifications",
+                ),
+            ]
+        )
+        db_session.commit()
+
+        result = send_notification(
+            db_session,
+            title="Failure for admin@example.com",
+            body="Sample from alice@example.com failed DMARC.",
+        )
+
+        assert result.success is True
+        assert "admin@example.com" not in FakeApprise.messages[0]["title"]
+        assert "alice@example.com" not in FakeApprise.messages[0]["body"]
+        assert "[redacted-email]@example.com" in FakeApprise.messages[0]["body"]
+        redact_text = send_notification.__globals__["redact_notification_text"]
+        assert redact_text('"admin@example.com!"').strip('"') == "[redacted-email]@example.com!"
+        assert redact_text("not-an-email") == "not-an-email"
 
     def test_test_notification_without_targets_returns_400(self, authed_client: TestClient):
         """Test notification returns a useful error when no target is configured."""
@@ -469,6 +720,128 @@ class TestSettingsAPI:
         assert resolved
         assert all(item["is_active"] is False for item in resolved)
 
+    def test_notification_alert_send_failure_returns_400(
+        self,
+        authed_client: TestClient,
+        monkeypatch,
+    ):
+        """Alert send endpoint surfaces notification delivery failures."""
+
+        def fake_send_current_alerts(db):  # pylint: disable=unused-argument
+            return {
+                "alerts": [{"title": "Alert", "detail": "Detail"}],
+                "notification": {
+                    "success": False,
+                    "message": "No valid notification targets are configured.",
+                },
+            }
+
+        monkeypatch.setattr(
+            "app.api.api_v1.endpoints.settings.send_current_alerts",
+            fake_send_current_alerts,
+        )
+
+        res = authed_client.post("/api/v1/settings/notifications/alerts/send")
+
+        assert res.status_code == 400
+        assert res.json()["detail"]["notification"]["success"] is False
+
+    def test_notification_config_audit_records_sanitized_changes(
+        self,
+        authed_client: TestClient,
+    ):
+        """Notification setting changes create an audit trail without secret values."""
+        authed_client.get("/api/v1/settings")
+
+        res = authed_client.post(
+            "/api/v1/settings/bulk",
+            json={
+                "settings": {
+                    "notifications.apprise_enabled": "true",
+                    "notifications.apprise_urls": "mailto://user:password@example.com",
+                    "notifications.alert_failure_threshold_count": "250",
+                }
+            },
+        )
+
+        assert res.status_code == 200
+        audit_res = authed_client.get("/api/v1/settings/notifications/config-audit")
+        assert audit_res.status_code == 200
+        audit = audit_res.json()["audit"]
+        keys = {item["key"] for item in audit}
+        assert "notifications.apprise_enabled" in keys
+        assert "notifications.apprise_urls" in keys
+        assert "notifications.alert_failure_threshold_count" in keys
+        secret_row = next(item for item in audit if item["key"] == "notifications.apprise_urls")
+        assert secret_row["new_value"] == "[redacted]"
+        assert "password" not in str(audit)
+
+    def test_notification_config_audit_actor_variants(
+        self,
+        db_session: Session,
+    ):
+        """Config audit actor detection covers session and JWT auth contexts."""
+        record_alert_config_change(
+            db_session,
+            key="notifications.apprise_enabled",
+            old_value="false",
+            new_value="true",
+            auth_context={"auth_type": "session", "user_id": 123},
+        )
+        record_alert_config_change(
+            db_session,
+            key="notifications.apprise_enabled",
+            old_value="true",
+            new_value="false",
+            auth_context={"auth_type": "jwt", "payload": {"sub": "admin@example.com"}},
+        )
+        db_session.commit()
+
+        audit = list_alert_config_audit(db_session, limit=2)
+
+        assert {row["changed_by"] for row in audit} == {"123", "admin@example.com"}
+
+    def test_bulk_update_upserts_and_preserves_redacted_secret(
+        self,
+        authed_client: TestClient,
+        db_session: Session,
+    ):
+        """Bulk settings handles new rows and redacted secret placeholders."""
+        authed_client.get("/api/v1/settings")
+        authed_client.put(
+            "/api/v1/settings/notifications.apprise_urls",
+            json={"value": "mailto://user:password@example.com"},
+        )
+        before = (
+            db_session.query(Setting)
+            .filter(Setting.key == "notifications.apprise_urls")
+            .first()
+            .value
+        )
+
+        res = authed_client.post(
+            "/api/v1/settings/bulk",
+            json={
+                "settings": {
+                    "notifications.custom_notice": "enabled",
+                    "notifications.apprise_urls": "**redacted**",
+                }
+            },
+        )
+
+        assert res.status_code == 200
+        after = (
+            db_session.query(Setting)
+            .filter(Setting.key == "notifications.apprise_urls")
+            .first()
+            .value
+        )
+        custom = (
+            db_session.query(Setting).filter(Setting.key == "notifications.custom_notice").first()
+        )
+        assert after == before
+        assert custom.value == "enabled"
+
     def test_notification_summary_preview_returns_recent_activity(
         self,
         authed_client: TestClient,
@@ -546,6 +919,33 @@ class TestSettingsAPI:
         assert data["summary"]["period"] == "weekly"
         assert sent_messages[0]["title"].startswith("DMARQ weekly summary")
         assert "Weekly DMARC summary" in sent_messages[0]["body"]
+
+    def test_notification_summary_invalid_period_and_failure_paths(
+        self,
+        authed_client: TestClient,
+        monkeypatch,
+    ):
+        """Summary endpoints return useful 400 responses for invalid or failed sends."""
+        preview_res = authed_client.get("/api/v1/settings/notifications/summary?period=monthly")
+        assert preview_res.status_code == 400
+
+        send_res = authed_client.post("/api/v1/settings/notifications/summary/send?period=monthly")
+        assert send_res.status_code == 400
+
+        def fake_send_summary_notification(db, period):  # pylint: disable=unused-argument
+            return {
+                "summary": {"period": period},
+                "notification": {"success": False, "message": "Not delivered."},
+            }
+
+        monkeypatch.setattr(
+            "app.api.api_v1.endpoints.settings.send_summary_notification",
+            fake_send_summary_notification,
+        )
+
+        failed_res = authed_client.post("/api/v1/settings/notifications/summary/send?period=daily")
+        assert failed_res.status_code == 400
+        assert failed_res.json()["detail"]["notification"]["success"] is False
 
     def test_due_scheduled_summaries_send_once_per_period(
         self,

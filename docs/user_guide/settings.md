@@ -39,8 +39,13 @@ Configure where DMARQ sends notifications:
 4. Add one Apprise target URL per line.
 5. Save and use **Send Test** to verify delivery.
 
-Target URLs are redacted after saving so credentials are not exposed through the
-settings API or page reloads.
+Target URLs are encrypted in the database and redacted after saving so
+credentials are not exposed through the settings API or page reloads.
+
+The notification page also includes a minimum send interval. This cooldown
+limits repeated outbound notifications if several alert checks run close
+together. Email addresses in notification titles and bodies are redacted by
+default before messages are sent.
 
 ### Alert Thresholds
 
@@ -68,6 +73,12 @@ Configure daily or weekly summaries in **Settings** > **Notifications**:
 Alert history appears in **Settings** > **Notifications** after alerts have been
 evaluated or sent. Each row shows whether the alert is active or resolved, how
 many times it has been observed, and the latest alert detail.
+
+### Configuration Audit
+
+Notification and alert-rule setting changes appear in **Settings** >
+**Notifications**. Secret values are shown only as redacted markers in this
+audit trail.
 
 ### Integration Notifications
 

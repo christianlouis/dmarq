@@ -108,7 +108,8 @@ Then visit [http://localhost:8080](http://localhost:8080)
 
 DMARQ sends notifications through Apprise target URLs configured in
 **Settings** > **Notifications**. Add one target URL per line, enable
-notifications, and use **Send Test** to verify delivery. Apprise supports email,
+notifications, and use **Send Test** to verify delivery. Target URLs are
+encrypted in the database and redacted in API responses. Apprise supports email,
 Slack, Teams, Discord, generic webhooks, and many other targets.
 
 Notification settings include alert-rule toggles and thresholds for:
@@ -120,11 +121,15 @@ Notification settings include alert-rule toggles and thresholds for:
 
 DMARQ can also send daily and weekly summaries. Use **Preview Summary** to see
 the current summary payload, **Send Summary Now** for an immediate message, and
-the daily/weekly toggles to enable scheduled delivery.
+the daily/weekly toggles to enable scheduled delivery. Outbound messages are
+rate-limited by the configured cooldown and email addresses are redacted by
+default before delivery.
 
 Alert history is available in **Settings** > **Notifications** after alerts have
 been evaluated or sent. History rows track active/resolved status, first seen,
-last seen, observed count, and alert metadata.
+last seen, observed count, and alert metadata. Notification and alert-rule
+configuration changes are recorded in the configuration audit trail without
+storing raw notification secrets.
 
 See [Settings](docs/user_guide/settings.md) and
 [Configuration](docs/deployment/configuration.md) for examples and available

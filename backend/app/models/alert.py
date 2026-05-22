@@ -31,3 +31,22 @@ class AlertHistory(Base):
 
     def __repr__(self):
         return f"<AlertHistory {self.rule} active={self.is_active}>"
+
+
+class AlertConfigurationAudit(Base):
+    """Audit trail for notification and alert-rule configuration changes."""
+
+    __tablename__ = "alert_configuration_audit"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(100), nullable=False, index=True)
+    old_value = Column(Text, nullable=True)
+    new_value = Column(Text, nullable=True)
+    changed_by = Column(String(100), nullable=True, index=True)
+    auth_type = Column(String(50), nullable=True)
+    changed_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    __table_args__ = (Index("ix_alert_configuration_audit_key_changed_at", "key", "changed_at"),)
+
+    def __repr__(self):
+        return f"<AlertConfigurationAudit {self.key}>"
