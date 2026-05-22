@@ -155,7 +155,7 @@ This file tracks the specific implementation tasks for each milestone of the DMA
 - [x] Add actionable recommendations for common DMARC failure patterns
 
 ## Future Milestones
-- [ ] Production secret handling guide using 1Password injection
+- [x] Production secret handling guide using 1Password injection
 - [ ] Apprise notifications and alert rules
 - [ ] DNS health guidance and Cloudflare read-only inspection
 - [ ] Guided setup and operator health pages

@@ -21,4 +21,4 @@ DMARQ is a full-stack DMARC monitoring platform designed to help organizations t
 
 To get started with DMARQ, please see the [Getting Started](user_guide/getting_started.md) guide.
 
-For installation instructions, check the [Docker Setup](deployment/docker.md) or [Manual Installation](deployment/manual.md) guides.
+For installation instructions, check the [Docker Setup](deployment/docker.md) or [Manual Installation](deployment/manual.md) guides. For production secrets, use [Secret Handling with 1Password](deployment/secrets.md).
