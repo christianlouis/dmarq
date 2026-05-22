@@ -15,6 +15,10 @@ from app.services.dns_resolver import (
     extract_dmarc_policy,
     get_default_provider,
 )
+from app.services.report_persistence import (
+    delete_persisted_domain,
+    hydrate_report_store_from_db,
+)
 from app.services.report_store import ReportStore
 
 logger = logging.getLogger(__name__)
@@ -146,9 +150,7 @@ def _get_domain_selectors_from_db(db: Session, domain_name: str) -> List[str]:
     return []
 
 
-def _get_domain_selectors_map_from_db(
-    db: Session, domain_names: List[str]
-) -> Dict[str, List[str]]:
+def _get_domain_selectors_map_from_db(db: Session, domain_names: List[str]) -> Dict[str, List[str]]:
     """Return manually configured DKIM selectors for all requested domains."""
     if not domain_names:
         return {}
@@ -157,11 +159,7 @@ def _get_domain_selectors_map_from_db(
     selectors_by_domain: Dict[str, List[str]] = {}
     for index in range(0, len(unique_names), DOMAIN_SELECTOR_LOOKUP_CHUNK_SIZE):
         chunk = unique_names[index : index + DOMAIN_SELECTOR_LOOKUP_CHUNK_SIZE]
-        rows = (
-            db.query(Domain.name, Domain.dkim_selectors)
-            .filter(Domain.name.in_(chunk))
-            .all()
-        )
+        rows = db.query(Domain.name, Domain.dkim_selectors).filter(Domain.name.in_(chunk)).all()
         for name, selectors in rows:
             selectors_by_domain[name] = [
                 selector.strip() for selector in (selectors or "").split(",") if selector.strip()
@@ -180,6 +178,7 @@ async def get_domains_summary(db: Session = Depends(get_db)):
     blocking the page load.
     """
     store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
     domains = store.get_domains()
     summaries = store.get_all_domain_summaries()
 
@@ -256,12 +255,13 @@ async def get_domains_summary(db: Session = Depends(get_db)):
 
 
 @router.get("/domains", response_model=List[DomainResponse])
-async def read_domains():
+async def read_domains(db: Session = Depends(get_db)):
     """
     Retrieve domains with their statistics.
     For Milestone 1, this simply returns domains from the in-memory store.
     """
     store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
     domains = store.get_domains()
     summaries = store.get_all_domain_summaries()
 
@@ -281,11 +281,12 @@ async def read_domains():
 
 
 @router.get("/domains/{domain_name}", response_model=DomainResponse)
-async def read_domain(domain_name: str):
+async def read_domain(domain_name: str, db: Session = Depends(get_db)):
     """
     Get statistics for a specific domain.
     """
     store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
     domains = store.get_domains()
 
     if domain_name not in domains:
@@ -309,11 +310,15 @@ async def read_domain(domain_name: str):
 
 
 @router.get("/{domain_id}/stats", response_model=DomainStatsResponse)
-async def get_domain_stats(domain_id: str = Path(..., title="The domain ID or name")):
+async def get_domain_stats(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    db: Session = Depends(get_db),
+):
     """
     Get detailed statistics for a specific domain
     """
     store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
     domains = store.get_domains()
 
     # For Milestone 1, domain_id is simply the domain name
@@ -351,6 +356,7 @@ async def get_domain_dns_records(
     selectors used as a final fallback.
     """
     store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
     domains = store.get_domains()
 
     if domain_id not in domains:
@@ -380,11 +386,13 @@ async def get_domain_dns_records(
 async def get_domain_reports(
     domain_id: str = Path(..., title="The domain ID or name"),
     limit: int = Query(10, title="Maximum number of reports to return"),
+    db: Session = Depends(get_db),
 ):
     """
     Get recent DMARC reports for a specific domain, along with compliance timeline
     """
     store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
     domains = store.get_domains()
 
     if domain_id not in domains:
@@ -493,12 +501,14 @@ async def _safe_ptr_lookup(provider: Any, ip: str, timeout: float = 3.0) -> Opti
 async def get_domain_sources(
     domain_id: str = Path(..., title="The domain ID or name"),
     days: int = Query(30, title="Number of days to look back"),
+    db: Session = Depends(get_db),
 ):
     """
     Get sending sources for a specific domain, including reverse-DNS hostnames
     and SPF fix hints for sources that fail authentication.
     """
     store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
     domains = store.get_domains()
 
     if domain_id not in domains:
@@ -546,6 +556,7 @@ async def get_domain_selectors(
     DMARC reports, read-only).
     """
     store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
     if domain_id not in store.get_domains():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -571,6 +582,7 @@ async def add_domain_selector(
     any received DMARC report.
     """
     store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
     if domain_id not in store.get_domains():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -627,12 +639,16 @@ async def delete_domain_selector(
 
 
 @router.delete("/{domain_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_domain(domain_id: str = Path(..., title="The domain ID or name")):
+async def delete_domain(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    db: Session = Depends(get_db),
+):
     """
     Delete a domain and all associated data.
     This performs a full cleanup of all reports and records related to this domain.
     """
     store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
     domains = store.get_domains()
 
     if domain_id not in domains:
@@ -642,7 +658,10 @@ async def delete_domain(domain_id: str = Path(..., title="The domain ID or name"
         )
 
     # Perform deletion with cleanup
-    deleted = store.delete_domain_with_cleanup(domain_id)
+    deleted_from_db = delete_persisted_domain(db, domain_id)
+    if deleted_from_db:
+        db.commit()
+    deleted = store.delete_domain_with_cleanup(domain_id) or deleted_from_db
 
     if not deleted:
         raise HTTPException(
@@ -660,6 +679,7 @@ async def search_domains(
     policy: Optional[str] = Query(None, title="Filter by DMARC policy"),
     page: int = Query(1, title="Page number", ge=1),
     limit: int = Query(10, title="Number of domains per page", ge=1, le=100),
+    db: Session = Depends(get_db),
 ):
     """
     Search domains with filtering and pagination.
@@ -672,6 +692,7 @@ async def search_domains(
         limit: Number of domains per page (max 100)
     """
     store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
     domains = store.get_domains()
     summaries = store.get_all_domain_summaries()
 

@@ -101,14 +101,14 @@ This file tracks the specific implementation tasks for each milestone of the DMA
 - [x] Implement data access layer
 
 ### Model Migration
-- [ ] Convert report ingestion and dashboard reads from in-memory storage to database-backed storage
+- [x] Convert report ingestion and dashboard reads from in-memory storage to database-backed storage
 - [x] Create Domain table
 - [x] Create AggregateReport table
 - [x] Create ReportRecord table for sender details
 - [x] Implement relationships between models
-- [ ] Persist parsed upload reports to `dmarc_reports` and `report_records`
-- [ ] Persist parsed Gmail/IMAP reports to `dmarc_reports` and `report_records`
-- [ ] Load/query persisted reports after app restart
+- [x] Persist parsed upload reports to `dmarc_reports` and `report_records`
+- [x] Persist parsed Gmail/IMAP reports to `dmarc_reports` and `report_records`
+- [x] Load/query persisted reports after app restart
 
 ### Domain Management
 - [x] Create UI for adding/editing domains

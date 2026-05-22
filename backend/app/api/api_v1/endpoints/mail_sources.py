@@ -679,6 +679,7 @@ async def gmail_fetch_reports(
         access_token=source.gmail_access_token,
         refresh_token=source.gmail_refresh_token or "",
         already_ingested_ids=already,
+        db=db,
     )
 
     started_at = datetime.utcnow()

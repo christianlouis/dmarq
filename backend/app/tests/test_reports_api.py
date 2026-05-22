@@ -3,6 +3,8 @@ import zipfile
 
 from fastapi.testclient import TestClient
 
+from app.models.report import DMARCReport, ReportRecord
+from app.services.report_store import ReportStore
 from app.tests.test_data import SAMPLE_XML
 
 
@@ -25,6 +27,41 @@ def test_upload_report_success(client: TestClient):
     data = response.json()
     assert data["success"] is True
     assert data["domain"] == "example.com"
+
+
+def test_upload_persists_report_rows(client: TestClient, db_session):
+    """Uploaded reports are written to the durable report tables."""
+    zip_bytes = _make_zip(SAMPLE_XML)
+    response = client.post(
+        "/api/v1/reports/upload",
+        files={"file": ("report.zip", zip_bytes, "application/zip")},
+    )
+    assert response.status_code == 200
+
+    report = db_session.query(DMARCReport).filter_by(report_id="123456789").one()
+    assert report.org_name == "google.com"
+    assert report.domain.name == "example.com"
+    assert db_session.query(ReportRecord).filter_by(report_id=report.id).count() == 1
+
+
+def test_report_reads_hydrate_from_persisted_rows(client: TestClient):
+    """Report read APIs rebuild the in-memory projection from the database."""
+    zip_bytes = _make_zip(SAMPLE_XML)
+    response = client.post(
+        "/api/v1/reports/upload",
+        files={"file": ("report.zip", zip_bytes, "application/zip")},
+    )
+    assert response.status_code == 200
+
+    ReportStore.get_instance().clear()
+
+    domains = client.get("/api/v1/reports/domains")
+    assert domains.status_code == 200
+    assert domains.json() == ["example.com"]
+
+    detail = client.get("/api/v1/reports/123456789")
+    assert detail.status_code == 200
+    assert detail.json()["summary"]["total_count"] == 2
 
 
 def test_upload_populates_domains_list(client: TestClient):
@@ -89,7 +126,26 @@ def test_duplicate_upload_returns_409(client: TestClient):
     assert "already been uploaded" in second.json()["detail"].lower()
 
 
-def test_delete_report_success(client: TestClient):
+def test_duplicate_upload_checks_persisted_rows(client: TestClient):
+    """Duplicate detection still works when the in-memory store is empty."""
+    zip_bytes = _make_zip(SAMPLE_XML)
+
+    first = client.post(
+        "/api/v1/reports/upload",
+        files={"file": ("report.zip", zip_bytes, "application/zip")},
+    )
+    assert first.status_code == 200
+
+    ReportStore.get_instance().clear()
+
+    second = client.post(
+        "/api/v1/reports/upload",
+        files={"file": ("report.zip", zip_bytes, "application/zip")},
+    )
+    assert second.status_code == 409
+
+
+def test_delete_report_success(client: TestClient, db_session):
     """Deleting an existing report returns 200 and removes it from the store."""
     zip_bytes = _make_zip(SAMPLE_XML)
     client.post(
@@ -105,6 +161,7 @@ def test_delete_report_success(client: TestClient):
     assert response.status_code == 200
     data = response.json()
     assert data["success"] is True
+    assert db_session.query(DMARCReport).filter_by(report_id="123456789").count() == 0
 
     # Domain should be gone now
     assert client.get("/api/v1/reports/domain/example.com/summary").status_code == 404
