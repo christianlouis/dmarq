@@ -368,6 +368,47 @@
                     </template>
                 </div>
 
+                <div class="border-t border-border pt-4 space-y-4">
+                    <div class="flex items-center justify-between gap-3">
+                        <h3 class="text-sm font-semibold">Alert History</h3>
+                        <button type="button" class="btn btn-outline btn-sm" :disabled="loadingAlertHistory" @click="loadAlertHistory()">
+                            <template x-if="!loadingAlertHistory">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
+                                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                                    <path d="M3 3v5h5"></path>
+                                    <path d="M12 7v5l4 2"></path>
+                                </svg>
+                            </template>
+                            <template x-if="loadingAlertHistory"><span class="loading loading-spinner loading-xs mr-2"></span></template>
+                            Refresh
+                        </button>
+                    </div>
+
+                    <template x-if="alertHistory.length === 0">
+                        <div class="alert alert-info">
+                            <span>No alert history yet.</span>
+                        </div>
+                    </template>
+
+                    <div class="space-y-2" x-show="alertHistory.length > 0">
+                        <template x-for="item in alertHistory" :key="item.id">
+                            <div class="rounded-md border border-border p-3">
+                                <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                                    <div>
+                                        <div class="text-sm font-semibold" x-text="item.title"></div>
+                                        <div class="text-sm text-muted-foreground" x-text="item.detail"></div>
+                                    </div>
+                                    <div class="flex items-center gap-2 text-xs">
+                                        <span class="badge" :class="item.is_active ? 'badge-warning' : 'badge-ghost'" x-text="item.is_active ? 'Active' : 'Resolved'"></span>
+                                        <span class="badge badge-outline" x-text="item.observed_count + 'x'"></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
                 <div class="flex flex-col sm:flex-row justify-end gap-2">
                     <button type="button" class="btn btn-outline btn-md" :disabled="saving || previewingSummary" @click="previewSummary()">
                         <template x-if="!previewingSummary">
@@ -477,6 +518,8 @@ function settingsApp() {
         sendingSummary: false,
         summaryPeriod: 'daily',
         summaryPreview: null,
+        loadingAlertHistory: false,
+        alertHistory: [],
         showCfToken: false,
 
         // Session cookie is sent automatically by the browser (httpOnly, same-origin).
@@ -500,6 +543,7 @@ function settingsApp() {
                 const map = {};
                 rows.forEach(r => { map[r.key] = r.value ?? ''; });
                 this.s = map;
+                await this.loadAlertHistory(false);
             } catch (err) {
                 this.showFlash('Error loading settings: ' + err.message, false);
             }
@@ -566,6 +610,7 @@ function settingsApp() {
                     this.showFlash('Alert check failed: ' + (data.detail || res.statusText), false);
                 } else {
                     this.alertPreview = (data.alerts || []).length;
+                    await this.loadAlertHistory(false);
                     this.showFlash(`${this.alertPreview} active alert${this.alertPreview === 1 ? '' : 's'} found.`, true);
                 }
             } catch (err) {
@@ -590,6 +635,7 @@ function settingsApp() {
                     this.showFlash('Alert send failed: ' + (notification.message || data.detail || res.statusText), false);
                 } else {
                     this.alertPreview = (data.alerts || []).length;
+                    await this.loadAlertHistory(false);
                     this.showFlash(data.notification.skipped ? 'No active alerts to send.' : 'Alert summary sent.', true);
                 }
             } catch (err) {
@@ -635,12 +681,39 @@ function settingsApp() {
                     this.showFlash('Summary send failed: ' + (notification.message || data.detail || res.statusText), false);
                 } else {
                     this.summaryPreview = data.summary;
+                    await this.loadAlertHistory(false);
                     this.showFlash('Summary notification sent.', true);
                 }
             } catch (err) {
                 this.showFlash('Error sending summary: ' + err.message, false);
             } finally {
                 this.sendingSummary = false;
+            }
+        },
+
+        async loadAlertHistory(showMessage = true) {
+            this.loadingAlertHistory = true;
+            try {
+                const res = await fetch('/api/v1/settings/notifications/alerts/history?limit=10', {
+                    headers: this.apiHeaders(),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    if (showMessage) {
+                        this.showFlash('Alert history failed: ' + (data.detail || res.statusText), false);
+                    }
+                } else {
+                    this.alertHistory = data.history || [];
+                    if (showMessage) {
+                        this.showFlash('Alert history refreshed.', true);
+                    }
+                }
+            } catch (err) {
+                if (showMessage) {
+                    this.showFlash('Error loading alert history: ' + err.message, false);
+                }
+            } finally {
+                this.loadingAlertHistory = false;
             }
         },
 

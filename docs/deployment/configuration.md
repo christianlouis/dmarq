@@ -97,6 +97,10 @@ from API responses.
 | `notifications.summary_send_hour_utc` | UTC hour for scheduled summaries | `8` | `7` |
 | `notifications.summary_weekday_utc` | UTC weekday for weekly summaries, where 0 is Monday | `0` | `4` |
 
+Alert history is stored in the database-backed `alert_history` table. Current
+retention is indefinite; prune old resolved rows according to your operational
+policy if long-term storage size matters.
+
 ### Cloudflare Integration
 
 | Variable | Description | Default | Example |

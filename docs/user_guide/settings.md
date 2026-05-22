@@ -63,6 +63,12 @@ Configure daily or weekly summaries in **Settings** > **Notifications**:
 - **Preview Summary**: shows message volume, report count, and active alert count
 - **Send Summary Now**: sends the selected daily or weekly summary immediately
 
+### Alert History
+
+Alert history appears in **Settings** > **Notifications** after alerts have been
+evaluated or sent. Each row shows whether the alert is active or resolved, how
+many times it has been observed, and the latest alert detail.
+
 ### Integration Notifications
 
 Apprise supports email, Slack, Teams, Discord, generic webhooks, and many other

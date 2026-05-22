@@ -1,10 +1,8 @@
 import os
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
-
 from alembic import context
+from sqlalchemy import engine_from_config, pool
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -22,14 +20,16 @@ if database_url:
 
     config.set_main_option("sqlalchemy.url", _make_sync_db_url(database_url))
 
-# Import all models so that autogenerate can detect them
-from app.core.database import Base  # noqa: E402
+import app.models.alert  # noqa: E402, F401
 import app.models.domain  # noqa: E402, F401
 import app.models.mail_source  # noqa: E402, F401
 import app.models.mail_source_import  # noqa: E402, F401
 import app.models.report  # noqa: E402, F401
 import app.models.setting  # noqa: E402, F401
 import app.models.user  # noqa: E402, F401
+
+# Import all models so that autogenerate can detect them
+from app.core.database import Base  # noqa: E402
 
 target_metadata = Base.metadata
 

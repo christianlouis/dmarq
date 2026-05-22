@@ -107,7 +107,7 @@ Exit criteria:
 
 ## Milestone 7: Notifications and Alert Rules
 
-Status: In progress
+Status: Complete
 
 Goal: notify administrators when action is needed.
 
@@ -117,9 +117,7 @@ Delivered:
 - Alert rules for new sender source, compliance drop, DMARC failures above threshold, and missing reports.
 - Notification settings UI can evaluate active alerts and send the current alert summary on demand.
 - Daily and weekly DMARC summary notifications, including scheduled delivery and manual preview/send controls.
-
-Planned:
-- Alert history.
+- Alert history records active and resolved alerts with first-seen, last-seen, observed-count, and payload metadata.
 
 Exit criteria:
 - A user can receive meaningful alerts without opening the dashboard daily.

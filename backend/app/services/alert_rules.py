@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.models.domain import Domain
 from app.models.report import DMARCReport, ReportRecord
 from app.models.setting import Setting
+from app.services.alert_history import record_alert_evaluation
 from app.services.notifications import NotificationResult, send_notification
 
 
@@ -237,6 +238,7 @@ def evaluate_alert_rules(db: Session) -> List[Dict[str, Any]]:
 def send_current_alerts(db: Session) -> Dict[str, Any]:
     """Evaluate current alert rules and send one summary notification when needed."""
     alerts = evaluate_alert_rules(db)
+    record_alert_evaluation(db, alerts)
     if not alerts:
         return {
             "alerts": [],
