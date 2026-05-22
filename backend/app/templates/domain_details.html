@@ -252,7 +252,7 @@
                             {% call th() %}DKIM{% endcall %}
                             {% call th() %}DMARC{% endcall %}
                             {% call th() %}Disposition{% endcall %}
-                            {% call th() %}Fix{% endcall %}
+                            {% call th() %}Recommendations{% endcall %}
                         {% endcall %}
                     {% endcall %}
                     {% call tbody() %}
@@ -364,38 +364,38 @@
                                     </template>
                                 {% endcall %}
                                 {% call td() %}
-                                    <template x-if="source.spf_fix_hint">
-                                        <div x-data="{ open: false }" class="relative">
-                                            <button
-                                                @click="open = !open"
-                                                class="btn btn-xs btn-warning"
-                                                title="Show SPF fix suggestion"
-                                            >
-                                                Fix SPF
-                                            </button>
-                                            <div
-                                                x-show="open"
-                                                @click.outside="open = false"
-                                                class="absolute right-0 z-20 mt-1 w-72 bg-base-100 border border-base-300 rounded-lg shadow-lg p-3 text-sm"
-                                            >
-                                                <p class="font-semibold mb-1">SPF Fix Suggestion</p>
-                                                <p class="text-xs text-muted-foreground mb-2">
-                                                    Add the following mechanism to your SPF TXT record to authorize this server:
-                                                </p>
-                                                <div class="flex items-center gap-2 bg-base-200 rounded px-2 py-1">
-                                                    <code class="flex-1 font-mono text-xs" x-text="source.spf_fix_hint"></code>
-                                                    <button
-                                                        @click="navigator.clipboard.writeText(source.spf_fix_hint)"
-                                                        class="btn btn-xs btn-ghost"
-                                                        title="Copy to clipboard"
-                                                    >
-                                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
-                                                    </button>
+                                    <template x-if="!source.recommendations || source.recommendations.length === 0">
+                                        <span class="text-xs text-muted-foreground">No action</span>
+                                    </template>
+                                    <template x-if="source.recommendations && source.recommendations.length > 0">
+                                        <div class="space-y-2 min-w-72">
+                                            <template x-for="recommendation in source.recommendations" :key="recommendation.type">
+                                                <div class="rounded-md border border-base-300 bg-base-100 p-2">
+                                                    <div class="flex items-start gap-2">
+                                                        <span
+                                                            class="mt-0.5 inline-flex h-2.5 w-2.5 flex-none rounded-full"
+                                                            :class="recommendationSeverityClass(recommendation.severity)"
+                                                        ></span>
+                                                        <div class="min-w-0">
+                                                            <p class="text-xs font-semibold" x-text="recommendation.title"></p>
+                                                            <p class="mt-1 text-xs text-muted-foreground" x-text="recommendation.detail"></p>
+                                                            <p class="mt-1 text-xs" x-text="recommendation.action"></p>
+                                                            <template x-if="recommendation.type === 'dkim_only_pass' && source.spf_fix_hint">
+                                                                <div class="mt-2 flex items-center gap-2 rounded bg-base-200 px-2 py-1">
+                                                                    <code class="flex-1 font-mono text-xs" x-text="source.spf_fix_hint"></code>
+                                                                    <button
+                                                                        @click="navigator.clipboard.writeText(source.spf_fix_hint)"
+                                                                        class="btn btn-xs btn-ghost"
+                                                                        title="Copy SPF mechanism"
+                                                                    >
+                                                                        Copy
+                                                                    </button>
+                                                                </div>
+                                                            </template>
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                                <p class="text-xs text-muted-foreground mt-2">
-                                                    Example: <code class="font-mono" x-text="'v=spf1 ' + source.spf_fix_hint + ' ~all'"></code>
-                                                </p>
-                                            </div>
+                                            </template>
                                         </div>
                                     </template>
                                 {% endcall %}
@@ -561,6 +561,12 @@ function domainDetailsApp(domainId) {
                 return 'selectors: ' + this.dns.dkimSelectors.join(', ');
             }
             return 'Verified';
+        },
+
+        recommendationSeverityClass(severity) {
+            if (severity === 'error') return 'bg-red-500';
+            if (severity === 'warning') return 'bg-yellow-500';
+            return 'bg-blue-500';
         },
 
         async fetchDomainStats() {
