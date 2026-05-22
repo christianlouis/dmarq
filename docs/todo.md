@@ -91,6 +91,7 @@ This file tracks the specific implementation tasks for each milestone of the DMA
 - [x] Persist sanitized import errors for API/UI review
 - [x] Count duplicate skips separately from parse failures
 - [x] Show recent import history in the Mail Sources UI
+- [x] Add manual import trigger per mail source
 - [ ] Add retry/backfill controls per mail source
 
 ## Milestone 3: Database Integration

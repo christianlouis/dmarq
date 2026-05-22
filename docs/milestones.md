@@ -62,6 +62,7 @@ Recently delivered:
 - Mail source imports now persist sanitized import-history records for manual and scheduled polls.
 - Uploaded, Gmail-imported, and IMAP-imported reports are now persisted to report/record tables and can be reloaded into report/domain views.
 - Mail source import history is now visible from the Mail Sources UI.
+- A single mail source can be manually imported from the Mail Sources UI, with the result recorded in import history.
 - The current Alpine-based UI can run under the configured CSP, so dynamic tables render in real browsers.
 
 Next tasks:

@@ -282,6 +282,31 @@ class TestMailSourcesAPIAuthed:
         assert data[0]["new_domains"] == ["example.com"]
         assert data[0]["errors"] == ["sanitized error"]
 
+    def test_list_import_history_handles_malformed_json(
+        self, authed_client: TestClient, db_session: Session
+    ):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources", json={"name": "Bad History JSON", "method": "IMAP"}
+        )
+        source_id = create_resp.json()["id"]
+
+        db_session.add(
+            MailSourceImport(
+                mail_source_id=source_id,
+                trigger="manual",
+                status="warning",
+                new_domains="not-json",
+                errors='{"not": "a list"}',
+            )
+        )
+        db_session.commit()
+
+        resp = authed_client.get(f"/api/v1/mail-sources/{source_id}/imports")
+
+        assert resp.status_code == 200
+        assert resp.json()[0]["new_domains"] == []
+        assert resp.json()[0]["errors"] == []
+
     def test_list_import_history_unknown_source_returns_404(self, authed_client: TestClient):
         resp = authed_client.get("/api/v1/mail-sources/99999/imports")
         assert resp.status_code == 404
@@ -714,6 +739,178 @@ class TestGmailAPIMailSource:
         assert data["processed"] == 3
         assert data["reports_found"] == 2
         assert data["new_domains"] == ["example.com"]
+
+
+class TestManualSourceFetchEndpoint:
+    """Tests for POST /api/v1/mail-sources/{source_id}/fetch."""
+
+    def test_fetch_imap_source(self, authed_client: TestClient, caplog):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={
+                "name": "Fetch IMAP",
+                "method": "IMAP",
+                "server": "imap.example.com",
+                "username": "user@example.com",
+                "password": "secret",
+            },
+        )
+        source_id = create_resp.json()["id"]
+        mock_imap = MagicMock()
+        mock_imap.fetch_reports.return_value = {
+            "success": True,
+            "processed": 5,
+            "reports_found": 3,
+            "duplicate_reports": 1,
+            "new_domains": ["example.com"],
+            "errors": ["bad attachment\nwith newline"],
+        }
+
+        with (
+            caplog.at_level("WARNING"),
+            patch("app.api.api_v1.endpoints.mail_sources.IMAPClient", return_value=mock_imap),
+        ):
+            resp = authed_client.post(f"/api/v1/mail-sources/{source_id}/fetch?days=30")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["processed"] == 5
+        assert data["reports_found"] == 3
+        assert data["duplicate_reports"] == 1
+        assert data["error_count"] == 1
+        assert "bad attachment with newline" in caplog.text
+        mock_imap.fetch_reports.assert_called_once_with(days=30)
+
+    def test_fetch_gmail_source(self, authed_client: TestClient, db_session: Session):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={
+                "name": "Fetch Gmail Generic",
+                "method": "GMAIL_API",
+                "gmail_client_id": "cid",
+                "gmail_client_secret": "csec",
+            },
+        )
+        source_id = create_resp.json()["id"]
+        source = db_session.get(MailSource, source_id)
+        source.gmail_access_token = "tok"
+        source.gmail_refresh_token = "refresh"
+        db_session.commit()
+
+        mock_gmail = MagicMock()
+        mock_gmail.fetch_reports.return_value = {
+            "success": True,
+            "processed": 2,
+            "reports_found": 1,
+            "duplicate_reports": 0,
+            "new_domains": [],
+            "errors": [],
+            "new_ingested_ids": ["id1"],
+        }
+        mock_gmail.get_refreshed_tokens.return_value = None
+
+        with (
+            patch("app.api.api_v1.endpoints.mail_sources.GmailClient", return_value=mock_gmail),
+            patch(
+                "app.api.api_v1.endpoints.mail_sources.GmailClient.load_ingested_ids",
+                return_value=[],
+            ),
+            patch(
+                "app.api.api_v1.endpoints.mail_sources.GmailClient.dump_ingested_ids",
+                return_value='["id1"]',
+            ),
+        ):
+            resp = authed_client.post(f"/api/v1/mail-sources/{source_id}/fetch")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["processed"] == 2
+        assert data["reports_found"] == 1
+        assert data["source_id"] == source_id
+
+    def test_fetch_gmail_source_rejects_missing_token(self, authed_client: TestClient):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "Fetch Gmail No Token", "method": "GMAIL_API"},
+        )
+        source_id = create_resp.json()["id"]
+
+        resp = authed_client.post(f"/api/v1/mail-sources/{source_id}/fetch")
+
+        assert resp.status_code == 400
+        assert "OAuth2" in resp.json()["detail"]
+
+    def test_fetch_gmail_source_persists_refreshed_tokens(
+        self, authed_client: TestClient, db_session: Session
+    ):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={
+                "name": "Fetch Gmail Refresh",
+                "method": "GMAIL_API",
+                "gmail_client_id": "cid",
+                "gmail_client_secret": "csec",
+            },
+        )
+        source_id = create_resp.json()["id"]
+        source = db_session.get(MailSource, source_id)
+        source.gmail_access_token = "old-access"
+        source.gmail_refresh_token = "old-refresh"
+        db_session.commit()
+
+        mock_gmail = MagicMock()
+        mock_gmail.fetch_reports.return_value = {
+            "success": True,
+            "processed": 1,
+            "reports_found": 1,
+            "duplicate_reports": 0,
+            "new_domains": [],
+            "errors": [],
+            "new_ingested_ids": [],
+        }
+        mock_gmail.get_refreshed_tokens.return_value = {
+            "access_token": "new-access",
+            "refresh_token": "new-refresh",
+        }
+
+        with (
+            patch("app.api.api_v1.endpoints.mail_sources.GmailClient", return_value=mock_gmail),
+            patch(
+                "app.api.api_v1.endpoints.mail_sources.GmailClient.load_ingested_ids",
+                return_value=[],
+            ),
+        ):
+            resp = authed_client.post(f"/api/v1/mail-sources/{source_id}/fetch")
+
+        db_session.refresh(source)
+        assert resp.status_code == 200
+        assert source.gmail_access_token == "new-access"
+        assert source.gmail_refresh_token == "new-refresh"
+
+    def test_fetch_rejects_invalid_days(self, authed_client: TestClient):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "Bad Days", "method": "IMAP"},
+        )
+        source_id = create_resp.json()["id"]
+
+        resp = authed_client.post(f"/api/v1/mail-sources/{source_id}/fetch?days=0")
+
+        assert resp.status_code == 400
+
+    def test_fetch_rejects_unsupported_source_method(self, authed_client: TestClient):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "Fetch POP3", "method": "POP3"},
+        )
+        source_id = create_resp.json()["id"]
+
+        resp = authed_client.post(f"/api/v1/mail-sources/{source_id}/fetch")
+
+        assert resp.status_code == 400
+        assert "not available" in resp.json()["detail"]
 
 
 # ---------------------------------------------------------------------------
