@@ -193,7 +193,7 @@ def _poll_single_m365_source(source: MailSource) -> None:
         )
 
         started_at = datetime.utcnow()
-        results = client.fetch_reports()
+        results = client.fetch_reports(days=7)
         if src:
             if results.get("new_ingested_ids"):
                 all_ids = list(dict.fromkeys(already + results["new_ingested_ids"]))
@@ -756,7 +756,7 @@ def _trigger_poll_gmail_source(source: MailSource, db) -> dict:
     }
 
 
-def _trigger_poll_m365_source(source: MailSource, db) -> dict:
+def _trigger_poll_m365_source(source: MailSource, db, days: int = 7) -> dict:
     """Poll a single M365_GRAPH source and return a result dict for the API response."""
     global last_check_time  # pylint: disable=global-statement
 
@@ -774,7 +774,7 @@ def _trigger_poll_m365_source(source: MailSource, db) -> dict:
         db=db,
     )
     started_at = datetime.utcnow()
-    results = graph_client.fetch_reports()
+    results = graph_client.fetch_reports(days=days)
     last_check_time = datetime.now()
 
     if results.get("new_ingested_ids"):
@@ -832,7 +832,7 @@ def _poll_source_for_trigger(source: MailSource, db, days: int = 7) -> dict:  # 
                 "reason": "Microsoft 365 account not yet authorised",
             }
         try:
-            return _trigger_poll_m365_source(source, db)
+            return _trigger_poll_m365_source(source, db, days=days)
         except Exception as e:  # pylint: disable=broad-exception-caught
             logger.error("Error polling Microsoft 365 source id=%d: %s", source.id, str(e))
             return {
@@ -881,7 +881,7 @@ def _poll_enabled_sources_for_trigger(days: int) -> list[dict]:
 @app.post("/api/v1/admin/trigger-poll")
 async def trigger_imap_poll(
     auth: dict = Depends(require_admin_auth),
-    days: int = Query(7, ge=1, le=365, title="Number of days to fetch for IMAP sources"),
+    days: int = Query(7, ge=1, le=365, title="Number of days to fetch for mail sources"),
 ):
     """
     Manually trigger IMAP polling for all enabled mail sources (admin only).

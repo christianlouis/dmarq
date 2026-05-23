@@ -3,7 +3,9 @@
 import base64
 import json
 import logging
-from typing import Any, Dict, List, Optional
+import time
+from datetime import datetime, timedelta
+from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import quote, urlencode
 
 import httpx
@@ -25,6 +27,9 @@ M365_SCOPES = [
 
 _PAGE_SIZE = 100
 _MAX_FOLDER_DEPTH = 5
+_MAX_GRAPH_RETRIES = 3
+_MAX_RETRY_DELAY_SECONDS = 30
+_RETRYABLE_STATUS_CODES = {429, 503, 504}
 _DMARC_SUBJECT_TERMS = (
     "dmarc",
     "aggregate report",
@@ -65,6 +70,7 @@ class MicrosoftGraphClient:
         folder_id: Optional[str] = None,
         already_ingested_ids: Optional[List[str]] = None,
         db: Any = None,
+        sleep: Optional[Callable[[float], None]] = None,
     ):
         self.tenant_id = tenant_id or "common"
         self.client_id = client_id
@@ -77,6 +83,7 @@ class MicrosoftGraphClient:
         self.already_ingested_ids: List[str] = list(already_ingested_ids or [])
         self.report_store = ReportStore.get_instance()
         self.db = db
+        self._sleep = sleep or time.sleep
         self._refreshed_tokens: Optional[Dict[str, str]] = None
 
     def get_refreshed_tokens(self) -> Optional[Dict[str, str]]:
@@ -227,8 +234,9 @@ class MicrosoftGraphClient:
             url = data.get("@odata.nextLink")
             params = None
 
-    def fetch_reports(self) -> Dict[str, Any]:
+    def fetch_reports(self, days: int = 7) -> Dict[str, Any]:
         """Fetch and ingest DMARC report attachments from Microsoft Graph."""
+        safe_days = max(1, min(int(days or 7), 365))
         stats: Dict[str, Any] = {
             "success": True,
             "processed": 0,
@@ -242,10 +250,11 @@ class MicrosoftGraphClient:
             "details": [],
             "target_mailbox": self._target_mailbox_label(),
             "target_folder": self._target_folder_label(),
+            "search_window_days": safe_days,
         }
 
         try:
-            messages = self._list_dmarc_messages()
+            messages = self._list_dmarc_messages(days=safe_days)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error("Microsoft Graph: failed to list messages: %s", exc)
             return {**stats, "success": False, "error": str(exc), "errors": [str(exc)]}
@@ -324,13 +333,41 @@ class MicrosoftGraphClient:
         params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         url = path_or_url if path_or_url.startswith("http") else f"{GRAPH_BASE_URL}{path_or_url}"
-        resp = httpx.request(method, url, headers=self._headers(), params=params, timeout=30)
-        if resp.status_code == 401 and self.refresh_token:
-            self._refresh_access_token()
+        resp: Optional[httpx.Response] = None
+
+        for attempt in range(_MAX_GRAPH_RETRIES + 1):
             resp = httpx.request(method, url, headers=self._headers(), params=params, timeout=30)
+            if resp.status_code == 401 and self.refresh_token:
+                self._refresh_access_token()
+                resp = httpx.request(method, url, headers=self._headers(), params=params, timeout=30)
+            if (
+                resp.status_code in _RETRYABLE_STATUS_CODES
+                and attempt < _MAX_GRAPH_RETRIES
+            ):
+                delay = self._retry_delay_seconds(resp, attempt)
+                logger.warning(
+                    "Microsoft Graph request throttled/unavailable; retrying in %.1fs",
+                    delay,
+                )
+                self._sleep(delay)
+                continue
+            break
+
+        if resp is None:
+            raise MicrosoftGraphError("Microsoft Graph request failed before receiving a response.")
         if resp.status_code < 200 or resp.status_code >= 300:
             raise MicrosoftGraphError(self._format_error(resp))
         return resp.json() if resp.content else {}
+
+    @staticmethod
+    def _retry_delay_seconds(resp: httpx.Response, attempt: int) -> float:
+        retry_after = resp.headers.get("Retry-After")
+        if retry_after:
+            try:
+                return min(float(retry_after), _MAX_RETRY_DELAY_SECONDS)
+            except ValueError:
+                pass
+        return min(float(2**attempt), _MAX_RETRY_DELAY_SECONDS)
 
     def _refresh_access_token(self) -> None:
         data = {
@@ -392,13 +429,15 @@ class MicrosoftGraphClient:
             or lower.endswith(".gzip")
         )
 
-    def _list_dmarc_messages(self) -> List[Dict[str, Any]]:
+    def _list_dmarc_messages(self, days: int) -> List[Dict[str, Any]]:
         messages: List[Dict[str, Any]] = []
         url = self._messages_path()
+        cutoff = datetime.utcnow() - timedelta(days=days)
         params: Optional[Dict[str, Any]] = {
             "$top": _PAGE_SIZE,
             "$select": "id,subject,from,hasAttachments,receivedDateTime",
             "$orderby": "receivedDateTime desc",
+            "$filter": f"receivedDateTime ge {cutoff.strftime('%Y-%m-%dT%H:%M:%SZ')}",
         }
 
         while url:

@@ -133,6 +133,7 @@ def test_poll_single_m365_source_persists_import_state():
     assert db_source.m365_ingested_ids == '["message-1"]'
     assert db_source.m365_access_token == "new-tok"
     assert db_source.m365_refresh_token == "new-ref"
+    mock_client.fetch_reports.assert_called_once_with(days=7)
     db.commit.assert_called_once()
     db.close.assert_called_once()
 
