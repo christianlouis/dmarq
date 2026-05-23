@@ -106,6 +106,11 @@ For SIEM pipelines, DMARQ also exposes a versioned template bundle at
 `dmarq.siem.event.v1` event schema, Splunk HEC, Elastic ECS, and Microsoft
 Sentinel examples, plus redaction guidance for sensitive fields.
 
+For ticketing and chatops workflows, use
+`/api/v1/integrations/ticketing-chatops/templates`. It includes event mappings,
+Jira and GitHub issue templates, Slack and Microsoft Teams message templates,
+dedupe keys, and recommended ownership/noise-control rules.
+
 ## API Access
 
 DMARQ provides an API for integration with other systems:

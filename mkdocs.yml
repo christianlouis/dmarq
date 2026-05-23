@@ -41,6 +41,7 @@ nav:
   - Technical Reference:
     - API Reference: reference/api.md
     - SIEM Integrations: reference/siem-integrations.md
+    - Ticketing and Chatops: reference/ticketing-chatops-integrations.md
     - Architecture: reference/architecture.md
     - Database Schema: reference/database.md
   - Development:
