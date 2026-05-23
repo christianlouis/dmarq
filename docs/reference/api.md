@@ -105,6 +105,18 @@ GET /domains/{domain_id}/dns/bimi
 Returns the cached BIMI TXT posture for the default selector, including the
 queried DNS name, record text, logo URL, certificate URL, warnings, and errors.
 
+#### Get Posture Dashboard
+
+```
+GET /domains/{domain_id}/posture
+```
+
+Returns the evidence-first posture dashboard for one domain. The response
+contains the posture score, coverage for DMARC, SPF, DKIM, MTA-STS, and BIMI,
+actionable recommendations, recent provider-backed DNS drift summaries, and
+short operator playbooks. Recommendation and playbook evidence links point back
+to the page section that triggered the finding.
+
 #### Add Domain
 
 ```

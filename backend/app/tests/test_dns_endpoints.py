@@ -17,7 +17,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.api.api_v1.endpoints import domains as domains_endpoint
 from app.api.api_v1.endpoints.domains import _spf_fix_hint
-from app.models.dns_cache import DNSCache
+from app.models.dns_cache import DNSCache, DNSRecordChange
 from app.models.domain import Domain
 from app.services.bimi import BIMIResult
 from app.services.dns_cache import _selectors_key, resolve_domain_dns_cached
@@ -576,6 +576,82 @@ def test_bimi_endpoint_returns_cached_posture(client: TestClient):
 
 def test_bimi_endpoint_returns_404_for_unknown_domain(client: TestClient):
     response = client.get("/api/v1/domains/unknown.example.com/dns/bimi")
+
+    assert response.status_code == 404
+
+
+def test_posture_dashboard_links_recommendations_changes_and_playbooks(
+    client: TestClient, db_session
+):
+    """The posture dashboard is actionable and links back to underlying evidence."""
+    db_session.add(
+        DNSRecordChange(
+            domain=DOMAIN,
+            provider="cloudflare",
+            zone_id="zone-1",
+            record_key="dmarc",
+            record_type="TXT",
+            record_name=f"_dmarc.{DOMAIN}",
+            change_type="modified",
+            previous_content="v=DMARC1; p=none",
+            current_content="v=DMARC1; p=quarantine; pct=100",
+            observed_at=datetime(2026, 5, 23, 12, 0, 0),
+        )
+    )
+    db_session.commit()
+
+    missing_spf = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=quarantine; pct=100; rua=mailto:dmarc@example.com",
+        spf=False,
+        dkim=True,
+        dkim_selectors=["google"],
+        dkim_record="v=DKIM1; k=rsa; p=ABC",
+    )
+    mta_sts = MTAStsResult(
+        status="pass",
+        dns_record="v=STSv1; id=20260523",
+        policy_url="https://mta-sts.example.com/.well-known/mta-sts.txt",
+        mode="enforce",
+        max_age=86400,
+        mx=["*.example.com"],
+    )
+    bimi = BIMIResult(
+        status="pass",
+        dns_record="v=BIMI1; l=https://example.com/logo.svg; a=https://example.com/vmc.pem",
+        logo_url="https://example.com/logo.svg",
+        certificate_url="https://example.com/vmc.pem",
+    )
+
+    with (
+        _mock_dns(result=missing_spf),
+        patch(
+            "app.api.api_v1.endpoints.domains.check_mta_sts_cached",
+            new=AsyncMock(return_value=(mta_sts, False, None)),
+        ),
+        patch(
+            "app.api.api_v1.endpoints.domains.check_bimi_cached",
+            new=AsyncMock(return_value=(bimi, False, None)),
+        ),
+    ):
+        response = client.get(f"/api/v1/domains/{DOMAIN}/posture")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "degraded"
+    assert data["score"] == 80
+    assert any(item["key"] == "spf" and item["href"] == "#dns-records" for item in data["coverage"])
+    missing_spf_recommendation = next(
+        item for item in data["recommendations"] if item["type"] == "missing_spf"
+    )
+    assert missing_spf_recommendation["evidence"][0]["href"] == "#dns-records"
+    assert data["changes"][0]["title"] == f"TXT _dmarc.{DOMAIN} modified"
+    assert data["changes"][0]["evidence"][0]["value"] == "v=DMARC1; p=none"
+    assert any(playbook["key"] == "missing_spf" for playbook in data["playbooks"])
+
+
+def test_posture_dashboard_returns_404_for_unknown_domain(client: TestClient):
+    response = client.get("/api/v1/domains/unknown.example.com/posture")
 
     assert response.status_code == 404
 

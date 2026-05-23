@@ -131,6 +131,50 @@ class DNSHealthResponse(BaseModel):
     recommendations: List[DNSHealthRecommendation]
 
 
+class PostureCoverageItem(BaseModel):
+    """Operator-facing coverage state for one posture area."""
+
+    key: str
+    label: str
+    status: str
+    message: str
+    evidence_count: int
+    href: str
+
+
+class PostureChangeSummary(BaseModel):
+    """Concise summary of observed posture drift."""
+
+    title: str
+    detail: str
+    severity: str
+    observed_at: Optional[str] = None
+    evidence: List[DNSHealthEvidence] = Field(default_factory=list)
+
+
+class OperatorPlaybook(BaseModel):
+    """Short remediation playbook for a posture recommendation."""
+
+    key: str
+    title: str
+    summary: str
+    steps: List[str]
+    evidence: List[DNSHealthEvidence] = Field(default_factory=list)
+
+
+class PostureDashboardResponse(BaseModel):
+    """Evidence-first posture dashboard response for a domain."""
+
+    domain: str
+    status: str
+    score: int
+    summary: str
+    coverage: List[PostureCoverageItem]
+    recommendations: List[DNSHealthRecommendation]
+    changes: List[PostureChangeSummary]
+    playbooks: List[OperatorPlaybook]
+
+
 class MTAStsResponse(BaseModel):
     """MTA-STS posture result for a domain."""
 
@@ -560,7 +604,10 @@ def _bimi_recommendation(
             severity="info",
             title="BIMI record needs provider-readiness review",
             detail="; ".join(result.warnings),
-            action="Confirm the SVG logo profile and add a certificate URL if mailbox providers require one.",
+            action=(
+                "Confirm the SVG logo profile and add a certificate URL if mailbox "
+                "providers require one."
+            ),
             evidence=bimi_evidence,
         )
     return DNSHealthRecommendation(
@@ -618,6 +665,303 @@ def _mta_sts_recommendation(result: MTAStsResult) -> Optional[DNSHealthRecommend
         detail=detail,
         action=action,
         evidence=_mta_sts_check(result).evidence,
+    )
+
+
+async def _build_domain_dns_health(  # pylint: disable=too-many-locals
+    db: Session,
+    store: ReportStore,
+    domain_id: str,
+    *,
+    refresh: bool = False,
+) -> DNSHealthResponse:
+    """Build the shared DNS/posture health payload for a monitored domain."""
+    manual_selectors = _get_domain_selectors_from_db(db, domain_id)
+    report_selectors = _get_selectors_from_reports(store, domain_id)
+    combined_selectors = list(dict.fromkeys(manual_selectors + report_selectors))
+
+    provider = get_default_provider(db)
+    result, _, _ = await resolve_domain_dns_cached(
+        db,
+        provider,
+        domain_id,
+        selectors=combined_selectors,
+        refresh=refresh,
+    )
+    mta_sts_result, _, _ = await check_mta_sts_cached(
+        db,
+        provider,
+        domain_id,
+        refresh=refresh,
+    )
+    bimi_result, _, _ = await check_bimi_cached(
+        db,
+        provider,
+        domain_id,
+        refresh=refresh,
+    )
+    summary = store.get_domain_summary(domain_id)
+    policy = extract_dmarc_policy(result.dmarc_record) or "none"
+    bimi_dmarc_ready, bimi_dmarc_issues, bimi_dmarc_evidence = _bimi_dmarc_readiness(
+        result.dmarc_record
+    )
+    checks = [
+        _dns_check(
+            "dmarc",
+            "DMARC",
+            result.dmarc,
+            "DMARC record is published.",
+            "No DMARC record was found.",
+            [_record_evidence("DMARC TXT", result.dmarc_record)],
+        ),
+        _dns_check(
+            "spf",
+            "SPF",
+            result.spf,
+            "SPF record is published.",
+            "No SPF record was found at the domain root.",
+            [_record_evidence("SPF TXT", result.spf_record)],
+        ),
+        _dns_check(
+            "dkim",
+            "DKIM",
+            result.dkim,
+            "At least one DKIM selector resolved.",
+            "No DKIM record was found for configured or observed selectors.",
+            [
+                _record_evidence(
+                    "Selectors checked",
+                    ", ".join(combined_selectors or result.selectors_checked or []),
+                ),
+                _record_evidence("DKIM TXT", result.dkim_record),
+            ],
+        ),
+        _mta_sts_check(mta_sts_result),
+        _bimi_check(bimi_result, bimi_dmarc_ready),
+    ]
+    recommendations: List[DNSHealthRecommendation] = []
+    for check in checks:
+        if check.status == "fail" and check.key not in {"mta_sts", "bimi"}:
+            recommendations.append(
+                DNSHealthRecommendation(
+                    type=f"missing_{check.key}",
+                    severity="error" if check.key == "dmarc" else "warning",
+                    title=f"{check.label} needs attention",
+                    detail=check.message,
+                    action=(
+                        f"Publish or repair the {check.label} DNS record, then "
+                        "refresh DNS health."
+                    ),
+                    evidence=check.evidence,
+                )
+            )
+    recommendations.append(_enforcement_recommendation(policy, summary))
+    mta_sts_recommendation = _mta_sts_recommendation(mta_sts_result)
+    if mta_sts_recommendation:
+        recommendations.append(mta_sts_recommendation)
+    bimi_recommendation = _bimi_recommendation(
+        bimi_result,
+        bimi_dmarc_ready,
+        bimi_dmarc_issues,
+        bimi_dmarc_evidence,
+    )
+    if bimi_recommendation:
+        recommendations.append(bimi_recommendation)
+
+    failed_checks = sum(1 for check in checks if check.status == "fail")
+    health_status = (
+        "healthy" if failed_checks == 0 else "degraded" if failed_checks < 3 else "critical"
+    )
+    return DNSHealthResponse(
+        status=health_status,
+        policy=policy,
+        compliance_rate=float(summary.get("compliance_rate", 0.0) or 0.0),
+        total_emails=int(summary.get("total_count", 0) or 0),
+        failed_emails=int(summary.get("failed_count", 0) or 0),
+        checks=checks,
+        recommendations=recommendations,
+    )
+
+
+def _coverage_href(check: DNSHealthCheck) -> str:
+    if check.evidence:
+        return check.evidence[0].href
+    return "#posture-dashboard"
+
+
+def _posture_summary(health: DNSHealthResponse) -> str:
+    if health.status == "healthy":
+        return "All configured posture checks are passing."
+    failed = sum(1 for check in health.checks if check.status == "fail")
+    area = "area" if failed == 1 else "areas"
+    if health.status == "degraded":
+        verb = "needs" if failed == 1 else "need"
+        return f"{failed} posture {area} {verb} review before this domain is fully ready."
+    return f"{failed} posture {area} need attention before this domain is safe to tighten."
+
+
+def _change_title(change: Dict[str, Any]) -> str:
+    record_type = change.get("record_type") or "DNS"
+    record_name = change.get("record_name") or "record"
+    change_type = change.get("change_type") or "changed"
+    return f"{record_type} {record_name} {change_type}"
+
+
+def _change_summaries(changes: List[Dict[str, Any]]) -> List[PostureChangeSummary]:
+    if not changes:
+        return [
+            PostureChangeSummary(
+                title="No tracked DNS drift yet",
+                detail=(
+                    "Provider-backed DNS change tracking has not observed a DMARC, SPF, "
+                    "DKIM, MTA-STS, or BIMI record change for this domain."
+                ),
+                severity="info",
+                evidence=[
+                    DNSHealthEvidence(
+                        label="Change history",
+                        value="No provider-backed DNS changes recorded",
+                        href="#posture-changes",
+                    )
+                ],
+            )
+        ]
+
+    summaries: List[PostureChangeSummary] = []
+    for change in changes[:5]:
+        previous = change.get("previous_content") or "none"
+        current = change.get("current_content") or "none"
+        summaries.append(
+            PostureChangeSummary(
+                title=_change_title(change),
+                detail="DNS provider history recorded a posture-relevant record change.",
+                severity=(
+                    "warning" if change.get("change_type") in {"modified", "removed"} else "info"
+                ),
+                observed_at=change.get("observed_at"),
+                evidence=[
+                    DNSHealthEvidence(
+                        label="Previous", value=str(previous), href="#posture-changes"
+                    ),
+                    DNSHealthEvidence(label="Current", value=str(current), href="#posture-changes"),
+                ],
+            )
+        )
+    return summaries
+
+
+def _playbook_steps(recommendation: DNSHealthRecommendation) -> List[str]:
+    playbooks = {
+        "missing_dmarc": [
+            "Publish one TXT record at _dmarc for this domain.",
+            "Start with p=none and rua pointing at the reporting mailbox DMARQ imports.",
+            "Refresh DNS health and wait for aggregate reports before tightening policy.",
+        ],
+        "missing_spf": [
+            "List every service that is allowed to send mail for this domain.",
+            "Publish one root SPF TXT record that includes those senders.",
+            "Keep the SPF record to a single TXT value and refresh DNS health.",
+        ],
+        "missing_dkim": [
+            "Add the sending provider's DKIM selector to this domain in DMARQ.",
+            "Publish the provider's selector TXT record in DNS.",
+            "Refresh DNS health and confirm at least one selector resolves.",
+        ],
+        "policy_enforcement_ready": [
+            "Review the linked failed sources before changing policy.",
+            "Move to quarantine gradually with a small pct value.",
+            "Watch DMARC failures for several report cycles before increasing pct.",
+        ],
+        "policy_enforcement_review": [
+            "Open the linked sending sources and identify the remaining failures.",
+            "Fix SPF or DKIM alignment for legitimate senders.",
+            "Re-check readiness after compliance is consistently above the threshold.",
+        ],
+        "policy_not_ready": [
+            "Treat unknown full-fail senders as untrusted until verified.",
+            "Configure SPF and DKIM for legitimate sources first.",
+            "Keep monitoring mode until failures drop to a safe level.",
+        ],
+        "missing_mta_sts": [
+            "Publish _mta-sts TXT with a stable id value.",
+            "Host a valid policy file at the linked well-known HTTPS URL.",
+            "Start in testing mode, then move to enforce after MX coverage is verified.",
+        ],
+        "mta_sts_review": [
+            "Open the linked policy evidence and confirm all MX hosts are covered.",
+            "Fix policy warnings and increase max_age when stable.",
+            "Move to enforce only after successful validation.",
+        ],
+        "missing_bimi": [
+            "Complete DMARC enforcement prerequisites first.",
+            "Publish a default._bimi TXT record with an HTTPS SVG logo URL.",
+            "Add a certificate URL if the mailbox providers you care about require it.",
+        ],
+        "bimi_dmarc_not_ready": [
+            "Move DMARC to quarantine or reject at pct=100.",
+            "Confirm subdomain policy does not weaken enforcement.",
+            "Refresh BIMI readiness after the DMARC record is updated.",
+        ],
+        "bimi_review": [
+            "Confirm the logo is a valid HTTPS SVG asset.",
+            "Add or verify the certificate URL for providers that require it.",
+            "Refresh BIMI readiness and keep the evidence links with the record.",
+        ],
+    }
+    return playbooks.get(
+        recommendation.type,
+        [
+            recommendation.action,
+            "Use the linked evidence to confirm the record or report data.",
+            "Refresh posture after the change is published.",
+        ],
+    )
+
+
+def _operator_playbooks(
+    recommendations: List[DNSHealthRecommendation],
+) -> List[OperatorPlaybook]:
+    return [
+        OperatorPlaybook(
+            key=recommendation.type,
+            title=recommendation.title,
+            summary=recommendation.action,
+            steps=_playbook_steps(recommendation),
+            evidence=recommendation.evidence,
+        )
+        for recommendation in recommendations
+        if recommendation.severity in {"error", "warning"}
+        or recommendation.type.startswith("policy_")
+    ][:6]
+
+
+def _build_posture_dashboard(
+    domain_id: str,
+    health: DNSHealthResponse,
+    changes: List[Dict[str, Any]],
+) -> PostureDashboardResponse:
+    passing = sum(1 for check in health.checks if check.status == "pass")
+    score = round((passing / len(health.checks)) * 100) if health.checks else 0
+    coverage = [
+        PostureCoverageItem(
+            key=check.key,
+            label=check.label,
+            status=check.status,
+            message=check.message,
+            evidence_count=len(check.evidence),
+            href=_coverage_href(check),
+        )
+        for check in health.checks
+    ]
+    return PostureDashboardResponse(
+        domain=domain_id,
+        status=health.status,
+        score=score,
+        summary=_posture_summary(health),
+        coverage=coverage,
+        recommendations=health.recommendations,
+        changes=_change_summaries(changes),
+        playbooks=_operator_playbooks(health.recommendations),
     )
 
 
@@ -933,108 +1277,27 @@ async def get_domain_dns_health(
             detail="Domain not found",
         )
 
-    manual_selectors = _get_domain_selectors_from_db(db, domain_id)
-    report_selectors = _get_selectors_from_reports(store, domain_id)
-    combined_selectors = list(dict.fromkeys(manual_selectors + report_selectors))
+    return await _build_domain_dns_health(db, store, domain_id, refresh=refresh)
 
-    provider = get_default_provider(db)
-    result, _, _ = await resolve_domain_dns_cached(
-        db,
-        provider,
-        domain_id,
-        selectors=combined_selectors,
-        refresh=refresh,
-    )
-    mta_sts_result, _, _ = await check_mta_sts_cached(
-        db,
-        provider,
-        domain_id,
-        refresh=refresh,
-    )
-    bimi_result, _, _ = await check_bimi_cached(
-        db,
-        provider,
-        domain_id,
-        refresh=refresh,
-    )
-    summary = store.get_domain_summary(domain_id)
-    policy = extract_dmarc_policy(result.dmarc_record) or "none"
-    bimi_dmarc_ready, bimi_dmarc_issues, bimi_dmarc_evidence = _bimi_dmarc_readiness(
-        result.dmarc_record
-    )
-    checks = [
-        _dns_check(
-            "dmarc",
-            "DMARC",
-            result.dmarc,
-            "DMARC record is published.",
-            "No DMARC record was found.",
-            [_record_evidence("DMARC TXT", result.dmarc_record)],
-        ),
-        _dns_check(
-            "spf",
-            "SPF",
-            result.spf,
-            "SPF record is published.",
-            "No SPF record was found at the domain root.",
-            [_record_evidence("SPF TXT", result.spf_record)],
-        ),
-        _dns_check(
-            "dkim",
-            "DKIM",
-            result.dkim,
-            "At least one DKIM selector resolved.",
-            "No DKIM record was found for configured or observed selectors.",
-            [
-                _record_evidence(
-                    "Selectors checked",
-                    ", ".join(combined_selectors or result.selectors_checked or []),
-                ),
-                _record_evidence("DKIM TXT", result.dkim_record),
-            ],
-        ),
-        _mta_sts_check(mta_sts_result),
-        _bimi_check(bimi_result, bimi_dmarc_ready),
-    ]
-    recommendations: List[DNSHealthRecommendation] = []
-    for check in checks:
-        if check.status == "fail" and check.key not in {"mta_sts", "bimi"}:
-            recommendations.append(
-                DNSHealthRecommendation(
-                    type=f"missing_{check.key}",
-                    severity="error" if check.key == "dmarc" else "warning",
-                    title=f"{check.label} needs attention",
-                    detail=check.message,
-                    action=f"Publish or repair the {check.label} DNS record, then refresh DNS health.",
-                    evidence=check.evidence,
-                )
-            )
-    recommendations.append(_enforcement_recommendation(policy, summary))
-    mta_sts_recommendation = _mta_sts_recommendation(mta_sts_result)
-    if mta_sts_recommendation:
-        recommendations.append(mta_sts_recommendation)
-    bimi_recommendation = _bimi_recommendation(
-        bimi_result,
-        bimi_dmarc_ready,
-        bimi_dmarc_issues,
-        bimi_dmarc_evidence,
-    )
-    if bimi_recommendation:
-        recommendations.append(bimi_recommendation)
 
-    failed_checks = sum(1 for check in checks if check.status == "fail")
-    health_status = (
-        "healthy" if failed_checks == 0 else "degraded" if failed_checks < 3 else "critical"
-    )
-    return DNSHealthResponse(
-        status=health_status,
-        policy=policy,
-        compliance_rate=float(summary.get("compliance_rate", 0.0) or 0.0),
-        total_emails=int(summary.get("total_count", 0) or 0),
-        failed_emails=int(summary.get("failed_count", 0) or 0),
-        checks=checks,
-        recommendations=recommendations,
-    )
+@router.get("/{domain_id}/posture", response_model=PostureDashboardResponse)
+async def get_domain_posture_dashboard(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    refresh: bool = Query(False, title="Refresh cached DNS posture"),
+    db: Session = Depends(get_db),
+):
+    """Return an evidence-first posture dashboard for a monitored domain."""
+    store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
+    if not _domain_exists(db, store, domain_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Domain not found",
+        )
+
+    health = await _build_domain_dns_health(db, store, domain_id, refresh=refresh)
+    changes = list_dns_record_changes(db, domain_id, limit=10)
+    return _build_posture_dashboard(domain_id, health, changes)
 
 
 @router.get("/{domain_id}/dns/mta-sts", response_model=MTAStsResponse)
