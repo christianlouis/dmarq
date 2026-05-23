@@ -41,6 +41,22 @@ def _loads_json_list(value: Optional[str]) -> Optional[List[Dict[str, Any]]]:
     return decoded if isinstance(decoded, list) else None
 
 
+def _loads_json_dict(value: Optional[str]) -> Optional[Dict[str, Any]]:
+    if not value:
+        return None
+    try:
+        decoded = json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return decoded if isinstance(decoded, dict) else None
+
+
+def _json_or_none(value: Any) -> Optional[str]:
+    if value in (None, "", [], {}):
+        return None
+    return json.dumps(value, sort_keys=True)
+
+
 def _policy_parts(report: Dict[str, Any]) -> Dict[str, Any]:
     policy = report.get("policy") or {}
     if isinstance(policy, str):
@@ -51,8 +67,12 @@ def _policy_parts(report: Dict[str, Any]) -> Dict[str, Any]:
         "p": policy.get("p", "none"),
         "sp": policy.get("sp", ""),
         "pct": str(policy.get("pct", "100")),
+        "np": policy.get("np"),
+        "fo": policy.get("fo"),
         "adkim": policy.get("adkim") or report.get("adkim"),
         "aspf": policy.get("aspf") or report.get("aspf"),
+        "testing": policy.get("testing"),
+        "discovery_method": policy.get("discovery_method"),
     }
 
 
@@ -106,11 +126,22 @@ def save_parsed_report(db: Session, report: Dict[str, Any]) -> tuple[DMARCReport
         begin_date=begin_ts,
         end_date=end_ts,
         source_email=report.get("email") or report.get("source_email"),
+        extra_contact_info=report.get("extra_contact_info") or None,
+        generator=report.get("generator") or None,
+        report_errors=_json_or_none(report.get("errors")),
         policy=policy["p"],
         subdomain_policy=policy.get("sp") or None,
+        non_subdomain_policy=policy.get("np") or None,
         adkim=policy.get("adkim") or None,
         aspf=policy.get("aspf") or None,
         percentage=pct,
+        failure_options=policy.get("fo") or None,
+        testing=policy.get("testing") or None,
+        discovery_method=policy.get("discovery_method") or None,
+        schema_version=report.get("schema_version") or None,
+        report_variant=report.get("variant") or None,
+        xml_namespace=report.get("xml_namespace") or None,
+        report_extensions=_json_or_none(report.get("extensions")),
     )
     db.add(db_report)
     db.flush()
@@ -126,12 +157,15 @@ def save_parsed_report(db: Session, report: Dict[str, Any]) -> tuple[DMARCReport
                 spf=record.get("spf_result") or record.get("spf") or "unknown",
                 header_from=record.get("header_from"),
                 envelope_from=record.get("envelope_from"),
+                envelope_to=record.get("envelope_to"),
                 dkim_auth_details=(
                     json.dumps(record.get("dkim")) if isinstance(record.get("dkim"), list) else None
                 ),
                 spf_auth_details=(
                     json.dumps(record.get("spf")) if isinstance(record.get("spf"), list) else None
                 ),
+                policy_override_reasons=_json_or_none(record.get("policy_override_reasons")),
+                record_extensions=_json_or_none(record.get("extensions")),
             )
         )
 
@@ -160,8 +194,12 @@ def persisted_report_to_dict(report: DMARCReport) -> Dict[str, Any]:
                 "dkim_result": dkim_result,
                 "spf_result": spf_result,
                 "header_from": record.header_from or "",
+                "envelope_from": record.envelope_from or "",
+                "envelope_to": record.envelope_to or "",
                 "dkim": _loads_json_list(record.dkim_auth_details) or [],
                 "spf": _loads_json_list(record.spf_auth_details) or [],
+                "policy_override_reasons": (_loads_json_list(record.policy_override_reasons) or []),
+                "extensions": _loads_json_dict(record.record_extensions) or {},
             }
         )
 
@@ -172,6 +210,13 @@ def persisted_report_to_dict(report: DMARCReport) -> Dict[str, Any]:
         "report_id": report.report_id,
         "org_name": report.org_name,
         "email": report.source_email or "",
+        "extra_contact_info": report.extra_contact_info or "",
+        "generator": report.generator or "",
+        "errors": _loads_json_list(report.report_errors) or [],
+        "variant": report.report_variant or "",
+        "schema_version": report.schema_version or "",
+        "xml_namespace": report.xml_namespace or "",
+        "extensions": _loads_json_dict(report.report_extensions) or {},
         "begin_date": _iso_from_timestamp(report.begin_date),
         "end_date": _iso_from_timestamp(report.end_date),
         "begin_timestamp": report.begin_date,
@@ -179,7 +224,13 @@ def persisted_report_to_dict(report: DMARCReport) -> Dict[str, Any]:
         "policy": {
             "p": report.policy or "none",
             "sp": report.subdomain_policy or "",
+            "np": report.non_subdomain_policy or "",
             "pct": str(report.percentage or 100),
+            "fo": report.failure_options or "",
+            "adkim": report.adkim or "",
+            "aspf": report.aspf or "",
+            "testing": report.testing or "",
+            "discovery_method": report.discovery_method or "",
         },
         "records": records,
         "summary": {

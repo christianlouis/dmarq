@@ -189,10 +189,10 @@ Goal: keep DMARQ compatible with evolving DMARC report formats and nomenclature 
 Delivered:
 - Add parser compatibility for RFC 9990-style aggregate report namespaces, version detection, policy metadata, identifiers, override reasons, auth-result details, and namespaced extensions.
 - Keep legacy RFC 7489-style reports backward compatible through fixture coverage.
+- Persist and CSV-export newly introduced aggregate metadata with nullable, backward-safe database fields.
 
 Planned:
-- Store newly introduced fields with safe defaults.
-- Update CSV export and domain/source reporting to include new metadata where it improves operator actionability.
+- Update domain/source reporting to include new metadata where it improves operator actionability.
 - Add fixture-driven tests for representative real-world DMARCbis-style reports.
 - Update documentation to clarify supported formats and terminology.
 

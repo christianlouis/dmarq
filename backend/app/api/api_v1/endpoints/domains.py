@@ -357,11 +357,15 @@ def _domain_exists(db: Session, store: ReportStore, domain_name: str) -> bool:
     )
 
 
-def _record_evidence(label: str, value: Optional[str], href: str = "#dns-records") -> DNSHealthEvidence:
+def _record_evidence(
+    label: str, value: Optional[str], href: str = "#dns-records"
+) -> DNSHealthEvidence:
     return DNSHealthEvidence(label=label, value=value or "Not found", href=href)
 
 
-def _summary_evidence(label: str, value: object, href: str = "#compliance-chart") -> DNSHealthEvidence:
+def _summary_evidence(
+    label: str, value: object, href: str = "#compliance-chart"
+) -> DNSHealthEvidence:
     return DNSHealthEvidence(label=label, value=str(value), href=href)
 
 
@@ -549,8 +553,7 @@ async def read_domains(db: Session = Depends(get_db)):
     domains = _domain_names_for_summary(db, store)
     summaries = store.get_all_domain_summaries()
     stored = {
-        domain.name: domain
-        for domain in db.query(Domain).filter(Domain.name.in_(domains)).all()
+        domain.name: domain for domain in db.query(Domain).filter(Domain.name.in_(domains)).all()
     }
 
     result = []
@@ -582,9 +585,7 @@ async def create_domain(
 ):
     """Create a monitored domain before any DMARC reports have arrived."""
     name = _normalize_domain_name(payload.name)
-    validation = validate_domain_config(
-        {"name": name, "description": payload.description or ""}
-    )
+    validation = validate_domain_config({"name": name, "description": payload.description or ""})
     if not validation["valid"]:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -818,7 +819,9 @@ async def get_domain_dns_health(
     recommendations.append(_enforcement_recommendation(policy, summary))
 
     failed_checks = sum(1 for check in checks if check.status == "fail")
-    health_status = "healthy" if failed_checks == 0 else "degraded" if failed_checks < 3 else "critical"
+    health_status = (
+        "healthy" if failed_checks == 0 else "degraded" if failed_checks < 3 else "critical"
+    )
     return DNSHealthResponse(
         status=health_status,
         policy=policy,
@@ -999,6 +1002,16 @@ async def export_domain_reports(
             "failed",
             "pass_rate",
             "policy",
+            "subdomain_policy",
+            "non_subdomain_policy",
+            "adkim",
+            "aspf",
+            "failure_options",
+            "testing",
+            "discovery_method",
+            "schema_version",
+            "report_variant",
+            "generator",
         ]
     )
 
@@ -1008,6 +1021,7 @@ async def export_domain_reports(
         passed = int(summary.get("passed_count", report.get("passed_count", 0)) or 0)
         failed = int(summary.get("failed_count", report.get("failed_count", 0)) or 0)
         policy = report.get("policy", "none")
+        policy_parts = policy if isinstance(policy, dict) else {}
         if isinstance(policy, dict):
             policy = policy.get("p", "none")
         writer.writerow(
@@ -1022,6 +1036,16 @@ async def export_domain_reports(
                 failed,
                 report.get("pass_rate", 0.0),
                 policy,
+                policy_parts.get("sp", ""),
+                policy_parts.get("np", ""),
+                policy_parts.get("adkim", ""),
+                policy_parts.get("aspf", ""),
+                policy_parts.get("fo", ""),
+                policy_parts.get("testing", ""),
+                policy_parts.get("discovery_method", ""),
+                report.get("schema_version", ""),
+                report.get("variant", ""),
+                report.get("generator", ""),
             ]
         )
 

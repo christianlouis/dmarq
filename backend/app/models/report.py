@@ -20,15 +20,26 @@ class DMARCReport(Base):
     begin_date = Column(Integer, nullable=False, index=True)  # Unix timestamp
     end_date = Column(Integer, nullable=False, index=True)  # Unix timestamp
     source_email = Column(String, nullable=True)
+    extra_contact_info = Column(String, nullable=True)
+    generator = Column(String, nullable=True)
+    report_errors = Column(Text, nullable=True)
 
     # Policy information
     policy = Column(String, nullable=True)  # none, quarantine, reject (indexed via __table_args__)
     subdomain_policy = Column(String, nullable=True)
+    non_subdomain_policy = Column(String, nullable=True)
     adkim = Column(String(1), nullable=True)  # r (relaxed) or s (strict)
     aspf = Column(String(1), nullable=True)  # r (relaxed) or s (strict)
     percentage = Column(Integer, nullable=True)
+    failure_options = Column(String, nullable=True)
+    testing = Column(String, nullable=True)
+    discovery_method = Column(String, nullable=True)
 
     # Processing metadata
+    schema_version = Column(String, nullable=True)
+    report_variant = Column(String, nullable=True)
+    xml_namespace = Column(String, nullable=True)
+    report_extensions = Column(Text, nullable=True)
     processed_at = Column(DateTime, default=datetime.utcnow)
     raw_data = Column(Text, nullable=True)  # Original XML content (optional)
 
@@ -72,10 +83,13 @@ class ReportRecord(Base):
     # Identifiers
     header_from = Column(String, nullable=True, index=True)
     envelope_from = Column(String, nullable=True)
+    envelope_to = Column(String, nullable=True)
 
     # Authentication details (optional JSON fields)
     dkim_auth_details = Column(Text, nullable=True)  # JSON array of DKIM results
     spf_auth_details = Column(Text, nullable=True)  # JSON array of SPF results
+    policy_override_reasons = Column(Text, nullable=True)  # JSON array of policy reasons
+    record_extensions = Column(Text, nullable=True)  # JSON object of extension values
 
     # Relationships
     report = relationship("DMARCReport", back_populates="records")
