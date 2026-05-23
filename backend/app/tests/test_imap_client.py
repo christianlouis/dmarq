@@ -640,6 +640,46 @@ class TestProcessSingleEmail:
         assert db_session.query(ForensicReport).count() == 1
         assert ReportStore.get_instance().get_domains() == []
 
+    def test_forensic_report_without_database_is_skipped(self):
+        client = self._make_client()
+
+        stats = {"processed": 0, "reports_found": 0, "errors": []}
+        imported = client._process_forensic_email(
+            SAMPLE_FORENSIC_EMAIL,
+            stats=stats,
+            message_id="msg-1",
+        )
+
+        assert imported is False
+        assert stats["details"][0]["reason"] == "forensic_report_requires_database"
+
+    def test_duplicate_forensic_report_adds_detail(self, db_session):
+        client = self._make_client(db=db_session)
+        stats = {"forensic_reports_found": 0, "duplicate_forensic_reports": 0, "errors": []}
+
+        assert client._process_forensic_email(SAMPLE_FORENSIC_EMAIL, stats=stats, message_id="1")
+        imported = client._process_forensic_email(
+            SAMPLE_FORENSIC_EMAIL, stats=stats, message_id="2"
+        )
+
+        assert imported is False
+        assert stats["duplicate_forensic_reports"] == 1
+        assert stats["details"][1]["status"] == "duplicate"
+
+    def test_forensic_parse_error_adds_error_detail(self, db_session):
+        client = self._make_client(db=db_session)
+        stats = {"errors": []}
+
+        imported = client._process_forensic_email(
+            b"Subject: not forensic\r\n\r\nbody",
+            stats=stats,
+            message_id="bad",
+        )
+
+        assert imported is False
+        assert stats["errors"]
+        assert stats["details"][0]["reason"] == "forensic_parse_failed"
+
     def test_fetch_error_skips_email(self):
         client = self._make_client()
         mock_mail = MagicMock()

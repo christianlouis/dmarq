@@ -1,4 +1,10 @@
 from app.models.report import ForensicReport
+from app.services.forensic_parser import ForensicParser
+from app.services.forensic_persistence import (
+    forensic_report_exists,
+    forensic_report_to_dict,
+    save_forensic_report,
+)
 from app.tests.test_forensic_parser import SAMPLE_FORENSIC_EMAIL
 
 
@@ -54,3 +60,48 @@ def test_upload_forensic_report_rejects_aggregate_xml(authed_client):
     )
 
     assert response.status_code == 400
+
+
+def test_upload_forensic_report_rejects_empty_file(authed_client):
+    response = authed_client.post(
+        "/api/v1/forensics/upload",
+        files={"file": ("report.eml", b"", "message/rfc822")},
+    )
+
+    assert response.status_code == 400
+
+
+def test_upload_forensic_report_rejects_invalid_email(authed_client):
+    response = authed_client.post(
+        "/api/v1/forensics/upload",
+        files={"file": ("report.eml", b"Subject: hello\r\n\r\nbody", "message/rfc822")},
+    )
+
+    assert response.status_code == 400
+
+
+def test_forensic_detail_returns_404(authed_client):
+    response = authed_client.get("/api/v1/forensics/999")
+
+    assert response.status_code == 404
+
+
+def test_save_forensic_report_duplicate_and_invalid_domain_paths(db_session):
+    parsed = ForensicParser.parse_bytes(SAMPLE_FORENSIC_EMAIL)
+    parsed["feedback_headers"] = {"identity_alignment": "dkim"}
+    first, created = save_forensic_report(db_session, parsed)
+    second, duplicate_created = save_forensic_report(db_session, parsed)
+
+    assert created is True
+    assert duplicate_created is False
+    assert first.id == second.id
+    assert forensic_report_exists(db_session, parsed["report_id"]) is True
+    assert forensic_report_exists(db_session, "") is False
+    assert forensic_report_to_dict(first)["feedback_headers"] == {"identity_alignment": "dkim"}
+
+    invalid = dict(parsed)
+    invalid["report_id"] = "ruf-invalid-domain"
+    invalid["reported_domain"] = "bad domain"
+    row, invalid_created = save_forensic_report(db_session, invalid)
+    assert invalid_created is True
+    assert row.domain_id is None

@@ -1,6 +1,8 @@
 import email
 
-from app.services.forensic_parser import ForensicParser
+import pytest
+
+from app.services.forensic_parser import ForensicParser, MAX_FORENSIC_REPORT_SIZE
 
 
 SAMPLE_FORENSIC_EMAIL = b"""\
@@ -69,9 +71,97 @@ def test_parse_forensic_email_redacts_and_extracts_failure_fields():
 def test_non_forensic_email_is_rejected():
     content = b"From: sender@example.com\r\nSubject: hello\r\n\r\nplain email"
 
-    try:
+    with pytest.raises(ValueError, match="forensic"):
         ForensicParser.parse_bytes(content)
-    except ValueError as exc:
-        assert "forensic" in str(exc)
-    else:
-        raise AssertionError("Expected parser to reject non-forensic email")
+
+
+def test_parse_forensic_email_uses_explicit_message_hint():
+    parsed = ForensicParser.parse_bytes(SAMPLE_FORENSIC_EMAIL, message_id_hint="gmail-message-1")
+
+    assert parsed["report_id"] == "ruf-gmail-message-1"
+
+
+def test_parse_forensic_email_handles_invalid_dates():
+    content = SAMPLE_FORENSIC_EMAIL.replace(
+        b"Arrival-Date: Fri, 22 May 2026 10:15:00 +0000",
+        b"Arrival-Date: not a real date",
+    )
+
+    parsed = ForensicParser.parse_bytes(content)
+
+    assert parsed["arrival_date"] is None
+
+
+def test_parse_forensic_email_falls_back_to_dkim_domain_and_content_hash():
+    content = SAMPLE_FORENSIC_EMAIL.replace(b"Message-ID: <report-1@example.net>\n", b"")
+    content = content.replace(b"Reported-Domain: example.com\n", b"DKIM-Domain: fallback.test\n")
+    content = content.replace(b"Message-ID: <original-message@example.com>\n", b"")
+
+    parsed = ForensicParser.parse_bytes(content)
+
+    assert parsed["reported_domain"] == "fallback.test"
+    assert parsed["report_id"].startswith("ruf-")
+    assert parsed["original_message_id"] == ""
+    assert parsed["feedback_headers"]
+
+
+def test_parse_forensic_email_extracts_message_rfc822_headers():
+    content = b"""\
+From: DMARC Reporter <dmarc-reports@example.net>
+Subject: DMARC forensic report
+MIME-Version: 1.0
+Content-Type: multipart/report; report-type=feedback-report; boundary="ruf-boundary"
+
+--ruf-boundary
+Content-Type: message/feedback-report
+
+Feedback-Type: auth-failure
+Original-Mail-From: sender@fallback.test
+Source-IP: 203.0.113.9
+
+--ruf-boundary
+Content-Type: message/rfc822
+
+From: Carol <carol@fallback.test>
+To: Dave <dave@example.net>
+Subject: Forwarded failure sample
+Message-ID: <forwarded@example.test>
+
+body is ignored
+--ruf-boundary--
+"""
+
+    parsed = ForensicParser.parse_bytes(content)
+
+    assert parsed["reported_domain"] == "fallback.test"
+    assert "ca***@fallback.test" in parsed["original_from"]
+    assert parsed["original_subject"] == "Forwarded failure sample"
+
+
+def test_is_forensic_report_detects_headers_and_subject_fallbacks():
+    header_only = email.message_from_bytes(
+        b"""\
+Subject: Delivery report
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="b"
+
+--b
+Content-Type: text/rfc822-headers
+
+Authentication-Results: mx; dmarc=fail
+
+--b--
+"""
+    )
+    subject_only = email.message_from_bytes(b"Subject: DMARC RUF failure\r\n\r\nbody")
+
+    assert ForensicParser.is_forensic_report(header_only) is True
+    assert ForensicParser.is_forensic_report(subject_only) is True
+
+
+def test_parse_forensic_email_rejects_empty_and_oversized_payloads():
+    with pytest.raises(ValueError, match="empty"):
+        ForensicParser.parse_bytes(b"")
+
+    with pytest.raises(ValueError, match="too large"):
+        ForensicParser.parse_bytes(b"x" * (MAX_FORENSIC_REPORT_SIZE + 1))

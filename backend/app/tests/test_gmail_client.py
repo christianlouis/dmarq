@@ -465,6 +465,48 @@ class TestProcessMessage:
         assert db_session.query(DMARCReport).count() == 0
         assert db_session.query(ForensicReport).count() == 1
 
+    def test_forensic_report_without_database_is_skipped(self):
+        client = _make_client()
+        stats = {"forensic_reports_found": 0, "duplicate_forensic_reports": 0, "errors": []}
+
+        imported = client._process_forensic_message(
+            SAMPLE_FORENSIC_EMAIL,
+            stats,
+            message_id="msg-forensic",
+        )
+
+        assert imported is False
+        assert stats["details"][0]["reason"] == "forensic_report_requires_database"
+
+    def test_duplicate_forensic_report_is_skipped(self, db_session):
+        client = _make_client(db=db_session)
+        stats = {"forensic_reports_found": 0, "duplicate_forensic_reports": 0, "errors": []}
+
+        assert client._process_forensic_message(SAMPLE_FORENSIC_EMAIL, stats, message_id="msg-1")
+        imported = client._process_forensic_message(
+            SAMPLE_FORENSIC_EMAIL,
+            stats,
+            message_id="msg-1",
+        )
+
+        assert imported is False
+        assert stats["duplicate_forensic_reports"] == 1
+        assert stats["details"][1]["status"] == "duplicate"
+
+    def test_forensic_parse_error_adds_error_detail(self, db_session):
+        client = _make_client(db=db_session)
+        stats = {"errors": []}
+
+        imported = client._process_forensic_message(
+            b"Subject: not forensic\r\n\r\nbody",
+            stats,
+            message_id="bad",
+        )
+
+        assert imported is False
+        assert stats["errors"]
+        assert stats["details"][0]["reason"] == "forensic_parse_failed"
+
 
 # ===========================================================================
 # _process_attachments
