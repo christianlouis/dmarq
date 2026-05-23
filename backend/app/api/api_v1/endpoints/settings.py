@@ -29,7 +29,11 @@ from app.services.alert_history import (
     record_alert_config_change,
     record_alert_evaluation,
 )
-from app.services.alert_rules import evaluate_alert_rules, send_current_alerts
+from app.services.alert_rules import (
+    enqueue_alert_webhook_events,
+    evaluate_alert_rules,
+    send_current_alerts,
+)
 from app.services.notifications import send_notification
 from app.services.summary_notifications import build_summary, send_summary_notification
 
@@ -496,6 +500,7 @@ async def evaluate_notification_alerts(
     _seed_defaults(db)
     alerts = evaluate_alert_rules(db)
     record_alert_evaluation(db, alerts)
+    enqueue_alert_webhook_events(db, alerts)
     return {"alerts": alerts}
 
 

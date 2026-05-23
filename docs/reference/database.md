@@ -135,6 +135,46 @@ and are never stored.
 | last_used_ip | VARCHAR(64) | Source IP from the last successful API use |
 | usage_count | INTEGER | Successful API use count |
 
+### Webhook_Endpoints
+
+The `webhook_endpoints` table stores outbound webhook destinations. Target
+URLs and signing secrets are encrypted at rest.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | INTEGER | Primary key |
+| name | VARCHAR(120) | Operator-facing endpoint name |
+| url | TEXT | Encrypted destination URL |
+| secret | TEXT | Encrypted signing secret |
+| event_types | TEXT | Comma-separated event subscriptions, or `*` |
+| enabled | BOOLEAN | Whether deliveries can be sent |
+| max_attempts | INTEGER | Maximum attempts before a delivery fails |
+| timeout_seconds | INTEGER | Per-request timeout |
+| last_success_at | TIMESTAMP | Last successful delivery |
+| last_failure_at | TIMESTAMP | Last failed delivery attempt |
+| failure_count | INTEGER | Consecutive endpoint-level failures |
+
+### Webhook_Deliveries
+
+The `webhook_deliveries` table records delivery attempts and retry state.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | INTEGER | Primary key |
+| endpoint_id | INTEGER | Foreign key to webhook_endpoints.id |
+| event_type | VARCHAR(80) | Delivered event type |
+| payload | TEXT | Event envelope JSON |
+| idempotency_key | VARCHAR(160) | Stable deduplication key per endpoint |
+| status | VARCHAR(24) | pending, delivered, failed, or abandoned |
+| attempt_count | INTEGER | Attempts already made |
+| max_attempts | INTEGER | Maximum attempts for this delivery |
+| next_attempt_at | TIMESTAMP | Next retry time |
+| last_attempt_at | TIMESTAMP | Last attempt time |
+| delivered_at | TIMESTAMP | Successful delivery time |
+| last_status_code | INTEGER | Last HTTP status code |
+| last_error | TEXT | Last sanitized error |
+| response_excerpt | TEXT | Truncated downstream response |
+
 ## DNS and Configuration Tables
 
 ### DNS_Records
@@ -243,6 +283,9 @@ The schema includes several indexes to optimize query performance:
 - `ix_api_tokens_key_hash`: On api_tokens.key_hash
 - `ix_api_tokens_key_prefix`: On api_tokens.key_prefix
 - `ix_api_tokens_active_scope`: On api_tokens.active and api_tokens.scopes
+- `ix_webhook_endpoints_enabled_events`: On webhook_endpoints.enabled and webhook_endpoints.event_types
+- `ix_webhook_delivery_endpoint_idempotency`: Unique on webhook_deliveries.endpoint_id and idempotency_key
+- `ix_webhook_delivery_due`: On webhook_deliveries.status and webhook_deliveries.next_attempt_at
 - `idx_activity_logs_timestamp`: On activity_logs.timestamp
 - `idx_activity_logs_user_id`: On activity_logs.user_id
 - `idx_system_logs_timestamp`: On system_logs.timestamp

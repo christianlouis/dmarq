@@ -510,17 +510,39 @@ The API uses versioning in the URL path (/api/v1/) to ensure backward compatibil
 
 ## Webhooks
 
-DMARQ can notify your systems about events via webhooks:
+DMARQ can notify downstream systems about operational events from
+**Settings > Webhooks** or the admin API.
 
-1. Navigate to **Settings** > **API Access** > **Webhooks**
-2. Click **Add Webhook**
-3. Configure:
-   - Destination URL
-   - Secret token (for verification)
-   - Events to subscribe to
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/v1/webhooks` | List endpoints and supported event types |
+| `POST /api/v1/webhooks` | Create an endpoint |
+| `PUT /api/v1/webhooks/{id}` | Update an endpoint |
+| `DELETE /api/v1/webhooks/{id}` | Disable an endpoint while keeping delivery history |
+| `POST /api/v1/webhooks/{id}/test` | Queue and attempt a test delivery |
+| `GET /api/v1/webhooks/deliveries` | Inspect recent delivery attempts |
+| `POST /api/v1/webhooks/deliveries/process` | Attempt due retries |
 
-Supported events:
-- `report.processed` - When a new report is processed
-- `compliance.threshold` - When compliance falls below threshold
-- `domain.added` - When a domain is added
-- `domain.removed` - When a domain is removed
+Supported event types:
+- `dmarq.report.imported`
+- `dmarq.sender.new`
+- `dmarq.compliance.drop`
+- `dmarq.reports.missing`
+- `dmarq.alert.created`
+- `dmarq.alert.resolved`
+- `dmarq.webhook.test`
+
+Deliveries are signed with HMAC-SHA256 using the endpoint signing secret.
+Receivers should verify these headers:
+
+| Header | Description |
+| --- | --- |
+| `X-DMARQ-Event` | Event type |
+| `X-DMARQ-Delivery` | Delivery id |
+| `X-DMARQ-Idempotency-Key` | Stable deduplication key |
+| `X-DMARQ-Timestamp` | Unix timestamp used in the signature |
+| `X-DMARQ-Signature` | `v1=<hex hmac>` over `timestamp.delivery_id.body` |
+
+Non-2xx responses are retried with exponential backoff until the endpoint's
+maximum attempt count is reached. Operators can inspect the delivery status,
+last response code, error text, and response excerpt without reading logs.

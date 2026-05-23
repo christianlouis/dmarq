@@ -19,6 +19,7 @@ import app.models.mail_source_import  # noqa: F401 – ensure import history tab
 import app.models.report  # noqa: F401 – ensure DMARCReport/ReportRecord tables are registered
 import app.models.setting  # noqa: F401 – ensure Setting table is registered
 import app.models.user  # noqa: F401 – ensure User table is registered
+import app.models.webhook  # noqa: F401 – ensure webhook tables are registered
 from app.api.api_v1.api import api_router
 from app.core.config import get_settings
 from app.core.database import Base, SessionLocal, engine
@@ -42,6 +43,7 @@ from app.services.runtime_status import (
     mark_scheduler_success,
 )
 from app.services.summary_notifications import send_due_scheduled_summaries
+from app.services.webhook_events import deliver_due_webhooks
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -290,6 +292,20 @@ def _send_due_summary_notifications() -> None:
         db.close()
 
 
+def _deliver_due_webhook_events() -> None:
+    """Attempt due outbound webhook deliveries."""
+    db = SessionLocal()
+    try:
+        deliveries = deliver_due_webhooks(db)
+        if deliveries:
+            delivered = sum(1 for item in deliveries if item.status == "delivered")
+            logger.info(
+                "Processed %d webhook deliveries (%d delivered)", len(deliveries), delivered
+            )
+    finally:
+        db.close()
+
+
 def _next_sleep_seconds(
     min_sleep: int = 60, enabled_sources: Optional[List[MailSource]] = None
 ) -> int:
@@ -318,6 +334,7 @@ async def scheduled_imap_polling():
             try:
                 enabled_sources = _poll_all_enabled_sources()
                 _send_due_summary_notifications()
+                _deliver_due_webhook_events()
                 mark_scheduler_success()
             except Exception as e:  # pylint: disable=broad-exception-caught
                 logger.error("Error in IMAP polling task: %s", str(e))
