@@ -2,6 +2,8 @@
 
 This guide covers how to deploy DMARQ without Docker, using a traditional installation method.
 
+For production operations after installation, use the [Operator Runbook](operations.md) for verification, upgrades, rollback, and routine checks. Use [Troubleshooting Playbooks](troubleshooting.md) when auth, ingestion, DNS, database, or notification workflows fail.
+
 ## Prerequisites
 
 Before proceeding with a manual installation, ensure you have:
@@ -241,6 +243,7 @@ sudo systemctl enable dmarq-celery
 ## Updating DMARQ
 
 Before updating a production deployment, follow the [Release Checklist](release-checklist.md) and create a database backup.
+The full operator upgrade sequence is documented in [Operator Runbook](operations.md).
 
 To update to a newer version:
 

@@ -2,6 +2,8 @@
 
 Use this checklist for every DMARQ release or production upgrade. It focuses on the work that most often causes avoidable downtime: database migrations, test coverage, release automation, and smoke checks.
 
+For the full deploy, verification, rollback, and routine operations runbook, see [Operator Runbook](operations.md). For incident-specific recovery steps, see [Troubleshooting Playbooks](troubleshooting.md).
+
 ## Before Merging
 
 Confirm the release candidate is ready:

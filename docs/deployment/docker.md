@@ -147,6 +147,8 @@ The Docker Compose setup uses these volumes:
 
 For production deployments, consider these additional steps:
 
+For an operator-focused sequence that covers Docker Compose, Coolify, verification, upgrades, and rollback, use the [Operator Runbook](operations.md). For incident response and ingestion/auth troubleshooting, use [Troubleshooting Playbooks](troubleshooting.md).
+
 ### Using a Reverse Proxy
 
 In production, it's recommended to use a reverse proxy like Nginx or Traefik in front of DMARQ:
@@ -224,6 +226,7 @@ docker-compose --profile production up -d
 ## Updating DMARQ
 
 Before updating a production deployment, follow the [Release Checklist](release-checklist.md) and create a database backup.
+The full operator upgrade sequence is documented in [Operator Runbook](operations.md).
 
 To update to a newer version:
 

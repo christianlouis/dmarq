@@ -13,6 +13,7 @@ DMARQ can be configured through:
 For production secrets, use the [1Password secret handling guide](secrets.md) so sensitive values are injected into the DMARQ process without being committed or copied into deployment notes.
 
 For database operations, use the [Database Backup and Restore](backups.md) guide before upgrades and migrations.
+For deployment verification, upgrades, rollback, and routine checks, use the [Operator Runbook](operations.md). For incident response, use [Troubleshooting Playbooks](troubleshooting.md).
 
 ## Core Settings
 
