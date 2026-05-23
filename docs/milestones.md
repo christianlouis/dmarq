@@ -198,11 +198,11 @@ Exit criteria:
 
 ## Milestone 12: Enterprise Mail Sources (Microsoft 365) and Connector Framework
 
-Status: In progress
+Status: Delivered
 
 Goal: make mailbox ingestion work for the most common enterprise setups without relying on IMAP.
 
-Planned:
+Delivered:
 - Microsoft 365 mail source using OAuth (Graph) with least-privilege scopes. Delivered for delegated `User.Read`, `Mail.Read`, and `offline_access` with encrypted token storage, manual import, scheduled polling, UI setup, and operator docs.
 - Shared mailbox and folder selection support for DMARC report collection. Delivered with shared mailbox targeting, Microsoft Graph folder listing, folder-id based imports, UI selection, and mailbox/folder context in import history.
 - Import-history parity with existing sources (auditable attachment outcomes, duplicates, parse failures). Delivered for Microsoft 365 imports.
@@ -218,7 +218,7 @@ Status: Complete
 
 Goal: turn DMARQ into a broader email authentication posture console (still privacy-first and self-hostable).
 
-Planned:
+Delivered:
 - MTA-STS posture: delivered cached `_mta-sts` TXT checks, HTTPS policy validation, domain-detail evidence, and operator guidance for missing, invalid, or non-enforcing policies. Optional helper tooling remains a future enhancement.
 - TLS reporting posture: delivered authenticated TLS-RPT upload for `.json`, `.json.gz`, and `.zip` attachments; duplicate-safe persistence by report ID and policy domain; daily session trends; top failure-cause grouping; affected-domain summaries; and explicit privacy controls that avoid storing message content or recipient data.
 - BIMI posture: delivered default-selector BIMI TXT validation, HTTPS logo/certificate URL checks, DMARC enforcement readiness checks, domain-detail evidence, and operator guidance for missing or blocked BIMI prerequisites.
@@ -234,7 +234,7 @@ Status: Delivered
 
 Goal: let DMARQ integrate cleanly into existing security and operations workflows.
 
-Planned:
+Delivered:
 - A stable, documented read-only API surface for posture and reporting queries. Delivered with scoped `reports:read`, `posture:read`, and `tls-reports:read` API tokens, public read-only endpoints, and per-token usage audit fields.
 - Webhook event delivery for key events (new sender source, compliance drop, missing reports, alert lifecycle). Delivered with encrypted webhook endpoints, signed delivery headers, idempotency keys, retry/backoff state, test sends, and delivery inspection.
 - SIEM integration templates delivered with a stable `dmarq.siem.event.v1` schema, source/compliance/alert examples, Splunk HEC, Elastic ECS, and Microsoft Sentinel ingestion shapes, and sensitive-field redaction guidance.
@@ -250,7 +250,7 @@ Status: Delivered
 
 Goal: support multi-org deployments (e.g., MSPs) with strong isolation, ownership, and operator ergonomics.
 
-Planned:
+Delivered:
 - Workspace/tenant concept with clear domain ownership. Delivered in M15.1:
   default workspace migration, ownership columns for domains/users/mail sources,
   and scoped query helpers.
@@ -274,7 +274,7 @@ Status: Delivered
 
 Goal: provide opt-in assistance and agent-friendly automation without compromising privacy or safety.
 
-Planned:
+Delivered:
 - Evidence-first summaries and remediation plans that link back to the
   underlying DMARC data. Delivered with redacted safe-context generation,
   deterministic summaries, recommendations, and evidence links back to domain
