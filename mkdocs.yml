@@ -40,6 +40,7 @@ nav:
     - Configuration: deployment/configuration.md
   - Technical Reference:
     - API Reference: reference/api.md
+    - SIEM Integrations: reference/siem-integrations.md
     - Architecture: reference/architecture.md
     - Database Schema: reference/database.md
   - Development:
