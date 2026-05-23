@@ -25,6 +25,9 @@ workspace during migration.
 | name | VARCHAR | Display name |
 | description | TEXT | Optional operator-facing description |
 | active | BOOLEAN | Whether the workspace can be used |
+| report_retention_days | INTEGER | Aggregate DMARC report retention target |
+| forensic_retention_days | INTEGER | Forensic report retention target |
+| tls_report_retention_days | INTEGER | SMTP TLS report retention target |
 | created_at | TIMESTAMP | When the workspace was created |
 | updated_at | TIMESTAMP | When the workspace was last updated |
 
