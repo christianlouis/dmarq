@@ -237,19 +237,53 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata for Docker
+      - name: Compute Docker metadata
         id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=tag
-            type=semver,pattern={{version}}
-            type=sha,prefix=
-            type=raw,value=${{ github.event.inputs.release_tag }},enable=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != '' }}
-            type=raw,value=stable,enable=${{ startsWith(github.ref, 'refs/tags/v') || github.event.inputs.promote_stable == 'true' }}
-            type=raw,value=latest,enable={{is_default_branch}}
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          RELEASE_TAG: ${{ github.event.inputs.release_tag }}
+          PROMOTE_STABLE: ${{ github.event.inputs.promote_stable }}
+        run: |
+          IMAGE="ghcr.io/$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          SHORT_SHA="$(echo "${GITHUB_SHA}" | cut -c1-7)"
+          TAGS=("${IMAGE}:${SHORT_SHA}")
+
+          if [ "${REF_TYPE}" = "branch" ]; then
+            SAFE_BRANCH="$(echo "${REF_NAME}" | tr '/:@' '---')"
+            TAGS+=("${IMAGE}:${SAFE_BRANCH}")
+            if [ "${REF_NAME}" = "${DEFAULT_BRANCH}" ]; then
+              TAGS+=("${IMAGE}:latest")
+            fi
+          fi
+
+          if [ "${REF_TYPE}" = "tag" ]; then
+            TAGS+=("${IMAGE}:${REF_NAME}")
+            if [[ "${REF_NAME}" =~ ^v[0-9] ]]; then
+              TAGS+=("${IMAGE}:${REF_NAME#v}")
+              TAGS+=("${IMAGE}:stable")
+            fi
+          fi
+
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ] && [ -n "${RELEASE_TAG}" ]; then
+            TAGS+=("${IMAGE}:${RELEASE_TAG}")
+          fi
+
+          if [ "${PROMOTE_STABLE}" = "true" ]; then
+            TAGS+=("${IMAGE}:stable")
+          fi
+
+          {
+            echo "tags<<EOF"
+            printf '%s\n' "${TAGS[@]}" | sort -u
+            echo "EOF"
+            echo "labels<<EOF"
+            echo "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}"
+            echo "org.opencontainers.image.revision=${GITHUB_SHA}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
