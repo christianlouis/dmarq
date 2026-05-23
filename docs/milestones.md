@@ -270,15 +270,28 @@ Exit criteria:
 
 ## Milestone 16: Optional AI + MCP Automation Layer
 
-Status: Backlog
+Status: Delivered
 
 Goal: provide opt-in assistance and agent-friendly automation without compromising privacy or safety.
 
 Planned:
-- Evidence-first summaries and remediation plans that link back to the underlying DMARC data.
-- Pluggable model provider support with strong redaction and “no secrets in prompts” guarantees.
-- A DMARQ MCP server that starts read-only (posture queries, reports, recommendations).
-- Optional action tools (e.g., proposing DNS changes) gated behind explicit human confirmation and audit logging.
+- Evidence-first summaries and remediation plans that link back to the
+  underlying DMARC data. Delivered with redacted safe-context generation,
+  deterministic summaries, recommendations, and evidence links back to domain
+  detail views.
+- Pluggable model provider support with strong redaction and “no secrets in
+  prompts” guarantees. Delivered with explicit admin settings for template,
+  local, and remote provider modes, model/base-URL configuration, strict or
+  balanced redaction, and no stored provider secrets.
+- A DMARQ MCP server that starts read-only (posture queries, reports,
+  recommendations). Delivered with an opt-in `/api/v1/mcp` JSON-RPC surface,
+  `mcp:read` scoped API tokens, read-only tool metadata, and audited tool
+  calls.
+- Optional action tools (e.g., proposing DNS changes) gated behind explicit
+  human confirmation and audit logging. Delivered as reproducible proposal
+  artifacts that never mutate DNS or DMARQ state unless action tools are
+  explicitly enabled and a human confirms the proposal ID; confirmation is
+  audited and no external changes are applied.
 
 Exit criteria:
 - Users can enable AI/agent workflows intentionally, understand what data is shared, and keep deployments safe by default.

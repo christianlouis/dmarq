@@ -15,11 +15,13 @@ from app.models.api_token import APIToken
 READ_REPORTS_SCOPE = "reports:read"
 READ_POSTURE_SCOPE = "posture:read"
 READ_TLS_SCOPE = "tls-reports:read"
+MCP_READ_SCOPE = "mcp:read"
 
 PUBLIC_READ_SCOPES = {
     READ_REPORTS_SCOPE,
     READ_POSTURE_SCOPE,
     READ_TLS_SCOPE,
+    MCP_READ_SCOPE,
 }
 
 

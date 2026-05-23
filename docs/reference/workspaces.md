@@ -59,6 +59,8 @@ Current audit coverage includes:
 - notification and forensic setting changes
 - webhook creation, update, disable, and test actions
 - manual DKIM selector add/remove actions
+- AI summary generation, action proposal generation/confirmation, and MCP
+  read-only tool calls
 
 Audit details redact secret-like fields such as passwords, OAuth tokens, API
 keys, and webhook signing secrets.

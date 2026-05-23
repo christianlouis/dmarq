@@ -121,8 +121,8 @@ The milestone breakdown in `docs/milestones.md` is intentionally focused on exit
 
 ### Priority (Now / Next / Later)
 
-- **Now**: Milestone 16 (optional AI/MCP automation).
-- **Next**: release hardening and follow-up triage.
+- **Now**: release hardening and follow-up triage.
+- **Next**: production smoke testing and deployment feedback.
 - **Later**: production-driven improvements from deployment feedback.
 
 ### Tentative Release Plan (Subject to Change)

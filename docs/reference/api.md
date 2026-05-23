@@ -61,6 +61,7 @@ through the `/public` path and avoid UI-specific payloads.
 | `GET /public/domains/{domain_id}/reports` | `reports:read` | Recent DMARC aggregate report summaries |
 | `GET /public/domains/{domain_id}/posture` | `posture:read` | Evidence-first posture dashboard payload |
 | `GET /public/tls-reports/summary` | `tls-reports:read` | SMTP TLS report trends and failure groups |
+| `POST /mcp` | `mcp:read` | Read-only MCP-style JSON-RPC tool endpoint |
 
 Successful public API calls update the token's last-used timestamp, source IP,
 and usage count for auditing.
@@ -213,6 +214,86 @@ Request:
 
 Updates workspace retention controls and writes a sanitized
 `workspace.retention_updated` audit event.
+
+### Optional AI Assistance
+
+AI assistance endpoints require administrator access and remain disabled until
+`ai.enabled=true` is set in Settings.
+
+#### Read AI Configuration
+
+```text
+GET /ai/config
+```
+
+Returns provider mode, model name, whether a remote base URL is configured,
+redaction mode, action-tool state, MCP state, and data-handling guarantees. Raw
+provider credentials are not stored or returned.
+
+#### Build Safe Context
+
+```text
+GET /ai/domains/{domain}/context
+```
+
+Returns a redacted context payload for a domain. The payload includes summary
+counts, recent reports, top sources, evidence links, and the redaction rules
+that were applied.
+
+#### Build Evidence Summary
+
+```text
+GET /ai/domains/{domain}/summary
+```
+
+Returns a deterministic evidence-first summary and remediation plan. Each
+recommendation includes evidence links back to the underlying DMARC data.
+
+#### Build Action Proposals
+
+```text
+GET /ai/domains/{domain}/action-proposals
+```
+
+Returns reproducible proposal artifacts. Proposal generation is read-only and
+does not apply DNS or configuration changes.
+
+#### Confirm Proposal
+
+```text
+POST /ai/domains/{domain}/action-proposals/confirm
+```
+
+Requires `ai.action_tools_enabled=true` and a `confirmation_text` equal to the
+proposal ID. Confirmation is written to the workspace audit log. The current
+implementation records human confirmation but does not apply external changes.
+
+### MCP Endpoint
+
+The MCP endpoint is disabled until `mcp.enabled=true` is set. It requires a
+scoped API token with `mcp:read`.
+
+```text
+POST /mcp
+```
+
+Supported JSON-RPC methods:
+
+| Method | Purpose |
+| --- | --- |
+| `initialize` | Return server capabilities |
+| `tools/list` | List read-only tool metadata |
+| `tools/call` | Call a read-only tool |
+
+Available tools:
+
+| Tool | Purpose |
+| --- | --- |
+| `list_domains` | List monitored domains and aggregate counts |
+| `domain_summary` | Return an evidence-first summary for one domain |
+| `action_proposals` | Return reviewable remediation proposals without applying changes |
+
+Every successful tool call is audited as `mcp.tool_called`.
 
 ### Domains
 
