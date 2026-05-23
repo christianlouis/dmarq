@@ -33,12 +33,23 @@
     <!-- Feedback alerts -->
     <template x-if="feedback.message && feedback.type === 'success'">
         {% call alert(variant="success") %}
-            {% call alert_description() %}<span x-text="feedback.message"></span>{% endcall %}
+            {% call alert_description() %}
+                <span x-text="feedback.message"></span>
+                <div class="mt-2 text-xs" x-show="feedback.diagnostic_summary" x-text="feedback.diagnostic_summary"></div>
+            {% endcall %}
         {% endcall %}
     </template>
     <template x-if="feedback.message && feedback.type === 'error'">
         {% call alert(variant="error") %}
-            {% call alert_description() %}<span x-text="feedback.message"></span>{% endcall %}
+            {% call alert_description() %}
+                <span x-text="feedback.message"></span>
+                <div class="mt-2 text-xs font-medium" x-show="feedback.diagnostic_summary" x-text="feedback.diagnostic_summary"></div>
+                <ul class="mt-2 list-disc pl-5 text-xs space-y-1" x-show="feedback.recovery_steps && feedback.recovery_steps.length">
+                    <template x-for="step in feedback.recovery_steps" :key="step">
+                        <li x-text="step"></li>
+                    </template>
+                </ul>
+            {% endcall %}
         {% endcall %}
     </template>
 
@@ -440,7 +451,15 @@
                     <!-- Test connection result -->
                     <template x-if="testResult.message">
                         <div :class="testResult.success ? 'alert alert-success' : 'alert alert-error'" class="text-sm p-3 rounded">
-                            <span x-text="testResult.message"></span>
+                            <div>
+                                <span x-text="testResult.message"></span>
+                                <div class="mt-2 text-xs font-medium" x-show="testResult.diagnostic_summary" x-text="testResult.diagnostic_summary"></div>
+                                <ul class="mt-2 list-disc pl-5 text-xs space-y-1" x-show="testResult.recovery_steps && testResult.recovery_steps.length">
+                                    <template x-for="step in testResult.recovery_steps" :key="step">
+                                        <li x-text="step"></li>
+                                    </template>
+                                </ul>
+                            </div>
                         </div>
                     </template>
 
@@ -554,8 +573,8 @@ function mailSourcesApp() {
         historySource: null,
         importHistory: [],
         historyLoading: false,
-        feedback: { message: '', type: '' },
-        testResult: { message: '', success: false },
+        feedback: { message: '', type: '', diagnostic_summary: '', recovery_steps: [] },
+        testResult: { message: '', success: false, diagnostic_summary: '', recovery_steps: [] },
         gmailConnected: false,
         gmailEmail: '',
 
@@ -699,6 +718,22 @@ function mailSourcesApp() {
             return 'badge-outline';
         },
 
+        emptyTestResult() {
+            return { message: '', success: false, diagnostic_summary: '', recovery_steps: [] };
+        },
+
+        emptyFeedback() {
+            return { message: '', type: '', diagnostic_summary: '', recovery_steps: [] };
+        },
+
+        diagnosticFromResult(result) {
+            const diagnostic = result.diagnostic || {};
+            return {
+                diagnostic_summary: diagnostic.summary || '',
+                recovery_steps: result.recovery_steps || diagnostic.recovery_steps || [],
+            };
+        },
+
         openAddForm() {
             this.editingId = null;
             this.gmailConnected = false;
@@ -717,7 +752,7 @@ function mailSourcesApp() {
                 gmail_client_id: '',
                 gmail_client_secret: '',
             };
-            this.testResult = { message: '', success: false };
+            this.testResult = this.emptyTestResult();
             this.showForm = true;
         },
 
@@ -739,14 +774,14 @@ function mailSourcesApp() {
                 gmail_client_id: source.gmail_client_id || '',
                 gmail_client_secret: '',  // never pre-fill client secret
             };
-            this.testResult = { message: '', success: false };
+            this.testResult = this.emptyTestResult();
             this.showForm = true;
         },
 
         closeForm() {
             this.showForm = false;
             this.editingId = null;
-            this.testResult = { message: '', success: false };
+            this.testResult = this.emptyTestResult();
         },
 
         async connectGmail() {
@@ -869,20 +904,23 @@ function mailSourcesApp() {
 
         async testSource(id) {
             this.testing[id] = true;
-            this.feedback = { message: '', type: '' };
+            this.feedback = this.emptyFeedback();
             try {
                 const resp = await fetch(`/api/v1/mail-sources/${id}/test`, { method: 'POST' });
                 const result = await resp.json();
+                const diagnostic = this.diagnosticFromResult(result);
                 if (result.success) {
                     this.feedback = {
                         message: `Connection test successful for source #${id}: ${result.message}`,
                         type: 'success',
+                        ...diagnostic,
                     };
                     await this.loadSources();
                 } else {
                     this.feedback = {
                         message: `Connection test failed for source #${id}: ${result.message}`,
                         type: 'error',
+                        ...diagnostic,
                     };
                 }
             } catch (e) {
@@ -894,7 +932,7 @@ function mailSourcesApp() {
 
         async testAdHoc() {
             this.isTesting = true;
-            this.testResult = { message: '', success: false };
+            this.testResult = this.emptyTestResult();
             try {
                 const payload = {
                     server: this.form.server,
@@ -910,11 +948,13 @@ function mailSourcesApp() {
                     body: JSON.stringify(payload),
                 });
                 const result = await resp.json();
+                const diagnostic = this.diagnosticFromResult(result);
                 this.testResult = {
                     success: result.success,
                     message: result.success
                         ? `✓ Connected. ${result.message_count || 0} messages, ${result.dmarc_count || 0} potential DMARC reports.`
                         : `✗ ${result.message}`,
+                    ...diagnostic,
                 };
             } catch (e) {
                 this.testResult = { success: false, message: `Error: ${e.message}` };

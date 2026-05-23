@@ -143,6 +143,161 @@ def _redact_sensitive_text(value: object) -> str:
     return redact_sensitive_text(value)
 
 
+DIAGNOSTIC_COPY: Dict[str, Dict[str, Any]] = {
+    "ok": {
+        "summary": "Connection test completed successfully.",
+        "recovery_steps": [],
+    },
+    "auth_required": {
+        "summary": "The mailbox has not been connected yet.",
+        "recovery_steps": [
+            "Use the Connect Gmail action to complete authorization.",
+            "Confirm the authorized mailbox is the one that receives DMARC aggregate reports.",
+        ],
+    },
+    "auth_expired": {
+        "summary": "The saved authorization is expired, revoked, or no longer accepted.",
+        "recovery_steps": [
+            "Reconnect the mailbox from Mail Sources.",
+            "If your provider shows a consent screen, approve Gmail read-only access again.",
+        ],
+    },
+    "authentication": {
+        "summary": "The server rejected the username, password, app password, or OAuth token.",
+        "recovery_steps": [
+            "Verify the username and use an app-specific password when the provider requires one.",
+            "Reconnect OAuth sources if the provider recently changed account security settings.",
+        ],
+    },
+    "permissions": {
+        "summary": "The account is connected but does not have enough mailbox access.",
+        "recovery_steps": [
+            "Grant read access for the mailbox that receives DMARC reports.",
+            "For Gmail, reconnect and approve the requested Gmail read-only scope.",
+        ],
+    },
+    "connectivity": {
+        "summary": "DMARQ could not reach the mail server reliably.",
+        "recovery_steps": [
+            "Check the server hostname, port, TLS setting, and any firewall allowlists.",
+            "Use port 993 with SSL for most IMAP providers.",
+        ],
+    },
+    "mailbox_not_found": {
+        "summary": "The configured mailbox folder could not be opened.",
+        "recovery_steps": [
+            "Choose one of the available mailbox names returned by the test.",
+            "Check capitalization and nested folder separators such as Archive/DMARC.",
+        ],
+    },
+    "throttling": {
+        "summary": "The mail provider is rate limiting or temporarily refusing requests.",
+        "recovery_steps": [
+            "Wait a few minutes and retry the test.",
+            "Increase the polling interval if repeated imports trigger provider limits.",
+        ],
+    },
+    "missing_config": {
+        "summary": "Required connection settings are missing.",
+        "recovery_steps": [
+            "Fill in the server, username, and password or complete Gmail authorization.",
+            "Save the source before running stored-source tests.",
+        ],
+    },
+    "not_implemented": {
+        "summary": "This connection method cannot be tested from this screen yet.",
+        "recovery_steps": [
+            "Use IMAP or Gmail API for mailbox ingestion.",
+            "Keep unsupported sources disabled until a test path is implemented.",
+        ],
+    },
+    "unknown": {
+        "summary": "The connection failed, but DMARQ could not classify the provider response.",
+        "recovery_steps": [
+            "Retry the test once to rule out a transient provider issue.",
+            "Check the latest import history and server logs for the sanitized provider response.",
+        ],
+    },
+}
+
+
+def _diagnostic_category(message: str, details: Optional[object] = None) -> str:
+    """Map provider-specific failures to operator-friendly categories."""
+    text = f"{message} {_redact_sensitive_text(details or '')}".lower()
+    if any(term in text for term in ("not yet authorised", "not yet authorized", "complete oauth")):
+        return "auth_required"
+    if any(
+        term in text for term in ("expired", "revoked", "invalid_grant", "refresh token", "oauth")
+    ):
+        return "auth_expired"
+    if any(term in text for term in ("rate", "quota", "throttl", "too many", "429")):
+        return "throttling"
+    if any(term in text for term in ("scope", "permission", "access denied", "insufficient")):
+        return "permissions"
+    if any(term in text for term in ("mailbox", "folder", "select failed", "does not exist")):
+        return "mailbox_not_found"
+    if any(term in text for term in ("credential", "password", "auth", "login", "invalid token")):
+        return "authentication"
+    if any(
+        term in text
+        for term in (
+            "timeout",
+            "timed out",
+            "dns",
+            "resolve",
+            "refused",
+            "network",
+            "ssl",
+            "certificate",
+        )
+    ):
+        return "connectivity"
+    if "not yet implemented" in text:
+        return "not_implemented"
+    if any(term in text for term in ("not fully configured", "missing", "required")):
+        return "missing_config"
+    return "unknown"
+
+
+def _connection_diagnostic(
+    success: bool, message: str, details: Optional[object] = None
+) -> Dict[str, Any]:
+    """Build sanitized connection diagnostics for API responses and UI recovery copy."""
+    category = "ok" if success else _diagnostic_category(message, details)
+    diagnostic_copy = DIAGNOSTIC_COPY[category]
+    diagnostic: Dict[str, Any] = {
+        "category": category,
+        "summary": diagnostic_copy["summary"],
+        "recovery_steps": diagnostic_copy["recovery_steps"],
+    }
+    if details and not success:
+        diagnostic["details"] = _redact_sensitive_text(details)
+    return diagnostic
+
+
+def _connection_test_response(
+    success: bool,
+    message: str,
+    stats: Optional[Dict[str, Any]] = None,
+    details: Optional[object] = None,
+) -> Dict[str, Any]:
+    """Normalize stored and ad-hoc mailbox test responses."""
+    stats = stats or {}
+    diagnostic = _connection_diagnostic(success, message, details or stats.get("diagnostic_detail"))
+    return {
+        "success": success,
+        "message": _redact_sensitive_text(message),
+        "message_count": stats.get("message_count", 0),
+        "unread_count": stats.get("unread_count", 0),
+        "dmarc_count": stats.get("dmarc_count", 0),
+        "available_mailboxes": stats.get("available_mailboxes", []),
+        "diagnostic": diagnostic,
+        "diagnostic_category": diagnostic["category"],
+        "recovery_steps": diagnostic["recovery_steps"],
+        "timestamp": datetime.now().isoformat(),
+    }
+
+
 def _get_source_or_404(source_id: int, db: Session) -> MailSource:
     source = db.query(MailSource).filter(MailSource.id == source_id).first()
     if source is None:
@@ -479,12 +634,11 @@ async def test_stored_mail_source(
 
     if source.method == "GMAIL_API":
         if not source.gmail_access_token:
-            return {
-                "success": False,
-                "message": "Gmail API source is not yet authorised. "
-                "Use the 'Connect Gmail' button to complete OAuth2 authorisation.",
-                "timestamp": datetime.now().isoformat(),
-            }
+            return _connection_test_response(
+                False,
+                "Gmail API source is not yet authorised. "
+                "Use the Connect Gmail button to complete OAuth2 authorisation.",
+            )
         try:
             gmail_client = GmailClient(
                 client_id=source.gmail_client_id or "",
@@ -497,29 +651,27 @@ async def test_stored_mail_source(
             service.users().getProfile(userId="me").execute()
             source.last_checked = datetime.utcnow()
             db.commit()
-            return {
-                "success": True,
-                "message": f"Gmail API credentials are valid (account: {source.gmail_email or 'unknown'}).",
-                "timestamp": datetime.now().isoformat(),
-            }
+            return _connection_test_response(
+                True,
+                f"Gmail API credentials are valid (account: {source.gmail_email or 'unknown'}).",
+            )
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error(
                 "Gmail API test failed for source id=%d: %s",
                 int(source_id),
                 _redact_sensitive_text(exc),
             )
-            return {
-                "success": False,
-                "message": "Gmail API test failed. Check server logs for details.",
-                "timestamp": datetime.now().isoformat(),
-            }
+            return _connection_test_response(
+                False,
+                "Gmail API test failed. The saved authorization may need attention.",
+                details=exc,
+            )
 
     if source.method != "IMAP":
-        return {
-            "success": False,
-            "message": f"Connection testing for method '{source.method}' is not yet implemented.",
-            "timestamp": datetime.now().isoformat(),
-        }
+        return _connection_test_response(
+            False,
+            f"Connection testing for method '{source.method}' is not yet implemented.",
+        )
 
     imap_client = IMAPClient(
         server=source.server,
@@ -534,15 +686,7 @@ async def test_stored_mail_source(
         source.last_checked = datetime.utcnow()
         db.commit()
 
-    return {
-        "success": success,
-        "message": message,
-        "message_count": stats.get("message_count", 0),
-        "unread_count": stats.get("unread_count", 0),
-        "dmarc_count": stats.get("dmarc_count", 0),
-        "available_mailboxes": stats.get("available_mailboxes", []),
-        "timestamp": datetime.now().isoformat(),
-    }
+    return _connection_test_response(success, message, stats)
 
 
 @router.post("/test-connection", response_model=Dict[str, Any])
@@ -558,11 +702,10 @@ async def test_connection_adhoc(
     method = request.method.upper()
 
     if method != "IMAP":
-        return {
-            "success": False,
-            "message": f"Connection testing for method '{method}' is not yet implemented.",
-            "timestamp": datetime.now().isoformat(),
-        }
+        return _connection_test_response(
+            False,
+            f"Connection testing for method '{method}' is not yet implemented.",
+        )
 
     imap_client = IMAPClient(
         server=request.server,
@@ -572,15 +715,7 @@ async def test_connection_adhoc(
     )
     success, message, stats = imap_client.test_connection()
 
-    return {
-        "success": success,
-        "message": message,
-        "message_count": stats.get("message_count", 0),
-        "unread_count": stats.get("unread_count", 0),
-        "dmarc_count": stats.get("dmarc_count", 0),
-        "available_mailboxes": stats.get("available_mailboxes", []),
-        "timestamp": datetime.now().isoformat(),
-    }
+    return _connection_test_response(success, message, stats)
 
 
 # ---------------------------------------------------------------------------

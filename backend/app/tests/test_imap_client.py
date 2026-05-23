@@ -253,7 +253,7 @@ class TestTestConnection:
         success, message, stats = client.test_connection()
         assert success is False
         assert "not fully configured" in message
-        assert stats == {}
+        assert stats["diagnostic_detail"] == "missing server, username, or password"
 
     def test_successful_connection(self):
         client = self._make_client()
@@ -296,7 +296,8 @@ class TestTestConnection:
         with patch("imaplib.IMAP4_SSL", side_effect=ConnectionRefusedError("refused")):
             success, message, stats = client.test_connection()
         assert success is False
-        assert stats == {}
+        assert "IMAP server" in message
+        assert stats["diagnostic_detail"] == "refused"
 
     def test_list_status_not_ok_returns_empty_mailboxes(self):
         client = self._make_client()
@@ -312,19 +313,21 @@ class TestTestConnection:
         assert success is True
         assert stats["available_mailboxes"] == []
 
-    def test_select_not_ok_skips_message_count(self):
+    def test_select_not_ok_returns_mailbox_diagnostic(self):
         client = self._make_client()
         mock_mail = MagicMock()
         mock_mail.login.return_value = None
-        mock_mail.list.return_value = ("OK", [])
+        mock_mail.list.return_value = ("OK", [b'(\\HasNoChildren) "/" INBOX'])
         mock_mail.select.return_value = ("NO", [])
         mock_mail.search.return_value = ("OK", [b""])
 
         with patch("imaplib.IMAP4_SSL", return_value=mock_mail):
             success, message, stats = client.test_connection()
 
-        assert success is True
-        assert stats["message_count"] == 0
+        assert success is False
+        assert "folder" in message
+        assert stats["available_mailboxes"] == ["INBOX"]
+        assert "select failed" in stats["diagnostic_detail"]
 
 
 # ---------------------------------------------------------------------------

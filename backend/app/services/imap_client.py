@@ -102,7 +102,11 @@ class IMAPClient:
             - stats: Dictionary with mailbox statistics (if successful)
         """
         if not all([self.server, self.username, self.password]):
-            return False, "IMAP credentials not fully configured", {}
+            return (
+                False,
+                "IMAP credentials not fully configured.",
+                {"diagnostic_detail": "missing server, username, or password"},
+            )
 
         try:
             # Create IMAP4 connection
@@ -119,13 +123,23 @@ class IMAPClient:
             message_count = 0
             unread_count = 0
 
-            if status == "OK":
-                message_count = int(data[0])
+            if status != "OK":
+                mail.logout()
+                return (
+                    False,
+                    "Configured mailbox folder could not be opened.",
+                    {
+                        "available_mailboxes": available_mailboxes,
+                        "diagnostic_detail": f"select failed for folder {self.folder}",
+                    },
+                )
 
-                # Count unread messages
-                status, data = mail.search(None, "UNSEEN")
-                if status == "OK":
-                    unread_count = len(data[0].split())
+            message_count = int(data[0])
+
+            # Count unread messages
+            status, data = mail.search(None, "UNSEEN")
+            if status == "OK":
+                unread_count = len(data[0].split())
 
             # Gather some stats about potential DMARC reports
             dmarc_count = 0
@@ -148,9 +162,27 @@ class IMAPClient:
             }
 
             return True, "Connection successful", stats
+        except imaplib.IMAP4.error as e:
+            logger.error("IMAP connection test failed: %s", str(e))
+            return (
+                False,
+                "IMAP authentication failed or the mailbox server rejected the request.",
+                {"diagnostic_detail": str(e)},
+            )
+        except (TimeoutError, OSError) as e:
+            logger.error("IMAP connection test failed: %s", str(e))
+            return (
+                False,
+                "Could not reach the IMAP server.",
+                {"diagnostic_detail": str(e)},
+            )
         except Exception as e:  # pylint: disable=broad-exception-caught
             logger.error("IMAP connection test failed: %s", str(e))
-            return False, "Connection failed. Check server address and credentials.", {}
+            return (
+                False,
+                "Connection failed. Check mailbox settings and try again.",
+                {"diagnostic_detail": str(e)},
+            )
 
     def _process_single_email(self, mail, email_id: bytes, stats: dict) -> None:
         """Fetch, parse, and store DMARC attachments from one email message."""
