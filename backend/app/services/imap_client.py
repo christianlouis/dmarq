@@ -7,6 +7,8 @@ from typing import Any, Dict, Optional, Tuple
 
 from app.core.config import get_settings
 from app.services.dmarc_parser import DMARCParser
+from app.services.forensic_parser import ForensicParser
+from app.services.forensic_persistence import forensic_report_exists, save_forensic_report
 from app.services.report_persistence import report_exists, save_parsed_report
 from app.services.report_store import ReportStore
 
@@ -202,6 +204,19 @@ class IMAPClient:
             raw_email = msg_data[0][1]
             msg = email.message_from_bytes(raw_email)
 
+            if ForensicParser.is_forensic_report(msg):
+                imported = self._process_forensic_email(
+                    raw_email,
+                    stats=stats,
+                    message_id=message_id,
+                )
+                mail.store(email_id, "+FLAGS", "\\Seen")
+                if self.delete_emails and imported:
+                    mail.store(email_id, "+FLAGS", "\\Deleted")
+                    stats["deleted"] = stats.get("deleted", 0) + 1
+                stats["processed"] += 1
+                return
+
             if self._is_dmarc_report_email(msg):
                 reports_found = self._process_attachments(msg, stats, message_id=message_id)
                 stats["reports_found"] += reports_found
@@ -243,8 +258,10 @@ class IMAPClient:
             "success": True,
             "processed": 0,
             "reports_found": 0,
+            "forensic_reports_found": 0,
             "deleted": 0,
             "duplicate_reports": 0,
+            "duplicate_forensic_reports": 0,
             "new_domains": [],
             "errors": [],
             "details": [],
@@ -471,6 +488,84 @@ class IMAPClient:
             report_id=str(report_id),
         )
         return True
+
+    def _process_forensic_email(
+        self,
+        raw_email: bytes,
+        *,
+        stats: Optional[Dict[str, Any]],
+        message_id: Optional[str],
+    ) -> bool:
+        try:
+            report = ForensicParser.parse_bytes(raw_email)
+            report_id = str(report.get("report_id", ""))
+            domain = str(report.get("reported_domain") or "unknown")
+
+            if self.db is not None and forensic_report_exists(self.db, report_id):
+                if stats is not None:
+                    stats["duplicate_forensic_reports"] = (
+                        stats.get("duplicate_forensic_reports", 0) + 1
+                    )
+                self._append_detail(
+                    stats,
+                    status="duplicate",
+                    reason="duplicate_forensic_report",
+                    message_id=message_id,
+                    domain=domain,
+                    report_id=report_id,
+                )
+                return False
+
+            if self.db is None:
+                self._append_detail(
+                    stats,
+                    status="skipped",
+                    reason="forensic_report_requires_database",
+                    message_id=message_id,
+                    domain=domain,
+                    report_id=report_id,
+                )
+                return False
+
+            _row, created = save_forensic_report(self.db, report)
+            if created:
+                if stats is not None:
+                    stats["forensic_reports_found"] = stats.get("forensic_reports_found", 0) + 1
+                self._append_detail(
+                    stats,
+                    status="imported",
+                    reason="forensic_report",
+                    message_id=message_id,
+                    domain=domain,
+                    report_id=report_id,
+                )
+                return True
+
+            if stats is not None:
+                stats["duplicate_forensic_reports"] = stats.get("duplicate_forensic_reports", 0) + 1
+            self._append_detail(
+                stats,
+                status="duplicate",
+                reason="duplicate_forensic_report",
+                message_id=message_id,
+                domain=domain,
+                report_id=report_id,
+            )
+            return False
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.error("Error processing forensic report email %s: %s", message_id, exc)
+            if stats is not None:
+                stats.setdefault("errors", []).append(
+                    f"Failed to parse forensic report {message_id}: {exc}"
+                )
+            self._append_detail(
+                stats,
+                status="error",
+                reason="forensic_parse_failed",
+                message_id=message_id,
+                error=str(exc),
+            )
+            return False
 
     def _process_dmarc_attachment(
         self,

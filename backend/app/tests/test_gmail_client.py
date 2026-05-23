@@ -19,10 +19,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.models.report import DMARCReport
+from app.models.report import DMARCReport, ForensicReport
 from app.services.gmail_client import GmailClient
 from app.services.report_store import ReportStore
 from app.tests.test_data import SAMPLE_XML
+from app.tests.test_forensic_parser import SAMPLE_FORENSIC_EMAIL
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -441,6 +442,28 @@ class TestProcessMessage:
         assert "bad-id" in stats["errors"][0]
         assert stats["details"][0]["status"] == "error"
         assert stats["details"][0]["message_id"] == "bad-id"
+
+    def test_forensic_report_is_processed_separately(self, db_session):
+        client = _make_client(db=db_session)
+        service = MagicMock()
+        service.users.return_value.messages.return_value.get.return_value.execute.return_value = {
+            "raw": _b64_raw(SAMPLE_FORENSIC_EMAIL)
+        }
+
+        stats = {
+            "reports_found": 0,
+            "forensic_reports_found": 0,
+            "duplicate_forensic_reports": 0,
+            "errors": [],
+        }
+        count = client._process_message(service, "msg-forensic", stats)
+
+        assert count == 1
+        assert stats["reports_found"] == 0
+        assert stats["forensic_reports_found"] == 1
+        assert stats["details"][0]["reason"] == "forensic_report"
+        assert db_session.query(DMARCReport).count() == 0
+        assert db_session.query(ForensicReport).count() == 1
 
 
 # ===========================================================================

@@ -80,10 +80,12 @@ def _poll_single_imap_source(source: MailSource) -> None:
 
     if results["success"]:
         logger.info(
-            "IMAP polling (source id=%d): %s emails processed, %s reports found",
+            "IMAP polling (source id=%d): %s emails processed, %s aggregate reports found, "
+            "%s forensic reports found",
             source.id,
             results["processed"],
             results["reports_found"],
+            results.get("forensic_reports_found", 0),
         )
         if results["new_domains"]:
             logger.info("New domains found: %s", ", ".join(results["new_domains"]))
@@ -143,10 +145,12 @@ def _poll_single_gmail_source(source: MailSource) -> None:
 
     if results["success"]:
         logger.info(
-            "Gmail polling (source id=%d): %s emails processed, %s reports found",
+            "Gmail polling (source id=%d): %s emails processed, %s aggregate reports found, "
+            "%s forensic reports found",
             source.id,
             results["processed"],
             results["reports_found"],
+            results.get("forensic_reports_found", 0),
         )
         if results["new_domains"]:
             logger.info("New domains found: %s", ", ".join(results["new_domains"]))
@@ -616,6 +620,8 @@ def _trigger_poll_imap_source(source: MailSource, db, days: int = 7) -> dict:
         "success": results["success"],
         "processed": results.get("processed", 0),
         "reports_found": results.get("reports_found", 0),
+        "forensic_reports_found": results.get("forensic_reports_found", 0),
+        "duplicate_forensic_reports": results.get("duplicate_forensic_reports", 0),
         "new_domains": results.get("new_domains", []),
     }
 
@@ -654,6 +660,8 @@ def _trigger_poll_gmail_source(source: MailSource, db) -> dict:
         "success": results["success"],
         "processed": results.get("processed", 0),
         "reports_found": results.get("reports_found", 0),
+        "forensic_reports_found": results.get("forensic_reports_found", 0),
+        "duplicate_forensic_reports": results.get("duplicate_forensic_reports", 0),
         "new_domains": results.get("new_domains", []),
     }
 

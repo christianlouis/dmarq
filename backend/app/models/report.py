@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -90,3 +90,50 @@ class ReportRecord(Base):
 
     def __repr__(self):
         return f"<ReportRecord {self.id} ({self.source_ip})>"
+
+
+class ForensicReport(Base):
+    """DMARC forensic/failure report model (RFC 6591 / ARF)."""
+
+    __tablename__ = "forensic_reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    domain_id = Column(Integer, ForeignKey("domains.id"), nullable=True, index=True)
+
+    # Report metadata
+    report_id = Column(String, nullable=False, index=True)
+    source_email = Column(String, nullable=True)
+    feedback_type = Column(String, nullable=True, index=True)
+    user_agent = Column(String, nullable=True)
+    version = Column(String, nullable=True)
+
+    # DMARC failure fields
+    reported_domain = Column(String, nullable=True, index=True)
+    source_ip = Column(String, nullable=True, index=True)
+    auth_failure = Column(String, nullable=True, index=True)
+    delivery_result = Column(String, nullable=True)
+    arrival_date = Column(DateTime, nullable=True, index=True)
+    authentication_results = Column(Text, nullable=True)
+
+    # Redacted original-message metadata. Never store original body content here.
+    original_mail_from = Column(String, nullable=True)
+    original_from = Column(String, nullable=True)
+    original_to = Column(String, nullable=True)
+    original_subject = Column(String, nullable=True)
+    original_message_id = Column(String, nullable=True)
+    original_date = Column(String, nullable=True)
+
+    # Sanitized parser details for operators/debugging.
+    feedback_headers = Column(Text, nullable=True)
+    processed_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    domain = relationship("Domain", back_populates="forensic_reports")
+
+    __table_args__ = (
+        UniqueConstraint("report_id", name="uq_forensic_reports_report_id"),
+        Index("ix_forensic_reports_domain_arrival", "domain_id", "arrival_date"),
+        Index("ix_forensic_reports_failure_source", "auth_failure", "source_ip"),
+    )
+
+    def __repr__(self):
+        return f"<ForensicReport {self.report_id}>"

@@ -163,15 +163,20 @@ Exit criteria:
 
 ## Milestone 10: Forensic Report Support
 
-Status: Backlog
+Status: In Progress
 
 Goal: support DMARC RUF/forensic reports for individual failure investigation.
 
-Planned:
+Delivered:
 - Detect forensic report messages.
 - Parse safe metadata from ARF/attached email formats.
 - Store minimal incident details with privacy controls.
+- Keep forensic reports out of aggregate report statistics and ReportStore rollups.
+- Expose authenticated forensic upload/list/detail APIs.
+
+Planned:
 - Add a dedicated forensic report view.
+- Add configurable redaction controls and richer failure investigation workflows.
 
 Exit criteria:
 - A security analyst can inspect individual failure reports without mixing them into aggregate statistics.

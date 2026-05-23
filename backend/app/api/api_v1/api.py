@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.api_v1.endpoints import (
     auth,
     domains,
+    forensics,
     health,
     imap,
     mail_sources,
@@ -20,6 +21,7 @@ api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(health.router, tags=["health"])
 api_router.include_router(domains.router, prefix="/domains", tags=["domains"])
 api_router.include_router(reports.router, prefix="/reports", tags=["reports"])
+api_router.include_router(forensics.router, prefix="/forensics", tags=["forensics"])
 api_router.include_router(setup.router, prefix="/setup", tags=["setup"])
 api_router.include_router(imap.router, prefix="/imap", tags=["imap"])
 api_router.include_router(stats.router, prefix="/stats", tags=["stats"])
