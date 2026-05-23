@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -12,6 +12,7 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=True, index=True)
     email = Column(String, unique=True, index=True, nullable=False)
     # Logto subject claim (the user's stable ID inside Logto).
     # Null for users that pre-date Logto integration or for
@@ -41,4 +42,5 @@ class User(Base):
     )
 
     # Relationships
+    workspace = relationship("Workspace", back_populates="users")
     user_domains = relationship("UserDomain", back_populates="user", cascade="all, delete-orphan")

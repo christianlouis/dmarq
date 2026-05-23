@@ -36,6 +36,10 @@ from app.services.report_persistence import (
     hydrate_report_store_from_db,
 )
 from app.services.report_store import ReportStore
+from app.services.workspaces import (
+    assign_default_workspace_to_unscoped_rows,
+    workspace_domain_query,
+)
 from app.utils.domain_validator import validate_domain_config
 
 logger = logging.getLogger(__name__)
@@ -417,22 +421,35 @@ def _normalize_domain_name(name: str) -> str:
     return name.strip().strip(".").lower()
 
 
-def _domain_names_for_summary(db: Session, store: ReportStore) -> List[str]:
+def _domain_names_for_summary(db: Session, store: ReportStore, workspace=None) -> List[str]:
     report_domains = store.get_domains()
-    stored_domains = [
-        name
-        for (name,) in db.query(Domain.name)
-        .filter(Domain.active == True)  # noqa: E712
-        .order_by(Domain.name)
-        .all()
-    ]
-    return list(dict.fromkeys(stored_domains + report_domains))
+    stored_query = db.query(Domain.name).filter(Domain.active == True)  # noqa: E712
+    if workspace is not None:
+        stored_query = stored_query.filter(Domain.workspace_id == workspace.id)
+    stored_domains = [name for (name,) in stored_query.order_by(Domain.name).all()]
+
+    if workspace is None:
+        scoped_report_domains = report_domains
+    else:
+        stored_scope = {
+            name: workspace_id
+            for name, workspace_id in db.query(Domain.name, Domain.workspace_id)
+            .filter(Domain.name.in_(report_domains))
+            .all()
+        }
+        scoped_report_domains = [
+            name
+            for name in report_domains
+            if name not in stored_scope or stored_scope[name] == workspace.id
+        ]
+    return list(dict.fromkeys(stored_domains + scoped_report_domains))
 
 
-def _domain_exists(db: Session, store: ReportStore, domain_name: str) -> bool:
-    return domain_name in store.get_domains() or bool(
-        db.query(Domain.id).filter(Domain.name == domain_name).first()
-    )
+def _domain_exists(db: Session, store: ReportStore, domain_name: str, workspace=None) -> bool:
+    row = db.query(Domain.id, Domain.workspace_id).filter(Domain.name == domain_name).first()
+    if row:
+        return workspace is None or row.workspace_id == workspace.id
+    return domain_name in store.get_domains()
 
 
 def _record_evidence(
@@ -1070,10 +1087,12 @@ async def read_domains(db: Session = Depends(get_db)):
     """
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    domains = _domain_names_for_summary(db, store)
+    workspace = assign_default_workspace_to_unscoped_rows(db)
+    domains = _domain_names_for_summary(db, store, workspace)
     summaries = store.get_all_domain_summaries()
     stored = {
-        domain.name: domain for domain in db.query(Domain).filter(Domain.name.in_(domains)).all()
+        domain.name: domain
+        for domain in workspace_domain_query(db, workspace).filter(Domain.name.in_(domains)).all()
     }
 
     result = []
@@ -1104,6 +1123,7 @@ async def create_domain(
     _auth: dict = Depends(require_admin_auth),
 ):
     """Create a monitored domain before any DMARC reports have arrived."""
+    workspace = assign_default_workspace_to_unscoped_rows(db)
     name = _normalize_domain_name(payload.name)
     validation = validate_domain_config({"name": name, "description": payload.description or ""})
     if not validation["valid"]:
@@ -1111,7 +1131,7 @@ async def create_domain(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=validation["errors"],
         )
-    existing = db.query(Domain).filter(Domain.name == name).first()
+    existing = workspace_domain_query(db, workspace).filter(Domain.name == name).first()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -1124,6 +1144,7 @@ async def create_domain(
         if selector and selector.strip()
     )
     domain = Domain(
+        workspace_id=workspace.id,
         name=name,
         description=payload.description,
         dkim_selectors=selectors or None,
@@ -1155,7 +1176,8 @@ async def read_domain(domain_name: str, db: Session = Depends(get_db)):
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
     domains = store.get_domains()
-    stored_domain = db.query(Domain).filter(Domain.name == domain_name).first()
+    workspace = assign_default_workspace_to_unscoped_rows(db)
+    stored_domain = workspace_domain_query(db, workspace).filter(Domain.name == domain_name).first()
 
     if domain_name not in domains and stored_domain is None:
         raise HTTPException(
@@ -1230,8 +1252,9 @@ async def get_domain_dns_records(
     """
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
+    workspace = assign_default_workspace_to_unscoped_rows(db)
 
-    if not _domain_exists(db, store, domain_id):
+    if not _domain_exists(db, store, domain_id, workspace):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Domain not found",
@@ -1271,7 +1294,8 @@ async def get_domain_dns_health(
     """Return evidence-linked DNS health and enforcement readiness guidance."""
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    if not _domain_exists(db, store, domain_id):
+    workspace = assign_default_workspace_to_unscoped_rows(db)
+    if not _domain_exists(db, store, domain_id, workspace):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Domain not found",
@@ -1289,7 +1313,8 @@ async def get_domain_posture_dashboard(
     """Return an evidence-first posture dashboard for a monitored domain."""
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    if not _domain_exists(db, store, domain_id):
+    workspace = assign_default_workspace_to_unscoped_rows(db)
+    if not _domain_exists(db, store, domain_id, workspace):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Domain not found",
@@ -1309,7 +1334,8 @@ async def get_domain_mta_sts(
     """Return cached MTA-STS DNS and HTTPS policy posture for a domain."""
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    if not _domain_exists(db, store, domain_id):
+    workspace = assign_default_workspace_to_unscoped_rows(db)
+    if not _domain_exists(db, store, domain_id, workspace):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Domain not found",
@@ -1345,7 +1371,8 @@ async def get_domain_bimi(
     """Return cached BIMI DNS posture for a domain."""
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    if not _domain_exists(db, store, domain_id):
+    workspace = assign_default_workspace_to_unscoped_rows(db)
+    if not _domain_exists(db, store, domain_id, workspace):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Domain not found",
@@ -1461,8 +1488,9 @@ async def get_domain_reports(
     """
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
+    workspace = assign_default_workspace_to_unscoped_rows(db)
 
-    if not _domain_exists(db, store, domain_id):
+    if not _domain_exists(db, store, domain_id, workspace):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Domain not found",
@@ -1513,8 +1541,9 @@ async def export_domain_reports(
 
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
+    workspace = assign_default_workspace_to_unscoped_rows(db)
 
-    if not _domain_exists(db, store, domain_id):
+    if not _domain_exists(db, store, domain_id, workspace):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Domain not found",
@@ -1827,8 +1856,9 @@ async def get_domain_sources(
     """
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
+    workspace = assign_default_workspace_to_unscoped_rows(db)
 
-    if not _domain_exists(db, store, domain_id):
+    if not _domain_exists(db, store, domain_id, workspace):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Domain not found",
@@ -1884,7 +1914,8 @@ async def get_domain_selectors(
     """
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    if not _domain_exists(db, store, domain_id):
+    workspace = assign_default_workspace_to_unscoped_rows(db)
+    if not _domain_exists(db, store, domain_id, workspace):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Domain not found",
@@ -1910,7 +1941,8 @@ async def add_domain_selector(
     """
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    if domain_id not in store.get_domains():
+    workspace = assign_default_workspace_to_unscoped_rows(db)
+    if not _domain_exists(db, store, domain_id, workspace):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Domain not found",
@@ -1923,9 +1955,9 @@ async def add_domain_selector(
             detail="Selector must not be empty",
         )
 
-    domain_db = db.query(Domain).filter(Domain.name == domain_id).first()
+    domain_db = workspace_domain_query(db, workspace).filter(Domain.name == domain_id).first()
     if not domain_db:
-        domain_db = Domain(name=domain_id)
+        domain_db = Domain(name=domain_id, workspace_id=workspace.id)
         db.add(domain_db)
 
     existing = [s.strip() for s in (domain_db.dkim_selectors or "").split(",") if s.strip()]
@@ -1944,7 +1976,8 @@ async def delete_domain_selector(
     db: Session = Depends(get_db),
 ):
     """Remove a manually configured DKIM selector from a domain."""
-    domain_db = db.query(Domain).filter(Domain.name == domain_id).first()
+    workspace = assign_default_workspace_to_unscoped_rows(db)
+    domain_db = workspace_domain_query(db, workspace).filter(Domain.name == domain_id).first()
     if not domain_db:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.models.domain import Domain
 from app.models.report import DMARCReport, ReportRecord
 from app.services.report_store import ReportStore
+from app.services.workspaces import assign_default_workspace_to_unscoped_rows
 
 
 def _parse_timestamp(value: Any) -> int:
@@ -98,10 +99,15 @@ def save_parsed_report(db: Session, report: Dict[str, Any]) -> tuple[DMARCReport
     domain_name = report.get("domain") or "unknown"
     report_id = report.get("report_id") or ""
     policy = _policy_parts(report)
+    workspace = assign_default_workspace_to_unscoped_rows(db, commit=False)
 
-    domain = db.query(Domain).filter(Domain.name == domain_name).first()
+    domain = (
+        db.query(Domain)
+        .filter(Domain.name == domain_name, Domain.workspace_id == workspace.id)
+        .first()
+    )
     if domain is None:
-        domain = Domain(name=domain_name, dmarc_policy=policy["p"])
+        domain = Domain(name=domain_name, dmarc_policy=policy["p"], workspace_id=workspace.id)
         db.add(domain)
         db.flush()
     elif policy.get("p"):

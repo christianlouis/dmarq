@@ -12,6 +12,7 @@ class Domain(Base):
     __tablename__ = "domains"
 
     id = Column(Integer, primary_key=True, index=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=True, index=True)
     name = Column(String, unique=True, index=True, nullable=False)
     description = Column(Text, nullable=True)
     active = Column(Boolean, default=True, index=True)
@@ -30,6 +31,7 @@ class Domain(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
+    workspace = relationship("Workspace", back_populates="domains")
     reports = relationship("DMARCReport", back_populates="domain", cascade="all, delete-orphan")
     forensic_reports = relationship(
         "ForensicReport", back_populates="domain", cascade="all, delete-orphan"
@@ -41,6 +43,8 @@ class Domain(Base):
     __table_args__ = (
         # Index for finding active and verified domains
         Index("ix_domains_active_verified", "active", "verified"),
+        # Workspace-scoped domain lookups for MSP mode.
+        Index("ix_domains_workspace_name", "workspace_id", "name"),
         # Index for finding domains by policy
         Index("ix_domains_policy", "dmarc_policy"),
         # Index for finding recently updated domains

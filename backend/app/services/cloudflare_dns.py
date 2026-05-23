@@ -16,6 +16,7 @@ from app.models.dns_cache import DNSRecordChange, DNSRecordSnapshot
 from app.models.domain import Domain
 from app.models.setting import Setting
 from app.services.dns_resolver import CloudflareDNSProvider, extract_dmarc_policy
+from app.services.workspaces import assign_default_workspace_to_unscoped_rows
 
 PROVIDER_NAME = "cloudflare"
 
@@ -90,6 +91,7 @@ async def import_cloudflare_domains(
 ) -> Dict[str, Any]:
     """Create Domain rows for Cloudflare zones, returning imported and existing names."""
     zones = await discover_cloudflare_zones(db)
+    workspace = assign_default_workspace_to_unscoped_rows(db)
     requested = {domain.strip().lower() for domain in requested_domains or [] if domain.strip()}
     imported: List[str] = []
     existing: List[str] = []
@@ -100,9 +102,13 @@ async def import_cloudflare_domains(
         if requested and name not in requested:
             skipped.append(name)
             continue
-        domain = db.query(Domain).filter(Domain.name == name).first()
+        domain = (
+            db.query(Domain)
+            .filter(Domain.name == name, Domain.workspace_id == workspace.id)
+            .first()
+        )
         if domain is None:
-            db.add(Domain(name=name, active=True, verified=True))
+            db.add(Domain(name=name, active=True, verified=True, workspace_id=workspace.id))
             imported.append(name)
         else:
             existing.append(name)
