@@ -63,6 +63,22 @@ DMARQ provides a health check feature for each domain:
    - MX record confirmation
    - BIMI record validation (if applicable)
 
+### Posture Dashboard
+
+The domain detail page starts with an evidence-first posture dashboard. It
+summarizes coverage for DMARC, SPF, DKIM, MTA-STS, and BIMI, assigns a simple
+posture score, and shows each recommendation with links back to the DNS record,
+report trend, sending-source table, or posture evidence that triggered it.
+
+The same surface includes a **What Changed** panel when provider-backed DNS
+change tracking has observed additions, edits, or removals. Those summaries are
+designed for drift review: operators can see the previous and current values
+without reading logs.
+
+Operator playbooks sit beside the recommendations. They are short remediation
+checklists for common gaps such as missing SPF, missing DKIM, policy enforcement
+readiness, MTA-STS setup, or BIMI prerequisites.
+
 ### MTA-STS Posture
 
 The domain detail page checks `_mta-sts.<domain>` and fetches the policy from `https://mta-sts.<domain>/.well-known/mta-sts.txt`.

@@ -128,62 +128,126 @@
         {% endcall %}
         </section>
 
-        <!-- DNS Health Summary -->
-        <section id="dns-health-summary">
+        <!-- Posture Dashboard -->
+        <section id="posture-dashboard">
         {% call card() %}
             {% call card_header() %}
                 <div class="flex items-center justify-between">
-                    {% call card_title() %}DNS Health Summary{% endcall %}
-                    <span class="inline-flex items-center rounded px-2 py-1 text-xs font-semibold capitalize"
-                          :class="dnsHealthStatusClass"
-                          x-text="dnsHealth.status || 'checking'"></span>
+                    <div>
+                        {% call card_title() %}Posture Dashboard{% endcall %}
+                        {% call card_description() %}
+                            Evidence-linked coverage, drift, and operator playbooks
+                        {% endcall %}
+                    </div>
+                    <div class="text-right">
+                        <span class="inline-flex items-center rounded px-2 py-1 text-xs font-semibold capitalize"
+                              :class="postureStatusClass"
+                              x-text="posture.status || 'checking'"></span>
+                        <div class="mt-1 text-xs text-base-content/60">
+                            <span x-text="posture.score"></span><span>/100</span>
+                        </div>
+                    </div>
                 </div>
-                {% call card_description() %}
-                    Evidence-linked authentication posture and enforcement readiness
-                {% endcall %}
             {% endcall %}
             {% call card_content() %}
-                <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                    <template x-for="check in dnsHealth.checks" :key="check.key">
-                        <div class="rounded border border-base-300 p-4">
-                            <div class="flex items-center justify-between">
-                                <h3 class="font-semibold" x-text="check.label"></h3>
-                                <span class="rounded px-2 py-1 text-xs font-semibold capitalize"
-                                      :class="check.status === 'pass' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'"
-                                      x-text="check.status"></span>
-                            </div>
-                            <p class="mt-2 text-sm text-base-content/70" x-text="check.message"></p>
-                            <div class="mt-3 space-y-1">
-                                <template x-for="item in check.evidence" :key="item.label + item.value">
-                                    <a :href="item.href" class="block text-xs link link-primary">
-                                        <span x-text="item.label"></span>:
-                                        <span class="font-mono break-all" x-text="item.value"></span>
-                                    </a>
-                                </template>
-                            </div>
-                        </div>
-                    </template>
+                <div class="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
+                    <div class="rounded border border-base-300 p-4">
+                        <div class="text-sm text-base-content/60">Posture score</div>
+                        <div class="mt-2 text-4xl font-bold" x-text="posture.score"></div>
+                        <p class="mt-2 text-sm text-base-content/70" x-text="posture.summary"></p>
+                    </div>
+                    <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                        <template x-for="item in posture.coverage" :key="item.key">
+                            <a :href="item.href" class="rounded border border-base-300 p-3 hover:border-primary">
+                                <div class="flex items-center justify-between gap-2">
+                                    <h3 class="font-semibold" x-text="item.label"></h3>
+                                    <span class="rounded px-2 py-1 text-xs font-semibold capitalize"
+                                          :class="item.status === 'pass' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'"
+                                          x-text="item.status"></span>
+                                </div>
+                                <p class="mt-2 text-xs text-base-content/70" x-text="item.message"></p>
+                                <p class="mt-2 text-xs text-base-content/50">
+                                    <span x-text="item.evidence_count"></span>
+                                    <span> evidence links</span>
+                                </p>
+                            </a>
+                        </template>
+                    </div>
                 </div>
 
-                <div class="mt-5 space-y-3">
-                    <template x-for="recommendation in dnsHealth.recommendations" :key="recommendation.type">
-                        <div class="rounded border border-base-300 p-4">
-                            <div class="flex items-start gap-3">
-                                <span class="mt-1 h-2.5 w-2.5 rounded-full"
-                                      :class="recommendationSeverityClass(recommendation.severity)"></span>
-                                <div class="min-w-0 flex-1">
-                                    <h3 class="font-semibold" x-text="recommendation.title"></h3>
-                                    <p class="mt-1 text-sm text-base-content/70" x-text="recommendation.detail"></p>
-                                    <p class="mt-2 text-sm font-medium" x-text="recommendation.action"></p>
-                                    <div class="mt-3 flex flex-wrap gap-2">
-                                        <template x-for="item in recommendation.evidence" :key="item.label + item.value">
-                                            <a :href="item.href" class="badge badge-outline gap-1">
-                                                <span x-text="item.label"></span>
-                                                <span x-text="item.value"></span>
-                                            </a>
-                                        </template>
+                <div class="mt-5 grid gap-5 xl:grid-cols-2">
+                    <div class="space-y-3">
+                        <h3 class="font-semibold">Recommendations</h3>
+                        <template x-for="recommendation in posture.recommendations" :key="recommendation.type">
+                            <div class="rounded border border-base-300 p-4">
+                                <div class="flex items-start gap-3">
+                                    <span class="mt-1 h-2.5 w-2.5 rounded-full"
+                                          :class="recommendationSeverityClass(recommendation.severity)"></span>
+                                    <div class="min-w-0 flex-1">
+                                        <h4 class="font-semibold" x-text="recommendation.title"></h4>
+                                        <p class="mt-1 text-sm text-base-content/70" x-text="recommendation.detail"></p>
+                                        <p class="mt-2 text-sm font-medium" x-text="recommendation.action"></p>
+                                        <div class="mt-3 flex flex-wrap gap-2">
+                                            <template x-for="item in recommendation.evidence" :key="item.label + item.value">
+                                                <a :href="item.href" class="badge badge-outline gap-1">
+                                                    <span x-text="item.label"></span>
+                                                    <span x-text="item.value"></span>
+                                                </a>
+                                            </template>
+                                        </div>
                                     </div>
                                 </div>
+                            </div>
+                        </template>
+                    </div>
+
+                    <div class="space-y-3" id="posture-changes">
+                        <h3 class="font-semibold">What Changed</h3>
+                        <template x-for="change in posture.changes" :key="change.title + change.observed_at">
+                            <div class="rounded border border-base-300 p-4">
+                                <div class="flex items-start gap-3">
+                                    <span class="mt-1 h-2.5 w-2.5 rounded-full"
+                                          :class="recommendationSeverityClass(change.severity)"></span>
+                                    <div class="min-w-0">
+                                        <h4 class="font-semibold" x-text="change.title"></h4>
+                                        <p class="mt-1 text-sm text-base-content/70" x-text="change.detail"></p>
+                                        <p class="mt-1 text-xs text-base-content/50" x-show="change.observed_at" x-text="formatIsoDate(change.observed_at)"></p>
+                                        <div class="mt-3 space-y-1">
+                                            <template x-for="item in change.evidence" :key="item.label + item.value">
+                                                <div class="text-xs">
+                                                    <span class="font-medium" x-text="item.label"></span>:
+                                                    <span class="font-mono break-all" x-text="item.value"></span>
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <div class="mt-5 grid gap-3 lg:grid-cols-3">
+                    <template x-for="playbook in posture.playbooks" :key="playbook.key">
+                        <div class="rounded border border-base-300 p-4">
+                            <div class="flex items-start justify-between gap-3">
+                                <div>
+                                    <h3 class="font-semibold" x-text="playbook.title"></h3>
+                                    <p class="mt-1 text-sm text-base-content/70" x-text="playbook.summary"></p>
+                                </div>
+                            </div>
+                            <ol class="mt-3 list-decimal space-y-1 pl-4 text-sm">
+                                <template x-for="step in playbook.steps" :key="step">
+                                    <li x-text="step"></li>
+                                </template>
+                            </ol>
+                            <div class="mt-3 flex flex-wrap gap-2">
+                                <template x-for="item in playbook.evidence" :key="item.label + item.value">
+                                    <a :href="item.href" class="badge badge-outline gap-1">
+                                        <span x-text="item.label"></span>
+                                        <span x-text="item.value"></span>
+                                    </a>
+                                </template>
                             </div>
                         </div>
                     </template>
@@ -634,6 +698,15 @@ function domainDetailsApp(domainId) {
             checks: [],
             recommendations: []
         },
+        posture: {
+            status: '',
+            score: 0,
+            summary: '',
+            coverage: [],
+            recommendations: [],
+            changes: [],
+            playbooks: []
+        },
         mtaSts: {
             status: '',
             dns_record: '',
@@ -671,6 +744,7 @@ function domainDetailsApp(domainId) {
             this.fetchDomainStats();
             this.fetchDNSRecords();
             this.fetchDNSHealth();
+            this.fetchPosture();
             this.fetchMtaSts();
             this.fetchBimi();
             this.fetchSelectors();
@@ -715,6 +789,13 @@ function domainDetailsApp(domainId) {
             return 'bg-base-200 text-base-content/70';
         },
 
+        get postureStatusClass() {
+            if (this.posture.status === 'healthy') return 'bg-green-100 text-green-700';
+            if (this.posture.status === 'degraded') return 'bg-yellow-100 text-yellow-800';
+            if (this.posture.status === 'critical') return 'bg-red-100 text-red-700';
+            return 'bg-base-200 text-base-content/70';
+        },
+
         recommendationSeverityClass(severity) {
             if (severity === 'error') return 'bg-red-500';
             if (severity === 'warning') return 'bg-yellow-500';
@@ -753,6 +834,17 @@ function domainDetailsApp(domainId) {
                 }
             } catch (error) {
                 console.error('Error fetching DNS health:', error);
+            }
+        },
+
+        async fetchPosture() {
+            try {
+                const response = await fetch(`/api/v1/domains/${this.domainId}/posture`);
+                if (response.ok) {
+                    this.posture = await response.json();
+                }
+            } catch (error) {
+                console.error('Error fetching posture dashboard:', error);
             }
         },
 
@@ -807,6 +899,7 @@ function domainDetailsApp(domainId) {
                     this.fetchSelectors();
                     this.fetchDNSRecords();
                     this.fetchDNSHealth();
+                    this.fetchPosture();
                     this.fetchMtaSts();
                 } else {
                     const err = await response.json();
@@ -829,6 +922,7 @@ function domainDetailsApp(domainId) {
                     this.fetchSelectors();
                     this.fetchDNSRecords();
                     this.fetchDNSHealth();
+                    this.fetchPosture();
                     this.fetchMtaSts();
                 } else {
                     console.error('Error deleting selector:', response.status);
@@ -1044,6 +1138,12 @@ function domainDetailsApp(domainId) {
         formatDate(timestamp) {
             const date = new Date(timestamp * 1000);
             return date.toLocaleDateString();
+        },
+
+        formatIsoDate(value) {
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return value;
+            return date.toLocaleString();
         },
         
         getPassRateClass(rate) {
