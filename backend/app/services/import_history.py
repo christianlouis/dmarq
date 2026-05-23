@@ -19,6 +19,8 @@ DETAIL_FIELDS = {
     "filename",
     "domain",
     "report_id",
+    "mailbox",
+    "folder",
     "error",
 }
 

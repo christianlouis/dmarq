@@ -56,6 +56,7 @@ class MailSourceBase(BaseModel):
     m365_client_id: Optional[str] = None
     m365_client_secret: Optional[str] = None
     m365_mailbox: Optional[str] = None
+    m365_folder_id: Optional[str] = None
 
 
 class MailSourceCreate(MailSourceBase):
@@ -81,6 +82,7 @@ class MailSourceUpdate(BaseModel):
     m365_client_id: Optional[str] = None
     m365_client_secret: Optional[str] = None
     m365_mailbox: Optional[str] = None
+    m365_folder_id: Optional[str] = None
 
 
 class MailSourceResponse(MailSourceBase):
@@ -372,6 +374,7 @@ def _source_to_response(source: MailSource) -> MailSourceResponse:
         m365_client_id=_safe_attr(source, "m365_client_id"),
         m365_client_secret=("**redacted**" if _safe_attr(source, "m365_client_secret") else None),
         m365_mailbox=_safe_attr(source, "m365_mailbox"),
+        m365_folder_id=_safe_attr(source, "m365_folder_id"),
         m365_email=_safe_attr(source, "m365_email"),
         m365_connected=bool(_safe_attr(source, "m365_access_token")),
     )
@@ -441,6 +444,8 @@ def _fetch_response(source: MailSource, results: Dict[str, Any]) -> Dict[str, An
         "duplicate_forensic_reports": int(results.get("duplicate_forensic_reports", 0)),
         "new_domains": [str(d) for d in results.get("new_domains", [])],
         "error_count": len(results.get("errors", [])),
+        "target_mailbox": results.get("target_mailbox"),
+        "target_folder": results.get("target_folder"),
         "timestamp": datetime.now().isoformat(),
     }
 
@@ -499,6 +504,7 @@ def _fetch_m365_source(source: MailSource, db: Session) -> Dict[str, Any]:
         refresh_token=source.m365_refresh_token or "",
         mailbox=source.m365_mailbox,
         folder=source.folder or "INBOX",
+        folder_id=_safe_attr(source, "m365_folder_id"),
         already_ingested_ids=already,
         db=db,
     )
@@ -593,6 +599,7 @@ async def create_mail_source(
         m365_client_id=payload.m365_client_id,
         m365_client_secret=payload.m365_client_secret,
         m365_mailbox=payload.m365_mailbox,
+        m365_folder_id=payload.m365_folder_id,
     )
     db.add(source)
     db.commit()
@@ -778,6 +785,7 @@ async def test_stored_mail_source(  # noqa: C901
                 refresh_token=source.m365_refresh_token or "",
                 mailbox=source.m365_mailbox,
                 folder=source.folder or "INBOX",
+                folder_id=_safe_attr(source, "m365_folder_id"),
             )
             stats = graph_client.test_connection()
             refreshed = graph_client.get_refreshed_tokens()
@@ -890,6 +898,68 @@ async def m365_authorize_url(
         state=str(source_id),
     )
     return {"authorization_url": auth_url, "redirect_uri": redirect_uri}
+
+
+@router.get("/{source_id}/m365/folders", response_model=Dict[str, Any])
+async def m365_list_folders(
+    source_id: int,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+) -> Dict[str, Any]:
+    """Return selectable Microsoft 365 mail folders for this source."""
+    source = _get_source_or_404(source_id, db)
+
+    if source.method != "M365_GRAPH":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This endpoint is only available for M365_GRAPH sources.",
+        )
+    if not source.m365_access_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Microsoft 365 account not yet authorised. Complete OAuth2 flow first.",
+        )
+
+    graph_client = MicrosoftGraphClient(
+        tenant_id=source.m365_tenant_id or "common",
+        client_id=source.m365_client_id or "",
+        client_secret=source.m365_client_secret or "",
+        access_token=source.m365_access_token,
+        refresh_token=source.m365_refresh_token or "",
+        mailbox=source.m365_mailbox,
+        folder=source.folder or "INBOX",
+        folder_id=_safe_attr(source, "m365_folder_id"),
+    )
+
+    try:
+        folders = graph_client.list_mail_folders()
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.error(
+            "Microsoft 365 folder listing failed for source id=%d: %s",
+            int(source_id),
+            _redact_sensitive_text(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Could not load Microsoft 365 folders. Confirm the authorised "
+                "account can read the selected mailbox."
+            ),
+        ) from exc
+
+    refreshed = graph_client.get_refreshed_tokens()
+    if refreshed:
+        source.m365_access_token = refreshed["access_token"]
+        if "refresh_token" in refreshed:
+            source.m365_refresh_token = refreshed["refresh_token"]
+        db.commit()
+
+    return {
+        "target_mailbox": source.m365_mailbox or source.m365_email or "authorized account",
+        "selected_folder_id": _safe_attr(source, "m365_folder_id"),
+        "selected_folder": source.folder or "INBOX",
+        "folders": folders,
+    }
 
 
 @router.get("/{source_id}/m365/callback")

@@ -17,7 +17,7 @@
             <h1 class="text-2xl font-bold">Mail Sources</h1>
             <p class="text-muted-foreground mt-1">
                 Manage inbox accounts used to automatically retrieve DMARC reports.
-                Multiple accounts and connection methods (IMAP, POP3, Gmail API) are supported.
+                Multiple accounts and connection methods (IMAP, POP3, Gmail API, Microsoft 365) are supported.
             </p>
         </div>
         <button class="btn btn-default btn-md" x-on:click="openAddForm()">
@@ -174,7 +174,7 @@
                     <div>
                         {% call card_title() %}Import History{% endcall %}
                         {% call card_description() %}
-                            <span x-text="historySource ? historySource.name : ''"></span>
+                            <span x-text="historySource ? `${historySource.name} • ${sourceTargetLabel(historySource)}` : ''"></span>
                         {% endcall %}
                     </div>
                     <button class="btn btn-ghost btn-sm" x-on:click="closeHistory()">Close</button>
@@ -242,6 +242,8 @@
                                                                     <span class="font-mono" x-show="detail.report_id" x-text="detail.report_id"></span>
                                                                 </div>
                                                                 <div class="mt-1 text-muted-foreground">
+                                                                    <span x-show="detail.mailbox || detail.folder" x-text="`${detail.mailbox || 'mailbox'} / ${detail.folder || 'folder'}`"></span>
+                                                                    <span x-show="(detail.mailbox || detail.folder) && (detail.filename || detail.domain || detail.reason || detail.error)"> • </span>
                                                                     <span x-show="detail.filename" x-text="detail.filename"></span>
                                                                     <span x-show="detail.domain" x-text="` • ${detail.domain}`"></span>
                                                                     <span x-show="detail.reason" x-text="` • ${(detail.reason || '').replaceAll('_', ' ')}`"></span>
@@ -497,8 +499,26 @@
 
                             <div>
                                 <label class="label"><span class="label-text font-medium">Folder</span></label>
+                                <div class="flex flex-col gap-2 md:flex-row">
+                                    <select class="select select-bordered w-full md:flex-1"
+                                        x-model="form.m365_folder_id"
+                                        x-on:change="applyM365FolderSelection($event.target.value)">
+                                        <option value="">Use folder name below</option>
+                                        <template x-for="folder in m365Folders" :key="folder.id">
+                                            <option :value="folder.id" x-text="folder.path || folder.display_name"></option>
+                                        </template>
+                                    </select>
+                                    <button type="button" class="btn btn-outline"
+                                        x-on:click="loadM365Folders()"
+                                        :disabled="!editingId || !m365Connected || m365FoldersLoading">
+                                        <span x-text="m365FoldersLoading ? 'Loading…' : 'Load folders'"></span>
+                                    </button>
+                                </div>
                                 <input type="text" x-model="form.folder" placeholder="INBOX"
-                                    class="input input-bordered w-full" />
+                                    x-on:input="form.m365_folder_id = ''"
+                                    class="input input-bordered w-full mt-2" />
+                                <p class="text-xs text-muted-foreground mt-1">Use a listed folder when available; otherwise enter a well-known folder such as INBOX.</p>
+                                <p class="text-xs text-error mt-1" x-show="m365FoldersError" x-text="m365FoldersError"></p>
                             </div>
 
                             <template x-if="editingId && m365Connected">
@@ -666,6 +686,9 @@ function mailSourcesApp() {
         gmailEmail: '',
         m365Connected: false,
         m365Email: '',
+        m365Folders: [],
+        m365FoldersLoading: false,
+        m365FoldersError: '',
 
         form: {
             name: '',
@@ -684,6 +707,7 @@ function mailSourcesApp() {
             m365_client_id: '',
             m365_client_secret: '',
             m365_mailbox: '',
+            m365_folder_id: '',
         },
 
         async init() {
@@ -787,9 +811,18 @@ function mailSourcesApp() {
                 return source.gmail_email || '—';
             }
             if (source.method === 'M365_GRAPH') {
-                return source.m365_mailbox || source.m365_email || '—';
+                return source.m365_mailbox || source.m365_email || 'authorized account';
             }
             return source.server ? `${source.server}:${source.port}` : '—';
+        },
+
+        sourceTargetLabel(source) {
+            if (!source) return '—';
+            if (source.method === 'M365_GRAPH') {
+                const mailbox = source.m365_mailbox || source.m365_email || 'authorized account';
+                return `${mailbox} / ${source.folder || 'INBOX'}`;
+            }
+            return this.sourceAccountLabel(source);
         },
 
         sourceStatusLabel(source) {
@@ -853,6 +886,8 @@ function mailSourcesApp() {
             this.gmailEmail = '';
             this.m365Connected = false;
             this.m365Email = '';
+            this.m365Folders = [];
+            this.m365FoldersError = '';
             this.form = {
                 name: '',
                 method: 'IMAP',
@@ -870,6 +905,7 @@ function mailSourcesApp() {
                 m365_client_id: '',
                 m365_client_secret: '',
                 m365_mailbox: '',
+                m365_folder_id: '',
             };
             this.testResult = this.emptyTestResult();
             this.showForm = true;
@@ -881,6 +917,8 @@ function mailSourcesApp() {
             this.gmailEmail = source.gmail_email || '';
             this.m365Connected = source.m365_connected || false;
             this.m365Email = source.m365_email || '';
+            this.m365Folders = [];
+            this.m365FoldersError = '';
             this.form = {
                 name: source.name,
                 method: source.method,
@@ -898,6 +936,7 @@ function mailSourcesApp() {
                 m365_client_id: source.m365_client_id || '',
                 m365_client_secret: '',  // never pre-fill client secret
                 m365_mailbox: source.m365_mailbox || '',
+                m365_folder_id: source.m365_folder_id || '',
             };
             this.testResult = this.emptyTestResult();
             this.showForm = true;
@@ -906,6 +945,8 @@ function mailSourcesApp() {
         closeForm() {
             this.showForm = false;
             this.editingId = null;
+            this.m365Folders = [];
+            this.m365FoldersError = '';
             this.testResult = this.emptyTestResult();
         },
 
@@ -976,6 +1017,7 @@ function mailSourcesApp() {
                         if (updated) {
                             this.m365Connected = updated.m365_connected || false;
                             this.m365Email = updated.m365_email || '';
+                            this.form.m365_folder_id = updated.m365_folder_id || this.form.m365_folder_id || '';
                             if (this.m365Connected) {
                                 this.feedback = {
                                     message: `Microsoft 365 connected successfully (${this.m365Email || 'account connected'}).`,
@@ -987,6 +1029,35 @@ function mailSourcesApp() {
                 }, 1000);
             } catch (e) {
                 this.feedback = { message: `Error: ${e.message}`, type: 'error' };
+            }
+        },
+
+        applyM365FolderSelection(folderId) {
+            if (!folderId) return;
+            const selected = this.m365Folders.find(folder => folder.id === folderId);
+            if (selected) {
+                this.form.folder = selected.display_name || 'INBOX';
+            }
+        },
+
+        async loadM365Folders() {
+            if (!this.editingId) return;
+            this.m365FoldersLoading = true;
+            this.m365FoldersError = '';
+            try {
+                const resp = await fetch(`/api/v1/mail-sources/${this.editingId}/m365/folders`);
+                const data = await resp.json();
+                if (!resp.ok) {
+                    throw new Error(data.detail || 'Could not load Microsoft 365 folders');
+                }
+                this.m365Folders = data.folders || [];
+                if (this.m365Folders.length === 0) {
+                    this.m365FoldersError = 'No selectable folders were returned for this mailbox.';
+                }
+            } catch (e) {
+                this.m365FoldersError = e.message;
+            } finally {
+                this.m365FoldersLoading = false;
             }
         },
 

@@ -246,7 +246,13 @@ class TestMailSourceImportModel:
                 "errors": ["x" * 600],
                 "details": [
                     "skip-me",
-                    {"status": "imported", "filename": "a" * 400, "ignored": "secret"},
+                    {
+                        "status": "imported",
+                        "filename": "a" * 400,
+                        "mailbox": "shared@example.com",
+                        "folder": "DMARC Reports",
+                        "ignored": "secret",
+                    },
                 ],
             },
             started_at=datetime.utcnow(),
@@ -258,6 +264,8 @@ class TestMailSourceImportModel:
         assert len(errors[0]) == 500
         assert details[0]["status"] == "imported"
         assert len(details[0]["filename"]) == 300
+        assert details[0]["mailbox"] == "shared@example.com"
+        assert details[0]["folder"] == "DMARC Reports"
         assert "ignored" not in details[0]
 
     def test_record_import_attempt_redacts_sensitive_values(self, db_session: Session):
@@ -1269,6 +1277,112 @@ class TestMicrosoft365GraphMailSource:
         assert data["m365_connected"] is True
         assert data["m365_email"] == "dmarc@example.com"
 
+    def test_m365_create_and_update_include_folder_id(
+        self, authed_client: TestClient, db_session: Session
+    ):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={
+                "name": "Folder M365",
+                "method": "M365_GRAPH",
+                "folder": "DMARC Reports",
+                "m365_client_id": "client-id",
+                "m365_client_secret": "client-secret",
+                "m365_mailbox": "shared@example.com",
+                "m365_folder_id": "folder-id",
+            },
+        )
+
+        assert create_resp.status_code == 201
+        data = create_resp.json()
+        assert data["m365_mailbox"] == "shared@example.com"
+        assert data["m365_folder_id"] == "folder-id"
+
+        source = db_session.get(MailSource, data["id"])
+        assert source.m365_folder_id == "folder-id"
+
+        update_resp = authed_client.put(
+            f"/api/v1/mail-sources/{data['id']}",
+            json={"folder": "Inbox", "m365_folder_id": ""},
+        )
+
+        assert update_resp.status_code == 200
+        db_session.refresh(source)
+        assert update_resp.json()["m365_folder_id"] == ""
+        assert source.m365_folder_id == ""
+
+    def test_m365_list_folders_returns_selectable_folders(
+        self, authed_client: TestClient, db_session: Session
+    ):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={
+                "name": "Folder List M365",
+                "method": "M365_GRAPH",
+                "folder": "DMARC Reports",
+                "m365_mailbox": "shared@example.com",
+                "m365_folder_id": "folder-id",
+            },
+        )
+        source_id = create_resp.json()["id"]
+        source = db_session.get(MailSource, source_id)
+        source.m365_access_token = "old-access"
+        source.m365_refresh_token = "old-refresh"
+        source.m365_email = "operator@example.com"
+        db_session.commit()
+
+        mock_client = MagicMock()
+        mock_client.list_mail_folders.return_value = [
+            {"id": "folder-id", "display_name": "DMARC Reports", "parent_folder_id": ""}
+        ]
+        mock_client.get_refreshed_tokens.return_value = {
+            "access_token": "new-access",
+            "refresh_token": "new-refresh",
+        }
+
+        with patch(
+            "app.api.api_v1.endpoints.mail_sources.MicrosoftGraphClient",
+            return_value=mock_client,
+        ) as client_cls:
+            resp = authed_client.get(f"/api/v1/mail-sources/{source_id}/m365/folders")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["target_mailbox"] == "shared@example.com"
+        assert data["selected_folder"] == "DMARC Reports"
+        assert data["selected_folder_id"] == "folder-id"
+        assert data["folders"] == [
+            {"id": "folder-id", "display_name": "DMARC Reports", "parent_folder_id": ""}
+        ]
+        client_cls.assert_called_once()
+        _, kwargs = client_cls.call_args
+        assert kwargs["mailbox"] == "shared@example.com"
+        assert kwargs["folder"] == "DMARC Reports"
+        assert kwargs["folder_id"] == "folder-id"
+
+        db_session.refresh(source)
+        assert source.m365_access_token == "new-access"
+        assert source.m365_refresh_token == "new-refresh"
+
+    def test_m365_list_folders_requires_method_and_token(self, authed_client: TestClient):
+        imap_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "IMAP Folder List", "method": "IMAP"},
+        )
+        wrong_method = authed_client.get(
+            f"/api/v1/mail-sources/{imap_resp.json()['id']}/m365/folders"
+        )
+        assert wrong_method.status_code == 400
+
+        m365_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "No Token Folder List", "method": "M365_GRAPH"},
+        )
+        no_token = authed_client.get(
+            f"/api/v1/mail-sources/{m365_resp.json()['id']}/m365/folders"
+        )
+        assert no_token.status_code == 400
+
     def test_m365_callback_post_failure_modes(self, authed_client: TestClient):
         imap_resp = authed_client.post(
             "/api/v1/mail-sources",
@@ -1367,6 +1481,8 @@ class TestMicrosoft365GraphMailSource:
         assert data["reports_found"] == 2
         assert data["duplicate_reports"] == 1
         assert data["new_domains"] == ["example.com"]
+        assert data["target_mailbox"] is None
+        assert data["target_folder"] is None
 
     def test_m365_specific_fetch_persists_refreshed_tokens(
         self, authed_client: TestClient, db_session: Session

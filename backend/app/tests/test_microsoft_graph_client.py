@@ -118,7 +118,7 @@ class TestMicrosoftGraphOAuthHelpers:
 class TestMicrosoftGraphFetchReports:
     def test_test_connection_reads_shared_mailbox(self, monkeypatch):
         def fake_request(method, url, headers=None, params=None, timeout=None):
-            assert url.endswith("/users/shared%40example.com/messages")
+            assert url.endswith("/users/shared%40example.com/mailFolders/inbox/messages")
             assert params == {"$top": 1, "$select": "id"}
             return httpx.Response(200, json={"value": [{"id": "message-1"}]})
 
@@ -137,6 +137,95 @@ class TestMicrosoftGraphFetchReports:
 
         assert result["success"] is True
         assert result["message_count"] == 1
+        assert result["target_mailbox"] == "shared@example.com"
+        assert result["target_folder"] == "INBOX"
+
+    def test_list_mail_folders_reads_shared_mailbox(self, monkeypatch):
+        def fake_request(method, url, headers=None, params=None, timeout=None):
+            assert params == {
+                "$top": 100,
+                "$select": "id,displayName,parentFolderId,childFolderCount",
+            }
+            if url.endswith("/users/shared%40example.com/mailFolders"):
+                return httpx.Response(
+                    200,
+                    json={
+                        "value": [
+                            {"id": "inbox-id", "displayName": "Inbox", "childFolderCount": 1},
+                            {"id": "dmarc-id", "displayName": "DMARC Reports"},
+                        ]
+                    },
+                )
+            if url.endswith("/users/shared%40example.com/mailFolders/inbox-id/childFolders"):
+                return httpx.Response(
+                    200,
+                    json={"value": [{"id": "nested-id", "displayName": "Nested DMARC"}]},
+                )
+            raise AssertionError(f"Unexpected Graph request: {method} {url}")
+
+        monkeypatch.setattr("app.services.microsoft_graph_client.httpx.request", fake_request)
+        client = MicrosoftGraphClient(
+            tenant_id="organizations",
+            client_id="client-id",
+            client_secret="client-secret",
+            access_token="access-token",
+            refresh_token="refresh-token",
+            mailbox="shared@example.com",
+        )
+
+        assert client.list_mail_folders() == [
+            {"id": "inbox-id", "display_name": "Inbox", "path": "Inbox", "parent_folder_id": ""},
+            {
+                "id": "nested-id",
+                "display_name": "Nested DMARC",
+                "path": "Inbox / Nested DMARC",
+                "parent_folder_id": "",
+            },
+            {
+                "id": "dmarc-id",
+                "display_name": "DMARC Reports",
+                "path": "DMARC Reports",
+                "parent_folder_id": "",
+            },
+        ]
+
+    def test_fetch_reports_uses_selected_folder_id_and_records_context(self, monkeypatch):
+        def fake_request(method, url, headers=None, params=None, timeout=None):
+            if url.endswith("/users/shared%40example.com/mailFolders/folder-id/messages"):
+                return httpx.Response(
+                    200,
+                    json={
+                        "value": [
+                            {
+                                "id": "message-1",
+                                "subject": "DMARC aggregate report",
+                                "from": {"emailAddress": {"address": "reports@example.net"}},
+                                "hasAttachments": True,
+                            }
+                        ]
+                    },
+                )
+            if url.endswith("/users/shared%40example.com/messages/message-1/attachments"):
+                return httpx.Response(200, json={"value": []})
+            raise AssertionError(f"Unexpected Graph request: {method} {url}")
+
+        monkeypatch.setattr("app.services.microsoft_graph_client.httpx.request", fake_request)
+        client = MicrosoftGraphClient(
+            tenant_id="organizations",
+            client_id="client-id",
+            client_secret="client-secret",
+            access_token="access-token",
+            refresh_token="refresh-token",
+            mailbox="shared@example.com",
+            folder="DMARC Reports",
+            folder_id="folder-id",
+        )
+
+        result = client.fetch_reports()
+
+        assert result["processed"] == 1
+        assert result["target_mailbox"] == "shared@example.com"
+        assert result["target_folder"] == "DMARC Reports"
 
     def test_fetch_reports_imports_zip_attachment(self, monkeypatch, db_session):
         attachment_bytes = _zip_xml()

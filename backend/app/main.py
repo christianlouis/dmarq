@@ -187,6 +187,7 @@ def _poll_single_m365_source(source: MailSource) -> None:
             refresh_token=poll_source.m365_refresh_token or "",
             mailbox=poll_source.m365_mailbox,
             folder=poll_source.folder or "INBOX",
+            folder_id=getattr(poll_source, "m365_folder_id", None),
             already_ingested_ids=already,
             db=db,
         )
@@ -768,6 +769,7 @@ def _trigger_poll_m365_source(source: MailSource, db) -> dict:
         refresh_token=source.m365_refresh_token or "",
         mailbox=source.m365_mailbox,
         folder=source.folder or "INBOX",
+        folder_id=getattr(source, "m365_folder_id", None),
         already_ingested_ids=already,
         db=db,
     )
