@@ -1,8 +1,17 @@
 import email
+from unittest.mock import MagicMock
 
 import pytest
 
-from app.services.forensic_parser import ForensicParser, MAX_FORENSIC_REPORT_SIZE
+from app.services import forensic_parser as forensic_parser_module
+from app.services.forensic_parser import (
+    ForensicParser,
+    MAX_FORENSIC_REPORT_SIZE,
+    _coerce_text,
+    _domain_from_address,
+    _message_part_payload,
+    _payload_text,
+)
 
 
 SAMPLE_FORENSIC_EMAIL = b"""\
@@ -177,3 +186,64 @@ def test_parse_forensic_email_rejects_empty_and_oversized_payloads():
 
     with pytest.raises(ValueError, match="too large"):
         ForensicParser.parse_bytes(b"x" * (MAX_FORENSIC_REPORT_SIZE + 1))
+
+
+def test_forensic_parser_helper_fallbacks(monkeypatch):
+    multipart = email.message_from_bytes(
+        b"Subject: container\r\nContent-Type: multipart/mixed; boundary=x\r\n\r\n--x--"
+    )
+    message = email.message_from_bytes(b"Subject: plain\r\n\r\nbody")
+
+    assert _coerce_text(b"hello") == "hello"
+    assert _payload_text(multipart) == ""
+    assert _message_part_payload(message) is None
+    assert _domain_from_address("not-an-address") == ""
+
+    part = MagicMock()
+    part.get_payload.side_effect = [None, ["nested"]]
+    assert _payload_text(part) == ""
+
+    part = MagicMock()
+    part.get_payload.side_effect = [None, "plain text"]
+    assert _payload_text(part) == "plain text"
+
+    monkeypatch.setattr(forensic_parser_module, "parsedate_to_datetime", lambda _value: None)
+    assert forensic_parser_module._parse_datetime("Fri, 22 May 2026 10:15:00 +0000") is None
+
+
+def test_is_forensic_report_detects_feedback_part_without_report_container():
+    msg = email.message_from_bytes(
+        b"""\
+Subject: Delivery notice
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="b"
+
+--b
+Content-Type: message/feedback-report
+
+Feedback-Type: auth-failure
+
+--b--
+"""
+    )
+
+    assert ForensicParser.is_forensic_report(msg) is True
+
+
+def test_is_forensic_report_ignores_non_dmarc_header_parts():
+    msg = email.message_from_bytes(
+        b"""\
+Subject: DMARC forensic notice
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="b"
+
+--b
+Content-Type: text/rfc822-headers
+
+Authentication-Results: mx; spf=pass
+
+--b--
+"""
+    )
+
+    assert ForensicParser.is_forensic_report(msg) is True

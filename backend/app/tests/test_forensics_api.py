@@ -1,5 +1,8 @@
 import pytest
+from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
 
+from app.api.api_v1.endpoints import forensics as forensics_endpoint
 from app.models.report import ForensicReport
 from app.services.forensic_parser import ForensicParser
 from app.services.forensic_persistence import (
@@ -77,6 +80,22 @@ def test_upload_forensic_report_rejects_empty_file(authed_client):
     assert response.status_code == 400
 
 
+def test_validate_upload_rejects_missing_name_and_large_file():
+    missing_name = type("Upload", (), {"filename": ""})()
+    too_large = type("Upload", (), {"filename": "report.eml"})()
+
+    with pytest.raises(HTTPException) as missing:
+        forensics_endpoint._validate_upload(missing_name, b"content")
+    assert missing.value.status_code == 400
+
+    with pytest.raises(HTTPException) as large:
+        forensics_endpoint._validate_upload(
+            too_large,
+            b"x" * (forensics_endpoint.MAX_FORENSIC_REPORT_SIZE + 1),
+        )
+    assert large.value.status_code == 413
+
+
 def test_upload_forensic_report_rejects_invalid_email(authed_client):
     response = authed_client.post(
         "/api/v1/forensics/upload",
@@ -84,6 +103,39 @@ def test_upload_forensic_report_rejects_invalid_email(authed_client):
     )
 
     assert response.status_code == 400
+
+
+def test_upload_forensic_report_handles_save_duplicate_race(authed_client, monkeypatch):
+    parsed = ForensicParser.parse_bytes(SAMPLE_FORENSIC_EMAIL)
+    row = ForensicReport(report_id=parsed["report_id"], reported_domain=parsed["reported_domain"])
+    monkeypatch.setattr(forensics_endpoint, "forensic_report_exists", lambda *_args: False)
+    monkeypatch.setattr(
+        forensics_endpoint,
+        "save_forensic_report",
+        lambda *_args: (row, False),
+    )
+
+    response = authed_client.post(
+        "/api/v1/forensics/upload",
+        files={"file": ("report.eml", SAMPLE_FORENSIC_EMAIL, "message/rfc822")},
+    )
+
+    assert response.status_code == 409
+
+
+def test_upload_forensic_report_unexpected_error_returns_500(authed_client, monkeypatch):
+    monkeypatch.setattr(
+        forensics_endpoint.ForensicParser,
+        "parse_bytes",
+        lambda _content: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+
+    response = authed_client.post(
+        "/api/v1/forensics/upload",
+        files={"file": ("report.eml", SAMPLE_FORENSIC_EMAIL, "message/rfc822")},
+    )
+
+    assert response.status_code == 500
 
 
 def test_forensic_detail_returns_404(authed_client):
@@ -119,3 +171,17 @@ def test_save_forensic_report_duplicate_and_invalid_domain_paths(db_session):
     row, invalid_created = save_forensic_report(db_session, invalid)
     assert invalid_created is True
     assert row.domain_id is None
+
+
+def test_save_forensic_report_reraises_unexpected_integrity_errors(db_session, monkeypatch):
+    parsed = ForensicParser.parse_bytes(SAMPLE_FORENSIC_EMAIL)
+    parsed["report_id"] = "ruf-race-without-existing-row"
+    parsed["reported_domain"] = ""
+
+    def raise_integrity_error():
+        raise IntegrityError("insert", {}, Exception("unique"))
+
+    monkeypatch.setattr(db_session, "flush", raise_integrity_error)
+
+    with pytest.raises(IntegrityError):
+        save_forensic_report(db_session, parsed)

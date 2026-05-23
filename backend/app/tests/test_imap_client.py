@@ -667,6 +667,24 @@ class TestProcessSingleEmail:
         assert stats["duplicate_forensic_reports"] == 1
         assert stats["details"][1]["status"] == "duplicate"
 
+    def test_forensic_save_duplicate_result_adds_detail(self, db_session):
+        client = self._make_client(db=db_session)
+        stats = {"forensic_reports_found": 0, "duplicate_forensic_reports": 0, "errors": []}
+
+        with (
+            patch("app.services.imap_client.forensic_report_exists", return_value=False),
+            patch("app.services.imap_client.save_forensic_report", return_value=(None, False)),
+        ):
+            imported = client._process_forensic_email(
+                SAMPLE_FORENSIC_EMAIL,
+                stats=stats,
+                message_id="msg-1",
+            )
+
+        assert imported is False
+        assert stats["duplicate_forensic_reports"] == 1
+        assert stats["details"][0]["status"] == "duplicate"
+
     def test_forensic_parse_error_adds_error_detail(self, db_session):
         client = self._make_client(db=db_session)
         stats = {"errors": []}

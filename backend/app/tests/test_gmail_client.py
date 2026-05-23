@@ -493,6 +493,24 @@ class TestProcessMessage:
         assert stats["duplicate_forensic_reports"] == 1
         assert stats["details"][1]["status"] == "duplicate"
 
+    def test_forensic_save_duplicate_result_is_skipped(self, db_session):
+        client = _make_client(db=db_session)
+        stats = {"forensic_reports_found": 0, "duplicate_forensic_reports": 0, "errors": []}
+
+        with (
+            patch("app.services.gmail_client.forensic_report_exists", return_value=False),
+            patch("app.services.gmail_client.save_forensic_report", return_value=(None, False)),
+        ):
+            imported = client._process_forensic_message(
+                SAMPLE_FORENSIC_EMAIL,
+                stats,
+                message_id="msg-1",
+            )
+
+        assert imported == 0
+        assert stats["duplicate_forensic_reports"] == 1
+        assert stats["details"][0]["status"] == "duplicate"
+
     def test_forensic_parse_error_adds_error_detail(self, db_session):
         client = _make_client(db=db_session)
         stats = {"errors": []}
@@ -795,10 +813,16 @@ class TestFetchReports:
 
 
 class TestIngestedIdHelpers:
+    def test_load_empty_json_text_returns_empty_list(self):
+        assert GmailClient.load_ingested_ids("") == []
+
     def test_load_non_list_json_returns_no_error(self):
         # Valid JSON but not a list – should gracefully not raise
         result = GmailClient.load_ingested_ids('{"key": "value"}')
         assert result is not None  # no crash
+
+    def test_load_invalid_json_returns_empty_list(self):
+        assert GmailClient.load_ingested_ids("{not-json") == []
 
     def test_dump_preserves_order(self):
         ids = ["z", "a", "m"]
