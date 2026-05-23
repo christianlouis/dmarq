@@ -1,16 +1,26 @@
 """Microsoft Graph client for retrieving DMARC aggregate reports."""
 
 import base64
-import json
 import logging
 import time
 from datetime import datetime, timedelta
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional
 from urllib.parse import quote, urlencode
 
 import httpx
 
 from app.services.dmarc_parser import DMARCParser
+from app.services.mail_connector import (
+    ConnectorImportContext,
+    MailSourceConnector,
+    append_import_detail,
+    clamp_search_window,
+    connector_failure_stats,
+    dump_ingested_ids,
+    initial_import_stats,
+    load_ingested_ids,
+    sanitize_connector_error,
+)
 from app.services.report_persistence import report_exists, save_parsed_report
 from app.services.report_store import ReportStore
 
@@ -49,7 +59,7 @@ class MicrosoftGraphError(RuntimeError):
     """Raised when Microsoft Graph or the token endpoint returns a failure."""
 
 
-class MicrosoftGraphClient:
+class MicrosoftGraphClient(MailSourceConnector):
     """
     Retrieve DMARC aggregate reports from Microsoft 365 through Microsoft Graph.
 
@@ -155,18 +165,12 @@ class MicrosoftGraphClient:
     @staticmethod
     def load_ingested_ids(json_text: Optional[str]) -> List[str]:
         """Deserialize the m365_ingested_ids text column into a list."""
-        if not json_text:
-            return []
-        try:
-            decoded = json.loads(json_text)
-        except (json.JSONDecodeError, TypeError):
-            return []
-        return [str(item) for item in decoded] if isinstance(decoded, list) else []
+        return load_ingested_ids(json_text)
 
     @staticmethod
     def dump_ingested_ids(ids: List[str]) -> str:
         """Serialize Graph message IDs for database storage."""
-        return json.dumps(ids)
+        return dump_ingested_ids(ids)
 
     def test_connection(self) -> Dict[str, Any]:
         """Verify that the saved delegated token can read the target mailbox."""
@@ -234,30 +238,36 @@ class MicrosoftGraphClient:
             url = data.get("@odata.nextLink")
             params = None
 
+    def import_context(self, days: Optional[int] = None) -> ConnectorImportContext:
+        """Return safe Microsoft 365 import context for API responses/history."""
+        return ConnectorImportContext(
+            source_type="M365_GRAPH",
+            mailbox=self._target_mailbox_label(),
+            folder=self._target_folder_label(),
+            search_window_days=days,
+        )
+
+    def search_messages(self, days: int) -> Iterable[Dict[str, Any]]:
+        """Return Microsoft Graph messages that look like DMARC reports."""
+        return self._list_dmarc_messages(days=days)
+
+    def iter_attachments(self, message: Dict[str, Any]) -> Iterable[Dict[str, Any]]:
+        """Yield Microsoft Graph attachments for one message."""
+        message_id = str(message.get("id") or "")
+        return self._list_attachments(message_id)
+
     def fetch_reports(self, days: int = 7) -> Dict[str, Any]:
         """Fetch and ingest DMARC report attachments from Microsoft Graph."""
-        safe_days = max(1, min(int(days or 7), 365))
-        stats: Dict[str, Any] = {
-            "success": True,
-            "processed": 0,
-            "reports_found": 0,
-            "forensic_reports_found": 0,
-            "duplicate_reports": 0,
-            "duplicate_forensic_reports": 0,
-            "new_domains": [],
-            "errors": [],
-            "new_ingested_ids": [],
-            "details": [],
-            "target_mailbox": self._target_mailbox_label(),
-            "target_folder": self._target_folder_label(),
-            "search_window_days": safe_days,
-        }
+        safe_days = clamp_search_window(days)
+        stats = initial_import_stats(self.import_context(days=safe_days))
 
         try:
-            messages = self._list_dmarc_messages(days=safe_days)
+            messages = self.search_messages(days=safe_days)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error("Microsoft Graph: failed to list messages: %s", exc)
-            return {**stats, "success": False, "error": str(exc), "errors": [str(exc)]}
+            return connector_failure_stats(
+                stats, "Failed to list Microsoft Graph messages.", error=exc
+            )
 
         domains_before = set(self.report_store.get_domains())
 
@@ -290,11 +300,7 @@ class MicrosoftGraphClient:
         return f"{LOGIN_BASE_URL}/{tenant}/oauth2/v2.0/token"
 
     def _append_detail(self, stats: dict, **detail: str) -> None:
-        detail.setdefault("mailbox", self._target_mailbox_label())
-        detail.setdefault("folder", self._target_folder_label())
-        stats.setdefault("details", []).append(
-            {key: value for key, value in detail.items() if value}
-        )
+        append_import_detail(stats, context=self.import_context(), **detail)
 
     def _target_mailbox_label(self) -> str:
         return self.mailbox or "authorized account"
@@ -339,11 +345,10 @@ class MicrosoftGraphClient:
             resp = httpx.request(method, url, headers=self._headers(), params=params, timeout=30)
             if resp.status_code == 401 and self.refresh_token:
                 self._refresh_access_token()
-                resp = httpx.request(method, url, headers=self._headers(), params=params, timeout=30)
-            if (
-                resp.status_code in _RETRYABLE_STATUS_CODES
-                and attempt < _MAX_GRAPH_RETRIES
-            ):
+                resp = httpx.request(
+                    method, url, headers=self._headers(), params=params, timeout=30
+                )
+            if resp.status_code in _RETRYABLE_STATUS_CODES and attempt < _MAX_GRAPH_RETRIES:
                 delay = self._retry_delay_seconds(resp, attempt)
                 logger.warning(
                     "Microsoft Graph request throttled/unavailable; retrying in %.1fs",
@@ -456,7 +461,11 @@ class MicrosoftGraphClient:
             attachments = self._list_attachments(message_id)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error("Microsoft Graph: failed to fetch attachments for %s: %s", message_id, exc)
-            stats["errors"].append(f"Failed to fetch attachments for message {message_id}: {exc}")
+            stats["errors"].append(
+                sanitize_connector_error(
+                    f"Failed to fetch attachments for message {message_id}: {exc}"
+                )
+            )
             self._append_detail(
                 stats,
                 status="error",
@@ -562,7 +571,9 @@ class MicrosoftGraphClient:
                     )
             except Exception as exc:  # pylint: disable=broad-exception-caught
                 logger.error("Failed to parse Graph DMARC attachment %s: %s", filename, exc)
-                stats["errors"].append(f"Failed to parse {filename}: {exc}")
+                stats["errors"].append(
+                    sanitize_connector_error(f"Failed to parse {filename}: {exc}")
+                )
                 self._append_detail(
                     stats,
                     status="error",

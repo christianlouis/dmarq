@@ -10,6 +10,11 @@ from app.services.dmarc_parser import DMARCParser
 from app.services.forensic_parser import ForensicParser
 from app.services.forensic_persistence import forensic_report_exists, save_forensic_report
 from app.services.forensic_redaction import get_forensic_redaction_policy
+from app.services.mail_connector import (
+    append_import_detail,
+    initial_import_stats,
+    sanitize_connector_error,
+)
 from app.services.report_persistence import report_exists, save_parsed_report
 from app.services.report_store import ReportStore
 
@@ -255,18 +260,7 @@ class IMAPClient:
             logger.error("IMAP credentials not fully configured")
             return {"success": False, "error": "IMAP credentials not configured", "processed": 0}
 
-        stats = {
-            "success": True,
-            "processed": 0,
-            "reports_found": 0,
-            "forensic_reports_found": 0,
-            "deleted": 0,
-            "duplicate_reports": 0,
-            "duplicate_forensic_reports": 0,
-            "new_domains": [],
-            "errors": [],
-            "details": [],
-        }
+        stats = initial_import_stats(deleted=True)
 
         try:
             # Connect to the mail server
@@ -317,6 +311,7 @@ class IMAPClient:
                 "success": False,
                 "error": "Error connecting to mailbox. Check server logs for details.",
                 "processed": 0,
+                "errors": [sanitize_connector_error(e)],
             }
 
     def _is_dmarc_report_email(self, msg: email.message.Message) -> bool:
@@ -446,9 +441,7 @@ class IMAPClient:
         """Append a compact attachment/message outcome to the import stats."""
         if stats is None:
             return
-        stats.setdefault("details", []).append(
-            {key: value for key, value in detail.items() if value}
-        )
+        append_import_detail(stats, **detail)
 
     def _store_report_if_new(
         self,
@@ -560,7 +553,7 @@ class IMAPClient:
             logger.error("Error processing forensic report email %s: %s", message_id, exc)
             if stats is not None:
                 stats.setdefault("errors", []).append(
-                    f"Failed to parse forensic report {message_id}: {exc}"
+                    sanitize_connector_error(f"Failed to parse forensic report {message_id}: {exc}")
                 )
             self._append_detail(
                 stats,
@@ -604,7 +597,9 @@ class IMAPClient:
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error("Error processing attachment %s: %s", filename, str(exc))
             if stats is not None:
-                stats.setdefault("errors", []).append(f"Failed to parse {filename}: {exc}")
+                stats.setdefault("errors", []).append(
+                    sanitize_connector_error(f"Failed to parse {filename}: {exc}")
+                )
             self._append_detail(
                 stats,
                 status="error",
