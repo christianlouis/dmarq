@@ -270,6 +270,56 @@ SETTING_DEFAULTS: List[Dict[str, Any]] = [
         "value_type": "string",
         "category": "notifications",
     },
+    # ── Optional AI / MCP ───────────────────────────────────────────────────
+    {
+        "key": "ai.enabled",
+        "value": "false",
+        "description": "Enable optional AI assistance endpoints",
+        "value_type": "boolean",
+        "category": "ai",
+    },
+    {
+        "key": "ai.provider",
+        "value": "template",
+        "description": "AI provider: template, local, or remote",
+        "value_type": "string",
+        "category": "ai",
+    },
+    {
+        "key": "ai.model",
+        "value": "",
+        "description": "Optional model name for local or remote providers",
+        "value_type": "string",
+        "category": "ai",
+    },
+    {
+        "key": "ai.remote_base_url",
+        "value": "",
+        "description": "Optional remote provider base URL; credentials should be injected by environment",
+        "value_type": "string",
+        "category": "ai",
+    },
+    {
+        "key": "ai.redaction_mode",
+        "value": "strict",
+        "description": "Redaction mode for AI-safe context: strict or balanced",
+        "value_type": "string",
+        "category": "ai",
+    },
+    {
+        "key": "ai.action_tools_enabled",
+        "value": "false",
+        "description": "Allow human-confirmed action proposals to be recorded",
+        "value_type": "boolean",
+        "category": "ai",
+    },
+    {
+        "key": "mcp.enabled",
+        "value": "false",
+        "description": "Enable the scoped read-only MCP endpoint",
+        "value_type": "boolean",
+        "category": "mcp",
+    },
 ]
 
 # Keys whose values should be redacted in GET responses (treated as secrets)
@@ -334,7 +384,7 @@ def _audit_value_for_setting(key: str, value: Optional[str]) -> Optional[str]:
 
 
 def _should_audit_setting(key: str) -> bool:
-    return key.startswith(("notifications.", "forensics."))
+    return key.startswith(("notifications.", "forensics.", "ai.", "mcp."))
 
 
 def _audit_setting_change(

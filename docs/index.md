@@ -28,3 +28,5 @@ For Microsoft 365 setup, see [Microsoft 365 Mail Sources](user_guide/microsoft36
 For SMTP TLS reporting imports and privacy controls, see [TLS Reports](user_guide/tls_reports.md).
 
 For aggregate-report parser support, known edge cases, and fixture guidance, see [DMARC Aggregate Format Compatibility](reference/dmarc-compatibility.md).
+
+For opt-in AI summaries and read-only MCP automation, see [AI and MCP Automation](reference/ai-mcp-automation.md).

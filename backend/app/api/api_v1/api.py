@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.api_v1.endpoints import (
+    ai,
     api_tokens,
     audit,
     auth,
@@ -10,6 +11,7 @@ from app.api.api_v1.endpoints import (
     imap,
     integrations,
     mail_sources,
+    mcp,
     onboarding,
     operator,
     public,
@@ -26,6 +28,7 @@ api_router = APIRouter()
 
 # Include all endpoint routers
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
+api_router.include_router(ai.router, prefix="/ai", tags=["ai"])
 api_router.include_router(api_tokens.router, prefix="/api-tokens", tags=["api-tokens"])
 api_router.include_router(audit.router, prefix="/audit", tags=["audit"])
 api_router.include_router(health.router, tags=["health"])
@@ -38,6 +41,7 @@ api_router.include_router(imap.router, prefix="/imap", tags=["imap"])
 api_router.include_router(integrations.router, prefix="/integrations", tags=["integrations"])
 api_router.include_router(stats.router, prefix="/stats", tags=["stats"])
 api_router.include_router(mail_sources.router, prefix="/mail-sources", tags=["mail-sources"])
+api_router.include_router(mcp.router, prefix="/mcp", tags=["mcp"])
 api_router.include_router(onboarding.router, prefix="/onboarding", tags=["onboarding"])
 api_router.include_router(operator.router, prefix="/operator", tags=["operator"])
 api_router.include_router(settings.router, prefix="/settings", tags=["settings"])
