@@ -246,7 +246,7 @@ Exit criteria:
 
 ## Milestone 15: Workspaces / MSP Mode (Multi-Org Governance)
 
-Status: In progress
+Status: Delivered
 
 Goal: support multi-org deployments (e.g., MSPs) with strong isolation, ownership, and operator ergonomics.
 
