@@ -1,97 +1,69 @@
 """Shared test data for DMARC report tests."""
 
-SAMPLE_XML = """\
-<?xml version="1.0" encoding="UTF-8" ?>
-<feedback>
-    <report_metadata>
-        <org_name>google.com</org_name>
-        <email>noreply-dmarc-support@google.com</email>
-        <report_id>123456789</report_id>
-        <date_range>
-            <begin>1597449600</begin>
-            <end>1597535999</end>
-        </date_range>
-    </report_metadata>
-    <policy_published>
-        <domain>example.com</domain>
-        <adkim>r</adkim>
-        <aspf>r</aspf>
-        <p>none</p>
-        <sp>none</sp>
-        <pct>100</pct>
-    </policy_published>
-    <record>
-        <row>
-            <source_ip>203.0.113.1</source_ip>
-            <count>2</count>
-            <policy_evaluated>
-                <disposition>none</disposition>
-                <dkim>pass</dkim>
-                <spf>fail</spf>
-            </policy_evaluated>
-        </row>
-        <identifiers>
-            <header_from>example.com</header_from>
-        </identifiers>
-        <auth_results>
-            <dkim>
-                <domain>example.com</domain>
-                <result>pass</result>
-                <selector>default</selector>
-            </dkim>
-            <spf>
-                <domain>example.com</domain>
-                <result>fail</result>
-            </spf>
-        </auth_results>
-    </record>
-</feedback>
-"""
+from pathlib import Path
 
-SAMPLE_XML_WITH_NAMESPACE = """\
-<?xml version="1.0" encoding="UTF-8" ?>
-<feedback xmlns="urn:ietf:params:xml:ns:dmarc-2.0">
-    <report_metadata>
-        <org_name>web.de</org_name>
-        <email>dmarc@web.de</email>
-        <report_id>987654321</report_id>
-        <date_range>
-            <begin>1597449600</begin>
-            <end>1597535999</end>
-        </date_range>
-    </report_metadata>
-    <policy_published>
-        <domain>example.com</domain>
-        <adkim>r</adkim>
-        <aspf>r</aspf>
-        <p>reject</p>
-        <sp>reject</sp>
-        <pct>100</pct>
-    </policy_published>
-    <record>
-        <row>
-            <source_ip>198.51.100.5</source_ip>
-            <count>3</count>
-            <policy_evaluated>
-                <disposition>reject</disposition>
-                <dkim>pass</dkim>
-                <spf>pass</spf>
-            </policy_evaluated>
-        </row>
-        <identifiers>
-            <header_from>example.com</header_from>
-        </identifiers>
-        <auth_results>
-            <dkim>
-                <domain>example.com</domain>
-                <result>pass</result>
-                <selector>s1</selector>
-            </dkim>
-            <spf>
-                <domain>example.com</domain>
-                <result>pass</result>
-            </spf>
-        </auth_results>
-    </record>
-</feedback>
-"""
+
+DMARC_FIXTURE_DIR = Path(__file__).with_name("fixtures") / "dmarc_aggregate"
+
+
+def load_dmarc_fixture(filename: str) -> str:
+    """Load a curated aggregate-report fixture as text."""
+    return (DMARC_FIXTURE_DIR / filename).read_text(encoding="utf-8")
+
+
+DMARC_COMPATIBILITY_FIXTURES = [
+    {
+        "id": "rfc7489-google",
+        "filename": "rfc7489-google.xml",
+        "domain": "example.com",
+        "report_id": "123456789",
+        "variant": "rfc7489-compatible",
+        "total_count": 2,
+    },
+    {
+        "id": "rfc9990-namespaced-legacy-fields",
+        "filename": "rfc9990-namespaced-legacy-fields.xml",
+        "domain": "example.com",
+        "report_id": "987654321",
+        "variant": "rfc9990",
+        "total_count": 3,
+    },
+    {
+        "id": "rfc9990-treewalk-extension",
+        "filename": "rfc9990-treewalk-extension.xml",
+        "domain": "example.org",
+        "report_id": "fixture-rfc9990-treewalk",
+        "variant": "rfc9990",
+        "schema_version": "1.0",
+        "total_count": 5,
+        "policy": {
+            "p": "quarantine",
+            "sp": "reject",
+            "np": "none",
+            "fo": "1",
+            "testing": "y",
+            "discovery_method": "treewalk",
+        },
+    },
+    {
+        "id": "rfc9990-multi-auth-overrides",
+        "filename": "rfc9990-multi-auth-overrides.xml",
+        "domain": "example.net",
+        "report_id": "fixture-rfc9990-multi-auth",
+        "variant": "rfc9990",
+        "schema_version": "1.0",
+        "total_count": 15,
+        "policy": {
+            "p": "reject",
+            "sp": "quarantine",
+            "np": "reject",
+            "fo": "1:d:s",
+            "testing": "n",
+            "discovery_method": "psd",
+        },
+    },
+]
+
+SAMPLE_XML = load_dmarc_fixture("rfc7489-google.xml")
+
+SAMPLE_XML_WITH_NAMESPACE = load_dmarc_fixture("rfc9990-namespaced-legacy-fields.xml")

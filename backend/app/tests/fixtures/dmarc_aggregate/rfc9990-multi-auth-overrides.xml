@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<feedback xmlns="urn:ietf:params:xml:ns:dmarc-2.0" xmlns:vendor="https://reports.example.test/dmarc">
+    <version>1.0</version>
+    <report_metadata>
+        <org_name>Mailbox Provider</org_name>
+        <email>dmarc-reports@mailbox.example</email>
+        <extra_contact_info>mailto:dmarc-help@mailbox.example</extra_contact_info>
+        <report_id>fixture-rfc9990-multi-auth</report_id>
+        <date_range>
+            <begin>1779580800</begin>
+            <end>1779667199</end>
+        </date_range>
+        <generator>MailboxRUA 2026.05</generator>
+    </report_metadata>
+    <policy_published>
+        <domain>example.net</domain>
+        <discovery_method>psd</discovery_method>
+        <p>reject</p>
+        <sp>quarantine</sp>
+        <np>reject</np>
+        <fo>1:d:s</fo>
+        <adkim>r</adkim>
+        <aspf>s</aspf>
+        <pct>75</pct>
+        <testing>n</testing>
+    </policy_published>
+    <extension>
+        <vendor:provider>
+            <vendor:name>Mailbox Provider</vendor:name>
+            <vendor:region>us-east</vendor:region>
+        </vendor:provider>
+    </extension>
+    <record>
+        <row>
+            <source_ip>192.0.2.44</source_ip>
+            <count>10</count>
+            <policy_evaluated>
+                <disposition>reject</disposition>
+                <dkim>fail</dkim>
+                <spf>fail</spf>
+                <reason>
+                    <type>forwarded</type>
+                    <comment>forwarder modified body</comment>
+                </reason>
+            </policy_evaluated>
+        </row>
+        <identifiers>
+            <header_from>billing.example.net</header_from>
+            <envelope_from>bounce.example.net</envelope_from>
+            <envelope_to>customer.example.org</envelope_to>
+        </identifiers>
+        <auth_results>
+            <dkim>
+                <domain>example.net</domain>
+                <selector>mail</selector>
+                <result>fail</result>
+                <human_result>signature expired</human_result>
+            </dkim>
+            <dkim>
+                <domain>vendor.example</domain>
+                <selector>relay</selector>
+                <result>pass</result>
+            </dkim>
+            <spf>
+                <domain>bounce.example.net</domain>
+                <scope>mfrom</scope>
+                <result>fail</result>
+                <human_result>ip not authorized</human_result>
+            </spf>
+        </auth_results>
+        <vendor:category>transactional</vendor:category>
+    </record>
+    <record>
+        <row>
+            <source_ip>198.51.100.77</source_ip>
+            <count>5</count>
+            <policy_evaluated>
+                <disposition>none</disposition>
+                <dkim>pass</dkim>
+                <spf>fail</spf>
+            </policy_evaluated>
+        </row>
+        <identifiers>
+            <header_from>news.example.net</header_from>
+            <envelope_from>mailer.example.net</envelope_from>
+        </identifiers>
+        <auth_results>
+            <dkim>
+                <domain>example.net</domain>
+                <selector>news</selector>
+                <result>pass</result>
+            </dkim>
+            <spf>
+                <domain>mailer.example.net</domain>
+                <scope>mfrom</scope>
+                <result>fail</result>
+            </spf>
+        </auth_results>
+    </record>
+</feedback>
