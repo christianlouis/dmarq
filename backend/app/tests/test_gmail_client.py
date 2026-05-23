@@ -19,10 +19,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.models.report import DMARCReport
-from app.services.gmail_client import GmailClient
+from app.models.report import DMARCReport, ForensicReport
+from app.services.gmail_client import GmailClient, RETRYABLE_MESSAGE_FAILURE
 from app.services.report_store import ReportStore
 from app.tests.test_data import SAMPLE_XML
+from app.tests.test_forensic_parser import SAMPLE_FORENSIC_EMAIL
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -442,6 +443,88 @@ class TestProcessMessage:
         assert stats["details"][0]["status"] == "error"
         assert stats["details"][0]["message_id"] == "bad-id"
 
+    def test_forensic_report_is_processed_separately(self, db_session):
+        client = _make_client(db=db_session)
+        service = MagicMock()
+        service.users.return_value.messages.return_value.get.return_value.execute.return_value = {
+            "raw": _b64_raw(SAMPLE_FORENSIC_EMAIL)
+        }
+
+        stats = {
+            "reports_found": 0,
+            "forensic_reports_found": 0,
+            "duplicate_forensic_reports": 0,
+            "errors": [],
+        }
+        count = client._process_message(service, "msg-forensic", stats)
+
+        assert count == 1
+        assert stats["reports_found"] == 0
+        assert stats["forensic_reports_found"] == 1
+        assert stats["details"][0]["reason"] == "forensic_report"
+        assert db_session.query(DMARCReport).count() == 0
+        assert db_session.query(ForensicReport).count() == 1
+
+    def test_forensic_report_without_database_is_skipped(self):
+        client = _make_client()
+        stats = {"forensic_reports_found": 0, "duplicate_forensic_reports": 0, "errors": []}
+
+        imported = client._process_forensic_message(
+            SAMPLE_FORENSIC_EMAIL,
+            stats,
+            message_id="msg-forensic",
+        )
+
+        assert imported == RETRYABLE_MESSAGE_FAILURE
+        assert stats["details"][0]["reason"] == "forensic_report_requires_database"
+
+    def test_duplicate_forensic_report_is_skipped(self, db_session):
+        client = _make_client(db=db_session)
+        stats = {"forensic_reports_found": 0, "duplicate_forensic_reports": 0, "errors": []}
+
+        assert client._process_forensic_message(SAMPLE_FORENSIC_EMAIL, stats, message_id="msg-1")
+        imported = client._process_forensic_message(
+            SAMPLE_FORENSIC_EMAIL,
+            stats,
+            message_id="msg-1",
+        )
+
+        assert imported == 0
+        assert stats["duplicate_forensic_reports"] == 1
+        assert stats["details"][1]["status"] == "duplicate"
+
+    def test_forensic_save_duplicate_result_is_skipped(self, db_session):
+        client = _make_client(db=db_session)
+        stats = {"forensic_reports_found": 0, "duplicate_forensic_reports": 0, "errors": []}
+
+        with (
+            patch("app.services.gmail_client.forensic_report_exists", return_value=False),
+            patch("app.services.gmail_client.save_forensic_report", return_value=(None, False)),
+        ):
+            imported = client._process_forensic_message(
+                SAMPLE_FORENSIC_EMAIL,
+                stats,
+                message_id="msg-1",
+            )
+
+        assert imported == 0
+        assert stats["duplicate_forensic_reports"] == 1
+        assert stats["details"][0]["status"] == "duplicate"
+
+    def test_forensic_parse_error_adds_error_detail(self, db_session):
+        client = _make_client(db=db_session)
+        stats = {"errors": []}
+
+        imported = client._process_forensic_message(
+            b"Subject: not forensic\r\n\r\nbody",
+            stats,
+            message_id="bad",
+        )
+
+        assert imported == RETRYABLE_MESSAGE_FAILURE
+        assert stats["errors"]
+        assert stats["details"][0]["reason"] == "forensic_parse_failed"
+
 
 # ===========================================================================
 # _process_attachments
@@ -678,6 +761,19 @@ class TestFetchReports:
         assert "id1" in result["new_ingested_ids"]
         assert "id2" in result["new_ingested_ids"]
 
+    def test_retryable_processing_failure_is_not_marked_ingested(self):
+        client = _make_client()
+        mock_service = MagicMock()
+        with (
+            patch.object(client, "_build_service", return_value=mock_service),
+            patch.object(client, "_list_dmarc_message_ids", return_value=["id1"]),
+            patch.object(client, "_process_message", return_value=RETRYABLE_MESSAGE_FAILURE),
+        ):
+            result = client.fetch_reports()
+
+        assert result["new_ingested_ids"] == []
+        assert client.already_ingested_ids == []
+
     def test_reports_new_domains(self):
         """fetch_reports should report domains that appear after ingestion."""
         from app.services.report_store import ReportStore
@@ -717,10 +813,16 @@ class TestFetchReports:
 
 
 class TestIngestedIdHelpers:
+    def test_load_empty_json_text_returns_empty_list(self):
+        assert GmailClient.load_ingested_ids("") == []
+
     def test_load_non_list_json_returns_no_error(self):
         # Valid JSON but not a list – should gracefully not raise
         result = GmailClient.load_ingested_ids('{"key": "value"}')
         assert result is not None  # no crash
+
+    def test_load_invalid_json_returns_empty_list(self):
+        assert GmailClient.load_ingested_ids("{not-json") == []
 
     def test_dump_preserves_order(self):
         ids = ["z", "a", "m"]

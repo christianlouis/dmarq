@@ -31,6 +31,9 @@ class Domain(Base):
 
     # Relationships
     reports = relationship("DMARCReport", back_populates="domain", cascade="all, delete-orphan")
+    forensic_reports = relationship(
+        "ForensicReport", back_populates="domain", cascade="all, delete-orphan"
+    )
     user_domains = relationship("UserDomain", back_populates="domain", cascade="all, delete-orphan")
 
     # Indexes for common queries

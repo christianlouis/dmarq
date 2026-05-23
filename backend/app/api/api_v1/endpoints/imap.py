@@ -108,6 +108,8 @@ async def fetch_imap_reports(
             "success": results["success"],
             "processed_emails": results["processed"],
             "reports_found": results["reports_found"],
+            "forensic_reports_found": int(results.get("forensic_reports_found", 0)),
+            "duplicate_forensic_reports": int(results.get("duplicate_forensic_reports", 0)),
             "new_domains": results["new_domains"],
             "errors": results["errors"] if "errors" in results and results["errors"] else None,
             "timestamp": datetime.now().isoformat(),

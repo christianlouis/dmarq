@@ -63,9 +63,10 @@ have no working implementation in the codebase yet.
 
 ### Forensic Reports (RFC 6591)
 - **Documented in**: README.md ("Forensic Reports: Analyze failure samples (RFC 6591 support)")
-- **Current state**: The DMARC parser (`backend/app/services/dmarc_parser.py`) only
-  handles aggregate reports. There is no forensic report parsing, UI, or storage.
-- [ ] Forensic report parsing
+- **Current state**: Aggregate and forensic reports are now parsed separately. Forensic
+  reports are stored in dedicated database rows and surfaced through authenticated APIs
+  without affecting aggregate compliance statistics.
+- [x] Forensic report parsing
 - [ ] Failure sample analysis
 - [ ] PII redaction options
 - [ ] Detailed authentication failure views

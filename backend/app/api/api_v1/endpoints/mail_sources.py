@@ -392,6 +392,8 @@ def _fetch_response(source: MailSource, results: Dict[str, Any]) -> Dict[str, An
         "processed": int(results.get("processed", 0)),
         "reports_found": int(results.get("reports_found", 0)),
         "duplicate_reports": int(results.get("duplicate_reports", 0)),
+        "forensic_reports_found": int(results.get("forensic_reports_found", 0)),
+        "duplicate_forensic_reports": int(results.get("duplicate_forensic_reports", 0)),
         "new_domains": [str(d) for d in results.get("new_domains", [])],
         "error_count": len(results.get("errors", [])),
         "timestamp": datetime.now().isoformat(),
@@ -555,10 +557,12 @@ async def fetch_mail_source(
     source = _get_source_or_404(source_id, db)
     results = _fetch_source(source, db, days)
     logger.info(
-        "Manual fetch for source id=%d: processed=%d reports_found=%d duplicates=%d",
+        "Manual fetch for source id=%d: processed=%d reports_found=%d "
+        "forensic_reports_found=%d duplicates=%d",
         int(source_id),
         int(results.get("processed", 0)),
         int(results.get("reports_found", 0)),
+        int(results.get("forensic_reports_found", 0)),
         int(results.get("duplicate_reports", 0)),
     )
     for err in results.get("errors", []):
@@ -980,10 +984,11 @@ async def gmail_fetch_reports(
     db.commit()
 
     logger.info(
-        "Gmail fetch for source id=%d: processed=%d reports_found=%d",
+        "Gmail fetch for source id=%d: processed=%d reports_found=%d forensic_reports_found=%d",
         int(source_id),
         int(results.get("processed", 0)),
         int(results.get("reports_found", 0)),
+        int(results.get("forensic_reports_found", 0)),
     )
 
     for err in results.get("errors", []):
@@ -997,6 +1002,8 @@ async def gmail_fetch_reports(
         "success": bool(results.get("success", False)),
         "processed": int(results.get("processed", 0)),
         "reports_found": int(results.get("reports_found", 0)),
+        "forensic_reports_found": int(results.get("forensic_reports_found", 0)),
+        "duplicate_forensic_reports": int(results.get("duplicate_forensic_reports", 0)),
         "new_domains": [str(d) for d in results.get("new_domains", [])],
         "error_count": len(results.get("errors", [])),
         "timestamp": datetime.now().isoformat(),

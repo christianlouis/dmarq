@@ -17,9 +17,10 @@ from zipfile import ZipFile
 
 import pytest
 
-from app.models.report import DMARCReport
+from app.models.report import DMARCReport, ForensicReport
 from app.services.imap_client import IMAPClient
 from app.services.report_store import ReportStore
+from app.tests.test_forensic_parser import SAMPLE_FORENSIC_EMAIL
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -587,7 +588,7 @@ class TestProcessAttachments:
 
 
 class TestProcessSingleEmail:
-    def _make_client(self):
+    def _make_client(self, db=None):
         with patch("app.services.imap_client.get_settings") as mock_settings:
             mock_settings.return_value = MagicMock(
                 IMAP_SERVER="imap.example.com",
@@ -595,7 +596,7 @@ class TestProcessSingleEmail:
                 IMAP_USERNAME="u",
                 IMAP_PASSWORD="p",
             )
-            return IMAPClient()
+            return IMAPClient(db=db)
 
     def test_processes_valid_dmarc_email(self):
         client = self._make_client()
@@ -615,6 +616,88 @@ class TestProcessSingleEmail:
         assert stats["processed"] == 1
         assert stats["reports_found"] == 1
         assert stats["details"][0]["status"] == "imported"
+
+    def test_processes_forensic_report_without_aggregate_count(self, db_session):
+        ReportStore.get_instance().clear()
+        client = self._make_client(db=db_session)
+        mock_mail = MagicMock()
+        mock_mail.fetch.return_value = ("OK", [(b"1", SAMPLE_FORENSIC_EMAIL)])
+        mock_mail.store.return_value = ("OK", None)
+
+        stats = {
+            "processed": 0,
+            "reports_found": 0,
+            "forensic_reports_found": 0,
+            "deleted": 0,
+            "errors": [],
+        }
+        client._process_single_email(mock_mail, b"1", stats)
+
+        assert stats["processed"] == 1
+        assert stats["reports_found"] == 0
+        assert stats["forensic_reports_found"] == 1
+        assert stats["details"][0]["reason"] == "forensic_report"
+        assert db_session.query(DMARCReport).count() == 0
+        assert db_session.query(ForensicReport).count() == 1
+        assert ReportStore.get_instance().get_domains() == []
+
+    def test_forensic_report_without_database_is_skipped(self):
+        client = self._make_client()
+
+        stats = {"processed": 0, "reports_found": 0, "errors": []}
+        imported = client._process_forensic_email(
+            SAMPLE_FORENSIC_EMAIL,
+            stats=stats,
+            message_id="msg-1",
+        )
+
+        assert imported is False
+        assert stats["details"][0]["reason"] == "forensic_report_requires_database"
+
+    def test_duplicate_forensic_report_adds_detail(self, db_session):
+        client = self._make_client(db=db_session)
+        stats = {"forensic_reports_found": 0, "duplicate_forensic_reports": 0, "errors": []}
+
+        assert client._process_forensic_email(SAMPLE_FORENSIC_EMAIL, stats=stats, message_id="1")
+        imported = client._process_forensic_email(
+            SAMPLE_FORENSIC_EMAIL, stats=stats, message_id="2"
+        )
+
+        assert imported is False
+        assert stats["duplicate_forensic_reports"] == 1
+        assert stats["details"][1]["status"] == "duplicate"
+
+    def test_forensic_save_duplicate_result_adds_detail(self, db_session):
+        client = self._make_client(db=db_session)
+        stats = {"forensic_reports_found": 0, "duplicate_forensic_reports": 0, "errors": []}
+
+        with (
+            patch("app.services.imap_client.forensic_report_exists", return_value=False),
+            patch("app.services.imap_client.save_forensic_report", return_value=(None, False)),
+        ):
+            imported = client._process_forensic_email(
+                SAMPLE_FORENSIC_EMAIL,
+                stats=stats,
+                message_id="msg-1",
+            )
+
+        assert imported is False
+        assert stats["duplicate_forensic_reports"] == 1
+        assert stats["details"][0]["status"] == "duplicate"
+
+    def test_forensic_parse_error_adds_error_detail(self, db_session):
+        client = self._make_client(db=db_session)
+        stats = {"errors": []}
+
+        imported = client._process_forensic_email(
+            b"Subject: not forensic\r\n\r\nbody",
+            stats=stats,
+            message_id="bad",
+        )
+
+        assert imported is False
+        assert stats["errors"]
+        assert stats["details"][0]["reason"] == "forensic_parse_failed"
 
     def test_fetch_error_skips_email(self):
         client = self._make_client()
