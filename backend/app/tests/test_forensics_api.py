@@ -90,6 +90,54 @@ def test_list_forensic_reports_filters_failure_fields(authed_client, db_session)
     assert data["reports"][0]["report_id"] == "ruf-spf-filter-test"
 
 
+def test_forensic_analysis_groups_failure_samples(authed_client, db_session):
+    dkim = ForensicParser.parse_bytes(SAMPLE_FORENSIC_EMAIL)
+    spf = dict(dkim)
+    spf.update(
+        {
+            "report_id": "ruf-spf-analysis-test",
+            "reported_domain": "example.com",
+            "source_ip": "198.51.100.23",
+            "auth_failure": "spf",
+            "delivery_result": "quarantine",
+            "authentication_results": (
+                "mx.example.net; dkim=pass header.d=example.com; "
+                "spf=fail smtp.mailfrom=example.com; dmarc=fail"
+            ),
+        }
+    )
+    save_forensic_report(db_session, dkim)
+    save_forensic_report(db_session, spf)
+    db_session.commit()
+
+    response = authed_client.get("/api/v1/forensics/analysis?domain=example.com")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 2
+    assert data["priority_counts"]["high"] == 2
+    assert data["failure_counts"]["dkim"] == 1
+    assert data["failure_counts"]["spf"] == 1
+    assert data["groups"][0]["priority"] == "high"
+    assert "redacted headers and metadata only" in data["samples"][0]["privacy_note"]
+    assert any("SPF" in action for action in data["samples"][0]["recommendations"])
+
+
+def test_forensic_report_responses_include_sample_analysis(authed_client):
+    authed_client.post(
+        "/api/v1/forensics/upload",
+        files={"file": ("report.eml", SAMPLE_FORENSIC_EMAIL, "message/rfc822")},
+    )
+
+    list_response = authed_client.get("/api/v1/forensics")
+
+    assert list_response.status_code == 200
+    item = list_response.json()["reports"][0]
+    assert item["analysis"]["priority"] == "high"
+    assert "DKIM" in item["analysis"]["diagnosis"]
+    assert item["original_subject"] not in item["analysis"]["signals"]
+
+
 def test_forensic_api_applies_configured_redaction_policy(authed_client, db_session):
     authed_client.post(
         "/api/v1/forensics/upload",
@@ -216,6 +264,7 @@ def test_forensic_html_pages_render():
     assert "Authentication Failures" in list_response.text
     assert detail_response.status_code == 200
     assert "Forensic Investigation" in detail_response.text
+    assert "Failure Sample Analysis" in detail_response.text
 
 
 def test_save_forensic_report_duplicate_and_invalid_domain_paths(db_session):

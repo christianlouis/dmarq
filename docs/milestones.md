@@ -175,9 +175,7 @@ Delivered:
 - Keep forensic reports out of aggregate report statistics and ReportStore rollups.
 - Expose authenticated forensic upload/list/detail APIs.
 - Provide dedicated forensic report list/detail views for authentication failure investigation.
-
-Planned:
-- Add richer failure investigation workflows.
+- Add privacy-preserving failure sample analysis with grouped causes, priorities, signals, and recommended actions.
 
 Exit criteria:
 - A security analyst can inspect individual failure reports without mixing them into aggregate statistics.

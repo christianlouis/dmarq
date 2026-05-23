@@ -63,6 +63,42 @@
 
             {% call card() %}
                 {% call card_header() %}
+                    <div class="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                        <div>
+                            {% call card_title() %}Failure Sample Analysis{% endcall %}
+                            {% call card_description() %}Privacy-preserving diagnosis from the redacted failure sample{% endcall %}
+                        </div>
+                        <span class="badge uppercase" :class="priorityClass(report.analysis?.priority)" x-text="report.analysis?.priority || 'unknown'"></span>
+                    </div>
+                {% endcall %}
+                {% call card_content() %}
+                    <div class="space-y-4">
+                        <p class="font-medium" x-text="report.analysis?.diagnosis || 'No analysis is available for this sample.'"></p>
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                            <div>
+                                <p class="text-sm font-semibold mb-2">Recommended Actions</p>
+                                <ul class="text-sm space-y-1 list-disc pl-4">
+                                    <template x-for="action in report.analysis?.recommendations || []" :key="action">
+                                        <li x-text="action"></li>
+                                    </template>
+                                </ul>
+                            </div>
+                            <div>
+                                <p class="text-sm font-semibold mb-2">Signals</p>
+                                <ul class="text-sm space-y-1 list-disc pl-4">
+                                    <template x-for="signal in report.analysis?.signals || []" :key="signal">
+                                        <li x-text="signal"></li>
+                                    </template>
+                                </ul>
+                            </div>
+                        </div>
+                        <p class="text-xs text-base-content/60" x-text="report.analysis?.privacy_note"></p>
+                    </div>
+                {% endcall %}
+            {% endcall %}
+
+            {% call card() %}
+                {% call card_header() %}
                     {% call card_title() %}Message Identity{% endcall %}
                     {% call card_description() %}Redacted metadata extracted from the reported failure sample{% endcall %}
                 {% endcall %}
@@ -159,6 +195,11 @@ function forensicReportDetailApp(reportId) {
         },
         labelize(value) {
             return String(value || '').replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+        },
+        priorityClass(priority) {
+            if (priority === 'high') return 'badge-error';
+            if (priority === 'medium') return 'badge-warning';
+            return 'badge-ghost';
         },
     };
 }
