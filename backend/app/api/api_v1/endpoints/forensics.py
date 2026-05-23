@@ -9,6 +9,7 @@ from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.domain import Domain
 from app.models.report import ForensicReport
+from app.services.forensic_analysis import analyze_forensic_report, summarize_forensic_samples
 from app.services.forensic_parser import ForensicParser, MAX_FORENSIC_REPORT_SIZE
 from app.services.forensic_persistence import (
     forensic_report_exists,
@@ -20,6 +21,45 @@ from app.services.forensic_redaction import get_forensic_redaction_policy
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+class ForensicSampleAnalysisResponse(BaseModel):
+    id: int
+    report_id: str
+    domain: Optional[str] = None
+    source_ip: Optional[str] = None
+    auth_failure: str
+    delivery_result: Optional[str] = None
+    priority: str
+    diagnosis: str
+    recommendations: List[str] = Field(default_factory=list)
+    signals: List[str] = Field(default_factory=list)
+    authentication_results: Dict[str, str] = Field(default_factory=dict)
+    dkim_domain: Optional[str] = None
+    mail_from_domain: Optional[str] = None
+    privacy_note: str
+
+
+class ForensicAnalysisGroupResponse(BaseModel):
+    key: str
+    domain: str
+    source_ip: str
+    auth_failure: str
+    delivery_result: str
+    count: int
+    priority: str
+    latest_arrival: Optional[str] = None
+    diagnosis: str
+    recommendations: List[str] = Field(default_factory=list)
+
+
+class ForensicAnalysisResponse(BaseModel):
+    total: int
+    priority_counts: Dict[str, int] = Field(default_factory=dict)
+    failure_counts: Dict[str, int] = Field(default_factory=dict)
+    result_counts: Dict[str, int] = Field(default_factory=dict)
+    groups: List[ForensicAnalysisGroupResponse] = Field(default_factory=list)
+    samples: List[ForensicSampleAnalysisResponse] = Field(default_factory=list)
 
 
 class ForensicReportResponse(BaseModel):
@@ -44,6 +84,7 @@ class ForensicReportResponse(BaseModel):
     original_date: Optional[str] = None
     feedback_headers: Dict[str, Any] = Field(default_factory=dict)
     processed_at: Optional[str] = None
+    analysis: Optional[ForensicSampleAnalysisResponse] = None
 
 
 class ForensicListResponse(BaseModel):
@@ -77,6 +118,35 @@ def _validate_upload(file: UploadFile, content: bytes) -> None:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid file type. Upload a forensic report email as .eml or .txt.",
         )
+
+
+def _filtered_forensic_query(
+    db: Session,
+    *,
+    domain: Optional[str] = None,
+    source_ip: Optional[str] = None,
+    auth_failure: Optional[str] = None,
+    delivery_result: Optional[str] = None,
+):
+    query = db.query(ForensicReport).options(selectinload(ForensicReport.domain))
+    if domain:
+        normalized = domain.lower()
+        query = query.outerjoin(Domain).filter(
+            (Domain.name == normalized) | (ForensicReport.reported_domain == normalized)
+        )
+    if source_ip:
+        query = query.filter(ForensicReport.source_ip == source_ip.strip())
+    if auth_failure:
+        query = query.filter(ForensicReport.auth_failure == auth_failure.strip().lower())
+    if delivery_result:
+        query = query.filter(ForensicReport.delivery_result == delivery_result.strip().lower())
+    return query
+
+
+def _response_for_row(row: ForensicReport, redaction_policy) -> ForensicReportResponse:
+    data = forensic_report_to_dict(row, redaction_policy=redaction_policy)
+    data["analysis"] = analyze_forensic_report(row)
+    return ForensicReportResponse(**data)
 
 
 @router.post("/upload", response_model=ForensicUploadResponse)
@@ -138,19 +208,13 @@ async def list_forensic_reports(
     _auth: dict = Depends(require_admin_auth),
 ):
     """List stored forensic reports, newest first."""
-    query = db.query(ForensicReport).options(selectinload(ForensicReport.domain))
-    if domain:
-        normalized = domain.lower()
-        query = query.outerjoin(Domain).filter(
-            (Domain.name == normalized) | (ForensicReport.reported_domain == normalized)
-        )
-    if source_ip:
-        query = query.filter(ForensicReport.source_ip == source_ip.strip())
-    if auth_failure:
-        query = query.filter(ForensicReport.auth_failure == auth_failure.strip().lower())
-    if delivery_result:
-        query = query.filter(ForensicReport.delivery_result == delivery_result.strip().lower())
-
+    query = _filtered_forensic_query(
+        db,
+        domain=domain,
+        source_ip=source_ip,
+        auth_failure=auth_failure,
+        delivery_result=delivery_result,
+    )
     total = query.count()
     rows = (
         query.order_by(ForensicReport.arrival_date.desc().nullslast(), ForensicReport.id.desc())
@@ -165,13 +229,34 @@ async def list_forensic_reports(
         page=page,
         page_size=page_size,
         total_pages=total_pages,
-        reports=[
-            ForensicReportResponse(
-                **forensic_report_to_dict(row, redaction_policy=redaction_policy)
-            )
-            for row in rows
-        ],
+        reports=[_response_for_row(row, redaction_policy) for row in rows],
     )
+
+
+@router.get("/analysis", response_model=ForensicAnalysisResponse)
+async def analyze_forensic_reports(
+    domain: Optional[str] = Query(default=None),
+    source_ip: Optional[str] = Query(default=None),
+    auth_failure: Optional[str] = Query(default=None),
+    delivery_result: Optional[str] = Query(default=None),
+    page_size: int = Query(default=200, ge=1, le=500),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
+    """Summarize stored forensic samples into operator investigation groups."""
+    query = _filtered_forensic_query(
+        db,
+        domain=domain,
+        source_ip=source_ip,
+        auth_failure=auth_failure,
+        delivery_result=delivery_result,
+    )
+    rows = (
+        query.order_by(ForensicReport.arrival_date.desc().nullslast(), ForensicReport.id.desc())
+        .limit(page_size)
+        .all()
+    )
+    return ForensicAnalysisResponse(**summarize_forensic_samples(rows))
 
 
 @router.get("/{report_id}", response_model=ForensicReportResponse)
@@ -192,4 +277,4 @@ async def get_forensic_report(
             status_code=status.HTTP_404_NOT_FOUND, detail="Forensic report not found"
         )
     redaction_policy = get_forensic_redaction_policy(db)
-    return ForensicReportResponse(**forensic_report_to_dict(row, redaction_policy=redaction_policy))
+    return _response_for_row(row, redaction_policy)

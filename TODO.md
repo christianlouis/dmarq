@@ -68,7 +68,7 @@ have no working implementation in the codebase yet.
   without affecting aggregate compliance statistics. Operators can configure forensic
   email-address and token redaction under Settings.
 - [x] Forensic report parsing
-- [ ] Failure sample analysis
+- [x] Failure sample analysis
 - [x] PII redaction options
 - [x] Detailed authentication failure views
 
