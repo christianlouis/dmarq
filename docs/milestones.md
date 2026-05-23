@@ -144,15 +144,20 @@ Exit criteria:
 
 ## Milestone 9: Setup and Operations Polish
 
-Status: Planned
+Status: In Progress
 
 Goal: make first-run setup, maintenance, and troubleshooting straightforward.
 
-Planned:
-- Guided setup flow for domains and mail sources.
+Delivered:
+- First-run setup status is persisted in the database instead of only memory.
+- Setup now surfaces a checklist for monitored domains, enabled mail sources, and system health.
+- Monitored domains can be created before any DMARC report has arrived.
+- Domain summaries and detail pages include manually configured domains with no report history yet.
+- Health page and API show database connectivity, scheduler state, report totals, latest import, and latest successful import.
+
+Remaining:
 - Better mailbox test output and recovery suggestions.
-- Health page for scheduler status, last successful import, and database connectivity.
-- Operator documentation for Docker Compose and manual deployments.
+- Operator documentation refresh for Docker Compose and manual deployments.
 
 Exit criteria:
 - A new user can deploy DMARQ, connect a mailbox, and confirm the system is healthy without reading code.

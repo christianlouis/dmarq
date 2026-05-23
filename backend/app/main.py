@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 from datetime import datetime
+from typing import List, Optional
 
 from fastapi import Depends, FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,12 +25,20 @@ from app.core.security import add_api_key, generate_api_key, require_admin_auth
 from app.core.startup_checks import run_startup_checks
 from app.middleware.auth import AuthRedirectMiddleware
 from app.middleware.security import SecurityHeadersMiddleware
+from app.models.domain import Domain
 from app.models.mail_source import MailSource  # noqa: F401 – ensure table is registered
 from app.services.gmail_client import GmailClient
 from app.services.imap_client import IMAPClient
 from app.services.import_history import record_import_attempt
 from app.services.report_persistence import hydrate_report_store_from_db
 from app.services.report_store import ReportStore
+from app.services.runtime_status import (
+    mark_scheduler_cycle_started,
+    mark_scheduler_error,
+    mark_scheduler_started,
+    mark_scheduler_stopped,
+    mark_scheduler_success,
+)
 from app.services.summary_notifications import send_due_scheduled_summaries
 
 # Set up logging
@@ -203,7 +212,7 @@ def _send_due_summary_notifications() -> None:
 
 
 def _next_sleep_seconds(
-    min_sleep: int = 60, enabled_sources: list[MailSource] | None = None
+    min_sleep: int = 60, enabled_sources: Optional[List[MailSource]] = None
 ) -> int:
     """Return how many seconds to sleep until the next polling cycle."""
     try:
@@ -226,11 +235,14 @@ async def scheduled_imap_polling():
     try:
         while True:
             logger.info("Starting scheduled IMAP polling for DMARC reports")
+            mark_scheduler_cycle_started()
             try:
                 enabled_sources = _poll_all_enabled_sources()
                 _send_due_summary_notifications()
+                mark_scheduler_success()
             except Exception as e:  # pylint: disable=broad-exception-caught
                 logger.error("Error in IMAP polling task: %s", str(e))
+                mark_scheduler_error(e)
                 enabled_sources = None
 
             try:
@@ -243,6 +255,7 @@ async def scheduled_imap_polling():
 
     except asyncio.CancelledError:
         logger.info("IMAP polling task cancelled")
+        mark_scheduler_stopped()
 
 
 def _migrate_imap_env_vars_to_db() -> None:
@@ -407,6 +420,7 @@ def create_app() -> FastAPI:
 
         # Start background polling task (iterates over DB-enabled mail sources)
         logger.info("Starting IMAP polling background task")
+        mark_scheduler_started()
         background_task = asyncio.create_task(scheduled_imap_polling())
 
     @application.on_event("shutdown")
@@ -419,6 +433,7 @@ def create_app() -> FastAPI:
                 await background_task
             except asyncio.CancelledError:
                 pass
+            mark_scheduler_stopped()
 
     return application
 
@@ -484,17 +499,18 @@ async def domain_details(request: Request, domain_id: str):
     db = SessionLocal()
     try:
         hydrate_report_store_from_db(db, store)
+        stored_domain = db.query(Domain).filter(Domain.name == domain_id).first()
     finally:
         db.close()
     known_domains = store.get_domains()
 
-    if domain_id not in known_domains:
+    if domain_id not in known_domains and stored_domain is None:
         # Domain not found, redirect to domains list
         return templates.TemplateResponse(
             request, "domains.html", {"error": f"Domain {domain_id} not found"}
         )
 
-    domain_summary = store.get_domain_summary(domain_id)
+    domain_summary = store.get_domain_summary(domain_id) if domain_id in known_domains else {}
 
     return templates.TemplateResponse(
         request,
@@ -503,8 +519,12 @@ async def domain_details(request: Request, domain_id: str):
             "domain_id": domain_id,
             "domain": {
                 "name": domain_id,
-                "description": "",  # Add description if available
-                "policy": domain_summary.get("policy", "unknown"),
+                "description": stored_domain.description if stored_domain else "",
+                "policy": (
+                    domain_summary.get("policy")
+                    or (stored_domain.dmarc_policy if stored_domain else None)
+                    or "unknown"
+                ),
             },
         },
     )
@@ -548,6 +568,11 @@ async def profile_page(request: Request):
 @app.get("/mail-sources", response_class=HTMLResponse)
 async def mail_sources_page(request: Request):
     return templates.TemplateResponse(request, "mail_sources.html")
+
+
+@app.get("/operations", response_class=HTMLResponse)
+async def operations_page(request: Request):
+    return templates.TemplateResponse(request, "operations.html")
 
 
 @app.get("/upload", response_class=HTMLResponse)

@@ -9,9 +9,11 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.security import require_admin_auth
 from app.models.domain import Domain
 from app.services.cloudflare_dns import (
     analyze_dns_records,
@@ -32,6 +34,7 @@ from app.services.report_persistence import (
     hydrate_report_store_from_db,
 )
 from app.services.report_store import ReportStore
+from app.utils.domain_validator import validate_domain_config
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +56,14 @@ class DomainResponse(DomainBase):
     reports_count: int = 0
     emails_count: int = 0
     compliance_rate: float = 0.0
+
+
+class DomainCreate(BaseModel):
+    """Payload for creating a monitored domain."""
+
+    name: str
+    description: Optional[str] = None
+    dkim_selectors: Optional[List[str]] = None
 
 
 class DomainStatsResponse(BaseModel):
@@ -283,6 +294,22 @@ def _policy_enforcement_suggestions(
     return []
 
 
+def _normalize_domain_name(name: str) -> str:
+    return name.strip().strip(".").lower()
+
+
+def _domain_names_for_summary(db: Session, store: ReportStore) -> List[str]:
+    report_domains = store.get_domains()
+    stored_domains = [
+        name
+        for (name,) in db.query(Domain.name)
+        .filter(Domain.active == True)  # noqa: E712
+        .order_by(Domain.name)
+        .all()
+    ]
+    return list(dict.fromkeys(stored_domains + report_domains))
+
+
 @router.get("/summary", response_model=DomainSummaryResponse)
 async def get_domains_summary(db: Session = Depends(get_db)):
     """
@@ -295,7 +322,7 @@ async def get_domains_summary(db: Session = Depends(get_db)):
     """
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    domains = store.get_domains()
+    domains = _domain_names_for_summary(db, store)
     summaries = store.get_all_domain_summaries()
 
     # Perform DNS checks for all domains, reusing fresh cached results.
@@ -385,19 +412,28 @@ async def get_domains_summary(db: Session = Depends(get_db)):
 async def read_domains(db: Session = Depends(get_db)):
     """
     Retrieve domains with their statistics.
-    For Milestone 1, this simply returns domains from the in-memory store.
     """
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    domains = store.get_domains()
+    domains = _domain_names_for_summary(db, store)
     summaries = store.get_all_domain_summaries()
+    stored = {
+        domain.name: domain
+        for domain in db.query(Domain).filter(Domain.name.in_(domains)).all()
+    }
 
     result = []
     for domain_name in domains:
         summary = summaries.get(domain_name, {})
+        stored_domain = stored.get(domain_name)
         domain_response = DomainResponse(
             name=domain_name,
-            policy=summary.get("policy", "unknown"),
+            description=stored_domain.description if stored_domain else None,
+            policy=(
+                summary.get("policy")
+                or (stored_domain.dmarc_policy if stored_domain else None)
+                or "unknown"
+            ),
             reports_count=summary.get("reports_processed", 0),
             emails_count=summary.get("total_count", 0),
             compliance_rate=summary.get("compliance_rate", 0.0),
@@ -405,6 +441,58 @@ async def read_domains(db: Session = Depends(get_db)):
         result.append(domain_response)
 
     return result
+
+
+@router.post("/domains", response_model=DomainResponse, status_code=status.HTTP_201_CREATED)
+async def create_domain(
+    payload: DomainCreate,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
+    """Create a monitored domain before any DMARC reports have arrived."""
+    name = _normalize_domain_name(payload.name)
+    validation = validate_domain_config(
+        {"name": name, "description": payload.description or ""}
+    )
+    if not validation["valid"]:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=validation["errors"],
+        )
+    existing = db.query(Domain).filter(Domain.name == name).first()
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Domain is already monitored",
+        )
+
+    selectors = ",".join(
+        selector.strip()
+        for selector in payload.dkim_selectors or []
+        if selector and selector.strip()
+    )
+    domain = Domain(
+        name=name,
+        description=payload.description,
+        dkim_selectors=selectors or None,
+        active=True,
+        verified=False,
+    )
+    db.add(domain)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Domain is already monitored",
+        ) from exc
+    db.refresh(domain)
+    return DomainResponse(
+        name=domain.name,
+        description=domain.description,
+        policy=domain.dmarc_policy or "unknown",
+    )
 
 
 @router.get("/domains/{domain_name}", response_model=DomainResponse)
@@ -415,8 +503,9 @@ async def read_domain(domain_name: str, db: Session = Depends(get_db)):
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
     domains = store.get_domains()
+    stored_domain = db.query(Domain).filter(Domain.name == domain_name).first()
 
-    if domain_name not in domains:
+    if domain_name not in domains and stored_domain is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Domain not found",
@@ -426,7 +515,12 @@ async def read_domain(domain_name: str, db: Session = Depends(get_db)):
 
     return DomainResponse(
         name=domain_name,
-        policy=summary.get("policy", "unknown"),
+        description=stored_domain.description if stored_domain else None,
+        policy=(
+            summary.get("policy")
+            or (stored_domain.dmarc_policy if stored_domain else None)
+            or "unknown"
+        ),
         reports_count=summary.get("reports_processed", 0),
         emails_count=summary.get("total_count", 0),
         compliance_rate=summary.get("compliance_rate", 0.0),

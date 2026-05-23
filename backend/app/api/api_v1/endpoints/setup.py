@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import api_key_header, require_admin_auth, security_bearer
+from app.models.domain import Domain
+from app.models.mail_source import MailSource
 from app.models.setting import Setting
 
 router = APIRouter()
@@ -89,6 +91,9 @@ class SetupStatusResponse(BaseModel):
 
     is_setup_complete: bool
     app_name: str
+    total_domains: int = 0
+    total_mail_sources: int = 0
+    enabled_mail_sources: int = 0
 
 
 class AdminSetupRequest(BaseModel):
@@ -125,6 +130,11 @@ async def get_setup_status(db: Session = Depends(get_db)):
     return SetupStatusResponse(
         is_setup_complete=current_status["is_setup_complete"],
         app_name=current_status["app_name"],
+        total_domains=db.query(Domain.id).count(),
+        total_mail_sources=db.query(MailSource.id).count(),
+        enabled_mail_sources=db.query(MailSource.id)
+        .filter(MailSource.enabled == True)  # noqa: E712
+        .count(),
     )
 
 

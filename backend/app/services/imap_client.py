@@ -392,7 +392,7 @@ class IMAPClient:
         )
 
     @staticmethod
-    def _append_detail(stats: dict | None, **detail: str) -> None:
+    def _append_detail(stats: Optional[Dict[str, Any]], **detail: str) -> None:
         """Append a compact attachment/message outcome to the import stats."""
         if stats is None:
             return
@@ -405,8 +405,8 @@ class IMAPClient:
         report: Dict[str, Any],
         *,
         filename: str,
-        stats: dict | None,
-        message_id: str | None,
+        stats: Optional[Dict[str, Any]],
+        message_id: Optional[str],
     ) -> bool:
         domain = report.get("domain", "unknown")
         report_id = report.get("report_id", "")
@@ -445,8 +445,8 @@ class IMAPClient:
         part: email.message.Message,
         *,
         filename: str,
-        stats: dict | None,
-        message_id: str | None,
+        stats: Optional[Dict[str, Any]],
+        message_id: Optional[str],
     ) -> bool:
         try:
             content = part.get_payload(decode=True)
@@ -487,8 +487,8 @@ class IMAPClient:
     def _process_attachments(
         self,
         msg: email.message.Message,
-        stats: dict | None = None,
-        message_id: str | None = None,
+        stats: Optional[Dict[str, Any]] = None,
+        message_id: Optional[str] = None,
     ) -> int:
         """
         Process email attachments that might be DMARC reports

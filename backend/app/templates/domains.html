@@ -21,9 +21,9 @@
             {% call card_header() %}
                 <div class="flex items-center justify-between">
                     {% call card_title() %}Monitored Domains{% endcall %}
-                    {% call button(variant="outline", size="sm") %}
+                    <button type="button" class="btn btn-outline btn-sm" @click="openCreate = true">
                         <span class="mr-1">+</span> Add Domain
-                    {% endcall %}
+                    </button>
                 </div>
                 {% call card_description() %}
                     Domains currently being monitored for DMARC compliance
@@ -91,6 +91,40 @@
             {% endcall %}
         {% endcall %}
     </div>
+
+    <dialog class="modal" :open="openCreate">
+        <div class="modal-box max-w-2xl">
+            <h2 class="text-xl font-semibold">Add monitored domain</h2>
+            <p class="mt-1 text-sm text-base-content/70">Track DNS health and future DMARC reports before the first report arrives.</p>
+            <form class="mt-5 space-y-4" @submit.prevent="createDomain">
+                <label class="form-control">
+                    <span class="label-text font-medium">Domain</span>
+                    <input x-model.trim="newDomain.name" type="text" required placeholder="example.com" class="input input-bordered">
+                </label>
+                <label class="form-control">
+                    <span class="label-text font-medium">Description</span>
+                    <textarea x-model.trim="newDomain.description" rows="3" class="textarea textarea-bordered" placeholder="Production mail domain"></textarea>
+                </label>
+                <label class="form-control">
+                    <span class="label-text font-medium">DKIM selectors</span>
+                    <input x-model.trim="newDomain.dkim_selectors" type="text" placeholder="default, google, selector1" class="input input-bordered">
+                </label>
+                <div x-show="createError" role="alert" class="alert alert-error py-3">
+                    <span x-text="createError"></span>
+                </div>
+                <div class="modal-action">
+                    <button type="button" class="btn btn-ghost" @click="closeCreate" :disabled="saving">Cancel</button>
+                    <button type="submit" class="btn btn-primary" :disabled="saving">
+                        <span x-show="saving" class="loading loading-spinner loading-xs"></span>
+                        Add domain
+                    </button>
+                </div>
+            </form>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+            <button type="button" @click="closeCreate">close</button>
+        </form>
+    </dialog>
 </div>
 {% endblock %}
 
@@ -99,6 +133,14 @@
 function domainsApp() {
     return {
         domains: [],
+        openCreate: false,
+        saving: false,
+        createError: '',
+        newDomain: {
+            name: '',
+            description: '',
+            dkim_selectors: '',
+        },
 
         init() {
             // Fetch domains from server
@@ -128,7 +170,46 @@ function domainsApp() {
             } catch (error) {
                 console.error('Error fetching domains:', error);
             }
-        }
+        },
+
+        closeCreate() {
+            this.openCreate = false;
+            this.createError = '';
+            this.newDomain = { name: '', description: '', dkim_selectors: '' };
+        },
+
+        async createDomain() {
+            this.saving = true;
+            this.createError = '';
+            try {
+                const selectors = this.newDomain.dkim_selectors
+                    .split(',')
+                    .map((selector) => selector.trim())
+                    .filter(Boolean);
+                const response = await fetch('/api/v1/domains/domains', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: this.newDomain.name,
+                        description: this.newDomain.description || null,
+                        dkim_selectors: selectors,
+                    }),
+                });
+                if (!response.ok) {
+                    const data = await response.json().catch(() => ({}));
+                    const detail = typeof data.detail === 'string'
+                        ? data.detail
+                        : Object.values(data.detail || {}).join(', ');
+                    throw new Error(detail || 'Domain could not be added.');
+                }
+                this.closeCreate();
+                await this.fetchDomains();
+            } catch (error) {
+                this.createError = error.message || 'Domain could not be added.';
+            } finally {
+                this.saving = false;
+            }
+        },
     }
 }
 </script>

@@ -3,6 +3,7 @@ from email.header import Header
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from typing import Optional
 from unittest.mock import patch
 
 import pytest
@@ -60,7 +61,7 @@ def _raw_email_with_report() -> bytes:
 
 
 def _raw_email_with_attachment(
-    filename: str | None,
+    filename: Optional[str],
     content: bytes,
     subtype: str = "octet-stream",
     subject: str = "DMARC report",
