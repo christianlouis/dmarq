@@ -8,16 +8,20 @@ that the endpoints can find the test domain.
 DNS lookups are mocked so no real network calls are made.
 """
 
+from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
 
 from app.api.api_v1.endpoints import domains as domains_endpoint
 from app.api.api_v1.endpoints.domains import _spf_fix_hint
 from app.models.dns_cache import DNSCache
 from app.models.domain import Domain
+from app.services.dns_cache import _selectors_key, resolve_domain_dns_cached
 from app.services.dns_resolver import DomainDNSResult
+from app.services.mta_sts import MTAStsResult
 from app.services.report_store import ReportStore
 
 # ---------------------------------------------------------------------------
@@ -68,9 +72,12 @@ def _seed_report_store():
 
 def _mock_dns(result: DomainDNSResult = MOCK_DNS_RESULT):
     """Return a context manager that patches the DNS provider's check_domain."""
+    provider = AsyncMock()
+    provider.check_domain = AsyncMock(return_value=result)
+    provider.lookup_txt = AsyncMock(side_effect=LookupError("MTA-STS not configured"))
     return patch(
         "app.api.api_v1.endpoints.domains.get_default_provider",
-        return_value=AsyncMock(check_domain=AsyncMock(return_value=result)),
+        return_value=provider,
     )
 
 
@@ -278,6 +285,72 @@ def test_dns_endpoint_uses_cached_result(client: TestClient, db_session):
     assert db_session.query(DNSCache).count() == 1
 
 
+@pytest.mark.asyncio
+async def test_dns_cache_recovers_from_concurrent_insert(db_session, monkeypatch):
+    """Concurrent DNS widgets should not fail on a duplicate cache insert."""
+    mock_provider = AsyncMock(check_domain=AsyncMock(return_value=MOCK_DNS_RESULT))
+    selectors = ["google"]
+    original_commit = db_session.commit
+    original_rollback = db_session.rollback
+    commit_calls = 0
+
+    def fake_commit():
+        nonlocal commit_calls
+        commit_calls += 1
+        if commit_calls == 1:
+            raise IntegrityError("insert", {}, Exception("duplicate"))
+        original_commit()
+
+    def fake_rollback():
+        original_rollback()
+        db_session.add(
+            DNSCache(
+                domain=DOMAIN,
+                provider=mock_provider.__class__.__name__,
+                selectors_key=_selectors_key(selectors),
+                result_json=(
+                    '{"dmarc":false,"spf":false,"dkim":false,'
+                    '"dkim_selectors":[],"selectors_checked":[]}'
+                ),
+                checked_at=datetime(2026, 5, 23, 12, 0, 0),
+            )
+        )
+        original_commit()
+
+    monkeypatch.setattr(db_session, "commit", fake_commit)
+    monkeypatch.setattr(db_session, "rollback", fake_rollback)
+
+    result, cached, _checked = await resolve_domain_dns_cached(
+        db_session,
+        mock_provider,
+        DOMAIN,
+        selectors=selectors,
+    )
+
+    assert result == MOCK_DNS_RESULT
+    assert cached is False
+    assert db_session.query(DNSCache).count() == 1
+
+
+@pytest.mark.asyncio
+async def test_dns_cache_reraises_when_conflict_row_missing(db_session, monkeypatch):
+    """Unexpected cache collisions should still surface when no row can be recovered."""
+    mock_provider = AsyncMock(check_domain=AsyncMock(return_value=MOCK_DNS_RESULT))
+
+    def fake_commit():
+        raise IntegrityError("insert", {}, Exception("duplicate"))
+
+    monkeypatch.setattr(db_session, "commit", fake_commit)
+
+    with pytest.raises(IntegrityError):
+        await resolve_domain_dns_cached(
+            db_session,
+            mock_provider,
+            DOMAIN,
+            selectors=["google"],
+        )
+
+
 def test_dns_endpoint_refresh_bypasses_cache(client: TestClient):
     """The refresh query parameter forces a new DNS lookup."""
     mock_provider = AsyncMock(check_domain=AsyncMock(return_value=MOCK_DNS_RESULT))
@@ -349,15 +422,32 @@ def test_dns_health_links_checks_to_evidence(client: TestClient):
         selectors_checked=["google"],
     )
 
-    with _mock_dns(result=missing_dkim):
+    mta_sts = MTAStsResult(
+        status="pass",
+        dns_record="v=STSv1; id=20260523",
+        policy_url="https://mta-sts.example.com/.well-known/mta-sts.txt",
+        mode="enforce",
+        max_age=86400,
+        mx=["*.example.com"],
+    )
+    with (
+        _mock_dns(result=missing_dkim),
+        patch(
+            "app.api.api_v1.endpoints.domains.check_mta_sts_cached",
+            new=AsyncMock(return_value=(mta_sts, False, None)),
+        ),
+    ):
         response = client.get(f"/api/v1/domains/{DOMAIN}/dns/health")
 
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "degraded"
     dkim_check = next(check for check in data["checks"] if check["key"] == "dkim")
+    mta_sts_check = next(check for check in data["checks"] if check["key"] == "mta_sts")
     assert dkim_check["status"] == "fail"
     assert dkim_check["evidence"][0]["href"] == "#dns-records"
+    assert mta_sts_check["status"] == "pass"
+    assert mta_sts_check["evidence"][1]["href"] == "#mta-sts-posture"
     assert any(item["type"] == "missing_dkim" for item in data["recommendations"])
 
 
@@ -405,21 +495,74 @@ def test_dns_health_marks_all_missing_records_critical(client: TestClient):
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "critical"
-    recommendation_types = {item["type"] for item in data["recommendations"]}
-    assert {"missing_dmarc", "missing_spf", "missing_dkim"}.issubset(recommendation_types)
+    recommendation_types = [item["type"] for item in data["recommendations"]]
+    assert {"missing_dmarc", "missing_spf", "missing_dkim"}.issubset(set(recommendation_types))
+    assert recommendation_types.count("missing_mta_sts") == 1
     assert any(item["type"] == "policy_needs_more_data" for item in data["recommendations"])
+
+
+def test_mta_sts_endpoint_returns_cached_posture(client: TestClient):
+    """The domain detail page can fetch MTA-STS posture with cache metadata."""
+    checked_at = datetime(2026, 5, 23, 12, 0, 0)
+    result = MTAStsResult(
+        status="fail",
+        dns_record=None,
+        policy_url=f"https://mta-sts.{DOMAIN}/.well-known/mta-sts.txt",
+        errors=["No _mta-sts TXT record was found."],
+    )
+
+    with patch(
+        "app.api.api_v1.endpoints.domains.check_mta_sts_cached",
+        new=AsyncMock(return_value=(result, True, checked_at)),
+    ):
+        response = client.get(f"/api/v1/domains/{DOMAIN}/dns/mta-sts")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "fail"
+    assert data["cached"] is True
+    assert data["checked_at"] == checked_at.isoformat()
+    assert data["errors"] == ["No _mta-sts TXT record was found."]
+
+
+def test_mta_sts_endpoint_returns_404_for_unknown_domain(client: TestClient):
+    response = client.get("/api/v1/domains/unknown.example.com/dns/mta-sts")
+
+    assert response.status_code == 404
 
 
 @pytest.mark.parametrize(
     ("policy", "summary", "expected_type", "expected_severity"),
     [
-        ("quarantine", {"total_count": 1000, "failed_count": 50, "compliance_rate": 95.0}, "policy_already_enforced", "info"),
-        ("none", {"total_count": 50, "failed_count": 0, "compliance_rate": 100.0}, "policy_needs_more_data", "warning"),
-        ("none", {"total_count": 200, "failed_count": 15, "compliance_rate": 92.5}, "policy_enforcement_review", "warning"),
-        ("none", {"total_count": 200, "failed_count": 80, "compliance_rate": 60.0}, "policy_not_ready", "error"),
+        (
+            "quarantine",
+            {"total_count": 1000, "failed_count": 50, "compliance_rate": 95.0},
+            "policy_already_enforced",
+            "info",
+        ),
+        (
+            "none",
+            {"total_count": 50, "failed_count": 0, "compliance_rate": 100.0},
+            "policy_needs_more_data",
+            "warning",
+        ),
+        (
+            "none",
+            {"total_count": 200, "failed_count": 15, "compliance_rate": 92.5},
+            "policy_enforcement_review",
+            "warning",
+        ),
+        (
+            "none",
+            {"total_count": 200, "failed_count": 80, "compliance_rate": 60.0},
+            "policy_not_ready",
+            "error",
+        ),
     ],
 )
-def test_enforcement_recommendation_common_states(policy, summary, expected_type, expected_severity):
+def test_enforcement_recommendation_common_states(
+    policy, summary, expected_type, expected_severity
+):
     """Policy guidance covers enforced, low-volume, review, and not-ready states."""
     recommendation = domains_endpoint._enforcement_recommendation(policy, summary)
 

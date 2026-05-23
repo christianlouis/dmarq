@@ -214,12 +214,12 @@ Exit criteria:
 
 ## Milestone 13: Email Security Posture (Beyond DMARC)
 
-Status: Backlog
+Status: In Progress
 
 Goal: turn DMARQ into a broader email authentication posture console (still privacy-first and self-hostable).
 
 Planned:
-- MTA-STS posture: DNS record evaluation + policy fetch validation (plus optional helper tooling).
+- MTA-STS posture: delivered cached `_mta-sts` TXT checks, HTTPS policy validation, domain-detail evidence, and operator guidance for missing, invalid, or non-enforcing policies. Optional helper tooling remains a future enhancement.
 - TLS reporting posture: ingest and summarize TLS report data (where available) with actionable failure grouping.
 - BIMI posture: record validation + readiness checks + operator guidance.
 - Extended DNS checks that support the posture surface (e.g., MX/BIMI; optional DANE/TLSA where relevant).

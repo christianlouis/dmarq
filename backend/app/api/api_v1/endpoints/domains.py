@@ -29,6 +29,7 @@ from app.services.dns_resolver import (
     extract_dmarc_policy,
     get_default_provider,
 )
+from app.services.mta_sts import MTAStsResult, check_mta_sts_cached
 from app.services.report_persistence import (
     delete_persisted_domain,
     hydrate_report_store_from_db,
@@ -127,6 +128,22 @@ class DNSHealthResponse(BaseModel):
     failed_emails: int
     checks: List[DNSHealthCheck]
     recommendations: List[DNSHealthRecommendation]
+
+
+class MTAStsResponse(BaseModel):
+    """MTA-STS posture result for a domain."""
+
+    status: str
+    dns_record: Optional[str] = None
+    policy_url: Optional[str] = None
+    policy_text: Optional[str] = None
+    mode: Optional[str] = None
+    max_age: Optional[int] = None
+    mx: List[str] = Field(default_factory=list)
+    errors: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    cached: bool = False
+    checked_at: Optional[str] = None
 
 
 class CloudflareZoneResponse(BaseModel):
@@ -442,6 +459,54 @@ def _enforcement_recommendation(
         detail="Current DMARC compliance is too low for a safe policy change.",
         action="Fix unauthenticated or unknown senders before moving beyond p=none.",
         evidence=evidence,
+    )
+
+
+def _mta_sts_check(result: MTAStsResult) -> DNSHealthCheck:
+    evidence = [
+        _record_evidence("MTA-STS TXT", result.dns_record, "#dns-records"),
+        _record_evidence("Policy URL", result.policy_url, "#mta-sts-posture"),
+    ]
+    if result.mode:
+        evidence.append(_record_evidence("Mode", result.mode, "#mta-sts-posture"))
+    if result.mx:
+        evidence.append(_record_evidence("MX patterns", ", ".join(result.mx), "#mta-sts-posture"))
+    message = (
+        "MTA-STS DNS and HTTPS policy are valid."
+        if result.status == "pass"
+        else (result.errors[0] if result.errors else "MTA-STS posture needs attention.")
+    )
+    return DNSHealthCheck(
+        key="mta_sts",
+        label="MTA-STS",
+        status=result.status,
+        message=message,
+        evidence=evidence,
+    )
+
+
+def _mta_sts_recommendation(result: MTAStsResult) -> Optional[DNSHealthRecommendation]:
+    if result.status == "pass" and not result.warnings:
+        return None
+    severity = "warning" if result.status == "pass" else "error"
+    title = "MTA-STS policy needs review" if result.status == "pass" else "Publish MTA-STS"
+    detail = (
+        "; ".join(result.warnings)
+        if result.status == "pass"
+        else "; ".join(result.errors or ["MTA-STS is not configured or is not valid."])
+    )
+    action = (
+        "Move the policy to mode: enforce once MX coverage is confirmed."
+        if result.status == "pass"
+        else "Publish _mta-sts TXT and a valid HTTPS policy at the well-known URL."
+    )
+    return DNSHealthRecommendation(
+        type="mta_sts_review" if result.status == "pass" else "missing_mta_sts",
+        severity=severity,
+        title=title,
+        detail=detail,
+        action=action,
+        evidence=_mta_sts_check(result).evidence,
     )
 
 
@@ -769,6 +834,12 @@ async def get_domain_dns_health(
         selectors=combined_selectors,
         refresh=refresh,
     )
+    mta_sts_result, _, _ = await check_mta_sts_cached(
+        db,
+        provider,
+        domain_id,
+        refresh=refresh,
+    )
     summary = store.get_domain_summary(domain_id)
     policy = extract_dmarc_policy(result.dmarc_record) or "none"
     checks = [
@@ -802,10 +873,11 @@ async def get_domain_dns_health(
                 _record_evidence("DKIM TXT", result.dkim_record),
             ],
         ),
+        _mta_sts_check(mta_sts_result),
     ]
     recommendations: List[DNSHealthRecommendation] = []
     for check in checks:
-        if check.status == "fail":
+        if check.status == "fail" and check.key != "mta_sts":
             recommendations.append(
                 DNSHealthRecommendation(
                     type=f"missing_{check.key}",
@@ -817,6 +889,9 @@ async def get_domain_dns_health(
                 )
             )
     recommendations.append(_enforcement_recommendation(policy, summary))
+    mta_sts_recommendation = _mta_sts_recommendation(mta_sts_result)
+    if mta_sts_recommendation:
+        recommendations.append(mta_sts_recommendation)
 
     failed_checks = sum(1 for check in checks if check.status == "fail")
     health_status = (
@@ -830,6 +905,41 @@ async def get_domain_dns_health(
         failed_emails=int(summary.get("failed_count", 0) or 0),
         checks=checks,
         recommendations=recommendations,
+    )
+
+
+@router.get("/{domain_id}/dns/mta-sts", response_model=MTAStsResponse)
+async def get_domain_mta_sts(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    refresh: bool = Query(False, title="Refresh cached MTA-STS result"),
+    db: Session = Depends(get_db),
+):
+    """Return cached MTA-STS DNS and HTTPS policy posture for a domain."""
+    store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
+    if not _domain_exists(db, store, domain_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Domain not found",
+        )
+    result, cached, checked_at = await check_mta_sts_cached(
+        db,
+        get_default_provider(db),
+        domain_id,
+        refresh=refresh,
+    )
+    return MTAStsResponse(
+        status=result.status,
+        dns_record=result.dns_record,
+        policy_url=result.policy_url,
+        policy_text=result.policy_text,
+        mode=result.mode,
+        max_age=result.max_age,
+        mx=result.mx,
+        errors=result.errors,
+        warnings=result.warnings,
+        cached=cached,
+        checked_at=checked_at.isoformat(),
     )
 
 

@@ -59,8 +59,17 @@ DMARQ provides a health check feature for each domain:
    - SPF record validation
    - DKIM selector verification
    - DMARC record syntax check
+   - MTA-STS TXT and HTTPS policy validation
    - MX record confirmation
    - BIMI record validation (if applicable)
+
+### MTA-STS Posture
+
+The domain detail page checks `_mta-sts.<domain>` and fetches the policy from `https://mta-sts.<domain>/.well-known/mta-sts.txt`.
+
+DMARQ marks the check healthy when the TXT record contains `v=STSv1` with an `id`, the HTTPS policy is reachable, and the policy includes `version`, `mode`, `mx`, and `max_age`. Findings include the DNS record, policy URL, mode, MX patterns, and actionable guidance for missing records, fetch failures, invalid policies, or non-enforcing `testing`/`none` modes.
+
+MTA-STS posture uses the same cached DNS refresh behavior as the existing DNS health checks. Use the DNS refresh action when you publish or update a policy and need DMARQ to re-check immediately.
 
 ## Domain Groups
 

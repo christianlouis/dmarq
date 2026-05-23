@@ -8,6 +8,7 @@ from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from typing import List, Tuple
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.dns_cache import DNSCache
@@ -74,18 +75,38 @@ async def resolve_domain_dns_cached(
         return _result_from_json(row.result_json), True, row.checked_at
 
     result = await provider.check_domain(domain, selectors=selectors)
+    payload = _result_to_json(result)
     if row is None:
         row = DNSCache(
             domain=domain,
             provider=provider_name,
             selectors_key=selectors_key,
-            result_json=_result_to_json(result),
+            result_json=payload,
             checked_at=now,
         )
         db.add(row)
     else:
-        row.result_json = _result_to_json(result)
+        row.result_json = payload
         row.checked_at = now
-    db.commit()
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        row = (
+            db.query(DNSCache)
+            .filter(
+                DNSCache.domain == domain,
+                DNSCache.provider == provider_name,
+                DNSCache.selectors_key == selectors_key,
+            )
+            .first()
+        )
+        if row is None:
+            raise
+        row.result_json = payload
+        row.checked_at = now
+        db.commit()
+
     db.refresh(row)
     return result, False, row.checked_at

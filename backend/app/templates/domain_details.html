@@ -143,7 +143,7 @@
                 {% endcall %}
             {% endcall %}
             {% call card_content() %}
-                <div class="grid gap-4 lg:grid-cols-3">
+                <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                     <template x-for="check in dnsHealth.checks" :key="check.key">
                         <div class="rounded border border-base-300 p-4">
                             <div class="flex items-center justify-between">
@@ -218,6 +218,30 @@
                             <span x-show="!dns.spf" class="inline-flex h-2 w-2 rounded-full bg-red-500"></span>
                         </h3>
                         <div class="bg-muted p-2 rounded text-sm overflow-x-auto font-mono" x-text="dns.spfRecord || 'No SPF record found'">-</div>
+                    </div>
+                    <div id="mta-sts-posture">
+                        <h3 class="font-semibold mb-1 flex items-center">
+                            <span class="mr-2">MTA-STS</span>
+                            <span x-show="mtaSts.status === 'pass'" class="inline-flex h-2 w-2 rounded-full bg-green-500"></span>
+                            <span x-show="mtaSts.status === 'fail'" class="inline-flex h-2 w-2 rounded-full bg-red-500"></span>
+                            <span x-show="!mtaSts.status" class="inline-flex h-2 w-2 rounded-full bg-base-300"></span>
+                        </h3>
+                        <div class="space-y-2">
+                            <div class="bg-muted p-2 rounded text-sm overflow-x-auto font-mono" x-text="mtaSts.dns_record || 'No _mta-sts TXT record found'">-</div>
+                            <div class="rounded border border-base-300 p-3 text-sm">
+                                <div class="grid gap-1">
+                                    <div><span class="font-medium">Mode:</span> <span x-text="mtaSts.mode || 'unknown'"></span></div>
+                                    <div><span class="font-medium">Max age:</span> <span x-text="mtaSts.max_age || 'unknown'"></span></div>
+                                    <div><span class="font-medium">MX:</span> <span class="font-mono" x-text="mtaSts.mx && mtaSts.mx.length ? mtaSts.mx.join(', ') : 'none'"></span></div>
+                                </div>
+                                <template x-if="mtaSts.errors && mtaSts.errors.length">
+                                    <p class="mt-2 text-xs text-red-600" x-text="mtaSts.errors[0]"></p>
+                                </template>
+                                <template x-if="mtaSts.warnings && mtaSts.warnings.length">
+                                    <p class="mt-2 text-xs text-yellow-700" x-text="mtaSts.warnings[0]"></p>
+                                </template>
+                            </div>
+                        </div>
                     </div>
                     <!-- DKIM Selectors — live check result -->
                     <div>
@@ -586,6 +610,15 @@ function domainDetailsApp(domainId) {
             checks: [],
             recommendations: []
         },
+        mtaSts: {
+            status: '',
+            dns_record: '',
+            mode: '',
+            max_age: null,
+            mx: [],
+            errors: [],
+            warnings: []
+        },
         selectors: [],
         reportSelectors: [],
         newSelector: '',
@@ -604,6 +637,7 @@ function domainDetailsApp(domainId) {
             this.fetchDomainStats();
             this.fetchDNSRecords();
             this.fetchDNSHealth();
+            this.fetchMtaSts();
             this.fetchSelectors();
             this.fetchReports();
             this.fetchSources();
@@ -687,6 +721,17 @@ function domainDetailsApp(domainId) {
             }
         },
 
+        async fetchMtaSts() {
+            try {
+                const response = await fetch(`/api/v1/domains/${this.domainId}/dns/mta-sts`);
+                if (response.ok) {
+                    this.mtaSts = await response.json();
+                }
+            } catch (error) {
+                console.error('Error fetching MTA-STS posture:', error);
+            }
+        },
+
         async fetchSelectors() {
             try {
                 const response = await fetch(`/api/v1/domains/${this.domainId}/selectors`);
@@ -716,6 +761,7 @@ function domainDetailsApp(domainId) {
                     this.fetchSelectors();
                     this.fetchDNSRecords();
                     this.fetchDNSHealth();
+                    this.fetchMtaSts();
                 } else {
                     const err = await response.json();
                     this.selectorError = err.detail || 'Failed to add selector';
@@ -737,6 +783,7 @@ function domainDetailsApp(domainId) {
                     this.fetchSelectors();
                     this.fetchDNSRecords();
                     this.fetchDNSHealth();
+                    this.fetchMtaSts();
                 } else {
                     console.error('Error deleting selector:', response.status);
                 }
