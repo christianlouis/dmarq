@@ -121,6 +121,59 @@ filters:
 
 Audit details redact secret-like fields before they are stored.
 
+### Workspace Onboarding
+
+Workspace onboarding endpoints require administrator access and render/apply
+versioned onboarding templates for new client workspaces.
+
+#### List Onboarding Templates
+
+```text
+GET /onboarding/templates
+```
+
+Returns template metadata, variables, domain and mail-source templates,
+notification defaults, and operator checklist items.
+
+#### Preview Onboarding Plan
+
+```text
+POST /onboarding/preview
+```
+
+Request:
+
+```json
+{
+  "template_id": "standard_monitoring",
+  "workspace": {
+    "slug": "client-one",
+    "name": "Client One"
+  },
+  "variables": {
+    "domain": "example.com",
+    "report_mailbox": "dmarc@example.com",
+    "imap_server": "imap.example.com"
+  }
+}
+```
+
+Returns the rendered plan without writing to the database. Secret-like fields
+are redacted in the response.
+
+#### Apply Onboarding Plan
+
+```text
+POST /onboarding/apply
+```
+
+Applies the rendered plan by creating or reusing the workspace, adding missing
+domains and mail-source shells, seeding safe notification defaults, returning
+the operator checklist, and writing a sanitized workspace audit event.
+
+Existing domains and mail sources are not duplicated. Existing notification
+settings are preserved unless `overwrite_existing` is set to `true`.
+
 ### Domains
 
 #### List Domains

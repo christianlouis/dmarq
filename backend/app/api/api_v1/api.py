@@ -10,6 +10,7 @@ from app.api.api_v1.endpoints import (
     imap,
     integrations,
     mail_sources,
+    onboarding,
     public,
     reports,
     settings,
@@ -36,6 +37,7 @@ api_router.include_router(imap.router, prefix="/imap", tags=["imap"])
 api_router.include_router(integrations.router, prefix="/integrations", tags=["integrations"])
 api_router.include_router(stats.router, prefix="/stats", tags=["stats"])
 api_router.include_router(mail_sources.router, prefix="/mail-sources", tags=["mail-sources"])
+api_router.include_router(onboarding.router, prefix="/onboarding", tags=["onboarding"])
 api_router.include_router(settings.router, prefix="/settings", tags=["settings"])
 api_router.include_router(tls_reports.router, prefix="/tls-reports", tags=["tls-reports"])
 api_router.include_router(webhook.router, prefix="/webhook", tags=["webhook"])
