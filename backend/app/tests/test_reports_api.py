@@ -7,75 +7,10 @@ from app.models.domain import Domain
 from app.models.report import DMARCReport, ReportRecord
 from app.services.report_persistence import persisted_report_to_dict
 from app.services.report_store import ReportStore
-from app.tests.test_data import SAMPLE_XML
+from app.tests.test_data import SAMPLE_XML, load_dmarc_fixture
 
 
-SAMPLE_RFC9990_XML = """
-<feedback xmlns="urn:ietf:params:xml:ns:dmarc-2.0" xmlns:vendor="https://reports.example.test/dmarc">
-    <version>1.0</version>
-    <report_metadata>
-        <org_name>Example Receiver</org_name>
-        <email>dmarc@example.test</email>
-        <extra_contact_info>https://example.test/dmarc</extra_contact_info>
-        <report_id>2026-05-23-example.org</report_id>
-        <date_range>
-            <begin>1779494400</begin>
-            <end>1779580799</end>
-        </date_range>
-        <error>Multiple records ignored.</error>
-        <generator>ExampleRUA 2.0</generator>
-    </report_metadata>
-    <policy_published>
-        <domain>example.org</domain>
-        <discovery_method>treewalk</discovery_method>
-        <p>quarantine</p>
-        <sp>reject</sp>
-        <np>none</np>
-        <fo>1</fo>
-        <adkim>s</adkim>
-        <aspf>r</aspf>
-        <testing>y</testing>
-    </policy_published>
-    <extension>
-        <vendor:receiver>mx1.example.test</vendor:receiver>
-    </extension>
-    <record>
-        <row>
-            <source_ip>2001:db8::1</source_ip>
-            <count>5</count>
-            <policy_evaluated>
-                <disposition>quarantine</disposition>
-                <dkim>fail</dkim>
-                <spf>pass</spf>
-                <reason>
-                    <type>local_policy</type>
-                    <comment>trusted relay</comment>
-                </reason>
-            </policy_evaluated>
-        </row>
-        <identifiers>
-            <header_from>news.example.org</header_from>
-            <envelope_from>bounce.example.org</envelope_from>
-            <envelope_to>customer.example.net</envelope_to>
-        </identifiers>
-        <auth_results>
-            <dkim>
-                <domain>example.net</domain>
-                <selector>selector1</selector>
-                <result>fail</result>
-                <human_result>body hash did not verify</human_result>
-            </dkim>
-            <spf>
-                <domain>bounce.example.org</domain>
-                <scope>mfrom</scope>
-                <result>pass</result>
-                <human_result>sender authorized</human_result>
-            </spf>
-        </auth_results>
-        <vendor:source>mail-platform</vendor:source>
-    </record>
-</feedback>
-"""
+SAMPLE_RFC9990_XML = load_dmarc_fixture("rfc9990-treewalk-extension.xml")
 
 
 def _make_zip(xml_content: str) -> bytes:
@@ -123,7 +58,7 @@ def test_upload_persists_rfc9990_optional_fields(client: TestClient, db_session)
     )
     assert response.status_code == 200
 
-    report = db_session.query(DMARCReport).filter_by(report_id="2026-05-23-example.org").one()
+    report = db_session.query(DMARCReport).filter_by(report_id="fixture-rfc9990-treewalk").one()
     assert report.domain.name == "example.org"
     assert report.extra_contact_info == "https://example.test/dmarc"
     assert report.generator == "ExampleRUA 2.0"
@@ -134,7 +69,7 @@ def test_upload_persists_rfc9990_optional_fields(client: TestClient, db_session)
     assert report.failure_options == "1"
     assert report.testing == "y"
     assert report.discovery_method == "treewalk"
-    assert "Multiple records ignored." in report.report_errors
+    assert "Multiple DMARC records were ignored before treewalk." in report.report_errors
     assert "mx1.example.test" in report.report_extensions
 
     record = db_session.query(ReportRecord).filter_by(report_id=report.id).one()
