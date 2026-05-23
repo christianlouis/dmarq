@@ -1,6 +1,14 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from sqlalchemy import func, text
+from sqlalchemy.orm import Session
 
 from app.api.api_v1.endpoints.setup import setup_status
+from app.core.database import get_db
+from app.core.security import require_admin_auth
+from app.models.mail_source import MailSource
+from app.models.mail_source_import import MailSourceImport
+from app.models.report import DMARCReport
+from app.services.runtime_status import get_scheduler_status
 
 router = APIRouter()
 
@@ -16,4 +24,95 @@ async def health_check():
         "version": "0.1.0",
         "service": "dmarq",
         "is_setup_complete": setup_status["is_setup_complete"],
+    }
+
+
+def _iso(value):
+    return value.isoformat() if value else None
+
+
+@router.get("/health/operations", status_code=200)
+async def operations_health(
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
+    """Return operational health details for the web health page."""
+    database = {"ok": True, "detail": "Connected"}
+    try:
+        db.execute(text("SELECT 1"))
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        database = {"ok": False, "detail": str(exc)}
+
+    enabled_sources = 0
+    total_sources = 0
+    report_count = 0
+    latest_report = None
+    latest_import = None
+    latest_successful_import = None
+    if database["ok"]:
+        enabled_sources = (
+            db.query(func.count(MailSource.id))
+            .filter(MailSource.enabled == True)  # noqa: E712
+            .scalar()
+        )
+        total_sources = db.query(func.count(MailSource.id)).scalar()
+        report_count = db.query(func.count(DMARCReport.id)).scalar()
+        latest_report = db.query(func.max(DMARCReport.processed_at)).scalar()
+        latest_import = (
+            db.query(MailSourceImport)
+            .order_by(MailSourceImport.finished_at.desc(), MailSourceImport.id.desc())
+            .first()
+        )
+        latest_successful_import = (
+            db.query(MailSourceImport)
+            .filter(MailSourceImport.status.in_(["success", "warning"]))
+            .order_by(MailSourceImport.finished_at.desc(), MailSourceImport.id.desc())
+            .first()
+        )
+
+    scheduler = get_scheduler_status()
+    status = "ok"
+    checks = []
+    if not database["ok"]:
+        status = "degraded"
+        checks.append("Database connectivity failed.")
+    if total_sources and enabled_sources == 0:
+        status = "degraded"
+        checks.append("All mail sources are disabled.")
+    if scheduler.get("last_error"):
+        status = "degraded"
+        checks.append("The scheduler reported a recent error.")
+
+    return {
+        "status": status,
+        "service": "dmarq",
+        "database": database,
+        "scheduler": {
+            **scheduler,
+            "enabled_sources": int(enabled_sources or 0),
+            "total_sources": int(total_sources or 0),
+        },
+        "imports": {
+            "latest": {
+                "status": latest_import.status,
+                "trigger": latest_import.trigger,
+                "reports_found": latest_import.reports_found,
+                "finished_at": _iso(latest_import.finished_at),
+            }
+            if latest_import
+            else None,
+            "latest_successful": {
+                "status": latest_successful_import.status,
+                "trigger": latest_successful_import.trigger,
+                "reports_found": latest_successful_import.reports_found,
+                "finished_at": _iso(latest_successful_import.finished_at),
+            }
+            if latest_successful_import
+            else None,
+        },
+        "reports": {
+            "count": int(report_count or 0),
+            "latest_processed_at": _iso(latest_report),
+        },
+        "checks": checks,
     }

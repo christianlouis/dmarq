@@ -191,7 +191,7 @@ def persisted_report_to_dict(report: DMARCReport) -> Dict[str, Any]:
     }
 
 
-def hydrate_report_store_from_db(db: Session, store: ReportStore | None = None) -> int:
+def hydrate_report_store_from_db(db: Session, store: Optional[ReportStore] = None) -> int:
     """Load persisted reports into ReportStore when the database has report rows."""
     report_count = db.query(DMARCReport.id).count()
     if report_count == 0:

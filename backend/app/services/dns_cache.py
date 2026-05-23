@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import asdict
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Tuple
 
 from sqlalchemy.orm import Session
@@ -17,7 +17,7 @@ DEFAULT_DNS_CACHE_TTL_SECONDS = 900
 
 
 def _utcnow_naive() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def _selectors_key(selectors: List[str]) -> str:

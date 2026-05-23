@@ -1,0 +1,148 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}DMARQ - Health{% endblock %}
+
+{% block content %}
+<div class="mx-auto max-w-6xl space-y-6" x-data="operationsHealth()" x-init="load()">
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+            <h1 class="text-2xl font-bold">System Health</h1>
+            <p class="mt-1 text-sm text-base-content/70">Operational status for imports, scheduler activity, and storage.</p>
+        </div>
+        <button class="btn btn-outline btn-sm" @click="load" :disabled="loading">
+            <span x-show="loading" class="loading loading-spinner loading-xs"></span>
+            Refresh
+        </button>
+    </div>
+
+    <div x-show="error" role="alert" class="alert alert-error">
+        <span x-text="error"></span>
+    </div>
+
+    <div class="grid gap-4 md:grid-cols-4">
+        <div class="card bg-base-100 shadow">
+            <div class="card-body">
+                <div class="text-sm text-base-content/60">Overall</div>
+                <div class="text-2xl font-semibold capitalize" :class="health.status === 'ok' ? 'text-success' : 'text-warning'" x-text="health.status || 'loading'"></div>
+            </div>
+        </div>
+        <div class="card bg-base-100 shadow">
+            <div class="card-body">
+                <div class="text-sm text-base-content/60">Database</div>
+                <div class="text-2xl font-semibold" :class="health.database?.ok ? 'text-success' : 'text-error'" x-text="health.database?.ok ? 'Connected' : 'Failed'"></div>
+            </div>
+        </div>
+        <div class="card bg-base-100 shadow">
+            <div class="card-body">
+                <div class="text-sm text-base-content/60">Mail Sources</div>
+                <div class="text-2xl font-semibold" x-text="`${health.scheduler?.enabled_sources || 0}/${health.scheduler?.total_sources || 0}`"></div>
+            </div>
+        </div>
+        <div class="card bg-base-100 shadow">
+            <div class="card-body">
+                <div class="text-sm text-base-content/60">Reports</div>
+                <div class="text-2xl font-semibold" x-text="health.reports?.count || 0"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid gap-6 lg:grid-cols-2">
+        <section class="card bg-base-100 shadow">
+            <div class="card-body">
+                <h2 class="card-title">Scheduler</h2>
+                <dl class="grid gap-3 text-sm sm:grid-cols-2">
+                    <div>
+                        <dt class="text-base-content/60">State</dt>
+                        <dd class="font-medium" x-text="health.scheduler?.running ? 'Running' : 'Stopped'"></dd>
+                    </div>
+                    <div>
+                        <dt class="text-base-content/60">Last cycle</dt>
+                        <dd class="font-medium" x-text="formatDate(health.scheduler?.last_cycle_started_at)"></dd>
+                    </div>
+                    <div>
+                        <dt class="text-base-content/60">Last successful cycle</dt>
+                        <dd class="font-medium" x-text="formatDate(health.scheduler?.last_success_at)"></dd>
+                    </div>
+                    <div>
+                        <dt class="text-base-content/60">Last error</dt>
+                        <dd class="font-medium" x-text="health.scheduler?.last_error || 'None'"></dd>
+                    </div>
+                </dl>
+            </div>
+        </section>
+
+        <section class="card bg-base-100 shadow">
+            <div class="card-body">
+                <h2 class="card-title">Imports</h2>
+                <dl class="grid gap-3 text-sm sm:grid-cols-2">
+                    <div>
+                        <dt class="text-base-content/60">Last completed</dt>
+                        <dd class="font-medium" x-text="formatImport(health.imports?.latest)"></dd>
+                    </div>
+                    <div>
+                        <dt class="text-base-content/60">Last successful</dt>
+                        <dd class="font-medium" x-text="formatImport(health.imports?.latest_successful)"></dd>
+                    </div>
+                    <div>
+                        <dt class="text-base-content/60">Latest report</dt>
+                        <dd class="font-medium" x-text="formatDate(health.reports?.latest_processed_at)"></dd>
+                    </div>
+                    <div>
+                        <dt class="text-base-content/60">Database detail</dt>
+                        <dd class="font-medium" x-text="health.database?.detail || 'Unknown'"></dd>
+                    </div>
+                </dl>
+            </div>
+        </section>
+    </div>
+
+    <section class="card bg-base-100 shadow" x-show="health.checks?.length">
+        <div class="card-body">
+            <h2 class="card-title">Attention</h2>
+            <ul class="list-disc space-y-2 pl-5 text-sm">
+                <template x-for="check in health.checks" :key="check">
+                    <li x-text="check"></li>
+                </template>
+            </ul>
+        </div>
+    </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function operationsHealth() {
+    return {
+        loading: false,
+        error: '',
+        health: {},
+
+        async load() {
+            this.loading = true;
+            this.error = '';
+            try {
+                const response = await fetch('/api/v1/health/operations');
+                if (!response.ok) {
+                    throw new Error('Health details could not be loaded.');
+                }
+                this.health = await response.json();
+            } catch (error) {
+                this.error = error.message || 'Health details could not be loaded.';
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        formatDate(value) {
+            if (!value) return 'Not recorded';
+            return new Date(value).toLocaleString();
+        },
+
+        formatImport(value) {
+            if (!value) return 'Not recorded';
+            return `${value.status} (${value.reports_found} reports) at ${this.formatDate(value.finished_at)}`;
+        },
+    };
+}
+</script>
+{% endblock %}
