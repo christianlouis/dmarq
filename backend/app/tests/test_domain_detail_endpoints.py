@@ -33,7 +33,20 @@ REPORT_DICT_POLICY = {
     "end_date": "2020-08-15T23:59:59",
     "begin_timestamp": 1597449600,
     "end_timestamp": 1597535999,
-    "policy": {"p": "reject", "sp": "reject", "pct": "100"},
+    "policy": {
+        "p": "reject",
+        "sp": "reject",
+        "pct": "100",
+        "np": "none",
+        "adkim": "s",
+        "aspf": "r",
+        "fo": "1",
+        "testing": "y",
+        "discovery_method": "treewalk",
+    },
+    "schema_version": "1.0",
+    "variant": "rfc9990",
+    "generator": "ExampleRUA 2.0",
     "records": [
         {
             "source_ip": "209.85.220.1",
@@ -139,6 +152,15 @@ def test_export_domain_reports_returns_csv(seeded_client: TestClient):
     assert rows[0]["passed"] == "10"
     assert rows[0]["failed"] == "0"
     assert rows[0]["policy"] == "reject"
+    assert rows[0]["non_subdomain_policy"] == "none"
+    assert rows[0]["adkim"] == "s"
+    assert rows[0]["aspf"] == "r"
+    assert rows[0]["failure_options"] == "1"
+    assert rows[0]["testing"] == "y"
+    assert rows[0]["discovery_method"] == "treewalk"
+    assert rows[0]["schema_version"] == "1.0"
+    assert rows[0]["report_variant"] == "rfc9990"
+    assert rows[0]["generator"] == "ExampleRUA 2.0"
 
 
 def test_export_domain_reports_filters_by_date_range(client: TestClient):
@@ -243,7 +265,9 @@ def test_get_domain_sources_returns_rollup_counts(client: TestClient):
     assert source["disposition_counts"] == {"none": 4, "quarantine": 6}
 
 
-def test_get_domain_sources_returns_recommendations(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+def test_get_domain_sources_returns_recommendations(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
     """Endpoint includes actionable guidance for common failure patterns."""
 
     async def fake_ptr_lookup(_provider, _ip, timeout=3.0):  # pylint: disable=unused-argument
@@ -339,8 +363,10 @@ def test_source_recommendations_cover_common_cases():
     ]
 
     for source, hostname, spf_fix_hint, expected_types in cases:
-        recommendations = domains_endpoint._source_recommendations(  # pylint: disable=protected-access
-            source["source_ip"], source, hostname, spf_fix_hint
+        recommendations = (
+            domains_endpoint._source_recommendations(  # pylint: disable=protected-access
+                source["source_ip"], source, hostname, spf_fix_hint
+            )
         )
         assert {item.type for item in recommendations} == expected_types
 
