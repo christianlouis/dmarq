@@ -20,6 +20,7 @@ import app.models.report  # noqa: F401 – ensure DMARCReport/ReportRecord table
 import app.models.setting  # noqa: F401 – ensure Setting table is registered
 import app.models.user  # noqa: F401 – ensure User table is registered
 import app.models.webhook  # noqa: F401 – ensure webhook tables are registered
+import app.models.workspace  # noqa: F401 – ensure workspace table is registered
 from app.api.api_v1.api import api_router
 from app.core.config import get_settings
 from app.core.database import Base, SessionLocal, engine

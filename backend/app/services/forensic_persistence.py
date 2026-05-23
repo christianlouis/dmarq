@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.models.domain import Domain
 from app.models.report import ForensicReport
 from app.services.forensic_redaction import ForensicRedactionPolicy, redact_forensic_value
+from app.services.workspaces import assign_default_workspace_to_unscoped_rows
 from app.utils.domain_validator import DomainValidationError, validate_domain
 
 
@@ -28,9 +29,14 @@ def _domain_for_report(db: Session, domain_name: Optional[str]) -> Optional[Doma
     if not is_valid and error_code != DomainValidationError.DNS_RESOLUTION_FAILED:
         return None
 
-    domain = db.query(Domain).filter(Domain.name == normalized).first()
+    workspace = assign_default_workspace_to_unscoped_rows(db, commit=False)
+    domain = (
+        db.query(Domain)
+        .filter(Domain.name == normalized, Domain.workspace_id == workspace.id)
+        .first()
+    )
     if domain is None:
-        domain = Domain(name=normalized)
+        domain = Domain(name=normalized, workspace_id=workspace.id)
         db.add(domain)
         db.flush()
     return domain

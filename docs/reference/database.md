@@ -12,6 +12,22 @@ DMARQ uses a relational database to store all its data. The schema is designed t
 
 ## Core Tables
 
+### Workspaces
+
+The `workspaces` table stores tenant boundaries for multi-organization and MSP
+deployments. Existing single-tenant installs are attached to the default
+workspace during migration.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | INTEGER | Primary key |
+| slug | VARCHAR | Unique stable workspace slug |
+| name | VARCHAR | Display name |
+| description | TEXT | Optional operator-facing description |
+| active | BOOLEAN | Whether the workspace can be used |
+| created_at | TIMESTAMP | When the workspace was created |
+| updated_at | TIMESTAMP | When the workspace was last updated |
+
 ### Domains
 
 The `domains` table stores information about the domains being monitored.
@@ -19,6 +35,7 @@ The `domains` table stores information about the domains being monitored.
 | Column | Type | Description |
 |--------|------|-------------|
 | id | INTEGER | Primary key |
+| workspace_id | INTEGER | Foreign key to workspaces.id |
 | name | VARCHAR(255) | Domain name (e.g., example.com) |
 | created_at | TIMESTAMP | When the domain was added |
 | active | BOOLEAN | Whether the domain is actively monitored |
@@ -105,6 +122,7 @@ The `users` table stores user account information.
 | Column | Type | Description |
 |--------|------|-------------|
 | id | INTEGER | Primary key |
+| workspace_id | INTEGER | Foreign key to workspaces.id |
 | username | VARCHAR(50) | Username |
 | email | VARCHAR(255) | Email address |
 | password_hash | VARCHAR(255) | Hashed password |
@@ -176,6 +194,26 @@ The `webhook_deliveries` table records delivery attempts and retry state.
 | response_excerpt | TEXT | Truncated downstream response |
 
 ## DNS and Configuration Tables
+
+### Mail_Sources
+
+The `mail_sources` table stores configured inboxes used to retrieve DMARC,
+forensic, and SMTP TLS reports.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | INTEGER | Primary key |
+| workspace_id | INTEGER | Foreign key to workspaces.id |
+| name | VARCHAR | Human-readable source name |
+| method | VARCHAR | Source type such as IMAP, Gmail API, or Microsoft Graph |
+| server | VARCHAR | IMAP/POP server hostname |
+| port | INTEGER | IMAP/POP server port |
+| username | VARCHAR | Mailbox username |
+| password | TEXT | Encrypted mailbox password |
+| enabled | BOOLEAN | Whether scheduled imports should poll this source |
+| last_checked | TIMESTAMP | Last polling attempt time |
+| created_at | TIMESTAMP | When the source was created |
+| updated_at | TIMESTAMP | When the source was last updated |
 
 ### DNS_Records
 

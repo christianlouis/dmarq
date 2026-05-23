@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import relationship
 
 from app.core.credential_encryption import decrypt_secret, encrypt_secret, is_encrypted_secret
@@ -24,6 +24,7 @@ class MailSource(Base):
     __tablename__ = "mail_sources"
 
     id = Column(Integer, primary_key=True, index=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=True, index=True)
 
     # Human-readable label for the source
     name = Column(String, nullable=False)
@@ -80,6 +81,9 @@ class MailSource(Base):
         back_populates="mail_source",
         cascade="all, delete-orphan",
     )
+    workspace = relationship("Workspace", back_populates="mail_sources")
+
+    __table_args__ = (Index("ix_mail_sources_workspace_enabled", "workspace_id", "enabled"),)
 
     def __repr__(self):
         return f"<MailSource id={self.id} name={self.name!r} method={self.method!r}>"

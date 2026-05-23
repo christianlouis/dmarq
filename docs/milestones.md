@@ -246,12 +246,14 @@ Exit criteria:
 
 ## Milestone 15: Workspaces / MSP Mode (Multi-Org Governance)
 
-Status: Backlog
+Status: In progress
 
 Goal: support multi-org deployments (e.g., MSPs) with strong isolation, ownership, and operator ergonomics.
 
 Planned:
-- Workspace/tenant concept with clear domain ownership.
+- Workspace/tenant concept with clear domain ownership. Delivered in M15.1:
+  default workspace migration, ownership columns for domains/users/mail sources,
+  and scoped query helpers.
 - Workspace-scoped RBAC and audit logs.
 - Templates for onboarding new workspaces (domains + mail sources + notifications).
 - Cross-workspace operator views for MSP admins, without weakening tenant isolation.
