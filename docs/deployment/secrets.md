@@ -20,6 +20,8 @@ Store these values in a 1Password Environment for each deployment target:
 
 Non-sensitive values, such as `IMAP_SERVER`, `IMAP_USERNAME`, `LOGTO_ENDPOINT`, `LOGTO_APP_ID`, and `BACKEND_CORS_ORIGINS`, may also live in the Environment so each deployment has one complete configuration bundle.
 
+OAuth mail connectors can also store provider client secrets and refresh/access tokens in encrypted database fields after an administrator authorizes the source. Treat values such as `GMAIL_CLIENT_SECRET`, Microsoft 365 client secrets, refresh tokens, and access tokens as secrets even when they are provider-generated and short-lived.
+
 ## Create the Environment
 
 1. Open 1Password and enable the local MCP server or Environments feature if it is not already enabled.
@@ -89,6 +91,11 @@ Restrict the service user and file permissions so only the DMARQ process and the
 
 - Never commit `.env` files or secret values.
 - Never paste mailbox passwords, OAuth secrets, API tokens, database passwords, or generated session keys into issues, pull requests, logs, or chat.
+- Never include provider tokens, authorization headers, client secrets, raw mailbox payloads, or message bodies in connector diagnostics, import history, webhook payloads, screenshots, or support notes.
 - Keep `AUTH_DISABLED=true` limited to local development or a deployment protected by a separate authentication proxy.
 - Keep `LOGTO_SKIP_SSL_VERIFY=false` in production.
 - Use separate 1Password Environments for development, preprod, and production.
+
+## Connector Development
+
+New mail-source connectors must follow the shared connector contract in [Mail Connector Framework](../development/connectors.md). Use the shared sanitization helpers for provider errors and store only non-secret import context such as mailbox labels, folder labels, search windows, message IDs, filenames, domains, and report IDs.

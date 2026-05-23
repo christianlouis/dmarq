@@ -9,7 +9,6 @@ processed twice (no messages are modified or deleted).
 
 import base64
 import email
-import json
 import logging
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
@@ -24,6 +23,14 @@ from app.services.dmarc_parser import DMARCParser
 from app.services.forensic_parser import ForensicParser
 from app.services.forensic_persistence import forensic_report_exists, save_forensic_report
 from app.services.forensic_redaction import get_forensic_redaction_policy
+from app.services.mail_connector import (
+    append_import_detail,
+    connector_failure_stats,
+    dump_ingested_ids,
+    initial_import_stats,
+    load_ingested_ids,
+    sanitize_connector_error,
+)
 from app.services.report_persistence import report_exists, save_parsed_report
 from app.services.report_store import ReportStore
 
@@ -210,30 +217,19 @@ class GmailClient:
             ``new_domains``, ``errors``, and ``new_ingested_ids`` (the IDs
             added in this run so the caller can persist them).
         """
-        stats: Dict[str, Any] = {
-            "success": True,
-            "processed": 0,
-            "reports_found": 0,
-            "forensic_reports_found": 0,
-            "duplicate_reports": 0,
-            "duplicate_forensic_reports": 0,
-            "new_domains": [],
-            "errors": [],
-            "new_ingested_ids": [],
-            "details": [],
-        }
+        stats = initial_import_stats()
 
         try:
             service = self._build_service()
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error("Gmail API: failed to build service: %s", exc)
-            return {**stats, "success": False, "error": str(exc)}
+            return connector_failure_stats(stats, "Failed to initialize Gmail API.", error=exc)
 
         try:
             message_ids = self._list_dmarc_message_ids(service)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error("Gmail API: failed to list messages: %s", exc)
-            return {**stats, "success": False, "error": str(exc)}
+            return connector_failure_stats(stats, "Failed to list Gmail messages.", error=exc)
 
         domains_before = set(self.report_store.get_domains())
 
@@ -306,9 +302,7 @@ class GmailClient:
     @staticmethod
     def _append_detail(stats: dict, **detail: str) -> None:
         """Append a compact attachment/message outcome to the import stats."""
-        stats.setdefault("details", []).append(
-            {key: value for key, value in detail.items() if value}
-        )
+        append_import_detail(stats, **detail)
 
     def _process_message(self, service, msg_id: str, stats: dict) -> int:
         """
@@ -322,7 +316,7 @@ class GmailClient:
             )
         except HttpError as exc:
             logger.error("Gmail API: failed to fetch message %s: %s", msg_id, exc)
-            stats["errors"].append(f"Failed to fetch message {msg_id}")
+            stats["errors"].append(sanitize_connector_error(f"Failed to fetch message {msg_id}"))
             self._append_detail(
                 stats,
                 status="error",
@@ -443,7 +437,7 @@ class GmailClient:
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error("Failed to parse Gmail forensic report %s: %s", message_id, exc)
             stats.setdefault("errors", []).append(
-                f"Failed to parse forensic report {message_id}: {exc}"
+                sanitize_connector_error(f"Failed to parse forensic report {message_id}: {exc}")
             )
             self._append_detail(
                 stats,
@@ -520,7 +514,9 @@ class GmailClient:
                     )
             except Exception as exc:  # pylint: disable=broad-exception-caught
                 logger.error("Failed to parse DMARC attachment %s: %s", filename, exc)
-                stats["errors"].append(f"Failed to parse {filename}: {exc}")
+                stats["errors"].append(
+                    sanitize_connector_error(f"Failed to parse {filename}: {exc}")
+                )
                 self._append_detail(
                     stats,
                     status="error",
@@ -539,14 +535,9 @@ class GmailClient:
     @staticmethod
     def load_ingested_ids(json_text: Optional[str]) -> List[str]:
         """Deserialise the gmail_ingested_ids text column into a list."""
-        if not json_text:
-            return []
-        try:
-            return json.loads(json_text)
-        except (json.JSONDecodeError, TypeError):
-            return []
+        return load_ingested_ids(json_text)
 
     @staticmethod
     def dump_ingested_ids(ids: List[str]) -> str:
         """Serialise the list of ingested IDs back to a JSON string."""
-        return json.dumps(ids)
+        return dump_ingested_ids(ids)
