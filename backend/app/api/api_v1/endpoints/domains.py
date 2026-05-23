@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.domain import Domain
+from app.services.bimi import BIMIResult, check_bimi_cached
 from app.services.cloudflare_dns import (
     analyze_dns_records,
     discover_cloudflare_zones,
@@ -140,6 +141,22 @@ class MTAStsResponse(BaseModel):
     mode: Optional[str] = None
     max_age: Optional[int] = None
     mx: List[str] = Field(default_factory=list)
+    errors: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    cached: bool = False
+    checked_at: Optional[str] = None
+
+
+class BIMIResponse(BaseModel):
+    """BIMI posture result for a domain."""
+
+    status: str
+    selector: str = "default"
+    query_name: str
+    dns_record: Optional[str] = None
+    logo_url: Optional[str] = None
+    certificate_url: Optional[str] = None
+    evidence_url: Optional[str] = None
     errors: List[str] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
     cached: bool = False
@@ -459,6 +476,100 @@ def _enforcement_recommendation(
         detail="Current DMARC compliance is too low for a safe policy change.",
         action="Fix unauthenticated or unknown senders before moving beyond p=none.",
         evidence=evidence,
+    )
+
+
+def _dmarc_tags(record: Optional[str]) -> Dict[str, str]:
+    if not record:
+        return {}
+    return {
+        part.split("=", 1)[0].strip().lower(): part.split("=", 1)[1].strip().lower()
+        for part in record.split(";")
+        if "=" in part
+    }
+
+
+def _bimi_dmarc_readiness(record: Optional[str]) -> tuple[bool, List[str], List[DNSHealthEvidence]]:
+    tags = _dmarc_tags(record)
+    policy = tags.get("p", "none")
+    subdomain_policy = tags.get("sp")
+    pct = tags.get("pct", "100")
+    issues = []
+    if policy not in {"quarantine", "reject"}:
+        issues.append("DMARC policy must be p=quarantine or p=reject for BIMI.")
+    if pct != "100":
+        issues.append("DMARC pct must be 100 or omitted for BIMI.")
+    if subdomain_policy and subdomain_policy not in {"quarantine", "reject"}:
+        issues.append("DMARC subdomain policy must also be enforced when sp= is present.")
+    evidence = [
+        _record_evidence("DMARC TXT", record),
+        _summary_evidence("Policy", f"p={policy}", "#dns-records"),
+        _summary_evidence(
+            "Subdomain policy", f"sp={subdomain_policy or 'inherit'}", "#dns-records"
+        ),
+        _summary_evidence("Percentage", f"pct={pct}", "#dns-records"),
+    ]
+    return not issues, issues, evidence
+
+
+def _bimi_check(result: BIMIResult, dmarc_ready: bool) -> DNSHealthCheck:
+    evidence = [
+        _record_evidence("BIMI TXT", result.dns_record, "#bimi-posture"),
+        _record_evidence("Logo URL", result.logo_url, "#bimi-posture"),
+    ]
+    if result.certificate_url:
+        evidence.append(
+            _record_evidence("Certificate URL", result.certificate_url, "#bimi-posture")
+        )
+    if result.status == "pass" and dmarc_ready:
+        message = "BIMI record is published and DMARC is enforcement-ready."
+    elif result.status == "pass":
+        message = "BIMI record is published, but DMARC enforcement is not ready."
+    else:
+        message = result.errors[0] if result.errors else "BIMI posture needs attention."
+    return DNSHealthCheck(
+        key="bimi",
+        label="BIMI",
+        status="pass" if result.status == "pass" and dmarc_ready else "fail",
+        message=message,
+        evidence=evidence,
+    )
+
+
+def _bimi_recommendation(
+    result: BIMIResult,
+    dmarc_ready: bool,
+    dmarc_issues: List[str],
+    dmarc_evidence: List[DNSHealthEvidence],
+) -> Optional[DNSHealthRecommendation]:
+    bimi_evidence = _bimi_check(result, dmarc_ready).evidence
+    if result.status == "pass" and dmarc_ready and not result.warnings:
+        return None
+    if result.status == "pass" and not dmarc_ready:
+        return DNSHealthRecommendation(
+            type="bimi_dmarc_not_ready",
+            severity="warning",
+            title="DMARC enforcement is blocking BIMI readiness",
+            detail="; ".join(dmarc_issues),
+            action="Move DMARC to quarantine or reject at pct=100 before relying on BIMI.",
+            evidence=dmarc_evidence + bimi_evidence,
+        )
+    if result.status == "pass":
+        return DNSHealthRecommendation(
+            type="bimi_review",
+            severity="info",
+            title="BIMI record needs provider-readiness review",
+            detail="; ".join(result.warnings),
+            action="Confirm the SVG logo profile and add a certificate URL if mailbox providers require one.",
+            evidence=bimi_evidence,
+        )
+    return DNSHealthRecommendation(
+        type="missing_bimi",
+        severity="info",
+        title="Publish BIMI after DMARC enforcement",
+        detail="; ".join(result.errors or ["No BIMI record is published."]),
+        action="Publish a BIMI TXT record at default._bimi with an HTTPS SVG logo URL.",
+        evidence=dmarc_evidence + bimi_evidence,
     )
 
 
@@ -840,8 +951,17 @@ async def get_domain_dns_health(
         domain_id,
         refresh=refresh,
     )
+    bimi_result, _, _ = await check_bimi_cached(
+        db,
+        provider,
+        domain_id,
+        refresh=refresh,
+    )
     summary = store.get_domain_summary(domain_id)
     policy = extract_dmarc_policy(result.dmarc_record) or "none"
+    bimi_dmarc_ready, bimi_dmarc_issues, bimi_dmarc_evidence = _bimi_dmarc_readiness(
+        result.dmarc_record
+    )
     checks = [
         _dns_check(
             "dmarc",
@@ -874,10 +994,11 @@ async def get_domain_dns_health(
             ],
         ),
         _mta_sts_check(mta_sts_result),
+        _bimi_check(bimi_result, bimi_dmarc_ready),
     ]
     recommendations: List[DNSHealthRecommendation] = []
     for check in checks:
-        if check.status == "fail" and check.key != "mta_sts":
+        if check.status == "fail" and check.key not in {"mta_sts", "bimi"}:
             recommendations.append(
                 DNSHealthRecommendation(
                     type=f"missing_{check.key}",
@@ -892,6 +1013,14 @@ async def get_domain_dns_health(
     mta_sts_recommendation = _mta_sts_recommendation(mta_sts_result)
     if mta_sts_recommendation:
         recommendations.append(mta_sts_recommendation)
+    bimi_recommendation = _bimi_recommendation(
+        bimi_result,
+        bimi_dmarc_ready,
+        bimi_dmarc_issues,
+        bimi_dmarc_evidence,
+    )
+    if bimi_recommendation:
+        recommendations.append(bimi_recommendation)
 
     failed_checks = sum(1 for check in checks if check.status == "fail")
     health_status = (
@@ -936,6 +1065,43 @@ async def get_domain_mta_sts(
         mode=result.mode,
         max_age=result.max_age,
         mx=result.mx,
+        errors=result.errors,
+        warnings=result.warnings,
+        cached=cached,
+        checked_at=checked_at.isoformat(),
+    )
+
+
+@router.get("/{domain_id}/dns/bimi", response_model=BIMIResponse)
+async def get_domain_bimi(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    selector: str = Query("default", title="BIMI selector"),
+    refresh: bool = Query(False, title="Refresh cached BIMI result"),
+    db: Session = Depends(get_db),
+):
+    """Return cached BIMI DNS posture for a domain."""
+    store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
+    if not _domain_exists(db, store, domain_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Domain not found",
+        )
+    result, cached, checked_at = await check_bimi_cached(
+        db,
+        get_default_provider(db),
+        domain_id,
+        selector=selector,
+        refresh=refresh,
+    )
+    return BIMIResponse(
+        status=result.status,
+        selector=result.selector,
+        query_name=result.query_name,
+        dns_record=result.dns_record,
+        logo_url=result.logo_url,
+        certificate_url=result.certificate_url,
+        evidence_url=result.evidence_url,
         errors=result.errors,
         warnings=result.warnings,
         cached=cached,
@@ -1032,9 +1198,8 @@ async def get_domain_reports(
     """
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    domains = store.get_domains()
 
-    if domain_id not in domains:
+    if not _domain_exists(db, store, domain_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Domain not found",
@@ -1086,7 +1251,7 @@ async def export_domain_reports(
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
 
-    if domain_id not in store.get_domains():
+    if not _domain_exists(db, store, domain_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Domain not found",
@@ -1399,9 +1564,8 @@ async def get_domain_sources(
     """
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    domains = store.get_domains()
 
-    if domain_id not in domains:
+    if not _domain_exists(db, store, domain_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Domain not found",
@@ -1457,7 +1621,7 @@ async def get_domain_selectors(
     """
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    if domain_id not in store.get_domains():
+    if not _domain_exists(db, store, domain_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Domain not found",

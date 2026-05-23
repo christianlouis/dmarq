@@ -221,7 +221,7 @@ Goal: turn DMARQ into a broader email authentication posture console (still priv
 Planned:
 - MTA-STS posture: delivered cached `_mta-sts` TXT checks, HTTPS policy validation, domain-detail evidence, and operator guidance for missing, invalid, or non-enforcing policies. Optional helper tooling remains a future enhancement.
 - TLS reporting posture: delivered authenticated TLS-RPT upload for `.json`, `.json.gz`, and `.zip` attachments; duplicate-safe persistence by report ID and policy domain; daily session trends; top failure-cause grouping; affected-domain summaries; and explicit privacy controls that avoid storing message content or recipient data.
-- BIMI posture: record validation + readiness checks + operator guidance.
+- BIMI posture: delivered default-selector BIMI TXT validation, HTTPS logo/certificate URL checks, DMARC enforcement readiness checks, domain-detail evidence, and operator guidance for missing or blocked BIMI prerequisites.
 - Extended DNS checks that support the posture surface (e.g., MX/BIMI; optional DANE/TLSA where relevant).
 
 Exit criteria:

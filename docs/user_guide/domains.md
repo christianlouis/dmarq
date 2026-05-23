@@ -71,6 +71,21 @@ DMARQ marks the check healthy when the TXT record contains `v=STSv1` with an `id
 
 MTA-STS posture uses the same cached DNS refresh behavior as the existing DNS health checks. Use the DNS refresh action when you publish or update a policy and need DMARQ to re-check immediately.
 
+### BIMI Readiness
+
+The domain detail page checks the default BIMI selector at
+`default._bimi.<domain>`.
+
+DMARQ validates that the BIMI TXT record starts with `v=BIMI1`, includes an
+HTTPS `l=` SVG logo URL, and uses HTTPS for the optional `a=` certificate URL.
+The readiness guidance also checks whether DMARC is ready for BIMI: the domain
+must use `p=quarantine` or `p=reject`, `pct` must be `100` or omitted, and any
+published `sp=` subdomain policy must also enforce.
+
+BIMI posture is read-only. Findings link back to the BIMI TXT record, logo URL,
+certificate URL, and DMARC policy evidence so operators can see which
+prerequisite is blocking readiness.
+
 ## Domain Groups
 
 If you manage multiple domains, you can organize them into groups:
