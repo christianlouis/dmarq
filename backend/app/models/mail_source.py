@@ -57,6 +57,8 @@ class MailSource(Base):
     _m365_refresh_token = Column("m365_refresh_token", Text, nullable=True)
     # Optional user/shared mailbox to poll. Empty means the authorised account (/me).
     m365_mailbox = Column(String, nullable=True)
+    # Optional Microsoft Graph mailFolder id. Empty means use ``folder`` as a well-known name.
+    m365_folder_id = Column(String, nullable=True)
     # Email address reported by Microsoft Graph for the authorised account.
     m365_email = Column(String, nullable=True)
     # JSON-encoded list of Graph message IDs that have already been ingested

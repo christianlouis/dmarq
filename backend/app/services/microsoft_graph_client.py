@@ -24,6 +24,7 @@ M365_SCOPES = [
 ]
 
 _PAGE_SIZE = 100
+_MAX_FOLDER_DEPTH = 5
 _DMARC_SUBJECT_TERMS = (
     "dmarc",
     "aggregate report",
@@ -61,6 +62,7 @@ class MicrosoftGraphClient:
         refresh_token: str,
         mailbox: Optional[str] = None,
         folder: str = "inbox",
+        folder_id: Optional[str] = None,
         already_ingested_ids: Optional[List[str]] = None,
         db: Any = None,
     ):
@@ -71,6 +73,7 @@ class MicrosoftGraphClient:
         self.refresh_token = refresh_token
         self.mailbox = (mailbox or "").strip()
         self.folder = folder or "inbox"
+        self.folder_id = (folder_id or "").strip()
         self.already_ingested_ids: List[str] = list(already_ingested_ids or [])
         self.report_store = ReportStore.get_instance()
         self.db = db
@@ -160,17 +163,69 @@ class MicrosoftGraphClient:
 
     def test_connection(self) -> Dict[str, Any]:
         """Verify that the saved delegated token can read the target mailbox."""
-        mailbox_path = self._mailbox_path()
         data = self._request(
             "GET",
-            f"{mailbox_path}/messages",
+            self._messages_path(),
             params={"$top": 1, "$select": "id"},
         )
         return {
             "success": True,
             "message_count": len(data.get("value", [])),
+            "target_mailbox": self._target_mailbox_label(),
+            "target_folder": self._target_folder_label(),
             "diagnostic_detail": "Microsoft Graph mailbox read succeeded.",
         }
+
+    def list_mail_folders(self) -> List[Dict[str, str]]:
+        """Return selectable mail folders for the configured mailbox."""
+        folders: List[Dict[str, str]] = []
+        self._collect_mail_folders(
+            f"{self._mailbox_path()}/mailFolders",
+            folders,
+            parent_path="",
+            depth=0,
+        )
+        return folders
+
+    def _collect_mail_folders(
+        self,
+        start_url: str,
+        folders: List[Dict[str, str]],
+        *,
+        parent_path: str,
+        depth: int,
+    ) -> None:
+        params: Optional[Dict[str, Any]] = {
+            "$top": _PAGE_SIZE,
+            "$select": "id,displayName,parentFolderId,childFolderCount",
+        }
+        url: Optional[str] = start_url
+
+        while url:
+            data = self._request("GET", url, params=params)
+            for folder in data.get("value", []):
+                folder_id = str(folder.get("id") or "")
+                display_name = str(folder.get("displayName") or folder_id)
+                if not folder_id:
+                    continue
+                folder_path = f"{parent_path} / {display_name}" if parent_path else display_name
+                folders.append(
+                    {
+                        "id": folder_id,
+                        "display_name": display_name,
+                        "path": folder_path,
+                        "parent_folder_id": str(folder.get("parentFolderId") or ""),
+                    }
+                )
+                if int(folder.get("childFolderCount") or 0) > 0 and depth < _MAX_FOLDER_DEPTH:
+                    self._collect_mail_folders(
+                        f"{self._mailbox_path()}/mailFolders/{quote(folder_id, safe='')}/childFolders",
+                        folders,
+                        parent_path=folder_path,
+                        depth=depth + 1,
+                    )
+            url = data.get("@odata.nextLink")
+            params = None
 
     def fetch_reports(self) -> Dict[str, Any]:
         """Fetch and ingest DMARC report attachments from Microsoft Graph."""
@@ -185,6 +240,8 @@ class MicrosoftGraphClient:
             "errors": [],
             "new_ingested_ids": [],
             "details": [],
+            "target_mailbox": self._target_mailbox_label(),
+            "target_folder": self._target_folder_label(),
         }
 
         try:
@@ -223,11 +280,22 @@ class MicrosoftGraphClient:
         tenant = quote(tenant_id or "common", safe="")
         return f"{LOGIN_BASE_URL}/{tenant}/oauth2/v2.0/token"
 
-    @staticmethod
-    def _append_detail(stats: dict, **detail: str) -> None:
+    def _append_detail(self, stats: dict, **detail: str) -> None:
+        detail.setdefault("mailbox", self._target_mailbox_label())
+        detail.setdefault("folder", self._target_folder_label())
         stats.setdefault("details", []).append(
             {key: value for key, value in detail.items() if value}
         )
+
+    def _target_mailbox_label(self) -> str:
+        return self.mailbox or "authorized account"
+
+    def _target_folder_label(self) -> str:
+        if self.folder:
+            return self.folder
+        if self.folder_id:
+            return self.folder_id
+        return "All messages"
 
     def _mailbox_path(self) -> str:
         if not self.mailbox or self.mailbox.lower() == "me":
@@ -236,6 +304,8 @@ class MicrosoftGraphClient:
 
     def _messages_path(self) -> str:
         mailbox_path = self._mailbox_path()
+        if self.folder_id:
+            return f"{mailbox_path}/mailFolders/{quote(self.folder_id, safe='')}/messages"
         folder = (self.folder or "").strip()
         if not folder:
             return f"{mailbox_path}/messages"
