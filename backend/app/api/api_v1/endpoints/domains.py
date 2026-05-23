@@ -88,6 +88,47 @@ class DNSRecordResponse(BaseModel):
     checkedAt: Optional[str] = None
 
 
+class DNSHealthEvidence(BaseModel):
+    """Evidence backing a DNS health recommendation."""
+
+    label: str
+    value: str
+    href: str
+
+
+class DNSHealthCheck(BaseModel):
+    """Single DNS health check result."""
+
+    key: str
+    label: str
+    status: str
+    message: str
+    evidence: List[DNSHealthEvidence] = Field(default_factory=list)
+
+
+class DNSHealthRecommendation(BaseModel):
+    """Actionable DNS or enforcement recommendation."""
+
+    type: str
+    severity: str
+    title: str
+    detail: str
+    action: str
+    evidence: List[DNSHealthEvidence] = Field(default_factory=list)
+
+
+class DNSHealthResponse(BaseModel):
+    """Evidence-linked DNS health summary for a domain."""
+
+    status: str
+    policy: str
+    compliance_rate: float
+    total_emails: int
+    failed_emails: int
+    checks: List[DNSHealthCheck]
+    recommendations: List[DNSHealthRecommendation]
+
+
 class CloudflareZoneResponse(BaseModel):
     """Cloudflare zone available for import."""
 
@@ -308,6 +349,96 @@ def _domain_names_for_summary(db: Session, store: ReportStore) -> List[str]:
         .all()
     ]
     return list(dict.fromkeys(stored_domains + report_domains))
+
+
+def _domain_exists(db: Session, store: ReportStore, domain_name: str) -> bool:
+    return domain_name in store.get_domains() or bool(
+        db.query(Domain.id).filter(Domain.name == domain_name).first()
+    )
+
+
+def _record_evidence(label: str, value: Optional[str], href: str = "#dns-records") -> DNSHealthEvidence:
+    return DNSHealthEvidence(label=label, value=value or "Not found", href=href)
+
+
+def _summary_evidence(label: str, value: object, href: str = "#compliance-chart") -> DNSHealthEvidence:
+    return DNSHealthEvidence(label=label, value=str(value), href=href)
+
+
+def _dns_check(
+    key: str,
+    label: str,
+    present: bool,
+    present_message: str,
+    missing_message: str,
+    evidence: List[DNSHealthEvidence],
+) -> DNSHealthCheck:
+    return DNSHealthCheck(
+        key=key,
+        label=label,
+        status="pass" if present else "fail",
+        message=present_message if present else missing_message,
+        evidence=evidence,
+    )
+
+
+def _enforcement_recommendation(
+    policy: str,
+    summary: Dict[str, Any],
+) -> DNSHealthRecommendation:
+    total = int(summary.get("total_count", 0) or 0)
+    failed = int(summary.get("failed_count", 0) or 0)
+    compliance = float(summary.get("compliance_rate", 0.0) or 0.0)
+    evidence = [
+        _summary_evidence("Policy", f"p={policy}", "#dns-records"),
+        _summary_evidence("Total messages", total),
+        _summary_evidence("Compliance", f"{compliance}%"),
+        _summary_evidence("Failed messages", failed, "#sending-sources"),
+    ]
+    if policy != "none":
+        return DNSHealthRecommendation(
+            type="policy_already_enforced",
+            severity="info",
+            title="DMARC policy is already enforced",
+            detail="This domain is already beyond monitoring mode.",
+            action="Continue watching failure trends before tightening further.",
+            evidence=evidence,
+        )
+    if total < 100:
+        return DNSHealthRecommendation(
+            type="policy_needs_more_data",
+            severity="warning",
+            title="Collect more report volume before enforcement",
+            detail="DMARQ needs at least 100 observed messages before recommending quarantine.",
+            action="Keep p=none until more aggregate reports arrive.",
+            evidence=evidence,
+        )
+    if compliance >= 98.0 and failed <= max(2, int(total * 0.02)):
+        return DNSHealthRecommendation(
+            type="policy_enforcement_ready",
+            severity="info",
+            title="Ready to plan quarantine",
+            detail="Recent report volume is high and failures are low enough to plan enforcement.",
+            action="Move gradually: set p=quarantine with a low pct value, then watch failures.",
+            evidence=evidence,
+        )
+    if compliance >= 90.0:
+        return DNSHealthRecommendation(
+            type="policy_enforcement_review",
+            severity="warning",
+            title="Close remaining failures before enforcement",
+            detail="Compliance is improving, but failures still need review before policy changes.",
+            action="Review failing sources and SPF/DKIM alignment before changing p=none.",
+            evidence=evidence,
+        )
+    return DNSHealthRecommendation(
+        type="policy_not_ready",
+        severity="error",
+        title="Not ready for enforcement",
+        detail="Current DMARC compliance is too low for a safe policy change.",
+        action="Fix unauthenticated or unknown senders before moving beyond p=none.",
+        evidence=evidence,
+    )
 
 
 @router.get("/summary", response_model=DomainSummaryResponse)
@@ -540,9 +671,8 @@ async def get_domain_stats(
     """
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    domains = store.get_domains()
+    domains = _domain_names_for_summary(db, store)
 
-    # For Milestone 1, domain_id is simply the domain name
     if domain_id not in domains:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -579,9 +709,8 @@ async def get_domain_dns_records(
     """
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    domains = store.get_domains()
 
-    if domain_id not in domains:
+    if not _domain_exists(db, store, domain_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Domain not found",
@@ -609,6 +738,95 @@ async def get_domain_dns_records(
         dkimSelectors=result.dkim_selectors,
         cached=cached,
         checkedAt=checked_at.isoformat(),
+    )
+
+
+@router.get("/{domain_id}/dns/health", response_model=DNSHealthResponse)
+async def get_domain_dns_health(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    refresh: bool = Query(False, title="Refresh cached DNS result"),
+    db: Session = Depends(get_db),
+):
+    """Return evidence-linked DNS health and enforcement readiness guidance."""
+    store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
+    if not _domain_exists(db, store, domain_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Domain not found",
+        )
+
+    manual_selectors = _get_domain_selectors_from_db(db, domain_id)
+    report_selectors = _get_selectors_from_reports(store, domain_id)
+    combined_selectors = list(dict.fromkeys(manual_selectors + report_selectors))
+
+    provider = get_default_provider(db)
+    result, _, _ = await resolve_domain_dns_cached(
+        db,
+        provider,
+        domain_id,
+        selectors=combined_selectors,
+        refresh=refresh,
+    )
+    summary = store.get_domain_summary(domain_id)
+    policy = extract_dmarc_policy(result.dmarc_record) or "none"
+    checks = [
+        _dns_check(
+            "dmarc",
+            "DMARC",
+            result.dmarc,
+            "DMARC record is published.",
+            "No DMARC record was found.",
+            [_record_evidence("DMARC TXT", result.dmarc_record)],
+        ),
+        _dns_check(
+            "spf",
+            "SPF",
+            result.spf,
+            "SPF record is published.",
+            "No SPF record was found at the domain root.",
+            [_record_evidence("SPF TXT", result.spf_record)],
+        ),
+        _dns_check(
+            "dkim",
+            "DKIM",
+            result.dkim,
+            "At least one DKIM selector resolved.",
+            "No DKIM record was found for configured or observed selectors.",
+            [
+                _record_evidence(
+                    "Selectors checked",
+                    ", ".join(combined_selectors or result.selectors_checked or []),
+                ),
+                _record_evidence("DKIM TXT", result.dkim_record),
+            ],
+        ),
+    ]
+    recommendations: List[DNSHealthRecommendation] = []
+    for check in checks:
+        if check.status == "fail":
+            recommendations.append(
+                DNSHealthRecommendation(
+                    type=f"missing_{check.key}",
+                    severity="error" if check.key == "dmarc" else "warning",
+                    title=f"{check.label} needs attention",
+                    detail=check.message,
+                    action=f"Publish or repair the {check.label} DNS record, then refresh DNS health.",
+                    evidence=check.evidence,
+                )
+            )
+    recommendations.append(_enforcement_recommendation(policy, summary))
+
+    failed_checks = sum(1 for check in checks if check.status == "fail")
+    health_status = "healthy" if failed_checks == 0 else "degraded" if failed_checks < 3 else "critical"
+    return DNSHealthResponse(
+        status=health_status,
+        policy=policy,
+        compliance_rate=float(summary.get("compliance_rate", 0.0) or 0.0),
+        total_emails=int(summary.get("total_count", 0) or 0),
+        failed_emails=int(summary.get("failed_count", 0) or 0),
+        checks=checks,
+        recommendations=recommendations,
     )
 
 

@@ -320,6 +320,114 @@ def test_dns_endpoint_404_for_unknown_domain(client: TestClient):
     assert response.status_code == 404
 
 
+def test_dns_endpoint_supports_manually_configured_domain(client: TestClient, db_session):
+    """A domain created before reports arrive can still run DNS checks."""
+    db_session.add(Domain(name="manual.example", active=True))
+    db_session.commit()
+
+    with _mock_dns():
+        response = client.get("/api/v1/domains/manual.example/dns")
+
+    assert response.status_code == 200
+    assert response.json()["dmarc"] is True
+
+
+def test_dns_health_404_for_unknown_domain(client: TestClient):
+    with _mock_dns():
+        response = client.get("/api/v1/domains/unknown.example.com/dns/health")
+    assert response.status_code == 404
+
+
+def test_dns_health_links_checks_to_evidence(client: TestClient):
+    """DNS health returns provider-neutral checks, recommendations, and evidence links."""
+    missing_dkim = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=none; rua=mailto:dmarc@example.com",
+        spf=True,
+        spf_record="v=spf1 include:_spf.google.com ~all",
+        dkim=False,
+        selectors_checked=["google"],
+    )
+
+    with _mock_dns(result=missing_dkim):
+        response = client.get(f"/api/v1/domains/{DOMAIN}/dns/health")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "degraded"
+    dkim_check = next(check for check in data["checks"] if check["key"] == "dkim")
+    assert dkim_check["status"] == "fail"
+    assert dkim_check["evidence"][0]["href"] == "#dns-records"
+    assert any(item["type"] == "missing_dkim" for item in data["recommendations"])
+
+
+def test_dns_health_recommends_enforcement_when_evidence_supports_it(client: TestClient):
+    """High-volume p=none domains with strong compliance get plan-only guidance."""
+    store = ReportStore.get_instance()
+    store.clear()
+    store.add_report(
+        {
+            **MINIMAL_REPORT,
+            "summary": {"total_count": 500, "passed_count": 495, "failed_count": 5},
+            "records": [
+                {
+                    **MINIMAL_REPORT["records"][0],
+                    "count": 500,
+                    "dkim_result": "pass",
+                    "spf_result": "pass",
+                }
+            ],
+        }
+    )
+
+    with _mock_dns():
+        response = client.get(f"/api/v1/domains/{DOMAIN}/dns/health")
+
+    assert response.status_code == 200
+    recommendations = response.json()["recommendations"]
+    readiness = next(item for item in recommendations if item["type"] == "policy_enforcement_ready")
+    assert "low pct" in readiness["action"]
+    assert any(item["label"] == "Compliance" for item in readiness["evidence"])
+
+
+def test_dns_health_marks_all_missing_records_critical(client: TestClient):
+    """Missing DMARC, SPF, and DKIM produce specific repair recommendations."""
+    missing_all = DomainDNSResult(
+        dmarc=False,
+        spf=False,
+        dkim=False,
+        selectors_checked=["google"],
+    )
+
+    with _mock_dns(result=missing_all):
+        response = client.get(f"/api/v1/domains/{DOMAIN}/dns/health")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "critical"
+    recommendation_types = {item["type"] for item in data["recommendations"]}
+    assert {"missing_dmarc", "missing_spf", "missing_dkim"}.issubset(recommendation_types)
+    assert any(item["type"] == "policy_needs_more_data" for item in data["recommendations"])
+
+
+@pytest.mark.parametrize(
+    ("policy", "summary", "expected_type", "expected_severity"),
+    [
+        ("quarantine", {"total_count": 1000, "failed_count": 50, "compliance_rate": 95.0}, "policy_already_enforced", "info"),
+        ("none", {"total_count": 50, "failed_count": 0, "compliance_rate": 100.0}, "policy_needs_more_data", "warning"),
+        ("none", {"total_count": 200, "failed_count": 15, "compliance_rate": 92.5}, "policy_enforcement_review", "warning"),
+        ("none", {"total_count": 200, "failed_count": 80, "compliance_rate": 60.0}, "policy_not_ready", "error"),
+    ],
+)
+def test_enforcement_recommendation_common_states(policy, summary, expected_type, expected_severity):
+    """Policy guidance covers enforced, low-volume, review, and not-ready states."""
+    recommendation = domains_endpoint._enforcement_recommendation(policy, summary)
+
+    assert recommendation.type == expected_type
+    assert recommendation.severity == expected_severity
+    assert recommendation.evidence[0].value == f"p={policy}"
+
+
 # ---------------------------------------------------------------------------
 # GET /api/v1/domains/summary  (DNS fields included)
 # ---------------------------------------------------------------------------
