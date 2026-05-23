@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -13,6 +14,15 @@ from app.models.report import DMARCReport, ReportRecord
 from app.models.setting import Setting
 from app.services.alert_history import record_alert_evaluation
 from app.services.notifications import NotificationResult, send_notification
+from app.services.webhook_events import (
+    EVENT_ALERT_CREATED,
+    EVENT_COMPLIANCE_DROP,
+    EVENT_REPORTS_MISSING,
+    EVENT_SENDER_NEW,
+    enqueue_webhook_event,
+)
+
+logger = logging.getLogger(__name__)
 
 
 def _truthy(value: Optional[str], default: bool = True) -> bool:
@@ -235,10 +245,34 @@ def evaluate_alert_rules(db: Session) -> List[Dict[str, Any]]:
     return alerts
 
 
+def enqueue_alert_webhook_events(db: Session, alerts: List[Dict[str, Any]]) -> None:
+    """Queue webhook events for alert-rule results without failing alert evaluation."""
+    event_by_rule = {
+        "new_sender_source": EVENT_SENDER_NEW,
+        "missing_reports": EVENT_REPORTS_MISSING,
+        "compliance_drop": EVENT_COMPLIANCE_DROP,
+    }
+    for alert in alerts:
+        rule = alert.get("rule", "alert")
+        event_type = event_by_rule.get(rule, EVENT_ALERT_CREATED)
+        domain = alert.get("domain", "global")
+        idempotency_key = f"{event_type}:{domain}:{rule}:{alert.get('detail', '')}"
+        try:
+            enqueue_webhook_event(
+                db,
+                event_type=event_type,
+                payload=alert,
+                idempotency_key=idempotency_key,
+            )
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.warning("Failed to queue alert webhook event: %s", exc)
+
+
 def send_current_alerts(db: Session) -> Dict[str, Any]:
     """Evaluate current alert rules and send one summary notification when needed."""
     alerts = evaluate_alert_rules(db)
     record_alert_evaluation(db, alerts)
+    enqueue_alert_webhook_events(db, alerts)
     if not alerts:
         return {
             "alerts": [],

@@ -633,6 +633,151 @@
         {% endcall %}
     {% endcall %}
 
+    <!-- ── Webhooks ──────────────────────────────────────────────────────── -->
+    {% call card() %}
+        {% call card_header() %}
+            {% call card_title() %}Webhooks{% endcall %}
+            {% call card_description() %}Send signed operational events to downstream systems{% endcall %}
+        {% endcall %}
+        {% call card_content() %}
+            <div class="space-y-5">
+                <form @submit.prevent="createWebhook()" class="space-y-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="form-control w-full">
+                            <label class="label"><span class="label-text font-medium">Name</span></label>
+                            <input type="text" x-model="newWebhook.name" class="input input-bordered w-full" placeholder="Security automation" />
+                        </div>
+                        <div class="form-control w-full">
+                            <label class="label"><span class="label-text font-medium">Endpoint URL</span></label>
+                            <input type="url" x-model="newWebhook.url" class="input input-bordered w-full" placeholder="https://example.com/dmarq/webhook" />
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div class="form-control w-full">
+                            <label class="label"><span class="label-text font-medium">Events</span></label>
+                            <select x-model="newWebhook.eventType" class="input input-bordered w-full">
+                                <option value="*">All events</option>
+                                <template x-for="eventType in webhookEventTypes" :key="eventType">
+                                    <option :value="eventType" x-text="eventType"></option>
+                                </template>
+                            </select>
+                        </div>
+                        <div class="form-control w-full">
+                            <label class="label"><span class="label-text font-medium">Max Attempts</span></label>
+                            <input type="number" x-model.number="newWebhook.max_attempts" class="input input-bordered w-full" min="1" max="10" />
+                        </div>
+                        <div class="form-control w-full">
+                            <label class="label"><span class="label-text font-medium">Timeout Seconds</span></label>
+                            <input type="number" x-model.number="newWebhook.timeout_seconds" class="input input-bordered w-full" min="1" max="30" />
+                        </div>
+                    </div>
+
+                    <div class="flex flex-col sm:flex-row justify-end gap-2">
+                        <button type="button" class="btn btn-outline btn-md" :disabled="loadingWebhooks" @click="loadWebhooks()">
+                            <template x-if="!loadingWebhooks">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
+                                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                                    <path d="M3 3v5h5"></path>
+                                </svg>
+                            </template>
+                            <template x-if="loadingWebhooks"><span class="loading loading-spinner loading-xs mr-2"></span></template>
+                            Refresh
+                        </button>
+                        <button type="submit" class="btn btn-default btn-md" :disabled="savingWebhook">
+                            <template x-if="!savingWebhook">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
+                                    <path d="M12 5v14"></path>
+                                    <path d="M5 12h14"></path>
+                                </svg>
+                            </template>
+                            <template x-if="savingWebhook"><span class="loading loading-spinner loading-xs mr-2"></span></template>
+                            Add Webhook
+                        </button>
+                    </div>
+                </form>
+
+                <template x-if="webhooks.length === 0">
+                    <div class="alert alert-info">
+                        <span>No outbound webhooks configured yet.</span>
+                    </div>
+                </template>
+
+                <div class="overflow-x-auto rounded-md border border-border" x-show="webhooks.length > 0">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>URL</th>
+                                <th>Events</th>
+                                <th>Status</th>
+                                <th>Last Result</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="hook in webhooks" :key="hook.id">
+                                <tr>
+                                    <td class="font-medium" x-text="hook.name"></td>
+                                    <td class="font-mono text-xs" x-text="hook.url"></td>
+                                    <td class="text-xs" x-text="hook.event_types.join(', ')"></td>
+                                    <td><span class="badge" :class="hook.enabled ? 'badge-success' : 'badge-ghost'" x-text="hook.enabled ? 'Enabled' : 'Disabled'"></span></td>
+                                    <td class="text-xs text-muted-foreground" x-text="hook.last_success_at ? 'Success ' + new Date(hook.last_success_at).toLocaleString() : (hook.last_failure_at ? 'Failed ' + new Date(hook.last_failure_at).toLocaleString() : 'No deliveries')"></td>
+                                    <td class="text-right">
+                                        <button type="button" class="btn btn-outline btn-xs" :disabled="testingWebhookId === hook.id" @click="testWebhook(hook.id)">
+                                            <span x-show="testingWebhookId !== hook.id">Test</span>
+                                            <span x-show="testingWebhookId === hook.id" class="loading loading-spinner loading-xs"></span>
+                                        </button>
+                                        <button type="button" class="btn btn-ghost btn-xs" :disabled="disablingWebhookId === hook.id || !hook.enabled" @click="disableWebhook(hook.id)">
+                                            Disable
+                                        </button>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="border-t border-border pt-4 space-y-3">
+                    <div class="flex items-center justify-between gap-3">
+                        <h3 class="text-sm font-semibold">Recent Deliveries</h3>
+                        <div class="flex gap-2">
+                            <button type="button" class="btn btn-outline btn-sm" :disabled="processingWebhooks" @click="processWebhooks()">
+                                Process Due
+                            </button>
+                            <button type="button" class="btn btn-outline btn-sm" :disabled="loadingWebhookDeliveries" @click="loadWebhookDeliveries()">
+                                Refresh
+                            </button>
+                        </div>
+                    </div>
+                    <template x-if="webhookDeliveries.length === 0">
+                        <div class="alert alert-info">
+                            <span>No webhook deliveries recorded yet.</span>
+                        </div>
+                    </template>
+                    <div class="space-y-2" x-show="webhookDeliveries.length > 0">
+                        <template x-for="delivery in webhookDeliveries" :key="delivery.id">
+                            <div class="rounded-md border border-border p-3">
+                                <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                                    <div>
+                                        <div class="text-sm font-semibold" x-text="delivery.event_type"></div>
+                                        <div class="text-sm text-muted-foreground" x-text="delivery.last_error || delivery.response_excerpt || delivery.idempotency_key"></div>
+                                    </div>
+                                    <div class="flex items-center gap-2 text-xs">
+                                        <span class="badge" :class="delivery.status === 'delivered' ? 'badge-success' : (delivery.status === 'failed' ? 'badge-error' : 'badge-warning')" x-text="delivery.status"></span>
+                                        <span class="badge badge-outline" x-text="delivery.attempt_count + '/' + delivery.max_attempts"></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </div>
+        {% endcall %}
+    {% endcall %}
+
     <!-- ── Mail Sources shortcut ──────────────────────────────────────────── -->
     {% call card() %}
         {% call card_header() %}
@@ -681,6 +826,22 @@ function settingsApp() {
         importingCfZones: false,
         cfZones: [],
         showCfToken: false,
+        loadingWebhooks: false,
+        savingWebhook: false,
+        testingWebhookId: null,
+        disablingWebhookId: null,
+        processingWebhooks: false,
+        loadingWebhookDeliveries: false,
+        webhooks: [],
+        webhookDeliveries: [],
+        webhookEventTypes: [],
+        newWebhook: {
+            name: '',
+            url: '',
+            eventType: '*',
+            max_attempts: 5,
+            timeout_seconds: 10,
+        },
 
         // Session cookie is sent automatically by the browser (httpOnly, same-origin).
         // No manual auth header needed for API calls from the UI.
@@ -705,6 +866,8 @@ function settingsApp() {
                 this.s = map;
                 await this.loadAlertHistory(false);
                 await this.loadConfigAudit(false);
+                await this.loadWebhooks(false);
+                await this.loadWebhookDeliveries(false);
             } catch (err) {
                 this.showFlash('Error loading settings: ' + err.message, false);
             }
@@ -948,6 +1111,142 @@ function settingsApp() {
                 this.showFlash('Error importing Cloudflare zones: ' + err.message, false);
             } finally {
                 this.importingCfZones = false;
+            }
+        },
+
+        async loadWebhooks(showMessage = true) {
+            this.loadingWebhooks = true;
+            try {
+                const res = await fetch('/api/v1/webhooks', { headers: this.apiHeaders() });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    if (showMessage) this.showFlash('Webhook load failed: ' + (data.detail || res.statusText), false);
+                } else {
+                    this.webhooks = data.endpoints || [];
+                    this.webhookEventTypes = data.supported_event_types || [];
+                    if (showMessage) this.showFlash('Webhooks refreshed.', true);
+                }
+            } catch (err) {
+                if (showMessage) this.showFlash('Error loading webhooks: ' + err.message, false);
+            } finally {
+                this.loadingWebhooks = false;
+            }
+        },
+
+        async createWebhook() {
+            this.savingWebhook = true;
+            try {
+                const payload = {
+                    name: this.newWebhook.name,
+                    url: this.newWebhook.url,
+                    event_types: [this.newWebhook.eventType || '*'],
+                    max_attempts: Number(this.newWebhook.max_attempts || 5),
+                    timeout_seconds: Number(this.newWebhook.timeout_seconds || 10),
+                    enabled: true,
+                };
+                const res = await fetch('/api/v1/webhooks', {
+                    method: 'POST',
+                    headers: this.apiHeaders(),
+                    body: JSON.stringify(payload),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    this.showFlash('Webhook create failed: ' + (data.detail || res.statusText), false);
+                } else {
+                    this.newWebhook = { name: '', url: '', eventType: '*', max_attempts: 5, timeout_seconds: 10 };
+                    await this.loadWebhooks(false);
+                    this.showFlash('Webhook created. Signing secret was generated and stored securely.', true);
+                }
+            } catch (err) {
+                this.showFlash('Error creating webhook: ' + err.message, false);
+            } finally {
+                this.savingWebhook = false;
+            }
+        },
+
+        async testWebhook(endpointId) {
+            this.testingWebhookId = endpointId;
+            try {
+                const res = await fetch(`/api/v1/webhooks/${endpointId}/test`, {
+                    method: 'POST',
+                    headers: this.apiHeaders(),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    this.showFlash('Webhook test failed: ' + (data.detail || res.statusText), false);
+                } else {
+                    await this.loadWebhooks(false);
+                    await this.loadWebhookDeliveries(false);
+                    const status = data.delivery ? data.delivery.status : 'queued';
+                    this.showFlash(`Webhook test ${status}.`, status === 'delivered');
+                }
+            } catch (err) {
+                this.showFlash('Error testing webhook: ' + err.message, false);
+            } finally {
+                this.testingWebhookId = null;
+            }
+        },
+
+        async disableWebhook(endpointId) {
+            this.disablingWebhookId = endpointId;
+            try {
+                const res = await fetch(`/api/v1/webhooks/${endpointId}`, {
+                    method: 'DELETE',
+                    headers: this.apiHeaders(),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    this.showFlash('Webhook disable failed: ' + (data.detail || res.statusText), false);
+                } else {
+                    await this.loadWebhooks(false);
+                    this.showFlash('Webhook disabled.', true);
+                }
+            } catch (err) {
+                this.showFlash('Error disabling webhook: ' + err.message, false);
+            } finally {
+                this.disablingWebhookId = null;
+            }
+        },
+
+        async loadWebhookDeliveries(showMessage = true) {
+            this.loadingWebhookDeliveries = true;
+            try {
+                const res = await fetch('/api/v1/webhooks/deliveries?limit=10', {
+                    headers: this.apiHeaders(),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    if (showMessage) this.showFlash('Delivery history failed: ' + (data.detail || res.statusText), false);
+                } else {
+                    this.webhookDeliveries = data.deliveries || [];
+                    if (showMessage) this.showFlash('Webhook deliveries refreshed.', true);
+                }
+            } catch (err) {
+                if (showMessage) this.showFlash('Error loading webhook deliveries: ' + err.message, false);
+            } finally {
+                this.loadingWebhookDeliveries = false;
+            }
+        },
+
+        async processWebhooks() {
+            this.processingWebhooks = true;
+            try {
+                const res = await fetch('/api/v1/webhooks/deliveries/process', {
+                    method: 'POST',
+                    headers: this.apiHeaders(),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    this.showFlash('Webhook processing failed: ' + (data.detail || res.statusText), false);
+                } else {
+                    await this.loadWebhooks(false);
+                    await this.loadWebhookDeliveries(false);
+                    this.showFlash(`${(data.deliveries || []).length} due webhook deliver${(data.deliveries || []).length === 1 ? 'y' : 'ies'} processed.`, true);
+                }
+            } catch (err) {
+                this.showFlash('Error processing webhooks: ' + err.message, false);
+            } finally {
+                this.processingWebhooks = false;
             }
         },
 

@@ -17,6 +17,7 @@ from app.core.redaction import sanitize_for_log
 from app.services.dmarc_parser import DMARCParser
 from app.services.report_persistence import report_exists, save_parsed_report
 from app.services.report_store import ReportStore
+from app.services.webhook_events import EVENT_REPORT_IMPORTED, enqueue_webhook_event
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -69,6 +70,22 @@ def _store_report(db: Session, store: ReportStore, report: Dict[str, Any]) -> st
     if report_id and (store.has_report(domain, report_id) or report_exists(db, domain, report_id)):
         return "duplicate"
     save_parsed_report(db, report)
+    try:
+        enqueue_webhook_event(
+            db,
+            event_type=EVENT_REPORT_IMPORTED,
+            payload={
+                "domain": domain,
+                "report_id": report_id,
+                "org_name": report.get("org_name"),
+                "begin_date": report.get("begin_date"),
+                "end_date": report.get("end_date"),
+                "records": len(report.get("records") or []),
+            },
+            idempotency_key=f"{EVENT_REPORT_IMPORTED}:{domain}:{report_id or 'unknown'}",
+        )
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.warning("Failed to queue report-import webhook event: %s", sanitize_for_log(exc))
     store.add_report(report)
     return "imported"
 

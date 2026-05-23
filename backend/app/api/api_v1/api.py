@@ -15,6 +15,7 @@ from app.api.api_v1.endpoints import (
     stats,
     tls_reports,
     webhook,
+    webhooks,
 )
 
 api_router = APIRouter()
@@ -34,3 +35,4 @@ api_router.include_router(mail_sources.router, prefix="/mail-sources", tags=["ma
 api_router.include_router(settings.router, prefix="/settings", tags=["settings"])
 api_router.include_router(tls_reports.router, prefix="/tls-reports", tags=["tls-reports"])
 api_router.include_router(webhook.router, prefix="/webhook", tags=["webhook"])
+api_router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])

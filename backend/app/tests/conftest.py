@@ -15,6 +15,7 @@ import app.models.mail_source_import  # noqa: F401  # pylint: disable=unused-imp
 import app.models.report  # noqa: F401  # pylint: disable=unused-import
 import app.models.setting  # noqa: F401  # pylint: disable=unused-import
 import app.models.user  # noqa: F401  # pylint: disable=unused-import
+import app.models.webhook  # noqa: F401  # pylint: disable=unused-import
 from app.core.database import Base, get_db
 from app.core.security import require_admin_auth
 from app.main import create_app

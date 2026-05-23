@@ -86,6 +86,21 @@ Apprise supports email, Slack, Teams, Discord, generic webhooks, and many other
 targets through the same notification field. Add each destination on a separate
 line.
 
+## Webhooks
+
+Use **Settings** > **Webhooks** when another system needs structured DMARQ
+events instead of human-readable notifications.
+
+1. Add a name and HTTPS endpoint URL.
+2. Choose all events or one event type.
+3. Save the endpoint.
+4. Use **Test** to send a signed test event.
+5. Inspect **Recent Deliveries** to see status, attempts, response codes, and errors.
+
+DMARQ signs each delivery with `X-DMARQ-Signature` and includes
+`X-DMARQ-Idempotency-Key` so receivers can reject replays and deduplicate
+retries. Endpoint URLs and signing secrets are encrypted at rest.
+
 ## API Access
 
 DMARQ provides an API for integration with other systems:

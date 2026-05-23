@@ -236,7 +236,7 @@ Goal: let DMARQ integrate cleanly into existing security and operations workflow
 
 Planned:
 - A stable, documented read-only API surface for posture and reporting queries. Delivered with scoped `reports:read`, `posture:read`, and `tls-reports:read` API tokens, public read-only endpoints, and per-token usage audit fields.
-- Webhook event delivery for key events (new sender source, compliance drop, missing reports, alert lifecycle).
+- Webhook event delivery for key events (new sender source, compliance drop, missing reports, alert lifecycle). Delivered with encrypted webhook endpoints, signed delivery headers, idempotency keys, retry/backoff state, test sends, and delivery inspection.
 - Integration templates for SIEM and ticketing workflows (export formats, payload schemas, examples).
 - Token/scoping model for API access that matches governance needs (service accounts, least privilege).
 
