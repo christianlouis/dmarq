@@ -243,6 +243,30 @@
                             </div>
                         </div>
                     </div>
+                    <div id="bimi-posture">
+                        <h3 class="font-semibold mb-1 flex items-center">
+                            <span class="mr-2">BIMI</span>
+                            <span x-show="bimi.status === 'pass'" class="inline-flex h-2 w-2 rounded-full bg-green-500"></span>
+                            <span x-show="bimi.status === 'fail'" class="inline-flex h-2 w-2 rounded-full bg-red-500"></span>
+                            <span x-show="!bimi.status" class="inline-flex h-2 w-2 rounded-full bg-base-300"></span>
+                        </h3>
+                        <div class="space-y-2">
+                            <div class="bg-muted p-2 rounded text-sm overflow-x-auto font-mono" x-text="bimi.dns_record || 'No BIMI TXT record found at default._bimi'">-</div>
+                            <div class="rounded border border-base-300 p-3 text-sm">
+                                <div class="grid gap-1">
+                                    <div><span class="font-medium">Selector:</span> <span class="font-mono" x-text="bimi.selector || 'default'"></span></div>
+                                    <div><span class="font-medium">Logo:</span> <span class="font-mono break-all" x-text="bimi.logo_url || 'none'"></span></div>
+                                    <div><span class="font-medium">Certificate:</span> <span class="font-mono break-all" x-text="bimi.certificate_url || 'none'"></span></div>
+                                </div>
+                                <template x-if="bimi.errors && bimi.errors.length">
+                                    <p class="mt-2 text-xs text-red-600" x-text="bimi.errors[0]"></p>
+                                </template>
+                                <template x-if="bimi.warnings && bimi.warnings.length">
+                                    <p class="mt-2 text-xs text-yellow-700" x-text="bimi.warnings[0]"></p>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
                     <!-- DKIM Selectors — live check result -->
                     <div>
                         <h3 class="font-semibold mb-1 flex items-center">
@@ -619,6 +643,16 @@ function domainDetailsApp(domainId) {
             errors: [],
             warnings: []
         },
+        bimi: {
+            status: '',
+            selector: 'default',
+            query_name: '',
+            dns_record: '',
+            logo_url: '',
+            certificate_url: '',
+            errors: [],
+            warnings: []
+        },
         selectors: [],
         reportSelectors: [],
         newSelector: '',
@@ -638,6 +672,7 @@ function domainDetailsApp(domainId) {
             this.fetchDNSRecords();
             this.fetchDNSHealth();
             this.fetchMtaSts();
+            this.fetchBimi();
             this.fetchSelectors();
             this.fetchReports();
             this.fetchSources();
@@ -729,6 +764,17 @@ function domainDetailsApp(domainId) {
                 }
             } catch (error) {
                 console.error('Error fetching MTA-STS posture:', error);
+            }
+        },
+
+        async fetchBimi() {
+            try {
+                const response = await fetch(`/api/v1/domains/${this.domainId}/dns/bimi`);
+                if (response.ok) {
+                    this.bimi = await response.json();
+                }
+            } catch (error) {
+                console.error('Error fetching BIMI posture:', error);
             }
         },
 

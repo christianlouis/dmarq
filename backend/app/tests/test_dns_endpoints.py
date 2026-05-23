@@ -19,6 +19,7 @@ from app.api.api_v1.endpoints import domains as domains_endpoint
 from app.api.api_v1.endpoints.domains import _spf_fix_hint
 from app.models.dns_cache import DNSCache
 from app.models.domain import Domain
+from app.services.bimi import BIMIResult
 from app.services.dns_cache import _selectors_key, resolve_domain_dns_cached
 from app.services.dns_resolver import DomainDNSResult
 from app.services.mta_sts import MTAStsResult
@@ -430,11 +431,21 @@ def test_dns_health_links_checks_to_evidence(client: TestClient):
         max_age=86400,
         mx=["*.example.com"],
     )
+    bimi = BIMIResult(
+        status="pass",
+        dns_record="v=BIMI1; l=https://example.com/logo.svg; a=https://example.com/vmc.pem",
+        logo_url="https://example.com/logo.svg",
+        certificate_url="https://example.com/vmc.pem",
+    )
     with (
         _mock_dns(result=missing_dkim),
         patch(
             "app.api.api_v1.endpoints.domains.check_mta_sts_cached",
             new=AsyncMock(return_value=(mta_sts, False, None)),
+        ),
+        patch(
+            "app.api.api_v1.endpoints.domains.check_bimi_cached",
+            new=AsyncMock(return_value=(bimi, False, None)),
         ),
     ):
         response = client.get(f"/api/v1/domains/{DOMAIN}/dns/health")
@@ -444,10 +455,14 @@ def test_dns_health_links_checks_to_evidence(client: TestClient):
     assert data["status"] == "degraded"
     dkim_check = next(check for check in data["checks"] if check["key"] == "dkim")
     mta_sts_check = next(check for check in data["checks"] if check["key"] == "mta_sts")
+    bimi_check = next(check for check in data["checks"] if check["key"] == "bimi")
     assert dkim_check["status"] == "fail"
     assert dkim_check["evidence"][0]["href"] == "#dns-records"
     assert mta_sts_check["status"] == "pass"
     assert mta_sts_check["evidence"][1]["href"] == "#mta-sts-posture"
+    assert bimi_check["status"] == "fail"
+    assert bimi_check["evidence"][0]["href"] == "#bimi-posture"
+    assert any(item["type"] == "bimi_dmarc_not_ready" for item in data["recommendations"])
     assert any(item["type"] == "missing_dkim" for item in data["recommendations"])
 
 
@@ -498,6 +513,7 @@ def test_dns_health_marks_all_missing_records_critical(client: TestClient):
     recommendation_types = [item["type"] for item in data["recommendations"]]
     assert {"missing_dmarc", "missing_spf", "missing_dkim"}.issubset(set(recommendation_types))
     assert recommendation_types.count("missing_mta_sts") == 1
+    assert recommendation_types.count("missing_bimi") == 1
     assert any(item["type"] == "policy_needs_more_data" for item in data["recommendations"])
 
 
@@ -529,6 +545,58 @@ def test_mta_sts_endpoint_returns_404_for_unknown_domain(client: TestClient):
     response = client.get("/api/v1/domains/unknown.example.com/dns/mta-sts")
 
     assert response.status_code == 404
+
+
+def test_bimi_endpoint_returns_cached_posture(client: TestClient):
+    """The domain detail page can fetch BIMI posture with cache metadata."""
+    checked_at = datetime(2026, 5, 23, 12, 0, 0)
+    result = BIMIResult(
+        status="pass",
+        selector="default",
+        query_name=f"default._bimi.{DOMAIN}",
+        dns_record="v=BIMI1; l=https://example.com/logo.svg; a=https://example.com/vmc.pem",
+        logo_url="https://example.com/logo.svg",
+        certificate_url="https://example.com/vmc.pem",
+    )
+
+    with patch(
+        "app.api.api_v1.endpoints.domains.check_bimi_cached",
+        new=AsyncMock(return_value=(result, True, checked_at)),
+    ):
+        response = client.get(f"/api/v1/domains/{DOMAIN}/dns/bimi")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "pass"
+    assert data["query_name"] == f"default._bimi.{DOMAIN}"
+    assert data["logo_url"] == "https://example.com/logo.svg"
+    assert data["cached"] is True
+    assert data["checked_at"] == checked_at.isoformat()
+
+
+def test_bimi_endpoint_returns_404_for_unknown_domain(client: TestClient):
+    response = client.get("/api/v1/domains/unknown.example.com/dns/bimi")
+
+    assert response.status_code == 404
+
+
+def test_domain_detail_data_endpoints_support_manually_configured_domain(
+    client: TestClient, db_session
+):
+    """Manually monitored domains should render empty detail data instead of 404s."""
+    db_session.add(Domain(name="manual.example", active=True))
+    db_session.commit()
+
+    reports = client.get("/api/v1/domains/manual.example/reports")
+    sources = client.get("/api/v1/domains/manual.example/sources")
+    selectors = client.get("/api/v1/domains/manual.example/selectors")
+
+    assert reports.status_code == 200
+    assert reports.json()["reports"] == []
+    assert sources.status_code == 200
+    assert sources.json()["sources"] == []
+    assert selectors.status_code == 200
+    assert selectors.json() == {"selectors": [], "report_selectors": []}
 
 
 @pytest.mark.parametrize(

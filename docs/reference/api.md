@@ -96,6 +96,15 @@ Returns details for a specific domain.
 }
 ```
 
+#### Get BIMI Posture
+
+```
+GET /domains/{domain_id}/dns/bimi
+```
+
+Returns the cached BIMI TXT posture for the default selector, including the
+queried DNS name, record text, logo URL, certificate URL, warnings, and errors.
+
 #### Add Domain
 
 ```
