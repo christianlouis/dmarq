@@ -21,6 +21,7 @@ if database_url:
     config.set_main_option("sqlalchemy.url", _make_sync_db_url(database_url))
 
 import app.models.alert  # noqa: E402, F401
+import app.models.api_token  # noqa: E402, F401
 import app.models.dns_cache  # noqa: E402, F401
 import app.models.domain  # noqa: E402, F401
 import app.models.mail_source  # noqa: E402, F401

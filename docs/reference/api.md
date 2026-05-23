@@ -4,18 +4,31 @@ DMARQ provides a comprehensive REST API that allows you to integrate with extern
 
 ## Authentication
 
-All API requests require authentication using an API key.
+Stable automation endpoints live under `/api/v1/public` and require a scoped
+API token in the `X-API-Key` header. Admin endpoints continue to require an
+administrator session or admin API key.
 
 ### API Keys
 
 To use the API, you need to generate an API key:
 
-1. Navigate to **Settings** > **API Access** in the DMARQ UI
-2. Click **Create API Key**
-3. Enter a description for the key (e.g., "Integration with Slack")
-4. Select the permissions you want to grant to this key
-5. Click **Generate Key**
-6. Copy the key immediately (it will only be shown once)
+Create scoped API tokens with:
+
+```
+POST /api-tokens
+```
+
+Request:
+
+```json
+{
+  "name": "SIEM export",
+  "scopes": ["reports:read", "posture:read", "tls-reports:read"]
+}
+```
+
+The raw token is returned once. DMARQ stores only a hash, prefix, scopes, and
+usage audit metadata.
 
 ### Authentication Header
 
@@ -36,6 +49,50 @@ https://your-dmarq-instance.com/api/v1
 Replace `your-dmarq-instance.com` with your actual DMARQ hostname.
 
 ## API Endpoints
+
+### Stable Public API
+
+These endpoints are read-only and intended for automation. They are versioned
+through the `/public` path and avoid UI-specific payloads.
+
+| Endpoint | Required scope | Purpose |
+| --- | --- | --- |
+| `GET /public/domains` | `reports:read` | Domain report and DNS summary list |
+| `GET /public/domains/{domain_id}/reports` | `reports:read` | Recent DMARC aggregate report summaries |
+| `GET /public/domains/{domain_id}/posture` | `posture:read` | Evidence-first posture dashboard payload |
+| `GET /public/tls-reports/summary` | `tls-reports:read` | SMTP TLS report trends and failure groups |
+
+Successful public API calls update the token's last-used timestamp, source IP,
+and usage count for auditing.
+
+### API Tokens
+
+#### List API Tokens
+
+```
+GET /api-tokens
+```
+
+Returns token metadata, scopes, activity state, and audit fields. Raw token
+secrets and hashes are never returned.
+
+#### Create API Token
+
+```
+POST /api-tokens
+```
+
+Creates a scoped read-only token. The response includes `token` once and
+`metadata` for future list/revoke operations.
+
+#### Revoke API Token
+
+```
+DELETE /api-tokens/{token_id}
+```
+
+Deactivates a token immediately. Revoked tokens can no longer access public API
+endpoints.
 
 ### Domains
 
