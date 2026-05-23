@@ -7,6 +7,7 @@ from app.api.api_v1.endpoints import (
     forensics,
     health,
     imap,
+    integrations,
     mail_sources,
     public,
     reports,
@@ -30,6 +31,7 @@ api_router.include_router(reports.router, prefix="/reports", tags=["reports"])
 api_router.include_router(forensics.router, prefix="/forensics", tags=["forensics"])
 api_router.include_router(setup.router, prefix="/setup", tags=["setup"])
 api_router.include_router(imap.router, prefix="/imap", tags=["imap"])
+api_router.include_router(integrations.router, prefix="/integrations", tags=["integrations"])
 api_router.include_router(stats.router, prefix="/stats", tags=["stats"])
 api_router.include_router(mail_sources.router, prefix="/mail-sources", tags=["mail-sources"])
 api_router.include_router(settings.router, prefix="/settings", tags=["settings"])

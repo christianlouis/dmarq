@@ -101,6 +101,11 @@ DMARQ signs each delivery with `X-DMARQ-Signature` and includes
 `X-DMARQ-Idempotency-Key` so receivers can reject replays and deduplicate
 retries. Endpoint URLs and signing secrets are encrypted at rest.
 
+For SIEM pipelines, DMARQ also exposes a versioned template bundle at
+`/api/v1/integrations/siem/templates`. It includes the stable
+`dmarq.siem.event.v1` event schema, Splunk HEC, Elastic ECS, and Microsoft
+Sentinel examples, plus redaction guidance for sensitive fields.
+
 ## API Access
 
 DMARQ provides an API for integration with other systems:
