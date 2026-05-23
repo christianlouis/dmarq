@@ -74,6 +74,32 @@ legacy rows to the default workspace when needed.
 The RBAC/audit migration adds `workspace_memberships` for role assignments and
 `workspace_audit_logs` for workspace-scoped change history.
 
+## Onboarding Templates
+
+Workspace onboarding templates give MSP operators a repeatable way to create a
+new client workspace with minimal manual configuration. The template API can:
+
+- preview a rendered onboarding plan before anything is saved
+- create or reuse a workspace
+- seed monitored domains and manual DKIM selectors
+- seed disabled mail-source shells for IMAP, Gmail, or Microsoft 365
+- seed safe notification defaults without storing notification target secrets
+- return an operator checklist for DNS validation, mailbox connection, initial
+  import, and notification testing
+
+Available templates are exposed from `GET /api/v1/onboarding/templates`.
+Operators render a plan with `POST /api/v1/onboarding/preview` and apply it
+with `POST /api/v1/onboarding/apply`.
+
+The onboarding response and audit records redact secret-like fields, including
+passwords, OAuth secrets, tokens, and API keys. Existing domains and mail
+sources are treated idempotently; duplicate domains owned by another workspace
+are rejected to keep ownership unambiguous.
+
+Notification defaults currently seed the existing notification settings table.
+They intentionally avoid Apprise target URLs, so operators still add and test
+delivery targets explicitly after onboarding.
+
 The current implementation keeps domain names globally unique. That matches the
 existing single-domain ownership model and avoids ambiguous ownership while MSP
 RBAC and onboarding controls are built out.
