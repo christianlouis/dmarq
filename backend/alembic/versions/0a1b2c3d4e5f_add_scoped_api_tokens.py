@@ -24,7 +24,7 @@ def upgrade() -> None:
         "api_tokens",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("name", sa.String(length=120), nullable=False),
-        sa.Column("key_hash", sa.String(length=64), nullable=False),
+        sa.Column("key_hash", sa.String(length=255), nullable=False),
         sa.Column("key_prefix", sa.String(length=16), nullable=False),
         sa.Column("scopes", sa.Text(), nullable=False),
         sa.Column("active", sa.Boolean(), nullable=False),

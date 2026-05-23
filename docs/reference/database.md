@@ -124,7 +124,7 @@ and are never stored.
 |--------|------|-------------|
 | id | INTEGER | Primary key |
 | name | VARCHAR(120) | Name/description of the token |
-| key_hash | VARCHAR(64) | SHA-256 hash of the token secret |
+| key_hash | VARCHAR(255) | Bcrypt hash of the token secret |
 | key_prefix | VARCHAR(16) | Non-secret prefix for operator identification |
 | scopes | TEXT | Comma-separated scopes such as `reports:read` |
 | active | BOOLEAN | Whether the token can be used |

@@ -240,8 +240,7 @@ def require_api_token_scope(required_scope: str) -> Callable:
 
         token = find_api_token(db, api_key)
         if token is None:
-            suffix = api_key[-8:] if len(api_key) >= 8 else "invalid"
-            logger.warning("Invalid public API token attempt: ...%s", suffix)
+            logger.warning("Invalid public API token attempt")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid API token",

@@ -12,7 +12,7 @@ class APIToken(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(120), nullable=False)
-    key_hash = Column(String(64), unique=True, nullable=False, index=True)
+    key_hash = Column(String(255), unique=True, nullable=False, index=True)
     key_prefix = Column(String(16), nullable=False, index=True)
     scopes = Column(Text, nullable=False)
     active = Column(Boolean, default=True, nullable=False, index=True)

@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import hashlib
 import secrets
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Iterable, List, Optional, Set
 
+import bcrypt
 from sqlalchemy.orm import Session
 
 from app.models.api_token import APIToken
@@ -59,7 +59,15 @@ def generate_public_api_key() -> str:
 
 def hash_api_key(secret: str) -> str:
     """Hash an API token for database storage."""
-    return hashlib.sha256(secret.encode("utf-8")).hexdigest()
+    return bcrypt.hashpw(secret.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def verify_api_key_secret(secret: str, hashed_secret: str) -> bool:
+    """Return True when a raw API token matches the stored hash."""
+    try:
+        return bcrypt.checkpw(secret.encode("utf-8"), hashed_secret.encode("utf-8"))
+    except ValueError:
+        return False
 
 
 def create_api_token(db: Session, *, name: str, scopes: Iterable[str]) -> CreatedAPIToken:
@@ -85,11 +93,15 @@ def find_api_token(db: Session, secret: str) -> Optional[APIToken]:
     """Return the active token row matching *secret*, if any."""
     if not secret:
         return None
-    return (
+    candidates = (
         db.query(APIToken)
-        .filter(APIToken.key_hash == hash_api_key(secret), APIToken.active == True)  # noqa: E712
-        .first()
+        .filter(APIToken.key_prefix == secret[:12], APIToken.active == True)  # noqa: E712
+        .all()
     )
+    for token in candidates:
+        if verify_api_key_secret(secret, token.key_hash):
+            return token
+    return None
 
 
 def record_api_token_use(db: Session, token: APIToken, *, ip_address: Optional[str]) -> None:
