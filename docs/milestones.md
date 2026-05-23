@@ -171,12 +171,13 @@ Delivered:
 - Detect forensic report messages.
 - Parse safe metadata from ARF/attached email formats.
 - Store minimal incident details with privacy controls.
+- Configure forensic report redaction for balanced, domain-only, and strict views.
 - Keep forensic reports out of aggregate report statistics and ReportStore rollups.
 - Expose authenticated forensic upload/list/detail APIs.
 
 Planned:
 - Add a dedicated forensic report view.
-- Add configurable redaction controls and richer failure investigation workflows.
+- Add richer failure investigation workflows.
 
 Exit criteria:
 - A security analyst can inspect individual failure reports without mixing them into aggregate statistics.

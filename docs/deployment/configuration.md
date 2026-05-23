@@ -101,6 +101,14 @@ from API responses and encrypted at rest with the application `SECRET_KEY`.
 | `notifications.summary_send_hour_utc` | UTC hour for scheduled summaries | `8` | `7` |
 | `notifications.summary_weekday_utc` | UTC weekday for weekly summaries, where 0 is Monday | `0` | `4` |
 
+Forensic report privacy controls are configured under **Settings** >
+**Forensic Reports**.
+
+| Setting | Description | Default | Example |
+|---------|-------------|---------|---------|
+| `forensics.redaction_mode` | Email-address redaction in forensic metadata: `balanced`, `domain_only`, or `strict` | `balanced` | `strict` |
+| `forensics.redact_long_tokens_enabled` | Redact long opaque tokens in forensic metadata | `true` | `true` |
+
 Alert history is stored in the database-backed `alert_history` table.
 Notification and alert-rule configuration changes are stored in
 `alert_configuration_audit` with secret values sanitized. Current retention is

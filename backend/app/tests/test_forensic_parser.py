@@ -12,6 +12,7 @@ from app.services.forensic_parser import (
     _message_part_payload,
     _payload_text,
 )
+from app.services.forensic_redaction import ForensicRedactionPolicy
 
 
 SAMPLE_FORENSIC_EMAIL = b"""\
@@ -75,6 +76,28 @@ def test_parse_forensic_email_redacts_and_extracts_failure_fields():
     assert "[redacted-token]" in parsed["original_subject"]
     assert parsed["original_message_id"]
     assert "original-message@example.com" not in parsed["original_message_id"]
+
+
+def test_parse_forensic_email_supports_stricter_redaction_policies():
+    domain_only = ForensicParser.parse_bytes(
+        SAMPLE_FORENSIC_EMAIL,
+        redaction_policy=ForensicRedactionPolicy(mode="domain_only"),
+    )
+    strict = ForensicParser.parse_bytes(
+        SAMPLE_FORENSIC_EMAIL,
+        redaction_policy=ForensicRedactionPolicy(mode="strict"),
+    )
+    token_visible = ForensicParser.parse_bytes(
+        SAMPLE_FORENSIC_EMAIL,
+        redaction_policy=ForensicRedactionPolicy(redact_long_tokens=False),
+    )
+
+    assert domain_only["original_mail_from"] == "***@example.com"
+    assert "***@example.com" in domain_only["original_from"]
+    assert domain_only["source_email"] == "DMARC Reporter <***@example.net>"
+    assert strict["original_mail_from"] == "[redacted-email]"
+    assert strict["source_email"] == "DMARC Reporter <[redacted-email]>"
+    assert "abcdefghijklmnopqrstuvwxyz123456" in token_visible["original_subject"]
 
 
 def test_non_forensic_email_is_rejected():

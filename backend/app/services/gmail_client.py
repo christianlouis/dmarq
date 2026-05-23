@@ -23,6 +23,7 @@ from googleapiclient.errors import HttpError
 from app.services.dmarc_parser import DMARCParser
 from app.services.forensic_parser import ForensicParser
 from app.services.forensic_persistence import forensic_report_exists, save_forensic_report
+from app.services.forensic_redaction import get_forensic_redaction_policy
 from app.services.report_persistence import report_exists, save_parsed_report
 from app.services.report_store import ReportStore
 
@@ -385,7 +386,11 @@ class GmailClient:
     ) -> int:
         """Parse and persist one DMARC forensic report message."""
         try:
-            report = ForensicParser.parse_bytes(raw_bytes, message_id_hint=message_id)
+            report = ForensicParser.parse_bytes(
+                raw_bytes,
+                message_id_hint=message_id,
+                redaction_policy=get_forensic_redaction_policy(self.db),
+            )
             report_id = str(report.get("report_id", ""))
             domain = str(report.get("reported_domain") or "unknown")
 

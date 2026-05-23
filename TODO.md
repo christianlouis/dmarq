@@ -65,10 +65,11 @@ have no working implementation in the codebase yet.
 - **Documented in**: README.md ("Forensic Reports: Analyze failure samples (RFC 6591 support)")
 - **Current state**: Aggregate and forensic reports are now parsed separately. Forensic
   reports are stored in dedicated database rows and surfaced through authenticated APIs
-  without affecting aggregate compliance statistics.
+  without affecting aggregate compliance statistics. Operators can configure forensic
+  email-address and token redaction under Settings.
 - [x] Forensic report parsing
 - [ ] Failure sample analysis
-- [ ] PII redaction options
+- [x] PII redaction options
 - [ ] Detailed authentication failure views
 
 ### User Authentication & Multi-User Support

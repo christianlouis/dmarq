@@ -18,6 +18,7 @@ from zipfile import ZipFile
 import pytest
 
 from app.models.report import DMARCReport, ForensicReport
+from app.models.setting import Setting
 from app.services.imap_client import IMAPClient
 from app.services.report_store import ReportStore
 from app.tests.test_forensic_parser import SAMPLE_FORENSIC_EMAIL
@@ -640,6 +641,27 @@ class TestProcessSingleEmail:
         assert db_session.query(DMARCReport).count() == 0
         assert db_session.query(ForensicReport).count() == 1
         assert ReportStore.get_instance().get_domains() == []
+
+    def test_forensic_report_uses_configured_redaction_policy(self, db_session):
+        setting = (
+            db_session.query(Setting).filter(Setting.key == "forensics.redaction_mode").first()
+        )
+        if setting is None:
+            setting = Setting(
+                key="forensics.redaction_mode",
+                value_type="string",
+                category="forensics",
+            )
+            db_session.add(setting)
+        setting.value = "domain_only"
+        db_session.commit()
+        client = self._make_client(db=db_session)
+        stats = {"forensic_reports_found": 0, "duplicate_forensic_reports": 0, "errors": []}
+
+        assert client._process_forensic_email(SAMPLE_FORENSIC_EMAIL, stats=stats, message_id="1")
+
+        report = db_session.query(ForensicReport).one()
+        assert report.original_mail_from == "***@example.com"
 
     def test_forensic_report_without_database_is_skipped(self):
         client = self._make_client()

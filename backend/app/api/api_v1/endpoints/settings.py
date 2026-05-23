@@ -8,6 +8,7 @@ in the ``settings`` database table.  Settings are organised into categories:
 - ``dmarc``      – Default DMARC policy, percentage, etc.
 - ``dns``        – Default DNS resolver, Cloudflare DoH toggle.
 - ``cloudflare`` – Cloudflare API token and Zone ID.
+- ``forensics`` – Forensic report privacy and retention controls.
 - ``notifications`` – Future alerting/notification settings.
 """
 
@@ -120,6 +121,21 @@ SETTING_DEFAULTS: List[Dict[str, Any]] = [
         "description": "Cloudflare Zone ID for DNS record management",
         "value_type": "string",
         "category": "cloudflare",
+    },
+    # ── Forensics ────────────────────────────────────────────────────────────
+    {
+        "key": "forensics.redaction_mode",
+        "value": "balanced",
+        "description": "Forensic report email-address redaction mode: balanced, domain_only, or strict",
+        "value_type": "string",
+        "category": "forensics",
+    },
+    {
+        "key": "forensics.redact_long_tokens_enabled",
+        "value": "true",
+        "description": "Redact long opaque tokens in forensic report metadata",
+        "value_type": "boolean",
+        "category": "forensics",
     },
     # ── Notifications ─────────────────────────────────────────────────────────
     {
@@ -312,7 +328,7 @@ def _audit_value_for_setting(key: str, value: Optional[str]) -> Optional[str]:
 
 
 def _should_audit_setting(key: str) -> bool:
-    return key.startswith("notifications.")
+    return key.startswith(("notifications.", "forensics."))
 
 
 def _audit_setting_change(

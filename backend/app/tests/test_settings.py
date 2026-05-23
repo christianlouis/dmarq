@@ -123,6 +123,8 @@ class TestSettingsAPI:
         assert "notifications.summary_weekday_utc" in keys
         assert "notifications.min_send_interval_minutes" in keys
         assert "notifications.redact_pii_enabled" in keys
+        assert "forensics.redaction_mode" in keys
+        assert "forensics.redact_long_tokens_enabled" in keys
 
     def test_list_settings_filter_by_category(self, authed_client: TestClient):
         """GET /api/v1/settings?category=dmarc returns only dmarc settings."""

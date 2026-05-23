@@ -15,6 +15,7 @@ from app.services.forensic_persistence import (
     forensic_report_to_dict,
     save_forensic_report,
 )
+from app.services.forensic_redaction import get_forensic_redaction_policy
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +89,8 @@ async def upload_forensic_report(
     try:
         content = await file.read()
         _validate_upload(file, content)
-        parsed = ForensicParser.parse_bytes(content)
+        redaction_policy = get_forensic_redaction_policy(db)
+        parsed = ForensicParser.parse_bytes(content, redaction_policy=redaction_policy)
         if forensic_report_exists(db, parsed["report_id"]):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -148,12 +150,18 @@ async def list_forensic_reports(
         .all()
     )
     total_pages = (total + page_size - 1) // page_size if total else 0
+    redaction_policy = get_forensic_redaction_policy(db)
     return ForensicListResponse(
         total=total,
         page=page,
         page_size=page_size,
         total_pages=total_pages,
-        reports=[ForensicReportResponse(**forensic_report_to_dict(row)) for row in rows],
+        reports=[
+            ForensicReportResponse(
+                **forensic_report_to_dict(row, redaction_policy=redaction_policy)
+            )
+            for row in rows
+        ],
     )
 
 
@@ -174,4 +182,5 @@ async def get_forensic_report(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Forensic report not found"
         )
-    return ForensicReportResponse(**forensic_report_to_dict(row))
+    redaction_policy = get_forensic_redaction_policy(db)
+    return ForensicReportResponse(**forensic_report_to_dict(row, redaction_policy=redaction_policy))
