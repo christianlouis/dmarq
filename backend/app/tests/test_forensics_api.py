@@ -1,5 +1,6 @@
 import pytest
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 
 from app.api.api_v1.endpoints import forensics as forensics_endpoint
@@ -61,6 +62,32 @@ def test_list_and_detail_forensic_reports(authed_client):
     detail_response = authed_client.get(f"/api/v1/forensics/{item['id']}")
     assert detail_response.status_code == 200
     assert detail_response.json()["reported_domain"] == "example.com"
+
+
+def test_list_forensic_reports_filters_failure_fields(authed_client, db_session):
+    first = ForensicParser.parse_bytes(SAMPLE_FORENSIC_EMAIL)
+    second = dict(first)
+    second.update(
+        {
+            "report_id": "ruf-spf-filter-test",
+            "reported_domain": "example.net",
+            "source_ip": "198.51.100.77",
+            "auth_failure": "spf",
+            "delivery_result": "none",
+        }
+    )
+    save_forensic_report(db_session, first)
+    save_forensic_report(db_session, second)
+    db_session.commit()
+
+    response = authed_client.get(
+        "/api/v1/forensics?auth_failure=spf&delivery_result=none&source_ip=198.51.100.77"
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+    assert data["reports"][0]["report_id"] == "ruf-spf-filter-test"
 
 
 def test_forensic_api_applies_configured_redaction_policy(authed_client, db_session):
@@ -173,6 +200,22 @@ def test_forensic_detail_returns_404(authed_client):
     response = authed_client.get("/api/v1/forensics/999")
 
     assert response.status_code == 404
+
+
+def test_forensic_html_pages_render():
+    from app.core.logto import SESSION_COOKIE, create_session_token  # noqa: PLC0415
+    from app.main import app as main_app  # noqa: PLC0415
+
+    cookies = {SESSION_COOKIE: create_session_token(user_id=1)}
+    with TestClient(main_app) as c:
+        list_response = c.get("/forensics", cookies=cookies)
+        detail_response = c.get("/forensics/123", cookies=cookies)
+
+    assert list_response.status_code == 200
+    assert "Forensic Reports" in list_response.text
+    assert "Authentication Failures" in list_response.text
+    assert detail_response.status_code == 200
+    assert "Forensic Investigation" in detail_response.text
 
 
 def test_save_forensic_report_duplicate_and_invalid_domain_paths(db_session):

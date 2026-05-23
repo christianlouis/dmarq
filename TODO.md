@@ -70,7 +70,7 @@ have no working implementation in the codebase yet.
 - [x] Forensic report parsing
 - [ ] Failure sample analysis
 - [x] PII redaction options
-- [ ] Detailed authentication failure views
+- [x] Detailed authentication failure views
 
 ### User Authentication & Multi-User Support
 - **Documented in**: README.md ("Built-in authentication via FastAPI Users"),
