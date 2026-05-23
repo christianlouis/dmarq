@@ -25,4 +25,6 @@ For installation instructions, check the [Docker Setup](deployment/docker.md) or
 
 For Microsoft 365 setup, see [Microsoft 365 Mail Sources](user_guide/microsoft365.md).
 
+For SMTP TLS reporting imports and privacy controls, see [TLS Reports](user_guide/tls_reports.md).
+
 For aggregate-report parser support, known edge cases, and fixture guidance, see [DMARC Aggregate Format Compatibility](reference/dmarc-compatibility.md).
