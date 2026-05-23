@@ -554,8 +554,15 @@ DMARQ ships operator-ready templates for normalized SIEM ingestion:
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /api/v1/integrations/siem/templates` | Return versioned SIEM schemas, examples, config hints, and redaction guidance |
+| `GET /api/v1/integrations/ticketing-chatops/templates` | Return Jira, GitHub, Slack, Teams, mapping, dedupe, and operating-model templates |
 
 The SIEM template bundle includes the stable `dmarq.siem.event.v1` envelope,
 examples for sender, compliance-drop, and alert events, and ingestion shapes for
 Splunk HEC, Elastic ECS, and Microsoft Sentinel custom logs. See
 [SIEM Integration Templates](siem-integrations.md) for the full operator guide.
+
+The ticketing/chatops bundle includes event-to-workflow mappings, Jira and
+GitHub issue templates, Slack and Microsoft Teams message templates, and
+deduplication guidance. See
+[Ticketing and Chatops Templates](ticketing-chatops-integrations.md) for the
+full operator guide.

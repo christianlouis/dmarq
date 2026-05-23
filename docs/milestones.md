@@ -230,7 +230,7 @@ Exit criteria:
 
 ## Milestone 14: Public API, Webhooks, and Core Integrations
 
-Status: In progress
+Status: Delivered
 
 Goal: let DMARQ integrate cleanly into existing security and operations workflows.
 
@@ -238,7 +238,7 @@ Planned:
 - A stable, documented read-only API surface for posture and reporting queries. Delivered with scoped `reports:read`, `posture:read`, and `tls-reports:read` API tokens, public read-only endpoints, and per-token usage audit fields.
 - Webhook event delivery for key events (new sender source, compliance drop, missing reports, alert lifecycle). Delivered with encrypted webhook endpoints, signed delivery headers, idempotency keys, retry/backoff state, test sends, and delivery inspection.
 - SIEM integration templates delivered with a stable `dmarq.siem.event.v1` schema, source/compliance/alert examples, Splunk HEC, Elastic ECS, and Microsoft Sentinel ingestion shapes, and sensitive-field redaction guidance.
-- Ticketing/chatops integration templates (Jira, GitHub, Slack, Teams).
+- Ticketing/chatops integration templates delivered with event-to-workflow mappings, Jira/GitHub issue templates, Slack/Teams message templates, dedupe keys, ownership rules, and noise-control guidance.
 - Token/scoping model for API access that matches governance needs (service accounts, least privilege).
 
 Exit criteria:
