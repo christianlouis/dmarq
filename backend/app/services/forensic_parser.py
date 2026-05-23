@@ -1,7 +1,7 @@
 import hashlib
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from email import message_from_bytes
 from email.message import Message
 from email.parser import Parser
@@ -84,6 +84,8 @@ def _parse_datetime(value: str) -> Optional[datetime]:
         return None
     if parsed is None:
         return None
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc)
     return parsed.replace(tzinfo=None)
 
 

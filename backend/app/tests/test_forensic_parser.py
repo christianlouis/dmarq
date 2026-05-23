@@ -92,6 +92,18 @@ def test_parse_forensic_email_handles_invalid_dates():
     assert parsed["arrival_date"] is None
 
 
+def test_parse_forensic_email_normalizes_offset_dates_to_utc():
+    content = SAMPLE_FORENSIC_EMAIL.replace(
+        b"Arrival-Date: Fri, 22 May 2026 10:15:00 +0000",
+        b"Arrival-Date: Fri, 22 May 2026 12:15:00 +0200",
+    )
+
+    parsed = ForensicParser.parse_bytes(content)
+
+    assert parsed["arrival_date"].hour == 10
+    assert parsed["arrival_date"].tzinfo is None
+
+
 def test_parse_forensic_email_falls_back_to_dkim_domain_and_content_hash():
     content = SAMPLE_FORENSIC_EMAIL.replace(b"Message-ID: <report-1@example.net>\n", b"")
     content = content.replace(b"Reported-Domain: example.com\n", b"DKIM-Domain: fallback.test\n")

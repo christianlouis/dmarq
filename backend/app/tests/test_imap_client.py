@@ -618,6 +618,7 @@ class TestProcessSingleEmail:
         assert stats["details"][0]["status"] == "imported"
 
     def test_processes_forensic_report_without_aggregate_count(self, db_session):
+        ReportStore.get_instance().clear()
         client = self._make_client(db=db_session)
         mock_mail = MagicMock()
         mock_mail.fetch.return_value = ("OK", [(b"1", SAMPLE_FORENSIC_EMAIL)])

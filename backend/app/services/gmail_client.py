@@ -59,6 +59,7 @@ DMARC_GMAIL_QUERY = (
 
 # How many message results to fetch per API page
 _PAGE_SIZE = 100
+RETRYABLE_MESSAGE_FAILURE = -1
 
 
 class GmailClient:
@@ -247,11 +248,9 @@ class GmailClient:
 
             stats["processed"] += 1
             found = self._process_message(service, msg_id, stats)
-            if found > 0:
-                stats["new_ingested_ids"].append(msg_id)
-                self.already_ingested_ids.append(msg_id)
-            else:
-                # Track it anyway so we don't re-examine it next run
+            if found >= 0:
+                # Track it even when no report is found so we don't re-examine
+                # unrelated messages on every poll. Retryable failures return -1.
                 stats["new_ingested_ids"].append(msg_id)
                 self.already_ingested_ids.append(msg_id)
 
@@ -334,7 +333,7 @@ class GmailClient:
         raw_bytes = base64.urlsafe_b64decode(msg_data.get("raw", ""))
         msg = email.message_from_bytes(raw_bytes)
         if ForensicParser.is_forensic_report(msg):
-            return 1 if self._process_forensic_message(raw_bytes, stats, message_id=msg_id) else 0
+            return self._process_forensic_message(raw_bytes, stats, message_id=msg_id)
         return self._process_attachments(msg, stats, message_id=msg_id)
 
     @staticmethod
@@ -383,7 +382,7 @@ class GmailClient:
         raw_bytes: bytes,
         stats: dict,
         message_id: Optional[str] = None,
-    ) -> bool:
+    ) -> int:
         """Parse and persist one DMARC forensic report message."""
         try:
             report = ForensicParser.parse_bytes(raw_bytes, message_id_hint=message_id)
@@ -399,7 +398,7 @@ class GmailClient:
                     domain=domain,
                     report_id=report_id,
                 )
-                return False
+                return RETRYABLE_MESSAGE_FAILURE
 
             if forensic_report_exists(self.db, report_id):
                 stats["duplicate_forensic_reports"] = stats.get("duplicate_forensic_reports", 0) + 1
@@ -411,7 +410,7 @@ class GmailClient:
                     domain=domain,
                     report_id=report_id,
                 )
-                return False
+                return 0
 
             _row, created = save_forensic_report(self.db, report)
             if not created:
@@ -424,7 +423,7 @@ class GmailClient:
                     domain=domain,
                     report_id=report_id,
                 )
-                return False
+                return 0
 
             stats["forensic_reports_found"] = stats.get("forensic_reports_found", 0) + 1
             self._append_detail(
@@ -435,10 +434,12 @@ class GmailClient:
                 domain=domain,
                 report_id=report_id,
             )
-            return True
+            return 1
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error("Failed to parse Gmail forensic report %s: %s", message_id, exc)
-            stats["errors"].append(f"Failed to parse forensic report {message_id}: {exc}")
+            stats.setdefault("errors", []).append(
+                f"Failed to parse forensic report {message_id}: {exc}"
+            )
             self._append_detail(
                 stats,
                 status="error",
@@ -446,7 +447,7 @@ class GmailClient:
                 message_id=message_id,
                 error=str(exc),
             )
-            return False
+            return RETRYABLE_MESSAGE_FAILURE
 
     def _process_attachments(
         self,

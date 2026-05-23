@@ -95,7 +95,12 @@ async def upload_forensic_report(
                 detail="Forensic report has already been uploaded.",
             )
 
-        row, _created = save_forensic_report(db, parsed)
+        row, created = save_forensic_report(db, parsed)
+        if not created:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Forensic report has already been uploaded.",
+            )
         db.commit()
         db.refresh(row)
         return ForensicUploadResponse(

@@ -1,3 +1,5 @@
+import pytest
+
 from app.models.report import ForensicReport
 from app.services.forensic_parser import ForensicParser
 from app.services.forensic_persistence import (
@@ -19,6 +21,10 @@ def test_upload_forensic_report_persists_redacted_metadata(authed_client, db_ses
     assert data["success"] is True
     assert data["domain"] == "example.com"
     assert db_session.query(ForensicReport).count() == 1
+    report = db_session.query(ForensicReport).one()
+    assert report.original_mail_from == "al***@example.com"
+    assert "original-message@example.com" not in report.original_message_id
+    assert not report.original_message_id.startswith("<")
 
 
 def test_upload_forensic_report_rejects_duplicates(authed_client):
@@ -98,6 +104,14 @@ def test_save_forensic_report_duplicate_and_invalid_domain_paths(db_session):
     assert forensic_report_exists(db_session, parsed["report_id"]) is True
     assert forensic_report_exists(db_session, "") is False
     assert forensic_report_to_dict(first)["feedback_headers"] == {"identity_alignment": "dkim"}
+
+    first.feedback_headers = "{not-json"
+    assert forensic_report_to_dict(first)["feedback_headers"] == {}
+
+    missing_id = dict(parsed)
+    missing_id["report_id"] = " "
+    with pytest.raises(ValueError, match="report_id"):
+        save_forensic_report(db_session, missing_id)
 
     invalid = dict(parsed)
     invalid["report_id"] = "ruf-invalid-domain"

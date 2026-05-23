@@ -20,7 +20,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.models.report import DMARCReport, ForensicReport
-from app.services.gmail_client import GmailClient
+from app.services.gmail_client import GmailClient, RETRYABLE_MESSAGE_FAILURE
 from app.services.report_store import ReportStore
 from app.tests.test_data import SAMPLE_XML
 from app.tests.test_forensic_parser import SAMPLE_FORENSIC_EMAIL
@@ -475,7 +475,7 @@ class TestProcessMessage:
             message_id="msg-forensic",
         )
 
-        assert imported is False
+        assert imported == RETRYABLE_MESSAGE_FAILURE
         assert stats["details"][0]["reason"] == "forensic_report_requires_database"
 
     def test_duplicate_forensic_report_is_skipped(self, db_session):
@@ -489,7 +489,7 @@ class TestProcessMessage:
             message_id="msg-1",
         )
 
-        assert imported is False
+        assert imported == 0
         assert stats["duplicate_forensic_reports"] == 1
         assert stats["details"][1]["status"] == "duplicate"
 
@@ -503,7 +503,7 @@ class TestProcessMessage:
             message_id="bad",
         )
 
-        assert imported is False
+        assert imported == RETRYABLE_MESSAGE_FAILURE
         assert stats["errors"]
         assert stats["details"][0]["reason"] == "forensic_parse_failed"
 
@@ -742,6 +742,19 @@ class TestFetchReports:
 
         assert "id1" in result["new_ingested_ids"]
         assert "id2" in result["new_ingested_ids"]
+
+    def test_retryable_processing_failure_is_not_marked_ingested(self):
+        client = _make_client()
+        mock_service = MagicMock()
+        with (
+            patch.object(client, "_build_service", return_value=mock_service),
+            patch.object(client, "_list_dmarc_message_ids", return_value=["id1"]),
+            patch.object(client, "_process_message", return_value=RETRYABLE_MESSAGE_FAILURE),
+        ):
+            result = client.fetch_reports()
+
+        assert result["new_ingested_ids"] == []
+        assert client.already_ingested_ids == []
 
     def test_reports_new_domains(self):
         """fetch_reports should report domains that appear after ingestion."""
