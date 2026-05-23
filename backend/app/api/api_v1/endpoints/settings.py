@@ -15,7 +15,7 @@ in the ``settings`` database table.  Settings are organised into categories:
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -36,6 +36,8 @@ from app.services.alert_rules import (
 )
 from app.services.notifications import send_notification
 from app.services.summary_notifications import build_summary, send_summary_notification
+from app.services.workspace_audit import record_workspace_audit_log
+from app.services.workspaces import assign_default_workspace_to_unscoped_rows
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -342,6 +344,7 @@ def _audit_setting_change(
     old_plain: Optional[str],
     new_plain: Optional[str],
     auth_context: Optional[Dict[str, Any]],
+    request: Optional[Request] = None,
 ) -> None:
     if not _should_audit_setting(key) or old_plain == new_plain:
         return
@@ -351,6 +354,22 @@ def _audit_setting_change(
         old_value=_audit_value_for_setting(key, old_plain),
         new_value=_audit_value_for_setting(key, new_plain),
         auth_context=auth_context,
+    )
+    workspace = assign_default_workspace_to_unscoped_rows(db, commit=False)
+    record_workspace_audit_log(
+        db,
+        workspace=workspace,
+        action="setting.changed",
+        entity_type="setting",
+        entity_id=key,
+        entity_name=key,
+        details={
+            "key": key,
+            "old_value": _audit_value_for_setting(key, old_plain),
+            "new_value": _audit_value_for_setting(key, new_plain),
+        },
+        auth_context=auth_context,
+        request=request,
     )
 
 
@@ -605,6 +624,7 @@ async def get_setting(
 async def update_setting(
     key: str,
     payload: SettingUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
 ) -> SettingResponse:
@@ -629,6 +649,7 @@ async def update_setting(
             old_plain=None,
             new_plain=new_plain,
             auth_context=_auth,
+            request=request,
         )
     else:
         # For secret keys, only update if not the redacted placeholder
@@ -644,6 +665,7 @@ async def update_setting(
             old_plain=old_plain,
             new_plain=new_plain,
             auth_context=_auth,
+            request=request,
         )
     db.commit()
     db.refresh(row)
@@ -653,6 +675,7 @@ async def update_setting(
 @router.post("/bulk", response_model=List[SettingResponse])
 async def bulk_update_settings(
     payload: BulkSettingsUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
 ) -> List[SettingResponse]:
@@ -681,6 +704,7 @@ async def bulk_update_settings(
                 old_plain=None,
                 new_plain=new_plain,
                 auth_context=_auth,
+                request=request,
             )
         else:
             # Skip secret placeholder updates
@@ -696,6 +720,7 @@ async def bulk_update_settings(
                 old_plain=old_plain,
                 new_plain=new_plain,
                 auth_context=_auth,
+                request=request,
             )
         results.append(_row_to_dict(row))
     db.commit()

@@ -107,9 +107,9 @@ def test_get_selectors_unknown_domain(client: TestClient):
 # ---------------------------------------------------------------------------
 
 
-def test_add_selector(client: TestClient):
+def test_add_selector(authed_client: TestClient):
     """Adding a selector persists it and returns the updated list."""
-    response = client.post(
+    response = authed_client.post(
         f"/api/v1/domains/{DOMAIN}/selectors",
         json={"selector": "mysel"},
     )
@@ -118,39 +118,39 @@ def test_add_selector(client: TestClient):
     assert "mysel" in data["selectors"]
 
 
-def test_add_selector_deduplication(client: TestClient):
+def test_add_selector_deduplication(authed_client: TestClient):
     """Adding the same selector twice should not create duplicates."""
-    client.post(f"/api/v1/domains/{DOMAIN}/selectors", json={"selector": "dup"})
-    response = client.post(f"/api/v1/domains/{DOMAIN}/selectors", json={"selector": "dup"})
+    authed_client.post(f"/api/v1/domains/{DOMAIN}/selectors", json={"selector": "dup"})
+    response = authed_client.post(f"/api/v1/domains/{DOMAIN}/selectors", json={"selector": "dup"})
     assert response.status_code == 201
     assert response.json()["selectors"].count("dup") == 1
 
 
-def test_add_selector_invalid_empty(client: TestClient):
+def test_add_selector_invalid_empty(authed_client: TestClient):
     """An empty selector string should be rejected."""
-    response = client.post(
+    response = authed_client.post(
         f"/api/v1/domains/{DOMAIN}/selectors",
         json={"selector": "   "},
     )
     assert response.status_code == 422
 
 
-def test_add_selector_unknown_domain(client: TestClient):
+def test_add_selector_unknown_domain(authed_client: TestClient):
     """Adding a selector to an unknown domain returns 404."""
-    response = client.post(
+    response = authed_client.post(
         "/api/v1/domains/unknown.example.com/selectors",
         json={"selector": "google"},
     )
     assert response.status_code == 404
 
 
-def test_add_multiple_selectors(client: TestClient):
+def test_add_multiple_selectors(authed_client: TestClient):
     """Multiple distinct selectors can be added and all are returned."""
     for sel in ("sel1", "sel2", "sel3"):
-        r = client.post(f"/api/v1/domains/{DOMAIN}/selectors", json={"selector": sel})
+        r = authed_client.post(f"/api/v1/domains/{DOMAIN}/selectors", json={"selector": sel})
         assert r.status_code == 201
 
-    response = client.get(f"/api/v1/domains/{DOMAIN}/selectors")
+    response = authed_client.get(f"/api/v1/domains/{DOMAIN}/selectors")
     assert response.status_code == 200
     selectors = response.json()["selectors"]
     assert "sel1" in selectors
@@ -163,25 +163,25 @@ def test_add_multiple_selectors(client: TestClient):
 # ---------------------------------------------------------------------------
 
 
-def test_delete_selector(client: TestClient):
+def test_delete_selector(authed_client: TestClient):
     """Deleting a selector removes it from the persisted list."""
-    client.post(f"/api/v1/domains/{DOMAIN}/selectors", json={"selector": "todelete"})
-    response = client.delete(f"/api/v1/domains/{DOMAIN}/selectors/todelete")
+    authed_client.post(f"/api/v1/domains/{DOMAIN}/selectors", json={"selector": "todelete"})
+    response = authed_client.delete(f"/api/v1/domains/{DOMAIN}/selectors/todelete")
     assert response.status_code == 200
     assert "todelete" not in response.json()["selectors"]
 
 
-def test_delete_nonexistent_selector(client: TestClient):
+def test_delete_nonexistent_selector(authed_client: TestClient):
     """Deleting a selector that was never added returns 404."""
     # Ensure the domain exists in DB (via add then delete)
-    client.post(f"/api/v1/domains/{DOMAIN}/selectors", json={"selector": "dummy"})
-    response = client.delete(f"/api/v1/domains/{DOMAIN}/selectors/ghost")
+    authed_client.post(f"/api/v1/domains/{DOMAIN}/selectors", json={"selector": "dummy"})
+    response = authed_client.delete(f"/api/v1/domains/{DOMAIN}/selectors/ghost")
     assert response.status_code == 404
 
 
-def test_delete_selector_unknown_domain(client: TestClient):
+def test_delete_selector_unknown_domain(authed_client: TestClient):
     """Deleting from an unknown domain returns 404."""
-    response = client.delete("/api/v1/domains/unknown.example.com/selectors/google")
+    response = authed_client.delete("/api/v1/domains/unknown.example.com/selectors/google")
     assert response.status_code == 404
 
 
@@ -225,16 +225,16 @@ def test_get_selectors_ignores_missing_dkim_detail_lists(client: TestClient):
     assert "mail" in response.json()["report_selectors"]
 
 
-def test_get_selectors_report_selector_moves_to_manual_when_added(client: TestClient):
+def test_get_selectors_report_selector_moves_to_manual_when_added(authed_client: TestClient):
     """A selector discovered from reports should appear only in 'selectors' once added manually."""
     # Confirm it's in report_selectors before adding
-    r1 = client.get(f"/api/v1/domains/{DOMAIN}/selectors")
+    r1 = authed_client.get(f"/api/v1/domains/{DOMAIN}/selectors")
     assert "google" in r1.json()["report_selectors"]
 
     # Add it as a manual selector
-    client.post(f"/api/v1/domains/{DOMAIN}/selectors", json={"selector": "google"})
+    authed_client.post(f"/api/v1/domains/{DOMAIN}/selectors", json={"selector": "google"})
 
-    r2 = client.get(f"/api/v1/domains/{DOMAIN}/selectors")
+    r2 = authed_client.get(f"/api/v1/domains/{DOMAIN}/selectors")
     data = r2.json()
     assert "google" in data["selectors"]
     # It must not appear in both lists
@@ -368,10 +368,10 @@ def test_dns_endpoint_refresh_bypasses_cache(client: TestClient):
     assert mock_provider.check_domain.await_count == 2
 
 
-def test_dns_endpoint_uses_manual_selectors(client: TestClient):
+def test_dns_endpoint_uses_manual_selectors(authed_client: TestClient):
     """Manually added selectors should be forwarded to check_domain."""
     # Add a custom selector
-    client.post(f"/api/v1/domains/{DOMAIN}/selectors", json={"selector": "customsel"})
+    authed_client.post(f"/api/v1/domains/{DOMAIN}/selectors", json={"selector": "customsel"})
 
     captured_selectors = []
 
@@ -383,7 +383,7 @@ def test_dns_endpoint_uses_manual_selectors(client: TestClient):
         "app.api.api_v1.endpoints.domains.get_default_provider",
         return_value=AsyncMock(check_domain=_fake_check_domain),
     ):
-        client.get(f"/api/v1/domains/{DOMAIN}/dns")
+        authed_client.get(f"/api/v1/domains/{DOMAIN}/dns")
 
     assert "customsel" in captured_selectors
 
@@ -752,9 +752,9 @@ def test_summary_dns_failure_defaults_false(client: TestClient):
     assert domain["dkim_status"] is False
 
 
-def test_summary_endpoint_uses_manual_selectors(client: TestClient):
+def test_summary_endpoint_uses_manual_selectors(authed_client: TestClient):
     """Manually configured selectors are forwarded by the summary endpoint."""
-    client.post(f"/api/v1/domains/{DOMAIN}/selectors", json={"selector": "manualsel"})
+    authed_client.post(f"/api/v1/domains/{DOMAIN}/selectors", json={"selector": "manualsel"})
     captured_selectors = []
 
     async def _fake_check_domain(domain, selectors=None):
@@ -765,7 +765,7 @@ def test_summary_endpoint_uses_manual_selectors(client: TestClient):
         "app.api.api_v1.endpoints.domains.get_default_provider",
         return_value=AsyncMock(check_domain=_fake_check_domain),
     ):
-        response = client.get("/api/v1/domains/summary")
+        response = authed_client.get("/api/v1/domains/summary")
 
     assert response.status_code == 200
     assert "manualsel" in captured_selectors

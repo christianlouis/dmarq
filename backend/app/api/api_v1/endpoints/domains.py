@@ -6,7 +6,7 @@ import logging
 from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
@@ -36,6 +36,7 @@ from app.services.report_persistence import (
     hydrate_report_store_from_db,
 )
 from app.services.report_store import ReportStore
+from app.services.workspace_audit import record_workspace_audit_log
 from app.services.workspaces import (
     assign_default_workspace_to_unscoped_rows,
     workspace_domain_query,
@@ -1930,8 +1931,10 @@ async def get_domain_selectors(
 @router.post("/{domain_id}/selectors", status_code=status.HTTP_201_CREATED)
 async def add_domain_selector(
     selector_data: SelectorRequest,
+    request: Request,
     domain_id: str = Path(..., title="The domain ID or name"),
     db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
 ):
     """Add a DKIM selector to the manual list for a domain.
 
@@ -1965,15 +1968,29 @@ async def add_domain_selector(
         existing.append(selector)
         domain_db.dkim_selectors = ",".join(existing)
         db.commit()
+        record_workspace_audit_log(
+            db,
+            workspace=workspace,
+            action="domain.selector_added",
+            entity_type="domain",
+            entity_id=domain_db.id,
+            entity_name=domain_db.name,
+            details={"selector": selector},
+            auth_context=_auth,
+            request=request,
+            commit=True,
+        )
 
     return {"selectors": existing}
 
 
 @router.delete("/{domain_id}/selectors/{selector}", status_code=status.HTTP_200_OK)
 async def delete_domain_selector(
+    request: Request,
     domain_id: str = Path(..., title="The domain ID or name"),
     selector: str = Path(..., title="The DKIM selector to remove"),
     db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
 ):
     """Remove a manually configured DKIM selector from a domain."""
     workspace = assign_default_workspace_to_unscoped_rows(db)
@@ -1994,6 +2011,18 @@ async def delete_domain_selector(
     existing.remove(selector)
     domain_db.dkim_selectors = ",".join(existing)
     db.commit()
+    record_workspace_audit_log(
+        db,
+        workspace=workspace,
+        action="domain.selector_removed",
+        entity_type="domain",
+        entity_id=domain_db.id,
+        entity_name=domain_db.name,
+        details={"selector": selector},
+        auth_context=_auth,
+        request=request,
+        commit=True,
+    )
 
     return {"selectors": existing}
 
