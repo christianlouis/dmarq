@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.api.api_v1.endpoints import mail_sources as mail_sources_endpoint
 from app.core.credential_encryption import is_encrypted_secret
 from app.models.mail_source import MailSource
 from app.models.mail_source_import import MailSourceImport
@@ -640,6 +641,32 @@ class TestMailSourcesAPIAuthed:
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is False
+        assert data["diagnostic_category"] == "authentication"
+        assert data["diagnostic"]["summary"]
+        assert data["recovery_steps"]
+
+    def test_test_stored_imap_source_sanitizes_diagnostics(self, authed_client: TestClient):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "IMAP Secret Fail", "method": "IMAP", "server": "bad.host"},
+        )
+        source_id = create_resp.json()["id"]
+
+        mock_client = MagicMock()
+        mock_client.test_connection.return_value = (
+            False,
+            "Connection failed",
+            {"diagnostic_detail": "password=secret-token refused"},
+        )
+
+        with patch("app.api.api_v1.endpoints.mail_sources.IMAPClient", return_value=mock_client):
+            resp = authed_client.post(f"/api/v1/mail-sources/{source_id}/test")
+
+        data = resp.json()
+        assert data["success"] is False
+        assert data["diagnostic_category"] == "authentication"
+        assert "secret-token" not in json.dumps(data)
+        assert "password=**redacted**" in data["diagnostic"]["details"]
 
     def test_test_stored_non_imap_source(self, authed_client: TestClient):
         create_resp = authed_client.post(
@@ -700,6 +727,7 @@ class TestMailSourcesAPIAuthed:
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is False
+        assert data["diagnostic_category"] == "not_implemented"
         assert "not yet implemented" in data["message"]
 
     def test_adhoc_gmail_api_returns_not_implemented(self, authed_client: TestClient):
@@ -707,7 +735,22 @@ class TestMailSourcesAPIAuthed:
         resp = authed_client.post("/api/v1/mail-sources/test-connection", json=payload)
         assert resp.status_code == 200
         assert resp.json()["success"] is False
+        assert resp.json()["diagnostic_category"] == "not_implemented"
         assert "not yet implemented" in resp.json()["message"]
+
+    def test_diagnostic_category_common_failure_modes(self):
+        cases = {
+            "invalid_grant refresh token expired": "auth_expired",
+            "insufficient permission for gmail scope": "permissions",
+            "rate limit 429 too many requests": "throttling",
+            "select failed for folder DMARC": "mailbox_not_found",
+            "login failed invalid password": "authentication",
+            "dns timeout refused": "connectivity",
+            "server is required": "missing_config",
+        }
+
+        for message, expected in cases.items():
+            assert mail_sources_endpoint._diagnostic_category(message) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -750,6 +793,8 @@ class TestGmailAPIMailSource:
         data = resp.json()
         assert data["success"] is False
         assert "not yet authorised" in data["message"].lower() or "oauth" in data["message"].lower()
+        assert data["diagnostic_category"] == "auth_required"
+        assert any("Connect Gmail" in step for step in data["recovery_steps"])
 
     def test_gmail_source_test_with_valid_token(self, authed_client: TestClient):
         """Test a GMAIL_API source that has valid OAuth tokens (mocked)."""
@@ -1703,7 +1748,8 @@ class TestGmailTestConnectionFailure:
         # Stack-trace / raw exception text must NOT be exposed to callers
         assert "internal oauth error" not in data["message"]
         assert "token expired" not in data["message"]
-        assert "check server logs" in data["message"].lower()
+        assert "authorization may need attention" in data["message"].lower()
+        assert data["diagnostic_category"] == "auth_expired"
 
 
 # ---------------------------------------------------------------------------
