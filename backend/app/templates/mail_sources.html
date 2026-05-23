@@ -86,8 +86,8 @@
                                     <td>
                                         <span class="badge badge-outline" x-text="source.method"></span>
                                     </td>
-                                    <td x-text="source.method === 'GMAIL_API' ? (source.gmail_email || '—') : (source.server ? source.server + ':' + source.port : '—')"></td>
-                                    <td x-text="source.method === 'GMAIL_API' ? (source.gmail_connected ? '✅ Connected' : '⚠️ Not authorised') : (source.username || '—')"></td>
+                                    <td x-text="sourceAccountLabel(source)"></td>
+                                    <td x-text="sourceStatusLabel(source)"></td>
                                     <td x-text="source.last_checked ? new Date(source.last_checked).toLocaleString() : 'Never'"></td>
                                     <td>
                                         <input
@@ -293,6 +293,7 @@
                             <option value="IMAP">IMAP</option>
                             <option value="POP3">POP3 (coming soon)</option>
                             <option value="GMAIL_API">Gmail API (OAuth2)</option>
+                            <option value="M365_GRAPH">Microsoft 365 (Graph OAuth2)</option>
                         </select>
                     </div>
 
@@ -434,6 +435,85 @@
                         </div>
                     </template>
 
+                    <!-- Microsoft 365 Graph fields -->
+                    <template x-if="form.method === 'M365_GRAPH'">
+                        <div class="space-y-4">
+                            <div class="alert alert-info text-sm p-3">
+                                <div>
+                                    <p class="font-semibold">Microsoft 365 Setup</p>
+                                    <p class="mt-1">Enter an app registration Client ID and client secret from Microsoft Entra admin center. Add this app's callback URL as a Web redirect URI, then save and click <strong>Connect Microsoft 365</strong>.</p>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="label"><span class="label-text font-medium">Tenant ID</span></label>
+                                <input type="text" x-model="form.m365_tenant_id"
+                                    placeholder="common, organizations, or tenant GUID"
+                                    class="input input-bordered w-full" />
+                            </div>
+
+                            <div>
+                                <label class="label"><span class="label-text font-medium">Microsoft Client ID <span class="text-error">*</span></span></label>
+                                <input type="text" x-model="form.m365_client_id"
+                                    placeholder="Application (client) ID"
+                                    class="input input-bordered w-full" />
+                            </div>
+
+                            <div>
+                                <label class="label">
+                                    <span class="label-text font-medium">Microsoft Client Secret <span class="text-error">*</span></span>
+                                    <span class="label-text-alt text-muted-foreground" x-show="editingId">Leave blank to keep existing</span>
+                                </label>
+                                <div class="relative">
+                                    <input :type="showPassword ? 'text' : 'password'"
+                                        x-model="form.m365_client_secret"
+                                        class="input input-bordered w-full pr-10" />
+                                    <button type="button"
+                                        class="absolute right-2 top-3 text-muted-foreground hover:text-foreground"
+                                        x-on:click="showPassword = !showPassword">
+                                        <svg x-show="!showPassword" xmlns="http://www.w3.org/2000/svg" width="16" height="16"
+                                            viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                            stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                            <circle cx="12" cy="12" r="3"></circle>
+                                        </svg>
+                                        <svg x-show="showPassword" xmlns="http://www.w3.org/2000/svg" width="16" height="16"
+                                            viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                            stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"></path>
+                                            <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"></path>
+                                            <line x1="1" y1="1" x2="23" y2="23"></line>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="label"><span class="label-text font-medium">Mailbox</span></label>
+                                <input type="text" x-model="form.m365_mailbox"
+                                    placeholder="Leave blank for the authorised account"
+                                    class="input input-bordered w-full" />
+                            </div>
+
+                            <div>
+                                <label class="label"><span class="label-text font-medium">Folder</span></label>
+                                <input type="text" x-model="form.folder" placeholder="INBOX"
+                                    class="input input-bordered w-full" />
+                            </div>
+
+                            <template x-if="editingId && m365Connected">
+                                <div class="alert alert-success text-sm p-3">
+                                    <span>Connected as <strong x-text="m365Email || 'Microsoft 365 account'"></strong></span>
+                                </div>
+                            </template>
+                            <template x-if="editingId && !m365Connected">
+                                <div class="alert alert-warning text-sm p-3">
+                                    <span>Not yet authorised. Save this source first, then click <strong>Connect Microsoft 365</strong>.</span>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+
                     <!-- Polling interval -->
                     <div>
                         <label class="label"><span class="label-text font-medium">Polling Interval (minutes)</span></label>
@@ -467,7 +547,7 @@
                     <div class="flex justify-between pt-2">
                         <!-- Test Connection (IMAP/POP3) or Connect Gmail button -->
                         <div class="flex gap-2">
-                            <template x-if="form.method !== 'GMAIL_API'">
+                            <template x-if="form.method !== 'GMAIL_API' && form.method !== 'M365_GRAPH'">
                                 <button type="button" class="btn btn-outline btn-sm"
                                     x-on:click="testAdHoc()"
                                     :disabled="isTesting || isSaving">
@@ -490,6 +570,13 @@
                                         <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path>
                                     </svg>
                                     Connect Gmail
+                                </button>
+                            </template>
+                            <template x-if="form.method === 'M365_GRAPH' && editingId">
+                                <button type="button" class="btn btn-outline btn-sm"
+                                    x-on:click="connectM365()"
+                                    :disabled="isTesting || isSaving">
+                                    Connect Microsoft 365
                                 </button>
                             </template>
                         </div>
@@ -577,6 +664,8 @@ function mailSourcesApp() {
         testResult: { message: '', success: false, diagnostic_summary: '', recovery_steps: [] },
         gmailConnected: false,
         gmailEmail: '',
+        m365Connected: false,
+        m365Email: '',
 
         form: {
             name: '',
@@ -591,6 +680,10 @@ function mailSourcesApp() {
             enabled: true,
             gmail_client_id: '',
             gmail_client_secret: '',
+            m365_tenant_id: 'common',
+            m365_client_id: '',
+            m365_client_secret: '',
+            m365_mailbox: '',
         },
 
         async init() {
@@ -689,6 +782,26 @@ function mailSourcesApp() {
             return value ? new Date(value).toLocaleString() : '—';
         },
 
+        sourceAccountLabel(source) {
+            if (source.method === 'GMAIL_API') {
+                return source.gmail_email || '—';
+            }
+            if (source.method === 'M365_GRAPH') {
+                return source.m365_mailbox || source.m365_email || '—';
+            }
+            return source.server ? `${source.server}:${source.port}` : '—';
+        },
+
+        sourceStatusLabel(source) {
+            if (source.method === 'GMAIL_API') {
+                return source.gmail_connected ? 'Connected' : 'Not authorised';
+            }
+            if (source.method === 'M365_GRAPH') {
+                return source.m365_connected ? 'Connected' : 'Not authorised';
+            }
+            return source.username || '—';
+        },
+
         formatList(value) {
             return value && value.length ? value.join(', ') : '—';
         },
@@ -738,6 +851,8 @@ function mailSourcesApp() {
             this.editingId = null;
             this.gmailConnected = false;
             this.gmailEmail = '';
+            this.m365Connected = false;
+            this.m365Email = '';
             this.form = {
                 name: '',
                 method: 'IMAP',
@@ -751,6 +866,10 @@ function mailSourcesApp() {
                 enabled: true,
                 gmail_client_id: '',
                 gmail_client_secret: '',
+                m365_tenant_id: 'common',
+                m365_client_id: '',
+                m365_client_secret: '',
+                m365_mailbox: '',
             };
             this.testResult = this.emptyTestResult();
             this.showForm = true;
@@ -760,6 +879,8 @@ function mailSourcesApp() {
             this.editingId = source.id;
             this.gmailConnected = source.gmail_connected || false;
             this.gmailEmail = source.gmail_email || '';
+            this.m365Connected = source.m365_connected || false;
+            this.m365Email = source.m365_email || '';
             this.form = {
                 name: source.name,
                 method: source.method,
@@ -773,6 +894,10 @@ function mailSourcesApp() {
                 enabled: source.enabled !== false,
                 gmail_client_id: source.gmail_client_id || '',
                 gmail_client_secret: '',  // never pre-fill client secret
+                m365_tenant_id: source.m365_tenant_id || 'common',
+                m365_client_id: source.m365_client_id || '',
+                m365_client_secret: '',  // never pre-fill client secret
+                m365_mailbox: source.m365_mailbox || '',
             };
             this.testResult = this.emptyTestResult();
             this.showForm = true;
@@ -826,6 +951,45 @@ function mailSourcesApp() {
             }
         },
 
+        async connectM365() {
+            if (!this.editingId) return;
+            try {
+                const resp = await fetch(
+                    `/api/v1/mail-sources/${this.editingId}/m365/authorize-url`
+                );
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    this.feedback = { message: `Error: ${err.detail || 'Failed to get authorization URL'}`, type: 'error' };
+                    return;
+                }
+                const data = await resp.json();
+                const popup = window.open(
+                    data.authorization_url,
+                    'm365_oauth',
+                    'width=700,height=760,scrollbars=yes'
+                );
+                const pollInterval = setInterval(async () => {
+                    if (popup && popup.closed) {
+                        clearInterval(pollInterval);
+                        await this.loadSources();
+                        const updated = this.sources.find(s => s.id === this.editingId);
+                        if (updated) {
+                            this.m365Connected = updated.m365_connected || false;
+                            this.m365Email = updated.m365_email || '';
+                            if (this.m365Connected) {
+                                this.feedback = {
+                                    message: `Microsoft 365 connected successfully (${this.m365Email || 'account connected'}).`,
+                                    type: 'success',
+                                };
+                            }
+                        }
+                    }
+                }, 1000);
+            } catch (e) {
+                this.feedback = { message: `Error: ${e.message}`, type: 'error' };
+            }
+        },
+
         async saveSource() {
             this.isSaving = true;
             this.feedback = { message: '', type: '' };
@@ -838,6 +1002,10 @@ function mailSourcesApp() {
                 // Don't send empty gmail_client_secret on edit
                 if (this.editingId && !payload.gmail_client_secret) {
                     delete payload.gmail_client_secret;
+                }
+                // Don't send empty m365_client_secret on edit
+                if (this.editingId && !payload.m365_client_secret) {
+                    delete payload.m365_client_secret;
                 }
 
                 const url = this.editingId

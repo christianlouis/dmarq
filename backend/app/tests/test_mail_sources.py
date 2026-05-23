@@ -99,6 +99,36 @@ class TestMailSourceModel:
         assert is_encrypted_secret(stored.gmail_access_token)
         assert is_encrypted_secret(stored.gmail_refresh_token)
 
+    def test_m365_oauth_secrets_are_encrypted_at_rest(self, db_session: Session):
+        source = MailSource(
+            name="Encrypted Microsoft 365",
+            method="M365_GRAPH",
+            m365_client_secret="client-secret",
+            m365_access_token="access-token",
+            m365_refresh_token="refresh-token",
+        )
+        db_session.add(source)
+        db_session.commit()
+        db_session.refresh(source)
+
+        stored = db_session.execute(
+            text(
+                "SELECT m365_client_secret, m365_access_token, m365_refresh_token "
+                "FROM mail_sources WHERE id = :id"
+            ),
+            {"id": source.id},
+        ).one()
+
+        assert source.m365_client_secret == "client-secret"
+        assert source.m365_access_token == "access-token"
+        assert source.m365_refresh_token == "refresh-token"
+        assert stored.m365_client_secret != "client-secret"
+        assert stored.m365_access_token != "access-token"
+        assert stored.m365_refresh_token != "refresh-token"
+        assert is_encrypted_secret(stored.m365_client_secret)
+        assert is_encrypted_secret(stored.m365_access_token)
+        assert is_encrypted_secret(stored.m365_refresh_token)
+
     def test_legacy_plaintext_mail_source_secret_remains_readable(self, db_session: Session):
         db_session.execute(
             text(
@@ -966,6 +996,455 @@ class TestGmailAPIMailSource:
         assert data["processed"] == 3
         assert data["reports_found"] == 2
         assert data["new_domains"] == ["example.com"]
+
+
+class TestMicrosoft365GraphMailSource:
+    """Tests for M365_GRAPH mail source creation, OAuth flow, and fetching."""
+
+    def test_create_m365_graph_source(self, authed_client: TestClient):
+        payload = {
+            "name": "My Microsoft 365",
+            "method": "M365_GRAPH",
+            "m365_tenant_id": "organizations",
+            "m365_client_id": "client-id",
+            "m365_client_secret": "client-secret",
+            "m365_mailbox": "dmarc@example.com",
+            "folder": "INBOX",
+            "polling_interval": 30,
+            "enabled": True,
+        }
+        resp = authed_client.post("/api/v1/mail-sources", json=payload)
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["method"] == "M365_GRAPH"
+        assert data["m365_tenant_id"] == "organizations"
+        assert data["m365_client_id"] == "client-id"
+        assert data["m365_client_secret"] == "**redacted**"
+        assert data["m365_mailbox"] == "dmarc@example.com"
+        assert data["m365_connected"] is False
+        assert data["m365_email"] is None
+
+    def test_m365_source_test_no_token(self, authed_client: TestClient):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "Unauthed M365", "method": "M365_GRAPH"},
+        )
+        source_id = create_resp.json()["id"]
+
+        resp = authed_client.post(f"/api/v1/mail-sources/{source_id}/test")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is False
+        assert data["diagnostic_category"] == "auth_required"
+        assert any("Microsoft 365" in step for step in data["recovery_steps"])
+
+    def test_m365_source_test_with_valid_token(self, authed_client: TestClient):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={
+                "name": "Authed M365",
+                "method": "M365_GRAPH",
+                "m365_client_id": "client-id",
+                "m365_client_secret": "client-secret",
+            },
+        )
+        source_id = create_resp.json()["id"]
+
+        mock_client = MagicMock()
+        mock_client.test_connection.return_value = {
+            "success": True,
+            "message_count": 1,
+            "diagnostic_detail": "ok",
+        }
+        mock_client.get_refreshed_tokens.return_value = None
+
+        with (
+            patch("app.api.api_v1.endpoints.mail_sources._get_source_or_404") as mock_get,
+            patch(
+                "app.api.api_v1.endpoints.mail_sources.MicrosoftGraphClient",
+                return_value=mock_client,
+            ),
+        ):
+            mock_source = MagicMock()
+            mock_source.method = "M365_GRAPH"
+            mock_source.m365_access_token = "valid-token"
+            mock_source.m365_email = "dmarc@example.com"
+            mock_source.m365_tenant_id = "organizations"
+            mock_source.m365_client_id = "client-id"
+            mock_source.m365_client_secret = "client-secret"
+            mock_source.m365_refresh_token = "refresh-token"
+            mock_source.m365_mailbox = None
+            mock_source.folder = "INBOX"
+            mock_get.return_value = mock_source
+
+            resp = authed_client.post(f"/api/v1/mail-sources/{source_id}/test")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert "valid" in data["message"].lower()
+
+    @pytest.mark.parametrize(
+        ("provider_error", "category"),
+        [
+            ("invalid_grant: refresh token expired", "auth_expired"),
+            ("Forbidden: Mail.Read permission is missing", "permissions"),
+            ("429 Too Many Requests throttling limit", "throttling"),
+        ],
+    )
+    def test_m365_source_test_diagnostic_categories(
+        self, authed_client: TestClient, provider_error: str, category: str
+    ):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "M365 Diagnostics", "method": "M365_GRAPH"},
+        )
+        source_id = create_resp.json()["id"]
+        mock_client = MagicMock()
+        mock_client.test_connection.side_effect = RuntimeError(provider_error)
+
+        with (
+            patch("app.api.api_v1.endpoints.mail_sources._get_source_or_404") as mock_get,
+            patch(
+                "app.api.api_v1.endpoints.mail_sources.MicrosoftGraphClient",
+                return_value=mock_client,
+            ),
+        ):
+            mock_source = MagicMock()
+            mock_source.method = "M365_GRAPH"
+            mock_source.m365_access_token = "valid-token"
+            mock_source.m365_email = "dmarc@example.com"
+            mock_source.m365_tenant_id = "organizations"
+            mock_source.m365_client_id = "client-id"
+            mock_source.m365_client_secret = "client-secret"
+            mock_source.m365_refresh_token = "refresh-token"
+            mock_source.m365_mailbox = None
+            mock_source.folder = "INBOX"
+            mock_get.return_value = mock_source
+
+            resp = authed_client.post(f"/api/v1/mail-sources/{source_id}/test")
+
+        assert resp.status_code == 200
+        assert resp.json()["diagnostic_category"] == category
+
+    def test_m365_authorize_url_returns_microsoft_url(self, authed_client: TestClient):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={
+                "name": "Ready M365",
+                "method": "M365_GRAPH",
+                "m365_tenant_id": "organizations",
+                "m365_client_id": "client-id",
+            },
+        )
+        source_id = create_resp.json()["id"]
+
+        resp = authed_client.get(f"/api/v1/mail-sources/{source_id}/m365/authorize-url")
+        assert resp.status_code == 200
+        data = resp.json()
+        parsed = urlparse(data["authorization_url"])
+        assert parsed.hostname == "login.microsoftonline.com"
+        assert "/organizations/oauth2/v2.0/authorize" in parsed.path
+        query = parse_qs(parsed.query)
+        assert query["client_id"] == ["client-id"]
+        assert "offline_access" in query["scope"][0]
+        assert "https://graph.microsoft.com/Mail.Read" in query["scope"][0]
+
+    def test_m365_authorize_url_validates_source(self, authed_client: TestClient):
+        imap_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "IMAP Source", "method": "IMAP"},
+        )
+        imap_id = imap_resp.json()["id"]
+        assert (
+            authed_client.get(f"/api/v1/mail-sources/{imap_id}/m365/authorize-url").status_code
+            == 400
+        )
+
+        m365_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "No Client M365", "method": "M365_GRAPH"},
+        )
+        m365_id = m365_resp.json()["id"]
+        resp = authed_client.get(f"/api/v1/mail-sources/{m365_id}/m365/authorize-url")
+        assert resp.status_code == 400
+        assert "m365_client_id" in resp.json()["detail"]
+
+    def test_m365_get_callback_handles_error_and_wrong_source(self, authed_client: TestClient):
+        error_resp = authed_client.get("/api/v1/mail-sources/999/m365/callback?error=denied")
+        assert error_resp.status_code == 400
+        assert "authorisation failed" in error_resp.text
+
+        imap_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "IMAP Callback", "method": "IMAP"},
+        )
+        imap_id = imap_resp.json()["id"]
+        wrong_resp = authed_client.get(f"/api/v1/mail-sources/{imap_id}/m365/callback?code=abc")
+        assert wrong_resp.status_code == 404
+
+    def test_m365_get_callback_saves_tokens(self, authed_client: TestClient):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={
+                "name": "GET Callback M365",
+                "method": "M365_GRAPH",
+                "m365_client_id": "client-id",
+                "m365_client_secret": "client-secret",
+            },
+        )
+        source_id = create_resp.json()["id"]
+
+        with (
+            patch(
+                "app.api.api_v1.endpoints.mail_sources.MicrosoftGraphClient.exchange_code_for_tokens",
+                return_value={"access_token": "access", "refresh_token": "refresh"},
+            ),
+            patch(
+                "app.api.api_v1.endpoints.mail_sources.MicrosoftGraphClient.get_account_email",
+                return_value="dmarc@example.com",
+            ),
+        ):
+            resp = authed_client.get(f"/api/v1/mail-sources/{source_id}/m365/callback?code=abc")
+
+        assert resp.status_code == 200
+        assert "connected successfully" in resp.text
+
+    def test_m365_get_callback_failure_modes(self, authed_client: TestClient):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "GET Callback Failure", "method": "M365_GRAPH"},
+        )
+        source_id = create_resp.json()["id"]
+
+        with patch(
+            "app.api.api_v1.endpoints.mail_sources.MicrosoftGraphClient.exchange_code_for_tokens",
+            side_effect=ValueError("bad code"),
+        ):
+            token_error = authed_client.get(
+                f"/api/v1/mail-sources/{source_id}/m365/callback?code=abc"
+            )
+        assert token_error.status_code == 400
+        assert "Token exchange failed" in token_error.text
+
+        with patch(
+            "app.api.api_v1.endpoints.mail_sources.MicrosoftGraphClient.exchange_code_for_tokens",
+            return_value={"refresh_token": "refresh"},
+        ):
+            missing_access = authed_client.get(
+                f"/api/v1/mail-sources/{source_id}/m365/callback?code=abc"
+            )
+        assert missing_access.status_code == 400
+        assert "No access token" in missing_access.text
+
+    def test_m365_callback_post_saves_tokens(self, authed_client: TestClient):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={
+                "name": "Callback M365",
+                "method": "M365_GRAPH",
+                "m365_client_id": "client-id",
+                "m365_client_secret": "client-secret",
+            },
+        )
+        source_id = create_resp.json()["id"]
+
+        with (
+            patch(
+                "app.api.api_v1.endpoints.mail_sources.MicrosoftGraphClient.exchange_code_for_tokens",
+                return_value={"access_token": "access", "refresh_token": "refresh"},
+            ),
+            patch(
+                "app.api.api_v1.endpoints.mail_sources.MicrosoftGraphClient.get_account_email",
+                return_value="dmarc@example.com",
+            ),
+        ):
+            resp = authed_client.post(
+                f"/api/v1/mail-sources/{source_id}/m365/callback",
+                json={"code": "code", "redirect_uri": "https://example.com/callback"},
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["m365_connected"] is True
+        assert data["m365_email"] == "dmarc@example.com"
+
+    def test_m365_callback_post_failure_modes(self, authed_client: TestClient):
+        imap_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "IMAP Callback Post", "method": "IMAP"},
+        )
+        imap_id = imap_resp.json()["id"]
+        wrong_resp = authed_client.post(
+            f"/api/v1/mail-sources/{imap_id}/m365/callback",
+            json={"code": "code", "redirect_uri": "https://example.com/callback"},
+        )
+        assert wrong_resp.status_code == 400
+
+        m365_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "Bad Callback M365", "method": "M365_GRAPH"},
+        )
+        m365_id = m365_resp.json()["id"]
+        with patch(
+            "app.api.api_v1.endpoints.mail_sources.MicrosoftGraphClient.exchange_code_for_tokens",
+            side_effect=ValueError("bad code"),
+        ):
+            token_resp = authed_client.post(
+                f"/api/v1/mail-sources/{m365_id}/m365/callback",
+                json={"code": "code", "redirect_uri": "https://example.com/callback"},
+            )
+        assert token_resp.status_code == 400
+
+        with patch(
+            "app.api.api_v1.endpoints.mail_sources.MicrosoftGraphClient.exchange_code_for_tokens",
+            return_value={"refresh_token": "refresh"},
+        ):
+            missing_access = authed_client.post(
+                f"/api/v1/mail-sources/{m365_id}/m365/callback",
+                json={"code": "code", "redirect_uri": "https://example.com/callback"},
+            )
+        assert missing_access.status_code == 400
+
+    def test_m365_fetch_no_token_returns_400(self, authed_client: TestClient):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "No Token M365", "method": "M365_GRAPH"},
+        )
+        source_id = create_resp.json()["id"]
+
+        resp = authed_client.post(f"/api/v1/mail-sources/{source_id}/m365/fetch")
+        assert resp.status_code == 400
+
+    def test_m365_fetch_with_mocked_client(self, authed_client: TestClient, db_session: Session):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={
+                "name": "Fetch M365",
+                "method": "M365_GRAPH",
+                "m365_client_id": "client-id",
+                "m365_client_secret": "client-secret",
+            },
+        )
+        source_id = create_resp.json()["id"]
+        source = db_session.get(MailSource, source_id)
+        source.m365_access_token = "tok"
+        source.m365_refresh_token = "refresh"
+        db_session.commit()
+
+        mock_client = MagicMock()
+        mock_client.fetch_reports.return_value = {
+            "success": True,
+            "processed": 3,
+            "reports_found": 2,
+            "duplicate_reports": 1,
+            "new_domains": ["example.com"],
+            "errors": [],
+            "new_ingested_ids": ["id1", "id2", "id3"],
+        }
+        mock_client.get_refreshed_tokens.return_value = None
+
+        with (
+            patch(
+                "app.api.api_v1.endpoints.mail_sources.MicrosoftGraphClient",
+                return_value=mock_client,
+            ),
+            patch(
+                "app.api.api_v1.endpoints.mail_sources.MicrosoftGraphClient.load_ingested_ids",
+                return_value=[],
+            ),
+            patch(
+                "app.api.api_v1.endpoints.mail_sources.MicrosoftGraphClient.dump_ingested_ids",
+                return_value='["id1", "id2", "id3"]',
+            ),
+        ):
+            resp = authed_client.post(f"/api/v1/mail-sources/{source_id}/fetch")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["processed"] == 3
+        assert data["reports_found"] == 2
+        assert data["duplicate_reports"] == 1
+        assert data["new_domains"] == ["example.com"]
+
+    def test_m365_specific_fetch_persists_refreshed_tokens(
+        self, authed_client: TestClient, db_session: Session
+    ):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={
+                "name": "Fetch M365 Specific",
+                "method": "M365_GRAPH",
+                "m365_client_id": "client-id",
+                "m365_client_secret": "client-secret",
+            },
+        )
+        source_id = create_resp.json()["id"]
+        source = db_session.get(MailSource, source_id)
+        source.m365_access_token = "old-access"
+        source.m365_refresh_token = "old-refresh"
+        db_session.commit()
+
+        mock_client = MagicMock()
+        mock_client.fetch_reports.return_value = {
+            "success": True,
+            "processed": 1,
+            "reports_found": 0,
+            "duplicate_reports": 0,
+            "new_domains": [],
+            "errors": ["temporary warning"],
+            "new_ingested_ids": [],
+        }
+        mock_client.get_refreshed_tokens.return_value = {
+            "access_token": "new-access",
+            "refresh_token": "new-refresh",
+        }
+
+        with patch(
+            "app.api.api_v1.endpoints.mail_sources.MicrosoftGraphClient",
+            return_value=mock_client,
+        ):
+            resp = authed_client.post(f"/api/v1/mail-sources/{source_id}/m365/fetch")
+
+        db_session.refresh(source)
+        assert resp.status_code == 200
+        assert resp.json()["processed"] == 1
+        assert source.m365_access_token == "new-access"
+        assert source.m365_refresh_token == "new-refresh"
+
+    def test_m365_fetch_and_disconnect_validate_method(self, authed_client: TestClient):
+        imap_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "IMAP M365 Actions", "method": "IMAP"},
+        )
+        source_id = imap_resp.json()["id"]
+
+        fetch_resp = authed_client.post(f"/api/v1/mail-sources/{source_id}/m365/fetch")
+        disconnect_resp = authed_client.delete(f"/api/v1/mail-sources/{source_id}/m365/connection")
+
+        assert fetch_resp.status_code == 400
+        assert disconnect_resp.status_code == 400
+
+    def test_m365_disconnect_clears_tokens(self, authed_client: TestClient, db_session: Session):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "Disconnect M365", "method": "M365_GRAPH"},
+        )
+        source_id = create_resp.json()["id"]
+        source = db_session.get(MailSource, source_id)
+        source.m365_access_token = "tok"
+        source.m365_refresh_token = "refresh"
+        source.m365_email = "dmarc@example.com"
+        db_session.commit()
+
+        resp = authed_client.delete(f"/api/v1/mail-sources/{source_id}/m365/connection")
+
+        db_session.refresh(source)
+        assert resp.status_code == 204
+        assert source.m365_access_token is None
+        assert source.m365_refresh_token is None
+        assert source.m365_email is None
 
 
 class TestManualSourceFetchEndpoint:
@@ -2035,6 +2514,79 @@ class TestTriggerPollGmailSource:
         assert src.gmail_refresh_token == "new-ref"
 
 
+class TestTriggerPollM365Source:
+    """Unit tests for app.main._trigger_poll_m365_source."""
+
+    def _make_src(self):
+        src = MagicMock()
+        src.id = 8
+        src.name = "My M365"
+        src.m365_tenant_id = "organizations"
+        src.m365_client_id = "cid"
+        src.m365_client_secret = "csec"
+        src.m365_access_token = "tok"
+        src.m365_refresh_token = "ref"
+        src.m365_mailbox = "shared@example.com"
+        src.m365_ingested_ids = "[]"
+        src.folder = "INBOX"
+        return src
+
+    def test_returns_result_dict_on_success(self):
+        from app.main import _trigger_poll_m365_source
+
+        src = self._make_src()
+        mock_gc = MagicMock()
+        mock_gc.fetch_reports.return_value = {
+            "success": True,
+            "processed": 2,
+            "reports_found": 1,
+            "new_domains": ["example.com"],
+            "new_ingested_ids": ["id1"],
+        }
+        mock_gc.get_refreshed_tokens.return_value = None
+        mock_db = MagicMock()
+
+        with (
+            patch("app.main.MicrosoftGraphClient", return_value=mock_gc),
+            patch("app.main.MicrosoftGraphClient.load_ingested_ids", return_value=[]),
+            patch("app.main.MicrosoftGraphClient.dump_ingested_ids", return_value='["id1"]'),
+        ):
+            result = _trigger_poll_m365_source(src, mock_db)
+
+        assert result["success"] is True
+        assert result["source_id"] == 8
+        assert result["processed"] == 2
+        assert src.m365_ingested_ids == '["id1"]'
+        mock_db.commit.assert_called_once()
+
+    def test_persists_refreshed_tokens(self):
+        from app.main import _trigger_poll_m365_source
+
+        src = self._make_src()
+        mock_gc = MagicMock()
+        mock_gc.fetch_reports.return_value = {
+            "success": True,
+            "processed": 0,
+            "reports_found": 0,
+            "new_domains": [],
+            "new_ingested_ids": [],
+        }
+        mock_gc.get_refreshed_tokens.return_value = {
+            "access_token": "new-acc",
+            "refresh_token": "new-ref",
+        }
+        mock_db = MagicMock()
+
+        with (
+            patch("app.main.MicrosoftGraphClient", return_value=mock_gc),
+            patch("app.main.MicrosoftGraphClient.load_ingested_ids", return_value=[]),
+        ):
+            _trigger_poll_m365_source(src, mock_db)
+
+        assert src.m365_access_token == "new-acc"
+        assert src.m365_refresh_token == "new-ref"
+
+
 class TestPollSourceForTrigger:
     """Unit tests for app.main._poll_source_for_trigger."""
 
@@ -2082,6 +2634,51 @@ class TestPollSourceForTrigger:
 
         assert result["success"] is False
         assert "boom" not in result.get("error", "")  # raw msg not exposed
+
+    def test_m365_no_token_returns_skipped(self):
+        from app.main import _poll_source_for_trigger
+
+        src = MagicMock()
+        src.method = "M365_GRAPH"
+        src.m365_access_token = None
+        src.id = 7
+        src.name = "M365 no token"
+
+        result = _poll_source_for_trigger(src, MagicMock())
+
+        assert result["skipped"] is True
+        assert "microsoft 365" in result["reason"].lower()
+
+    def test_m365_with_token_delegates_to_trigger_poll(self):
+        from app.main import _poll_source_for_trigger
+
+        src = MagicMock()
+        src.method = "M365_GRAPH"
+        src.m365_access_token = "tok"
+        src.id = 8
+        src.name = "M365"
+
+        expected = {"source_id": 8, "name": "M365", "success": True}
+        with patch("app.main._trigger_poll_m365_source", return_value=expected) as mock_fn:
+            result = _poll_source_for_trigger(src, MagicMock())
+
+        assert result is expected
+        mock_fn.assert_called_once()
+
+    def test_m365_exception_returns_failure_dict(self):
+        from app.main import _poll_source_for_trigger
+
+        src = MagicMock()
+        src.method = "M365_GRAPH"
+        src.m365_access_token = "tok"
+        src.id = 9
+        src.name = "M365 exc"
+
+        with patch("app.main._trigger_poll_m365_source", side_effect=Exception("boom")):
+            result = _poll_source_for_trigger(src, MagicMock())
+
+        assert result["success"] is False
+        assert "boom" not in result.get("error", "")
 
     def test_imap_delegates_to_trigger_poll(self):
         from app.main import _poll_source_for_trigger
@@ -2147,6 +2744,25 @@ class TestPollAllEnabledSources:
 
         mock_gmail.assert_called_once_with(src)
 
+    def test_dispatches_m365_graph_source(self):
+        """M365_GRAPH sources are forwarded to _poll_single_m365_source."""
+        from app.main import _poll_all_enabled_sources
+
+        src = MagicMock()
+        src.id = 6
+        src.method = "M365_GRAPH"
+
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.all.return_value = [src]
+
+        with (
+            patch("app.main.SessionLocal", return_value=mock_db),
+            patch("app.main._poll_single_m365_source") as mock_m365,
+        ):
+            _poll_all_enabled_sources()
+
+        mock_m365.assert_called_once_with(src)
+
     def test_dispatches_imap_source(self):
         """IMAP sources are forwarded to _poll_single_imap_source."""
         from app.main import _poll_all_enabled_sources
@@ -2197,6 +2813,23 @@ class TestPollAllEnabledSources:
         with (
             patch("app.main.SessionLocal", return_value=mock_db),
             patch("app.main._poll_single_imap_source", side_effect=Exception("imap crash")),
+        ):
+            _poll_all_enabled_sources()  # should not raise
+
+    def test_m365_exception_is_caught(self):
+        """Exception from _poll_single_m365_source must not propagate."""
+        from app.main import _poll_all_enabled_sources
+
+        src = MagicMock()
+        src.id = 7
+        src.method = "M365_GRAPH"
+
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.all.return_value = [src]
+
+        with (
+            patch("app.main.SessionLocal", return_value=mock_db),
+            patch("app.main._poll_single_m365_source", side_effect=Exception("m365 crash")),
         ):
             _poll_all_enabled_sources()  # should not raise
 

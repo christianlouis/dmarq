@@ -86,6 +86,68 @@ def test_poll_single_imap_source_passes_configured_folder():
     db.close.assert_called_once()
 
 
+def test_poll_single_m365_source_persists_import_state():
+    from app.main import _poll_single_m365_source
+
+    source = SimpleNamespace(
+        id=2,
+        m365_access_token="tok",
+        m365_tenant_id="organizations",
+        m365_client_id="cid",
+        m365_client_secret="csec",
+        m365_refresh_token="ref",
+        m365_mailbox="shared@example.com",
+        m365_ingested_ids="[]",
+        folder="INBOX",
+    )
+    db_source = SimpleNamespace(**source.__dict__)
+    db = MagicMock()
+    db.query.return_value.get.return_value = db_source
+    results = {
+        "success": True,
+        "processed": 1,
+        "reports_found": 1,
+        "new_domains": ["example.com"],
+        "new_ingested_ids": ["message-1"],
+    }
+
+    with (
+        patch("app.main.SessionLocal", return_value=db),
+        patch("app.main.MicrosoftGraphClient") as mock_client_cls,
+        patch("app.main.MicrosoftGraphClient.load_ingested_ids", return_value=[]),
+        patch(
+            "app.main.MicrosoftGraphClient.dump_ingested_ids",
+            return_value='["message-1"]',
+        ),
+        patch("app.main.record_import_attempt"),
+    ):
+        mock_client = mock_client_cls.return_value
+        mock_client.fetch_reports.return_value = results
+        mock_client.get_refreshed_tokens.return_value = {
+            "access_token": "new-tok",
+            "refresh_token": "new-ref",
+        }
+
+        _poll_single_m365_source(source)
+
+    assert db_source.m365_ingested_ids == '["message-1"]'
+    assert db_source.m365_access_token == "new-tok"
+    assert db_source.m365_refresh_token == "new-ref"
+    db.commit.assert_called_once()
+    db.close.assert_called_once()
+
+
+def test_poll_single_m365_source_skips_without_token():
+    from app.main import _poll_single_m365_source
+
+    source = SimpleNamespace(id=3, m365_access_token=None)
+
+    with patch("app.main.SessionLocal") as mock_session:
+        _poll_single_m365_source(source)
+
+    mock_session.assert_not_called()
+
+
 @pytest.mark.asyncio
 async def test_scheduled_imap_polling_sleep_exception_falls_back_then_cancels():
     from app.main import scheduled_imap_polling

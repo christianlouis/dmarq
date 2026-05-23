@@ -198,14 +198,14 @@ Exit criteria:
 
 ## Milestone 12: Enterprise Mail Sources (Microsoft 365) and Connector Framework
 
-Status: Planned
+Status: In progress
 
 Goal: make mailbox ingestion work for the most common enterprise setups without relying on IMAP.
 
 Planned:
-- Microsoft 365 mail source using OAuth (Graph) with least-privilege scopes.
+- Microsoft 365 mail source using OAuth (Graph) with least-privilege scopes. Delivered for delegated `User.Read`, `Mail.Read`, and `offline_access` with encrypted token storage, manual import, scheduled polling, UI setup, and operator docs.
 - Shared mailbox and folder selection support for DMARC report collection.
-- Import-history parity with existing sources (auditable attachment outcomes, duplicates, parse failures).
+- Import-history parity with existing sources (auditable attachment outcomes, duplicates, parse failures). Delivered for Microsoft 365 imports.
 - Backfill support with safe throttling and progressive search windows.
 - Secret handling mirrors existing guidance (no raw secrets in logs; 1Password-friendly).
 

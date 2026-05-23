@@ -30,6 +30,7 @@ from app.models.mail_source import MailSource  # noqa: F401 – ensure table is 
 from app.services.gmail_client import GmailClient
 from app.services.imap_client import IMAPClient
 from app.services.import_history import record_import_attempt
+from app.services.microsoft_graph_client import MicrosoftGraphClient
 from app.services.report_persistence import hydrate_report_store_from_db
 from app.services.report_store import ReportStore
 from app.services.runtime_status import (
@@ -162,7 +163,74 @@ def _poll_single_gmail_source(source: MailSource) -> None:
         )
 
 
-def _poll_all_enabled_sources() -> list[MailSource]:
+def _poll_single_m365_source(source: MailSource) -> None:
+    """Fetch DMARC reports for a single M365_GRAPH mail source."""
+    global last_check_time  # pylint: disable=global-statement
+
+    if not source.m365_access_token:
+        logger.info(
+            "Microsoft 365 polling (source id=%d): skipped – OAuth2 not yet authorised",
+            source.id,
+        )
+        return
+
+    db = SessionLocal()
+    try:
+        src = db.query(MailSource).get(source.id)
+        poll_source = src or source
+        already = MicrosoftGraphClient.load_ingested_ids(poll_source.m365_ingested_ids)
+        client = MicrosoftGraphClient(
+            tenant_id=poll_source.m365_tenant_id or "common",
+            client_id=poll_source.m365_client_id or "",
+            client_secret=poll_source.m365_client_secret or "",
+            access_token=poll_source.m365_access_token,
+            refresh_token=poll_source.m365_refresh_token or "",
+            mailbox=poll_source.m365_mailbox,
+            folder=poll_source.folder or "INBOX",
+            already_ingested_ids=already,
+            db=db,
+        )
+
+        started_at = datetime.utcnow()
+        results = client.fetch_reports()
+        if src:
+            if results.get("new_ingested_ids"):
+                all_ids = list(dict.fromkeys(already + results["new_ingested_ids"]))
+                src.m365_ingested_ids = MicrosoftGraphClient.dump_ingested_ids(all_ids)
+
+            refreshed = client.get_refreshed_tokens()
+            if refreshed:
+                src.m365_access_token = refreshed["access_token"]
+                if "refresh_token" in refreshed:
+                    src.m365_refresh_token = refreshed["refresh_token"]
+
+            src.last_checked = datetime.utcnow()
+            record_import_attempt(db, src, results, started_at=started_at, trigger="scheduled")
+            db.commit()
+    finally:
+        db.close()
+
+    last_check_time = datetime.now()
+
+    if results["success"]:
+        logger.info(
+            "Microsoft 365 polling (source id=%d): %s emails processed, "
+            "%s aggregate reports found",
+            source.id,
+            results["processed"],
+            results["reports_found"],
+        )
+        if results["new_domains"]:
+            logger.info("New domains found: %s", ", ".join(results["new_domains"]))
+    else:
+        logger.error(
+            "Microsoft 365 polling (source id=%d) failed: %s",
+            source.id,
+            results.get("error", "Unknown error"),
+        )
+
+
+def _poll_all_enabled_sources() -> list[MailSource]:  # noqa: C901
     """Iterate over all enabled mail sources and poll each one."""
     db = SessionLocal()
     try:
@@ -182,6 +250,11 @@ def _poll_all_enabled_sources() -> list[MailSource]:
                 _poll_single_gmail_source(source)
             except Exception as e:  # pylint: disable=broad-exception-caught
                 logger.error("Error polling Gmail source id=%d: %s", source.id, str(e))
+        elif source.method == "M365_GRAPH":
+            try:
+                _poll_single_m365_source(source)
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                logger.error("Error polling Microsoft 365 source id=%d: %s", source.id, str(e))
         elif source.method == "IMAP":
             try:
                 _poll_single_imap_source(source)
@@ -682,7 +755,50 @@ def _trigger_poll_gmail_source(source: MailSource, db) -> dict:
     }
 
 
-def _poll_source_for_trigger(source: MailSource, db, days: int = 7) -> dict:
+def _trigger_poll_m365_source(source: MailSource, db) -> dict:
+    """Poll a single M365_GRAPH source and return a result dict for the API response."""
+    global last_check_time  # pylint: disable=global-statement
+
+    already = MicrosoftGraphClient.load_ingested_ids(source.m365_ingested_ids)
+    graph_client = MicrosoftGraphClient(
+        tenant_id=source.m365_tenant_id or "common",
+        client_id=source.m365_client_id or "",
+        client_secret=source.m365_client_secret or "",
+        access_token=source.m365_access_token,
+        refresh_token=source.m365_refresh_token or "",
+        mailbox=source.m365_mailbox,
+        folder=source.folder or "INBOX",
+        already_ingested_ids=already,
+        db=db,
+    )
+    started_at = datetime.utcnow()
+    results = graph_client.fetch_reports()
+    last_check_time = datetime.now()
+
+    if results.get("new_ingested_ids"):
+        all_ids = list(dict.fromkeys(already + results["new_ingested_ids"]))
+        source.m365_ingested_ids = MicrosoftGraphClient.dump_ingested_ids(all_ids)
+    refreshed = graph_client.get_refreshed_tokens()
+    if refreshed:
+        source.m365_access_token = refreshed["access_token"]
+        if "refresh_token" in refreshed:
+            source.m365_refresh_token = refreshed["refresh_token"]
+    source.last_checked = datetime.utcnow()
+    record_import_attempt(db, source, results, started_at=started_at, trigger="manual")
+    db.commit()
+    return {
+        "source_id": source.id,
+        "name": source.name,
+        "success": results["success"],
+        "processed": results.get("processed", 0),
+        "reports_found": results.get("reports_found", 0),
+        "forensic_reports_found": results.get("forensic_reports_found", 0),
+        "duplicate_forensic_reports": results.get("duplicate_forensic_reports", 0),
+        "new_domains": results.get("new_domains", []),
+    }
+
+
+def _poll_source_for_trigger(source: MailSource, db, days: int = 7) -> dict:  # noqa: C901
     """Dispatch a single mail source for the manual trigger-poll endpoint.
 
     Returns a result/summary dict that is included in the API response.
@@ -699,6 +815,24 @@ def _poll_source_for_trigger(source: MailSource, db, days: int = 7) -> dict:
             return _trigger_poll_gmail_source(source, db)
         except Exception as e:  # pylint: disable=broad-exception-caught
             logger.error("Error polling Gmail source id=%d: %s", source.id, str(e))
+            return {
+                "source_id": source.id,
+                "name": source.name,
+                "success": False,
+                "error": "Failed to poll. Check server logs for details.",
+            }
+    if source.method == "M365_GRAPH":
+        if not source.m365_access_token:
+            return {
+                "source_id": source.id,
+                "name": source.name,
+                "skipped": True,
+                "reason": "Microsoft 365 account not yet authorised",
+            }
+        try:
+            return _trigger_poll_m365_source(source, db)
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Error polling Microsoft 365 source id=%d: %s", source.id, str(e))
             return {
                 "source_id": source.id,
                 "name": source.name,

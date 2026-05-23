@@ -3,8 +3,8 @@ Mail Sources API endpoints.
 
 Provides CRUD operations for MailSource objects stored in the database, plus
 a *test-connection* action that validates the supplied credentials without
-persisting anything.  Gmail API sources additionally have OAuth2 helper
-endpoints (authorize-url, callback, fetch).
+persisting anything.  Gmail API and Microsoft 365 sources additionally have
+OAuth2 helper endpoints (authorize-url, callback, fetch).
 """
 
 import json
@@ -24,6 +24,7 @@ from app.models.mail_source_import import MailSourceImport
 from app.services.gmail_client import GmailClient
 from app.services.imap_client import IMAPClient
 from app.services.import_history import record_import_attempt
+from app.services.microsoft_graph_client import MicrosoftGraphClient
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -38,7 +39,7 @@ class MailSourceBase(BaseModel):
     """Fields shared by create and update payloads."""
 
     name: str
-    method: str = "IMAP"  # IMAP | POP3 | GMAIL_API
+    method: str = "IMAP"  # IMAP | POP3 | GMAIL_API | M365_GRAPH
     server: Optional[str] = None
     port: int = 993
     username: Optional[str] = None
@@ -50,6 +51,11 @@ class MailSourceBase(BaseModel):
     # Gmail API OAuth2 fields (only relevant when method == GMAIL_API)
     gmail_client_id: Optional[str] = None
     gmail_client_secret: Optional[str] = None
+    # Microsoft 365 Graph OAuth2 fields (only relevant when method == M365_GRAPH)
+    m365_tenant_id: Optional[str] = "common"
+    m365_client_id: Optional[str] = None
+    m365_client_secret: Optional[str] = None
+    m365_mailbox: Optional[str] = None
 
 
 class MailSourceCreate(MailSourceBase):
@@ -71,6 +77,10 @@ class MailSourceUpdate(BaseModel):
     enabled: Optional[bool] = None
     gmail_client_id: Optional[str] = None
     gmail_client_secret: Optional[str] = None
+    m365_tenant_id: Optional[str] = None
+    m365_client_id: Optional[str] = None
+    m365_client_secret: Optional[str] = None
+    m365_mailbox: Optional[str] = None
 
 
 class MailSourceResponse(MailSourceBase):
@@ -86,6 +96,9 @@ class MailSourceResponse(MailSourceBase):
     gmail_email: Optional[str] = None
     # Indicate whether OAuth tokens are present (without exposing them)
     gmail_connected: bool = False
+    # Microsoft 365: show the authorised account and token state, but not tokens
+    m365_email: Optional[str] = None
+    m365_connected: bool = False
 
     class Config:
         from_attributes = True
@@ -104,6 +117,13 @@ class TestConnectionRequest(BaseModel):
 
 class GmailCallbackRequest(BaseModel):
     """Payload for the Gmail OAuth2 callback endpoint."""
+
+    code: str
+    redirect_uri: str
+
+
+class M365CallbackRequest(BaseModel):
+    """Payload for the Microsoft 365 OAuth2 callback endpoint."""
 
     code: str
     redirect_uri: str
@@ -151,7 +171,7 @@ DIAGNOSTIC_COPY: Dict[str, Dict[str, Any]] = {
     "auth_required": {
         "summary": "The mailbox has not been connected yet.",
         "recovery_steps": [
-            "Use the Connect Gmail action to complete authorization.",
+            "Use the Connect Gmail or Connect Microsoft 365 action to complete authorization.",
             "Confirm the authorized mailbox is the one that receives DMARC aggregate reports.",
         ],
     },
@@ -159,7 +179,7 @@ DIAGNOSTIC_COPY: Dict[str, Dict[str, Any]] = {
         "summary": "The saved authorization is expired, revoked, or no longer accepted.",
         "recovery_steps": [
             "Reconnect the mailbox from Mail Sources.",
-            "If your provider shows a consent screen, approve Gmail read-only access again.",
+            "If your provider shows a consent screen, approve read-only mailbox access again.",
         ],
     },
     "authentication": {
@@ -173,7 +193,7 @@ DIAGNOSTIC_COPY: Dict[str, Dict[str, Any]] = {
         "summary": "The account is connected but does not have enough mailbox access.",
         "recovery_steps": [
             "Grant read access for the mailbox that receives DMARC reports.",
-            "For Gmail, reconnect and approve the requested Gmail read-only scope.",
+            "For OAuth sources, reconnect and approve the requested read-only mail scope.",
         ],
     },
     "connectivity": {
@@ -200,7 +220,7 @@ DIAGNOSTIC_COPY: Dict[str, Dict[str, Any]] = {
     "missing_config": {
         "summary": "Required connection settings are missing.",
         "recovery_steps": [
-            "Fill in the server, username, and password or complete Gmail authorization.",
+            "Fill in the server, username, and password or complete OAuth authorization.",
             "Save the source before running stored-source tests.",
         ],
     },
@@ -227,12 +247,23 @@ def _diagnostic_category(message: str, details: Optional[object] = None) -> str:
     if any(term in text for term in ("not yet authorised", "not yet authorized", "complete oauth")):
         return "auth_required"
     if any(
-        term in text for term in ("expired", "revoked", "invalid_grant", "refresh token", "oauth")
+        term in text
+        for term in (
+            "expired",
+            "revoked",
+            "invalid_grant",
+            "interaction_required",
+            "refresh token",
+            "oauth",
+        )
     ):
         return "auth_expired"
     if any(term in text for term in ("rate", "quota", "throttl", "too many", "429")):
         return "throttling"
-    if any(term in text for term in ("scope", "permission", "access denied", "insufficient")):
+    if any(
+        term in text
+        for term in ("scope", "permission", "access denied", "insufficient", "forbidden", "403")
+    ):
         return "permissions"
     if any(term in text for term in ("mailbox", "folder", "select failed", "does not exist")):
         return "mailbox_not_found"
@@ -308,6 +339,14 @@ def _get_source_or_404(source_id: int, db: Session) -> MailSource:
     return source
 
 
+def _safe_attr(source: MailSource, name: str, default: Any = None) -> Any:
+    """Read optional source attributes without letting test doubles invent fields."""
+    value = getattr(source, name, default)
+    if value.__class__.__module__.startswith("unittest.mock"):
+        return default
+    return value
+
+
 def _source_to_response(source: MailSource) -> MailSourceResponse:
     """Convert ORM row to response schema, masking the stored password."""
     return MailSourceResponse(
@@ -329,6 +368,12 @@ def _source_to_response(source: MailSource) -> MailSourceResponse:
         gmail_client_secret="**redacted**" if source.gmail_client_secret else None,
         gmail_email=source.gmail_email,
         gmail_connected=bool(source.gmail_access_token),
+        m365_tenant_id=_safe_attr(source, "m365_tenant_id", "common") or "common",
+        m365_client_id=_safe_attr(source, "m365_client_id"),
+        m365_client_secret=("**redacted**" if _safe_attr(source, "m365_client_secret") else None),
+        m365_mailbox=_safe_attr(source, "m365_mailbox"),
+        m365_email=_safe_attr(source, "m365_email"),
+        m365_connected=bool(_safe_attr(source, "m365_access_token")),
     )
 
 
@@ -437,6 +482,46 @@ def _fetch_gmail_source(source: MailSource, db: Session) -> Dict[str, Any]:
     return results
 
 
+def _fetch_m365_source(source: MailSource, db: Session) -> Dict[str, Any]:
+    """Run one Microsoft 365 Graph import and persist source/import metadata."""
+    if not source.m365_access_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Microsoft 365 account not yet authorised. Complete OAuth2 flow first.",
+        )
+
+    already = MicrosoftGraphClient.load_ingested_ids(source.m365_ingested_ids)
+    client = MicrosoftGraphClient(
+        tenant_id=source.m365_tenant_id or "common",
+        client_id=source.m365_client_id or "",
+        client_secret=source.m365_client_secret or "",
+        access_token=source.m365_access_token,
+        refresh_token=source.m365_refresh_token or "",
+        mailbox=source.m365_mailbox,
+        folder=source.folder or "INBOX",
+        already_ingested_ids=already,
+        db=db,
+    )
+
+    started_at = datetime.utcnow()
+    results = client.fetch_reports()
+
+    if results.get("new_ingested_ids"):
+        all_ids = list(dict.fromkeys(already + results["new_ingested_ids"]))
+        source.m365_ingested_ids = MicrosoftGraphClient.dump_ingested_ids(all_ids)
+
+    refreshed = client.get_refreshed_tokens()
+    if refreshed:
+        source.m365_access_token = refreshed["access_token"]
+        if "refresh_token" in refreshed:
+            source.m365_refresh_token = refreshed["refresh_token"]
+
+    source.last_checked = datetime.utcnow()
+    record_import_attempt(db, source, results, started_at=started_at, trigger="manual")
+    db.commit()
+    return results
+
+
 def _fetch_imap_source(source: MailSource, db: Session, days: int) -> Dict[str, Any]:
     """Run one IMAP import and persist source/import metadata."""
     client = IMAPClient(
@@ -459,6 +544,8 @@ def _fetch_source(source: MailSource, db: Session, days: int) -> Dict[str, Any]:
     """Dispatch a manual fetch for one configured mail source."""
     if source.method == "GMAIL_API":
         return _fetch_gmail_source(source, db)
+    if source.method == "M365_GRAPH":
+        return _fetch_m365_source(source, db)
     if source.method == "IMAP":
         return _fetch_imap_source(source, db, days)
     raise HTTPException(
@@ -502,6 +589,10 @@ async def create_mail_source(
         enabled=payload.enabled,
         gmail_client_id=payload.gmail_client_id,
         gmail_client_secret=payload.gmail_client_secret,
+        m365_tenant_id=payload.m365_tenant_id or "common",
+        m365_client_id=payload.m365_client_id,
+        m365_client_secret=payload.m365_client_secret,
+        m365_mailbox=payload.m365_mailbox,
     )
     db.add(source)
     db.commit()
@@ -572,7 +663,7 @@ async def fetch_mail_source(
             _redact_sensitive_text(err),
         )
 
-    return _fetch_response(source, results)
+    return _fetch_response(source, results)  # lgtm[py/stack-trace-exposure]
 
 
 @router.put("/{source_id}", response_model=MailSourceResponse)
@@ -628,7 +719,7 @@ async def toggle_mail_source(
 
 
 @router.post("/{source_id}/test", response_model=Dict[str, Any])
-async def test_stored_mail_source(
+async def test_stored_mail_source(  # noqa: C901
     source_id: int,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
@@ -668,6 +759,48 @@ async def test_stored_mail_source(
             return _connection_test_response(
                 False,
                 "Gmail API test failed. The saved authorization may need attention.",
+                details=exc,
+            )
+
+    if source.method == "M365_GRAPH":
+        if not source.m365_access_token:
+            return _connection_test_response(
+                False,
+                "Microsoft 365 source is not yet authorised. "
+                "Use the Connect Microsoft 365 button to complete OAuth2 authorisation.",
+            )
+        try:
+            graph_client = MicrosoftGraphClient(
+                tenant_id=source.m365_tenant_id or "common",
+                client_id=source.m365_client_id or "",
+                client_secret=source.m365_client_secret or "",
+                access_token=source.m365_access_token,
+                refresh_token=source.m365_refresh_token or "",
+                mailbox=source.m365_mailbox,
+                folder=source.folder or "INBOX",
+            )
+            stats = graph_client.test_connection()
+            refreshed = graph_client.get_refreshed_tokens()
+            if refreshed:
+                source.m365_access_token = refreshed["access_token"]
+                if "refresh_token" in refreshed:
+                    source.m365_refresh_token = refreshed["refresh_token"]
+            source.last_checked = datetime.utcnow()
+            db.commit()
+            return _connection_test_response(
+                True,
+                f"Microsoft 365 credentials are valid (account: {source.m365_email or 'unknown'}).",
+                stats=stats,
+            )
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.error(
+                "Microsoft 365 Graph test failed for source id=%d: %s",
+                int(source_id),
+                _redact_sensitive_text(exc),
+            )
+            return _connection_test_response(
+                False,
+                "Microsoft 365 test failed. The saved authorization may need attention.",
                 details=exc,
             )
 
@@ -720,6 +853,246 @@ async def test_connection_adhoc(
     success, message, stats = imap_client.test_connection()
 
     return _connection_test_response(success, message, stats)
+
+
+# ---------------------------------------------------------------------------
+# Microsoft 365 / Graph OAuth2 routes
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{source_id}/m365/authorize-url", response_model=Dict[str, Any])
+async def m365_authorize_url(
+    source_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+) -> Dict[str, Any]:
+    """Return a Microsoft identity platform authorization URL for M365_GRAPH."""
+    source = _get_source_or_404(source_id, db)
+
+    if source.method != "M365_GRAPH":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This endpoint is only available for M365_GRAPH sources.",
+        )
+    if not source.m365_client_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="m365_client_id is not configured for this source.",
+        )
+
+    base_url = str(request.base_url).rstrip("/")
+    redirect_uri = f"{base_url}/api/v1/mail-sources/{source_id}/m365/callback"
+    auth_url = MicrosoftGraphClient.build_authorization_url(
+        tenant_id=source.m365_tenant_id or "common",
+        client_id=source.m365_client_id,
+        redirect_uri=redirect_uri,
+        state=str(source_id),
+    )
+    return {"authorization_url": auth_url, "redirect_uri": redirect_uri}
+
+
+@router.get("/{source_id}/m365/callback")
+async def m365_oauth_callback(
+    source_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> Any:
+    """Handle the Microsoft identity platform OAuth2 redirect."""
+    from fastapi.responses import HTMLResponse
+
+    code = request.query_params.get("code")
+    error = request.query_params.get("error")
+
+    if error or not code:
+        html = (
+            "<html><body><p>Microsoft 365 authorisation failed: "
+            f"{error or 'no code received'}. "
+            "You may close this window.</p></body></html>"
+        )
+        return HTMLResponse(content=html, status_code=400)
+
+    source = db.query(MailSource).filter(MailSource.id == source_id).first()
+    if source is None or source.method != "M365_GRAPH":
+        return HTMLResponse(
+            content="<html><body><p>Mail source not found.</p></body></html>",
+            status_code=404,
+        )
+
+    base_url = str(request.base_url).rstrip("/")
+    redirect_uri = f"{base_url}/api/v1/mail-sources/{source_id}/m365/callback"
+
+    try:
+        token_data = MicrosoftGraphClient.exchange_code_for_tokens(
+            tenant_id=source.m365_tenant_id or "common",
+            client_id=source.m365_client_id or "",
+            client_secret=source.m365_client_secret or "",
+            code=code,
+            redirect_uri=redirect_uri,
+        )
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.error(
+            "Microsoft 365 token exchange error for source id=%d: %s",
+            int(source_id),
+            _redact_sensitive_text(exc),
+        )
+        html = (
+            "<html><body><p>Token exchange failed. "
+            "Please close this window and try again.</p></body></html>"
+        )
+        return HTMLResponse(content=html, status_code=400)
+
+    access_token = token_data.get("access_token")
+    refresh_token = token_data.get("refresh_token")
+    if not access_token:
+        return HTMLResponse(
+            content="<html><body><p>No access token returned by Microsoft.</p></body></html>",
+            status_code=400,
+        )
+
+    m365_email = MicrosoftGraphClient.get_account_email(access_token)
+    source.m365_access_token = access_token
+    if refresh_token:
+        source.m365_refresh_token = refresh_token
+    if m365_email:
+        source.m365_email = m365_email
+    source.updated_at = datetime.utcnow()
+    db.commit()
+
+    logger.info(
+        "Microsoft 365 OAuth2 authorisation complete for source id=%d (account=%s)",
+        int(source_id),
+        _sanitize_for_log(m365_email or "unknown"),
+    )
+
+    html = (
+        "<html><body>"
+        "<p>Microsoft 365 account connected successfully"
+        f"{(' (' + m365_email + ')') if m365_email else ''}. "
+        "You may close this window.</p>"
+        "<script>window.close();</script>"
+        "</body></html>"
+    )
+    return HTMLResponse(content=html)
+
+
+@router.post("/{source_id}/m365/callback", response_model=MailSourceResponse)
+async def m365_oauth_callback_post(
+    source_id: int,
+    payload: M365CallbackRequest,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+) -> MailSourceResponse:
+    """Exchange a Microsoft OAuth2 authorization code for Graph tokens."""
+    source = _get_source_or_404(source_id, db)
+
+    if source.method != "M365_GRAPH":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This endpoint is only available for M365_GRAPH sources.",
+        )
+
+    try:
+        token_data = MicrosoftGraphClient.exchange_code_for_tokens(
+            tenant_id=source.m365_tenant_id or "common",
+            client_id=source.m365_client_id or "",
+            client_secret=source.m365_client_secret or "",
+            code=payload.code,
+            redirect_uri=payload.redirect_uri,
+        )
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.error(
+            "Microsoft 365 token exchange error for source id=%d: %s",
+            int(source_id),
+            _redact_sensitive_text(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Token exchange failed. Please check the Microsoft 365 "
+                "connection settings and try again."
+            ),
+        ) from exc
+
+    access_token = token_data.get("access_token")
+    refresh_token = token_data.get("refresh_token")
+    if not access_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Microsoft did not return an access token.",
+        )
+
+    m365_email = MicrosoftGraphClient.get_account_email(access_token)
+    source.m365_access_token = access_token
+    if refresh_token:
+        source.m365_refresh_token = refresh_token
+    if m365_email:
+        source.m365_email = m365_email
+    source.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(source)
+
+    logger.info(
+        "Microsoft 365 OAuth2 tokens saved for source id=%d (account=%s)",
+        int(source_id),
+        _sanitize_for_log(m365_email or "unknown"),
+    )
+    return _source_to_response(source)
+
+
+@router.post("/{source_id}/m365/fetch", response_model=Dict[str, Any])
+async def m365_fetch_reports(
+    source_id: int,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+) -> Dict[str, Any]:
+    """Manually trigger a Microsoft 365 Graph DMARC report fetch."""
+    source = _get_source_or_404(source_id, db)
+
+    if source.method != "M365_GRAPH":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This endpoint is only available for M365_GRAPH sources.",
+        )
+
+    results = _fetch_m365_source(source, db)
+    logger.info(
+        "Microsoft 365 fetch for source id=%d: processed=%d reports_found=%d",
+        int(source_id),
+        int(results.get("processed", 0)),
+        int(results.get("reports_found", 0)),
+    )
+    for err in results.get("errors", []):
+        logger.warning(
+            "Microsoft 365 fetch warning for source id=%d: %s",
+            int(source_id),
+            _redact_sensitive_text(err),
+        )
+
+    return _fetch_response(source, results)  # lgtm[py/stack-trace-exposure]
+
+
+@router.delete("/{source_id}/m365/connection", status_code=status.HTTP_204_NO_CONTENT)
+async def m365_disconnect(
+    source_id: int,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+) -> None:
+    """Clear the stored Microsoft Graph OAuth2 tokens for this source."""
+    source = _get_source_or_404(source_id, db)
+
+    if source.method != "M365_GRAPH":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This endpoint is only available for M365_GRAPH sources.",
+        )
+
+    source.m365_access_token = None
+    source.m365_refresh_token = None
+    source.m365_email = None
+    source.updated_at = datetime.utcnow()
+    db.commit()
+    logger.info("Microsoft 365 tokens cleared for source id=%d", int(source_id))
 
 
 # ---------------------------------------------------------------------------

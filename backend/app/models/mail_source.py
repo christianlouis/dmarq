@@ -18,6 +18,7 @@ class MailSource(Base):
     - ``IMAP``       – standard IMAP4 (over SSL/TLS or STARTTLS)
     - ``POP3``       – POP3 inbox (stub for future implementation)
     - ``GMAIL_API``  – Gmail API with OAuth 2.0
+    - ``M365_GRAPH`` – Microsoft 365 / Exchange Online via Microsoft Graph
     """
 
     __tablename__ = "mail_sources"
@@ -28,7 +29,7 @@ class MailSource(Base):
     name = Column(String, nullable=False)
 
     # Connection method – determines which fields are used at runtime
-    method = Column(String, nullable=False, default="IMAP")  # IMAP | POP3 | GMAIL_API
+    method = Column(String, nullable=False, default="IMAP")  # IMAP | POP3 | GMAIL_API | M365_GRAPH
 
     # Connection details (used by IMAP and POP3)
     server = Column(String, nullable=True)
@@ -47,6 +48,19 @@ class MailSource(Base):
     gmail_email = Column(String, nullable=True)
     # JSON-encoded list of Gmail message IDs that have already been ingested
     gmail_ingested_ids = Column(Text, nullable=True, default="[]")
+
+    # Microsoft 365 / Graph OAuth2 credentials (used by M365_GRAPH method)
+    m365_tenant_id = Column(String, nullable=True, default="common")
+    m365_client_id = Column(String, nullable=True)
+    _m365_client_secret = Column("m365_client_secret", Text, nullable=True)
+    _m365_access_token = Column("m365_access_token", Text, nullable=True)
+    _m365_refresh_token = Column("m365_refresh_token", Text, nullable=True)
+    # Optional user/shared mailbox to poll. Empty means the authorised account (/me).
+    m365_mailbox = Column(String, nullable=True)
+    # Email address reported by Microsoft Graph for the authorised account.
+    m365_email = Column(String, nullable=True)
+    # JSON-encoded list of Graph message IDs that have already been ingested
+    m365_ingested_ids = Column(Text, nullable=True, default="[]")
 
     # Polling behaviour
     polling_interval = Column(Integer, default=60)  # minutes
@@ -76,6 +90,9 @@ class MailSource(Base):
             "gmail_client_secret": self._gmail_client_secret,
             "gmail_access_token": self._gmail_access_token,
             "gmail_refresh_token": self._gmail_refresh_token,
+            "m365_client_secret": self._m365_client_secret,
+            "m365_access_token": self._m365_access_token,
+            "m365_refresh_token": self._m365_refresh_token,
         }
 
         for public_name, stored_value in secret_fields.items():
@@ -120,3 +137,30 @@ class MailSource(Base):
     @gmail_refresh_token.setter
     def gmail_refresh_token(self, value):
         self._gmail_refresh_token = encrypt_secret(value)
+
+    @property
+    def m365_client_secret(self):
+        """Return the decrypted Microsoft 365 OAuth client secret, if present."""
+        return decrypt_secret(self._m365_client_secret)
+
+    @m365_client_secret.setter
+    def m365_client_secret(self, value):
+        self._m365_client_secret = encrypt_secret(value)
+
+    @property
+    def m365_access_token(self):
+        """Return the decrypted Microsoft Graph access token, if present."""
+        return decrypt_secret(self._m365_access_token)
+
+    @m365_access_token.setter
+    def m365_access_token(self, value):
+        self._m365_access_token = encrypt_secret(value)
+
+    @property
+    def m365_refresh_token(self):
+        """Return the decrypted Microsoft Graph refresh token, if present."""
+        return decrypt_secret(self._m365_refresh_token)
+
+    @m365_refresh_token.setter
+    def m365_refresh_token(self, value):
+        self._m365_refresh_token = encrypt_secret(value)
