@@ -11,6 +11,8 @@ This guide provides step-by-step instructions for deploying DMARQ in various env
 5. [Production Best Practices](#production-best-practices)
 6. [Upgrading](#upgrading)
 
+For day-to-day production operation, use the [Operator Runbook](../deployment/operations.md). For failure recovery, use [Troubleshooting Playbooks](../deployment/troubleshooting.md).
+
 ## Docker Deployment (Recommended)
 
 The easiest way to deploy DMARQ is using Docker and Docker Compose. This approach packages all dependencies and provides a consistent environment.
