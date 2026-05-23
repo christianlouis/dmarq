@@ -3,7 +3,7 @@ import io
 import logging
 import zipfile
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import defusedxml.ElementTree as ET
 
@@ -137,19 +137,94 @@ class DMARCParser:
             DMARCParser._strip_namespace(child)
 
     @staticmethod
+    def _namespace(tag: str) -> str:
+        """Return the XML namespace from an ElementTree tag."""
+        return tag[1:].split("}", 1)[0] if tag.startswith("{") and "}" in tag else ""
+
+    @staticmethod
+    def _safe_int(value: Any, default: int = 0) -> int:
+        """Parse integer fields without failing the entire report on bad optional data."""
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _text(parent, name: str, default: str = "") -> str:
+        """Return stripped child text for a parsed XML element."""
+        return (parent.findtext(name, default) or default).strip()
+
+    @staticmethod
+    def _parse_text_list(parent, name: str) -> List[str]:
+        """Return all non-empty child text values for repeated simple elements."""
+        return [
+            text
+            for text in (DMARCParser._text(child, ".") for child in parent.findall(name))
+            if text
+        ]
+
+    @staticmethod
+    def _collect_extension_values(parent) -> Dict[str, Any]:
+        """Capture namespaced extension values without coupling to vendor-specific schemas."""
+        values: Dict[str, Any] = {}
+        for child in list(parent):
+            key = child.tag
+            if len(child):
+                values[key] = DMARCParser._collect_extension_values(child)
+            else:
+                values[key] = (child.text or "").strip()
+        return values
+
+    @staticmethod
+    def _extension_value(element) -> Any:
+        """Return a scalar or nested mapping for a vendor extension element."""
+        if len(element):
+            return DMARCParser._collect_extension_values(element)
+        return (element.text or "").strip()
+
+    @staticmethod
+    def _detect_variant(root, xml_namespace: str) -> dict:
+        """Identify the aggregate report format variant for debugging/import history."""
+        version = DMARCParser._text(root, "version", "1.0")
+        has_rfc9990_fields = any(
+            root.find(path) is not None
+            for path in (
+                "report_metadata/generator",
+                "policy_published/discovery_method",
+                "policy_published/np",
+                "policy_published/testing",
+                "record/identifiers/envelope_to",
+            )
+        )
+        if xml_namespace or has_rfc9990_fields:
+            variant = "rfc9990"
+        else:
+            variant = "rfc7489-compatible"
+        return {
+            "variant": variant,
+            "schema_version": version,
+            "xml_namespace": xml_namespace,
+        }
+
+    @staticmethod
     def _parse_metadata(root) -> dict:
         """Parse the report_metadata section of a DMARC XML report."""
         report: dict = {}
         metadata = root.find("report_metadata")
         if metadata is not None:
-            report["report_id"] = metadata.findtext("report_id", "")
-            report["org_name"] = metadata.findtext("org_name", "")
-            report["email"] = metadata.findtext("email", "")
+            report["report_id"] = DMARCParser._text(metadata, "report_id")
+            report["org_name"] = DMARCParser._text(metadata, "org_name")
+            report["email"] = DMARCParser._text(metadata, "email")
+            report["extra_contact_info"] = DMARCParser._text(metadata, "extra_contact_info")
+            report["generator"] = DMARCParser._text(metadata, "generator")
+            errors = DMARCParser._parse_text_list(metadata, "error")
+            if errors:
+                report["errors"] = errors
 
             date_range = metadata.find("date_range")
             if date_range is not None:
-                begin_ts = int(date_range.findtext("begin", 0))
-                end_ts = int(date_range.findtext("end", 0))
+                begin_ts = DMARCParser._safe_int(date_range.findtext("begin", 0))
+                end_ts = DMARCParser._safe_int(date_range.findtext("end", 0))
                 report["begin_date"] = datetime.fromtimestamp(begin_ts).isoformat()
                 report["end_date"] = datetime.fromtimestamp(end_ts).isoformat()
                 report["begin_timestamp"] = begin_ts
@@ -157,55 +232,135 @@ class DMARCParser:
         return report
 
     @staticmethod
+    def _parse_policy(root) -> dict:
+        """Parse policy_published, including RFC 9990 optional fields."""
+        policy = root.find("policy_published")
+        if policy is None:
+            return {}
+        parsed = {
+            "domain": DMARCParser._text(policy, "domain"),
+            "policy": {
+                "p": DMARCParser._text(policy, "p", "none"),
+                "sp": DMARCParser._text(policy, "sp"),
+                "pct": DMARCParser._text(policy, "pct", "100"),
+                "np": DMARCParser._text(policy, "np"),
+                "fo": DMARCParser._text(policy, "fo"),
+                "adkim": DMARCParser._text(policy, "adkim"),
+                "aspf": DMARCParser._text(policy, "aspf"),
+                "testing": DMARCParser._text(policy, "testing"),
+                "discovery_method": DMARCParser._text(policy, "discovery_method"),
+            },
+        }
+        parsed["policy"] = {key: value for key, value in parsed["policy"].items() if value}
+        parsed["policy"].setdefault("pct", "100")
+        return parsed
+
+    @staticmethod
+    def _parse_policy_reasons(policy_evaluated) -> List[dict]:
+        """Parse policy_evaluated/reason override data."""
+        reasons = []
+        for reason in policy_evaluated.findall("reason"):
+            parsed = {
+                "type": DMARCParser._text(reason, "type"),
+                "comment": DMARCParser._text(reason, "comment"),
+            }
+            if parsed["type"] or parsed["comment"]:
+                reasons.append(parsed)
+        return reasons
+
+    @staticmethod
+    def _parse_row(record_elem) -> dict:
+        """Parse the record row and policy_evaluated section."""
+        parsed: dict = {}
+        row = record_elem.find("row")
+        if row is None:
+            return parsed
+
+        parsed["source_ip"] = DMARCParser._text(row, "source_ip")
+        parsed["count"] = DMARCParser._safe_int(row.findtext("count", 0))
+        policy_evaluated = row.find("policy_evaluated")
+        if policy_evaluated is None:
+            return parsed
+
+        parsed["disposition"] = DMARCParser._text(policy_evaluated, "disposition", "none")
+        parsed["dkim_result"] = DMARCParser._text(policy_evaluated, "dkim").lower()
+        parsed["spf_result"] = DMARCParser._text(policy_evaluated, "spf").lower()
+        reasons = DMARCParser._parse_policy_reasons(policy_evaluated)
+        if reasons:
+            parsed["policy_override_reasons"] = reasons
+        return parsed
+
+    @staticmethod
+    def _parse_identifiers(record_elem) -> dict:
+        """Parse identifier fields used for aggregate policy evaluation."""
+        parsed: dict = {}
+        identifiers = record_elem.find("identifiers")
+        if identifiers is None:
+            return parsed
+        parsed["header_from"] = DMARCParser._text(identifiers, "header_from")
+        parsed["envelope_from"] = DMARCParser._text(identifiers, "envelope_from")
+        parsed["envelope_to"] = DMARCParser._text(identifiers, "envelope_to")
+        return parsed
+
+    @staticmethod
+    def _parse_auth_results(record_elem) -> dict:
+        """Parse uninterpreted DKIM/SPF authentication results."""
+        parsed: dict = {}
+        auth_results = record_elem.find("auth_results")
+        if auth_results is None:
+            return parsed
+
+        spf_entries = [
+            {
+                "domain": DMARCParser._text(spf, "domain"),
+                "scope": DMARCParser._text(spf, "scope"),
+                "result": DMARCParser._text(spf, "result").lower(),
+                "human_result": DMARCParser._text(spf, "human_result"),
+            }
+            for spf in auth_results.findall("spf")
+        ]
+        if spf_entries:
+            parsed["spf"] = spf_entries
+
+        dkim_entries = [
+            {
+                "domain": DMARCParser._text(dkim, "domain"),
+                "result": DMARCParser._text(dkim, "result").lower(),
+                "selector": DMARCParser._text(dkim, "selector"),
+                "human_result": DMARCParser._text(dkim, "human_result"),
+            }
+            for dkim in auth_results.findall("dkim")
+        ]
+        if dkim_entries:
+            parsed["dkim"] = dkim_entries
+        return parsed
+
+    @staticmethod
+    def _parse_record_extensions(record_elem) -> dict:
+        """Parse record-level extension elements."""
+        extension_values = {}
+        for child in record_elem:
+            if child.tag not in {"row", "identifiers", "auth_results"}:
+                extension_values[child.tag] = DMARCParser._extension_value(child)
+        return {"extensions": extension_values} if extension_values else {}
+
+    @staticmethod
     def _parse_record(record_elem) -> dict:
         """Parse a single <record> element into a dictionary."""
         record: dict = {}
-
-        row = record_elem.find("row")
-        if row is not None:
-            record["source_ip"] = row.findtext("source_ip", "")
-            record["count"] = int(row.findtext("count", 0))
-            policy_evaluated = row.find("policy_evaluated")
-            if policy_evaluated is not None:
-                record["disposition"] = policy_evaluated.findtext("disposition", "none")
-                record["dkim_result"] = policy_evaluated.findtext("dkim", "").lower()
-                record["spf_result"] = policy_evaluated.findtext("spf", "").lower()
-
-        identifiers = record_elem.find("identifiers")
-        if identifiers is not None:
-            record["header_from"] = identifiers.findtext("header_from", "")
-
-        auth_results = record_elem.find("auth_results")
-        if auth_results is not None:
-            spf_entries = [
-                {
-                    "domain": spf.findtext("domain", ""),
-                    "result": spf.findtext("result", "").lower(),
-                }
-                for spf in auth_results.findall("spf")
-            ]
-            if spf_entries:
-                record["spf"] = spf_entries
-
-            dkim_entries = [
-                {
-                    "domain": dkim.findtext("domain", ""),
-                    "result": dkim.findtext("result", "").lower(),
-                    "selector": dkim.findtext("selector", ""),
-                }
-                for dkim in auth_results.findall("dkim")
-            ]
-            if dkim_entries:
-                record["dkim"] = dkim_entries
+        record.update(DMARCParser._parse_row(record_elem))
+        record.update(DMARCParser._parse_identifiers(record_elem))
+        record.update(DMARCParser._parse_auth_results(record_elem))
+        record.update(DMARCParser._parse_record_extensions(record_elem))
 
         return record
 
     @staticmethod
     def _compute_summary(records: list) -> dict:
         """Compute aggregate pass/fail statistics for a list of records."""
-        total_count = sum(r["count"] for r in records)
+        total_count = sum(r.get("count", 0) for r in records)
         passed_count = sum(
-            r["count"]
+            r.get("count", 0)
             for r in records
             if r.get("spf_result") == "pass" or r.get("dkim_result") == "pass"
         )
@@ -224,19 +379,18 @@ class DMARCParser:
         """
         try:
             root = ET.fromstring(xml_content)
+            xml_namespace = DMARCParser._namespace(root.tag)
             DMARCParser._strip_namespace(root)
 
             report = DMARCParser._parse_metadata(root)
+            report.update(DMARCParser._detect_variant(root, xml_namespace))
 
             # Parse policy published
-            policy = root.find("policy_published")
-            if policy is not None:
-                report["domain"] = policy.findtext("domain", "")
-                report["policy"] = {
-                    "p": policy.findtext("p", "none"),
-                    "sp": policy.findtext("sp", ""),
-                    "pct": policy.findtext("pct", "100"),
-                }
+            report.update(DMARCParser._parse_policy(root))
+
+            extension = root.find("extension")
+            if extension is not None:
+                report["extensions"] = DMARCParser._collect_extension_values(extension)
 
             # Parse records
             records = [DMARCParser._parse_record(elem) for elem in root.findall("record")]
