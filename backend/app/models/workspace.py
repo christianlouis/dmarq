@@ -16,6 +16,9 @@ class Workspace(Base):
     name = Column(String, nullable=False)
     description = Column(Text, nullable=True)
     active = Column(Boolean, default=True, nullable=False, index=True)
+    report_retention_days = Column(Integer, default=400, nullable=False)
+    forensic_retention_days = Column(Integer, default=90, nullable=False)
+    tls_report_retention_days = Column(Integer, default=400, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

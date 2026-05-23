@@ -174,6 +174,46 @@ the operator checklist, and writing a sanitized workspace audit event.
 Existing domains and mail sources are not duplicated. Existing notification
 settings are preserved unless `overwrite_existing` is set to `true`.
 
+### MSP Operator Views
+
+#### List Workspace Operator Summaries
+
+```text
+GET /operator/workspaces
+```
+
+Returns safe cross-workspace summaries for MSP operators: workspace identity,
+health status, domain/mail-source counts, latest import status, active alert
+count, recent drift event count, aggregate report count, and retention controls.
+The endpoint does not return raw report records.
+
+#### Get One Workspace Summary
+
+```text
+GET /operator/workspaces/{workspace_id}
+```
+
+Returns the same operator summary for a single workspace.
+
+#### Update Workspace Retention
+
+```text
+PUT /operator/workspaces/{workspace_id}/retention
+```
+
+Request:
+
+```json
+{
+  "aggregate_reports_days": 730,
+  "forensic_reports_days": 120,
+  "tls_reports_days": 365
+}
+```
+
+Updates workspace retention controls and writes a sanitized
+`workspace.retention_updated` audit event.
+
 ### Domains
 
 #### List Domains

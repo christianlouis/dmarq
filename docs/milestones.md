@@ -261,7 +261,9 @@ Planned:
 - Templates for onboarding new workspaces. Delivered in M15.3: versioned
   workspace onboarding templates, preview/apply APIs, workspace/domain/mail
   source seeding, notification defaults, and operator validation checklists.
-- Cross-workspace operator views for MSP admins, without weakening tenant isolation.
+- Cross-workspace operator views for MSP admins. Delivered in M15.4: safe
+  workspace health summaries, recent drift detection, last-import/alert
+  rollups, and workspace retention controls without exposing tenant report rows.
 
 Exit criteria:
 - A single deployment can safely manage multiple client domains with clear boundaries and governance.

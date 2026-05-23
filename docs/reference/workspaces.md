@@ -100,6 +100,36 @@ Notification defaults currently seed the existing notification settings table.
 They intentionally avoid Apprise target URLs, so operators still add and test
 delivery targets explicitly after onboarding.
 
+## MSP Operator Views
+
+MSP operator endpoints provide cross-workspace summaries without returning raw
+DMARC report rows across tenant boundaries. `GET /api/v1/operator/workspaces`
+returns one summary per active workspace:
+
+- workspace identity and active state
+- health status derived from domains, enabled mail sources, active alerts,
+  recent failed imports, and missing import history
+- domain counts and names
+- mail-source counts and the most recent import status
+- aggregate report counts
+- current retention controls
+- recent workspace audit events as drift indicators
+
+`GET /api/v1/operator/workspaces/{workspace_id}` returns the same summary for
+one workspace.
+
+Workspace retention controls are stored on the workspace row:
+
+| Field | Purpose | Default |
+| --- | --- | --- |
+| `report_retention_days` | Aggregate DMARC report retention target | 400 |
+| `forensic_retention_days` | Forensic report retention target | 90 |
+| `tls_report_retention_days` | SMTP TLS report retention target | 400 |
+
+Operators can update these controls with
+`PUT /api/v1/operator/workspaces/{workspace_id}/retention`. Updates are written
+to the workspace audit log as `workspace.retention_updated`.
+
 The current implementation keeps domain names globally unique. That matches the
 existing single-domain ownership model and avoids ambiguous ownership while MSP
 RBAC and onboarding controls are built out.
