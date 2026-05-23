@@ -28,6 +28,40 @@ workspace during migration.
 | created_at | TIMESTAMP | When the workspace was created |
 | updated_at | TIMESTAMP | When the workspace was last updated |
 
+### Workspace_Memberships
+
+The `workspace_memberships` table stores user role assignments for workspace
+RBAC.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | INTEGER | Primary key |
+| workspace_id | INTEGER | Foreign key to workspaces.id |
+| user_id | INTEGER | Foreign key to users.id |
+| role | VARCHAR(50) | Workspace role such as workspace_owner or analyst |
+| active | BOOLEAN | Whether the membership can be used |
+| created_at | TIMESTAMP | When the membership was created |
+| updated_at | TIMESTAMP | When the membership was last updated |
+
+### Workspace_Audit_Logs
+
+The `workspace_audit_logs` table records sanitized sensitive actions per
+workspace so operators can answer who changed what and when.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | INTEGER | Primary key |
+| workspace_id | INTEGER | Foreign key to workspaces.id |
+| actor_type | VARCHAR(50) | Authentication type, such as session or api_key |
+| actor_id | VARCHAR(120) | User, token, or auth actor identifier |
+| action | VARCHAR(100) | Stable action key, such as mail_source.updated |
+| entity_type | VARCHAR(80) | Entity category affected |
+| entity_id | VARCHAR(120) | Affected entity identifier |
+| entity_name | VARCHAR(255) | Optional display name for the entity |
+| details | TEXT | Sanitized JSON details with secret fields redacted |
+| ip_address | VARCHAR(64) | Client IP when available |
+| created_at | TIMESTAMP | When the action happened |
+
 ### Domains
 
 The `domains` table stores information about the domains being monitored.

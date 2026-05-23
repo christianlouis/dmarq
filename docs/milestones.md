@@ -254,7 +254,10 @@ Planned:
 - Workspace/tenant concept with clear domain ownership. Delivered in M15.1:
   default workspace migration, ownership columns for domains/users/mail sources,
   and scoped query helpers.
-- Workspace-scoped RBAC and audit logs.
+- Workspace-scoped RBAC and audit logs. Delivered in M15.2: role and permission
+  definitions, workspace membership/audit tables, sanitized audit APIs, and
+  audit records for sensitive API-token, mail-source, notification, webhook,
+  and selector changes.
 - Templates for onboarding new workspaces (domains + mail sources + notifications).
 - Cross-workspace operator views for MSP admins, without weakening tenant isolation.
 

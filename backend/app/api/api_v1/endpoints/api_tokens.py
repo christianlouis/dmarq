@@ -2,7 +2,7 @@
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -15,6 +15,8 @@ from app.services.api_tokens import (
     revoke_api_token,
     token_to_dict,
 )
+from app.services.workspace_audit import record_workspace_audit_log
+from app.services.workspaces import assign_default_workspace_to_unscoped_rows
 
 router = APIRouter()
 
@@ -71,10 +73,12 @@ async def list_api_tokens(
 @router.post("", response_model=APITokenCreateResponse, status_code=status.HTTP_201_CREATED)
 async def create_public_api_token(
     payload: APITokenCreateRequest,
+    request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
 ):
     """Create a scoped API token for read-only automation."""
+    workspace = assign_default_workspace_to_unscoped_rows(db)
     try:
         created = create_api_token(db, name=payload.name, scopes=payload.scopes)
     except ValueError as exc:
@@ -82,6 +86,21 @@ async def create_public_api_token(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         ) from exc
+    record_workspace_audit_log(
+        db,
+        workspace=workspace,
+        action="api_token.created",
+        entity_type="api_token",
+        entity_id=created.token.id,
+        entity_name=created.token.name,
+        details={
+            "scopes": sorted(created.token.scopes.split(",")),
+            "key_prefix": created.token.key_prefix,
+        },
+        auth_context=_auth,
+        request=request,
+        commit=True,
+    )
     return APITokenCreateResponse(
         token=created.secret,
         metadata=APITokenResponse(**token_to_dict(created.token)),
@@ -91,13 +110,28 @@ async def create_public_api_token(
 @router.delete("/{token_id}", status_code=status.HTTP_200_OK)
 async def revoke_public_api_token(
     token_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
 ):
     """Revoke a scoped API token."""
+    workspace = assign_default_workspace_to_unscoped_rows(db)
+    token = db.query(APIToken).filter(APIToken.id == token_id).first()
     if not revoke_api_token(db, token_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="API token not found",
         )
+    record_workspace_audit_log(
+        db,
+        workspace=workspace,
+        action="api_token.revoked",
+        entity_type="api_token",
+        entity_id=token_id,
+        entity_name=token.name if token else None,
+        details={"key_prefix": token.key_prefix if token else None},
+        auth_context=_auth,
+        request=request,
+        commit=True,
+    )
     return {"revoked": True}

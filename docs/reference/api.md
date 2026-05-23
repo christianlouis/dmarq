@@ -94,6 +94,33 @@ DELETE /api-tokens/{token_id}
 Deactivates a token immediately. Revoked tokens can no longer access public API
 endpoints.
 
+### Workspace Audit
+
+#### List Workspace Roles
+
+```text
+GET /audit/roles
+```
+
+Returns the supported workspace RBAC roles and their permission strings.
+
+#### List Workspace Audit Logs
+
+```text
+GET /audit/logs
+```
+
+Returns recent sanitized audit events for the default workspace. Optional
+filters:
+
+| Query parameter | Purpose |
+| --- | --- |
+| `limit` | Number of rows to return, from 1 to 200 |
+| `action` | Restrict to one action key |
+| `entity_type` | Restrict to one entity category |
+
+Audit details redact secret-like fields before they are stored.
+
 ### Domains
 
 #### List Domains

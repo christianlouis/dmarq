@@ -2,7 +2,7 @@
 
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -18,6 +18,8 @@ from app.services.webhook_events import (
     queue_test_webhook,
     update_webhook_endpoint,
 )
+from app.services.workspace_audit import changed_fields, record_workspace_audit_log
+from app.services.workspaces import assign_default_workspace_to_unscoped_rows
 
 router = APIRouter()
 
@@ -121,14 +123,28 @@ async def list_webhook_endpoints(
 @router.post("", response_model=WebhookEndpointResponse)
 async def create_webhook(
     payload: WebhookEndpointCreate,
+    request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
 ) -> Dict[str, Any]:
     """Create an outbound webhook endpoint."""
+    workspace = assign_default_workspace_to_unscoped_rows(db)
     try:
         endpoint, raw_secret = create_webhook_endpoint(db, **payload.model_dump())
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    record_workspace_audit_log(
+        db,
+        workspace=workspace,
+        action="webhook.created",
+        entity_type="webhook_endpoint",
+        entity_id=endpoint.id,
+        entity_name=endpoint.name,
+        details={"event_types": payload.event_types, "enabled": endpoint.enabled},
+        auth_context=_auth,
+        request=request,
+        commit=True,
+    )
     body = endpoint_to_dict(endpoint)
     body["secret"] = raw_secret
     return body
@@ -138,10 +154,12 @@ async def create_webhook(
 async def update_webhook(
     endpoint_id: int,
     payload: WebhookEndpointUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
 ) -> Dict[str, Any]:
     """Update an outbound webhook endpoint."""
+    workspace = assign_default_workspace_to_unscoped_rows(db)
     endpoint = db.query(WebhookEndpoint).filter(WebhookEndpoint.id == endpoint_id).first()
     if endpoint is None:
         raise HTTPException(
@@ -155,6 +173,18 @@ async def update_webhook(
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    record_workspace_audit_log(
+        db,
+        workspace=workspace,
+        action="webhook.updated",
+        entity_type="webhook_endpoint",
+        entity_id=endpoint.id,
+        entity_name=endpoint.name,
+        details={"changed_fields": changed_fields(payload.model_dump(exclude_unset=True))},
+        auth_context=_auth,
+        request=request,
+        commit=True,
+    )
     body = endpoint_to_dict(endpoint)
     body["secret"] = raw_secret
     return body
@@ -163,10 +193,12 @@ async def update_webhook(
 @router.delete("/{endpoint_id}", response_model=WebhookEndpointResponse)
 async def disable_webhook(
     endpoint_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
 ) -> Dict[str, Any]:
     """Disable a webhook endpoint without deleting delivery history."""
+    workspace = assign_default_workspace_to_unscoped_rows(db)
     endpoint = db.query(WebhookEndpoint).filter(WebhookEndpoint.id == endpoint_id).first()
     if endpoint is None:
         raise HTTPException(
@@ -175,6 +207,17 @@ async def disable_webhook(
     endpoint.enabled = False
     db.commit()
     db.refresh(endpoint)
+    record_workspace_audit_log(
+        db,
+        workspace=workspace,
+        action="webhook.disabled",
+        entity_type="webhook_endpoint",
+        entity_id=endpoint.id,
+        entity_name=endpoint.name,
+        auth_context=_auth,
+        request=request,
+        commit=True,
+    )
     body = endpoint_to_dict(endpoint)
     body["secret"] = None
     return body
@@ -205,15 +248,28 @@ async def list_webhook_deliveries(
 @router.post("/{endpoint_id}/test", response_model=WebhookTestResponse)
 async def test_webhook(
     endpoint_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
 ) -> Dict[str, Any]:
     """Queue and immediately attempt a test delivery for an endpoint."""
+    workspace = assign_default_workspace_to_unscoped_rows(db)
     try:
         delivery = queue_test_webhook(db, endpoint_id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     delivered = deliver_due_webhooks(db, endpoint_id=endpoint_id, limit=1)
+    record_workspace_audit_log(
+        db,
+        workspace=workspace,
+        action="webhook.tested",
+        entity_type="webhook_endpoint",
+        entity_id=endpoint_id,
+        details={"delivery_id": delivery.id},
+        auth_context=_auth,
+        request=request,
+        commit=True,
+    )
     return {"delivery": delivery_to_dict(delivered[0] if delivered else delivery)}
 
 

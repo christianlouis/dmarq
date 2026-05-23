@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.api_v1.endpoints import (
     api_tokens,
+    audit,
     auth,
     domains,
     forensics,
@@ -24,6 +25,7 @@ api_router = APIRouter()
 # Include all endpoint routers
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(api_tokens.router, prefix="/api-tokens", tags=["api-tokens"])
+api_router.include_router(audit.router, prefix="/audit", tags=["audit"])
 api_router.include_router(health.router, tags=["health"])
 api_router.include_router(public.router, prefix="/public", tags=["public-api"])
 api_router.include_router(domains.router, prefix="/domains", tags=["domains"])
