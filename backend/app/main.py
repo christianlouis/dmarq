@@ -12,6 +12,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
 import app.models.alert  # noqa: F401 – ensure AlertHistory table is registered
+import app.models.api_token  # noqa: F401 – ensure APIToken table is registered
 import app.models.dns_cache  # noqa: F401 – ensure DNSCache table is registered
 import app.models.domain  # noqa: F401 – ensure Domain/UserDomain tables are registered
 import app.models.mail_source_import  # noqa: F401 – ensure import history table is registered

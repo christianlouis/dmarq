@@ -2,14 +2,17 @@ import logging
 import os
 import secrets
 from datetime import datetime, timedelta
-from typing import Any, Optional, Union
+from typing import Any, Callable, Optional, Union
 
-from fastapi import HTTPException, Request, Security, status
+from fastapi import Depends, HTTPException, Request, Security, status
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.database import get_db
+from app.services.api_tokens import find_api_token, parse_scopes, record_api_token_use
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -218,6 +221,49 @@ async def require_admin_auth(
         detail="Authentication required. Provide a session cookie, X-API-Key header, or Bearer token.",
         headers={"WWW-Authenticate": "ApiKey, Bearer"},
     )
+
+
+def require_api_token_scope(required_scope: str) -> Callable:
+    """Build a dependency that requires a scoped persistent API token."""
+
+    async def _require_api_token_scope(
+        request: Request,
+        db: Session = Depends(get_db),
+        api_key: Optional[str] = Security(api_key_header),
+    ) -> dict:
+        if not api_key:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Missing API token",
+                headers={"WWW-Authenticate": "ApiKey"},
+            )
+
+        token = find_api_token(db, api_key)
+        if token is None:
+            logger.warning("Invalid public API token attempt")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid API token",
+                headers={"WWW-Authenticate": "ApiKey"},
+            )
+
+        scopes = parse_scopes(token.scopes)
+        if required_scope not in scopes:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"API token requires scope: {required_scope}",
+            )
+
+        client_host = request.client.host if request.client else None
+        record_api_token_use(db, token, ip_address=client_host)
+        return {
+            "auth_type": "api_token",
+            "token_id": token.id,
+            "token_name": token.name,
+            "scopes": sorted(scopes),
+        }
+
+    return _require_api_token_scope
 
 
 def create_access_token(subject: Union[str, Any], expires_delta: timedelta = None) -> str:

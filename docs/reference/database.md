@@ -114,20 +114,26 @@ The `users` table stores user account information.
 | created_at | TIMESTAMP | When the account was created |
 | last_login | TIMESTAMP | When the user last logged in |
 
-### API_Keys
+### API_Tokens
 
-The `api_keys` table stores API keys for programmatic access.
+The `api_tokens` table stores hashed, scoped API tokens for stable read-only
+automation access. Raw token secrets are returned only once at creation time
+and are never stored.
 
 | Column | Type | Description |
 |--------|------|-------------|
 | id | INTEGER | Primary key |
-| key_hash | VARCHAR(255) | Hashed API key |
-| user_id | INTEGER | Foreign key to users.id |
-| name | VARCHAR(100) | Name/description of the key |
+| name | VARCHAR(120) | Name/description of the token |
+| key_hash | VARCHAR(255) | Bcrypt hash of the token secret |
+| key_prefix | VARCHAR(16) | Non-secret prefix for operator identification |
+| scopes | TEXT | Comma-separated scopes such as `reports:read` |
+| active | BOOLEAN | Whether the token can be used |
 | created_at | TIMESTAMP | When the key was created |
-| expires_at | TIMESTAMP | When the key expires (optional) |
-| last_used | TIMESTAMP | When the key was last used |
-| permissions | TEXT | JSON array of permissions |
+| updated_at | TIMESTAMP | When the token row was last changed |
+| revoked_at | TIMESTAMP | When the token was revoked |
+| last_used_at | TIMESTAMP | Last successful API use |
+| last_used_ip | VARCHAR(64) | Source IP from the last successful API use |
+| usage_count | INTEGER | Successful API use count |
 
 ## DNS and Configuration Tables
 
@@ -234,7 +240,9 @@ The schema includes several indexes to optimize query performance:
 - `idx_users_username`: On users.username
 - `idx_users_email`: On users.email
 - `idx_domains_name`: On domains.name
-- `idx_api_keys_key_hash`: On api_keys.key_hash
+- `ix_api_tokens_key_hash`: On api_tokens.key_hash
+- `ix_api_tokens_key_prefix`: On api_tokens.key_prefix
+- `ix_api_tokens_active_scope`: On api_tokens.active and api_tokens.scopes
 - `idx_activity_logs_timestamp`: On activity_logs.timestamp
 - `idx_activity_logs_user_id`: On activity_logs.user_id
 - `idx_system_logs_timestamp`: On system_logs.timestamp

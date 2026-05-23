@@ -214,7 +214,7 @@ Exit criteria:
 
 ## Milestone 13: Email Security Posture (Beyond DMARC)
 
-Status: In Progress
+Status: Complete
 
 Goal: turn DMARQ into a broader email authentication posture console (still privacy-first and self-hostable).
 
@@ -230,12 +230,12 @@ Exit criteria:
 
 ## Milestone 14: Public API, Webhooks, and Core Integrations
 
-Status: Backlog
+Status: In progress
 
 Goal: let DMARQ integrate cleanly into existing security and operations workflows.
 
 Planned:
-- A stable, documented read-only API surface for posture and reporting queries.
+- A stable, documented read-only API surface for posture and reporting queries. Delivered with scoped `reports:read`, `posture:read`, and `tls-reports:read` API tokens, public read-only endpoints, and per-token usage audit fields.
 - Webhook event delivery for key events (new sender source, compliance drop, missing reports, alert lifecycle).
 - Integration templates for SIEM and ticketing workflows (export formats, payload schemas, examples).
 - Token/scoping model for API access that matches governance needs (service accounts, least privilege).

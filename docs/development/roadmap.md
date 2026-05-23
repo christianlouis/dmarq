@@ -87,6 +87,7 @@ Follow-up:
 - DNS health and Cloudflare read-only inspection are in place, including zone import, record recommendations, and DNS change tracking.
 - Guided setup and operator health screens.
 - Forensic/RUF report support.
+- Email security posture beyond DMARC, including MTA-STS, TLS-RPT, BIMI, and evidence-first posture playbooks.
 
 See [milestones.md](../milestones.md) for the full milestone breakdown and exit criteria.
 
@@ -120,9 +121,9 @@ The milestone breakdown in `docs/milestones.md` is intentionally focused on exit
 
 ### Priority (Now / Next / Later)
 
-- **Now**: finish Milestones 8–9 (DNS health guidance + setup/ops polish).
-- **Next**: Milestones 10–12 (failure reports, DMARC format compatibility, Microsoft 365 ingestion).
-- **Later**: Milestones 13–16 (posture suite beyond DMARC, public API/webhooks, MSP/workspaces, AI/MCP).
+- **Now**: finish Milestone 14 (public API, webhooks, and integration templates).
+- **Next**: Milestone 15 (workspaces/MSP governance).
+- **Later**: Milestone 16 (optional AI/MCP automation).
 
 ### Tentative Release Plan (Subject to Change)
 
