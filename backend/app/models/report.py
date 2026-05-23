@@ -151,3 +151,67 @@ class ForensicReport(Base):
 
     def __repr__(self):
         return f"<ForensicReport {self.report_id}>"
+
+
+class TLSReport(Base):
+    """SMTP TLS reporting (TLS-RPT) aggregate report."""
+
+    __tablename__ = "tls_reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    domain_id = Column(Integer, ForeignKey("domains.id"), nullable=True, index=True)
+
+    report_id = Column(String, nullable=False, index=True)
+    org_name = Column(String, nullable=True, index=True)
+    contact_info = Column(String, nullable=True)
+    policy_domain = Column(String, nullable=False, index=True)
+    policy_type = Column(String, nullable=True, index=True)
+    begin_date = Column(DateTime, nullable=True, index=True)
+    end_date = Column(DateTime, nullable=True, index=True)
+    total_successful_sessions = Column(Integer, nullable=False, default=0)
+    total_failure_sessions = Column(Integer, nullable=False, default=0)
+    raw_policy = Column(Text, nullable=True)
+    processed_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    domain = relationship("Domain", back_populates="tls_reports")
+    failures = relationship(
+        "TLSReportFailure",
+        back_populates="report",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("report_id", "policy_domain", name="uq_tls_reports_report_domain"),
+        Index("ix_tls_reports_domain_dates", "domain_id", "begin_date", "end_date"),
+        Index("ix_tls_reports_policy_domain_dates", "policy_domain", "begin_date", "end_date"),
+    )
+
+    def __repr__(self):
+        return f"<TLSReport {self.report_id} {self.policy_domain}>"
+
+
+class TLSReportFailure(Base):
+    """Grouped TLS-RPT failure detail without message-level identifiers."""
+
+    __tablename__ = "tls_report_failures"
+
+    id = Column(Integer, primary_key=True, index=True)
+    report_id = Column(Integer, ForeignKey("tls_reports.id"), nullable=False, index=True)
+    result_type = Column(String, nullable=False, index=True)
+    failed_session_count = Column(Integer, nullable=False, default=0)
+    sending_mta_ip = Column(String, nullable=True, index=True)
+    receiving_mx_hostname = Column(String, nullable=True, index=True)
+    receiving_mx_helo = Column(String, nullable=True)
+    receiving_ip = Column(String, nullable=True)
+    failure_reason_code = Column(String, nullable=True)
+    additional_information = Column(Text, nullable=True)
+
+    report = relationship("TLSReport", back_populates="failures")
+
+    __table_args__ = (
+        Index("ix_tls_report_failures_result_count", "result_type", "failed_session_count"),
+        Index("ix_tls_report_failures_report_result", "report_id", "result_type"),
+    )
+
+    def __repr__(self):
+        return f"<TLSReportFailure {self.result_type} count={self.failed_session_count}>"

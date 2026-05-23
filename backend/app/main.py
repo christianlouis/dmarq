@@ -631,6 +631,12 @@ async def forensic_reports(request: Request):
     return templates.TemplateResponse(request, "forensic_reports.html")
 
 
+@app.get("/tls-reports", response_class=HTMLResponse)
+async def tls_reports(request: Request):
+    """View SMTP TLS reporting posture summaries."""
+    return templates.TemplateResponse(request, "tls_reports.html")
+
+
 @app.get("/forensics/{report_id}", response_class=HTMLResponse)
 async def forensic_report_detail(request: Request, report_id: int):
     """View detailed information for a specific forensic report."""

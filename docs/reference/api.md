@@ -259,6 +259,38 @@ Uploads a new DMARC report for processing.
 }
 ```
 
+### TLS Reports
+
+#### Upload TLS Report
+
+```
+POST /tls-reports/upload
+```
+
+Uploads an SMTP TLS Reporting aggregate attachment. Supported file types are
+`.json`, `.json.gz`, and `.zip`.
+
+**Example Response:**
+```json
+{
+  "success": true,
+  "report_id": "tls-report-20260520",
+  "policies_created": 1,
+  "policies_skipped": 0,
+  "duplicate": false,
+  "message": "TLS report imported."
+}
+```
+
+#### Summarize TLS Reports
+
+```
+GET /tls-reports/summary?domain=example.com&days=30
+```
+
+Returns aggregate TLS trends, top failure causes, affected domains, and the
+privacy controls for stored TLS-RPT data.
+
 ### Statistics
 
 #### Compliance Summary

@@ -1,0 +1,281 @@
+{% extends "layouts/base.html" %}
+{% from "components/ui/card.html" import card, card_header, card_title, card_description, card_content %}
+{% from "components/ui/table.html" import table, thead, tbody, tr, th, td %}
+
+{% block title %}DMARQ - TLS Reports{% endblock %}
+
+{% block content %}
+<div class="container mx-auto py-4" x-data="tlsReportsApp()" x-init="init()">
+    <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between mb-6">
+        <div>
+            <h1 class="text-2xl font-bold">TLS Reports</h1>
+            <p class="text-sm text-base-content/70 mt-1">SMTP TLS delivery trends and failure causes</p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+            <select class="select select-bordered select-sm" x-model="filters.days" @change="refresh()">
+                <option value="7">7 days</option>
+                <option value="30">30 days</option>
+                <option value="90">90 days</option>
+                <option value="365">365 days</option>
+            </select>
+            <button class="btn btn-outline btn-sm" @click="refresh()">Refresh</button>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        {% call card() %}
+            {% call card_header() %}{% call card_title() %}Reports{% endcall %}{% endcall %}
+            {% call card_content() %}
+                <div class="text-2xl font-semibold" x-text="summary.totals.reports"></div>
+            {% endcall %}
+        {% endcall %}
+        {% call card() %}
+            {% call card_header() %}{% call card_title() %}Successful Sessions{% endcall %}{% endcall %}
+            {% call card_content() %}
+                <div class="text-2xl font-semibold text-success" x-text="formatNumber(summary.totals.successful_sessions)"></div>
+            {% endcall %}
+        {% endcall %}
+        {% call card() %}
+            {% call card_header() %}{% call card_title() %}Failed Sessions{% endcall %}{% endcall %}
+            {% call card_content() %}
+                <div class="text-2xl font-semibold text-error" x-text="formatNumber(summary.totals.failed_sessions)"></div>
+            {% endcall %}
+        {% endcall %}
+        {% call card() %}
+            {% call card_header() %}{% call card_title() %}Failure Rate{% endcall %}{% endcall %}
+            {% call card_content() %}
+                <div class="text-2xl font-semibold" x-text="formatPercent(summary.totals.failure_rate)"></div>
+            {% endcall %}
+        {% endcall %}
+    </div>
+
+    <div class="grid grid-cols-1 xl:grid-cols-[1fr_22rem] gap-6 mb-6">
+        {% call card() %}
+            {% call card_header() %}
+                <div class="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                    <div>
+                        {% call card_title() %}Failure Trends{% endcall %}
+                        {% call card_description() %}Daily TLS session results from imported TLS-RPT files{% endcall %}
+                    </div>
+                    <input class="input input-bordered input-sm md:w-64" x-model.debounce.250ms="filters.domain" @input="refresh()" placeholder="Filter by domain">
+                </div>
+            {% endcall %}
+            {% call card_content() %}
+                <template x-if="loading">
+                    <div class="py-12 text-center"><span class="loading loading-spinner loading-lg"></span></div>
+                </template>
+                <template x-if="!loading && error">
+                    <div class="alert alert-error" x-text="error"></div>
+                </template>
+                <template x-if="!loading && !error && summary.trends.length === 0">
+                    <p class="text-base-content/60">No TLS report data is available for the current filters.</p>
+                </template>
+                <div class="space-y-3" x-show="!loading && !error && summary.trends.length > 0">
+                    <template x-for="day in summary.trends" :key="day.date">
+                        <div class="grid grid-cols-[6.5rem_1fr_7rem] gap-3 items-center">
+                            <span class="text-sm text-base-content/70" x-text="day.date"></span>
+                            <div class="h-3 rounded bg-base-300 overflow-hidden flex">
+                                <div class="bg-success" :style="`width: ${trendSuccessWidth(day)}%`"></div>
+                                <div class="bg-error" :style="`width: ${trendFailureWidth(day)}%`"></div>
+                            </div>
+                            <span class="text-right text-sm font-medium" x-text="formatNumber(day.failed_sessions) + ' failed'"></span>
+                        </div>
+                    </template>
+                </div>
+            {% endcall %}
+        {% endcall %}
+
+        {% call card() %}
+            {% call card_header() %}
+                {% call card_title() %}Import TLS Report{% endcall %}
+                {% call card_description() %}.json, .json.gz, or .zip{% endcall %}
+            {% endcall %}
+            {% call card_content() %}
+                <form class="space-y-3" @submit.prevent="uploadReport()">
+                    <input type="file" class="file-input file-input-bordered w-full" accept=".json,.gz,.gzip,.zip,application/json,application/zip" @change="selectedFile = $event.target.files[0] || null">
+                    <button class="btn btn-primary w-full" type="submit" :disabled="uploading || !selectedFile">
+                        <span x-show="!uploading">Upload TLS Report</span>
+                        <span x-show="uploading" class="loading loading-spinner loading-sm"></span>
+                    </button>
+                    <p class="text-sm" :class="uploadError ? 'text-error' : 'text-success'" x-show="uploadMessage" x-text="uploadMessage"></p>
+                </form>
+            {% endcall %}
+        {% endcall %}
+    </div>
+
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
+        {% call card() %}
+            {% call card_header() %}
+                {% call card_title() %}Top Failure Causes{% endcall %}
+                {% call card_description() %}Grouped by TLS-RPT result type{% endcall %}
+            {% endcall %}
+            {% call card_content() %}
+                {% call table() %}
+                    {% call thead() %}
+                        {% call tr() %}
+                            {% call th() %}Cause{% endcall %}
+                            {% call th("text-right") %}Failed Sessions{% endcall %}
+                            {% call th() %}Domains{% endcall %}
+                            {% call th() %}MX Hosts{% endcall %}
+                        {% endcall %}
+                    {% endcall %}
+                    {% call tbody() %}
+                        <template x-if="summary.top_failures.length === 0">
+                            <tr><td colspan="4" class="text-center py-8 text-base-content/60">No failures found.</td></tr>
+                        </template>
+                        <template x-for="failure in summary.top_failures" :key="failure.result_type">
+                            {% call tr() %}
+                                {% call td() %}<span class="badge badge-error badge-outline" x-text="failure.result_type"></span>{% endcall %}
+                                {% call td("text-right font-semibold") %}<span x-text="formatNumber(failure.failed_sessions)"></span>{% endcall %}
+                                {% call td() %}<span class="block max-w-56 truncate" x-text="failure.affected_domains.join(', ') || '-'"></span>{% endcall %}
+                                {% call td() %}<span class="block max-w-56 truncate" x-text="failure.receiving_mx_hostnames.join(', ') || '-'"></span>{% endcall %}
+                            {% endcall %}
+                        </template>
+                    {% endcall %}
+                {% endcall %}
+            {% endcall %}
+        {% endcall %}
+
+        {% call card() %}
+            {% call card_header() %}
+                {% call card_title() %}Affected Domains{% endcall %}
+                {% call card_description() %}Domains with TLS-RPT activity in the selected window{% endcall %}
+            {% endcall %}
+            {% call card_content() %}
+                {% call table() %}
+                    {% call thead() %}
+                        {% call tr() %}
+                            {% call th() %}Domain{% endcall %}
+                            {% call th("text-right") %}Reports{% endcall %}
+                            {% call th("text-right") %}Failed{% endcall %}
+                            {% call th("text-right") %}Rate{% endcall %}
+                        {% endcall %}
+                    {% endcall %}
+                    {% call tbody() %}
+                        <template x-if="summary.affected_domains.length === 0">
+                            <tr><td colspan="4" class="text-center py-8 text-base-content/60">No affected domains found.</td></tr>
+                        </template>
+                        <template x-for="item in summary.affected_domains" :key="item.domain">
+                            {% call tr() %}
+                                {% call td() %}<a class="link link-hover font-medium" :href="'/domains/' + encodeURIComponent(item.domain)" x-text="item.domain"></a>{% endcall %}
+                                {% call td("text-right") %}<span x-text="item.reports"></span>{% endcall %}
+                                {% call td("text-right font-semibold") %}<span x-text="formatNumber(item.failed_sessions)"></span>{% endcall %}
+                                {% call td("text-right") %}<span x-text="formatPercent(item.failure_rate)"></span>{% endcall %}
+                            {% endcall %}
+                        </template>
+                    {% endcall %}
+                {% endcall %}
+            {% endcall %}
+        {% endcall %}
+    </div>
+
+    {% call card() %}
+        {% call card_header() %}
+            {% call card_title() %}Stored Data{% endcall %}
+            {% call card_description() %}Current TLS reporting retention and privacy controls{% endcall %}
+        {% endcall %}
+        {% call card_content() %}
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <p class="text-sm text-base-content/70" x-text="summary.privacy.retention"></p>
+                <div>
+                    <h2 class="font-semibold mb-2 text-sm">Stored</h2>
+                    <ul class="text-sm space-y-1 list-disc pl-4">
+                        <template x-for="field in summary.privacy.stored_fields" :key="field">
+                            <li x-text="field"></li>
+                        </template>
+                    </ul>
+                </div>
+                <div>
+                    <h2 class="font-semibold mb-2 text-sm">Not Stored</h2>
+                    <ul class="text-sm space-y-1 list-disc pl-4">
+                        <template x-for="field in summary.privacy.not_stored" :key="field">
+                            <li x-text="field"></li>
+                        </template>
+                    </ul>
+                </div>
+            </div>
+        {% endcall %}
+    {% endcall %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function tlsReportsApp() {
+    const emptySummary = {
+        totals: { reports: 0, successful_sessions: 0, failed_sessions: 0, failure_rate: 0 },
+        trends: [],
+        top_failures: [],
+        affected_domains: [],
+        privacy: { retention: '', stored_fields: [], not_stored: [] },
+    };
+    return {
+        loading: false,
+        uploading: false,
+        error: '',
+        uploadMessage: '',
+        uploadError: false,
+        selectedFile: null,
+        filters: { domain: '', days: '30' },
+        summary: emptySummary,
+        init() {
+            this.refresh();
+        },
+        async refresh() {
+            this.loading = true;
+            this.error = '';
+            const params = new URLSearchParams({ days: this.filters.days, limit: '10' });
+            if (this.filters.domain.trim()) params.set('domain', this.filters.domain.trim());
+            try {
+                const response = await fetch(`/api/v1/tls-reports/summary?${params.toString()}`);
+                if (!response.ok) throw new Error('Unable to load TLS report summary');
+                this.summary = await response.json();
+            } catch (err) {
+                this.error = err.message || 'Unable to load TLS report summary';
+            } finally {
+                this.loading = false;
+            }
+        },
+        async uploadReport() {
+            if (!this.selectedFile) return;
+            this.uploading = true;
+            this.uploadMessage = '';
+            this.uploadError = false;
+            const payload = new FormData();
+            payload.append('file', this.selectedFile);
+            try {
+                const response = await fetch('/api/v1/tls-reports/upload', {
+                    method: 'POST',
+                    body: payload,
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(data.detail || 'Upload failed');
+                this.uploadMessage = data.message || 'TLS report imported.';
+                this.selectedFile = null;
+                await this.refresh();
+            } catch (err) {
+                this.uploadError = true;
+                this.uploadMessage = err.message || 'Upload failed';
+            } finally {
+                this.uploading = false;
+            }
+        },
+        formatNumber(value) {
+            return Number(value || 0).toLocaleString();
+        },
+        formatPercent(value) {
+            return `${(Number(value || 0) * 100).toFixed(1)}%`;
+        },
+        trendTotal(day) {
+            return Math.max(Number(day.successful_sessions || 0) + Number(day.failed_sessions || 0), 1);
+        },
+        trendSuccessWidth(day) {
+            return Math.round((Number(day.successful_sessions || 0) / this.trendTotal(day)) * 100);
+        },
+        trendFailureWidth(day) {
+            return Math.round((Number(day.failed_sessions || 0) / this.trendTotal(day)) * 100);
+        },
+    };
+}
+</script>
+{% endblock %}

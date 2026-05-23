@@ -34,6 +34,7 @@ class Domain(Base):
     forensic_reports = relationship(
         "ForensicReport", back_populates="domain", cascade="all, delete-orphan"
     )
+    tls_reports = relationship("TLSReport", back_populates="domain", cascade="all, delete-orphan")
     user_domains = relationship("UserDomain", back_populates="domain", cascade="all, delete-orphan")
 
     # Indexes for common queries
