@@ -1,0 +1,166 @@
+{% extends "layouts/base.html" %}
+{% from "components/ui/card.html" import card, card_header, card_title, card_description, card_content %}
+
+{% block title %}DMARQ - Forensic Report Detail{% endblock %}
+
+{% block content %}
+<div class="container mx-auto py-4" x-data="forensicReportDetailApp({{ report_id }})" x-init="init()">
+    <nav class="mb-4 text-sm">
+        <ol class="flex items-center space-x-2">
+            <li><a href="/" class="hover:text-primary">Dashboard</a></li>
+            <li><span class="text-base-content/40 px-2">/</span></li>
+            <li><a href="/forensics" class="hover:text-primary">Forensics</a></li>
+            <li><span class="text-base-content/40 px-2">/</span></li>
+            <li><span class="font-medium" x-text="reportId"></span></li>
+        </ol>
+    </nav>
+
+    <template x-if="loading">
+        <div class="flex items-center justify-center py-16">
+            <span class="loading loading-spinner loading-lg"></span>
+        </div>
+    </template>
+
+    <template x-if="!loading && error">
+        <div class="alert alert-error mb-6" x-text="error"></div>
+    </template>
+
+    <template x-if="!loading && !error && report">
+        <div class="space-y-6">
+            <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div>
+                    <h1 class="text-2xl font-bold">Forensic Investigation</h1>
+                    <p class="text-sm text-base-content/70 mt-1">
+                        <span x-text="report.report_id"></span>
+                        <span>&bull;</span>
+                        <span x-text="report.domain || report.reported_domain || 'unknown domain'"></span>
+                    </p>
+                </div>
+                <div class="flex gap-2">
+                    <a href="/forensics" class="btn btn-outline btn-sm">Back to Forensics</a>
+                    <a class="btn btn-outline btn-sm" :href="'/domains/' + encodeURIComponent(report.domain || report.reported_domain)">Domain</a>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {% call card() %}
+                    {% call card_header() %}{% call card_title() %}Failure{% endcall %}{% endcall %}
+                    {% call card_content() %}<div class="text-2xl font-semibold uppercase" x-text="report.auth_failure || 'unknown'"></div>{% endcall %}
+                {% endcall %}
+                {% call card() %}
+                    {% call card_header() %}{% call card_title() %}Delivery{% endcall %}{% endcall %}
+                    {% call card_content() %}<div class="text-2xl font-semibold uppercase" x-text="report.delivery_result || 'unknown'"></div>{% endcall %}
+                {% endcall %}
+                {% call card() %}
+                    {% call card_header() %}{% call card_title() %}Source IP{% endcall %}{% endcall %}
+                    {% call card_content() %}<div class="text-xl font-mono" x-text="report.source_ip || '-'"></div>{% endcall %}
+                {% endcall %}
+                {% call card() %}
+                    {% call card_header() %}{% call card_title() %}Arrival{% endcall %}{% endcall %}
+                    {% call card_content() %}<div class="text-sm font-medium" x-text="formatDate(report.arrival_date || report.processed_at)"></div>{% endcall %}
+                {% endcall %}
+            </div>
+
+            {% call card() %}
+                {% call card_header() %}
+                    {% call card_title() %}Message Identity{% endcall %}
+                    {% call card_description() %}Redacted metadata extracted from the reported failure sample{% endcall %}
+                {% endcall %}
+                {% call card_content() %}
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <template x-for="item in identityFields" :key="item.label">
+                            <div class="min-w-0">
+                                <p class="text-sm text-base-content/60" x-text="item.label"></p>
+                                <p class="font-medium break-words" :class="item.mono ? 'font-mono text-sm' : ''" x-text="item.value || '-'"></p>
+                            </div>
+                        </template>
+                    </div>
+                {% endcall %}
+            {% endcall %}
+
+            {% call card() %}
+                {% call card_header() %}
+                    {% call card_title() %}Authentication Results{% endcall %}
+                {% endcall %}
+                {% call card_content() %}
+                    <pre class="bg-base-200 rounded p-4 text-sm whitespace-pre-wrap break-words" x-text="report.authentication_results || 'No Authentication-Results header was included.'"></pre>
+                {% endcall %}
+            {% endcall %}
+
+            {% call card() %}
+                {% call card_header() %}
+                    {% call card_title() %}Feedback Headers{% endcall %}
+                {% endcall %}
+                {% call card_content() %}
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <template x-if="feedbackHeaderEntries.length === 0">
+                            <p class="text-base-content/60">No additional feedback headers were included.</p>
+                        </template>
+                        <template x-for="[key, value] in feedbackHeaderEntries" :key="key">
+                            <div class="min-w-0">
+                                <p class="text-sm text-base-content/60" x-text="labelize(key)"></p>
+                                <p class="font-medium break-words" x-text="value || '-'"></p>
+                            </div>
+                        </template>
+                    </div>
+                {% endcall %}
+            {% endcall %}
+        </div>
+    </template>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function forensicReportDetailApp(reportId) {
+    return {
+        reportId,
+        report: null,
+        loading: false,
+        error: '',
+        async init() {
+            await this.fetchReport();
+        },
+        get identityFields() {
+            if (!this.report) return [];
+            return [
+                { label: 'Reported Domain', value: this.report.reported_domain || this.report.domain },
+                { label: 'Reporter', value: this.report.source_email },
+                { label: 'Original Mail From', value: this.report.original_mail_from },
+                { label: 'Original From', value: this.report.original_from },
+                { label: 'Original To', value: this.report.original_to },
+                { label: 'Original Subject', value: this.report.original_subject },
+                { label: 'Original Date', value: this.report.original_date },
+                { label: 'Message Hash', value: this.report.original_message_id, mono: true },
+                { label: 'Feedback Type', value: this.report.feedback_type },
+                { label: 'Reporter Agent', value: this.report.user_agent },
+            ];
+        },
+        get feedbackHeaderEntries() {
+            return Object.entries(this.report?.feedback_headers || {});
+        },
+        async fetchReport() {
+            this.loading = true;
+            this.error = '';
+            try {
+                const response = await fetch(`/api/v1/forensics/${this.reportId}`);
+                if (!response.ok) throw new Error('Forensic report not found');
+                this.report = await response.json();
+            } catch (err) {
+                this.error = err.message || 'Unable to load forensic report';
+            } finally {
+                this.loading = false;
+            }
+        },
+        formatDate(value) {
+            if (!value) return '-';
+            const date = new Date(value);
+            return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+        },
+        labelize(value) {
+            return String(value || '').replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+        },
+    };
+}
+</script>
+{% endblock %}

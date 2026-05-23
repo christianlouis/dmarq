@@ -129,6 +129,9 @@ async def upload_forensic_report(
 @router.get("", response_model=ForensicListResponse)
 async def list_forensic_reports(
     domain: Optional[str] = Query(default=None),
+    source_ip: Optional[str] = Query(default=None),
+    auth_failure: Optional[str] = Query(default=None),
+    delivery_result: Optional[str] = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
@@ -141,6 +144,12 @@ async def list_forensic_reports(
         query = query.outerjoin(Domain).filter(
             (Domain.name == normalized) | (ForensicReport.reported_domain == normalized)
         )
+    if source_ip:
+        query = query.filter(ForensicReport.source_ip == source_ip.strip())
+    if auth_failure:
+        query = query.filter(ForensicReport.auth_failure == auth_failure.strip().lower())
+    if delivery_result:
+        query = query.filter(ForensicReport.delivery_result == delivery_result.strip().lower())
 
     total = query.count()
     rows = (

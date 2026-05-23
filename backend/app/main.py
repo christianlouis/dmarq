@@ -551,6 +551,22 @@ async def report_detail(request: Request, report_id: str):
     return templates.TemplateResponse(request, "report_detail.html", {"report_id": report_id})
 
 
+@app.get("/forensics", response_class=HTMLResponse)
+async def forensic_reports(request: Request):
+    """View DMARC forensic authentication failure reports."""
+    return templates.TemplateResponse(request, "forensic_reports.html")
+
+
+@app.get("/forensics/{report_id}", response_class=HTMLResponse)
+async def forensic_report_detail(request: Request, report_id: int):
+    """View detailed information for a specific forensic report."""
+    return templates.TemplateResponse(
+        request,
+        "forensic_report_detail.html",
+        {"report_id": report_id},
+    )
+
+
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request):
     return templates.TemplateResponse(request, "settings.html")

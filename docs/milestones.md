@@ -174,9 +174,9 @@ Delivered:
 - Configure forensic report redaction for balanced, domain-only, and strict views.
 - Keep forensic reports out of aggregate report statistics and ReportStore rollups.
 - Expose authenticated forensic upload/list/detail APIs.
+- Provide dedicated forensic report list/detail views for authentication failure investigation.
 
 Planned:
-- Add a dedicated forensic report view.
 - Add richer failure investigation workflows.
 
 Exit criteria:

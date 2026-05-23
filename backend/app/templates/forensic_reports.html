@@ -1,0 +1,268 @@
+{% extends "layouts/base.html" %}
+{% from "components/ui/card.html" import card, card_header, card_title, card_description, card_content %}
+{% from "components/ui/table.html" import table, thead, tbody, tr, th, td %}
+
+{% block title %}DMARQ - Forensic Reports{% endblock %}
+
+{% block content %}
+<div class="container mx-auto py-4" x-data="forensicReportsApp()" x-init="init()">
+    <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between mb-6">
+        <div>
+            <h1 class="text-2xl font-bold">Forensic Reports</h1>
+            <p class="text-sm text-base-content/70 mt-1">Individual DMARC authentication failure reports</p>
+        </div>
+        <a href="/settings" class="btn btn-outline btn-sm">Privacy Settings</a>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        {% call card() %}
+            {% call card_header() %}{% call card_title() %}Incidents{% endcall %}{% endcall %}
+            {% call card_content() %}
+                <div class="text-2xl font-semibold" x-text="summary.total"></div>
+            {% endcall %}
+        {% endcall %}
+        {% call card() %}
+            {% call card_header() %}{% call card_title() %}DKIM Failures{% endcall %}{% endcall %}
+            {% call card_content() %}
+                <div class="text-2xl font-semibold text-error" x-text="summary.dkim"></div>
+            {% endcall %}
+        {% endcall %}
+        {% call card() %}
+            {% call card_header() %}{% call card_title() %}SPF Failures{% endcall %}{% endcall %}
+            {% call card_content() %}
+                <div class="text-2xl font-semibold text-warning" x-text="summary.spf"></div>
+            {% endcall %}
+        {% endcall %}
+        {% call card() %}
+            {% call card_header() %}{% call card_title() %}Rejected{% endcall %}{% endcall %}
+            {% call card_content() %}
+                <div class="text-2xl font-semibold" x-text="summary.rejected"></div>
+            {% endcall %}
+        {% endcall %}
+    </div>
+
+    <div class="grid grid-cols-1 xl:grid-cols-[1fr_22rem] gap-6 mb-6">
+        {% call card() %}
+            {% call card_header() %}
+                {% call card_title() %}Filters{% endcall %}
+            {% endcall %}
+            {% call card_content() %}
+                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                    <label class="form-control">
+                        <span class="label-text font-medium mb-1">Domain</span>
+                        <select class="select select-bordered w-full" x-model="filters.domain" @change="fetchReports()">
+                            <option value="">All domains</option>
+                            <template x-for="domain in domains" :key="domain">
+                                <option :value="domain" x-text="domain"></option>
+                            </template>
+                        </select>
+                    </label>
+                    <label class="form-control">
+                        <span class="label-text font-medium mb-1">Failure</span>
+                        <select class="select select-bordered w-full" x-model="filters.authFailure" @change="fetchReports()">
+                            <option value="">Any failure</option>
+                            <option value="dkim">DKIM</option>
+                            <option value="spf">SPF</option>
+                            <option value="dmarc">DMARC</option>
+                        </select>
+                    </label>
+                    <label class="form-control">
+                        <span class="label-text font-medium mb-1">Result</span>
+                        <select class="select select-bordered w-full" x-model="filters.deliveryResult" @change="fetchReports()">
+                            <option value="">Any result</option>
+                            <option value="reject">Reject</option>
+                            <option value="quarantine">Quarantine</option>
+                            <option value="none">None</option>
+                        </select>
+                    </label>
+                    <label class="form-control">
+                        <span class="label-text font-medium mb-1">Search</span>
+                        <input class="input input-bordered w-full" x-model.debounce.200ms="filters.search" placeholder="IP, sender, subject">
+                    </label>
+                </div>
+            {% endcall %}
+        {% endcall %}
+
+        {% call card() %}
+            {% call card_header() %}
+                {% call card_title() %}Import Sample{% endcall %}
+                {% call card_description() %}Upload a forensic .eml or .txt file{% endcall %}
+            {% endcall %}
+            {% call card_content() %}
+                <form class="space-y-3" @submit.prevent="uploadReport()">
+                    <input type="file" class="file-input file-input-bordered w-full" accept=".eml,.txt,message/rfc822,text/plain" @change="selectedFile = $event.target.files[0] || null">
+                    <button class="btn btn-primary w-full" type="submit" :disabled="uploading || !selectedFile">
+                        <span x-show="!uploading">Upload Forensic Report</span>
+                        <span x-show="uploading" class="loading loading-spinner loading-sm"></span>
+                    </button>
+                    <p class="text-sm" :class="uploadError ? 'text-error' : 'text-success'" x-show="uploadMessage" x-text="uploadMessage"></p>
+                </form>
+            {% endcall %}
+        {% endcall %}
+    </div>
+
+    {% call card() %}
+        {% call card_header() %}
+            <div class="flex items-center justify-between gap-4">
+                <div>
+                    {% call card_title() %}Authentication Failures{% endcall %}
+                    {% call card_description() %}
+                        Showing <span x-text="filteredReports.length"></span> of <span x-text="total"></span> reports
+                    {% endcall %}
+                </div>
+                <button class="btn btn-outline btn-sm" @click="resetFilters()">Reset</button>
+            </div>
+        {% endcall %}
+        {% call card_content() %}
+            <template x-if="loading">
+                <div class="py-12 text-center"><span class="loading loading-spinner loading-lg"></span></div>
+            </template>
+            <template x-if="!loading && error">
+                <div class="alert alert-error" x-text="error"></div>
+            </template>
+            <template x-if="!loading && !error">
+                {% call table() %}
+                    {% call thead() %}
+                        {% call tr() %}
+                            {% call th() %}Arrival{% endcall %}
+                            {% call th() %}Domain{% endcall %}
+                            {% call th() %}Source IP{% endcall %}
+                            {% call th() %}Failure{% endcall %}
+                            {% call th() %}Result{% endcall %}
+                            {% call th() %}Original From{% endcall %}
+                            {% call th() %}Subject{% endcall %}
+                            {% call th("text-right") %}Actions{% endcall %}
+                        {% endcall %}
+                    {% endcall %}
+                    {% call tbody() %}
+                        <template x-if="filteredReports.length === 0">
+                            <tr>
+                                <td colspan="8" class="text-center py-8 text-base-content/60">No forensic reports match the current filters.</td>
+                            </tr>
+                        </template>
+                        <template x-for="report in filteredReports" :key="report.id">
+                            {% call tr() %}
+                                {% call td() %}<span x-text="formatDate(report.arrival_date || report.processed_at)"></span>{% endcall %}
+                                {% call td() %}<a class="link link-hover font-medium" :href="'/domains/' + encodeURIComponent(report.domain || report.reported_domain)" x-text="report.domain || report.reported_domain || 'unknown'"></a>{% endcall %}
+                                {% call td() %}<span class="font-mono text-sm" x-text="report.source_ip || '-'"></span>{% endcall %}
+                                {% call td() %}<span class="badge badge-error badge-outline uppercase" x-text="report.auth_failure || 'unknown'"></span>{% endcall %}
+                                {% call td() %}<span class="badge badge-ghost uppercase" x-text="report.delivery_result || 'unknown'"></span>{% endcall %}
+                                {% call td() %}<span class="block max-w-48 truncate" x-text="report.original_from || report.original_mail_from || '-'"></span>{% endcall %}
+                                {% call td() %}<span class="block max-w-64 truncate" x-text="report.original_subject || '-'"></span>{% endcall %}
+                                {% call td("text-right") %}
+                                    <a class="btn btn-outline btn-sm" :href="'/forensics/' + report.id">Investigate</a>
+                                {% endcall %}
+                            {% endcall %}
+                        </template>
+                    {% endcall %}
+                {% endcall %}
+            </template>
+        {% endcall %}
+    {% endcall %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function forensicReportsApp() {
+    return {
+        loading: false,
+        uploading: false,
+        error: '',
+        uploadMessage: '',
+        uploadError: false,
+        selectedFile: null,
+        reports: [],
+        domainOptions: [],
+        total: 0,
+        filters: {
+            domain: '',
+            authFailure: '',
+            deliveryResult: '',
+            search: '',
+        },
+        init() {
+            this.fetchReports();
+        },
+        get domains() {
+            return this.domainOptions;
+        },
+        get filteredReports() {
+            const search = this.filters.search.trim().toLowerCase();
+            if (!search) return this.reports;
+            return this.reports.filter((report) => [
+                report.source_ip,
+                report.original_from,
+                report.original_mail_from,
+                report.original_subject,
+                report.authentication_results,
+                report.report_id,
+            ].some((value) => String(value || '').toLowerCase().includes(search)));
+        },
+        get summary() {
+            return {
+                total: this.total,
+                dkim: this.reports.filter((report) => report.auth_failure === 'dkim').length,
+                spf: this.reports.filter((report) => report.auth_failure === 'spf').length,
+                rejected: this.reports.filter((report) => report.delivery_result === 'reject').length,
+            };
+        },
+        async fetchReports() {
+            this.loading = true;
+            this.error = '';
+            const params = new URLSearchParams({ page_size: '200' });
+            if (this.filters.domain) params.set('domain', this.filters.domain);
+            if (this.filters.authFailure) params.set('auth_failure', this.filters.authFailure);
+            if (this.filters.deliveryResult) params.set('delivery_result', this.filters.deliveryResult);
+            try {
+                const response = await fetch(`/api/v1/forensics?${params.toString()}`);
+                if (!response.ok) throw new Error('Unable to load forensic reports');
+                const data = await response.json();
+                this.reports = data.reports || [];
+                this.total = data.total || 0;
+                if (!this.filters.domain) {
+                    this.domainOptions = [...new Set(this.reports.map((report) => report.domain || report.reported_domain).filter(Boolean))].sort();
+                }
+            } catch (err) {
+                this.error = err.message || 'Unable to load forensic reports';
+            } finally {
+                this.loading = false;
+            }
+        },
+        async uploadReport() {
+            if (!this.selectedFile) return;
+            this.uploading = true;
+            this.uploadMessage = '';
+            this.uploadError = false;
+            const payload = new FormData();
+            payload.append('file', this.selectedFile);
+            try {
+                const response = await fetch('/api/v1/forensics/upload', {
+                    method: 'POST',
+                    body: payload,
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(data.detail || 'Upload failed');
+                this.uploadMessage = data.message || 'Forensic report imported.';
+                this.selectedFile = null;
+                await this.fetchReports();
+            } catch (err) {
+                this.uploadError = true;
+                this.uploadMessage = err.message || 'Upload failed';
+            } finally {
+                this.uploading = false;
+            }
+        },
+        resetFilters() {
+            this.filters = { domain: '', authFailure: '', deliveryResult: '', search: '' };
+            this.fetchReports();
+        },
+        formatDate(value) {
+            if (!value) return '-';
+            const date = new Date(value);
+            return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+        },
+    };
+}
+</script>
+{% endblock %}
