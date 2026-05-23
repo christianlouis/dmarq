@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.models.domain import Domain
 from app.models.report import ForensicReport
+from app.services.forensic_redaction import ForensicRedactionPolicy, redact_forensic_value
 from app.utils.domain_validator import DomainValidationError, validate_domain
 
 
@@ -87,7 +88,23 @@ def save_forensic_report(db: Session, report: Dict[str, Any]) -> tuple[ForensicR
     return row, True
 
 
-def forensic_report_to_dict(row: ForensicReport) -> Dict[str, Any]:
+_REDACTABLE_RESPONSE_FIELDS = {
+    "source_email",
+    "user_agent",
+    "authentication_results",
+    "original_mail_from",
+    "original_from",
+    "original_to",
+    "original_subject",
+    "feedback_headers",
+}
+
+
+def forensic_report_to_dict(
+    row: ForensicReport,
+    *,
+    redaction_policy: Optional[ForensicRedactionPolicy] = None,
+) -> Dict[str, Any]:
     """Convert a forensic report row to an API-safe dictionary."""
     feedback_headers = {}
     if row.feedback_headers:
@@ -96,7 +113,7 @@ def forensic_report_to_dict(row: ForensicReport) -> Dict[str, Any]:
         except (json.JSONDecodeError, TypeError):
             feedback_headers = {}
 
-    return {
+    result = {
         "id": row.id,
         "report_id": row.report_id,
         "domain": row.domain.name if row.domain else row.reported_domain,
@@ -119,3 +136,7 @@ def forensic_report_to_dict(row: ForensicReport) -> Dict[str, Any]:
         "feedback_headers": feedback_headers,
         "processed_at": row.processed_at.isoformat() if row.processed_at else None,
     }
+    if redaction_policy is not None:
+        for field in _REDACTABLE_RESPONSE_FIELDS:
+            result[field] = redact_forensic_value(result.get(field), redaction_policy)
+    return result

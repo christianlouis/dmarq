@@ -20,6 +20,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.models.report import DMARCReport, ForensicReport
+from app.models.setting import Setting
 from app.services.gmail_client import GmailClient, RETRYABLE_MESSAGE_FAILURE
 from app.services.report_store import ReportStore
 from app.tests.test_data import SAMPLE_XML
@@ -464,6 +465,32 @@ class TestProcessMessage:
         assert stats["details"][0]["reason"] == "forensic_report"
         assert db_session.query(DMARCReport).count() == 0
         assert db_session.query(ForensicReport).count() == 1
+
+    def test_forensic_report_uses_configured_redaction_policy(self, db_session):
+        setting = (
+            db_session.query(Setting).filter(Setting.key == "forensics.redaction_mode").first()
+        )
+        if setting is None:
+            setting = Setting(
+                key="forensics.redaction_mode",
+                value_type="string",
+                category="forensics",
+            )
+            db_session.add(setting)
+        setting.value = "strict"
+        db_session.commit()
+        client = _make_client(db=db_session)
+        stats = {"forensic_reports_found": 0, "duplicate_forensic_reports": 0, "errors": []}
+
+        count = client._process_forensic_message(
+            SAMPLE_FORENSIC_EMAIL,
+            stats,
+            message_id="msg-forensic",
+        )
+
+        assert count == 1
+        report = db_session.query(ForensicReport).one()
+        assert report.original_mail_from == "[redacted-email]"
 
     def test_forensic_report_without_database_is_skipped(self):
         client = _make_client()

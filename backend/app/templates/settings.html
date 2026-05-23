@@ -262,6 +262,48 @@
         {% endcall %}
     {% endcall %}
 
+    <!-- ── Forensics ──────────────────────────────────────────────────────── -->
+    {% call card() %}
+        {% call card_header() %}
+            {% call card_title() %}Forensic Reports{% endcall %}
+            {% call card_description() %}Control privacy for forensic report metadata{% endcall %}
+        {% endcall %}
+        {% call card_content() %}
+            <form @submit.prevent="saveCategory('forensics')" class="space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="form-control w-full">
+                        <label class="label"><span class="label-text font-medium">Email Redaction</span></label>
+                        <select x-model="s['forensics.redaction_mode']"
+                            class="select select-bordered w-full">
+                            <option value="balanced">Balanced</option>
+                            <option value="domain_only">Domain only</option>
+                            <option value="strict">Strict</option>
+                        </select>
+                    </div>
+                    <div class="form-control">
+                        <label class="label cursor-pointer justify-start gap-3">
+                            <input type="checkbox"
+                                :checked="s['forensics.redact_long_tokens_enabled'] === 'true'"
+                                @change="s['forensics.redact_long_tokens_enabled'] = $event.target.checked ? 'true' : 'false'"
+                                class="checkbox checkbox-primary" />
+                            <span class="label-text font-medium">Redact long tokens</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="flex justify-end">
+                    <button type="submit" class="btn btn-default btn-md" :disabled="saving">
+                        <template x-if="!saving">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                        </template>
+                        <template x-if="saving"><span class="loading loading-spinner loading-xs mr-2"></span></template>
+                        Save Forensic Settings
+                    </button>
+                </div>
+            </form>
+        {% endcall %}
+    {% endcall %}
+
     <!-- ── Notifications ──────────────────────────────────────────────────── -->
     {% call card() %}
         {% call card_header() %}

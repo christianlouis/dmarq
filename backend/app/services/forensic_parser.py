@@ -1,6 +1,5 @@
 import hashlib
 import json
-import re
 from datetime import datetime, timezone
 from email import message_from_bytes
 from email.message import Message
@@ -8,11 +7,14 @@ from email.parser import Parser
 from email.utils import getaddresses, parsedate_to_datetime
 from typing import Any, Dict, Optional
 
+from app.services.forensic_redaction import (
+    ForensicRedactionPolicy,
+    normalize_forensic_redaction_policy,
+    redact_forensic_text,
+)
+
 
 MAX_FORENSIC_REPORT_SIZE = 10 * 1024 * 1024
-
-_EMAIL_RE = re.compile(r"\b([A-Z0-9._%+-]{1,64})@([A-Z0-9.-]+\.[A-Z]{2,})\b", re.IGNORECASE)
-_LONG_TOKEN_RE = re.compile(r"\b[A-Za-z0-9_./+=-]{28,}\b")
 
 
 def _coerce_text(value: Any) -> str:
@@ -23,26 +25,37 @@ def _coerce_text(value: Any) -> str:
     return str(value)
 
 
-def _clean(value: Any, *, redact: bool = True) -> str:
+def _clean(
+    value: Any,
+    *,
+    redact: bool = True,
+    redaction_policy: Optional[ForensicRedactionPolicy] = None,
+) -> str:
     text = " ".join(_coerce_text(value).replace("\r", " ").replace("\n", " ").split())
-    return redact_text(text) if redact else text
+    return redact_text(text, redaction_policy=redaction_policy) if redact else text
 
 
-def redact_text(value: str) -> str:
+def redact_text(
+    value: str,
+    *,
+    redaction_policy: Optional[ForensicRedactionPolicy] = None,
+) -> str:
     """Redact email local-parts and long opaque tokens from forensic metadata."""
-
-    def _redact_email(match: re.Match[str]) -> str:
-        local = match.group(1)
-        domain = match.group(2)
-        prefix = local[:2] if len(local) > 2 else local[:1]
-        return f"{prefix}***@{domain.lower()}"
-
-    redacted = _EMAIL_RE.sub(_redact_email, value)
-    return _LONG_TOKEN_RE.sub("[redacted-token]", redacted)
+    return redact_forensic_text(value, redaction_policy)
 
 
-def _header(msg: Optional[Message], name: str, *, redact: bool = True) -> str:
-    return _clean(msg.get(name, "") if msg is not None else "", redact=redact)
+def _header(
+    msg: Optional[Message],
+    name: str,
+    *,
+    redact: bool = True,
+    redaction_policy: Optional[ForensicRedactionPolicy] = None,
+) -> str:
+    return _clean(
+        msg.get(name, "") if msg is not None else "",
+        redact=redact,
+        redaction_policy=redaction_policy,
+    )
 
 
 def _payload_text(part: Message) -> str:
@@ -120,7 +133,11 @@ class ForensicParser:
 
     @classmethod
     def parse_bytes(
-        cls, content: bytes, *, message_id_hint: Optional[str] = None
+        cls,
+        content: bytes,
+        *,
+        message_id_hint: Optional[str] = None,
+        redaction_policy: Optional[ForensicRedactionPolicy] = None,
     ) -> Dict[str, Any]:
         if len(content) > MAX_FORENSIC_REPORT_SIZE:
             raise ValueError("Forensic report is too large")
@@ -131,6 +148,7 @@ class ForensicParser:
         if not cls.is_forensic_report(msg):
             raise ValueError("Email is not a DMARC forensic report")
 
+        redaction_policy = normalize_forensic_redaction_policy(redaction_policy)
         feedback = None
         original_headers = None
 
@@ -166,14 +184,18 @@ class ForensicParser:
         if not report_id.startswith("ruf-"):
             report_id = f"ruf-{report_id}"
 
-        source_email = _header(msg, "From")
+        source_email = _header(msg, "From", redaction_policy=redaction_policy)
         arrival_date = _parse_datetime(_header(feedback, "Arrival-Date", redact=False))
 
         details = {
             "identity_alignment": _header(feedback, "Identity-Alignment", redact=False),
             "dkim_domain": _header(feedback, "DKIM-Domain", redact=False),
             "spf_dns": _header(feedback, "SPF-DNS", redact=False),
-            "reported_uri": _header(feedback, "Reported-URI"),
+            "reported_uri": _header(
+                feedback,
+                "Reported-URI",
+                redaction_policy=redaction_policy,
+            ),
         }
         details = {key: value for key, value in details.items() if value}
 
@@ -181,18 +203,34 @@ class ForensicParser:
             "report_id": report_id,
             "source_email": source_email,
             "feedback_type": _header(feedback, "Feedback-Type", redact=False) or "auth-failure",
-            "user_agent": _header(feedback, "User-Agent"),
+            "user_agent": _header(feedback, "User-Agent", redaction_policy=redaction_policy),
             "version": _header(feedback, "Version", redact=False),
             "reported_domain": reported_domain,
             "source_ip": source_ip,
             "auth_failure": auth_failure,
             "delivery_result": _header(feedback, "Delivery-Result", redact=False),
             "arrival_date": arrival_date,
-            "authentication_results": _header(feedback, "Authentication-Results"),
-            "original_mail_from": _header(feedback, "Original-Mail-From"),
-            "original_from": _header(original_headers, "From"),
-            "original_to": _header(original_headers, "To"),
-            "original_subject": _header(original_headers, "Subject"),
+            "authentication_results": _header(
+                feedback,
+                "Authentication-Results",
+                redaction_policy=redaction_policy,
+            ),
+            "original_mail_from": _header(
+                feedback,
+                "Original-Mail-From",
+                redaction_policy=redaction_policy,
+            ),
+            "original_from": _header(
+                original_headers,
+                "From",
+                redaction_policy=redaction_policy,
+            ),
+            "original_to": _header(original_headers, "To", redaction_policy=redaction_policy),
+            "original_subject": _header(
+                original_headers,
+                "Subject",
+                redaction_policy=redaction_policy,
+            ),
             "original_message_id": _message_id_hash(original_message_id),
             "original_date": _header(original_headers, "Date", redact=False),
             "feedback_headers": json.dumps(details, sort_keys=True) if details else None,

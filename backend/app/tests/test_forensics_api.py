@@ -10,6 +10,7 @@ from app.services.forensic_persistence import (
     forensic_report_to_dict,
     save_forensic_report,
 )
+from app.services.forensic_redaction import ForensicRedactionPolicy
 from app.tests.test_forensic_parser import SAMPLE_FORENSIC_EMAIL
 
 
@@ -60,6 +61,36 @@ def test_list_and_detail_forensic_reports(authed_client):
     detail_response = authed_client.get(f"/api/v1/forensics/{item['id']}")
     assert detail_response.status_code == 200
     assert detail_response.json()["reported_domain"] == "example.com"
+
+
+def test_forensic_api_applies_configured_redaction_policy(authed_client, db_session):
+    authed_client.post(
+        "/api/v1/forensics/upload",
+        files={"file": ("report.eml", SAMPLE_FORENSIC_EMAIL, "message/rfc822")},
+    )
+    authed_client.put("/api/v1/settings/forensics.redaction_mode", json={"value": "strict"})
+
+    list_response = authed_client.get("/api/v1/forensics?domain=example.com")
+
+    assert list_response.status_code == 200
+    item = list_response.json()["reports"][0]
+    assert item["original_mail_from"] == "[redacted-email]"
+    assert item["source_email"] == "DMARC Reporter <[redacted-email]>"
+    stored = db_session.query(ForensicReport).one()
+    assert stored.original_mail_from == "al***@example.com"
+
+
+def test_upload_forensic_report_uses_configured_redaction_policy(authed_client, db_session):
+    authed_client.put("/api/v1/settings/forensics.redaction_mode", json={"value": "domain_only"})
+
+    response = authed_client.post(
+        "/api/v1/forensics/upload",
+        files={"file": ("report.eml", SAMPLE_FORENSIC_EMAIL, "message/rfc822")},
+    )
+
+    assert response.status_code == 200
+    report = db_session.query(ForensicReport).one()
+    assert report.original_mail_from == "***@example.com"
 
 
 def test_upload_forensic_report_rejects_aggregate_xml(authed_client):
@@ -156,6 +187,11 @@ def test_save_forensic_report_duplicate_and_invalid_domain_paths(db_session):
     assert forensic_report_exists(db_session, parsed["report_id"]) is True
     assert forensic_report_exists(db_session, "") is False
     assert forensic_report_to_dict(first)["feedback_headers"] == {"identity_alignment": "dkim"}
+    strict = forensic_report_to_dict(
+        first,
+        redaction_policy=ForensicRedactionPolicy(mode="strict"),
+    )
+    assert strict["original_mail_from"] == "[redacted-email]"
 
     first.feedback_headers = "{not-json"
     assert forensic_report_to_dict(first)["feedback_headers"] == {}
