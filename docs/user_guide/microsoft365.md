@@ -39,9 +39,11 @@ DMARQ uses delegated Microsoft Graph access. That means the authorised Microsoft
 
 ## Import Behavior
 
-DMARQ reads recent messages in the configured folder, filters for messages that look like DMARC reports, downloads Graph `fileAttachment` items, and sends `.xml`, `.zip`, `.gz`, and `.gzip` attachments through the same parser and persistence path used by upload, IMAP, and Gmail imports.
+DMARQ reads messages in the configured search window, filters for messages that look like DMARC reports, downloads Graph `fileAttachment` items, and sends `.xml`, `.zip`, `.gz`, and `.gzip` attachments through the same parser and persistence path used by upload, IMAP, and Gmail imports.
 
 Imported Graph message IDs are stored on the mail source so scheduled polling does not reprocess the same message. Import history records processed messages, imported reports, duplicates, parse failures, attachment-level details, and the mailbox/folder target used for the attempt.
+
+Manual imports and backfills use the **days** value from the Mail Sources UI or trigger-poll endpoint. DMARQ passes that window to Microsoft Graph as a `receivedDateTime` filter, so large mailboxes can be searched without scanning unrelated older mail. If Graph returns a throttling or temporary service response, DMARQ retries with `Retry-After` or exponential backoff before surfacing the sanitized error in import history.
 
 ## Troubleshooting
 

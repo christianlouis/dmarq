@@ -1455,6 +1455,7 @@ class TestMicrosoft365GraphMailSource:
             "new_domains": ["example.com"],
             "errors": [],
             "new_ingested_ids": ["id1", "id2", "id3"],
+            "search_window_days": 30,
         }
         mock_client.get_refreshed_tokens.return_value = None
 
@@ -1472,7 +1473,7 @@ class TestMicrosoft365GraphMailSource:
                 return_value='["id1", "id2", "id3"]',
             ),
         ):
-            resp = authed_client.post(f"/api/v1/mail-sources/{source_id}/fetch")
+            resp = authed_client.post(f"/api/v1/mail-sources/{source_id}/fetch?days=30")
 
         assert resp.status_code == 200
         data = resp.json()
@@ -1483,6 +1484,8 @@ class TestMicrosoft365GraphMailSource:
         assert data["new_domains"] == ["example.com"]
         assert data["target_mailbox"] is None
         assert data["target_folder"] is None
+        assert data["search_window_days"] == 30
+        mock_client.fetch_reports.assert_called_once_with(days=30)
 
     def test_m365_specific_fetch_persists_refreshed_tokens(
         self, authed_client: TestClient, db_session: Session
@@ -2667,12 +2670,13 @@ class TestTriggerPollM365Source:
             patch("app.main.MicrosoftGraphClient.load_ingested_ids", return_value=[]),
             patch("app.main.MicrosoftGraphClient.dump_ingested_ids", return_value='["id1"]'),
         ):
-            result = _trigger_poll_m365_source(src, mock_db)
+            result = _trigger_poll_m365_source(src, mock_db, days=30)
 
         assert result["success"] is True
         assert result["source_id"] == 8
         assert result["processed"] == 2
         assert src.m365_ingested_ids == '["id1"]'
+        mock_gc.fetch_reports.assert_called_once_with(days=30)
         mock_db.commit.assert_called_once()
 
     def test_persists_refreshed_tokens(self):
@@ -2776,10 +2780,10 @@ class TestPollSourceForTrigger:
 
         expected = {"source_id": 8, "name": "M365", "success": True}
         with patch("app.main._trigger_poll_m365_source", return_value=expected) as mock_fn:
-            result = _poll_source_for_trigger(src, MagicMock())
+            result = _poll_source_for_trigger(src, MagicMock(), days=30)
 
         assert result is expected
-        mock_fn.assert_called_once()
+        assert mock_fn.call_args.kwargs["days"] == 30
 
     def test_m365_exception_returns_failure_dict(self):
         from app.main import _poll_source_for_trigger

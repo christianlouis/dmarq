@@ -12,7 +12,7 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -446,6 +446,7 @@ def _fetch_response(source: MailSource, results: Dict[str, Any]) -> Dict[str, An
         "error_count": len(results.get("errors", [])),
         "target_mailbox": results.get("target_mailbox"),
         "target_folder": results.get("target_folder"),
+        "search_window_days": results.get("search_window_days"),
         "timestamp": datetime.now().isoformat(),
     }
 
@@ -487,7 +488,7 @@ def _fetch_gmail_source(source: MailSource, db: Session) -> Dict[str, Any]:
     return results
 
 
-def _fetch_m365_source(source: MailSource, db: Session) -> Dict[str, Any]:
+def _fetch_m365_source(source: MailSource, db: Session, days: int = 7) -> Dict[str, Any]:
     """Run one Microsoft 365 Graph import and persist source/import metadata."""
     if not source.m365_access_token:
         raise HTTPException(
@@ -510,7 +511,7 @@ def _fetch_m365_source(source: MailSource, db: Session) -> Dict[str, Any]:
     )
 
     started_at = datetime.utcnow()
-    results = client.fetch_reports()
+    results = client.fetch_reports(days=days)
 
     if results.get("new_ingested_ids"):
         all_ids = list(dict.fromkeys(already + results["new_ingested_ids"]))
@@ -551,7 +552,7 @@ def _fetch_source(source: MailSource, db: Session, days: int) -> Dict[str, Any]:
     if source.method == "GMAIL_API":
         return _fetch_gmail_source(source, db)
     if source.method == "M365_GRAPH":
-        return _fetch_m365_source(source, db)
+        return _fetch_m365_source(source, db, days=days)
     if source.method == "IMAP":
         return _fetch_imap_source(source, db, days)
     raise HTTPException(
@@ -1113,6 +1114,7 @@ async def m365_oauth_callback_post(
 @router.post("/{source_id}/m365/fetch", response_model=Dict[str, Any])
 async def m365_fetch_reports(
     source_id: int,
+    days: int = Query(7, ge=1, le=365, title="Number of days to fetch"),
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
 ) -> Dict[str, Any]:
@@ -1125,7 +1127,7 @@ async def m365_fetch_reports(
             detail="This endpoint is only available for M365_GRAPH sources.",
         )
 
-    results = _fetch_m365_source(source, db)
+    results = _fetch_m365_source(source, db, days=days)
     logger.info(
         "Microsoft 365 fetch for source id=%d: processed=%d reports_found=%d",
         int(source_id),

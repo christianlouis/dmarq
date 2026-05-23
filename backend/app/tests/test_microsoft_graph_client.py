@@ -192,6 +192,8 @@ class TestMicrosoftGraphFetchReports:
     def test_fetch_reports_uses_selected_folder_id_and_records_context(self, monkeypatch):
         def fake_request(method, url, headers=None, params=None, timeout=None):
             if url.endswith("/users/shared%40example.com/mailFolders/folder-id/messages"):
+                assert "$filter" in params
+                assert params["$filter"].startswith("receivedDateTime ge ")
                 return httpx.Response(
                     200,
                     json={
@@ -226,6 +228,55 @@ class TestMicrosoftGraphFetchReports:
         assert result["processed"] == 1
         assert result["target_mailbox"] == "shared@example.com"
         assert result["target_folder"] == "DMARC Reports"
+        assert result["search_window_days"] == 7
+
+    def test_fetch_reports_applies_requested_search_window(self, monkeypatch):
+        def fake_request(method, url, headers=None, params=None, timeout=None):
+            assert url.endswith("/me/mailFolders/inbox/messages")
+            assert params["$top"] == 100
+            assert params["$select"] == "id,subject,from,hasAttachments,receivedDateTime"
+            assert params["$orderby"] == "receivedDateTime desc"
+            assert params["$filter"].startswith("receivedDateTime ge ")
+            return httpx.Response(200, json={"value": []})
+
+        monkeypatch.setattr("app.services.microsoft_graph_client.httpx.request", fake_request)
+        client = _make_client()
+
+        result = client.fetch_reports(days=30)
+
+        assert result["success"] is True
+        assert result["search_window_days"] == 30
+        assert result["processed"] == 0
+
+    def test_request_retries_graph_throttling(self, monkeypatch):
+        responses = [
+            httpx.Response(
+                429,
+                headers={"Retry-After": "0"},
+                json={"error": {"code": "TooManyRequests", "message": "slow down"}},
+            ),
+            httpx.Response(200, json={"value": []}),
+        ]
+        sleeps = []
+
+        def fake_request(method, url, headers=None, params=None, timeout=None):
+            return responses.pop(0)
+
+        monkeypatch.setattr("app.services.microsoft_graph_client.httpx.request", fake_request)
+        client = MicrosoftGraphClient(
+            tenant_id="organizations",
+            client_id="client-id",
+            client_secret="client-secret",
+            access_token="access-token",
+            refresh_token="refresh-token",
+            sleep=sleeps.append,
+        )
+
+        result = client.fetch_reports()
+
+        assert result["success"] is True
+        assert sleeps == [0.0]
+        assert responses == []
 
     def test_fetch_reports_imports_zip_attachment(self, monkeypatch, db_session):
         attachment_bytes = _zip_xml()

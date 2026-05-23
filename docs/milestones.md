@@ -206,7 +206,7 @@ Planned:
 - Microsoft 365 mail source using OAuth (Graph) with least-privilege scopes. Delivered for delegated `User.Read`, `Mail.Read`, and `offline_access` with encrypted token storage, manual import, scheduled polling, UI setup, and operator docs.
 - Shared mailbox and folder selection support for DMARC report collection. Delivered with shared mailbox targeting, Microsoft Graph folder listing, folder-id based imports, UI selection, and mailbox/folder context in import history.
 - Import-history parity with existing sources (auditable attachment outcomes, duplicates, parse failures). Delivered for Microsoft 365 imports.
-- Backfill support with safe throttling and progressive search windows.
+- Backfill support with safe throttling and progressive search windows. Delivered with days-based Graph `receivedDateTime` filters, duplicate-safe reruns, and retry/backoff for throttled or temporarily unavailable Graph requests.
 - Secret handling mirrors existing guidance (no raw secrets in logs; 1Password-friendly).
 
 Exit criteria:
