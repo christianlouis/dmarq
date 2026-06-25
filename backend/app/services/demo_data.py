@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter, defaultdict
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -9,6 +10,32 @@ from app.services.report_store import ReportStore
 
 DEMO_DOMAINS = ("dmarq.org", "dmarq.com")
 DEMO_DAYS = 90
+DEMO_TLS_REPORT_PRIVACY_CONTROLS = {
+    "retention": (
+        "TLS reports store aggregate session counts, reporting organization metadata, "
+        "policy domains, and grouped TLS failure details."
+    ),
+    "stored_fields": [
+        "report id",
+        "reporting organization",
+        "contact info",
+        "policy domain",
+        "policy type",
+        "report date range",
+        "successful and failed session counts",
+        "grouped result type and failed-session count",
+        "receiving MX host/HELO/IP when supplied by the reporter",
+        "failure reason code and additional grouped diagnostic text",
+    ],
+    "not_stored": [
+        "message bodies",
+        "message subjects",
+        "sender or recipient addresses",
+        "recipient local-parts",
+        "raw uploaded attachments",
+        "mailbox credentials or source message identifiers",
+    ],
+}
 
 _SOURCE_PROFILES = {
     "dmarq.org": [
@@ -209,9 +236,23 @@ def _summary(records: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+def _auth_status_from_counts(pass_count: int, fail_count: int) -> str:
+    if pass_count > 0 and fail_count > 0:
+        return "mixed"
+    if pass_count > 0:
+        return "pass"
+    if fail_count > 0:
+        return "fail"
+    return "none"
+
+
+def _demo_today(today: Optional[date] = None) -> date:
+    return today or datetime.now(timezone.utc).date()
+
+
 def build_demo_reports(today: Optional[date] = None, days: int = DEMO_DAYS) -> List[Dict[str, Any]]:
     """Return rolling synthetic DMARC aggregate reports through *today*."""
-    anchor = today or datetime.now(timezone.utc).date()
+    anchor = _demo_today(today)
     reports: List[Dict[str, Any]] = []
     start = anchor - timedelta(days=days - 1)
     for day_offset in range(days):
@@ -246,6 +287,698 @@ def build_demo_reports(today: Optional[date] = None, days: int = DEMO_DAYS) -> L
                 }
             )
     return reports
+
+
+def build_demo_dashboard_statistics(
+    *,
+    period_days: int = 30,
+    domain: Optional[str] = None,
+    today: Optional[date] = None,
+) -> Dict[str, Any]:
+    """Return dashboard statistics from the rolling aggregate demo reports."""
+    period_days = max(1, int(period_days or 30))
+    anchor = _demo_today(today)
+    start = anchor - timedelta(days=period_days - 1)
+    normalized_domain = domain.lower().strip(".") if domain else None
+    reports = [
+        report
+        for report in build_demo_reports(today=anchor, days=max(DEMO_DAYS, period_days))
+        if datetime.fromtimestamp(report["begin_timestamp"], tz=timezone.utc).date() >= start
+        and (normalized_domain is None or report["domain"] == normalized_domain)
+    ]
+
+    total_emails = 0
+    compliant_emails = 0
+    daily: Dict[str, Dict[str, int]] = defaultdict(lambda: {"total": 0, "passed": 0})
+    sources: Dict[str, Dict[str, Any]] = defaultdict(
+        lambda: {
+            "ip": "",
+            "count": 0,
+            "spf_pass_count": 0,
+            "spf_fail_count": 0,
+            "dkim_pass_count": 0,
+            "dkim_fail_count": 0,
+            "dmarc_pass_count": 0,
+            "dmarc_fail_count": 0,
+            "domains": set(),
+        }
+    )
+
+    for report in reports:
+        report_day = datetime.fromtimestamp(report["begin_timestamp"], tz=timezone.utc).date()
+        day_key = report_day.isoformat()
+        for record in report.get("records") or []:
+            count = int(record.get("count") or 0)
+            spf_pass = record.get("spf_result") == "pass"
+            dkim_pass = record.get("dkim_result") == "pass"
+            dmarc_pass = spf_pass or dkim_pass
+            total_emails += count
+            if dmarc_pass:
+                compliant_emails += count
+            daily[day_key]["total"] += count
+            daily[day_key]["passed"] += count if dmarc_pass else 0
+
+            source = sources[record.get("source_ip") or "unknown"]
+            source["ip"] = record.get("source_ip") or "unknown"
+            source["count"] += count
+            source["spf_pass_count"] += count if spf_pass else 0
+            source["spf_fail_count"] += 0 if spf_pass else count
+            source["dkim_pass_count"] += count if dkim_pass else 0
+            source["dkim_fail_count"] += 0 if dkim_pass else count
+            source["dmarc_pass_count"] += count if dmarc_pass else 0
+            source["dmarc_fail_count"] += 0 if dmarc_pass else count
+            source["domains"].add(report["domain"])
+
+    compliance_trend: List[Dict[str, Any]] = []
+    for day_key in sorted(daily):
+        total = daily[day_key]["total"]
+        passed = daily[day_key]["passed"]
+        failed = max(0, total - passed)
+        compliance_rate = round((passed / total) * 100, 1) if total else 0.0
+        compliance_trend.append(
+            {
+                "date": day_key,
+                "total": total,
+                "volume": total,
+                "passed": passed,
+                "failed": failed,
+                "rate": compliance_rate,
+                "compliance_rate": compliance_rate,
+                "failure_rate": round((failed / total) * 100, 1) if total else 0.0,
+            }
+        )
+
+    source_rows = []
+    for source in sources.values():
+        source_rows.append(
+            {
+                "ip": source["ip"],
+                "count": source["count"],
+                "spf_pass_count": source["spf_pass_count"],
+                "spf_fail_count": source["spf_fail_count"],
+                "dkim_pass_count": source["dkim_pass_count"],
+                "dkim_fail_count": source["dkim_fail_count"],
+                "dmarc_pass_count": source["dmarc_pass_count"],
+                "dmarc_fail_count": source["dmarc_fail_count"],
+                "spf": _auth_status_from_counts(
+                    source["spf_pass_count"], source["spf_fail_count"]
+                ),
+                "dkim": _auth_status_from_counts(
+                    source["dkim_pass_count"], source["dkim_fail_count"]
+                ),
+                "dmarc": _auth_status_from_counts(
+                    source["dmarc_pass_count"], source["dmarc_fail_count"]
+                ),
+                "domains": sorted(source["domains"]),
+            }
+        )
+    source_rows.sort(key=lambda item: item["count"], reverse=True)
+
+    compliance_rate = round((compliant_emails / total_emails) * 100, 1) if total_emails else 0.0
+    stats = {
+        "total_emails": total_emails,
+        "compliant_emails": compliant_emails,
+        "compliance_rate": compliance_rate,
+        "reports_processed": len(reports),
+        "compliance_trend": compliance_trend,
+        "change_summary": _demo_change_summary(source_rows, normalized_domain),
+    }
+    if normalized_domain:
+        stats.update({"domain": normalized_domain, "sources": source_rows[:10]})
+    else:
+        stats.update(
+            {
+                "total_domains": len({report["domain"] for report in reports}),
+                "top_sources": source_rows[:10],
+            }
+        )
+    return stats
+
+
+def _demo_change_summary(
+    source_rows: List[Dict[str, Any]], domain: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    by_ip = {row["ip"]: row for row in source_rows}
+    changes = []
+    if domain in {None, "dmarq.org"} and "203.0.113.44" in by_ip:
+        row = by_ip["203.0.113.44"]
+        changes.append(
+            {
+                "type": "auth_failure",
+                "severity": "warning",
+                "title": "Newsletter DKIM drift",
+                "domain": "dmarq.org",
+                "source_ip": row["ip"],
+                "message_count": row["dkim_fail_count"],
+                "detail": (
+                    "The newsletter source passes SPF but has repeat DKIM body-hash failures."
+                ),
+                "action": (
+                    "Rotate or re-publish the newsletter DKIM selector before enforcing reject."
+                ),
+            }
+        )
+    if domain in {None, "dmarq.com"} and "198.51.100.199" in by_ip:
+        row = by_ip["198.51.100.199"]
+        changes.append(
+            {
+                "type": "misaligned_source",
+                "severity": "critical",
+                "title": "Unknown forwarder is unauthenticated",
+                "domain": "dmarq.com",
+                "source_ip": row["ip"],
+                "message_count": row["dmarc_fail_count"],
+                "detail": "A low-volume forwarding path fails both SPF and DKIM alignment.",
+                "action": "Confirm ownership before adding DNS includes or DKIM selectors.",
+            }
+        )
+    if domain in {None, "dmarq.com"}:
+        changes.append(
+            {
+                "type": "policy_gap",
+                "severity": "info",
+                "title": "Policy still in monitoring mode",
+                "domain": "dmarq.com",
+                "source_ip": None,
+                "message_count": 0,
+                "detail": "dmarq.com shows useful failure data while p=none prevents enforcement.",
+                "action": (
+                    "Fix the known senders, then move to quarantine with a staged percentage."
+                ),
+            }
+        )
+    return changes[:5]
+
+
+def build_demo_tls_reports(
+    today: Optional[date] = None, days: int = DEMO_DAYS
+) -> List[Dict[str, Any]]:
+    """Return rolling SMTP TLS Reporting data for the public demo."""
+    anchor = _demo_today(today)
+    reports: List[Dict[str, Any]] = []
+    report_id = 1
+    start = anchor - timedelta(days=max(1, days) - 1)
+    failure_profiles = {
+        "dmarq.org": [
+            ("certificate-host-mismatch", "mx2.demo.dmarq.org", "mx.demo.dmarq.org", 3),
+            ("certificate-expired", "legacy-mx.demo.dmarq.org", "legacy cert", 1),
+        ],
+        "dmarq.com": [
+            ("starttls-not-supported", "mx1.demo.dmarq.com", "STARTTLS missing", 9),
+            ("certificate-expired", "mx-old.demo.dmarq.com", "expired chain", 5),
+            ("validation-failure", "mx3.demo.dmarq.com", "untrusted intermediate", 2),
+        ],
+    }
+
+    for offset in range(max(1, days)):
+        report_day = start + timedelta(days=offset)
+        day_index = (report_day - date(2026, 1, 1)).days
+        for domain in DEMO_DOMAINS:
+            if day_index % 2 and domain == "dmarq.org":
+                continue
+            failures = []
+            failed_sessions = 0
+            for failure_index, (result_type, host, reason, base) in enumerate(
+                failure_profiles[domain]
+            ):
+                if (day_index + failure_index) % (failure_index + 3) != 0:
+                    continue
+                count = base + (day_index % 4)
+                failed_sessions += count
+                failures.append(
+                    {
+                        "result_type": result_type,
+                        "failed_session_count": count,
+                        "sending_mta_ip": None,
+                        "receiving_mx_hostname": host,
+                        "receiving_mx_helo": host.split(".")[0],
+                        "receiving_ip": None,
+                        "failure_reason_code": reason,
+                        "additional_information": (
+                            "Synthetic demo TLS-RPT group; no message content is stored."
+                        ),
+                    }
+                )
+            successful_sessions = (
+                1800 + (day_index % 9) * 45 if domain == "dmarq.org" else 900 + (day_index % 8) * 30
+            )
+            reports.append(
+                {
+                    "id": report_id,
+                    "report_id": f"demo-tls-{domain}-{report_day.isoformat()}",
+                    "domain": domain,
+                    "org_name": "DMARQ Demo TLS Reporter",
+                    "contact_info": "mailto:tls-rpt@demo.dmarq.org",
+                    "policy_domain": domain,
+                    "policy_type": "sts",
+                    "begin_date": datetime.combine(
+                        report_day, time.min, tzinfo=timezone.utc
+                    ).isoformat(),
+                    "end_date": datetime.combine(
+                        report_day, time.max.replace(microsecond=0), tzinfo=timezone.utc
+                    ).isoformat(),
+                    "total_successful_sessions": successful_sessions,
+                    "total_failure_sessions": failed_sessions,
+                    "processed_at": datetime.combine(
+                        report_day + timedelta(days=1), time(hour=1), tzinfo=timezone.utc
+                    ).isoformat(),
+                    "failures": failures,
+                }
+            )
+            report_id += 1
+    reports.sort(key=lambda item: (item["begin_date"], item["id"]), reverse=True)
+    return reports
+
+
+def list_demo_tls_reports(
+    *,
+    domain: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 50,
+    today: Optional[date] = None,
+) -> Dict[str, Any]:
+    normalized_domain = domain.lower().strip(".") if domain else None
+    rows = [
+        row
+        for row in build_demo_tls_reports(today=today)
+        if normalized_domain is None or row["policy_domain"] == normalized_domain
+    ]
+    total = len(rows)
+    start = (page - 1) * page_size
+    end = start + page_size
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": (total + page_size - 1) // page_size if total else 0,
+        "reports": rows[start:end],
+        "privacy": DEMO_TLS_REPORT_PRIVACY_CONTROLS,
+    }
+
+
+def summarize_demo_tls_reports(
+    *,
+    domain: Optional[str] = None,
+    days: int = 30,
+    limit: int = 10,
+    today: Optional[date] = None,
+) -> Dict[str, Any]:
+    anchor = _demo_today(today)
+    cutoff = anchor - timedelta(days=max(1, days) - 1)
+    normalized_domain = domain.lower().strip(".") if domain else None
+    rows = [
+        row
+        for row in build_demo_tls_reports(today=anchor, days=max(DEMO_DAYS, days))
+        if datetime.fromisoformat(row["begin_date"]).date() >= cutoff
+        and (normalized_domain is None or row["policy_domain"] == normalized_domain)
+    ]
+
+    totals = {
+        "reports": len(rows),
+        "successful_sessions": sum(row["total_successful_sessions"] for row in rows),
+        "failed_sessions": sum(row["total_failure_sessions"] for row in rows),
+    }
+    session_total = totals["successful_sessions"] + totals["failed_sessions"]
+    totals["failure_rate"] = totals["failed_sessions"] / session_total if session_total else 0.0
+
+    trend_map: Dict[str, Dict[str, Any]] = defaultdict(
+        lambda: {"date": "", "reports": 0, "successful_sessions": 0, "failed_sessions": 0}
+    )
+    domain_map: Dict[str, Dict[str, Any]] = defaultdict(
+        lambda: {
+            "domain": "",
+            "reports": 0,
+            "successful_sessions": 0,
+            "failed_sessions": 0,
+            "top_failure": None,
+        }
+    )
+    failure_map: Dict[str, Dict[str, Any]] = defaultdict(
+        lambda: {
+            "result_type": "",
+            "failed_sessions": 0,
+            "reports": set(),
+            "affected_domains": set(),
+            "receiving_mx_hostnames": set(),
+            "reason_codes": set(),
+        }
+    )
+
+    for row in rows:
+        day_key = datetime.fromisoformat(row["begin_date"]).date().isoformat()
+        trend = trend_map[day_key]
+        trend["date"] = day_key
+        trend["reports"] += 1
+        trend["successful_sessions"] += row["total_successful_sessions"]
+        trend["failed_sessions"] += row["total_failure_sessions"]
+
+        domain_summary = domain_map[row["policy_domain"]]
+        domain_summary["domain"] = row["policy_domain"]
+        domain_summary["reports"] += 1
+        domain_summary["successful_sessions"] += row["total_successful_sessions"]
+        domain_summary["failed_sessions"] += row["total_failure_sessions"]
+
+        top_failure = None
+        for failure in row["failures"]:
+            item = failure_map[failure["result_type"]]
+            item["result_type"] = failure["result_type"]
+            item["failed_sessions"] += failure["failed_session_count"]
+            item["reports"].add(row["report_id"])
+            item["affected_domains"].add(row["policy_domain"])
+            if failure.get("receiving_mx_hostname"):
+                item["receiving_mx_hostnames"].add(failure["receiving_mx_hostname"])
+            if failure.get("failure_reason_code"):
+                item["reason_codes"].add(failure["failure_reason_code"])
+            if top_failure is None or failure["failed_session_count"] > top_failure[
+                "failed_session_count"
+            ]:
+                top_failure = failure
+        if top_failure:
+            domain_summary["top_failure"] = top_failure["result_type"]
+
+    affected_domains = []
+    for item in domain_map.values():
+        domain_sessions = item["successful_sessions"] + item["failed_sessions"]
+        item["failure_rate"] = item["failed_sessions"] / domain_sessions if domain_sessions else 0.0
+        affected_domains.append(item)
+    affected_domains.sort(key=lambda item: item["failed_sessions"], reverse=True)
+
+    top_failures = [
+        {
+            "result_type": item["result_type"],
+            "failed_sessions": item["failed_sessions"],
+            "report_count": len(item["reports"]),
+            "affected_domains": sorted(item["affected_domains"]),
+            "receiving_mx_hostnames": sorted(item["receiving_mx_hostnames"])[:5],
+            "reason_codes": sorted(item["reason_codes"])[:5],
+        }
+        for item in failure_map.values()
+    ]
+    top_failures.sort(key=lambda item: item["failed_sessions"], reverse=True)
+
+    return {
+        "domain": normalized_domain,
+        "days": days,
+        "totals": totals,
+        "trends": [trend_map[key] for key in sorted(trend_map)],
+        "top_failures": top_failures[:limit],
+        "affected_domains": affected_domains[:limit],
+        "privacy": DEMO_TLS_REPORT_PRIVACY_CONTROLS,
+    }
+
+
+def _forensic_scenarios() -> List[Dict[str, Any]]:
+    return [
+        {
+            "domain": "dmarq.org",
+            "source_ip": "203.0.113.44",
+            "auth_failure": "dkim",
+            "delivery_result": "quarantine",
+            "selector": "news",
+            "mail_from": "bounce.dmarq.org",
+            "diagnostic": "newsletter body hash did not verify",
+        },
+        {
+            "domain": "dmarq.org",
+            "source_ip": "192.0.2.66",
+            "auth_failure": "dmarc",
+            "delivery_result": "reject",
+            "selector": "legacy",
+            "mail_from": "legacy.dmarq.org",
+            "diagnostic": "legacy CRM failed SPF and DKIM alignment",
+        },
+        {
+            "domain": "dmarq.com",
+            "source_ip": "198.51.100.88",
+            "auth_failure": "dkim",
+            "delivery_result": "none",
+            "selector": "mailchimp",
+            "mail_from": "bounce.dmarq.com",
+            "diagnostic": "marketing sender intermittently signs with the old selector",
+        },
+        {
+            "domain": "dmarq.com",
+            "source_ip": "198.51.100.199",
+            "auth_failure": "spf",
+            "delivery_result": "none",
+            "selector": "unknown",
+            "mail_from": "forwarder.example.net",
+            "diagnostic": "unknown forwarder is not authorized in SPF",
+        },
+    ]
+
+
+def build_demo_forensic_reports(
+    today: Optional[date] = None, days: int = DEMO_DAYS
+) -> List[Dict[str, Any]]:
+    """Return redacted rolling DMARC forensic/failure samples for the demo."""
+    anchor = _demo_today(today)
+    start = anchor - timedelta(days=max(1, days) - 1)
+    reports: List[Dict[str, Any]] = []
+    report_id = 1
+    for offset in range(max(1, days)):
+        report_day = start + timedelta(days=offset)
+        day_index = (report_day - date(2026, 1, 1)).days
+        for scenario_index, scenario in enumerate(_forensic_scenarios()):
+            if (day_index + scenario_index) % (4 + scenario_index) != 0:
+                continue
+            arrival = datetime.combine(
+                report_day, time(hour=8 + scenario_index, minute=15), tzinfo=timezone.utc
+            )
+            dkim_result = "fail" if scenario["auth_failure"] in {"dkim", "dmarc"} else "pass"
+            spf_result = "fail" if scenario["auth_failure"] in {"spf", "dmarc"} else "pass"
+            auth_results = (
+                f"mx.demo.dmarq.org; dkim={dkim_result} "
+                f"header.d={scenario['domain']} header.s={scenario['selector']}; "
+                f"spf={spf_result} "
+                f"smtp.mailfrom={scenario['mail_from']}; dmarc=fail"
+            )
+            item = {
+                "id": report_id,
+                "report_id": (
+                    f"demo-ruf-{scenario['domain']}-{report_day.isoformat()}-{scenario_index}"
+                ),
+                "domain": scenario["domain"],
+                "reported_domain": scenario["domain"],
+                "source_email": "DMARC Reporter <reports@receiver.example>",
+                "feedback_type": "auth-failure",
+                "user_agent": "DMARQ Demo Failure Reporter",
+                "version": "1.0",
+                "source_ip": scenario["source_ip"],
+                "auth_failure": scenario["auth_failure"],
+                "delivery_result": scenario["delivery_result"],
+                "arrival_date": arrival.isoformat(),
+                "authentication_results": auth_results,
+                "original_mail_from": f"bo***@{scenario['mail_from'].split('.', 1)[-1]}",
+                "original_from": f"se***@{scenario['domain']}",
+                "original_to": "re***@recipient.example",
+                "original_subject": "[redacted-subject]",
+                "original_message_id": f"demo-redacted-{report_id}@example.invalid",
+                "original_date": arrival.isoformat(),
+                "feedback_headers": {
+                    "identity_alignment": scenario["auth_failure"],
+                    "dkim_selector": scenario["selector"],
+                    "dkim_identity": f"se***@{scenario['domain']}",
+                    "spf_dns": "v=spf1 include:_spf.example.net -all",
+                    "demo_note": scenario["diagnostic"],
+                },
+                "processed_at": (arrival + timedelta(minutes=3)).isoformat(),
+            }
+            item["analysis"] = _analyze_demo_forensic_item(item)
+            reports.append(item)
+            report_id += 1
+    reports.sort(key=lambda item: (item["arrival_date"], item["id"]), reverse=True)
+    return reports
+
+
+def _priority_for_forensic(item: Dict[str, Any]) -> str:
+    if item.get("delivery_result") in {"reject", "quarantine"}:
+        return "high"
+    if item.get("auth_failure") == "dmarc":
+        return "high"
+    return "medium"
+
+
+def _recommendations_for_forensic(item: Dict[str, Any]) -> List[str]:
+    failure = item.get("auth_failure")
+    if failure == "dkim":
+        return [
+            "Check the signing selector and canonicalization for this sender.",
+            "Confirm the DKIM public key still matches the sending platform.",
+        ]
+    if failure == "spf":
+        return [
+            "Verify whether the source is authorized before extending SPF.",
+            "Prefer DKIM alignment for forwarding paths that cannot pass SPF.",
+        ]
+    return [
+        "Treat this as a full DMARC alignment failure and verify source ownership.",
+        "Keep enforcement in quarantine until the sending path is identified.",
+    ]
+
+
+def _analyze_demo_forensic_item(item: Dict[str, Any]) -> Dict[str, Any]:
+    headers = item.get("feedback_headers") or {}
+    failure = item.get("auth_failure") or "unknown"
+    priority = _priority_for_forensic(item)
+    dkim_domain = item.get("reported_domain")
+    mail_from = (
+        str(item.get("authentication_results") or "")
+        .split("smtp.mailfrom=")[-1]
+        .split(";")[0]
+    )
+    signals = [
+        f"Identity alignment: {headers.get('identity_alignment', failure)}",
+        f"DKIM selector: {headers.get('dkim_selector', 'unknown')}",
+        f"SPF DNS: {headers.get('spf_dns', 'unknown')}",
+    ]
+    if headers.get("demo_note"):
+        signals.append(f"Demo scenario: {headers['demo_note']}")
+    return {
+        "id": item["id"],
+        "report_id": item["report_id"],
+        "domain": item.get("reported_domain"),
+        "source_ip": item.get("source_ip"),
+        "auth_failure": failure,
+        "delivery_result": item.get("delivery_result"),
+        "priority": priority,
+        "diagnosis": (
+            f"{failure.upper()} failure sample from {item.get('source_ip')} "
+            f"for {item.get('reported_domain')}."
+        ),
+        "recommendations": _recommendations_for_forensic(item),
+        "signals": signals,
+        "authentication_results": {
+            "dkim": "fail" if failure in {"dkim", "dmarc"} else "pass",
+            "spf": "fail" if failure in {"spf", "dmarc"} else "pass",
+            "dmarc": "fail",
+        },
+        "dkim_domain": dkim_domain,
+        "mail_from_domain": mail_from,
+        "privacy_note": "DMARQ stores redacted headers and metadata only for forensic samples.",
+    }
+
+
+def _filter_demo_forensics(
+    rows: Iterable[Dict[str, Any]],
+    *,
+    domain: Optional[str] = None,
+    source_ip: Optional[str] = None,
+    auth_failure: Optional[str] = None,
+    delivery_result: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    normalized_domain = domain.lower().strip(".") if domain else None
+    normalized_auth = auth_failure.strip().lower() if auth_failure else None
+    normalized_result = delivery_result.strip().lower() if delivery_result else None
+    normalized_ip = source_ip.strip() if source_ip else None
+    return [
+        row
+        for row in rows
+        if (normalized_domain is None or row["reported_domain"] == normalized_domain)
+        and (normalized_ip is None or row["source_ip"] == normalized_ip)
+        and (normalized_auth is None or row["auth_failure"] == normalized_auth)
+        and (normalized_result is None or row["delivery_result"] == normalized_result)
+    ]
+
+
+def list_demo_forensic_reports(
+    *,
+    domain: Optional[str] = None,
+    source_ip: Optional[str] = None,
+    auth_failure: Optional[str] = None,
+    delivery_result: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 50,
+    today: Optional[date] = None,
+) -> Dict[str, Any]:
+    rows = _filter_demo_forensics(
+        build_demo_forensic_reports(today=today),
+        domain=domain,
+        source_ip=source_ip,
+        auth_failure=auth_failure,
+        delivery_result=delivery_result,
+    )
+    total = len(rows)
+    start = (page - 1) * page_size
+    end = start + page_size
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": (total + page_size - 1) // page_size if total else 0,
+        "reports": rows[start:end],
+    }
+
+
+def analyze_demo_forensic_reports(
+    *,
+    domain: Optional[str] = None,
+    source_ip: Optional[str] = None,
+    auth_failure: Optional[str] = None,
+    delivery_result: Optional[str] = None,
+    page_size: int = 200,
+    today: Optional[date] = None,
+) -> Dict[str, Any]:
+    rows = _filter_demo_forensics(
+        build_demo_forensic_reports(today=today),
+        domain=domain,
+        source_ip=source_ip,
+        auth_failure=auth_failure,
+        delivery_result=delivery_result,
+    )[:page_size]
+    samples = [row["analysis"] for row in rows]
+    priority_counts = Counter(sample["priority"] for sample in samples)
+    failure_counts = Counter(sample["auth_failure"] for sample in samples)
+    result_counts = Counter(sample.get("delivery_result") or "unknown" for sample in samples)
+
+    grouped: Dict[tuple[str, str, str, str], Dict[str, Any]] = {}
+    for row in rows:
+        key = (
+            row.get("reported_domain") or "",
+            row.get("source_ip") or "",
+            row.get("auth_failure") or "unknown",
+            row.get("delivery_result") or "unknown",
+        )
+        group = grouped.setdefault(
+            key,
+            {
+                "key": "|".join(key),
+                "domain": key[0],
+                "source_ip": key[1],
+                "auth_failure": key[2],
+                "delivery_result": key[3],
+                "count": 0,
+                "priority": row["analysis"]["priority"],
+                "latest_arrival": row.get("arrival_date"),
+                "diagnosis": row["analysis"]["diagnosis"],
+                "recommendations": row["analysis"]["recommendations"],
+            },
+        )
+        group["count"] += 1
+        if row.get("arrival_date") and row["arrival_date"] > (group.get("latest_arrival") or ""):
+            group["latest_arrival"] = row["arrival_date"]
+    groups = sorted(
+        grouped.values(),
+        key=lambda item: (item["count"], item["latest_arrival"]),
+        reverse=True,
+    )
+    return {
+        "total": len(rows),
+        "priority_counts": dict(priority_counts),
+        "failure_counts": dict(failure_counts),
+        "result_counts": dict(result_counts),
+        "groups": groups,
+        "samples": samples[:50],
+    }
+
+
+def get_demo_forensic_report(
+    report_id: int, today: Optional[date] = None
+) -> Optional[Dict[str, Any]]:
+    for row in build_demo_forensic_reports(today=today):
+        if row["id"] == report_id:
+            return row
+    return None
 
 
 def seed_demo_report_store(store: Optional[ReportStore] = None) -> int:

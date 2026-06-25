@@ -90,6 +90,12 @@ mix of clean records, middle-of-the-road records, and intentional lint findings
 so the domain detail, posture, DNS guidance, CSV export, and report views have
 useful content without requiring real inbound reports or public DNS changes.
 
+The generated data also fills the dashboard summary API, top sending source
+rankings, change summaries, redacted forensic/failure samples, and SMTP TLS
+Reporting summaries. Public demo deployments should also keep the demo
+read-only guard enabled by leaving `DEMO_MODE=true`; mutating requests are
+blocked so visitors cannot upload, delete, or reconfigure demo content.
+
 ### Notification Configuration
 
 DMARQ stores notification targets in the web settings table. Configure them under

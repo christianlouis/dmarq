@@ -5,10 +5,16 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, 
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.domain import Domain
 from app.models.report import ForensicReport
+from app.services.demo_data import (
+    analyze_demo_forensic_reports,
+    get_demo_forensic_report,
+    list_demo_forensic_reports,
+)
 from app.services.forensic_analysis import analyze_forensic_report, summarize_forensic_samples
 from app.services.forensic_parser import ForensicParser, MAX_FORENSIC_REPORT_SIZE
 from app.services.forensic_persistence import (
@@ -208,6 +214,18 @@ async def list_forensic_reports(
     _auth: dict = Depends(require_admin_auth),
 ):
     """List stored forensic reports, newest first."""
+    if get_settings().DEMO_MODE:
+        return ForensicListResponse(
+            **list_demo_forensic_reports(
+                domain=domain,
+                source_ip=source_ip,
+                auth_failure=auth_failure,
+                delivery_result=delivery_result,
+                page=page,
+                page_size=page_size,
+            )
+        )
+
     query = _filtered_forensic_query(
         db,
         domain=domain,
@@ -244,6 +262,17 @@ async def analyze_forensic_reports(
     _auth: dict = Depends(require_admin_auth),
 ):
     """Summarize stored forensic samples into operator investigation groups."""
+    if get_settings().DEMO_MODE:
+        return ForensicAnalysisResponse(
+            **analyze_demo_forensic_reports(
+                domain=domain,
+                source_ip=source_ip,
+                auth_failure=auth_failure,
+                delivery_result=delivery_result,
+                page_size=page_size,
+            )
+        )
+
     query = _filtered_forensic_query(
         db,
         domain=domain,
@@ -266,6 +295,14 @@ async def get_forensic_report(
     _auth: dict = Depends(require_admin_auth),
 ):
     """Return one stored forensic report by numeric ID."""
+    if get_settings().DEMO_MODE:
+        row = get_demo_forensic_report(report_id)
+        if row is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Forensic report not found"
+            )
+        return ForensicReportResponse(**row)
+
     row = (
         db.query(ForensicReport)
         .options(selectinload(ForensicReport.domain))

@@ -5,10 +5,12 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, 
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.domain import Domain
 from app.models.report import TLSReport
+from app.services.demo_data import list_demo_tls_reports, summarize_demo_tls_reports
 from app.services.tls_report_parser import MAX_TLS_REPORT_SIZE, TLSReportParser
 from app.services.tls_report_persistence import (
     TLS_REPORT_PRIVACY_CONTROLS,
@@ -158,6 +160,11 @@ async def list_tls_reports(
     _auth: dict = Depends(require_admin_auth),
 ):
     """List stored SMTP TLS reports, newest first."""
+    if get_settings().DEMO_MODE:
+        return TLSReportListResponse(
+            **list_demo_tls_reports(domain=domain, page=page, page_size=page_size)
+        )
+
     query = _filtered_tls_query(db, domain=domain)
     total = query.count()
     rows = (
@@ -186,4 +193,9 @@ async def tls_report_summary(
     _auth: dict = Depends(require_admin_auth),
 ):
     """Summarize TLS reports into trends and top failure causes."""
+    if get_settings().DEMO_MODE:
+        return TLSSummaryResponse(
+            **summarize_demo_tls_reports(domain=domain, days=days, limit=limit)
+        )
+
     return TLSSummaryResponse(**summarize_tls_reports(db, domain=domain, days=days, limit=limit))

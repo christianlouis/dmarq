@@ -3,7 +3,9 @@ from typing import Any, Dict
 from fastapi import APIRouter, Depends, Path, Query
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.database import get_db
+from app.services.demo_data import build_demo_dashboard_statistics
 from app.utils.stats_summarizer import StatsSummarizer
 
 router = APIRouter()
@@ -26,6 +28,12 @@ async def get_dashboard_statistics(
     Returns:
         Dictionary with dashboard statistics
     """
+    if get_settings().DEMO_MODE:
+        stats = build_demo_dashboard_statistics(period_days=period_days)
+        stats["api_version"] = "1.0"
+        stats["period_days"] = period_days
+        return stats
+
     # Initialize statistics summarizer
     stats_summarizer = StatsSummarizer()
 
@@ -61,6 +69,12 @@ async def get_domain_statistics(
     Returns:
         Dictionary with domain statistics
     """
+    if get_settings().DEMO_MODE:
+        stats = build_demo_dashboard_statistics(period_days=period_days, domain=domain_id)
+        stats["api_version"] = "1.0"
+        stats["period_days"] = period_days
+        return stats
+
     # Initialize statistics summarizer
     stats_summarizer = StatsSummarizer()
 

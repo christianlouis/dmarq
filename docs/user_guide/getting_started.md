@@ -52,7 +52,9 @@ Some public demo deployments run with demo mode enabled. In that mode, DMARQ
 shows generated history for `dmarq.org` and `dmarq.com` instead of customer
 data. The reports roll forward with the current date and intentionally include
 clean senders, partial alignment, and a few DNS/reporting issues so the main
-dashboard, domain details, DNS guidance, and exports have realistic examples.
+dashboard, domain details, DNS guidance, aggregate reports, forensic reports,
+SMTP TLS reports, and exports have realistic examples. Public demo instances are
+read-only.
 
 ## Dashboard Overview
 
@@ -62,10 +64,12 @@ The DMARQ dashboard provides an at-a-glance view of your email authentication st
 
 ### Key Elements
 
-- **Domain Summary**: Shows all monitored domains with compliance rates
-- **Email Volume**: Displays the total number of emails processed
-- **Compliance Rate**: Shows the overall DMARC pass rate
-- **Recent Reports**: Lists the most recent DMARC reports received
+- **DMARC Compliance Rate**: Shows the overall pass rate and recent trend
+- **Enforcement Rate**: Summarizes how many monitored domains enforce `quarantine` or `reject`
+- **DNS Record Health**: Summarizes SPF, DKIM, DMARC, and policy readiness
+- **Volume & Trends**: Compares compliant and non-compliant mail volume
+- **Top Sending Sources**: Highlights the largest senders and their authentication mix
+- **Forensic Reports**: Shows recent redacted failure sample activity
 
 ## Managing Domains
 

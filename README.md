@@ -2,10 +2,10 @@
 
 **DMARQ** is a modern, privacy-conscious DMARC monitoring and analysis platform built for professionals who want deep visibility into their email authentication posture — without giving up control or relying on third-party SaaS providers.
 
-🌐 [Live Demo (soon)](https://app.dmarq.org)  
-🔒 Self-hosted. Secure. Beautifully visual.  
-🛠️ Docker-deployable. DNS posture checks with optional Cloudflare inspection.
-📬 Aggregate report support (failure/forensic reports planned).
+- 🌐 [Live Demo](https://demo.dmarq.org)
+- 🔒 Self-hosted. Secure. Beautifully visual.
+- 🛠️ Docker-deployable. DNS posture checks with optional Cloudflare inspection.
+- 📬 Aggregate, forensic/failure, and SMTP TLS report support.
 
 ---
 
@@ -17,9 +17,12 @@ No more guessing. See which services are passing DMARC, which are failing, and h
 
 ---
 
-## 🚀 Current Status (Milestones 1–8 Complete)
+## 🚀 Current Status
 
-DMARQ currently supports end-to-end aggregate DMARC monitoring with mailbox ingestion, persistence, reporting, DNS checks, and notifications.
+DMARQ currently focuses on parsing reports and helping operators configure and
+lint DMARC-related DNS settings. It supports aggregate DMARC monitoring,
+failure/forensic samples, SMTP TLS reports, mailbox ingestion, persistence,
+reporting, DNS checks, and notifications.
 
 Included:
 
@@ -31,11 +34,9 @@ Included:
 - ✅ Alerts & notifications via Apprise (test send, alert rules, daily/weekly summaries)
 - ✅ DNS checks (DMARC/SPF/DKIM) with DKIM selector discovery from report data
 - ✅ Cloudflare read-only domain discovery, DNS inspection, recommendations, and change tracking
-
-Up next:
-
-- 🔜 Setup and operations polish (Milestone 9)
-- 🧊 Failure/forensic report support (RUF) (Milestone 10)
+- ✅ Forensic/failure report ingestion with redacted metadata and grouped analysis
+- ✅ SMTP TLS report ingestion, trends, and top failure summaries
+- ✅ Public demo mode with rolling synthetic `dmarq.org` and `dmarq.com` data
 
 ---
 
@@ -45,6 +46,8 @@ Up next:
 - **DMARC Compliance Rate**: Track pass/fail rates over time
 - **Volume & Trends**: Identify traffic spikes and anomalies
 - **Top Sending Sources**: Detect unknown or unauthorized senders
+- **Forensic Reports**: Review redacted failure samples and grouped diagnoses
+- **SMTP TLS Reports**: Track TLS-RPT sessions, failures, and affected domains
 - **Actionable Recommendations**: Prioritize what to fix next
 - **Export**: CSV export for selected domains and date ranges
 
@@ -60,7 +63,13 @@ Up next:
 - Suggestions for missing or malformed entries
 - Track configuration changes over time
 
-### ⚙️ Web-Based Setup Wizard (Planned / In Progress)
+### 🧪 Public Demo Mode
+- `DEMO_MODE=true` seeds deterministic, rolling demo data for `dmarq.org` and `dmarq.com`
+- Demo data fills the dashboard, domain details, DNS posture, aggregate reports,
+  forensic reports, TLS reports, exports, and linting views
+- The public demo is read-only so visitors can explore without modifying data
+
+### ⚙️ Web-Based Setup Wizard
 - Guided onboarding experience (no CLI setup required)
 - Store all configuration in a secure internal database
 - Seed config with environment variables for headless deployment
@@ -148,10 +157,10 @@ settings.
 
 ## 🧭 Development Roadmap
 
-- ✅ **Milestones 1–8**: Parsing, ingestion (upload/IMAP/Gmail), persistence, reporting, notifications, production hardening, DNS health, Cloudflare read-only inspection
-- 🔜 **Milestone 9**: Setup and operations polish
-- 🧊 **Milestone 10**: Failure/forensic report support (RUF)
-- 🧠 **Milestones 11–16**: DMARC format compatibility, Microsoft 365 ingestion, broader email posture, APIs/webhooks, workspaces/MSP, AI/MCP (see docs)
+DMARQ's product scope is deliberately narrow: parse standards-based reports,
+explain the results, and help operators configure and lint DMARC-adjacent DNS
+records. Future work should strengthen that loop rather than turn DMARQ into a
+general-purpose mail gateway or delivery platform.
 
 See the full [Roadmap](docs/development/roadmap.md) and [Milestones](docs/milestones.md).
 
