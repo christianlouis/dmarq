@@ -168,7 +168,10 @@ def _tree_walk_domains(domain: str) -> List[str]:
         return []
 
     domains: List[str] = []
-    target_labels = labels[1:]
+    if len(labels) <= 8:
+        target_labels = labels[1:]
+    else:
+        target_labels = labels[-7:]
     while len(target_labels) > 1 and len(domains) < 7:
         domains.append(".".join(target_labels))
         target_labels = target_labels[1:]

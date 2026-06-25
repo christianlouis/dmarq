@@ -166,9 +166,13 @@ async def test_check_dmarc_finds_organizational_domain_via_tree_walk():
 
 
 @pytest.mark.asyncio
-async def test_check_dmarc_tree_walk_skips_to_seven_labels_for_deep_domains():
+async def test_check_dmarc_tree_walk_starts_with_last_seven_labels_for_deep_domains():
     provider = FakeDNSProvider(
-        {"_dmarc.d.e.f.g.h.example.com": ["v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com"]}
+        {
+            "_dmarc.d.e.f.g.h.example.com": [
+                "v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com"
+            ]
+        }
     )
 
     found, record, policy_domain, discovery_method, tags = await provider.discover_dmarc_policy(
@@ -180,6 +184,36 @@ async def test_check_dmarc_tree_walk_skips_to_seven_labels_for_deep_domains():
     assert policy_domain == "d.e.f.g.h.example.com"
     assert discovery_method == "treewalk"
     assert tags["p"] == "quarantine"
+
+
+@pytest.mark.asyncio
+async def test_check_dmarc_tree_walk_uses_nearest_parent_record():
+    provider = FakeDNSProvider(
+        {
+            "_dmarc.mail.example.com": ["v=DMARC1; p=quarantine"],
+            "_dmarc.example.com": ["v=DMARC1; p=reject"],
+        }
+    )
+
+    found, record, policy_domain, discovery_method, tags = await provider.discover_dmarc_policy(
+        "news.mail.example.com"
+    )
+
+    assert found is True
+    assert record == "v=DMARC1; p=quarantine"
+    assert policy_domain == "mail.example.com"
+    assert discovery_method == "treewalk"
+    assert tags["p"] == "quarantine"
+
+
+@pytest.mark.asyncio
+async def test_check_dmarc_tree_walk_does_not_query_top_level_domain():
+    provider = FakeDNSProvider({"_dmarc.com": ["v=DMARC1; p=reject"]})
+
+    found, record = await provider.check_dmarc("example.com")
+
+    assert found is False
+    assert record is None
 
 
 @pytest.mark.asyncio
