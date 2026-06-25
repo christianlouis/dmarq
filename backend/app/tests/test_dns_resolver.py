@@ -109,6 +109,51 @@ def test_parse_dmarc_record_tags_tracks_active_dmarcbis_tags_only():
     }
 
 
+@pytest.mark.asyncio
+async def test_check_domain_lints_external_report_destination_without_authorization():
+    provider = FakeDNSProvider(
+        {
+            "_dmarc.example.com": [
+                "v=DMARC1; p=none; rua=mailto:dmarc@reports.example.net!50m"
+            ],
+            "example.com": ["v=spf1 include:_spf.example.com -all"],
+        }
+    )
+
+    result = await provider.check_domain("example.com", selectors=[])
+
+    assert result.dmarc_warnings == [
+        "External rua destination reports.example.net is missing authorization TXT at "
+        "example.com._report._dmarc.reports.example.net."
+    ]
+
+
+@pytest.mark.asyncio
+async def test_check_domain_accepts_authorized_external_report_destination():
+    provider = FakeDNSProvider(
+        {
+            "_dmarc.example.com": [
+                "v=DMARC1; p=none; rua=mailto:dmarc@reports.example.net"
+            ],
+            "example.com": ["v=spf1 include:_spf.example.com -all"],
+            "example.com._report._dmarc.reports.example.net": ["v=DMARC1"],
+        }
+    )
+
+    result = await provider.check_domain("example.com", selectors=[])
+
+    assert result.dmarc_warnings == []
+
+
+@pytest.mark.asyncio
+async def test_check_domain_lints_missing_aggregate_reporting_uri():
+    provider = FakeDNSProvider({"_dmarc.example.com": ["v=DMARC1; p=reject"]})
+
+    result = await provider.check_domain("example.com", selectors=[])
+
+    assert "Add rua=mailto:..." in result.dmarc_suggestions[0]
+
+
 # ---------------------------------------------------------------------------
 # BaseDNSProvider helpers via FakeDNSProvider
 # ---------------------------------------------------------------------------
