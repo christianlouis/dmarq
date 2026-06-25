@@ -1,5 +1,5 @@
 {% macro card() %}
-<div class="card rounded-lg bg-white text-[#07071f] shadow-sm">
+<div class="card rounded-lg bg-base-100 text-base-content shadow-sm">
     {{ caller() }}
 </div>
 {% endmacro %}
@@ -11,13 +11,13 @@
 {% endmacro %}
 
 {% macro card_title(text='') %}
-<h3 class="card-title text-lg font-semibold tracking-normal text-[#07071f]">
+<h3 class="card-title text-lg font-semibold tracking-normal text-base-content">
     {% if text %}{{ text }}{% else %}{{ caller() }}{% endif %}
 </h3>
 {% endmacro %}
 
 {% macro card_description(text='') %}
-<p class="mt-1 text-sm text-[#5f5c78]">
+<p class="mt-1 text-sm text-base-content/70">
     {% if text %}{{ text }}{% else %}{{ caller() }}{% endif %}
 </p>
 {% endmacro %}
