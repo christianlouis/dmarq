@@ -363,6 +363,19 @@ GET /domains/{domain_id}/dns/bimi
 Returns the cached BIMI TXT posture for the default selector, including the
 queried DNS name, record text, logo URL, certificate URL, warnings, and errors.
 
+#### Get DNS Lint Guidance
+
+```
+GET /domains/{domain_id}/dns/lint
+GET /domains/dns/lint
+GET /domains/dns/lint/export
+```
+
+Returns typed DNS lint findings with stable `code` values and suggested target
+records for DMARC, SPF, DKIM, MTA-STS, TLS-RPT, and BIMI readiness. The bulk
+endpoint returns the same payload shape per monitored domain, and the export
+endpoint returns the finding list as CSV for managed-domain reviews.
+
 #### Get Posture Dashboard
 
 ```

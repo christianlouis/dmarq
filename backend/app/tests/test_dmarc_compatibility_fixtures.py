@@ -191,3 +191,27 @@ def test_gmail_fixture_email_shape_matches_api_raw_encoding():
 
     assert msg["Subject"] == "DMARC aggregate report"
     assert any(part.get_filename() == fixture["filename"] + ".zip" for part in msg.walk())
+
+
+def test_aggregate_compatibility_unknown_safe_fields_do_not_break_summary():
+    xml = load_dmarc_fixture("rfc9990-treewalk-extension.xml")
+    xml = xml.replace(
+        "</policy_evaluated>",
+        "<vendor:confidence>low</vendor:confidence></policy_evaluated>",
+        1,
+    ).replace(
+        "</record>",
+        "<vendor:unknown><vendor:nested>kept</vendor:nested></vendor:unknown></record>",
+        1,
+    )
+
+    report = DMARCParser.parse_file(xml.encode("utf-8"), "unknown-safe-fields.xml")
+
+    assert report["domain"] == "example.org"
+    assert report["summary"] == {
+        "total_count": 5,
+        "passed_count": 5,
+        "failed_count": 0,
+        "pass_rate": 100.0,
+    }
+    assert report["records"][0]["extensions"]["unknown"] == {"nested": "kept"}

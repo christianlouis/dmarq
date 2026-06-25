@@ -3,6 +3,7 @@ import csv
 import io
 import ipaddress
 import logging
+from dataclasses import asdict
 from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -25,6 +26,7 @@ from app.services.cloudflare_dns import (
     sync_dns_record_changes,
 )
 from app.services.dns_cache import resolve_domain_dns_cached
+from app.services.dns_guidance import build_dns_guidance
 from app.services.dns_resolver import (
     DomainDNSResult,
     extract_dmarc_policy,
@@ -95,6 +97,57 @@ class DNSRecordResponse(BaseModel):
     checkedAt: Optional[str] = None
     dmarcWarnings: List[str] = []
     dmarcSuggestions: List[str] = []
+
+
+class DNSGuidanceRecordResponse(BaseModel):
+    """Suggested DNS record for setup or repair."""
+
+    code: str
+    record_type: str
+    name: str
+    value: str
+    purpose: str
+    priority: str = "recommended"
+
+
+class DNSLintFindingResponse(BaseModel):
+    """Machine-readable DNS lint finding."""
+
+    code: str
+    severity: str
+    title: str
+    detail: str
+    action: str
+    record_type: str
+    record_name: str
+    target_record: Optional[DNSGuidanceRecordResponse] = None
+    evidence: List[str] = Field(default_factory=list)
+
+
+class DNSGuidanceResponse(BaseModel):
+    """Typed DNS lint and setup guidance for one domain."""
+
+    domain: str
+    status: str
+    findings: List[DNSLintFindingResponse]
+    target_records: List[DNSGuidanceRecordResponse]
+
+
+class DNSBulkGuidanceItem(BaseModel):
+    """Bulk DNS lint summary for one domain."""
+
+    domain: str
+    status: str
+    finding_count: int
+    highest_severity: str
+    findings: List[DNSLintFindingResponse]
+    target_records: List[DNSGuidanceRecordResponse]
+
+
+class DNSBulkGuidanceResponse(BaseModel):
+    """Bulk DNS lint response for monitored domains."""
+
+    domains: List[DNSBulkGuidanceItem]
 
 
 class DNSHealthEvidence(BaseModel):
@@ -803,6 +856,58 @@ async def _build_domain_dns_health(  # pylint: disable=too-many-locals
     )
 
 
+async def _build_domain_dns_guidance(
+    db: Session,
+    store: ReportStore,
+    domain_id: str,
+    *,
+    refresh: bool = False,
+) -> Dict[str, Any]:
+    """Build typed DNS lint findings and target records for a monitored domain."""
+    manual_selectors = _get_domain_selectors_from_db(db, domain_id)
+    report_selectors = _get_selectors_from_reports(store, domain_id)
+    combined_selectors = list(dict.fromkeys(manual_selectors + report_selectors))
+
+    provider = get_default_provider(db)
+    dns_result, _, _ = await resolve_domain_dns_cached(
+        db,
+        provider,
+        domain_id,
+        selectors=combined_selectors,
+        refresh=refresh,
+    )
+    mta_sts_result, _, _ = await check_mta_sts_cached(
+        db,
+        provider,
+        domain_id,
+        refresh=refresh,
+    )
+    bimi_result, _, _ = await check_bimi_cached(
+        db,
+        provider,
+        domain_id,
+        refresh=refresh,
+    )
+    guidance = await build_dns_guidance(
+        domain_id,
+        provider,
+        dns_result,
+        mta_sts_result,
+        bimi_result,
+    )
+    return asdict(guidance)
+
+
+def _highest_severity(findings: List[Dict[str, Any]]) -> str:
+    order = {"error": 3, "warning": 2, "info": 1}
+    highest = "info"
+    for finding in findings:
+        severity = str(finding.get("severity") or "info")
+        if order.get(severity, 0) > order.get(highest, 0):
+            highest = severity
+    return highest
+
+
 def _coverage_href(check: DNSHealthCheck) -> str:
     if check.evidence:
         return check.evidence[0].href
@@ -1206,6 +1311,89 @@ async def read_domain(domain_name: str, db: Session = Depends(get_db)):
     )
 
 
+@router.get("/dns/lint", response_model=DNSBulkGuidanceResponse)
+async def lint_all_domain_dns(
+    refresh: bool = Query(False, title="Refresh cached DNS results"),
+    limit: int = Query(100, ge=1, le=500, title="Maximum domains to lint"),
+    db: Session = Depends(get_db),
+):
+    """Return typed DNS lint findings and target records for monitored domains."""
+    store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
+    workspace = assign_default_workspace_to_unscoped_rows(db)
+    domains = _domain_names_for_summary(db, store, workspace)[:limit]
+
+    items: List[DNSBulkGuidanceItem] = []
+    for domain_name in domains:
+        guidance = await _build_domain_dns_guidance(db, store, domain_name, refresh=refresh)
+        findings = guidance["findings"]
+        items.append(
+            DNSBulkGuidanceItem(
+                domain=domain_name,
+                status=guidance["status"],
+                finding_count=len(findings),
+                highest_severity=_highest_severity(findings),
+                findings=findings,
+                target_records=guidance["target_records"],
+            )
+        )
+    return DNSBulkGuidanceResponse(domains=items)
+
+
+@router.get("/dns/lint/export")
+async def export_all_domain_dns_lint(
+    refresh: bool = Query(False, title="Refresh cached DNS results"),
+    limit: int = Query(500, ge=1, le=1000, title="Maximum domains to export"),
+    db: Session = Depends(get_db),
+):
+    """Export typed DNS lint findings for monitored domains as CSV."""
+    store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
+    workspace = assign_default_workspace_to_unscoped_rows(db)
+    domains = _domain_names_for_summary(db, store, workspace)[:limit]
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "domain",
+            "status",
+            "severity",
+            "code",
+            "record_type",
+            "record_name",
+            "title",
+            "detail",
+            "action",
+            "target_value",
+        ]
+    )
+    for domain_name in domains:
+        guidance = await _build_domain_dns_guidance(db, store, domain_name, refresh=refresh)
+        for finding in guidance["findings"]:
+            target = finding.get("target_record") or {}
+            writer.writerow(
+                [
+                    domain_name,
+                    guidance["status"],
+                    finding.get("severity", ""),
+                    finding.get("code", ""),
+                    finding.get("record_type", ""),
+                    finding.get("record_name", ""),
+                    finding.get("title", ""),
+                    finding.get("detail", ""),
+                    finding.get("action", ""),
+                    target.get("value", ""),
+                ]
+            )
+
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="dmarq-dns-lint.csv"'},
+    )
+
+
 # New endpoints for domain details page
 
 
@@ -1290,6 +1478,26 @@ async def get_domain_dns_records(
         dmarcWarnings=result.dmarc_warnings,
         dmarcSuggestions=result.dmarc_suggestions,
     )
+
+
+@router.get("/{domain_id}/dns/lint", response_model=DNSGuidanceResponse)
+async def get_domain_dns_lint(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    refresh: bool = Query(False, title="Refresh cached DNS result"),
+    db: Session = Depends(get_db),
+):
+    """Return typed DNS lint findings and target records for one monitored domain."""
+    store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
+    workspace = assign_default_workspace_to_unscoped_rows(db)
+
+    if not _domain_exists(db, store, domain_id, workspace):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Domain not found",
+        )
+
+    return await _build_domain_dns_guidance(db, store, domain_id, refresh=refresh)
 
 
 @router.get("/{domain_id}/dns/health", response_model=DNSHealthResponse)

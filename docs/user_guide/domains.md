@@ -79,6 +79,13 @@ Operator playbooks sit beside the recommendations. They are short remediation
 checklists for common gaps such as missing SPF, missing DKIM, policy enforcement
 readiness, MTA-STS setup, or BIMI prerequisites.
 
+### DNS Guidance
+
+The domain detail page also shows typed DNS lint findings next to suggested
+target records. DMARQ checks DMARC, SPF, DKIM, MTA-STS, TLS-RPT, and BIMI
+readiness, then exposes the same guidance through the single-domain lint API,
+bulk lint API, and CSV export for managed-domain reviews.
+
 ### MTA-STS Posture
 
 The domain detail page checks `_mta-sts.<domain>` and fetches the policy from `https://mta-sts.<domain>/.well-known/mta-sts.txt`.

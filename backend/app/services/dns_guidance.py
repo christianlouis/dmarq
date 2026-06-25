@@ -1,0 +1,506 @@
+"""Typed DNS lint and configuration guidance for monitored domains."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import List, Optional
+
+from app.services.bimi import BIMIResult
+from app.services.dns_resolver import BaseDNSProvider, DomainDNSResult, extract_dmarc_policy
+from app.services.mta_sts import MTAStsResult
+
+
+@dataclass
+class DNSGuidanceRecord:
+    """Suggested DNS record shape for an operator to publish or review."""
+
+    code: str
+    record_type: str
+    name: str
+    value: str
+    purpose: str
+    priority: str = "recommended"
+
+
+@dataclass
+class DNSLintFinding:
+    """Stable machine-readable lint finding."""
+
+    code: str
+    severity: str
+    title: str
+    detail: str
+    action: str
+    record_type: str
+    record_name: str
+    target_record: Optional[DNSGuidanceRecord] = None
+    evidence: List[str] = field(default_factory=list)
+
+
+@dataclass
+class DNSGuidanceResult:
+    """Complete DNS lint and setup guidance payload for one domain."""
+
+    domain: str
+    status: str
+    findings: List[DNSLintFinding]
+    target_records: List[DNSGuidanceRecord]
+
+
+def _today_id() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%d")
+
+
+def _target_records(domain: str, result: DomainDNSResult) -> List[DNSGuidanceRecord]:
+    dmarc_value = result.dmarc_record or (
+        f"v=DMARC1; p=none; rua=mailto:dmarc@{domain}; adkim=r; aspf=r"
+    )
+    spf_value = result.spf_record or "v=spf1 -all"
+    dkim_selector = (result.dkim_selectors or result.selectors_checked or ["selector1"])[0]
+    return [
+        DNSGuidanceRecord(
+            code="target_dmarc",
+            record_type="TXT",
+            name=f"_dmarc.{domain}",
+            value=dmarc_value,
+            purpose="DMARC policy discovery and aggregate report delivery.",
+        ),
+        DNSGuidanceRecord(
+            code="target_spf",
+            record_type="TXT",
+            name=domain,
+            value=spf_value,
+            purpose=(
+                "SPF sender authorization. Use -all for domains with no authorized "
+                "senders, or replace with include/ip mechanisms for real senders."
+            ),
+        ),
+        DNSGuidanceRecord(
+            code="target_dkim",
+            record_type="TXT",
+            name=f"{dkim_selector}._domainkey.{domain}",
+            value="v=DKIM1; k=rsa; p=<provider-public-key>",
+            purpose="DKIM selector public key published by the sending provider.",
+        ),
+        DNSGuidanceRecord(
+            code="target_mta_sts",
+            record_type="TXT",
+            name=f"_mta-sts.{domain}",
+            value=f"v=STSv1; id={_today_id()}",
+            purpose=(
+                "MTA-STS policy discovery. Host the matching HTTPS policy at "
+                f"https://mta-sts.{domain}/.well-known/mta-sts.txt."
+            ),
+        ),
+        DNSGuidanceRecord(
+            code="target_tls_rpt",
+            record_type="TXT",
+            name=f"_smtp._tls.{domain}",
+            value=f"v=TLSRPTv1; rua=mailto:tlsrpt@{domain}",
+            purpose="SMTP TLS Reporting aggregate delivery.",
+        ),
+        DNSGuidanceRecord(
+            code="target_bimi",
+            record_type="TXT",
+            name=f"default._bimi.{domain}",
+            value=f"v=BIMI1; l=https://{domain}/.well-known/bimi.svg; a=",
+            purpose="BIMI logo discovery after DMARC enforcement is ready.",
+            priority="optional",
+        ),
+    ]
+
+
+def _target_by_code(records: List[DNSGuidanceRecord], code: str) -> DNSGuidanceRecord:
+    return next(record for record in records if record.code == code)
+
+
+def _finding(
+    code: str,
+    severity: str,
+    title: str,
+    detail: str,
+    action: str,
+    record_type: str,
+    record_name: str,
+    *,
+    target_record: Optional[DNSGuidanceRecord] = None,
+    evidence: Optional[List[str]] = None,
+) -> DNSLintFinding:
+    return DNSLintFinding(
+        code=code,
+        severity=severity,
+        title=title,
+        detail=detail,
+        action=action,
+        record_type=record_type,
+        record_name=record_name,
+        target_record=target_record,
+        evidence=list(evidence or []),
+    )
+
+
+def _classify_dmarc_warning(message: str) -> str:
+    lowered = message.lower()
+    if "external rua destination" in lowered:
+        return "dmarc_external_rua_unauthorized"
+    if "external ruf destination" in lowered:
+        return "dmarc_external_ruf_unauthorized"
+    if "unsupported policy value" in lowered:
+        return "dmarc_policy_value_invalid"
+    if "adkim" in lowered or "aspf" in lowered:
+        return "dmarc_alignment_value_invalid"
+    if "fo tag" in lowered:
+        return "dmarc_failure_option_invalid"
+    if "neither a valid p tag nor a rua" in lowered:
+        return "dmarc_policy_or_reporting_missing"
+    return "dmarc_lint_warning"
+
+
+def _dmarc_findings(
+    domain: str, result: DomainDNSResult, targets: List[DNSGuidanceRecord]
+) -> List[DNSLintFinding]:
+    findings: List[DNSLintFinding] = []
+    target = _target_by_code(targets, "target_dmarc")
+    if not result.dmarc:
+        findings.append(
+            _finding(
+                "dmarc_missing",
+                "error",
+                "DMARC record is missing",
+                "No valid DMARC policy record was discovered for this domain.",
+                "Publish a DMARC TXT record in monitoring mode before tightening policy.",
+                "TXT",
+                target.name,
+                target_record=target,
+            )
+        )
+    for warning in result.dmarc_warnings:
+        findings.append(
+            _finding(
+                _classify_dmarc_warning(warning),
+                "warning",
+                "DMARC record needs review",
+                warning,
+                "Repair the DMARC tag or supporting authorization record, then refresh lint.",
+                "TXT",
+                target.name,
+                target_record=target,
+                evidence=[result.dmarc_record or ""],
+            )
+        )
+    for suggestion in result.dmarc_suggestions:
+        findings.append(
+            _finding(
+                "dmarc_suggestion",
+                "info",
+                "DMARC setup can be improved",
+                suggestion,
+                "Review the suggested DMARC target record.",
+                "TXT",
+                target.name,
+                target_record=target,
+                evidence=[result.dmarc_record or ""],
+            )
+        )
+    if extract_dmarc_policy(result.dmarc_record) == "none":
+        findings.append(
+            _finding(
+                "dmarc_monitoring_policy",
+                "info",
+                "DMARC is in monitoring mode",
+                "The current policy is p=none.",
+                "Use report evidence before planning quarantine or reject.",
+                "TXT",
+                target.name,
+                target_record=target,
+                evidence=[result.dmarc_record or ""],
+            )
+        )
+    return findings
+
+
+def _spf_terms(record: Optional[str]) -> List[str]:
+    if not record:
+        return []
+    return [part.strip() for part in record.split() if part.strip()]
+
+
+async def _spf_findings(
+    domain: str,
+    provider: BaseDNSProvider,
+    result: DomainDNSResult,
+    targets: List[DNSGuidanceRecord],
+) -> List[DNSLintFinding]:
+    findings: List[DNSLintFinding] = []
+    target = _target_by_code(targets, "target_spf")
+    if not result.spf:
+        return [
+            _finding(
+                "spf_missing",
+                "warning",
+                "SPF record is missing",
+                "No SPF TXT record was found at the domain root.",
+                "Publish one SPF TXT record that matches the domain's authorized senders.",
+                "TXT",
+                target.name,
+                target_record=target,
+            )
+        ]
+
+    try:
+        root_records = await provider.lookup_txt(domain)
+    except LookupError:
+        root_records = []
+    spf_records = [record for record in root_records if record.lower().startswith("v=spf1")]
+    if len(spf_records) > 1:
+        findings.append(
+            _finding(
+                "spf_multiple_records",
+                "error",
+                "Multiple SPF records found",
+                "SPF requires exactly one SPF TXT record at the domain root.",
+                "Merge the mechanisms into a single v=spf1 record.",
+                "TXT",
+                target.name,
+                target_record=target,
+                evidence=spf_records,
+            )
+        )
+
+    terms = _spf_terms(result.spf_record)
+    all_terms = [term for term in terms if term.endswith("all")]
+    if not all_terms:
+        findings.append(
+            _finding(
+                "spf_all_missing",
+                "warning",
+                "SPF all mechanism is missing",
+                "The SPF record does not end with an explicit all policy.",
+                "Choose -all after authorizing all senders, or ~all while still validating.",
+                "TXT",
+                target.name,
+                target_record=target,
+                evidence=[result.spf_record or ""],
+            )
+        )
+    elif all_terms[-1].startswith("+") or all_terms[-1] == "all":
+        findings.append(
+            _finding(
+                "spf_all_too_permissive",
+                "error",
+                "SPF all mechanism is too permissive",
+                f"The SPF record uses {all_terms[-1]}, which authorizes every sender.",
+                "Replace +all with ~all during rollout or -all once sender coverage is complete.",
+                "TXT",
+                target.name,
+                target_record=target,
+                evidence=[result.spf_record or ""],
+            )
+        )
+    elif all_terms[-1].startswith("?"):
+        findings.append(
+            _finding(
+                "spf_all_neutral",
+                "warning",
+                "SPF all mechanism is neutral",
+                "The SPF record ends with ?all, which provides weak sender guidance.",
+                "Use ~all while validating or -all after all senders are authorized.",
+                "TXT",
+                target.name,
+                target_record=target,
+                evidence=[result.spf_record or ""],
+            )
+        )
+
+    dns_lookup_terms = [
+        term
+        for term in terms
+        if term.startswith(("include:", "a", "mx", "ptr", "exists:", "redirect="))
+    ]
+    if len(dns_lookup_terms) > 10:
+        findings.append(
+            _finding(
+                "spf_dns_lookup_limit_risk",
+                "warning",
+                "SPF DNS lookup budget may be exceeded",
+                "The SPF record has more than 10 DNS-lookup mechanisms.",
+                "Flatten or remove unused mechanisms before publishing the final SPF record.",
+                "TXT",
+                target.name,
+                target_record=target,
+                evidence=[result.spf_record or ""],
+            )
+        )
+    return findings
+
+
+def _dkim_findings(
+    result: DomainDNSResult, targets: List[DNSGuidanceRecord]
+) -> List[DNSLintFinding]:
+    if result.dkim:
+        return []
+    target = _target_by_code(targets, "target_dkim")
+    checked = ", ".join(result.selectors_checked or [])
+    detail = "No DKIM selector resolved for configured, observed, or common selectors."
+    if checked:
+        detail = f"{detail} Checked selectors: {checked}."
+    return [
+        _finding(
+            "dkim_selector_missing",
+            "warning",
+            "DKIM selector is missing",
+            detail,
+            "Add the sending provider's selector in DMARQ and publish its DKIM TXT record.",
+            "TXT",
+            target.name,
+            target_record=target,
+        )
+    ]
+
+
+def _mta_sts_findings(
+    result: MTAStsResult, targets: List[DNSGuidanceRecord]
+) -> List[DNSLintFinding]:
+    if result.status == "pass" and not result.warnings:
+        return []
+    target = _target_by_code(targets, "target_mta_sts")
+    severity = "warning" if result.status == "pass" else "info"
+    detail = "; ".join(result.warnings or result.errors or ["MTA-STS is not configured."])
+    return [
+        _finding(
+            "mta_sts_review" if result.status == "pass" else "mta_sts_missing",
+            severity,
+            "MTA-STS setup needs review" if result.status == "pass" else "MTA-STS is not ready",
+            detail,
+            "Publish _mta-sts TXT and validate the HTTPS policy before enforcing.",
+            "TXT",
+            target.name,
+            target_record=target,
+            evidence=[result.dns_record or ""],
+        )
+    ]
+
+
+async def _tls_rpt_findings(
+    domain: str, provider: BaseDNSProvider, targets: List[DNSGuidanceRecord]
+) -> List[DNSLintFinding]:
+    target = _target_by_code(targets, "target_tls_rpt")
+    try:
+        records = await provider.lookup_txt(target.name)
+    except LookupError:
+        records = []
+    tls_rpt_records = [record for record in records if record.lower().startswith("v=tlsrptv1")]
+    if not tls_rpt_records:
+        return [
+            _finding(
+                "tls_rpt_missing",
+                "info",
+                "TLS-RPT record is missing",
+                "No SMTP TLS Reporting TXT record was found.",
+                "Publish a TLS-RPT record so DMARQ can ingest aggregate TLS delivery reports.",
+                "TXT",
+                target.name,
+                target_record=target,
+            )
+        ]
+    if len(tls_rpt_records) > 1:
+        return [
+            _finding(
+                "tls_rpt_multiple_records",
+                "warning",
+                "Multiple TLS-RPT records found",
+                "SMTP TLS Reporting expects one TXT record at _smtp._tls.",
+                "Merge TLS-RPT reporting URIs into one record.",
+                "TXT",
+                target.name,
+                target_record=target,
+                evidence=tls_rpt_records,
+            )
+        ]
+    if "rua=" not in tls_rpt_records[0].lower():
+        return [
+            _finding(
+                "tls_rpt_rua_missing",
+                "warning",
+                "TLS-RPT rua is missing",
+                "The TLS-RPT TXT record does not contain a reporting URI.",
+                "Add rua=mailto:... to deliver TLS reports to DMARQ.",
+                "TXT",
+                target.name,
+                target_record=target,
+                evidence=tls_rpt_records,
+            )
+        ]
+    return []
+
+
+def _bimi_findings(
+    result: BIMIResult, dmarc_policy: Optional[str], targets: List[DNSGuidanceRecord]
+) -> List[DNSLintFinding]:
+    target = _target_by_code(targets, "target_bimi")
+    findings: List[DNSLintFinding] = []
+    if dmarc_policy not in {"quarantine", "reject"}:
+        findings.append(
+            _finding(
+                "bimi_dmarc_not_enforced",
+                "info",
+                "BIMI is waiting on DMARC enforcement",
+                "BIMI readiness requires DMARC policy quarantine or reject.",
+                "Treat BIMI as optional until DMARC enforcement is stable.",
+                "TXT",
+                target.name,
+                target_record=target,
+            )
+        )
+    if result.status == "pass" and not result.warnings:
+        return findings
+    detail = "; ".join(result.warnings or result.errors or ["No BIMI record is published."])
+    findings.append(
+        _finding(
+            "bimi_review" if result.status == "pass" else "bimi_missing",
+            "info",
+            "BIMI setup needs review" if result.status == "pass" else "BIMI record is missing",
+            detail,
+            "Publish BIMI only after DMARC enforcement prerequisites are met.",
+            "TXT",
+            target.name,
+            target_record=target,
+            evidence=[result.dns_record or ""],
+        )
+    )
+    return findings
+
+
+def _status(findings: List[DNSLintFinding]) -> str:
+    severities = {finding.severity for finding in findings}
+    if "error" in severities:
+        return "critical"
+    if "warning" in severities:
+        return "attention"
+    return "ready"
+
+
+async def build_dns_guidance(
+    domain: str,
+    provider: BaseDNSProvider,
+    result: DomainDNSResult,
+    mta_sts: MTAStsResult,
+    bimi: BIMIResult,
+) -> DNSGuidanceResult:
+    """Build typed DNS lint findings and target records for a domain."""
+    normalized_domain = domain.strip().strip(".").lower()
+    targets = _target_records(normalized_domain, result)
+    findings: List[DNSLintFinding] = []
+    findings.extend(_dmarc_findings(normalized_domain, result, targets))
+    findings.extend(await _spf_findings(normalized_domain, provider, result, targets))
+    findings.extend(_dkim_findings(result, targets))
+    findings.extend(_mta_sts_findings(mta_sts, targets))
+    findings.extend(await _tls_rpt_findings(normalized_domain, provider, targets))
+    findings.extend(_bimi_findings(bimi, extract_dmarc_policy(result.dmarc_record), targets))
+    return DNSGuidanceResult(
+        domain=normalized_domain,
+        status=_status(findings),
+        findings=findings,
+        target_records=targets,
+    )
