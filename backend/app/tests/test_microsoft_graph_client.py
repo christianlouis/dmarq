@@ -7,7 +7,8 @@ from io import BytesIO
 import httpx
 
 from app.models.report import DMARCReport
-from app.services.microsoft_graph_client import MicrosoftGraphClient
+from app.services.mail_connector import initial_import_stats
+from app.services.microsoft_graph_client import M365_SCOPES, MicrosoftGraphClient
 from app.tests.test_data import SAMPLE_XML
 
 
@@ -33,6 +34,37 @@ def _make_client(db=None, already_ingested=None) -> MicrosoftGraphClient:
 
 
 class TestMicrosoftGraphOAuthHelpers:
+    def test_connector_contract_uses_read_only_scopes_and_safe_context(self):
+        client = MicrosoftGraphClient(
+            tenant_id="organizations",
+            client_id="client-id",
+            client_secret="client-secret",
+            access_token="access-token",
+            refresh_token="refresh-token",
+            mailbox="shared@example.com",
+            folder="DMARC Reports",
+            folder_id="folder-id",
+        )
+
+        context = client.import_context(days=45)
+        stats = initial_import_stats(context)
+
+        assert M365_SCOPES == [
+            "offline_access",
+            "https://graph.microsoft.com/User.Read",
+            "https://graph.microsoft.com/Mail.Read",
+        ]
+        assert callable(client.search_messages)
+        assert callable(client.iter_attachments)
+        assert callable(client.fetch_reports)
+        assert stats["source_type"] == "M365_GRAPH"
+        assert stats["target_mailbox"] == "shared@example.com"
+        assert stats["target_folder"] == "DMARC Reports"
+        assert stats["search_window_days"] == 45
+        assert stats["forensic_reports_found"] == 0
+        assert stats["duplicate_forensic_reports"] == 0
+        assert "client-secret" not in str(stats)
+
     def test_build_authorization_url_includes_required_scopes(self):
         url = MicrosoftGraphClient.build_authorization_url(
             tenant_id="organizations",
