@@ -4,14 +4,14 @@
 {% block title %}DMARQ - Forensic Report Detail{% endblock %}
 
 {% block content %}
-<div class="container mx-auto py-4" x-data="forensicReportDetailApp({{ report_id }})" x-init="init()">
-    <nav class="mb-4 text-sm">
+<div class="space-y-6" x-data="forensicReportDetailApp({{ report_id }})" x-init="init()">
+    <nav class="text-sm text-[#5f5c78]">
         <ol class="flex items-center space-x-2">
-            <li><a href="/" class="hover:text-primary">Dashboard</a></li>
-            <li><span class="text-base-content/40 px-2">/</span></li>
-            <li><a href="/forensics" class="hover:text-primary">Forensics</a></li>
-            <li><span class="text-base-content/40 px-2">/</span></li>
-            <li><span class="font-medium" x-text="reportId"></span></li>
+            <li><a href="/" class="font-semibold hover:text-[#2f9da5]">Dashboard</a></li>
+            <li><span class="px-2 text-[#b8b4bd]">/</span></li>
+            <li><a href="/forensics" class="font-semibold hover:text-[#2f9da5]">Forensics</a></li>
+            <li><span class="px-2 text-[#b8b4bd]">/</span></li>
+            <li><span class="font-semibold text-[#07071f]" x-text="reportId"></span></li>
         </ol>
     </nav>
 
@@ -27,37 +27,52 @@
 
     <template x-if="!loading && !error && report">
         <div class="space-y-6">
-            <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div>
-                    <h1 class="text-2xl font-bold">Forensic Investigation</h1>
-                    <p class="text-sm text-base-content/70 mt-1">
-                        <span x-text="report.report_id"></span>
-                        <span>&bull;</span>
-                        <span x-text="report.domain || report.reported_domain || 'unknown domain'"></span>
-                    </p>
-                </div>
-                <div class="flex gap-2">
-                    <a href="/forensics" class="btn btn-outline btn-sm">Back to Forensics</a>
-                    <a class="btn btn-outline btn-sm" :href="'/domains/' + encodeURIComponent(report.domain || report.reported_domain)">Domain</a>
+            <div class="rounded-lg bg-white p-6 shadow-sm">
+                <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                    <div>
+                        <p class="mb-2 text-sm font-semibold uppercase tracking-wide text-[#ff6f3c]">Forensic sample</p>
+                        <h1 class="text-3xl font-bold tracking-normal text-[#07071f]">Forensic Investigation</h1>
+                        <p class="mt-2 text-[#5f5c78]">
+                            <span x-text="report.report_id"></span>
+                            <span>&bull;</span>
+                            <span x-text="report.domain || report.reported_domain || 'unknown domain'"></span>
+                        </p>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        <a href="/forensics" class="btn btn-outline btn-sm border-[#dfdfdf] text-[#272a5f] hover:border-[#2f9da5] hover:bg-[#f4f3f2]">Back to Forensics</a>
+                        <a class="btn btn-outline btn-sm border-[#dfdfdf] text-[#272a5f] hover:border-[#2f9da5] hover:bg-[#f4f3f2]" :href="'/domains/' + encodeURIComponent(report.domain || report.reported_domain)">Domain</a>
+                    </div>
                 </div>
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 {% call card() %}
                     {% call card_header() %}{% call card_title() %}Failure{% endcall %}{% endcall %}
-                    {% call card_content() %}<div class="text-2xl font-semibold uppercase" x-text="report.auth_failure || 'unknown'"></div>{% endcall %}
+                    {% call card_content() %}
+                        <div class="text-2xl font-bold uppercase text-[#ff6f3c]" x-text="report.auth_failure || 'unknown'"></div>
+                        <p class="mt-1 text-sm text-[#5f5c78]">Authentication failure</p>
+                    {% endcall %}
                 {% endcall %}
                 {% call card() %}
                     {% call card_header() %}{% call card_title() %}Delivery{% endcall %}{% endcall %}
-                    {% call card_content() %}<div class="text-2xl font-semibold uppercase" x-text="report.delivery_result || 'unknown'"></div>{% endcall %}
+                    {% call card_content() %}
+                        <div class="text-2xl font-bold uppercase text-[#120d36]" x-text="report.delivery_result || 'unknown'"></div>
+                        <p class="mt-1 text-sm text-[#5f5c78]">Receiver outcome</p>
+                    {% endcall %}
                 {% endcall %}
                 {% call card() %}
                     {% call card_header() %}{% call card_title() %}Source IP{% endcall %}{% endcall %}
-                    {% call card_content() %}<div class="text-xl font-mono" x-text="report.source_ip || '-'"></div>{% endcall %}
+                    {% call card_content() %}
+                        <div class="text-xl font-bold font-mono text-[#120d36]" x-text="report.source_ip || '-'"></div>
+                        <p class="mt-1 text-sm text-[#5f5c78]">Observed sender</p>
+                    {% endcall %}
                 {% endcall %}
                 {% call card() %}
                     {% call card_header() %}{% call card_title() %}Arrival{% endcall %}{% endcall %}
-                    {% call card_content() %}<div class="text-sm font-medium" x-text="formatDate(report.arrival_date || report.processed_at)"></div>{% endcall %}
+                    {% call card_content() %}
+                        <div class="text-sm font-semibold text-[#120d36]" x-text="formatDate(report.arrival_date || report.processed_at)"></div>
+                        <p class="mt-1 text-sm text-[#5f5c78]">Sample timestamp</p>
+                    {% endcall %}
                 {% endcall %}
             </div>
 

@@ -6,33 +6,37 @@
 {% block title %}DMARQ - {{ domain.name }} Details{% endblock %}
 
 {% block content %}
-<div class="container mx-auto py-4" x-data="domainDetailsApp('{{ domain_id }}')">
-    <nav class="mb-4 text-sm">
+<div class="space-y-6" x-data="domainDetailsApp('{{ domain_id }}')">
+    <nav class="text-sm text-[#5f5c78]">
         <ol class="flex items-center space-x-2">
-            <li><a href="/" class="hover:text-primary">Dashboard</a></li>
-            <li><span class="text-muted-foreground px-2">/</span></li>
-            <li><a href="/domains" class="hover:text-primary">Domains</a></li>
-            <li><span class="text-muted-foreground px-2">/</span></li>
-            <li><span class="font-medium">{{ domain.name }}</span></li>
+            <li><a href="/" class="font-semibold hover:text-[#2f9da5]">Dashboard</a></li>
+            <li><span class="px-2 text-[#b8b4bd]">/</span></li>
+            <li><a href="/domains" class="font-semibold hover:text-[#2f9da5]">Domains</a></li>
+            <li><span class="px-2 text-[#b8b4bd]">/</span></li>
+            <li><span class="font-semibold text-[#07071f]">{{ domain.name }}</span></li>
         </ol>
     </nav>
 
     <div class="grid grid-cols-1 gap-6">
         <!-- Domain Overview -->
-        <div class="flex justify-between items-start">
-            <div>
-                <h1 class="text-2xl font-bold mb-1">{{ domain.name }}</h1>
-                <p class="text-muted-foreground">{{ domain.description or "Domain monitored by DMARQ" }}</p>
-            </div>
-            <div class="flex space-x-2">
-                {% call button(variant="outline", size="sm") %}
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path><path d="m15 5 4 4"></path></svg>
-                    Edit Domain
-                {% endcall %}
-                {% call button(variant="outline", size="sm") %}
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M12 2v7.5"></path><path d="m4.24 10.37 6.58-3.79"></path><path d="m3.24 16.98 7.5-1.01"></path><path d="m13.24 15.97 7.5 1.01"></path><path d="m13.24 3.79 6.58 3.79"></path><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Z"></path><path d="M12 12a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z"></path></svg>
-                    Check DNS
-                {% endcall %}
+        <div class="rounded-lg bg-white p-6 shadow-sm">
+            <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div>
+                    <p class="mb-2 text-sm font-semibold uppercase tracking-wide text-[#2f9da5]">Domain detail</p>
+                    <h1 class="text-3xl font-bold tracking-normal text-[#07071f]">{{ domain.name }}</h1>
+                    <p class="mt-2 max-w-3xl text-[#5f5c78]">{{ domain.description or "Domain monitored by DMARQ" }}</p>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    <a href="/domains" class="btn btn-outline btn-sm border-[#dfdfdf] text-[#272a5f] hover:border-[#2f9da5] hover:bg-[#f4f3f2]">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M8 6h13"></path><path d="M8 12h13"></path><path d="M8 18h13"></path><path d="M3 6h.01"></path><path d="M3 12h.01"></path><path d="M3 18h.01"></path></svg>
+                        All domains
+                    </a>
+                    <a href="#dns-records" class="btn btn-outline btn-sm border-[#dfdfdf] text-[#272a5f] hover:border-[#2f9da5] hover:bg-[#f4f3f2]">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M12 2v7.5"></path><path d="m4.24 10.37 6.58-3.79"></path><path d="m3.24 16.98 7.5-1.01"></path><path d="m13.24 15.97 7.5 1.01"></path><path d="m13.24 3.79 6.58 3.79"></path><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Z"></path><path d="M12 12a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z"></path></svg>
+                        Check DNS
+                    </a>
+                    <a href="#sending-sources" class="btn btn-sm border-0 bg-[#2f9da5] text-white hover:bg-[#272a5f]">Review sources</a>
+                </div>
             </div>
         </div>
 
@@ -49,9 +53,9 @@
                     </div>
                 {% endcall %}
                 {% call card_content() %}
-                    <div class="stat-card">
-                        <div id="compliance-rate" class="stat-value" x-text="stats.complianceRate + '%'">-</div>
-                        <p class="stat-description">Emails passing DMARC</p>
+                    <div>
+                        <div id="compliance-rate" class="text-3xl font-bold text-[#120d36]" x-text="stats.complianceRate + '%'">-</div>
+                        <p class="mt-1 text-sm text-[#5f5c78]">Emails passing DMARC</p>
                     </div>
                 {% endcall %}
             {% endcall %}
@@ -67,9 +71,9 @@
                     </div>
                 {% endcall %}
                 {% call card_content() %}
-                    <div class="stat-card">
-                        <div id="total-emails" class="stat-value" x-text="stats.totalEmails">-</div>
-                        <p class="stat-description">Total emails processed</p>
+                    <div>
+                        <div id="total-emails" class="text-3xl font-bold text-[#120d36]" x-text="stats.totalEmails">-</div>
+                        <p class="mt-1 text-sm text-[#5f5c78]">Total emails processed</p>
                     </div>
                 {% endcall %}
             {% endcall %}
@@ -85,9 +89,9 @@
                     </div>
                 {% endcall %}
                 {% call card_content() %}
-                    <div class="stat-card">
-                        <div id="failed-emails" class="stat-value" x-text="stats.failedEmails">-</div>
-                        <p class="stat-description">Emails failing DMARC</p>
+                    <div>
+                        <div id="failed-emails" class="text-3xl font-bold text-[#ff6f3c]" x-text="stats.failedEmails">-</div>
+                        <p class="mt-1 text-sm text-[#5f5c78]">Emails failing DMARC</p>
                     </div>
                 {% endcall %}
             {% endcall %}
@@ -103,9 +107,9 @@
                     </div>
                 {% endcall %}
                 {% call card_content() %}
-                    <div class="stat-card">
-                        <div id="report-count" class="stat-value" x-text="stats.reportCount">-</div>
-                        <p class="stat-description">DMARC reports received</p>
+                    <div>
+                        <div id="report-count" class="text-3xl font-bold text-[#120d36]" x-text="stats.reportCount">-</div>
+                        <p class="mt-1 text-sm text-[#5f5c78]">DMARC reports received</p>
                     </div>
                 {% endcall %}
             {% endcall %}
@@ -151,22 +155,22 @@
             {% endcall %}
             {% call card_content() %}
                 <div class="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
-                    <div class="rounded border border-base-300 p-4">
-                        <div class="text-sm text-base-content/60">Posture score</div>
-                        <div class="mt-2 text-4xl font-bold" x-text="posture.score"></div>
-                        <p class="mt-2 text-sm text-base-content/70" x-text="posture.summary"></p>
+                    <div class="rounded-lg bg-[#f4f3f2] p-4">
+                        <div class="text-sm text-[#5f5c78]">Posture score</div>
+                        <div class="mt-2 text-4xl font-bold text-[#120d36]" x-text="posture.score"></div>
+                        <p class="mt-2 text-sm text-[#5f5c78]" x-text="posture.summary"></p>
                     </div>
                     <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
                         <template x-for="item in posture.coverage" :key="item.key">
-                            <a :href="item.href" class="rounded border border-base-300 p-3 hover:border-primary">
+                            <a :href="item.href" class="rounded-lg border border-[#e6e3e1] p-3 transition hover:border-[#2f9da5] hover:shadow-sm">
                                 <div class="flex items-center justify-between gap-2">
-                                    <h3 class="font-semibold" x-text="item.label"></h3>
+                                    <h3 class="font-semibold text-[#07071f]" x-text="item.label"></h3>
                                     <span class="rounded px-2 py-1 text-xs font-semibold capitalize"
                                           :class="item.status === 'pass' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'"
                                           x-text="item.status"></span>
                                 </div>
-                                <p class="mt-2 text-xs text-base-content/70" x-text="item.message"></p>
-                                <p class="mt-2 text-xs text-base-content/50">
+                                <p class="mt-2 text-xs text-[#5f5c78]" x-text="item.message"></p>
+                                <p class="mt-2 text-xs text-[#5f5c78]">
                                     <span x-text="item.evidence_count"></span>
                                     <span> evidence links</span>
                                 </p>
@@ -179,14 +183,14 @@
                     <div class="space-y-3">
                         <h3 class="font-semibold">Recommendations</h3>
                         <template x-for="recommendation in posture.recommendations" :key="recommendation.type">
-                            <div class="rounded border border-base-300 p-4">
+                            <div class="rounded-lg border border-[#e6e3e1] p-4">
                                 <div class="flex items-start gap-3">
                                     <span class="mt-1 h-2.5 w-2.5 rounded-full"
                                           :class="recommendationSeverityClass(recommendation.severity)"></span>
                                     <div class="min-w-0 flex-1">
                                         <h4 class="font-semibold" x-text="recommendation.title"></h4>
-                                        <p class="mt-1 text-sm text-base-content/70" x-text="recommendation.detail"></p>
-                                        <p class="mt-2 text-sm font-medium" x-text="recommendation.action"></p>
+                                        <p class="mt-1 text-sm text-[#5f5c78]" x-text="recommendation.detail"></p>
+                                        <p class="mt-2 text-sm font-semibold text-[#272a5f]" x-text="recommendation.action"></p>
                                         <div class="mt-3 flex flex-wrap gap-2">
                                             <template x-for="item in recommendation.evidence" :key="item.label + item.value">
                                                 <a :href="item.href" class="badge badge-outline gap-1">
@@ -204,14 +208,14 @@
                     <div class="space-y-3" id="posture-changes">
                         <h3 class="font-semibold">What Changed</h3>
                         <template x-for="change in posture.changes" :key="change.title + change.observed_at">
-                            <div class="rounded border border-base-300 p-4">
+                            <div class="rounded-lg border border-[#e6e3e1] p-4">
                                 <div class="flex items-start gap-3">
                                     <span class="mt-1 h-2.5 w-2.5 rounded-full"
                                           :class="recommendationSeverityClass(change.severity)"></span>
                                     <div class="min-w-0">
                                         <h4 class="font-semibold" x-text="change.title"></h4>
-                                        <p class="mt-1 text-sm text-base-content/70" x-text="change.detail"></p>
-                                        <p class="mt-1 text-xs text-base-content/50" x-show="change.observed_at" x-text="formatIsoDate(change.observed_at)"></p>
+                                        <p class="mt-1 text-sm text-[#5f5c78]" x-text="change.detail"></p>
+                                        <p class="mt-1 text-xs text-[#5f5c78]" x-show="change.observed_at" x-text="formatIsoDate(change.observed_at)"></p>
                                         <div class="mt-3 space-y-1">
                                             <template x-for="item in change.evidence" :key="item.label + item.value">
                                                 <div class="text-xs">
@@ -229,11 +233,11 @@
 
                 <div class="mt-5 grid gap-3 lg:grid-cols-3">
                     <template x-for="playbook in posture.playbooks" :key="playbook.key">
-                        <div class="rounded border border-base-300 p-4">
+                        <div class="rounded-lg border border-[#e6e3e1] p-4">
                             <div class="flex items-start justify-between gap-3">
                                 <div>
                                     <h3 class="font-semibold" x-text="playbook.title"></h3>
-                                    <p class="mt-1 text-sm text-base-content/70" x-text="playbook.summary"></p>
+                                    <p class="mt-1 text-sm text-[#5f5c78]" x-text="playbook.summary"></p>
                                 </div>
                             </div>
                             <ol class="mt-3 list-decimal space-y-1 pl-4 text-sm">
