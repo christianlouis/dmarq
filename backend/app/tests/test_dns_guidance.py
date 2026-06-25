@@ -78,3 +78,96 @@ async def test_build_dns_guidance_lints_spf_and_tls_rpt_records():
     assert "spf_multiple_records" in codes
     assert "spf_all_too_permissive" in codes
     assert "tls_rpt_rua_missing" in codes
+
+
+@pytest.mark.asyncio
+async def test_build_dns_guidance_classifies_dmarc_warning_codes():
+    provider = FakeDNSProvider(
+        {
+            "example.com": ["v=spf1 ?all"],
+            "_smtp._tls.example.com": ["v=TLSRPTv1; rua=mailto:tls@example.com"],
+        }
+    )
+    dns = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=none",
+        spf=True,
+        spf_record="v=spf1 ?all",
+        dkim=True,
+        dkim_selectors=["selector1"],
+        dmarc_warnings=[
+            "External rua destination reports.example.net is missing authorization TXT.",
+            "DMARC adkim tag should be r or s.",
+            "DMARC fo tag contains unsupported failure options.",
+        ],
+        dmarc_suggestions=["Add rua=mailto:... so aggregate reports can reach DMARQ."],
+    )
+
+    guidance = await build_dns_guidance(
+        "example.com",
+        provider,
+        dns,
+        MTAStsResult(status="pass"),
+        BIMIResult(status="pass"),
+    )
+
+    codes = {finding.code for finding in guidance.findings}
+    assert "dmarc_external_rua_unauthorized" in codes
+    assert "dmarc_alignment_value_invalid" in codes
+    assert "dmarc_failure_option_invalid" in codes
+    assert "dmarc_suggestion" in codes
+    assert "dmarc_monitoring_policy" in codes
+    assert "spf_all_neutral" in codes
+    assert "bimi_dmarc_not_enforced" in codes
+
+
+@pytest.mark.asyncio
+async def test_build_dns_guidance_lints_more_spf_tls_mta_and_bimi_states():
+    provider = FakeDNSProvider(
+        {
+            "example.com": [
+                (
+                    "v=spf1 include:a.example include:b.example include:c.example "
+                    "include:d.example include:e.example include:f.example "
+                    "include:g.example include:h.example include:i.example "
+                    "include:j.example include:k.example"
+                )
+            ],
+            "_smtp._tls.example.com": [
+                "v=TLSRPTv1; rua=mailto:tls@example.com",
+                "v=TLSRPTv1; rua=mailto:backup@example.com",
+            ],
+        }
+    )
+    dns = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com",
+        spf=True,
+        spf_record=(
+            "v=spf1 include:a.example include:b.example include:c.example "
+            "include:d.example include:e.example include:f.example "
+            "include:g.example include:h.example include:i.example "
+            "include:j.example include:k.example"
+        ),
+        dkim=True,
+        dkim_selectors=["selector1"],
+    )
+    mta_sts = MTAStsResult(
+        status="pass",
+        dns_record="v=STSv1; id=20260625",
+        warnings=["MTA-STS policy is valid but not enforcing mail delivery (testing)."],
+    )
+    bimi = BIMIResult(
+        status="pass",
+        dns_record="v=BIMI1; l=https://example.com/logo.svg",
+        warnings=["No BIMI certificate URL is published; some mailbox providers require one."],
+    )
+
+    guidance = await build_dns_guidance("example.com", provider, dns, mta_sts, bimi)
+
+    codes = {finding.code for finding in guidance.findings}
+    assert "spf_all_missing" in codes
+    assert "spf_dns_lookup_limit_risk" in codes
+    assert "tls_rpt_multiple_records" in codes
+    assert "mta_sts_review" in codes
+    assert "bimi_review" in codes
