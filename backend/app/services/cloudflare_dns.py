@@ -15,7 +15,11 @@ from app.core.credential_encryption import decrypt_secret
 from app.models.dns_cache import DNSRecordChange, DNSRecordSnapshot
 from app.models.domain import Domain
 from app.models.setting import Setting
-from app.services.dns_resolver import CloudflareDNSProvider, extract_dmarc_policy
+from app.services.dns_resolver import (
+    CloudflareDNSProvider,
+    extract_dmarc_policy,
+    parse_dmarc_record_tags,
+)
 from app.services.workspaces import assign_default_workspace_to_unscoped_rows
 
 PROVIDER_NAME = "cloudflare"
@@ -350,8 +354,9 @@ def analyze_dns_records(domain: str, records: List[Dict[str, Any]]) -> Dict[str,
     root_txt = _txt_contents(records, domain)
     dmarc_records = _txt_contents(records, f"_dmarc.{domain}")
     spf_records = [record for record in root_txt if record.lower().startswith("v=spf1")]
+    dmarc_candidate_records = [record for record in dmarc_records if "v=dmarc1" in record.lower()]
     dmarc_auth_records = [
-        record for record in dmarc_records if record.lower().startswith("v=dmarc1")
+        record for record in dmarc_candidate_records if parse_dmarc_record_tags(record)
     ]
     dkim_records = [
         record
@@ -362,7 +367,7 @@ def analyze_dns_records(domain: str, records: List[Dict[str, Any]]) -> Dict[str,
     ]
 
     suggestions: List[Dict[str, str]] = []
-    if not dmarc_auth_records:
+    if not dmarc_candidate_records:
         suggestions.append(
             {
                 "type": "missing_dmarc",
@@ -370,7 +375,7 @@ def analyze_dns_records(domain: str, records: List[Dict[str, Any]]) -> Dict[str,
                 "message": "Add a TXT record at _dmarc with a v=DMARC1 policy.",
             }
         )
-    elif len(dmarc_auth_records) > 1:
+    elif len(dmarc_candidate_records) > 1:
         suggestions.append(
             {
                 "type": "duplicate_dmarc",
@@ -378,7 +383,7 @@ def analyze_dns_records(domain: str, records: List[Dict[str, Any]]) -> Dict[str,
                 "message": "Keep exactly one DMARC TXT record at _dmarc.",
             }
         )
-    elif extract_dmarc_policy(dmarc_auth_records[0]) is None:
+    elif not dmarc_auth_records or extract_dmarc_policy(dmarc_auth_records[0]) is None:
         suggestions.append(
             {
                 "type": "malformed_dmarc",

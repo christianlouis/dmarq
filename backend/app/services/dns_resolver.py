@@ -12,6 +12,7 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,21 @@ COMMON_DKIM_SELECTORS: List[str] = [
 # Seconds to wait for a single DNS query before giving up
 DNS_TIMEOUT: float = 5.0
 
+DMARC_POLICY_VALUES = {"none", "quarantine", "reject"}
+DMARCBIS_ACTIVE_TAGS = {
+    "adkim",
+    "aspf",
+    "fo",
+    "np",
+    "p",
+    "psd",
+    "rua",
+    "ruf",
+    "sp",
+    "t",
+    "v",
+}
+
 
 @dataclass
 class DomainDNSResult:
@@ -76,6 +92,104 @@ class DomainDNSResult:
     dkim_record: Optional[str] = None
     # Track which selectors were tried so callers can surface this information
     selectors_checked: List[str] = field(default_factory=list)
+    dmarc_policy_domain: Optional[str] = None
+    dmarc_discovery_method: Optional[str] = None
+    dmarc_tags: Dict[str, str] = field(default_factory=dict)
+
+
+def _normalize_dns_name(domain: str) -> str:
+    return domain.strip().strip(".").lower()
+
+
+def _is_valid_dmarc_uri_list(value: str) -> bool:
+    uris = [part.strip() for part in value.split(",") if part.strip()]
+    if not uris:
+        return False
+    return all(bool(urlparse(uri).scheme) for uri in uris)
+
+
+def parse_dmarc_record_tags(dmarc_record: Optional[str]) -> Dict[str, str]:
+    """Parse active RFC 9989 DMARC policy tags from a TXT record.
+
+    RFC 9989 requires ``v=DMARC1`` to be the first tag and keeps the version
+    value case-sensitive. Unknown tags are ignored. Historic tags such as
+    ``pct``, ``rf``, and ``ri`` are intentionally not returned here.
+    """
+    if not dmarc_record:
+        return {}
+
+    parts = [part.strip() for part in dmarc_record.split(";") if part.strip()]
+    if not parts or "=" not in parts[0]:
+        return {}
+
+    first_name, first_value = (item.strip() for item in parts[0].split("=", 1))
+    if first_name.lower() != "v" or first_value != "DMARC1":
+        return {}
+
+    tags: Dict[str, str] = {"v": first_value}
+    for part in parts[1:]:
+        if "=" not in part:
+            continue
+        name, value = (item.strip() for item in part.split("=", 1))
+        name = name.lower()
+        if name in DMARCBIS_ACTIVE_TAGS and name not in tags:
+            tags[name] = value.strip()
+    return tags
+
+
+def _valid_policy_value(value: Optional[str]) -> Optional[str]:
+    normalized = (value or "").strip().lower()
+    return normalized if normalized in DMARC_POLICY_VALUES else None
+
+
+def _record_has_valid_policy_or_reporting(tags: Dict[str, str]) -> bool:
+    if _valid_policy_value(tags.get("p")):
+        return True
+    rua = tags.get("rua")
+    return bool(rua and _is_valid_dmarc_uri_list(rua))
+
+
+def _select_valid_dmarc_record(records: List[str]) -> Tuple[Optional[str], Dict[str, str]]:
+    """Return a single valid DMARC record, discarding ambiguous targets."""
+    valid_records: List[Tuple[str, Dict[str, str]]] = []
+    for record in records:
+        tags = parse_dmarc_record_tags(record)
+        if tags and _record_has_valid_policy_or_reporting(tags):
+            valid_records.append((record, tags))
+
+    if len(valid_records) != 1:
+        return None, {}
+    return valid_records[0]
+
+
+def _tree_walk_domains(domain: str) -> List[str]:
+    labels = [label for label in _normalize_dns_name(domain).split(".") if label]
+    if len(labels) <= 1:
+        return []
+
+    domains: List[str] = []
+    if len(labels) <= 8:
+        target_labels = labels[1:]
+    else:
+        target_labels = labels[-7:]
+    while len(target_labels) > 1 and len(domains) < 7:
+        domains.append(".".join(target_labels))
+        target_labels = target_labels[1:]
+    return domains
+
+
+def effective_dmarc_policy(tags: Dict[str, str]) -> Optional[str]:
+    """Return the RFC 9989 effective base policy from parsed tags.
+
+    Records with a valid reporting URI but without a valid ``p`` tag are treated
+    as monitoring mode, matching RFC 9989 policy discovery behavior.
+    """
+    policy = _valid_policy_value(tags.get("p"))
+    if policy:
+        return policy
+    if tags.get("rua") and _is_valid_dmarc_uri_list(tags["rua"]):
+        return "none"
+    return None
 
 
 class BaseDNSProvider(ABC):
@@ -100,15 +214,36 @@ class BaseDNSProvider(ABC):
     # High-level record checks built on top of lookup_txt
     # ------------------------------------------------------------------
 
-    async def check_dmarc(self, domain: str) -> Tuple[bool, Optional[str]]:
-        """Return *(found, record_string)* for the domain's DMARC TXT record."""
+    async def _lookup_valid_dmarc_at(self, domain: str) -> Tuple[Optional[str], Dict[str, str]]:
+        """Return a valid DMARC record and parsed tags for one policy domain."""
         try:
             records = await self.lookup_txt(f"_dmarc.{domain}")
-            for record in records:
-                if record.lower().startswith("v=dmarc1"):
-                    return True, record
+            return _select_valid_dmarc_record(records)
         except LookupError as exc:
             logger.debug("DMARC lookup failed for %s: %s", _sanitize_for_log(domain), exc)
+        return None, {}
+
+    async def discover_dmarc_policy(
+        self, domain: str
+    ) -> Tuple[bool, Optional[str], Optional[str], Optional[str], Dict[str, str]]:
+        """Discover the applicable RFC 9989 DMARC policy record."""
+        normalized_domain = _normalize_dns_name(domain)
+        record, tags = await self._lookup_valid_dmarc_at(normalized_domain)
+        if record:
+            return True, record, normalized_domain, "author", tags
+
+        for candidate in _tree_walk_domains(normalized_domain):
+            record, tags = await self._lookup_valid_dmarc_at(candidate)
+            if record:
+                return True, record, candidate, "treewalk", tags
+
+        return False, None, None, None, {}
+
+    async def check_dmarc(self, domain: str) -> Tuple[bool, Optional[str]]:
+        """Return *(found, record_string)* for the applicable DMARC TXT record."""
+        found, record, _, _, _ = await self.discover_dmarc_policy(domain)
+        if found:
+            return True, record
         return False, None
 
     async def check_spf(self, domain: str) -> Tuple[bool, Optional[str]]:
@@ -177,13 +312,20 @@ class BaseDNSProvider(ABC):
             if s not in all_selectors:
                 all_selectors.append(s)
 
-        dmarc_coro = self.check_dmarc(domain)
+        dmarc_coro = self.discover_dmarc_policy(domain)
         spf_coro = self.check_spf(domain)
         dkim_coro = self.check_dkim(domain, all_selectors)
 
-        (dmarc_ok, dmarc_record), (spf_ok, spf_record), (dkim_ok, dkim_sels, dkim_record) = (
-            await asyncio.gather(dmarc_coro, spf_coro, dkim_coro)
-        )
+        (
+            (dmarc_ok, dmarc_record, dmarc_policy_domain, dmarc_discovery_method, dmarc_tags),
+            (spf_ok, spf_record),
+            (dkim_ok, dkim_sels, dkim_record),
+        ) = await asyncio.gather(dmarc_coro, spf_coro, dkim_coro)
+
+        dmarc_tags = dmarc_tags or {}
+        dmarc_policy = effective_dmarc_policy(dmarc_tags)
+        if dmarc_policy:
+            dmarc_tags = {**dmarc_tags, "p": dmarc_policy}
 
         return DomainDNSResult(
             dmarc=dmarc_ok,
@@ -194,6 +336,9 @@ class BaseDNSProvider(ABC):
             dkim_selectors=dkim_sels,
             dkim_record=dkim_record,
             selectors_checked=all_selectors,
+            dmarc_policy_domain=dmarc_policy_domain,
+            dmarc_discovery_method=dmarc_discovery_method,
+            dmarc_tags=dmarc_tags,
         )
 
 
@@ -214,8 +359,11 @@ class SystemDNSProvider(BaseDNSProvider):
             result: List[str] = []
             if answers:
                 for rdata in answers:
-                    for string in rdata.strings:
-                        result.append(string.decode("utf-8", errors="replace"))
+                    result.append(
+                        "".join(
+                            string.decode("utf-8", errors="replace") for string in rdata.strings
+                        )
+                    )
             return result
         except dns.exception.DNSException as exc:
             raise LookupError(f"TXT lookup failed for {name}: {exc}") from exc
@@ -470,15 +618,9 @@ def get_default_provider(db: Any = None) -> BaseDNSProvider:
 
 
 def extract_dmarc_policy(dmarc_record: Optional[str]) -> Optional[str]:
-    """Parse the *p=* tag from a DMARC TXT record string.
+    """Parse the effective RFC 9989 base policy from a DMARC TXT record string.
 
     Returns the policy value (e.g. ``"none"``, ``"quarantine"``,
     ``"reject"``) or ``None`` if the record is absent or unparsable.
     """
-    if not dmarc_record:
-        return None
-    for part in dmarc_record.split(";"):
-        part = part.strip()
-        if part.lower().startswith("p="):
-            return part[2:].strip().lower()
-    return None
+    return effective_dmarc_policy(parse_dmarc_record_tags(dmarc_record))

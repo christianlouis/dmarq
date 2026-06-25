@@ -97,13 +97,38 @@ def test_analyze_dns_records_suggests_duplicate_dmarc_fix():
 
 def test_analyze_dns_records_suggests_malformed_dmarc_fix():
     records = [
-        _record("dmarc", "TXT", f"_dmarc.{DOMAIN}", "v=DMARC1; rua=mailto:dmarc@example.com"),
+        _record("dmarc", "TXT", f"_dmarc.{DOMAIN}", "p=none; v=DMARC1"),
         _record("spf", "TXT", DOMAIN, "v=spf1 include:_spf.google.com ~all"),
     ]
 
     result = analyze_dns_records(DOMAIN, records)
 
     assert "malformed_dmarc" in {item["type"] for item in result["suggestions"]}
+
+
+def test_analyze_dns_records_treats_reporting_only_dmarc_as_monitoring_mode():
+    records = [
+        _record("dmarc", "TXT", f"_dmarc.{DOMAIN}", "v=DMARC1; rua=mailto:dmarc@example.com"),
+        _record("spf", "TXT", DOMAIN, "v=spf1 include:_spf.google.com ~all"),
+        _record("dkim", "TXT", f"google._domainkey.{DOMAIN}", "v=DKIM1; p=abc"),
+    ]
+
+    result = analyze_dns_records(DOMAIN, records)
+
+    assert result["checks"]["dmarc"] is True
+    assert result["checks"]["dmarc_policy"] == "none"
+    assert "malformed_dmarc" not in {item["type"] for item in result["suggestions"]}
+
+
+def test_analyze_dns_records_suggests_missing_spf_with_valid_dmarc():
+    records = [
+        _record("dmarc", "TXT", f"_dmarc.{DOMAIN}", "v=DMARC1; p=reject"),
+        _record("dkim", "TXT", f"google._domainkey.{DOMAIN}", "v=DKIM1; p=abc"),
+    ]
+
+    result = analyze_dns_records(DOMAIN, records)
+
+    assert "missing_spf" in {item["type"] for item in result["suggestions"]}
 
 
 def test_sync_dns_record_changes_tracks_add_modify_and_remove(db_session):
