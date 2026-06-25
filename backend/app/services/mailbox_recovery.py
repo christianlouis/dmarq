@@ -67,10 +67,7 @@ DIAGNOSTIC_COPY: Dict[str, Dict[str, Any]] = {
         "summary": "DMARQ reached the mailbox but could not parse one or more report attachments.",
         "recovery_steps": [
             "Open the latest import details and identify the affected attachment or reporter.",
-            (
-                "Upload a known-good XML, ZIP, or GZIP aggregate report "
-                + "to confirm parsing still works."
-            ),
+            "Upload a known-good XML, ZIP, or GZIP aggregate report to confirm parsing works.",
         ],
     },
     "duplicate_only": {
