@@ -97,7 +97,7 @@ def test_analyze_dns_records_suggests_duplicate_dmarc_fix():
 
 def test_analyze_dns_records_suggests_malformed_dmarc_fix():
     records = [
-        _record("dmarc", "TXT", f"_dmarc.{DOMAIN}", "v=DMARC1; rua=mailto:dmarc@example.com"),
+        _record("dmarc", "TXT", f"_dmarc.{DOMAIN}", "p=none; v=DMARC1"),
         _record("spf", "TXT", DOMAIN, "v=spf1 include:_spf.google.com ~all"),
     ]
 

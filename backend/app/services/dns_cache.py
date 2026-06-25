@@ -41,6 +41,9 @@ def _result_from_json(value: str) -> DomainDNSResult:
         dkim_selectors=list(data.get("dkim_selectors") or []),
         dkim_record=data.get("dkim_record"),
         selectors_checked=list(data.get("selectors_checked") or []),
+        dmarc_policy_domain=data.get("dmarc_policy_domain"),
+        dmarc_discovery_method=data.get("dmarc_discovery_method"),
+        dmarc_tags=dict(data.get("dmarc_tags") or {}),
     )
 
 

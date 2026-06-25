@@ -18,6 +18,7 @@ from app.services.dns_resolver import (
     SystemDNSProvider,
     extract_dmarc_policy,
     get_default_provider,
+    parse_dmarc_record_tags,
 )
 
 # ---------------------------------------------------------------------------
@@ -56,12 +57,45 @@ def test_extract_dmarc_policy_reject():
     assert extract_dmarc_policy("v=DMARC1; p=reject") == "reject"
 
 
-def test_extract_dmarc_policy_missing_tag():
-    assert extract_dmarc_policy("v=DMARC1; rua=mailto:dmarc@example.com") is None
+def test_extract_dmarc_policy_missing_tag_with_reporting_uri_is_monitoring_mode():
+    assert extract_dmarc_policy("v=DMARC1; rua=mailto:dmarc@example.com") == "none"
 
 
 def test_extract_dmarc_policy_none_input():
     assert extract_dmarc_policy(None) is None
+
+
+def test_extract_dmarc_policy_requires_first_version_tag():
+    assert extract_dmarc_policy("p=reject; v=DMARC1") is None
+    assert extract_dmarc_policy("v=dmarc1; p=reject") is None
+
+
+def test_extract_dmarc_policy_missing_tag_without_reporting_uri():
+    assert extract_dmarc_policy("v=DMARC1; fo=1") is None
+
+
+def test_parse_dmarc_record_tags_tracks_active_dmarcbis_tags_only():
+    record = (
+        "v=DMARC1; p=reject; sp=quarantine; np=none; psd=n; t=y; "
+        "rua=mailto:agg@example.com; ruf=mailto:fail@example.com; fo=1:d:s; "
+        "adkim=s; aspf=r; pct=50; rf=afrf; ri=3600; unknown=value"
+    )
+
+    tags = parse_dmarc_record_tags(record)
+
+    assert tags == {
+        "v": "DMARC1",
+        "p": "reject",
+        "sp": "quarantine",
+        "np": "none",
+        "psd": "n",
+        "t": "y",
+        "rua": "mailto:agg@example.com",
+        "ruf": "mailto:fail@example.com",
+        "fo": "1:d:s",
+        "adkim": "s",
+        "aspf": "r",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -86,6 +120,56 @@ async def test_check_dmarc_not_found():
     found, record = await provider.check_dmarc("example.com")
     assert found is False
     assert record is None
+
+
+@pytest.mark.asyncio
+async def test_check_dmarc_discards_multiple_records_at_same_target():
+    provider = FakeDNSProvider(
+        {
+            "_dmarc.example.com": [
+                "v=DMARC1; p=reject",
+                "v=DMARC1; p=quarantine",
+            ]
+        }
+    )
+    found, record = await provider.check_dmarc("example.com")
+    assert found is False
+    assert record is None
+
+
+@pytest.mark.asyncio
+async def test_check_dmarc_finds_organizational_domain_via_tree_walk():
+    provider = FakeDNSProvider(
+        {"_dmarc.example.com": ["v=DMARC1; p=reject; rua=mailto:dmarc@example.com"]}
+    )
+
+    found, record, policy_domain, discovery_method, tags = await provider.discover_dmarc_policy(
+        "mail.news.example.com"
+    )
+
+    assert found is True
+    assert record == "v=DMARC1; p=reject; rua=mailto:dmarc@example.com"
+    assert policy_domain == "example.com"
+    assert discovery_method == "treewalk"
+    assert tags["p"] == "reject"
+
+
+@pytest.mark.asyncio
+async def test_check_dmarc_stops_tree_walk_on_psd_tag():
+    provider = FakeDNSProvider(
+        {
+            "_dmarc.mail.example.com": ["v=DMARC1; p=quarantine; psd=n"],
+            "_dmarc.example.com": ["v=DMARC1; p=reject"],
+        }
+    )
+
+    result = await provider.check_domain("news.mail.example.com", selectors=[])
+
+    assert result.dmarc is True
+    assert result.dmarc_policy_domain == "mail.example.com"
+    assert result.dmarc_discovery_method == "treewalk"
+    assert result.dmarc_record == "v=DMARC1; p=quarantine; psd=n"
+    assert result.dmarc_tags["psd"] == "n"
 
 
 @pytest.mark.asyncio
@@ -222,6 +306,24 @@ async def test_system_provider_returns_txt_records():
         records = await provider.lookup_txt("_dmarc.example.com")
 
     assert records == ["v=DMARC1; p=none"]
+
+
+@pytest.mark.asyncio
+async def test_system_provider_joins_split_txt_record_chunks():
+    """TXT chunks from one DNS RDATA item should be one logical record."""
+
+    class FakeRdata:
+        strings = [b"v=DMARC1; p=reject; ", b"rua=mailto:dmarc@example.com"]
+
+    class FakeAnswers:
+        def __iter__(self):
+            return iter([FakeRdata()])
+
+    with patch("dns.asyncresolver.resolve", new=AsyncMock(return_value=FakeAnswers())):
+        provider = SystemDNSProvider()
+        records = await provider.lookup_txt("_dmarc.example.com")
+
+    assert records == ["v=DMARC1; p=reject; rua=mailto:dmarc@example.com"]
 
 
 @pytest.mark.asyncio
