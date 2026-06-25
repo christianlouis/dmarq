@@ -28,6 +28,7 @@ from app.core.database import Base, SessionLocal, engine
 from app.core.security import add_api_key, generate_api_key, require_admin_auth
 from app.core.startup_checks import run_startup_checks
 from app.middleware.auth import AuthRedirectMiddleware
+from app.middleware.demo import DemoReadOnlyMiddleware
 from app.middleware.security import SecurityHeadersMiddleware
 from app.models.domain import Domain
 from app.models.mail_source import MailSource  # noqa: F401 – ensure table is registered
@@ -429,6 +430,7 @@ def create_app() -> FastAPI:
     # Determine environment from settings or environment variable
     environment = os.getenv("ENVIRONMENT", "development")
     application.add_middleware(SecurityHeadersMiddleware, environment=environment)
+    application.add_middleware(DemoReadOnlyMiddleware)
 
     # Auth redirect middleware – protects HTML pages; must sit outside CORS
     application.add_middleware(AuthRedirectMiddleware)
@@ -478,15 +480,25 @@ def create_app() -> FastAPI:
 
         # Warn loudly when authentication is completely disabled
         if settings.AUTH_DISABLED:
-            logger.warning(
-                "%s\n"
-                "⚠️  AUTH_DISABLED=true — authentication is turned OFF.\n"
-                "All requests have unrestricted admin access.\n"
-                "Do NOT expose this instance directly to the internet.\n"
-                "%s",
-                "=" * 80,
-                "=" * 80,
-            )
+            if settings.DEMO_MODE:
+                logger.warning(
+                    "%s\n"
+                    "AUTH_DISABLED=true with DEMO_MODE=true — browser access is public, "
+                    "and mutating requests are blocked by the demo read-only guard.\n"
+                    "%s",
+                    "=" * 80,
+                    "=" * 80,
+                )
+            else:
+                logger.warning(
+                    "%s\n"
+                    "⚠️  AUTH_DISABLED=true — authentication is turned OFF.\n"
+                    "All requests have unrestricted admin access.\n"
+                    "Do NOT expose this instance directly to the internet.\n"
+                    "%s",
+                    "=" * 80,
+                    "=" * 80,
+                )
 
         # Load or generate the admin API key
         if settings.ADMIN_API_KEY:
