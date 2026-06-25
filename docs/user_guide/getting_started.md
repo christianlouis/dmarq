@@ -46,6 +46,14 @@ DMARC (Domain-based Message Authentication, Reporting, and Conformance) is an em
 3. **Add your first domain**: Click "Add Domain" on the dashboard and enter your domain details
 4. **Upload a DMARC report**: Use the "Upload Report" button to add your first report
 
+### Public Demo Instances
+
+Some public demo deployments run with demo mode enabled. In that mode, DMARQ
+shows generated history for `dmarq.org` and `dmarq.com` instead of customer
+data. The reports roll forward with the current date and intentionally include
+clean senders, partial alignment, and a few DNS/reporting issues so the main
+dashboard, domain details, DNS guidance, and exports have realistic examples.
+
 ## Dashboard Overview
 
 The DMARQ dashboard provides an at-a-glance view of your email authentication status:

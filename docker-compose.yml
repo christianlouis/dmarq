@@ -36,6 +36,7 @@ services:
       - SECRET_KEY=your_secret_key_change_in_production
       - DEBUG=True
       - ENVIRONMENT=development
+      - DEMO_MODE=false
       - DELETE_IMPORTED_EMAILS=false
       # Add NODE_ENV for Tailwind
       - NODE_ENV=production

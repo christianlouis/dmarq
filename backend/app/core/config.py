@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "DMARQ"
     API_V1_STR: str = "/api/v1"
     ENVIRONMENT: str = "development"
+    DEMO_MODE: bool = False
 
     # Database
     # Default to a sub-directory so the SQLite file lives in a location that
