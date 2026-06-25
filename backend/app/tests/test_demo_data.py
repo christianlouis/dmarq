@@ -1,3 +1,5 @@
+import os
+import time
 from datetime import date, datetime, timezone
 
 import pytest
@@ -36,14 +38,27 @@ def test_build_demo_reports_rolls_with_current_date():
     )
 
 
-def test_build_demo_reports_uses_utc_iso_dates():
-    reports = build_demo_reports(today=date(2026, 6, 25), days=1)
-    report = next(report for report in reports if report["domain"] == "dmarq.org")
+def test_build_demo_reports_uses_utc_iso_dates(monkeypatch):
+    if not hasattr(time, "tzset"):
+        pytest.skip("tzset is not available on this platform")
 
-    assert report["begin_timestamp"] == 1782345600
-    assert report["end_timestamp"] == 1782431999
-    assert report["begin_date"] == "2026-06-25T00:00:00"
-    assert report["end_date"] == "2026-06-25T23:59:59"
+    previous_tz = os.environ.get("TZ")
+    monkeypatch.setenv("TZ", "America/Los_Angeles")
+    time.tzset()
+    try:
+        reports = build_demo_reports(today=date(2026, 6, 25), days=1)
+        report = next(report for report in reports if report["domain"] == "dmarq.org")
+
+        assert report["begin_timestamp"] == 1782345600
+        assert report["end_timestamp"] == 1782431999
+        assert report["begin_date"] == "2026-06-25T00:00:00"
+        assert report["end_date"] == "2026-06-25T23:59:59"
+    finally:
+        if previous_tz is None:
+            monkeypatch.delenv("TZ", raising=False)
+        else:
+            monkeypatch.setenv("TZ", previous_tz)
+        time.tzset()
 
 
 def test_seed_demo_report_store_replaces_store_with_demo_domains():

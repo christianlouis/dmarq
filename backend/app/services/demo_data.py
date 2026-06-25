@@ -87,7 +87,11 @@ def _utc_timestamp(day: date, boundary: time) -> int:
 
 
 def _utc_iso_from_timestamp(value: int) -> str:
-    return datetime.fromtimestamp(value, tz=timezone.utc).replace(tzinfo=None).isoformat()
+    return (
+        datetime.fromtimestamp(value, tz=timezone.utc)
+        .replace(tzinfo=None)
+        .isoformat(timespec="seconds")
+    )
 
 
 def _policy_for_domain(domain: str) -> Dict[str, str]:
