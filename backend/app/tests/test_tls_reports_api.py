@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
@@ -85,6 +87,27 @@ def test_list_tls_reports_filters_by_domain(authed_client, db_session):
     data = response.json()
     assert data["total"] == 1
     assert data["reports"][0]["policy_domain"] == "example.net"
+
+
+def test_demo_mode_tls_endpoints_return_synthetic_data(authed_client, monkeypatch):
+    monkeypatch.setattr(
+        tls_endpoint,
+        "get_settings",
+        lambda: SimpleNamespace(DEMO_MODE=True),
+    )
+
+    list_response = authed_client.get("/api/v1/tls-reports?domain=dmarq.org&page_size=5")
+    assert list_response.status_code == 200
+    list_data = list_response.json()
+    assert list_data["total"] > 0
+    assert len(list_data["reports"]) <= 5
+    assert list_data["privacy"]["not_stored"]
+
+    summary_response = authed_client.get("/api/v1/tls-reports/summary?domain=dmarq.org&days=14")
+    assert summary_response.status_code == 200
+    summary_data = summary_response.json()
+    assert summary_data["totals"]["reports"] > 0
+    assert summary_data["top_failures"]
 
 
 def test_tls_report_summary_empty_response_includes_privacy_controls(authed_client):

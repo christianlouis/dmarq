@@ -4,6 +4,7 @@ Tests for the /api/v1/stats endpoints.
 Covers dashboard statistics and per-domain statistics with cache refresh.
 """
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
@@ -71,6 +72,23 @@ class TestDashboardStatistics:
             assert response.status_code == 200
             mock_instance.invalidate_cache.assert_not_called()
 
+    def test_dashboard_uses_demo_data_when_demo_mode_enabled(
+        self, client: TestClient, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "app.api.api_v1.endpoints.stats.get_settings",
+            lambda: SimpleNamespace(DEMO_MODE=True),
+        )
+
+        response = client.get("/api/v1/stats/dashboard?period_days=7&force_refresh=true")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["api_version"] == "1.0"
+        assert data["period_days"] == 7
+        assert data["total_domains"] == 2
+        assert data["top_sources"]
+
 
 class TestDomainStatistics:
     """Tests for GET /api/v1/stats/domain/{domain_id}"""
@@ -130,3 +148,20 @@ class TestDomainStatistics:
             response = client.get("/api/v1/stats/domain/example.com")
             assert response.status_code == 200
             mock_instance.invalidate_cache.assert_not_called()
+
+    def test_domain_stats_uses_demo_data_when_demo_mode_enabled(
+        self, client: TestClient, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "app.api.api_v1.endpoints.stats.get_settings",
+            lambda: SimpleNamespace(DEMO_MODE=True),
+        )
+
+        response = client.get("/api/v1/stats/domain/dmarq.com?period_days=14")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["api_version"] == "1.0"
+        assert data["period_days"] == 14
+        assert data["domain"] == "dmarq.com"
+        assert data["sources"]
