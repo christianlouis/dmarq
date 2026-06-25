@@ -17,13 +17,20 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.redaction import redact_sensitive_text, sanitize_for_log
+from app.core.redaction import sanitize_for_log
 from app.core.security import require_admin_auth
 from app.models.mail_source import MailSource
 from app.models.mail_source_import import MailSourceImport
 from app.services.gmail_client import GmailClient
 from app.services.imap_client import IMAPClient
 from app.services.import_history import record_import_attempt
+from app.services.mailbox_recovery import (
+    connection_diagnostic,
+    connection_test_response,
+    diagnostic_category,
+    import_result_diagnostic,
+    redact_recovery_text,
+)
 from app.services.microsoft_graph_client import MicrosoftGraphClient
 from app.services.workspace_audit import changed_fields, record_workspace_audit_log
 from app.services.workspaces import (
@@ -167,150 +174,19 @@ def _sanitize_for_log(value: object) -> str:
 
 def _redact_sensitive_text(value: object) -> str:
     """Remove log-injection characters and redact secret-like diagnostic text."""
-    return redact_sensitive_text(value)
-
-
-DIAGNOSTIC_COPY: Dict[str, Dict[str, Any]] = {
-    "ok": {
-        "summary": "Connection test completed successfully.",
-        "recovery_steps": [],
-    },
-    "auth_required": {
-        "summary": "The mailbox has not been connected yet.",
-        "recovery_steps": [
-            "Use the Connect Gmail or Connect Microsoft 365 action to complete authorization.",
-            "Confirm the authorized mailbox is the one that receives DMARC aggregate reports.",
-        ],
-    },
-    "auth_expired": {
-        "summary": "The saved authorization is expired, revoked, or no longer accepted.",
-        "recovery_steps": [
-            "Reconnect the mailbox from Mail Sources.",
-            "If your provider shows a consent screen, approve read-only mailbox access again.",
-        ],
-    },
-    "authentication": {
-        "summary": "The server rejected the username, password, app password, or OAuth token.",
-        "recovery_steps": [
-            "Verify the username and use an app-specific password when the provider requires one.",
-            "Reconnect OAuth sources if the provider recently changed account security settings.",
-        ],
-    },
-    "permissions": {
-        "summary": "The account is connected but does not have enough mailbox access.",
-        "recovery_steps": [
-            "Grant read access for the mailbox that receives DMARC reports.",
-            "For OAuth sources, reconnect and approve the requested read-only mail scope.",
-        ],
-    },
-    "connectivity": {
-        "summary": "DMARQ could not reach the mail server reliably.",
-        "recovery_steps": [
-            "Check the server hostname, port, TLS setting, and any firewall allowlists.",
-            "Use port 993 with SSL for most IMAP providers.",
-        ],
-    },
-    "mailbox_not_found": {
-        "summary": "The configured mailbox folder could not be opened.",
-        "recovery_steps": [
-            "Choose one of the available mailbox names returned by the test.",
-            "Check capitalization and nested folder separators such as Archive/DMARC.",
-        ],
-    },
-    "throttling": {
-        "summary": "The mail provider is rate limiting or temporarily refusing requests.",
-        "recovery_steps": [
-            "Wait a few minutes and retry the test.",
-            "Increase the polling interval if repeated imports trigger provider limits.",
-        ],
-    },
-    "missing_config": {
-        "summary": "Required connection settings are missing.",
-        "recovery_steps": [
-            "Fill in the server, username, and password or complete OAuth authorization.",
-            "Save the source before running stored-source tests.",
-        ],
-    },
-    "not_implemented": {
-        "summary": "This connection method cannot be tested from this screen yet.",
-        "recovery_steps": [
-            "Use IMAP or Gmail API for mailbox ingestion.",
-            "Keep unsupported sources disabled until a test path is implemented.",
-        ],
-    },
-    "unknown": {
-        "summary": "The connection failed, but DMARQ could not classify the provider response.",
-        "recovery_steps": [
-            "Retry the test once to rule out a transient provider issue.",
-            "Check the latest import history and server logs for the sanitized provider response.",
-        ],
-    },
-}
+    return redact_recovery_text(value)
 
 
 def _diagnostic_category(message: str, details: Optional[object] = None) -> str:
     """Map provider-specific failures to operator-friendly categories."""
-    text = f"{message} {_redact_sensitive_text(details or '')}".lower()
-    if any(term in text for term in ("not yet authorised", "not yet authorized", "complete oauth")):
-        return "auth_required"
-    if any(
-        term in text
-        for term in (
-            "expired",
-            "revoked",
-            "invalid_grant",
-            "interaction_required",
-            "refresh token",
-            "oauth",
-        )
-    ):
-        return "auth_expired"
-    if any(term in text for term in ("rate", "quota", "throttl", "too many", "429")):
-        return "throttling"
-    if any(
-        term in text
-        for term in ("scope", "permission", "access denied", "insufficient", "forbidden", "403")
-    ):
-        return "permissions"
-    if any(term in text for term in ("mailbox", "folder", "select failed", "does not exist")):
-        return "mailbox_not_found"
-    if any(term in text for term in ("credential", "password", "auth", "login", "invalid token")):
-        return "authentication"
-    if any(
-        term in text
-        for term in (
-            "timeout",
-            "timed out",
-            "dns",
-            "resolve",
-            "refused",
-            "network",
-            "ssl",
-            "certificate",
-        )
-    ):
-        return "connectivity"
-    if "not yet implemented" in text:
-        return "not_implemented"
-    if any(term in text for term in ("not fully configured", "missing", "required")):
-        return "missing_config"
-    return "unknown"
+    return diagnostic_category(message, details)
 
 
 def _connection_diagnostic(
     success: bool, message: str, details: Optional[object] = None
 ) -> Dict[str, Any]:
     """Build sanitized connection diagnostics for API responses and UI recovery copy."""
-    category = "ok" if success else _diagnostic_category(message, details)
-    diagnostic_copy = DIAGNOSTIC_COPY[category]
-    diagnostic: Dict[str, Any] = {
-        "category": category,
-        "summary": diagnostic_copy["summary"],
-        "recovery_steps": diagnostic_copy["recovery_steps"],
-    }
-    if details and not success:
-        diagnostic["details"] = _redact_sensitive_text(details)
-    return diagnostic
+    return connection_diagnostic(success, message, details)
 
 
 def _connection_test_response(
@@ -320,18 +196,8 @@ def _connection_test_response(
     details: Optional[object] = None,
 ) -> Dict[str, Any]:
     """Normalize stored and ad-hoc mailbox test responses."""
-    stats = stats or {}
-    diagnostic = _connection_diagnostic(success, message, details or stats.get("diagnostic_detail"))
     return {
-        "success": success,
-        "message": _redact_sensitive_text(message),
-        "message_count": stats.get("message_count", 0),
-        "unread_count": stats.get("unread_count", 0),
-        "dmarc_count": stats.get("dmarc_count", 0),
-        "available_mailboxes": stats.get("available_mailboxes", []),
-        "diagnostic": diagnostic,
-        "diagnostic_category": diagnostic["category"],
-        "recovery_steps": diagnostic["recovery_steps"],
+        **connection_test_response(success, message, stats, details),
         "timestamp": datetime.now().isoformat(),
     }
 
@@ -465,6 +331,7 @@ def _import_to_response(row: MailSourceImport) -> MailSourceImportResponse:
 
 def _fetch_response(source: MailSource, results: Dict[str, Any]) -> Dict[str, Any]:
     """Build the common response payload for a manual source fetch."""
+    diagnostic = import_result_diagnostic(results)
     return {
         "source_id": source.id,
         "name": source.name,
@@ -479,6 +346,10 @@ def _fetch_response(source: MailSource, results: Dict[str, Any]) -> Dict[str, An
         "target_mailbox": results.get("target_mailbox"),
         "target_folder": results.get("target_folder"),
         "search_window_days": results.get("search_window_days"),
+        "diagnostic": diagnostic,
+        "diagnostic_category": diagnostic["category"],
+        "diagnostic_summary": diagnostic["summary"],
+        "recovery_steps": diagnostic["recovery_steps"],
         "timestamp": datetime.now().isoformat(),
     }
 

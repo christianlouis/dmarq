@@ -69,14 +69,18 @@ Configure how DMARQ handles report attachments:
 
 ### Troubleshooting IMAP Connections
 
-If you're having trouble with IMAP integration:
+If you're having trouble with IMAP integration, run **Test connection** from **Mail Sources** first. DMARQ returns a diagnostic category and recovery steps for the most common cases:
 
-1. **Check Credentials**: Verify username and password are correct
-2. **Verify Server Settings**: Confirm IMAP server address and port
-3. **Check IMAP Access**: Ensure IMAP is enabled for your email account
-4. **App Passwords**: If using 2FA, verify you're using an app-specific password
-5. **Firewall Issues**: Ensure your DMARQ instance can connect to your IMAP server
-6. **View IMAP Logs**: Check the IMAP connection logs in **Settings** > **Logs**
+| Category | What to check |
+|----------|---------------|
+| `authentication` | Verify username and password, and use an app password when MFA is enabled. |
+| `connectivity` | Confirm server address, port, TLS, DNS, and firewall access from the DMARQ host. |
+| `mailbox_not_found` | Match the folder name exactly, including case and nested separators. |
+| `folder_search` | Confirm DMARC reports are delivered to the selected folder, then run a wider backfill. |
+| `parsing` | Check import details for malformed XML, unsupported attachments, or corrupt ZIP/GZIP files. |
+| `duplicate_only` | Treat this as normal when the mailbox is quiet; check folder delivery if fresh reports are expected. |
+
+If the category is not enough to resolve the issue, check **Operations** for mailbox recovery guidance and review the latest import history from **Mail Sources**. Keep passwords, tokens, and provider error secrets redacted in notes and issue comments.
 
 ## Managing IMAP Integration
 

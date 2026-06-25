@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Security, status
 from fastapi.security import HTTPAuthorizationCredentials
@@ -9,7 +9,9 @@ from app.core.database import get_db
 from app.core.security import api_key_header, require_admin_auth, security_bearer
 from app.models.domain import Domain
 from app.models.mail_source import MailSource
+from app.models.mail_source_import import MailSourceImport
 from app.models.setting import Setting
+from app.services.mailbox_recovery import import_row_diagnostic, not_configured_guidance
 
 router = APIRouter()
 
@@ -94,6 +96,7 @@ class SetupStatusResponse(BaseModel):
     total_domains: int = 0
     total_mail_sources: int = 0
     enabled_mail_sources: int = 0
+    mailbox_recovery_hint: Optional[Dict[str, Any]] = None
 
 
 class AdminSetupRequest(BaseModel):
@@ -127,14 +130,30 @@ async def require_setup_write_auth(
 async def get_setup_status(db: Session = Depends(get_db)):
     """Get the current setup status"""
     current_status = _refresh_setup_status_from_db(db)
+    total_mail_sources = db.query(MailSource.id).count()
+    enabled_mail_sources = (
+        db.query(MailSource.id).filter(MailSource.enabled == True).count()  # noqa: E712
+    )
+    latest_import = (
+        db.query(MailSourceImport)
+        .order_by(MailSourceImport.finished_at.desc(), MailSourceImport.id.desc())
+        .first()
+    )
+    mailbox_recovery_hint = None
+    if enabled_mail_sources == 0:
+        mailbox_recovery_hint = not_configured_guidance()
+    elif latest_import:
+        diagnostic = import_row_diagnostic(latest_import)
+        if diagnostic and diagnostic["category"] not in {"ok", "duplicate_only"}:
+            mailbox_recovery_hint = diagnostic
+
     return SetupStatusResponse(
         is_setup_complete=current_status["is_setup_complete"],
         app_name=current_status["app_name"],
         total_domains=db.query(Domain.id).count(),
-        total_mail_sources=db.query(MailSource.id).count(),
-        enabled_mail_sources=db.query(MailSource.id)
-        .filter(MailSource.enabled == True)  # noqa: E712
-        .count(),
+        total_mail_sources=total_mail_sources,
+        enabled_mail_sources=enabled_mail_sources,
+        mailbox_recovery_hint=mailbox_recovery_hint,
     )
 
 

@@ -52,6 +52,16 @@ def test_operations_health_endpoint(authed_client: TestClient):
     assert "scheduler" in data
     assert "imports" in data
     assert "reports" in data
+    assert data["mailbox_recovery"][0]["category"] == "not_configured"
+
+
+def test_setup_status_includes_mailbox_recovery_hint(client: TestClient):
+    """Setup status points first-run operators at mailbox configuration."""
+    response = client.get("/api/v1/setup/status")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["mailbox_recovery_hint"]["category"] == "not_configured"
+    assert data["mailbox_recovery_hint"]["recovery_steps"]
 
 
 def test_reports_upload_invalid_extension(client: TestClient):

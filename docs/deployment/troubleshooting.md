@@ -80,8 +80,12 @@ Open **Mail Sources**, run **Test connection**, and use the diagnostic category 
 | `permissions` | The account is connected but lacks mailbox access. | Grant mailbox read access or reconnect Gmail with the requested read-only scope. |
 | `connectivity` | DMARQ cannot reach the provider. | Check hostname, port, TLS setting, firewall, DNS, and provider availability. |
 | `mailbox_not_found` | The configured folder cannot be opened. | Use one of the returned mailbox names and match capitalization/separators exactly. |
+| `folder_search` | The mailbox is reachable, but the selected folder or search window has no new DMARC reports. | Confirm reports arrive in that folder, then run a wider backfill if needed. |
+| `parsing` | DMARQ reached messages but could not parse one or more report attachments. | Inspect import details, then validate with a known-good XML, ZIP, or GZIP aggregate report. |
+| `duplicate_only` | The latest run found only reports DMARQ already imported. | No action is needed for quiet mailboxes; otherwise confirm fresh reports are arriving in the configured folder. |
 | `throttling` | Provider is rate limiting requests. | Wait, retry, and increase the polling interval if failures repeat. |
 | `missing_config` | Required settings are absent. | Fill in server, username, password, or complete OAuth authorization. |
+| `not_configured` | No enabled mailbox source is available. | Add or enable a source, then run **Test connection** before relying on scheduled imports. |
 
 Never paste mailbox passwords or OAuth tokens into logs or issue comments. If a provider error contains a token-like value, redact it before sharing.
 
@@ -172,4 +176,3 @@ Open a follow-up issue with:
 - Whether a recent upgrade, migration, credential rotation, or DNS change happened.
 
 Do not include raw secrets, mailbox contents, OAuth tokens, API tokens, database passwords, or full report files unless they have been sanitized.
-
