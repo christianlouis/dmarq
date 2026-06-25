@@ -1,4 +1,5 @@
 import email
+import json
 from unittest.mock import MagicMock
 
 import pytest
@@ -76,6 +77,71 @@ def test_parse_forensic_email_redacts_and_extracts_failure_fields():
     assert "[redacted-token]" in parsed["original_subject"]
     assert parsed["original_message_id"]
     assert "original-message@example.com" not in parsed["original_message_id"]
+
+
+def test_parse_rfc9991_failure_report_metadata_without_storing_bodies():
+    content = b"""\
+From: DMARC Reporter <dmarc-reports@example.net>
+To: postmaster@example.com
+Subject: DMARC Failure Report for example.com
+Message-ID: <rfc9991-report@example.net>
+MIME-Version: 1.0
+Content-Type: multipart/report; report-type=feedback-report; boundary="ruf-boundary"
+
+--ruf-boundary
+Content-Type: text/plain; charset=utf-8
+
+This is a DMARC failure report.
+
+--ruf-boundary
+Content-Type: message/feedback-report
+
+Feedback-Type: auth-failure
+User-Agent: RFC9991 Reporter
+Version: 1
+Original-Mail-From: sender@example.com
+Arrival-Date: Fri, 22 May 2026 10:15:00 +0000
+Source-IP: 203.0.113.8
+Reported-Domain: example.com
+Authentication-Results: mx.example.net; dkim=fail header.d=example.com; spf=pass smtp.mailfrom=example.com; dmarc=fail
+Auth-Failure: dmarc
+Identity-Alignment: dkim
+Delivery-Result: reject
+DKIM-Domain: example.com
+DKIM-Identity: alice@example.com
+DKIM-Selector: mail2026
+DKIM-Canonicalized-Header: from:Alice <alice@example.com>
+DKIM-Canonicalized-Body: sensitive message body
+SPF-DNS: v=spf1 include:_spf.example.com -all
+Reported-URI: mailto:ruf@example.com
+
+--ruf-boundary
+Content-Type: text/rfc822-headers
+
+From: Alice Sender <alice@example.com>
+To: Bob Receiver <bob@example.net>
+Subject: Failed signed mail
+Message-ID: <original-message@example.com>
+Date: Fri, 22 May 2026 10:14:55 +0000
+
+--ruf-boundary--
+"""
+
+    parsed = ForensicParser.parse_bytes(content)
+    details = json.loads(parsed["feedback_headers"])
+
+    assert parsed["auth_failure"] == "dmarc"
+    assert parsed["reported_domain"] == "example.com"
+    assert details["identity_alignment"] == "dkim"
+    assert details["dkim_domain"] == "example.com"
+    assert details["dkim_identity"] == "al***@example.com"
+    assert details["dkim_selector"] == "mail2026"
+    assert details["spf_dns"] == "v=spf1 include:_spf.example.com -all"
+    assert details["reported_uri"] == "mailto:ru***@example.com"
+    assert details["dkim_canonicalized_header_present"] is True
+    assert details["dkim_canonicalized_body_present"] is True
+    assert "sensitive message body" not in parsed["feedback_headers"]
+    assert "from:Alice" not in parsed["feedback_headers"]
 
 
 def test_parse_forensic_email_supports_stricter_redaction_policies():

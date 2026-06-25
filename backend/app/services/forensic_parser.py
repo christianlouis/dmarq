@@ -109,6 +109,37 @@ def _message_id_hash(value: str) -> str:
     return hashlib.sha256(cleaned.encode("utf-8")).hexdigest()[:24]
 
 
+def _feedback_detail_headers(
+    feedback: Message,
+    *,
+    redaction_policy: Optional[ForensicRedactionPolicy] = None,
+) -> Dict[str, Any]:
+    """Return RFC 9991 ARF metadata without retaining message body content."""
+    details = {
+        "identity_alignment": _header(feedback, "Identity-Alignment", redact=False),
+        "dkim_domain": _header(feedback, "DKIM-Domain", redact=False),
+        "dkim_identity": _header(
+            feedback,
+            "DKIM-Identity",
+            redaction_policy=redaction_policy,
+        ),
+        "dkim_selector": _header(feedback, "DKIM-Selector", redact=False),
+        "spf_dns": _header(feedback, "SPF-DNS", redact=False),
+        "reported_uri": _header(
+            feedback,
+            "Reported-URI",
+            redaction_policy=redaction_policy,
+        ),
+    }
+
+    if _header(feedback, "DKIM-Canonicalized-Header", redact=False):
+        details["dkim_canonicalized_header_present"] = True
+    if _header(feedback, "DKIM-Canonicalized-Body", redact=False):
+        details["dkim_canonicalized_body_present"] = True
+
+    return {key: value for key, value in details.items() if value}
+
+
 class ForensicParser:
     """Parse DMARC forensic/failure report emails without retaining message bodies."""
 
@@ -187,17 +218,7 @@ class ForensicParser:
         source_email = _header(msg, "From", redaction_policy=redaction_policy)
         arrival_date = _parse_datetime(_header(feedback, "Arrival-Date", redact=False))
 
-        details = {
-            "identity_alignment": _header(feedback, "Identity-Alignment", redact=False),
-            "dkim_domain": _header(feedback, "DKIM-Domain", redact=False),
-            "spf_dns": _header(feedback, "SPF-DNS", redact=False),
-            "reported_uri": _header(
-                feedback,
-                "Reported-URI",
-                redaction_policy=redaction_policy,
-            ),
-        }
-        details = {key: value for key, value in details.items() if value}
+        details = _feedback_detail_headers(feedback, redaction_policy=redaction_policy)
 
         return {
             "report_id": report_id,
