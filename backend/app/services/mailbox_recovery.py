@@ -8,7 +8,7 @@ from app.core.redaction import redact_sensitive_text
 
 DIAGNOSTIC_COPY: Dict[str, Dict[str, Any]] = {
     "ok": {
-        "summary": "Connection test completed successfully.",
+        "summary": "Mailbox operation completed successfully.",
         "recovery_steps": [],
     },
     "auth_required": {
@@ -67,8 +67,10 @@ DIAGNOSTIC_COPY: Dict[str, Dict[str, Any]] = {
         "summary": "DMARQ reached the mailbox but could not parse one or more report attachments.",
         "recovery_steps": [
             "Open the latest import details and identify the affected attachment or reporter.",
-            "Upload a known-good XML, ZIP, or GZIP aggregate report to confirm parsing still "
-            "works.",
+            (
+                "Upload a known-good XML, ZIP, or GZIP aggregate report "
+                + "to confirm parsing still works."
+            ),
         ],
     },
     "duplicate_only": {
@@ -145,10 +147,19 @@ def diagnostic_category(message: str, details: Optional[object] = None) -> str:
         for term in ("scope", "permission", "access denied", "insufficient", "forbidden", "403")
     ):
         return "permissions"
-    if any(term in text for term in ("mailbox", "folder", "select failed", "does not exist")):
-        return "mailbox_not_found"
     if any(term in text for term in ("credential", "password", "auth", "login", "invalid token")):
         return "authentication"
+    if any(
+        term in text
+        for term in (
+            "folder",
+            "select failed",
+            "does not exist",
+            "mailbox not found",
+            "no such mailbox",
+        )
+    ):
+        return "mailbox_not_found"
     if any(
         term in text
         for term in (

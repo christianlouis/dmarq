@@ -16,6 +16,15 @@ def test_connection_response_classifies_auth_failure_without_raw_secret():
     assert "super-secret" not in str(response)
 
 
+def test_connection_response_prefers_auth_over_broad_mailbox_text():
+    response = connection_test_response(
+        False,
+        "IMAP authentication failed or the mailbox server rejected the request.",
+    )
+
+    assert response["diagnostic_category"] == "authentication"
+
+
 def test_import_result_classifies_parsing_failure():
     diagnostic = import_result_diagnostic(
         {
@@ -57,4 +66,5 @@ def test_import_result_success_has_no_recovery_steps():
     )
 
     assert diagnostic["category"] == "ok"
+    assert diagnostic["summary"] == "Mailbox operation completed successfully."
     assert diagnostic["recovery_steps"] == []
