@@ -86,6 +86,10 @@ def _utc_timestamp(day: date, boundary: time) -> int:
     return int(datetime.combine(day, boundary, tzinfo=timezone.utc).timestamp())
 
 
+def _utc_iso_from_timestamp(value: int) -> str:
+    return datetime.fromtimestamp(value, tz=timezone.utc).replace(tzinfo=None).isoformat()
+
+
 def _policy_for_domain(domain: str) -> Dict[str, str]:
     if domain == "dmarq.org":
         return {
@@ -224,8 +228,8 @@ def build_demo_reports(today: Optional[date] = None, days: int = DEMO_DAYS) -> L
                     "variant": "rfc9990",
                     "schema_version": "1.0",
                     "xml_namespace": "urn:ietf:params:xml:ns:dmarc-2.0",
-                    "begin_date": datetime.fromtimestamp(begin_ts).isoformat(),
-                    "end_date": datetime.fromtimestamp(end_ts).isoformat(),
+                    "begin_date": _utc_iso_from_timestamp(begin_ts),
+                    "end_date": _utc_iso_from_timestamp(end_ts),
                     "begin_timestamp": begin_ts,
                     "end_timestamp": end_ts,
                     "policy": _policy_for_domain(domain),

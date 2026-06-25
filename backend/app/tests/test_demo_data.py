@@ -36,6 +36,16 @@ def test_build_demo_reports_rolls_with_current_date():
     )
 
 
+def test_build_demo_reports_uses_utc_iso_dates():
+    reports = build_demo_reports(today=date(2026, 6, 25), days=1)
+    report = next(report for report in reports if report["domain"] == "dmarq.org")
+
+    assert report["begin_timestamp"] == 1782345600
+    assert report["end_timestamp"] == 1782431999
+    assert report["begin_date"] == "2026-06-25T00:00:00"
+    assert report["end_date"] == "2026-06-25T23:59:59"
+
+
 def test_seed_demo_report_store_replaces_store_with_demo_domains():
     store = ReportStore()
     store.add_report(
