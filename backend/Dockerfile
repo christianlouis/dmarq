@@ -2,12 +2,16 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
-  # Install required system dependencies
+# Install required system dependencies.
+# The backend does not need privileged mount helpers. Debian 13 currently has
+# no fixed util-linux package for the reported Snyk mount(8) CVEs, so remove
+# the SUID entry points from the runtime image.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
     curl \
     ca-certificates \
+    && chmod u-s /usr/bin/mount /usr/bin/umount \
     && rm -rf /var/lib/apt/lists/*
 
 # Remove Tailwind & DaisyUI build; using CDN links instead
