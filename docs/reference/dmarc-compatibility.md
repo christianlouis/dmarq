@@ -32,6 +32,7 @@ Live DNS checks parse DMARC policy records according to RFC 9989:
 - Subdomain checks fall back to the bounded RFC 9989 DNS Tree Walk, including `psd=n` and `psd=y` stop conditions.
 - Records with a valid aggregate reporting URI but no valid `p` tag are treated as monitoring mode for policy extraction.
 - External `rua` and `ruf` destinations are linted for the required DNS authorization TXT record at `<policy-domain>._report._dmarc.<destination-domain>`.
+- Typed DNS guidance endpoints expose stable finding codes and target records for DMARC, SPF, DKIM, MTA-STS, TLS-RPT, and BIMI readiness without applying DNS changes automatically.
 
 ## Preserved Metadata
 
@@ -69,7 +70,7 @@ The current fixture pack covers:
 - `rfc9990-treewalk-extension.xml`: RFC 9990-style policy metadata, treewalk discovery, `envelope_to`, override reasons, auth-result details, and report/record extensions.
 - `rfc9990-multi-auth-overrides.xml`: multiple records, multiple DKIM auth results, policy override reasons, PSD-style discovery, and nested vendor extensions.
 
-The compatibility tests exercise every fixture through parser extraction, upload import, IMAP attachment import, and Gmail attachment import.
+The compatibility tests exercise every fixture through parser extraction, upload import, IMAP attachment import, Gmail attachment import, dashboard projection, CSV export, and unknown safe extension handling.
 
 ## Adding Fixtures
 

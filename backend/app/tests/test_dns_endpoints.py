@@ -287,6 +287,74 @@ def test_dns_endpoint_returns_dmarc_lint_findings(client: TestClient):
     assert data["dmarcSuggestions"] == result.dmarc_suggestions
 
 
+def test_dns_lint_endpoint_returns_typed_findings_and_targets(client: TestClient):
+    result = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=none; rua=mailto:dmarc@example.com",
+        spf=True,
+        spf_record="v=spf1 include:_spf.example.com ~all",
+        dkim=False,
+        selectors_checked=["selector1"],
+    )
+    mta_sts = MTAStsResult(errors=["No _mta-sts TXT record was found."])
+    bimi = BIMIResult(errors=["No BIMI TXT record was found at the selector."])
+
+    with (
+        _mock_dns(result),
+        patch(
+            "app.api.api_v1.endpoints.domains.check_mta_sts_cached",
+            new=AsyncMock(return_value=(mta_sts, False, None)),
+        ),
+        patch(
+            "app.api.api_v1.endpoints.domains.check_bimi_cached",
+            new=AsyncMock(return_value=(bimi, False, None)),
+        ),
+    ):
+        response = client.get(f"/api/v1/domains/{DOMAIN}/dns/lint")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["domain"] == DOMAIN
+    assert data["status"] == "attention"
+    codes = {finding["code"] for finding in data["findings"]}
+    assert {"dkim_selector_missing", "tls_rpt_missing", "bimi_dmarc_not_enforced"}.issubset(
+        codes
+    )
+    assert {record["code"] for record in data["target_records"]} >= {
+        "target_dmarc",
+        "target_spf",
+        "target_dkim",
+        "target_tls_rpt",
+    }
+
+
+def test_dns_lint_bulk_and_export(client: TestClient):
+    mta_sts = MTAStsResult(status="pass")
+    bimi = BIMIResult(status="pass")
+
+    with (
+        _mock_dns(),
+        patch(
+            "app.api.api_v1.endpoints.domains.check_mta_sts_cached",
+            new=AsyncMock(return_value=(mta_sts, False, None)),
+        ),
+        patch(
+            "app.api.api_v1.endpoints.domains.check_bimi_cached",
+            new=AsyncMock(return_value=(bimi, False, None)),
+        ),
+    ):
+        response = client.get("/api/v1/domains/dns/lint")
+        export = client.get("/api/v1/domains/dns/lint/export")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["domains"][0]["domain"] == DOMAIN
+    assert data["domains"][0]["finding_count"] >= 1
+    assert export.status_code == 200
+    assert "domain,status,severity,code" in export.text
+    assert DOMAIN in export.text
+
+
 def test_dns_endpoint_uses_cached_result(client: TestClient, db_session):
     """Repeated DNS checks reuse a fresh cached result."""
     mock_provider = AsyncMock(check_domain=AsyncMock(return_value=MOCK_DNS_RESULT))
