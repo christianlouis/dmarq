@@ -168,11 +168,7 @@ async def test_check_dmarc_finds_organizational_domain_via_tree_walk():
 @pytest.mark.asyncio
 async def test_check_dmarc_tree_walk_starts_with_last_seven_labels_for_deep_domains():
     provider = FakeDNSProvider(
-        {
-            "_dmarc.d.e.f.g.h.example.com": [
-                "v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com"
-            ]
-        }
+        {"_dmarc.d.e.f.g.h.example.com": ["v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com"]}
     )
 
     found, record, policy_domain, discovery_method, tags = await provider.discover_dmarc_policy(
