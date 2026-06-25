@@ -24,23 +24,20 @@ def _build_demo_guard_client(demo_mode: bool = True) -> TestClient:
 
 
 def test_demo_mode_allows_safe_methods():
-    client = _build_demo_guard_client()
-
-    assert client.get("/resource").status_code == 200
-    assert client.head("/resource").status_code == 200
-    assert client.options("/resource").status_code == 200
+    with _build_demo_guard_client() as client:
+        assert client.get("/resource").status_code == 200
+        assert client.head("/resource").status_code == 200
+        assert client.options("/resource").status_code == 200
 
 
 def test_demo_mode_blocks_mutating_methods():
-    client = _build_demo_guard_client()
-
-    for method in (client.post, client.put, client.patch, client.delete):
-        response = method("/resource")
-        assert response.status_code == 403
-        assert response.json()["detail"].startswith("This public demo is read-only.")
+    with _build_demo_guard_client() as client:
+        for method in (client.post, client.put, client.patch, client.delete):
+            response = method("/resource")
+            assert response.status_code == 403
+            assert response.json()["detail"].startswith("This public demo is read-only.")
 
 
 def test_normal_mode_allows_mutating_methods():
-    client = _build_demo_guard_client(demo_mode=False)
-
-    assert client.post("/resource").status_code == 200
+    with _build_demo_guard_client(demo_mode=False) as client:
+        assert client.post("/resource").status_code == 200
