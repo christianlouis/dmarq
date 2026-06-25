@@ -21,6 +21,40 @@ DMARQ consumes inbound DMARC failure reports through its forensic/RUF pipeline. 
 - RFC 9991 DMARC failure metadata including `Auth-Failure: dmarc`, `Identity-Alignment`, `Delivery-Result`, `DKIM-Domain`, `DKIM-Identity`, `DKIM-Selector`, `SPF-DNS`, and `Reported-URI`.
 - Canonicalized DKIM header/body fields are treated as sensitive content. DMARQ records presence flags for diagnostics but does not persist their values.
 
+## Forensic/RUF Privacy Model
+
+Forensic/RUF reports can contain fragments of real user messages. DMARQ
+therefore treats them as a metadata-only signal for receiver-side diagnostics.
+
+DMARQ may persist:
+
+- report identifiers generated from message ids or content hashes,
+- reporter address after the configured redaction policy is applied,
+- reported domain, source IP, authentication failure type, delivery result, and
+  arrival date,
+- redacted original envelope/header metadata such as `Original-Mail-From`,
+  `From`, `To`, `Subject`, and hashed `Message-ID`,
+- RFC 9991 diagnostic metadata such as alignment, DKIM domain, DKIM selector,
+  SPF DNS text, and `Reported-URI`,
+- boolean flags that canonicalized DKIM header/body fields were present.
+
+DMARQ must not persist:
+
+- raw message bodies,
+- raw attached RFC 822 messages,
+- raw canonicalized DKIM header or body values,
+- raw local-parts when the configured redaction policy would mask them,
+- long opaque tokens found in subjects or headers when token redaction is
+  enabled,
+- OAuth tokens, mailbox passwords, webhook secrets, or provider error payloads
+  containing secrets.
+
+Unsupported or non-forensic messages fail closed: the forensic parser rejects
+empty, oversized, non-ARF, or non-DMARC payloads instead of mixing them into
+aggregate report totals. IMAP and Gmail ingestion paths count accepted
+forensic/RUF reports separately through `forensic_reports_found` and
+`duplicate_forensic_reports`.
+
 ## Supported Policy Discovery
 
 Live DNS checks parse DMARC policy records according to RFC 9989:
