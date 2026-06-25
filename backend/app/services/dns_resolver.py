@@ -95,6 +95,8 @@ class DomainDNSResult:
     dmarc_policy_domain: Optional[str] = None
     dmarc_discovery_method: Optional[str] = None
     dmarc_tags: Dict[str, str] = field(default_factory=dict)
+    dmarc_warnings: List[str] = field(default_factory=list)
+    dmarc_suggestions: List[str] = field(default_factory=list)
 
 
 def _normalize_dns_name(domain: str) -> str:
@@ -106,6 +108,21 @@ def _is_valid_dmarc_uri_list(value: str) -> bool:
     if not uris:
         return False
     return all(bool(urlparse(uri).scheme) for uri in uris)
+
+
+def _dmarc_uri_domains(value: Optional[str]) -> List[Tuple[str, str]]:
+    destinations: List[Tuple[str, str]] = []
+    for item in (value or "").split(","):
+        uri = item.strip()
+        if not uri:
+            continue
+        parsed = urlparse(uri)
+        mailbox = parsed.path.split("!", 1)[0]
+        if parsed.scheme.lower() != "mailto" or "@" not in mailbox:
+            destinations.append((uri, ""))
+            continue
+        destinations.append((uri, mailbox.rsplit("@", 1)[-1].strip(".").lower()))
+    return destinations
 
 
 def parse_dmarc_record_tags(dmarc_record: Optional[str]) -> Dict[str, str]:
@@ -190,6 +207,82 @@ def effective_dmarc_policy(tags: Dict[str, str]) -> Optional[str]:
     if tags.get("rua") and _is_valid_dmarc_uri_list(tags["rua"]):
         return "none"
     return None
+
+
+def _lint_dmarc_tags(
+    tags: Dict[str, str],
+    *,
+    checked_domain: str,
+    policy_domain: Optional[str],
+    discovery_method: Optional[str],
+) -> Tuple[List[str], List[str]]:
+    warnings: List[str] = []
+    suggestions: List[str] = []
+    if not tags:
+        return ["No valid DMARC policy record was discovered."], [
+            "Publish v=DMARC1 with p=none and a rua address before tightening policy."
+        ]
+
+    if discovery_method == "treewalk" and policy_domain:
+        suggestions.append(
+            f"DMARC policy for {checked_domain} is inherited from {policy_domain} via tree walk."
+        )
+    if not _valid_policy_value(tags.get("p")) and not tags.get("rua"):
+        warnings.append("DMARC record has neither a valid p tag nor a rua reporting URI.")
+    if not tags.get("rua"):
+        suggestions.append("Add rua=mailto:... so aggregate reports can reach DMARQ.")
+
+    for tag in ("p", "sp", "np"):
+        value = tags.get(tag)
+        if value and not _valid_policy_value(value):
+            warnings.append(f"DMARC {tag} tag uses unsupported policy value {value!r}.")
+    for tag in ("adkim", "aspf"):
+        value = (tags.get(tag) or "").lower()
+        if value and value not in {"r", "s"}:
+            warnings.append(f"DMARC {tag} tag should be r or s.")
+    for tag in ("psd", "t"):
+        value = (tags.get(tag) or "").lower()
+        if value and value not in {"y", "n"}:
+            warnings.append(f"DMARC {tag} tag should be y or n.")
+    fo = tags.get("fo")
+    if fo:
+        allowed = {"0", "1", "d", "s"}
+        invalid = [part for part in fo.split(":") if part not in allowed]
+        if invalid:
+            warnings.append("DMARC fo tag contains unsupported failure options.")
+
+    return warnings, suggestions
+
+
+async def _lint_external_reporting_destinations(
+    provider: "BaseDNSProvider",
+    tags: Dict[str, str],
+    *,
+    policy_domain: Optional[str],
+) -> List[str]:
+    if not policy_domain:
+        return []
+
+    warnings: List[str] = []
+    for tag in ("rua", "ruf"):
+        for uri, destination_domain in _dmarc_uri_domains(tags.get(tag)):
+            if not destination_domain:
+                warnings.append(f"DMARC {tag} URI {uri!r} is not a supported mailto URI.")
+                continue
+            if destination_domain == policy_domain:
+                continue
+
+            auth_name = f"{policy_domain}._report._dmarc.{destination_domain}"
+            try:
+                records = await provider.lookup_txt(auth_name)
+            except LookupError:
+                records = []
+            if not any(record.strip().lower().startswith("v=dmarc1") for record in records):
+                warnings.append(
+                    f"External {tag} destination {destination_domain} is missing "
+                    f"authorization TXT at {auth_name}."
+                )
+    return warnings
 
 
 class BaseDNSProvider(ABC):
@@ -323,6 +416,19 @@ class BaseDNSProvider(ABC):
         ) = await asyncio.gather(dmarc_coro, spf_coro, dkim_coro)
 
         dmarc_tags = dmarc_tags or {}
+        warnings, suggestions = _lint_dmarc_tags(
+            dmarc_tags,
+            checked_domain=_normalize_dns_name(domain),
+            policy_domain=dmarc_policy_domain,
+            discovery_method=dmarc_discovery_method,
+        )
+        warnings.extend(
+            await _lint_external_reporting_destinations(
+                self,
+                dmarc_tags,
+                policy_domain=dmarc_policy_domain,
+            )
+        )
         dmarc_policy = effective_dmarc_policy(dmarc_tags)
         if dmarc_policy:
             dmarc_tags = {**dmarc_tags, "p": dmarc_policy}
@@ -339,6 +445,8 @@ class BaseDNSProvider(ABC):
             dmarc_policy_domain=dmarc_policy_domain,
             dmarc_discovery_method=dmarc_discovery_method,
             dmarc_tags=dmarc_tags,
+            dmarc_warnings=warnings,
+            dmarc_suggestions=suggestions,
         )
 
 

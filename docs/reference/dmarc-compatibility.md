@@ -31,6 +31,7 @@ Live DNS checks parse DMARC policy records according to RFC 9989:
 - Historic tags such as `pct`, `rf`, and `ri` are not treated as active DMARCbis policy tags.
 - Subdomain checks fall back to the bounded RFC 9989 DNS Tree Walk, including `psd=n` and `psd=y` stop conditions.
 - Records with a valid aggregate reporting URI but no valid `p` tag are treated as monitoring mode for policy extraction.
+- External `rua` and `ruf` destinations are linted for the required DNS authorization TXT record at `<policy-domain>._report._dmarc.<destination-domain>`.
 
 ## Preserved Metadata
 
@@ -57,6 +58,7 @@ CSV exports include the most useful aggregate metadata for operators:
 - Unsupported attachments are skipped by IMAP and Gmail import paths and recorded in import details when stats are available.
 - For duplicate detection, DMARQ uses the domain and `report_id` pair. Fixture report IDs must remain unique within a single test import run.
 - RFC 9991 describes report generation duties such as outbound rate limiting and external `ruf` destination verification for Mail Receivers. DMARQ currently implements report-consumer parsing and analysis, not report generation.
+- The product-scope backlog for parser, analyzer, DNS guidance, and DNS linting work is tracked in `docs/development/dmarc-scope-open-items.md`.
 
 ## Fixture Pack
 

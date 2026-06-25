@@ -93,6 +93,8 @@ class DNSRecordResponse(BaseModel):
     dkimSelectors: List[str] = []
     cached: bool = False
     checkedAt: Optional[str] = None
+    dmarcWarnings: List[str] = []
+    dmarcSuggestions: List[str] = []
 
 
 class DNSHealthEvidence(BaseModel):
@@ -1064,6 +1066,8 @@ async def get_domains_summary(db: Session = Depends(get_db)):
                     if getattr(dns, "checked_at", None)
                     else None
                 ),
+                "dmarc_warnings": dns.dmarc_warnings,
+                "dmarc_suggestions": dns.dmarc_suggestions,
             }
         )
 
@@ -1283,6 +1287,8 @@ async def get_domain_dns_records(
         dkimSelectors=result.dkim_selectors,
         cached=cached,
         checkedAt=checked_at.isoformat(),
+        dmarcWarnings=result.dmarc_warnings,
+        dmarcSuggestions=result.dmarc_suggestions,
     )
 
 

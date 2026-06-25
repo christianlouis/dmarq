@@ -267,6 +267,26 @@ def test_dns_endpoint_returns_real_data(client: TestClient):
     assert data["checkedAt"] is not None
 
 
+def test_dns_endpoint_returns_dmarc_lint_findings(client: TestClient):
+    result = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=none; rua=mailto:dmarc@reports.example.net",
+        spf=True,
+        spf_record="v=spf1 include:_spf.example.com -all",
+        dkim=False,
+        dmarc_warnings=["External rua destination reports.example.net is missing authorization."],
+        dmarc_suggestions=["Policy is monitoring-only."],
+    )
+
+    with _mock_dns(result):
+        response = client.get(f"/api/v1/domains/{DOMAIN}/dns")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["dmarcWarnings"] == result.dmarc_warnings
+    assert data["dmarcSuggestions"] == result.dmarc_suggestions
+
+
 def test_dns_endpoint_uses_cached_result(client: TestClient, db_session):
     """Repeated DNS checks reuse a fresh cached result."""
     mock_provider = AsyncMock(check_domain=AsyncMock(return_value=MOCK_DNS_RESULT))
