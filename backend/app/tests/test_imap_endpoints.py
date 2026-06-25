@@ -45,10 +45,12 @@ class TestImapTestConnection:
         assert data["message_count"] == 5
         assert data["unread_count"] == 2
         assert "INBOX" in data["available_mailboxes"]
+        assert data["diagnostic_category"] == "ok"
+        assert data["recovery_steps"] == []
 
     def test_failed_connection(self, authed_client: TestClient):
         mock_client = MagicMock()
-        mock_client.test_connection.return_value = (False, "Connection failed", {})
+        mock_client.test_connection.return_value = (False, "Login failed invalid password", {})
 
         with patch("app.api.api_v1.endpoints.imap.IMAPClient", return_value=mock_client):
             response = authed_client.post(
@@ -60,6 +62,8 @@ class TestImapTestConnection:
         data = response.json()
         assert data["success"] is False
         assert data["message_count"] == 0
+        assert data["diagnostic_category"] == "authentication"
+        assert data["recovery_steps"]
 
     def test_requires_auth(self, client: TestClient):
         """Without auth, the endpoint should return 401."""
@@ -94,6 +98,7 @@ class TestImapFetchReports:
         assert data["success"] is True
         assert data["processed_emails"] == 3
         assert data["reports_found"] == 2
+        assert data["diagnostic_category"] == "ok"
 
     def test_fetch_days_too_low(self, authed_client: TestClient):
         response = authed_client.post("/api/v1/imap/fetch-reports?days=0")
@@ -136,6 +141,8 @@ class TestImapFetchReports:
         assert response.status_code == 200
         data = response.json()
         assert data["errors"] is not None
+        assert data["diagnostic_category"] == "parsing"
+        assert data["recovery_steps"]
 
     def test_fetch_exception_returns_500(self, authed_client: TestClient):
         mock_client = MagicMock()

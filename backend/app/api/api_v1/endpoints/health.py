@@ -8,6 +8,7 @@ from app.core.security import require_admin_auth
 from app.models.mail_source import MailSource
 from app.models.mail_source_import import MailSourceImport
 from app.models.report import DMARCReport
+from app.services.mailbox_recovery import import_row_diagnostic, not_configured_guidance
 from app.services.runtime_status import get_scheduler_status
 
 router = APIRouter()
@@ -73,15 +74,26 @@ async def operations_health(
     scheduler = get_scheduler_status()
     status = "ok"
     checks = []
+    mailbox_recovery = []
     if not database["ok"]:
         status = "degraded"
         checks.append("Database connectivity failed.")
+    if database["ok"] and enabled_sources == 0:
+        mailbox_recovery.append(not_configured_guidance())
     if total_sources and enabled_sources == 0:
         status = "degraded"
         checks.append("All mail sources are disabled.")
     if scheduler.get("last_error"):
         status = "degraded"
         checks.append("The scheduler reported a recent error.")
+    latest_import_diagnostic = import_row_diagnostic(latest_import)
+    if latest_import_diagnostic and latest_import_diagnostic["category"] not in {
+        "ok",
+        "duplicate_only",
+    }:
+        status = "degraded"
+        checks.append(latest_import_diagnostic["summary"])
+        mailbox_recovery.append(latest_import_diagnostic)
 
     return {
         "status": status,
@@ -98,6 +110,7 @@ async def operations_health(
                 "trigger": latest_import.trigger,
                 "reports_found": latest_import.reports_found,
                 "finished_at": _iso(latest_import.finished_at),
+                "diagnostic": latest_import_diagnostic,
             }
             if latest_import
             else None,
@@ -115,4 +128,5 @@ async def operations_health(
             "latest_processed_at": _iso(latest_report),
         },
         "checks": checks,
+        "mailbox_recovery": mailbox_recovery,
     }

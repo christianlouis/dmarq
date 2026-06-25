@@ -106,6 +106,28 @@
             </ul>
         </div>
     </section>
+
+    <section class="card bg-base-100 shadow" x-show="health.mailbox_recovery?.length">
+        <div class="card-body">
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <h2 class="card-title">Mailbox Recovery</h2>
+                <a href="/mail-sources" class="btn btn-outline btn-sm">Open Mail Sources</a>
+            </div>
+            <div class="grid gap-3 md:grid-cols-2">
+                <template x-for="item in health.mailbox_recovery" :key="item.category + item.summary">
+                    <div class="rounded-lg border border-base-300 bg-base-200/60 p-4">
+                        <div class="text-xs font-semibold uppercase tracking-wide text-base-content/60" x-text="categoryLabel(item.category)"></div>
+                        <p class="mt-1 text-sm font-medium" x-text="item.summary"></p>
+                        <ul class="mt-3 list-disc space-y-1 pl-5 text-sm text-base-content/70" x-show="item.recovery_steps?.length">
+                            <template x-for="step in item.recovery_steps" :key="step">
+                                <li x-text="step"></li>
+                            </template>
+                        </ul>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </section>
 </div>
 {% endblock %}
 
@@ -141,6 +163,11 @@ function operationsHealth() {
         formatImport(value) {
             if (!value) return 'Not recorded';
             return `${value.status} (${value.reports_found} reports) at ${this.formatDate(value.finished_at)}`;
+        },
+
+        categoryLabel(value) {
+            if (!value) return 'Mailbox';
+            return value.replaceAll('_', ' ');
         },
     };
 }

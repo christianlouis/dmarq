@@ -1605,6 +1605,8 @@ class TestManualSourceFetchEndpoint:
         assert data["reports_found"] == 3
         assert data["duplicate_reports"] == 1
         assert data["error_count"] == 1
+        assert data["diagnostic_category"] == "parsing"
+        assert data["recovery_steps"]
         assert "bad attachment with newline" in caplog.text
         history_resp = authed_client.get(f"/api/v1/mail-sources/{source_id}/imports")
         assert history_resp.json()[0]["details"] == [{"status": "error", "filename": "bad.xml"}]

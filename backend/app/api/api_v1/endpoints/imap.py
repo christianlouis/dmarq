@@ -9,6 +9,7 @@ from starlette.concurrency import run_in_threadpool
 from app.core.database import SessionLocal
 from app.core.security import require_admin_auth
 from app.services.imap_client import IMAPClient
+from app.services.mailbox_recovery import connection_test_response, import_result_diagnostic
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -65,12 +66,7 @@ async def test_imap_connection(
     success, message, stats = imap_client.test_connection()
 
     return {
-        "success": success,
-        "message": message,
-        "message_count": stats.get("message_count", 0),
-        "unread_count": stats.get("unread_count", 0),
-        "dmarc_count": stats.get("dmarc_count", 0),
-        "available_mailboxes": stats.get("available_mailboxes", []),
+        **connection_test_response(success, message, stats),
         "timestamp": datetime.now().isoformat(),
     }
 
@@ -103,6 +99,7 @@ async def fetch_imap_reports(
     # Otherwise run immediately
     try:
         results = await run_in_threadpool(_fetch_imap_reports_sync, days, delete_emails)
+        diagnostic = import_result_diagnostic(results)
 
         return {
             "success": results["success"],
@@ -112,6 +109,10 @@ async def fetch_imap_reports(
             "duplicate_forensic_reports": int(results.get("duplicate_forensic_reports", 0)),
             "new_domains": results["new_domains"],
             "errors": results["errors"] if "errors" in results and results["errors"] else None,
+            "diagnostic": diagnostic,
+            "diagnostic_category": diagnostic["category"],
+            "diagnostic_summary": diagnostic["summary"],
+            "recovery_steps": diagnostic["recovery_steps"],
             "timestamp": datetime.now().isoformat(),
         }
     except Exception as e:
