@@ -42,6 +42,7 @@ nav:
     - API Reference: reference/api.md
     - SIEM Integrations: reference/siem-integrations.md
     - Ticketing and Chatops: reference/ticketing-chatops-integrations.md
+    - Microsoft 365 Graph Connector: reference/microsoft365-graph-connector.md
     - Workspaces: reference/workspaces.md
     - Architecture: reference/architecture.md
     - Database Schema: reference/database.md

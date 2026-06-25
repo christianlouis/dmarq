@@ -24,6 +24,8 @@ To get started with DMARQ, please see the [Getting Started](user_guide/getting_s
 For installation instructions, check the [Docker Setup](deployment/docker.md) or [Manual Installation](deployment/manual.md) guides. Operators should use the [Operator Runbook](deployment/operations.md) for deployment modes, verification, upgrades, and rollback, and the [Troubleshooting Playbooks](deployment/troubleshooting.md) for ingestion, authentication, DNS, database, and notification failures. For production secrets, use [Secret Handling with 1Password](deployment/secrets.md). For database operations, use [Database Backup and Restore](deployment/backups.md). For upgrades, use the [Release Checklist](deployment/release-checklist.md).
 
 For Microsoft 365 setup, see [Microsoft 365 Mail Sources](user_guide/microsoft365.md).
+For connector implementation boundaries, see the
+[Microsoft 365 Graph Connector Contract](reference/microsoft365-graph-connector.md).
 
 For SMTP TLS reporting imports and privacy controls, see [TLS Reports](user_guide/tls_reports.md).
 
