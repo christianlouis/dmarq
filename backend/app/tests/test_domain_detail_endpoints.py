@@ -124,6 +124,14 @@ def test_get_domain_reports_timestamps_are_integers(seeded_client: TestClient):
     assert report["end_date"] == 1597535999
 
 
+def test_get_domain_reports_uses_nested_summary_totals(seeded_client: TestClient):
+    """Report rows should display totals from the parsed report summary."""
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/reports")
+    assert response.status_code == 200
+    report = response.json()["reports"][0]
+    assert report["total_emails"] == 10
+
+
 def test_get_domain_reports_unknown_domain_returns_404(client: TestClient):
     """Returns 404 when the requested domain has no reports."""
     response = client.get("/api/v1/domains/no-such-domain.example.com/reports")

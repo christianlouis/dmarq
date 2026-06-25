@@ -3,7 +3,17 @@ from datetime import date, datetime, timezone
 
 import pytest
 
-from app.services.demo_data import DEMO_DOMAINS, build_demo_reports, seed_demo_report_store
+from app.services.demo_data import (
+    DEMO_DOMAINS,
+    analyze_demo_forensic_reports,
+    build_demo_dashboard_statistics,
+    build_demo_forensic_reports,
+    build_demo_reports,
+    list_demo_forensic_reports,
+    list_demo_tls_reports,
+    seed_demo_report_store,
+    summarize_demo_tls_reports,
+)
 from app.services.dns_resolver import DemoDNSProvider
 from app.services.report_store import ReportStore
 
@@ -70,6 +80,55 @@ def test_seed_demo_report_store_replaces_store_with_demo_domains():
     assert set(store.get_domains()) == set(DEMO_DOMAINS)
     assert store.get_domain_summary("dmarq.org")["reports_processed"] == 90
     assert store.get_domain_sources("dmarq.com")
+
+
+def test_build_demo_dashboard_statistics_fills_chart_sources_and_changes():
+    stats = build_demo_dashboard_statistics(today=date(2026, 6, 25), period_days=30)
+
+    assert stats["total_domains"] == 2
+    assert stats["total_emails"] > 0
+    assert stats["compliance_trend"]
+    assert stats["top_sources"]
+    assert stats["change_summary"]
+    assert any(source["dmarc"] in {"mixed", "fail"} for source in stats["top_sources"])
+
+
+def test_build_demo_domain_statistics_includes_sources():
+    stats = build_demo_dashboard_statistics(
+        today=date(2026, 6, 25), period_days=30, domain="dmarq.com"
+    )
+
+    assert stats["domain"] == "dmarq.com"
+    assert "sources" in stats
+    assert stats["sources"]
+    assert "top_sources" not in stats
+
+
+def test_demo_tls_reports_fill_summary_and_list_views():
+    listed = list_demo_tls_reports(today=date(2026, 6, 25), page_size=10)
+    summary = summarize_demo_tls_reports(today=date(2026, 6, 25), days=30)
+
+    assert listed["total"] > 10
+    assert listed["reports"][0]["failures"] is not None
+    assert summary["totals"]["reports"] > 0
+    assert summary["totals"]["failed_sessions"] > 0
+    assert summary["trends"]
+    assert summary["top_failures"]
+    assert summary["affected_domains"]
+
+
+def test_demo_forensic_reports_fill_list_and_analysis_views():
+    reports = build_demo_forensic_reports(today=date(2026, 6, 25), days=30)
+    listed = list_demo_forensic_reports(today=date(2026, 6, 25), auth_failure="dkim")
+    analysis = analyze_demo_forensic_reports(today=date(2026, 6, 25), domain="dmarq.org")
+
+    assert reports
+    assert listed["total"] > 0
+    assert all(report["auth_failure"] == "dkim" for report in listed["reports"])
+    assert analysis["total"] > 0
+    assert analysis["groups"]
+    assert analysis["samples"]
+    assert "redacted headers and metadata only" in analysis["samples"][0]["privacy_note"]
 
 
 @pytest.mark.asyncio

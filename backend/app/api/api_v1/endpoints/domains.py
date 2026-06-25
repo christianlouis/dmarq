@@ -1717,6 +1717,7 @@ async def get_domain_reports(
     # Generate report entries
     report_entries = []
     for report in reports:
+        summary = report.get("summary") or {}
         policy_val = report.get("policy", "none")
         if isinstance(policy_val, dict):
             policy_val = policy_val.get("p", "none")
@@ -1726,8 +1727,8 @@ async def get_domain_reports(
                 org_name=report.get("org_name", "Unknown Organization"),
                 begin_date=report.get("begin_timestamp", 0),
                 end_date=report.get("end_timestamp", 0),
-                total_emails=report.get("total_count", 0),
-                pass_rate=report.get("pass_rate", 0.0),
+                total_emails=summary.get("total_count", report.get("total_count", 0)),
+                pass_rate=summary.get("pass_rate", report.get("pass_rate", 0.0)),
                 policy=policy_val,
             )
         )
