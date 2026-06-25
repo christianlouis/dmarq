@@ -74,6 +74,17 @@ def test_extract_dmarc_policy_missing_tag_without_reporting_uri():
     assert extract_dmarc_policy("v=DMARC1; fo=1") is None
 
 
+def test_parse_dmarc_record_tags_rejects_empty_and_malformed_records():
+    assert parse_dmarc_record_tags("") == {}
+    assert parse_dmarc_record_tags("not-a-tag") == {}
+
+
+def test_extract_dmarc_policy_ignores_duplicate_active_tags():
+    record = "v=DMARC1; p=reject; p=none"
+    assert parse_dmarc_record_tags(record)["p"] == "reject"
+    assert extract_dmarc_policy(record) == "reject"
+
+
 def test_parse_dmarc_record_tags_tracks_active_dmarcbis_tags_only():
     record = (
         "v=DMARC1; p=reject; sp=quarantine; np=none; psd=n; t=y; "
@@ -152,6 +163,33 @@ async def test_check_dmarc_finds_organizational_domain_via_tree_walk():
     assert policy_domain == "example.com"
     assert discovery_method == "treewalk"
     assert tags["p"] == "reject"
+
+
+@pytest.mark.asyncio
+async def test_check_dmarc_tree_walk_skips_to_seven_labels_for_deep_domains():
+    provider = FakeDNSProvider(
+        {"_dmarc.d.e.f.g.h.example.com": ["v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com"]}
+    )
+
+    found, record, policy_domain, discovery_method, tags = await provider.discover_dmarc_policy(
+        "a.b.c.d.e.f.g.h.example.com"
+    )
+
+    assert found is True
+    assert record == "v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com"
+    assert policy_domain == "d.e.f.g.h.example.com"
+    assert discovery_method == "treewalk"
+    assert tags["p"] == "quarantine"
+
+
+@pytest.mark.asyncio
+async def test_check_dmarc_ignores_record_without_policy_or_reporting_uri():
+    provider = FakeDNSProvider({"_dmarc.example.com": ["v=DMARC1; fo=1"]})
+
+    found, record = await provider.check_dmarc("example.com")
+
+    assert found is False
+    assert record is None
 
 
 @pytest.mark.asyncio
@@ -313,7 +351,7 @@ async def test_system_provider_joins_split_txt_record_chunks():
     """TXT chunks from one DNS RDATA item should be one logical record."""
 
     class FakeRdata:
-        strings = [b"v=DMARC1; p=reject; ", b"rua=mailto:dmarc@example.com"]
+        strings = (b"v=DMARC1; p=reject; ", b"rua=mailto:dmarc@example.com")
 
     class FakeAnswers:
         def __iter__(self):

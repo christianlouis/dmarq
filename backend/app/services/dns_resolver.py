@@ -167,13 +167,9 @@ def _tree_walk_domains(domain: str) -> List[str]:
     if len(labels) <= 1:
         return []
 
-    if len(labels) <= 8:
-        target_labels = labels[1:]
-    else:
-        target_labels = labels[-7:]
-
     domains: List[str] = []
-    while target_labels:
+    target_labels = labels[1:]
+    while len(target_labels) > 1 and len(domains) < 7:
         domains.append(".".join(target_labels))
         target_labels = target_labels[1:]
     return domains
@@ -233,23 +229,12 @@ class BaseDNSProvider(ABC):
         if record:
             return True, record, normalized_domain, "author", tags
 
-        discovered: List[Tuple[str, str, Dict[str, str]]] = []
         for candidate in _tree_walk_domains(normalized_domain):
             record, tags = await self._lookup_valid_dmarc_at(candidate)
-            if not record:
-                continue
-            discovered.append((candidate, record, tags))
-            if tags.get("psd", "").lower() in {"n", "y"}:
+            if record:
                 return True, record, candidate, "treewalk", tags
 
-        if not discovered:
-            return False, None, None, None, {}
-
-        policy_domain, record, tags = sorted(
-            discovered,
-            key=lambda item: len(item[0].split(".")),
-        )[0]
-        return True, record, policy_domain, "treewalk", tags
+        return False, None, None, None, {}
 
     async def check_dmarc(self, domain: str) -> Tuple[bool, Optional[str]]:
         """Return *(found, record_string)* for the applicable DMARC TXT record."""
