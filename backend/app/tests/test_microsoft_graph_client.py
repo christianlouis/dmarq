@@ -3,6 +3,7 @@
 import base64
 import zipfile
 from io import BytesIO
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 
@@ -75,13 +76,11 @@ class TestMicrosoftGraphOAuthHelpers:
         )
 
         assert url.startswith("https://login.microsoftonline.com/organizations/")
-        assert "client_id=client-id" in url
-        assert "response_type=code" in url
-        assert "offline_access" in url
-        assert "User.Read" in url
-        assert "Mail.Read" in url
-        assert "Mail.Read.Shared" in url
-        assert "state=42" in url
+        params = parse_qs(urlparse(url).query)
+        assert params["client_id"] == ["client-id"]
+        assert params["response_type"] == ["code"]
+        assert params["scope"] == [" ".join(M365_SCOPES)]
+        assert params["state"] == ["42"]
 
     def test_exchange_code_for_tokens_posts_to_tenant_endpoint(self, monkeypatch):
         def fake_post(url, data=None, timeout=None):
