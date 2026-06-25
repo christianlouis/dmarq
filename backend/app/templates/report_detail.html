@@ -6,14 +6,14 @@
 {% block title %}DMARQ - Report Detail{% endblock %}
 
 {% block content %}
-<div class="container mx-auto py-4" x-data="reportDetailApp('{{ report_id }}')">
-    <nav class="mb-4 text-sm">
+<div class="space-y-6" x-data="reportDetailApp('{{ report_id }}')">
+    <nav class="text-sm text-[#5f5c78]">
         <ol class="flex items-center space-x-2">
-            <li><a href="/" class="hover:text-primary">Dashboard</a></li>
-            <li><span class="text-muted-foreground px-2">/</span></li>
-            <li><a href="/reports" class="hover:text-primary">Reports</a></li>
-            <li><span class="text-muted-foreground px-2">/</span></li>
-            <li><span class="font-medium" x-text="reportId"></span></li>
+            <li><a href="/" class="font-semibold hover:text-[#2f9da5]">Dashboard</a></li>
+            <li><span class="px-2 text-[#b8b4bd]">/</span></li>
+            <li><a href="/reports" class="font-semibold hover:text-[#2f9da5]">Reports</a></li>
+            <li><span class="px-2 text-[#b8b4bd]">/</span></li>
+            <li><span class="font-semibold text-[#07071f]" x-text="reportId"></span></li>
         </ol>
     </nav>
 
@@ -38,23 +38,29 @@
     <template x-if="!loading && !error && report">
         <div class="grid grid-cols-1 gap-6">
             <!-- Header -->
-            <div class="flex justify-between items-start">
-                <div>
-                    <h1 class="text-2xl font-bold mb-1" x-text="'Report: ' + report.report_id"></h1>
-                    <p class="text-muted-foreground">
-                        Submitted by <span x-text="report.org_name"></span>
-                        &bull;
-                        <a :href="'/domains/' + report.domain" class="hover:text-primary" x-text="report.domain"></a>
-                    </p>
-                </div>
-                <div class="flex space-x-2">
-                    <a :href="'/domains/' + report.domain" class="btn btn-outline btn-sm">
-                        Back to Domain
-                    </a>
-                    <button class="btn btn-error btn-sm"
-                            @click="deleteReport(report.domain, report.report_id)">
-                        Delete Report
-                    </button>
+            <div class="rounded-lg bg-white p-6 shadow-sm">
+                <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                    <div>
+                        <p class="mb-2 text-sm font-semibold uppercase tracking-wide text-[#2f9da5]">Aggregate report</p>
+                        <h1 class="text-3xl font-bold tracking-normal text-[#07071f]" x-text="'Report: ' + report.report_id"></h1>
+                        <p class="mt-2 text-[#5f5c78]">
+                            Submitted by <span x-text="report.org_name"></span>
+                            &bull;
+                            <a :href="'/domains/' + encodeURIComponent(report.domain)" class="font-semibold text-[#2f9da5] hover:text-[#272a5f]" x-text="report.domain"></a>
+                        </p>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        <a :href="'/domains/' + encodeURIComponent(report.domain)" class="btn btn-outline btn-sm border-[#dfdfdf] text-[#272a5f] hover:border-[#2f9da5] hover:bg-[#f4f3f2]">
+                            Back to Domain
+                        </a>
+                        <a href="/reports" class="btn btn-outline btn-sm border-[#dfdfdf] text-[#272a5f] hover:border-[#2f9da5] hover:bg-[#f4f3f2]">
+                            All Reports
+                        </a>
+                        <button class="btn btn-error btn-sm"
+                                @click="deleteReport(report.domain, report.report_id)">
+                            Delete Report
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -65,7 +71,8 @@
                         {% call card_title() %}Total Emails{% endcall %}
                     {% endcall %}
                     {% call card_content() %}
-                        <div class="stat-value text-2xl font-bold" x-text="report.summary.total_count">-</div>
+                        <div class="text-3xl font-bold text-[#120d36]" x-text="report.summary.total_count">-</div>
+                        <p class="mt-1 text-sm text-[#5f5c78]">Messages covered</p>
                     {% endcall %}
                 {% endcall %}
                 {% call card() %}
@@ -73,7 +80,8 @@
                         {% call card_title() %}Passed{% endcall %}
                     {% endcall %}
                     {% call card_content() %}
-                        <div class="stat-value text-2xl font-bold text-success" x-text="report.summary.passed_count">-</div>
+                        <div class="text-3xl font-bold text-[#2f9da5]" x-text="report.summary.passed_count">-</div>
+                        <p class="mt-1 text-sm text-[#5f5c78]">DMARC aligned</p>
                     {% endcall %}
                 {% endcall %}
                 {% call card() %}
@@ -81,7 +89,8 @@
                         {% call card_title() %}Failed{% endcall %}
                     {% endcall %}
                     {% call card_content() %}
-                        <div class="stat-value text-2xl font-bold text-error" x-text="report.summary.failed_count">-</div>
+                        <div class="text-3xl font-bold text-[#ff6f3c]" x-text="report.summary.failed_count">-</div>
+                        <p class="mt-1 text-sm text-[#5f5c78]">Needs review</p>
                     {% endcall %}
                 {% endcall %}
                 {% call card() %}
@@ -89,9 +98,10 @@
                         {% call card_title() %}Pass Rate{% endcall %}
                     {% endcall %}
                     {% call card_content() %}
-                        <div class="stat-value text-2xl font-bold"
+                        <div class="text-3xl font-bold"
                              :class="passRateClass(report.summary.pass_rate)"
                              x-text="report.summary.pass_rate.toFixed(1) + '%'">-</div>
+                        <p class="mt-1 text-sm text-[#5f5c78]">Authentication rate</p>
                     {% endcall %}
                 {% endcall %}
             </div>
