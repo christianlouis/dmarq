@@ -75,6 +75,20 @@ For deployment verification, upgrades, rollback, and routine checks, use the [Op
 | `REPORTS_PER_PAGE` | Reports to show per page | `25` | `10`, `50`, `100` |
 | `MAX_UPLOAD_SIZE` | Maximum file upload size (MB) | `10` | `20`, `50` |
 | `SESSION_LIFETIME` | Session lifetime in minutes | `1440` (24h) | `60`, `720` |
+| `DEMO_MODE` | Force generated demo reports and demo DNS records for public demo instances. Do not enable on production customer data. | `false` | `true` |
+
+### Demo Mode
+
+Set `DEMO_MODE=true` only for public demo environments such as `demo.dmarq.org`.
+When enabled, DMARQ replaces the in-memory report store with deterministic
+synthetic DMARC aggregate reports for `dmarq.org` and `dmarq.com`. The data is
+generated inside the application, rolls forward with the current date, and
+always covers the last 90 days so 30, 60, and 90 day views remain populated.
+
+Demo mode also uses a built-in DNS provider for those two domains. It returns a
+mix of clean records, middle-of-the-road records, and intentional lint findings
+so the domain detail, posture, DNS guidance, CSV export, and report views have
+useful content without requiring real inbound reports or public DNS changes.
 
 ### Notification Configuration
 

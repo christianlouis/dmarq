@@ -708,6 +708,56 @@ class CloudflareDNSProvider(BaseDNSProvider):
         return None
 
 
+class DemoDNSProvider(BaseDNSProvider):
+    """Deterministic DNS provider for the opt-in public demo mode."""
+
+    def __init__(self) -> None:
+        self._records = {
+            "dmarq.org": ["v=spf1 include:_spf.mail.example -all"],
+            "_dmarc.dmarq.org": [
+                (
+                    "v=DMARC1; p=quarantine; sp=reject; adkim=s; aspf=r; "
+                    "rua=mailto:dmarc@dmarq.org,mailto:dmarc@reports.dmarq.net"
+                )
+            ],
+            "dmarq.org._report._dmarc.reports.dmarq.net": ["v=DMARC1"],
+            "selector1._domainkey.dmarq.org": ["v=DKIM1; k=rsa; p=DEMOSELECTOR1"],
+            "news._domainkey.dmarq.org": ["v=DKIM1; k=rsa; p=DEMONEWS"],
+            "zendesk._domainkey.dmarq.org": ["v=DKIM1; k=rsa; p=DEMOZENDESK"],
+            "_mta-sts.dmarq.org": ["v=STSv1; id=20260625"],
+            "_smtp._tls.dmarq.org": ["v=TLSRPTv1; rua=mailto:tlsrpt@dmarq.org"],
+            "default._bimi.dmarq.org": [
+                "v=BIMI1; l=https://demo.dmarq.org/static/demo-bimi.svg; a="
+            ],
+            "dmarq.com": ["v=spf1 include:_spf.mail.example +all"],
+            "_dmarc.dmarq.com": [
+                "v=DMARC1; p=none; rua=mailto:dmarc@reports.dmarq.org!50m; adkim=r; aspf=r"
+            ],
+            "google._domainkey.dmarq.com": ["v=DKIM1; k=rsa; p=DEMOGOOGLE"],
+            "stripe._domainkey.dmarq.com": ["v=DKIM1; k=rsa; p=DEMOSTRIPE"],
+            "_smtp._tls.dmarq.com": ["v=TLSRPTv1"],
+        }
+
+    async def lookup_txt(self, name: str) -> List[str]:
+        normalized = _normalize_dns_name(name)
+        if normalized in self._records:
+            return list(self._records[normalized])
+        raise LookupError(f"Demo DNS record not found for {name}")
+
+    async def lookup_ptr(self, ip: str) -> Optional[str]:
+        ptr_records = {
+            "203.0.113.10": "primary-saas.demo.dmarq.org",
+            "203.0.113.44": "newsletter.demo.dmarq.org",
+            "198.51.100.23": "ticketing.demo.dmarq.org",
+            "192.0.2.66": "legacy-crm.demo.dmarq.org",
+            "203.0.113.75": "workspace-mail.demo.dmarq.com",
+            "198.51.100.88": "marketing.demo.dmarq.com",
+            "192.0.2.114": "billing.demo.dmarq.com",
+            "198.51.100.199": "unknown-forwarder.demo.dmarq.com",
+        }
+        return ptr_records.get(ip)
+
+
 def _decrypt_setting_value(value: Optional[str]) -> Optional[str]:
     if not value:
         return value
@@ -733,11 +783,14 @@ def _setting_value(db: Any, key: str) -> Optional[str]:
 
 def get_default_provider(db: Any = None) -> BaseDNSProvider:
     """Return the configured default DNS provider."""
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    if settings.DEMO_MODE:
+        return DemoDNSProvider()
+
     resolver = (_setting_value(db, "dns.resolver") or "").strip().lower()
     if resolver == "cloudflare":
-        from app.core.config import get_settings
-
-        settings = get_settings()
         api_token = _decrypt_setting_value(_setting_value(db, "cloudflare.api_token"))
         zone_id = _setting_value(db, "cloudflare.zone_id")
         return CloudflareDNSProvider(

@@ -4,8 +4,10 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.config import get_settings
 from app.models.domain import Domain
 from app.models.report import DMARCReport, ReportRecord
+from app.services.demo_data import seed_demo_report_store
 from app.services.report_store import ReportStore
 from app.services.workspaces import assign_default_workspace_to_unscoped_rows
 
@@ -250,6 +252,9 @@ def persisted_report_to_dict(report: DMARCReport) -> Dict[str, Any]:
 
 def hydrate_report_store_from_db(db: Session, store: Optional[ReportStore] = None) -> int:
     """Load persisted reports into ReportStore when the database has report rows."""
+    if get_settings().DEMO_MODE:
+        return seed_demo_report_store(store)
+
     report_count = db.query(DMARCReport.id).count()
     if report_count == 0:
         return 0
