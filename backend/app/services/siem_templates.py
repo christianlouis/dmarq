@@ -302,6 +302,7 @@ SIEM_CONFIG_TEMPLATES: Dict[str, Dict[str, Any]] = {
         "webhook_url_pattern": "https://siem-relay.example/dmarq/splunk-hec",
         "delivery_model": "relay_required",
         "relay_target_url_pattern": "https://splunk.example:8088/services/collector/event",
+        "headers": {},
         "headers_added_by_relay": {
             "Authorization": "Splunk ${SPLUNK_HEC_TOKEN}",
             "Content-Type": "application/json",
@@ -385,10 +386,11 @@ def _append_alert_errors(event: Dict[str, Any], errors: List[str]) -> None:
         return
 
     for field in SIEM_EVENT_SCHEMA["properties"]["alert"]["required"]:
-        if not alert.get(field):
+        if field not in alert:
             errors.append(f"alert.{field} is required when alert is present")
 
-    if alert.get("status") not in {"active", "resolved", "informational"}:
+    allowed_statuses = SIEM_EVENT_SCHEMA["properties"]["alert"]["properties"]["status"]["enum"]
+    if "status" in alert and alert.get("status") not in allowed_statuses:
         errors.append("alert.status is not supported")
 
 
