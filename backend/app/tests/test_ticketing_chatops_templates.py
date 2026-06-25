@@ -8,7 +8,11 @@ from app.services.ticketing_chatops_templates import (
     get_ticketing_chatops_templates,
     validate_workflow_template_bundle,
 )
-from app.services.webhook_events import EVENT_ALERT_RESOLVED, EVENT_COMPLIANCE_DROP
+from app.services.webhook_events import (
+    EVENT_ALERT_CREATED,
+    EVENT_ALERT_RESOLVED,
+    EVENT_COMPLIANCE_DROP,
+)
 
 
 def _string_values(value):
@@ -43,6 +47,23 @@ def test_ticketing_chatops_templates_have_no_embedded_credentials():
 
     for forbidden in ["xoxb-", "ghp_", "jira_pat", "incoming_webhook", "bearer "]:
         assert forbidden not in encoded_values
+
+
+def test_alert_created_and_resolved_share_dedupe_key_template():
+    """Resolved alert events must correlate to the original created alert."""
+    bundle = get_ticketing_chatops_templates()
+    mappings = bundle["event_workflow_mappings"]
+    context = {
+        "domain": "example.com",
+        "alert_rule": "compliance_drop",
+        "event_type": "ignored-for-alert-lifecycle-dedupe",
+    }
+
+    created_key = mappings[EVENT_ALERT_CREATED]["dedupe_key_template"].format(**context)
+    resolved_key = mappings[EVENT_ALERT_RESOLVED]["dedupe_key_template"].format(**context)
+
+    assert created_key == "dmarq:alert:example.com:compliance_drop"
+    assert resolved_key == created_key
 
 
 def test_ticketing_chatops_validation_reports_template_drift():
