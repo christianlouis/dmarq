@@ -373,7 +373,9 @@ function dashboardApp() {
                 label.textContent = 'failure samples';
                 wrapper.appendChild(label);
 
-                const groups = Object.entries(data.failure_counts || {}).slice(0, 3);
+                const groups = Object.entries(data.failure_counts || {})
+                    .sort(([, leftCount], [, rightCount]) => rightCount - leftCount)
+                    .slice(0, 3);
                 groups.forEach(([name, count]) => {
                     const row = document.createElement('div');
                     row.className = 'flex items-center justify-between border-t border-[#e6e3e1] pt-3 text-sm';
@@ -518,7 +520,6 @@ function dashboardApp() {
                         y: {
                             beginAtZero: false,
                             max: 100,
-                            min: 80,
                             grid: {
                                 color: '#dfdfdf'
                             },

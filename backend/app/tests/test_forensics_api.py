@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
@@ -90,6 +91,31 @@ def test_list_forensic_reports_filters_failure_fields(authed_client, db_session)
     data = response.json()
     assert data["total"] == 1
     assert data["reports"][0]["report_id"] == "ruf-spf-filter-test"
+
+
+def test_demo_mode_forensic_endpoints_return_synthetic_data(authed_client, monkeypatch):
+    monkeypatch.setattr(
+        forensics_endpoint,
+        "get_settings",
+        lambda: SimpleNamespace(DEMO_MODE=True),
+    )
+
+    list_response = authed_client.get("/api/v1/forensics?domain=dmarq.org&page_size=5")
+    assert list_response.status_code == 200
+    list_data = list_response.json()
+    assert list_data["total"] > 0
+    assert len(list_data["reports"]) <= 5
+
+    report_id = list_data["reports"][0]["id"]
+    detail_response = authed_client.get(f"/api/v1/forensics/{report_id}")
+    assert detail_response.status_code == 200
+    assert detail_response.json()["id"] == report_id
+
+    analysis_response = authed_client.get("/api/v1/forensics/analysis?domain=dmarq.org")
+    assert analysis_response.status_code == 200
+    analysis_data = analysis_response.json()
+    assert analysis_data["total"] > 0
+    assert analysis_data["groups"]
 
 
 def test_forensic_analysis_groups_failure_samples(authed_client, db_session):
