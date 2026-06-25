@@ -24,8 +24,9 @@ DMARQ uses delegated Microsoft Graph permissions:
 | Permission | Purpose |
 |------------|---------|
 | `offline_access` | Receive refresh tokens for scheduled polling. |
-| `User.Read` | Identify the authorised account during OAuth setup. |
-| `Mail.Read` | List messages and read report attachments. |
+| `User.Read` | Identify the authorized account during OAuth setup. |
+| `Mail.Read` | List messages and read report attachments from the authorized account. |
+| `Mail.Read.Shared` | Read report messages and attachments in shared or delegated mailboxes. |
 
 Application-wide Graph permissions are outside this contract. If a deployment
 needs application permissions later, it should be designed as a separate
@@ -35,10 +36,10 @@ connector mode with a separate risk review.
 
 The connector supports two mailbox targets:
 
-- Blank mailbox or `me`: read the authorised account through `/me`.
+- Blank mailbox or `me`: read the authorized account through `/me`.
 - User principal name: read a delegated or shared mailbox through `/users/{upn}`.
 
-The authorised account must already have Exchange Online read access to any
+The authorized account must already have Exchange Online read access to any
 shared mailbox or folder. DMARQ does not grant mailbox permissions.
 
 Folder selection should prefer Microsoft Graph folder ids returned by **Load

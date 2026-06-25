@@ -53,6 +53,7 @@ class TestMicrosoftGraphOAuthHelpers:
             "offline_access",
             "https://graph.microsoft.com/User.Read",
             "https://graph.microsoft.com/Mail.Read",
+            "https://graph.microsoft.com/Mail.Read.Shared",
         ]
         assert callable(client.search_messages)
         assert callable(client.iter_attachments)
@@ -79,6 +80,7 @@ class TestMicrosoftGraphOAuthHelpers:
         assert "offline_access" in url
         assert "User.Read" in url
         assert "Mail.Read" in url
+        assert "Mail.Read.Shared" in url
         assert "state=42" in url
 
     def test_exchange_code_for_tokens_posts_to_tenant_endpoint(self, monkeypatch):
