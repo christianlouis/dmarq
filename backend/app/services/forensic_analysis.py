@@ -147,6 +147,14 @@ def _signals(
         signals.append(f"DKIM header domain: {header_domain}")
     if mailfrom_domain:
         signals.append(f"SPF mail-from domain: {mailfrom_domain}")
+    signals.extend(_rfc9991_feedback_signals(feedback_headers))
+    for mechanism, result in sorted(auth_results.items()):
+        signals.append(f"{mechanism.upper()} result: {result}")
+    return signals
+
+
+def _rfc9991_feedback_signals(feedback_headers: Dict[str, Any]) -> List[str]:
+    signals = []
     identity_alignment = _clean_value(feedback_headers.get("identity_alignment"))
     if identity_alignment:
         signals.append(f"Identity alignment: {identity_alignment}")
@@ -163,8 +171,6 @@ def _signals(
         signals.append("DKIM canonicalized header was supplied but not stored")
     if feedback_headers.get("dkim_canonicalized_body_present"):
         signals.append("DKIM canonicalized body was supplied but not stored")
-    for mechanism, result in sorted(auth_results.items()):
-        signals.append(f"{mechanism.upper()} result: {result}")
     return signals
 
 
