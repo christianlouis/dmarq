@@ -232,26 +232,48 @@ def _lint_dmarc_tags(
     if not tags.get("rua"):
         suggestions.append("Add rua=mailto:... so aggregate reports can reach DMARQ.")
 
+    warnings.extend(_lint_policy_tags(tags))
+    warnings.extend(_lint_alignment_tags(tags))
+    warnings.extend(_lint_yes_no_tags(tags))
+    warnings.extend(_lint_failure_options(tags))
+    return warnings, suggestions
+
+
+def _lint_policy_tags(tags: Dict[str, str]) -> List[str]:
+    warnings: List[str] = []
     for tag in ("p", "sp", "np"):
         value = tags.get(tag)
         if value and not _valid_policy_value(value):
             warnings.append(f"DMARC {tag} tag uses unsupported policy value {value!r}.")
+    return warnings
+
+
+def _lint_alignment_tags(tags: Dict[str, str]) -> List[str]:
+    warnings: List[str] = []
     for tag in ("adkim", "aspf"):
         value = (tags.get(tag) or "").lower()
         if value and value not in {"r", "s"}:
             warnings.append(f"DMARC {tag} tag should be r or s.")
+    return warnings
+
+
+def _lint_yes_no_tags(tags: Dict[str, str]) -> List[str]:
+    warnings: List[str] = []
     for tag in ("psd", "t"):
         value = (tags.get(tag) or "").lower()
         if value and value not in {"y", "n"}:
             warnings.append(f"DMARC {tag} tag should be y or n.")
+    return warnings
+
+
+def _lint_failure_options(tags: Dict[str, str]) -> List[str]:
     fo = tags.get("fo")
     if fo:
         allowed = {"0", "1", "d", "s"}
         invalid = [part for part in fo.split(":") if part not in allowed]
         if invalid:
-            warnings.append("DMARC fo tag contains unsupported failure options.")
-
-    return warnings, suggestions
+            return ["DMARC fo tag contains unsupported failure options."]
+    return []
 
 
 async def _lint_external_reporting_destinations(
