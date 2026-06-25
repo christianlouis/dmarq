@@ -28,7 +28,13 @@
             x-data="userMenu()" x-init="loadUser()">
         <div class="flex flex-1 items-center">
             <a href="/" class="inline-flex items-center gap-4" aria-label="DMARQ Dashboard">
-                <img src="/static/img/logo_dark.png" alt="" class="h-12 w-12 object-cover">
+                <span class="grid h-12 w-12 place-items-center bg-[#171b49]" aria-hidden="true">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-9 w-9" viewBox="0 0 48 48" fill="none">
+                        <path d="M24 4 39 9v12.4c0 9.9-6.1 17.3-15 21.9C15.1 38.7 9 31.3 9 21.4V9l15-5Z" stroke="currentColor" stroke-width="3.5" fill="none"/>
+                        <circle cx="24" cy="23" r="9" stroke="currentColor" stroke-width="3.5"/>
+                        <path d="m30 29 5 5" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
+                    </svg>
+                </span>
                 <span class="text-3xl font-bold tracking-normal">DMARQ</span>
             </a>
         </div>
