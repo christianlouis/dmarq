@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -104,6 +106,15 @@ def test_forensic_analysis_groups_failure_samples(authed_client, db_session):
                 "mx.example.net; dkim=pass header.d=example.com; "
                 "spf=fail smtp.mailfrom=example.com; dmarc=fail"
             ),
+            "feedback_headers": json.dumps(
+                {
+                    "identity_alignment": "spf",
+                    "dkim_identity": "al***@example.com",
+                    "dkim_selector": "mail2026",
+                    "spf_dns": "v=spf1 include:_spf.example.com -all",
+                    "dkim_canonicalized_body_present": True,
+                }
+            ),
         }
     )
     save_forensic_report(db_session, dkim)
@@ -121,6 +132,11 @@ def test_forensic_analysis_groups_failure_samples(authed_client, db_session):
     assert data["groups"][0]["priority"] == "high"
     assert "redacted headers and metadata only" in data["samples"][0]["privacy_note"]
     assert any("SPF" in action for action in data["samples"][0]["recommendations"])
+    signals = [signal for sample in data["samples"] for signal in sample["signals"]]
+    assert "Identity alignment: spf" in signals
+    assert "DKIM selector: mail2026" in signals
+    assert "SPF DNS: v=spf1 include:_spf.example.com -all" in signals
+    assert "DKIM canonicalized body was supplied but not stored" in signals
 
 
 def test_forensic_report_responses_include_sample_analysis(authed_client):

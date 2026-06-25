@@ -190,11 +190,13 @@ Delivered:
 - Add parser compatibility for RFC 9990-style aggregate report namespaces, version detection, policy metadata, identifiers, override reasons, auth-result details, and namespaced extensions.
 - Keep legacy RFC 7489-style reports backward compatible through fixture coverage.
 - Persist and CSV-export newly introduced aggregate metadata with nullable, backward-safe database fields.
+- Preserve RFC 9991 DMARC failure-report metadata in the forensic/RUF parser, including identity alignment, DKIM selector/identity, SPF DNS detail, and canonicalized-content presence flags without storing message bodies.
 - Add a fixture-driven compatibility pack covering parser, upload, IMAP, and Gmail import paths with supported-format documentation.
 - Verify domain report views and CSV exports render fixture-backed DMARCbis-style imports correctly.
 
 Exit criteria:
 - A DMARCbis-style aggregate report can be imported via upload/IMAP/Gmail and renders correctly in dashboards and exports.
+- A DMARCbis-style failure report can be imported via upload/mailbox paths and appears in forensic analysis with redacted RFC 9991 diagnostics.
 
 ## Milestone 12: Enterprise Mail Sources (Microsoft 365) and Connector Framework
 

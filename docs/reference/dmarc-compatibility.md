@@ -1,4 +1,4 @@
-# DMARC Aggregate Format Compatibility
+# DMARC Format Compatibility
 
 DMARQ imports DMARC aggregate reports from direct uploads, IMAP attachments, Gmail API attachments, and the Cloudflare Email Worker webhook. Compatibility is locked by the fixture pack in `backend/app/tests/fixtures/dmarc_aggregate`.
 
@@ -10,6 +10,16 @@ DMARQ imports DMARC aggregate reports from direct uploads, IMAP attachments, Gma
 - RFC 7489-compatible aggregate reports without XML namespaces.
 - Namespaced aggregate reports using `urn:ietf:params:xml:ns:dmarc-2.0`.
 - RFC 9990-style reports with optional metadata such as `version`, `generator`, `extra_contact_info`, repeated `error` values, `np`, `fo`, `testing`, `discovery_method`, `envelope_to`, policy override reasons, `human_result`, SPF `scope`, and namespaced extension elements.
+
+## Supported Failure Report Inputs
+
+DMARQ consumes inbound DMARC failure reports through its forensic/RUF pipeline. This is RFC 9991 receiver-side support for operators who receive reports, not outbound generation of failure reports.
+
+- `multipart/report` messages with `report-type=feedback-report`.
+- ARF feedback parts using `message/feedback-report`.
+- Original-message metadata supplied as `text/rfc822-headers` or `message/rfc822`; message bodies are not stored.
+- RFC 9991 DMARC failure metadata including `Auth-Failure: dmarc`, `Identity-Alignment`, `Delivery-Result`, `DKIM-Domain`, `DKIM-Identity`, `DKIM-Selector`, `SPF-DNS`, and `Reported-URI`.
+- Canonicalized DKIM header/body fields are treated as sensitive content. DMARQ records presence flags for diagnostics but does not persist their values.
 
 ## Supported Policy Discovery
 
@@ -24,7 +34,7 @@ Live DNS checks parse DMARC policy records according to RFC 9989:
 
 ## Preserved Metadata
 
-Newer optional fields are parsed without changing the legacy response shape that existing screens use. When a database is configured, DMARQ also persists the optional report metadata, policy metadata, record identifiers, policy override reasons, and extension payloads so exports and future views can use them.
+Newer optional fields are parsed without changing the legacy response shape that existing screens use. When a database is configured, DMARQ also persists the optional aggregate report metadata, policy metadata, record identifiers, policy override reasons, extension payloads, and redacted failure-report diagnostics so exports and future views can use them.
 
 CSV exports include the most useful aggregate metadata for operators:
 
@@ -46,6 +56,7 @@ CSV exports include the most useful aggregate metadata for operators:
 - Reports with no `<record>` elements import with a zero-count summary.
 - Unsupported attachments are skipped by IMAP and Gmail import paths and recorded in import details when stats are available.
 - For duplicate detection, DMARQ uses the domain and `report_id` pair. Fixture report IDs must remain unique within a single test import run.
+- RFC 9991 describes report generation duties such as outbound rate limiting and external `ruf` destination verification for Mail Receivers. DMARQ currently implements report-consumer parsing and analysis, not report generation.
 
 ## Fixture Pack
 

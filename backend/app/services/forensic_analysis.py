@@ -150,6 +150,19 @@ def _signals(
     identity_alignment = _clean_value(feedback_headers.get("identity_alignment"))
     if identity_alignment:
         signals.append(f"Identity alignment: {identity_alignment}")
+    dkim_identity = _clean_value(feedback_headers.get("dkim_identity"))
+    if dkim_identity:
+        signals.append(f"DKIM identity: {dkim_identity}")
+    dkim_selector = _clean_value(feedback_headers.get("dkim_selector"))
+    if dkim_selector:
+        signals.append(f"DKIM selector: {dkim_selector}")
+    spf_dns = _clean_value(feedback_headers.get("spf_dns"))
+    if spf_dns:
+        signals.append(f"SPF DNS: {spf_dns}")
+    if feedback_headers.get("dkim_canonicalized_header_present"):
+        signals.append("DKIM canonicalized header was supplied but not stored")
+    if feedback_headers.get("dkim_canonicalized_body_present"):
+        signals.append("DKIM canonicalized body was supplied but not stored")
     for mechanism, result in sorted(auth_results.items()):
         signals.append(f"{mechanism.upper()} result: {result}")
     return signals
