@@ -69,6 +69,14 @@ def test_siem_alert_schema_requires_metadata_when_alert_is_present():
     assert "alert.title is required when alert is present" in errors
     assert "alert.detail is required when alert is present" in errors
     assert "alert.status is required when alert is present" in errors
+    assert "alert.status is not supported" not in errors
+
+    assert (
+        validate_siem_event(
+            {**event, "alert": {"title": "", "detail": "", "status": "active"}}
+        )
+        == []
+    )
 
     assert "alert must be an object or null" in validate_siem_event({**event, "alert": "active"})
     assert "alert.status is not supported" in validate_siem_event(
@@ -85,6 +93,7 @@ def test_splunk_template_requires_relay_to_add_hec_authorization():
     assert "splunk.example:8088/services/collector/event" not in splunk_template[
         "webhook_url_pattern"
     ]
+    assert splunk_template["headers"] == {}
     assert "Authorization" not in splunk_template.get("headers", {})
     assert splunk_template["headers_added_by_relay"]["Authorization"].startswith("Splunk ")
 
