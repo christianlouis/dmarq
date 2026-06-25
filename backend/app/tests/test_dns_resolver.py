@@ -122,8 +122,10 @@ async def test_check_domain_lints_external_report_destination_without_authorizat
 
     result = await provider.check_domain("example.com", selectors=[])
 
-    assert any("reports.example.net" in item for item in result.dmarc_warnings)
-    assert any("authorization TXT" in item for item in result.dmarc_warnings)
+    assert result.dmarc_warnings == [
+        "External rua destination reports.example.net is missing authorization TXT at "
+        "example.com._report._dmarc.reports.example.net."
+    ]
 
 
 @pytest.mark.asyncio
