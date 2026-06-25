@@ -96,6 +96,7 @@ SIEM_EVENT_SCHEMA: Dict[str, Any] = {
         "alert": {
             "type": ["object", "null"],
             "additionalProperties": False,
+            "required": ["title", "detail", "status"],
             "properties": {
                 "title": {"type": "string"},
                 "detail": {"type": "string"},
@@ -298,15 +299,19 @@ SIEM_INGESTION_EXAMPLES: Dict[str, Dict[str, Any]] = {
 
 SIEM_CONFIG_TEMPLATES: Dict[str, Dict[str, Any]] = {
     "splunk_hec": {
-        "webhook_url_pattern": "https://splunk.example:8088/services/collector/event",
-        "headers": {
+        "webhook_url_pattern": "https://siem-relay.example/dmarq/splunk-hec",
+        "delivery_model": "relay_required",
+        "relay_target_url_pattern": "https://splunk.example:8088/services/collector/event",
+        "headers_added_by_relay": {
             "Authorization": "Splunk ${SPLUNK_HEC_TOKEN}",
             "Content-Type": "application/json",
         },
         "recommended_index": "email_security",
         "recommended_sourcetype": "_json",
         "notes": [
-            "Store the HEC token in the receiving proxy or SIEM secret store.",
+            "Point DMARQ at a relay or workflow endpoint, not directly at Splunk HEC.",
+            "DMARQ webhook delivery cannot emit the Splunk Authorization header.",
+            "Store the HEC token in the receiving relay, proxy, or SIEM secret store.",
             "Deduplicate with event.event_id or X-DMARQ-Idempotency-Key.",
         ],
     },
@@ -371,6 +376,22 @@ def _append_redaction_errors(event: Dict[str, Any], errors: List[str]) -> None:
     errors.extend(message for passed, message in checks if not passed)
 
 
+def _append_alert_errors(event: Dict[str, Any], errors: List[str]) -> None:
+    alert = event.get("alert")
+    if alert is None:
+        return
+    if not isinstance(alert, dict):
+        errors.append("alert must be an object or null")
+        return
+
+    for field in SIEM_EVENT_SCHEMA["properties"]["alert"]["required"]:
+        if not alert.get(field):
+            errors.append(f"alert.{field} is required when alert is present")
+
+    if alert.get("status") not in {"active", "resolved", "informational"}:
+        errors.append("alert.status is not supported")
+
+
 def get_siem_templates() -> Dict[str, Any]:
     """Return a copy of the versioned SIEM template bundle."""
     return copy.deepcopy(
@@ -402,4 +423,5 @@ def validate_siem_event(event: Dict[str, Any]) -> List[str]:
         errors.append("entity.domain is required")
 
     _append_redaction_errors(event, errors)
+    _append_alert_errors(event, errors)
     return errors

@@ -54,6 +54,45 @@ def test_siem_ingestion_examples_wrap_valid_dmarq_events():
         assert wrapped_event["schema_version"] == SIEM_SCHEMA_VERSION
 
 
+def test_siem_alert_schema_requires_metadata_when_alert_is_present():
+    """Alert metadata is optional, but partial alert objects are not valid."""
+    templates = get_siem_templates()
+    alert_schema = templates["event_schema"]["properties"]["alert"]
+    event = templates["event_examples"]["compliance_drop"].copy()
+
+    assert alert_schema["type"] == ["object", "null"]
+    assert alert_schema["required"] == ["title", "detail", "status"]
+    assert validate_siem_event({**event, "alert": None}) == []
+
+    errors = validate_siem_event({**event, "alert": {}})
+
+    assert "alert.title is required when alert is present" in errors
+    assert "alert.detail is required when alert is present" in errors
+    assert "alert.status is required when alert is present" in errors
+
+    assert "alert must be an object or null" in validate_siem_event({**event, "alert": "active"})
+    assert "alert.status is not supported" in validate_siem_event(
+        {**event, "alert": {"title": "Title", "detail": "Detail", "status": "open"}}
+    )
+
+
+def test_splunk_template_requires_relay_to_add_hec_authorization():
+    """DMARQ cannot send Splunk's Authorization header directly."""
+    templates = get_siem_templates()
+    splunk_template = templates["config_templates"]["splunk_hec"]
+
+    assert splunk_template["delivery_model"] == "relay_required"
+    assert "splunk.example:8088/services/collector/event" not in splunk_template[
+        "webhook_url_pattern"
+    ]
+    assert "Authorization" not in splunk_template.get("headers", {})
+    assert splunk_template["headers_added_by_relay"]["Authorization"].startswith("Splunk ")
+
+    notes = " ".join(splunk_template["notes"]).lower()
+    assert "relay" in notes
+    assert "cannot emit the splunk authorization header" in notes
+
+
 def test_siem_templates_endpoint_returns_common_configs(authed_client: TestClient):
     """Administrators can fetch schemas, examples, and SIEM config hints."""
     response = authed_client.get("/api/v1/integrations/siem/templates")

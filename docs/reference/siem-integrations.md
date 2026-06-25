@@ -84,14 +84,28 @@ Supported normalized event types are:
 
 ## Splunk HEC
 
-Use the webhook URL for a relay or directly for Splunk HEC when your network
-allows it:
+Use the DMARQ webhook URL for a relay, proxy, or workflow endpoint. Do not point
+DMARQ directly at Splunk HEC:
+
+```text
+https://siem-relay.example/dmarq/splunk-hec
+```
+
+The relay forwards to Splunk HEC and adds Splunk's required authorization
+header from its own secret store:
 
 ```text
 https://splunk.example:8088/services/collector/event
+Authorization: Splunk ${SPLUNK_HEC_TOKEN}
 ```
 
-Send the normalized event as the `event` field:
+DMARQ webhook delivery uses a fixed DMARQ header set for signing,
+idempotency, and content type. It cannot emit `Authorization: Splunk <token>`
+on the outbound webhook request. Put the HEC token in the relay, Splunk, or a
+secret manager used by the relay. Do not store Splunk credentials in the DMARQ
+webhook URL.
+
+Forward the normalized event as the HEC `event` field:
 
 ```json
 {
@@ -107,9 +121,6 @@ Send the normalized event as the `event` field:
   }
 }
 ```
-
-Keep the HEC token in Splunk, a receiving proxy, or a secret manager. Do not
-store Splunk credentials in the DMARQ webhook URL.
 
 ## Elastic ECS
 
