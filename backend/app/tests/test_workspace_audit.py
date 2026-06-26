@@ -3,13 +3,21 @@ import json
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.core.database import get_db
+from app.core.security import require_admin_auth
+from app.models.user import User
+from app.models.workspace import Workspace
+from app.models.workspace_access import WorkspaceMembership
 from app.models.workspace_access import WorkspaceAuditLog
 from app.services.workspace_access import (
     PERMISSION_WORKSPACE_ADMIN,
+    ROLE_ANALYST,
+    ROLE_AUDITOR,
     ROLE_DOMAIN_ADMIN,
     ROLE_WORKSPACE_OWNER,
     require_workspace_permission,
     role_for_auth_context,
+    role_for_workspace,
 )
 from app.services.workspace_audit import (
     actor_from_auth,
@@ -19,6 +27,46 @@ from app.services.workspace_audit import (
     sanitize_audit_details,
 )
 from app.services.workspaces import get_or_create_default_workspace
+
+
+def _add_user(db_session: Session, email: str, workspace_id=None, is_superuser=False):
+    user = User(
+        email=email,
+        workspace_id=workspace_id,
+        is_superuser=is_superuser,
+        is_active=True,
+        is_verified=True,
+    )
+    db_session.add(user)
+    db_session.flush()
+    return user
+
+
+def _add_membership(db_session: Session, workspace: Workspace, user: User, role: str):
+    membership = WorkspaceMembership(
+        workspace_id=workspace.id,
+        user_id=user.id,
+        role=role,
+        active=True,
+    )
+    db_session.add(membership)
+    db_session.flush()
+    return membership
+
+
+def _client_as_user(test_app, db_session: Session, user: User):
+    async def mock_admin_auth():
+        return {"auth_type": "session", "user_id": user.id}
+
+    def override_get_db():
+        try:
+            yield db_session
+        finally:
+            pass
+
+    test_app.dependency_overrides[get_db] = override_get_db
+    test_app.dependency_overrides[require_admin_auth] = mock_admin_auth
+    return TestClient(test_app)
 
 
 def test_workspace_roles_endpoint_lists_permissions(authed_client: TestClient):
@@ -91,6 +139,78 @@ def test_workspace_permission_denial_and_actor_variants(db_session: Session):
         entity_type="workspace",
     )
     assert filtered[0]["action"] == "workspace.test"
+
+
+def test_workspace_role_resolution_uses_membership(db_session: Session):
+    """Workspace-aware RBAC resolves roles from active memberships."""
+    workspace = get_or_create_default_workspace(db_session)
+    auditor = _add_user(db_session, "auditor@example.com")
+    analyst = _add_user(db_session, "analyst@example.com")
+    outsider = _add_user(db_session, "outsider@example.com")
+    _add_membership(db_session, workspace, auditor, ROLE_AUDITOR)
+    _add_membership(db_session, workspace, analyst, ROLE_ANALYST)
+    db_session.commit()
+
+    assert (
+        role_for_workspace(db_session, {"auth_type": "session", "user_id": auditor.id}, workspace)
+        == ROLE_AUDITOR
+    )
+    assert (
+        role_for_workspace(db_session, {"auth_type": "session", "user_id": analyst.id}, workspace)
+        == ROLE_ANALYST
+    )
+    assert (
+        role_for_workspace(db_session, {"auth_type": "session", "user_id": outsider.id}, workspace)
+        == ""
+    )
+
+
+def test_workspace_operator_routes_enforce_membership_roles(test_app, db_session: Session):
+    """Workspace-specific operator endpoints enforce membership permissions."""
+    workspace = get_or_create_default_workspace(db_session)
+    auditor = _add_user(db_session, "operator-auditor@example.com")
+    analyst = _add_user(db_session, "operator-analyst@example.com")
+    owner = _add_user(db_session, "operator-owner@example.com")
+    outsider = _add_user(db_session, "operator-outsider@example.com")
+    _add_membership(db_session, workspace, auditor, ROLE_AUDITOR)
+    _add_membership(db_session, workspace, analyst, ROLE_ANALYST)
+    _add_membership(db_session, workspace, owner, ROLE_WORKSPACE_OWNER)
+    db_session.commit()
+
+    with _client_as_user(test_app, db_session, auditor) as client:
+        response = client.get(f"/api/v1/operator/workspaces/{workspace.id}")
+        assert response.status_code == 200
+        response = client.put(
+            f"/api/v1/operator/workspaces/{workspace.id}/retention",
+            json={
+                "aggregate_reports_days": 400,
+                "forensic_reports_days": 90,
+                "tls_reports_days": 400,
+            },
+        )
+        assert response.status_code == 403
+
+    test_app.dependency_overrides.clear()
+    with _client_as_user(test_app, db_session, analyst) as client:
+        response = client.get(f"/api/v1/operator/workspaces/{workspace.id}")
+        assert response.status_code == 403
+
+    test_app.dependency_overrides.clear()
+    with _client_as_user(test_app, db_session, outsider) as client:
+        response = client.get(f"/api/v1/operator/workspaces/{workspace.id}")
+        assert response.status_code == 403
+
+    test_app.dependency_overrides.clear()
+    with _client_as_user(test_app, db_session, owner) as client:
+        response = client.put(
+            f"/api/v1/operator/workspaces/{workspace.id}/retention",
+            json={
+                "aggregate_reports_days": 365,
+                "forensic_reports_days": 120,
+                "tls_reports_days": 365,
+            },
+        )
+        assert response.status_code == 200
 
 
 def test_mail_source_changes_create_workspace_audit_without_secret_values(

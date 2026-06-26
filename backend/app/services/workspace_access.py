@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Set
+from typing import Dict, List, Optional, Set
 
 from fastapi import HTTPException, status
+from sqlalchemy.orm import Session
+
+from app.models.user import User
+from app.models.workspace import Workspace
+from app.models.workspace_access import WorkspaceMembership
 
 ROLE_WORKSPACE_OWNER = "workspace_owner"
 ROLE_DOMAIN_ADMIN = "domain_admin"
@@ -77,8 +82,8 @@ def list_workspace_roles() -> List[dict]:
 def role_for_auth_context(auth_context: dict) -> str:
     """Map current admin auth into an initial workspace role.
 
-    Logto users and static admin credentials keep owner-level access until
-    membership assignment and enforcement screens are added.
+    Existing non-workspace-aware endpoints keep owner-level access for any
+    authenticated admin context until they are moved to workspace-aware checks.
     """
     auth_type = (auth_context or {}).get("auth_type")
     if auth_type in {"session", "bearer", "jwt", "api_key", "disabled"}:
@@ -86,9 +91,67 @@ def role_for_auth_context(auth_context: dict) -> str:
     return ROLE_AUDITOR
 
 
-def require_workspace_permission(auth_context: dict, permission: str) -> None:
+def _auth_user_id(auth_context: dict) -> Optional[int]:
+    user_id = (auth_context or {}).get("user_id")
+    if user_id is not None:
+        try:
+            return int(user_id)
+        except (TypeError, ValueError):
+            return None
+
+    payload = (auth_context or {}).get("payload") or {}
+    subject = payload.get("sub")
+    if subject is not None:
+        try:
+            return int(subject)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def role_for_workspace(
+    db: Session,
+    auth_context: dict,
+    workspace: Workspace,
+) -> str:
+    """Resolve the caller's effective role for one workspace."""
+    auth_type = (auth_context or {}).get("auth_type")
+    if auth_type in {"api_key", "disabled"}:
+        return ROLE_WORKSPACE_OWNER
+
+    user_id = _auth_user_id(auth_context)
+    if user_id is None:
+        return ""
+
+    membership = (
+        db.query(WorkspaceMembership)
+        .filter(
+            WorkspaceMembership.workspace_id == workspace.id,
+            WorkspaceMembership.user_id == user_id,
+            WorkspaceMembership.active.is_(True),
+        )
+        .first()
+    )
+    if membership is not None:
+        return membership.role
+
+    user = db.query(User).filter(User.id == user_id, User.is_active.is_(True)).first()
+    if user and user.workspace_id == workspace.id and user.is_superuser:
+        return ROLE_WORKSPACE_OWNER
+    return ""
+
+
+def require_workspace_permission(
+    auth_context: dict,
+    permission: str,
+    db: Optional[Session] = None,
+    workspace: Optional[Workspace] = None,
+) -> None:
     """Raise HTTP 403 when the current role does not grant a permission."""
-    role = role_for_auth_context(auth_context)
+    if db is not None and workspace is not None:
+        role = role_for_workspace(db, auth_context, workspace)
+    else:
+        role = role_for_auth_context(auth_context)
     if role_allows(role, permission):
         return
     raise HTTPException(
