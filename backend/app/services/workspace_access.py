@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Set
+from typing import Dict, Iterable, List, Optional, Set
 
 from fastapi import HTTPException, status
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models.user import User
@@ -91,6 +92,17 @@ def role_for_auth_context(auth_context: dict) -> str:
     return ROLE_AUDITOR
 
 
+def _auth_subjects(auth_context: dict) -> Iterable[str]:
+    payload = (auth_context or {}).get("payload") or {}
+    for value in (
+        payload.get("sub"),
+        payload.get("email"),
+        (auth_context or {}).get("email"),
+    ):
+        if value:
+            yield str(value)
+
+
 def _auth_user_id(auth_context: dict) -> Optional[int]:
     user_id = (auth_context or {}).get("user_id")
     if user_id is not None:
@@ -109,6 +121,25 @@ def _auth_user_id(auth_context: dict) -> Optional[int]:
     return None
 
 
+def _auth_user(db: Session, auth_context: dict) -> Optional[User]:
+    user_id = _auth_user_id(auth_context)
+    if user_id is not None:
+        return db.query(User).filter(User.id == user_id, User.is_active.is_(True)).first()
+
+    for subject in _auth_subjects(auth_context):
+        user = (
+            db.query(User)
+            .filter(
+                User.is_active.is_(True),
+                or_(User.email == subject, User.logto_id == subject),
+            )
+            .first()
+        )
+        if user is not None:
+            return user
+    return None
+
+
 def role_for_workspace(
     db: Session,
     auth_context: dict,
@@ -119,15 +150,15 @@ def role_for_workspace(
     if auth_type in {"api_key", "disabled"}:
         return ROLE_WORKSPACE_OWNER
 
-    user_id = _auth_user_id(auth_context)
-    if user_id is None:
+    user = _auth_user(db, auth_context)
+    if user is None:
         return ""
 
     membership = (
         db.query(WorkspaceMembership)
         .filter(
             WorkspaceMembership.workspace_id == workspace.id,
-            WorkspaceMembership.user_id == user_id,
+            WorkspaceMembership.user_id == user.id,
             WorkspaceMembership.active.is_(True),
         )
         .first()
@@ -135,7 +166,6 @@ def role_for_workspace(
     if membership is not None:
         return membership.role
 
-    user = db.query(User).filter(User.id == user_id, User.is_active.is_(True)).first()
     if user and user.workspace_id == workspace.id and user.is_superuser:
         return ROLE_WORKSPACE_OWNER
     return ""

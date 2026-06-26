@@ -51,6 +51,15 @@ def get_or_create_default_workspace(db: Session, *, commit: bool = True) -> Work
     return workspace
 
 
+def get_default_workspace(db: Session) -> Optional[Workspace]:
+    """Return the default workspace without creating or migrating data."""
+    return (
+        db.query(Workspace)
+        .filter(Workspace.slug == DEFAULT_WORKSPACE_SLUG, Workspace.active.is_(True))
+        .first()
+    )
+
+
 def assign_default_workspace_to_unscoped_rows(
     db: Session,
     *,
