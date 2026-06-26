@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 from datetime import datetime
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -240,28 +241,20 @@ def test_provider_subscription_state_update_rejects_invalid_or_empty_scope(
     subscription.external_subscription_id = "sub-provider-456"
     db_session.commit()
 
-    try:
+    with pytest.raises(ValueError, match="status must be one of"):
         update_external_subscription_state(
             db_session,
             external_subscription_id="sub-provider-456",
             status="paused",
         )
-    except ValueError as exc:
-        assert "status must be one of" in str(exc)
-    else:
-        raise AssertionError("invalid provider status was not rejected")
 
-    try:
+    with pytest.raises(LookupError, match="external subscription not found"):
         update_external_subscription_state(
             db_session,
             external_subscription_id="sub-provider-456",
             status="suspended",
             organization_ids=[],
         )
-    except LookupError as exc:
-        assert "external subscription not found" in str(exc)
-    else:
-        raise AssertionError("empty organization scope was not enforced")
 
 
 def test_provider_subscription_state_endpoint_requires_org_admin_access(
