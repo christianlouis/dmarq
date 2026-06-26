@@ -30,7 +30,7 @@ from app.services.workspaces import get_or_create_default_workspace
 
 
 def _add_user(db_session: Session, email: str):
-    user = User(email=email, is_active=True, is_verified=True)
+    user = User(email=email, is_active=True, is_verified=True, is_superuser=False)
     db_session.add(user)
     db_session.flush()
     return user
@@ -486,6 +486,28 @@ class TestMailSourcesAPIAuthed:
                 json={"folder": "Reports"},
             )
             assert update_response.status_code == 200
+            m365_response = client.post(
+                "/api/v1/mail-sources",
+                json={
+                    "name": "Operator M365",
+                    "method": "M365_GRAPH",
+                    "m365_client_id": "client-id",
+                    "m365_client_secret": "client-secret",
+                },
+            )
+            assert m365_response.status_code == 201
+            m365_source_id = m365_response.json()["id"]
+            gmail_response = client.post(
+                "/api/v1/mail-sources",
+                json={
+                    "name": "Operator Gmail",
+                    "method": "GMAIL_API",
+                    "gmail_client_id": "gmail-client-id",
+                    "gmail_client_secret": "gmail-client-secret",
+                },
+            )
+            assert gmail_response.status_code == 201
+            gmail_source_id = gmail_response.json()["id"]
 
             current_user["id"] = outsider.id
 
@@ -497,6 +519,33 @@ class TestMailSourcesAPIAuthed:
                 json={"name": "Blocked IMAP", "method": "IMAP"},
             )
             assert create_response.status_code == 403
+            with patch(
+                "app.api.api_v1.endpoints.mail_sources."
+                "MicrosoftGraphClient.exchange_code_for_tokens",
+                return_value={"access_token": "m365-access", "refresh_token": "m365-refresh"},
+            ) as m365_exchange:
+                m365_callback = client.get(
+                    f"/api/v1/mail-sources/{m365_source_id}/m365/callback?code=abc"
+                )
+            assert m365_callback.status_code == 403
+            m365_exchange.assert_not_called()
+
+            with patch(
+                "app.api.api_v1.endpoints.mail_sources.GmailClient.exchange_code_for_tokens",
+                return_value={"access_token": "gmail-access", "refresh_token": "gmail-refresh"},
+            ) as gmail_exchange:
+                gmail_callback = client.get(
+                    f"/api/v1/mail-sources/{gmail_source_id}/gmail/callback?code=abc"
+                )
+            assert gmail_callback.status_code == 403
+            gmail_exchange.assert_not_called()
+
+        m365_source = db_session.get(MailSource, m365_source_id)
+        gmail_source = db_session.get(MailSource, gmail_source_id)
+        assert m365_source.m365_access_token is None
+        assert m365_source.m365_refresh_token is None
+        assert gmail_source.gmail_access_token is None
+        assert gmail_source.gmail_refresh_token is None
 
         test_app.dependency_overrides.clear()
 
