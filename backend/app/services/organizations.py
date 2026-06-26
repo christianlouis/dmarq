@@ -409,6 +409,20 @@ def list_organization_summaries(db: Session) -> List[Dict[str, Any]]:
     return [organization_summary(db, organization) for organization in organizations]
 
 
+def list_scoped_organization_summaries(
+    db: Session,
+    organization_ids: Optional[List[int]] = None,
+) -> List[Dict[str, Any]]:
+    """Return organization summaries constrained to authorized IDs when supplied."""
+    bootstrap_default_commercial_foundation(db)
+    query = db.query(Organization).order_by(Organization.slug.asc())
+    if organization_ids is not None:
+        if not organization_ids:
+            return []
+        query = query.filter(Organization.id.in_(organization_ids))
+    return [organization_summary(db, organization) for organization in query.all()]
+
+
 def parse_usage_period(period: str) -> tuple[datetime, datetime]:
     """Parse a billing period in YYYY-MM form into UTC-naive boundaries."""
     try:
@@ -471,6 +485,7 @@ def build_usage_export(
     *,
     period: Optional[str] = None,
     external_customer_id: Optional[str] = None,
+    organization_ids: Optional[List[int]] = None,
 ) -> Dict[str, Any]:
     """Build idempotent usage metrics suitable for provider monthly billing."""
     period_key = period or usage_period_for_current_month()
@@ -478,11 +493,20 @@ def build_usage_export(
     bootstrap_default_commercial_foundation(db)
 
     organization_query = db.query(Organization).filter(Organization.active.is_(True))
+    if organization_ids is not None:
+        if not organization_ids:
+            organizations = []
+        else:
+            organization_query = organization_query.filter(Organization.id.in_(organization_ids))
+            organizations = None
+    else:
+        organizations = None
     if external_customer_id:
         organization_query = organization_query.join(BillingAccount).filter(
             BillingAccount.external_customer_id == external_customer_id
         )
-    organizations = organization_query.order_by(Organization.slug.asc()).all()
+    if organizations is None:
+        organizations = organization_query.order_by(Organization.slug.asc()).all()
 
     exports = []
     for organization in organizations:
@@ -702,6 +726,7 @@ def update_external_subscription_state(
     *,
     external_subscription_id: str,
     status: str,
+    organization_ids: Optional[List[int]] = None,
     provider_id: Optional[str] = None,
     external_event_id: Optional[str] = None,
     payload_summary: Optional[str] = None,
@@ -719,6 +744,18 @@ def update_external_subscription_state(
         .filter(Subscription.external_subscription_id == external_subscription_id)
         .first()
     )
+    if organization_ids is not None:
+        if not organization_ids:
+            subscription = None
+        else:
+            subscription = (
+                db.query(Subscription)
+                .filter(
+                    Subscription.external_subscription_id == external_subscription_id,
+                    Subscription.organization_id.in_(organization_ids),
+                )
+                .first()
+            )
     if subscription is None:
         raise LookupError("external subscription not found")
 

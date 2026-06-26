@@ -1,6 +1,6 @@
 """Provider and ISP integration endpoints."""
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
@@ -15,7 +15,8 @@ from app.services.organizations import (
 )
 from app.services.workspace_access import (
     PERMISSION_AUDIT_READ,
-    require_workspace_permission,
+    PERMISSION_WORKSPACE_ADMIN,
+    organization_ids_for_permission,
 )
 
 router = APIRouter()
@@ -47,12 +48,14 @@ def _usage_or_400(
     *,
     period: Optional[str],
     external_customer_id: Optional[str] = None,
+    organization_ids: Optional[List[int]] = None,
 ) -> Dict[str, Any]:
     try:
         return build_usage_export(
             db,
             period=period or usage_period_for_current_month(),
             external_customer_id=external_customer_id,
+            organization_ids=organization_ids,
         )
     except ValueError as exc:
         raise HTTPException(
@@ -71,8 +74,8 @@ async def get_provider_billing_usage(
     _auth: dict = Depends(require_admin_auth),
 ) -> ProviderUsageResponse:
     """Return idempotent monthly usage metrics for provider billing systems."""
-    require_workspace_permission(_auth, PERMISSION_AUDIT_READ)
-    return {"usage": _usage_or_400(db, period=period)}
+    organization_ids = organization_ids_for_permission(db, _auth, PERMISSION_AUDIT_READ)
+    return {"usage": _usage_or_400(db, period=period, organization_ids=organization_ids)}
 
 
 @router.get(
@@ -89,12 +92,13 @@ async def get_provider_account_billing_usage(
     _auth: dict = Depends(require_admin_auth),
 ) -> ProviderUsageResponse:
     """Return usage metrics for one provider-billed external customer."""
-    require_workspace_permission(_auth, PERMISSION_AUDIT_READ)
+    organization_ids = organization_ids_for_permission(db, _auth, PERMISSION_AUDIT_READ)
     return {
         "usage": _usage_or_400(
             db,
             period=period,
             external_customer_id=external_customer_id,
+            organization_ids=organization_ids,
         )
     }
 
@@ -110,12 +114,13 @@ async def update_provider_subscription_state(
     _auth: dict = Depends(require_admin_auth),
 ) -> ProviderSubscriptionStateResponse:
     """Apply a provider-reported subscription lifecycle state."""
-    require_workspace_permission(_auth, PERMISSION_AUDIT_READ)
+    organization_ids = organization_ids_for_permission(db, _auth, PERMISSION_WORKSPACE_ADMIN)
     try:
         result = update_external_subscription_state(
             db,
             external_subscription_id=external_subscription_id,
             status=payload.status,
+            organization_ids=organization_ids,
             provider_id=payload.provider_id,
             external_event_id=payload.external_event_id,
             payload_summary=payload.payload_summary,
