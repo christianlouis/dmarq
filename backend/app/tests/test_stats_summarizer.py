@@ -542,6 +542,21 @@ class TestStatsSummarizerCaching:
         assert len(stats_7_days["compliance_trend"]) == 2
         assert len(stats_1_day["compliance_trend"]) == 1
 
+    def test_windowed_cache_keys_use_separate_cache_files(self, db_session, summarizer):
+        _seed_recent_trend_records(db_session)
+        db_session.commit()
+
+        stats = summarizer.calculate_summary_statistics(
+            db_session,
+            period_days=7,
+            start_ts=0,
+            end_ts=9_999_999_999,
+            cache_key="last_7_days",
+        )
+
+        assert summarizer.get_cached_summary(period_days=7, cache_key="last_7_days") == stats
+        assert summarizer.get_cached_summary(period_days=7, cache_key="custom_june") is None
+
     def test_old_cache_without_change_summary_is_refreshed(self, db_session, summarizer):
         _seed_new_source_records(db_session)
         db_session.commit()

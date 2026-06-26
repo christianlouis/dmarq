@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -56,6 +57,7 @@ class StatsSummarizer:
         domain_id: Optional[str] = None,
         max_age_minutes: int = 60,
         period_days: int = 30,
+        cache_key: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Get cached summary statistics if available and not too old
@@ -69,7 +71,7 @@ class StatsSummarizer:
         Returns:
             Cached statistics or None if not available or too old
         """
-        cache_file = self._get_cache_filename(domain_id, period_days)
+        cache_file = self._get_cache_filename(domain_id, period_days, cache_key=cache_key)
 
         try:
             if not os.path.exists(cache_file):
@@ -91,7 +93,11 @@ class StatsSummarizer:
             return None
 
     def save_summary(
-        self, stats: Dict[str, Any], domain_id: Optional[str] = None, period_days: int = 30
+        self,
+        stats: Dict[str, Any],
+        domain_id: Optional[str] = None,
+        period_days: int = 30,
+        cache_key: Optional[str] = None,
     ) -> bool:
         """
         Save summary statistics to cache
@@ -104,7 +110,7 @@ class StatsSummarizer:
         Returns:
             True if save was successful, False otherwise
         """
-        cache_file = self._get_cache_filename(domain_id, period_days)
+        cache_file = self._get_cache_filename(domain_id, period_days, cache_key=cache_key)
 
         try:
             # Add timestamp
@@ -140,7 +146,10 @@ class StatsSummarizer:
                 os.remove(os.path.join(self.cache_dir, filename))
 
     def _get_cache_filename(
-        self, domain_id: Optional[str] = None, period_days: int = 30
+        self,
+        domain_id: Optional[str] = None,
+        period_days: int = 30,
+        cache_key: Optional[str] = None,
     ) -> str:
         """
         Get the filename for a cache file
@@ -153,11 +162,14 @@ class StatsSummarizer:
             Path to the cache file
         """
         period_days = max(1, int(period_days or 30))
+        suffix = f"{period_days}d"
+        if cache_key:
+            suffix = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(cache_key)).strip("_") or suffix
         if domain_id is None:
-            return os.path.join(self.cache_dir, f"global_summary_{period_days}d.json")
+            return os.path.join(self.cache_dir, f"global_summary_{suffix}.json")
         # Sanitize domain_id to use as filename
         safe_domain = domain_id.replace(".", "_").replace("/", "_")
-        return os.path.join(self.cache_dir, f"domain_{safe_domain}_{period_days}d.json")
+        return os.path.join(self.cache_dir, f"domain_{safe_domain}_{suffix}.json")
 
     def calculate_summary_statistics(
         self,
@@ -166,6 +178,7 @@ class StatsSummarizer:
         period_days: int = 30,
         start_ts: Optional[int] = None,
         end_ts: Optional[int] = None,
+        cache_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Calculate summary statistics from the database
@@ -180,9 +193,13 @@ class StatsSummarizer:
         """
         period_days = max(1, int(period_days or 30))
 
-        use_cache = start_ts is None and end_ts is None
+        use_cache = bool(cache_key) or (start_ts is None and end_ts is None)
         if use_cache:
-            cached_stats = self.get_cached_summary(domain_id, period_days=period_days)
+            cached_stats = self.get_cached_summary(
+                domain_id,
+                period_days=period_days,
+                cache_key=cache_key,
+            )
             if cached_stats and "change_summary" in cached_stats:
                 return cached_stats
 
@@ -198,7 +215,7 @@ class StatsSummarizer:
             )
 
         if use_cache:
-            self.save_summary(stats, domain_id, period_days)
+            self.save_summary(stats, domain_id, period_days, cache_key=cache_key)
 
         return stats
 
@@ -430,34 +447,31 @@ class StatsSummarizer:
         end_ts: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """Get top sending sources by email volume across all domains."""
-        query = (
-            db.query(
-                ReportRecord.source_ip,
-                func.sum(ReportRecord.count).label("total_count"),
-                func.sum(case((ReportRecord.spf == "pass", ReportRecord.count), else_=0)).label(
-                    "spf_pass_count"
-                ),
-                func.sum(case((ReportRecord.spf == "fail", ReportRecord.count), else_=0)).label(
-                    "spf_fail_count"
-                ),
-                func.sum(case((ReportRecord.dkim == "pass", ReportRecord.count), else_=0)).label(
-                    "dkim_pass_count"
-                ),
-                func.sum(case((ReportRecord.dkim == "fail", ReportRecord.count), else_=0)).label(
-                    "dkim_fail_count"
-                ),
-                func.sum(
-                    case(
-                        (
-                            (ReportRecord.dkim == "pass") | (ReportRecord.spf == "pass"),
-                            ReportRecord.count,
-                        ),
-                        else_=0,
-                    )
-                ).label("dmarc_pass_count"),
-            )
-            .join(DMARCReport, ReportRecord.report_id == DMARCReport.id)
-        )
+        query = db.query(
+            ReportRecord.source_ip,
+            func.sum(ReportRecord.count).label("total_count"),
+            func.sum(case((ReportRecord.spf == "pass", ReportRecord.count), else_=0)).label(
+                "spf_pass_count"
+            ),
+            func.sum(case((ReportRecord.spf == "fail", ReportRecord.count), else_=0)).label(
+                "spf_fail_count"
+            ),
+            func.sum(case((ReportRecord.dkim == "pass", ReportRecord.count), else_=0)).label(
+                "dkim_pass_count"
+            ),
+            func.sum(case((ReportRecord.dkim == "fail", ReportRecord.count), else_=0)).label(
+                "dkim_fail_count"
+            ),
+            func.sum(
+                case(
+                    (
+                        (ReportRecord.dkim == "pass") | (ReportRecord.spf == "pass"),
+                        ReportRecord.count,
+                    ),
+                    else_=0,
+                )
+            ).label("dmarc_pass_count"),
+        ).join(DMARCReport, ReportRecord.report_id == DMARCReport.id)
         results = (
             self._apply_report_window(query, period_days, start_ts, end_ts)
             .group_by(ReportRecord.source_ip)

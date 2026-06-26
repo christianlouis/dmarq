@@ -80,8 +80,13 @@ async def get_demo_multi_user_deployment(
 ) -> DemoMultiUserDeploymentResponse:
     """Return deterministic demo data for SaaS, managed-service, and ISP views."""
     require_workspace_permission(_auth, PERMISSION_AUDIT_READ)
+    if not get_settings().DEMO_MODE:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Demo multi-user deployment is only available in demo mode",
+        )
     return {
-        "demo_mode": get_settings().DEMO_MODE,
+        "demo_mode": True,
         "deployment": build_demo_multi_user_deployment(),
     }
 

@@ -112,6 +112,16 @@ def _days_from_interval(interval: str, fallback_days: Optional[int]) -> int:
     return int(fallback_days or 30)
 
 
+def _summary_cache_key(date_range: Dict[str, Any]) -> str:
+    """Build a stable cache key for resolved dashboard windows."""
+    interval = str(date_range["interval"])
+    if interval == "custom":
+        return f"custom_{date_range['start_date']}_{date_range['end_date']}"
+    if interval in {"week_to_date", "month_to_date"}:
+        return f"{interval}_{date_range['start_date']}"
+    return interval
+
+
 def resolve_dashboard_date_range(
     *,
     interval: Optional[str] = None,
@@ -184,9 +194,6 @@ async def get_dashboard_statistics(
     resolved_days = date_range["period_days"]
     start_ts = int(datetime.fromisoformat(date_range["start_at"]).timestamp())
     end_ts = int(datetime.fromisoformat(date_range["end_at"]).timestamp())
-    if not date_range["is_filtered"]:
-        start_ts = None
-        end_ts = None
 
     if get_settings().DEMO_MODE:
         stats = build_demo_dashboard_statistics(period_days=resolved_days)
@@ -208,6 +215,7 @@ async def get_dashboard_statistics(
         period_days=resolved_days,
         start_ts=start_ts,
         end_ts=end_ts,
+        cache_key=_summary_cache_key(date_range),
     )
 
     # Add version and timestamp
@@ -248,9 +256,6 @@ async def get_domain_statistics(
     resolved_days = date_range["period_days"]
     start_ts = int(datetime.fromisoformat(date_range["start_at"]).timestamp())
     end_ts = int(datetime.fromisoformat(date_range["end_at"]).timestamp())
-    if not date_range["is_filtered"]:
-        start_ts = None
-        end_ts = None
 
     if get_settings().DEMO_MODE:
         stats = build_demo_dashboard_statistics(period_days=resolved_days, domain=domain_id)
@@ -273,6 +278,7 @@ async def get_domain_statistics(
         period_days=resolved_days,
         start_ts=start_ts,
         end_ts=end_ts,
+        cache_key=_summary_cache_key(date_range),
     )
 
     # Add version and timestamp

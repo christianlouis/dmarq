@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timezone
+from html import escape
 from typing import Any, Dict, Iterable, List, Optional
 
 from sqlalchemy import func
@@ -50,6 +51,18 @@ PROVIDER_SUBSCRIPTION_STATUSES = {
     "canceled",
     "terminated",
 }
+MAX_PROVIDER_PAYLOAD_SUMMARY_LENGTH = 500
+
+
+def _sanitize_payload_summary(payload_summary: Optional[str]) -> Optional[str]:
+    """Trim provider summaries to safe, displayable text."""
+    if payload_summary is None:
+        return None
+    normalized = " ".join(str(payload_summary).split())
+    if not normalized:
+        return None
+    escaped = escape(normalized, quote=True)
+    return escaped[:MAX_PROVIDER_PAYLOAD_SUMMARY_LENGTH]
 
 
 def get_or_create_default_organization(db: Session, *, commit: bool = True) -> Organization:
@@ -308,9 +321,7 @@ def _plan_to_dict(plan: Plan) -> Dict[str, Any]:
         "included_users": plan.included_users,
         "retention_days": plan.retention_days,
         "features": [
-            feature.strip()
-            for feature in (plan.features or "").split(",")
-            if feature.strip()
+            feature.strip() for feature in (plan.features or "").split(",") if feature.strip()
         ],
     }
 
@@ -368,12 +379,8 @@ def organization_summary(db: Session, organization: Organization) -> Dict[str, A
         "created_at": _iso(organization.created_at),
         "updated_at": _iso(organization.updated_at),
         "workspaces": [_workspace_to_dict(workspace) for workspace in workspaces],
-        "billing_accounts": [
-            _billing_account_to_dict(account) for account in billing_accounts
-        ],
-        "subscriptions": [
-            _subscription_to_dict(subscription) for subscription in subscriptions
-        ],
+        "billing_accounts": [_billing_account_to_dict(account) for account in billing_accounts],
+        "subscriptions": [_subscription_to_dict(subscription) for subscription in subscriptions],
         "entitlements": {
             entitlement.key: {
                 "value": entitlement.value,
@@ -728,7 +735,7 @@ def update_external_subscription_state(
         provider_id=provider_id,
         external_event_id=external_event_id,
         status="applied",
-        payload_summary=payload_summary,
+        payload_summary=_sanitize_payload_summary(payload_summary),
     )
     db.add(event)
     if commit:

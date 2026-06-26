@@ -42,6 +42,12 @@ class TestDashboardStatistics:
             response = client.get("/api/v1/stats/dashboard?period_days=7")
             assert response.status_code == 200
             assert mock_instance.calculate_summary_statistics.call_args.kwargs["period_days"] == 7
+            assert mock_instance.calculate_summary_statistics.call_args.kwargs["start_ts"]
+            assert mock_instance.calculate_summary_statistics.call_args.kwargs["end_ts"]
+            assert (
+                mock_instance.calculate_summary_statistics.call_args.kwargs["cache_key"]
+                == "last_7_days"
+            )
 
     def test_dashboard_force_refresh(self, client: TestClient):
         """force_refresh=true should trigger cache invalidation without error."""
@@ -72,9 +78,7 @@ class TestDashboardStatistics:
             assert response.status_code == 200
             mock_instance.invalidate_cache.assert_not_called()
 
-    def test_dashboard_uses_demo_data_when_demo_mode_enabled(
-        self, client: TestClient, monkeypatch
-    ):
+    def test_dashboard_uses_demo_data_when_demo_mode_enabled(self, client: TestClient, monkeypatch):
         monkeypatch.setattr(
             "app.api.api_v1.endpoints.stats.get_settings",
             lambda: SimpleNamespace(DEMO_MODE=True),
@@ -123,6 +127,12 @@ class TestDomainStatistics:
             assert response.status_code == 200
             assert mock_instance.calculate_summary_statistics.call_args.args[1] == "example.com"
             assert mock_instance.calculate_summary_statistics.call_args.kwargs["period_days"] == 14
+            assert mock_instance.calculate_summary_statistics.call_args.kwargs["start_ts"]
+            assert mock_instance.calculate_summary_statistics.call_args.kwargs["end_ts"]
+            assert (
+                mock_instance.calculate_summary_statistics.call_args.kwargs["cache_key"]
+                == "last_14_days"
+            )
 
     def test_domain_stats_force_refresh(self, client: TestClient):
         response = client.get("/api/v1/stats/domain/example.com?force_refresh=true")
