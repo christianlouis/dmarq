@@ -186,8 +186,14 @@ def test_workspace_role_resolution_uses_membership(db_session: Session):
     auditor = _add_user(db_session, "auditor@example.com", logto_id="logto-auditor")
     analyst = _add_user(db_session, "analyst@example.com")
     outsider = _add_user(db_session, "outsider@example.com")
+    conflicting_subject_user = _add_user(
+        db_session,
+        "logto-auditor",
+        logto_id="other-logto-subject",
+    )
     _add_membership(db_session, workspace, auditor, ROLE_AUDITOR)
     _add_membership(db_session, workspace, analyst, ROLE_ANALYST)
+    _add_membership(db_session, workspace, conflicting_subject_user, ROLE_ANALYST)
     db_session.commit()
 
     assert (
@@ -209,6 +215,14 @@ def test_workspace_role_resolution_uses_membership(db_session: Session):
             workspace,
         )
         == ROLE_AUDITOR
+    )
+    assert (
+        role_for_workspace(
+            db_session,
+            {"auth_type": "jwt", "payload": {"email": "logto-auditor"}},
+            workspace,
+        )
+        == ROLE_ANALYST
     )
     assert (
         role_for_workspace(db_session, {"auth_type": "session", "user_id": analyst.id}, workspace)
@@ -309,6 +323,24 @@ def test_workspace_audit_logs_support_jwt_membership_and_defer_migration(
         response = client.get("/api/v1/audit/logs")
         assert response.status_code == 403
 
+    db_session.refresh(unscoped_domain)
+    assert unscoped_domain.workspace_id is None
+
+
+def test_workspace_audit_logs_deny_jwt_without_bootstrapping_default_workspace(
+    test_app,
+    db_session: Session,
+):
+    """JWT callers cannot create or migrate the default workspace before authorization."""
+    unscoped_domain = Domain(name="unscoped-without-workspace.example", active=True)
+    db_session.add(unscoped_domain)
+    db_session.commit()
+
+    with _client_as_jwt(test_app, db_session, "unknown-logto-sub") as client:
+        response = client.get("/api/v1/audit/logs")
+        assert response.status_code == 403
+
+    assert db_session.query(Workspace).count() == 0
     db_session.refresh(unscoped_domain)
     assert unscoped_domain.workspace_id is None
 

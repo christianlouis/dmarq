@@ -56,6 +56,16 @@ async def get_workspace_audit_logs(
                 detail=f"Workspace permission required: {PERMISSION_AUDIT_READ}",
             )
         workspace = assign_default_workspace_to_unscoped_rows(db)
+        require_workspace_permission(_auth, PERMISSION_AUDIT_READ, db, workspace)
+        return {
+            "audit": list_workspace_audit_logs(
+                db,
+                workspace=workspace,
+                limit=limit,
+                action=action,
+                entity_type=entity_type,
+            )
+        }
     require_workspace_permission(_auth, PERMISSION_AUDIT_READ, db, workspace)
     workspace = assign_default_workspace_to_unscoped_rows(db)
     return {

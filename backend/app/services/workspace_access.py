@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Dict, Iterable, List, Optional, Set
+from typing import Dict, List, Optional, Set
 
 from fastapi import HTTPException, status
-from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models.user import User
@@ -92,17 +91,6 @@ def role_for_auth_context(auth_context: dict) -> str:
     return ROLE_AUDITOR
 
 
-def _auth_subjects(auth_context: dict) -> Iterable[str]:
-    payload = (auth_context or {}).get("payload") or {}
-    for value in (
-        payload.get("sub"),
-        payload.get("email"),
-        (auth_context or {}).get("email"),
-    ):
-        if value:
-            yield str(value)
-
-
 def _auth_user_id(auth_context: dict) -> Optional[int]:
     user_id = (auth_context or {}).get("user_id")
     if user_id is not None:
@@ -121,22 +109,33 @@ def _auth_user_id(auth_context: dict) -> Optional[int]:
     return None
 
 
+def _active_user_by_email(db: Session, email: str) -> Optional[User]:
+    return db.query(User).filter(User.email == email, User.is_active.is_(True)).first()
+
+
+def _active_user_by_logto_id(db: Session, logto_id: str) -> Optional[User]:
+    return db.query(User).filter(User.logto_id == logto_id, User.is_active.is_(True)).first()
+
+
 def _auth_user(db: Session, auth_context: dict) -> Optional[User]:
     user_id = _auth_user_id(auth_context)
     if user_id is not None:
         return db.query(User).filter(User.id == user_id, User.is_active.is_(True)).first()
 
-    for subject in _auth_subjects(auth_context):
-        user = (
-            db.query(User)
-            .filter(
-                User.is_active.is_(True),
-                or_(User.email == subject, User.logto_id == subject),
-            )
-            .first()
-        )
+    payload = (auth_context or {}).get("payload") or {}
+    subject = payload.get("sub")
+    if subject:
+        subject = str(subject)
+        user = _active_user_by_logto_id(db, subject)
         if user is not None:
             return user
+        user = _active_user_by_email(db, subject)
+        if user is not None:
+            return user
+
+    email = payload.get("email") or (auth_context or {}).get("email")
+    if email:
+        return _active_user_by_email(db, str(email))
     return None
 
 
