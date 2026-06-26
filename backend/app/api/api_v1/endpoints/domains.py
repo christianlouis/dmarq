@@ -73,6 +73,13 @@ def _authorized_domain_read_workspace(auth_context: Dict[str, Any], db: Session)
     return _authorized_domain_workspace(auth_context, db, PERMISSION_REPORTS_READ)
 
 
+def _normalize_reported_policy(policy_value: Any) -> Optional[str]:
+    """Return the effective DMARC p= policy from stored summary values."""
+    if isinstance(policy_value, dict):
+        return policy_value.get("p")
+    return policy_value
+
+
 class DomainBase(BaseModel):
     """Base Domain schema"""
 
@@ -1171,9 +1178,7 @@ async def get_domains_summary(
 
         # Prefer live DNS policy; fall back to policy seen in reports
         live_policy = extract_dmarc_policy(dns.dmarc_record)
-        reported_policy = summary.get("policy", {})
-        if isinstance(reported_policy, dict):
-            reported_policy = reported_policy.get("p")
+        reported_policy = _normalize_reported_policy(summary.get("policy", {}))
         dmarc_policy = live_policy or reported_policy or "none"
 
         # Format domain data for frontend
@@ -1242,7 +1247,7 @@ async def read_domains(
             name=domain_name,
             description=stored_domain.description if stored_domain else None,
             policy=(
-                summary.get("policy")
+                _normalize_reported_policy(summary.get("policy"))
                 or (stored_domain.dmarc_policy if stored_domain else None)
                 or "unknown"
             ),
@@ -1329,9 +1334,7 @@ async def read_domain(
         )
 
     summary = store.get_domain_summary(domain_name)
-    policy = summary.get("policy")
-    if isinstance(policy, dict):
-        policy = policy.get("p")
+    policy = _normalize_reported_policy(summary.get("policy"))
 
     return DomainResponse(
         name=domain_name,
@@ -2373,9 +2376,7 @@ async def search_domains(
         if q and q.lower() not in domain_name.lower():
             continue
 
-        reported_policy = summary.get("policy", "unknown")
-        if isinstance(reported_policy, dict):
-            reported_policy = reported_policy.get("p") or "unknown"
+        reported_policy = _normalize_reported_policy(summary.get("policy")) or "unknown"
 
         # Skip domain if it doesn't match the policy filter
         if policy and reported_policy != policy:
