@@ -34,4 +34,4 @@ Aggregate-report parser support, known edge cases, and fixture guidance are docu
 Opt-in AI summaries and read-only MCP automation are covered in [AI and MCP Automation](reference/ai-mcp-automation.md).
 
 The current product direction across self-hosted, hosted SaaS, ISP/OEM,
-billing, and multi-tenant work, see the [Product Roadmap](development/roadmap.md).
+billing, and multi-tenant work is captured in the [Product Roadmap](development/roadmap.md).
