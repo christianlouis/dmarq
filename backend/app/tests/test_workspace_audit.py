@@ -289,7 +289,6 @@ def test_workspace_audit_logs_support_jwt_membership_and_defer_migration(
     """Audit reads resolve JWT users and avoid migration side effects before authorization."""
     workspace = get_or_create_default_workspace(db_session)
     auditor = _add_user(db_session, "jwt-auditor@example.com", logto_id="jwt-auditor-sub")
-    outsider = _add_user(db_session, "jwt-outsider@example.com", logto_id="jwt-outsider-sub")
     unscoped_domain = Domain(name="unscoped-audit.example", active=True)
     db_session.add(unscoped_domain)
     _add_membership(db_session, workspace, auditor, ROLE_AUDITOR)
