@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 from datetime import datetime
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -147,6 +148,16 @@ def test_provider_usage_export_computes_monthly_metrics(db_session: Session):
     )
 
 
+def test_provider_usage_export_accepts_empty_authorized_organization_scope(
+    db_session: Session,
+):
+    bootstrap_default_commercial_foundation(db_session)
+
+    usage = build_usage_export(db_session, period="2026-06", organization_ids=[])
+
+    assert usage["organizations"] == []
+
+
 def test_provider_usage_endpoint_rejects_bad_period(authed_client: TestClient):
     response = authed_client.get("/api/v1/provider/billing/usage?period=2026")
 
@@ -218,6 +229,32 @@ def test_provider_subscription_state_update_records_billing_event(db_session: Se
     assert subscription.status == "suspended"
     assert event.event_type == "provider.subscription_state_updated"
     assert event.external_event_id == "evt-1"
+
+
+def test_provider_subscription_state_update_rejects_invalid_or_empty_scope(
+    db_session: Session,
+):
+    organization = bootstrap_default_commercial_foundation(db_session)
+    subscription = (
+        db_session.query(Subscription).filter(Subscription.organization_id == organization.id).one()
+    )
+    subscription.external_subscription_id = "sub-provider-456"
+    db_session.commit()
+
+    with pytest.raises(ValueError, match="status must be one of"):
+        update_external_subscription_state(
+            db_session,
+            external_subscription_id="sub-provider-456",
+            status="paused",
+        )
+
+    with pytest.raises(LookupError, match="external subscription not found"):
+        update_external_subscription_state(
+            db_session,
+            external_subscription_id="sub-provider-456",
+            status="suspended",
+            organization_ids=[],
+        )
 
 
 def test_provider_subscription_state_endpoint_requires_org_admin_access(

@@ -7,18 +7,22 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.domain import Domain
+from app.models.organization import Organization, OrganizationMembership
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceMembership
 from app.models.workspace_access import WorkspaceAuditLog
 from app.services.workspace_access import (
+    PERMISSION_REPORTS_READ,
     PERMISSION_WORKSPACE_ADMIN,
     ROLE_ANALYST,
     ROLE_AUDITOR,
     ROLE_DOMAIN_ADMIN,
     ROLE_WORKSPACE_OWNER,
+    organization_ids_for_permission,
     require_workspace_permission,
     role_for_auth_context,
+    role_for_organization,
     role_for_workspace,
 )
 from app.services.workspace_audit import (
@@ -232,6 +236,141 @@ def test_workspace_role_resolution_uses_membership(db_session: Session):
         role_for_workspace(db_session, {"auth_type": "session", "user_id": outsider.id}, workspace)
         == ""
     )
+
+
+def test_organization_role_resolution_uses_org_workspace_and_superuser_paths(
+    db_session: Session,
+):
+    """Organization RBAC accepts direct org, workspace, and legacy superuser grants."""
+    organization = Organization(slug="rbac-org", name="RBAC Org", active=True)
+    other_organization = Organization(slug="other-rbac-org", name="Other RBAC Org", active=True)
+    db_session.add_all([organization, other_organization])
+    db_session.flush()
+    workspace = Workspace(
+        slug="rbac-workspace",
+        name="RBAC Workspace",
+        organization_id=organization.id,
+        active=True,
+    )
+    superuser_workspace = Workspace(
+        slug="superuser-workspace",
+        name="Superuser Workspace",
+        organization_id=organization.id,
+        active=True,
+    )
+    db_session.add_all([workspace, superuser_workspace])
+    db_session.flush()
+    org_auditor = _add_user(db_session, "org-auditor@example.com")
+    workspace_owner = _add_user(db_session, "workspace-owner@example.com")
+    superuser = _add_user(
+        db_session,
+        "org-superuser@example.com",
+        workspace_id=superuser_workspace.id,
+        is_superuser=True,
+    )
+    _add_membership(db_session, workspace, workspace_owner, ROLE_WORKSPACE_OWNER)
+    db_session.add(
+        OrganizationMembership(
+            organization_id=organization.id,
+            user_id=org_auditor.id,
+            role="organization_auditor",
+            active=True,
+        )
+    )
+    db_session.commit()
+
+    assert (
+        role_for_organization(
+            db_session,
+            {"auth_type": "api_key"},
+            organization,
+            PERMISSION_WORKSPACE_ADMIN,
+        )
+        == ROLE_WORKSPACE_OWNER
+    )
+    assert (
+        role_for_organization(
+            db_session,
+            {"auth_type": "session", "user_id": org_auditor.id},
+            organization,
+            PERMISSION_REPORTS_READ,
+        )
+        == ROLE_AUDITOR
+    )
+    assert (
+        role_for_organization(
+            db_session,
+            {"auth_type": "session", "user_id": org_auditor.id},
+            organization,
+            PERMISSION_WORKSPACE_ADMIN,
+        )
+        == ""
+    )
+    assert (
+        role_for_organization(
+            db_session,
+            {"auth_type": "session", "user_id": workspace_owner.id},
+            organization,
+            PERMISSION_WORKSPACE_ADMIN,
+        )
+        == ROLE_WORKSPACE_OWNER
+    )
+    assert (
+        role_for_organization(
+            db_session,
+            {"auth_type": "session", "user_id": superuser.id},
+            organization,
+            PERMISSION_WORKSPACE_ADMIN,
+        )
+        == ROLE_WORKSPACE_OWNER
+    )
+    assert (
+        role_for_organization(
+            db_session,
+            {"auth_type": "session", "user_id": superuser.id},
+            other_organization,
+            PERMISSION_WORKSPACE_ADMIN,
+        )
+        == ""
+    )
+    assert (
+        role_for_organization(
+            db_session,
+            {"auth_type": "session", "user_id": 999999},
+            organization,
+            PERMISSION_REPORTS_READ,
+        )
+        == ""
+    )
+
+    assert organization_ids_for_permission(
+        db_session,
+        {"auth_type": "api_key"},
+        PERMISSION_WORKSPACE_ADMIN,
+    ) is None
+    assert (
+        organization_ids_for_permission(
+            db_session,
+            {"auth_type": "session", "user_id": 999999},
+            PERMISSION_WORKSPACE_ADMIN,
+        )
+        == []
+    )
+    assert organization_ids_for_permission(
+        db_session,
+        {"auth_type": "session", "user_id": org_auditor.id},
+        PERMISSION_REPORTS_READ,
+    ) == [organization.id]
+    assert organization_ids_for_permission(
+        db_session,
+        {"auth_type": "session", "user_id": workspace_owner.id},
+        PERMISSION_WORKSPACE_ADMIN,
+    ) == [organization.id]
+    assert organization_ids_for_permission(
+        db_session,
+        {"auth_type": "session", "user_id": superuser.id},
+        PERMISSION_WORKSPACE_ADMIN,
+    ) == [organization.id]
 
 
 def test_workspace_operator_routes_enforce_membership_roles(test_app, db_session: Session):
