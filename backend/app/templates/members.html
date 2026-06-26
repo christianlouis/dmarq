@@ -201,7 +201,7 @@
                                                 <select class="select select-bordered select-sm w-full"
                                                         :disabled="saving"
                                                         x-model="membership.role"
-                                                        @change="updateMembership(membership, true)">
+                                                        @change="updateMembership(membership, membership.active)">
                                                     <template x-for="role in availableRoles" :key="role">
                                                         <option :value="role" x-text="roleLabel(role)"></option>
                                                     </template>

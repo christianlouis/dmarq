@@ -27,4 +27,6 @@ def test_members_template_uses_membership_api_without_html_injection():
     assert "/api/v1/memberships/organizations/" in template
     assert "/api/v1/memberships/workspaces/" in template
     assert 'x-text="membership.user.email"' in template
+    assert '@change="updateMembership(membership, membership.active)"' in template
+    assert '@change="updateMembership(membership, true)"' not in template
     assert "x-html" not in template
