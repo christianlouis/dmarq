@@ -164,7 +164,9 @@ class StatsSummarizer:
         period_days = max(1, int(period_days or 30))
         suffix = f"{period_days}d"
         if cache_key:
-            suffix = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(cache_key)).strip("_") or suffix
+            safe_key = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(cache_key)).strip("_")
+            if safe_key:
+                suffix = f"{suffix}_{safe_key}"
         if domain_id is None:
             return os.path.join(self.cache_dir, f"global_summary_{suffix}.json")
         # Sanitize domain_id to use as filename

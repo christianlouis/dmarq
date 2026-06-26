@@ -9,6 +9,24 @@ from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
+from app.api.api_v1.endpoints.stats import _summary_cache_key, resolve_dashboard_date_range
+
+
+def test_summary_cache_key_includes_custom_date_bounds():
+    date_range = resolve_dashboard_date_range(
+        interval="custom",
+        start_date="2026-06-01",
+        end_date="2026-06-07",
+    )
+
+    assert _summary_cache_key(date_range) == "custom_2026-06-01_2026-06-07"
+
+
+def test_summary_cache_key_partitions_open_calendar_ranges():
+    date_range = resolve_dashboard_date_range(interval="week_to_date")
+
+    assert _summary_cache_key(date_range).startswith("week_to_date_")
+
 
 class TestDashboardStatistics:
     """Tests for GET /api/v1/stats/dashboard"""
