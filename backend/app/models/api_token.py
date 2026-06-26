@@ -1,6 +1,7 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Index, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy.orm import relationship
 
 from app.core.database import Base
 
@@ -11,6 +12,7 @@ class APIToken(Base):
     __tablename__ = "api_tokens"
 
     id = Column(Integer, primary_key=True, index=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=True, index=True)
     name = Column(String(120), nullable=False)
     key_hash = Column(String(255), unique=True, nullable=False, index=True)
     key_prefix = Column(String(16), nullable=False, index=True)
@@ -24,9 +26,12 @@ class APIToken(Base):
     usage_count = Column(Integer, default=0, nullable=False)
 
     __table_args__ = (
+        Index("ix_api_tokens_workspace_active", "workspace_id", "active"),
         Index("ix_api_tokens_active_scope", "active", "scopes"),
         Index("ix_api_tokens_last_used", "last_used_at"),
     )
+
+    workspace = relationship("Workspace")
 
     def __repr__(self):
         return f"<APIToken {self.name} active={self.active}>"

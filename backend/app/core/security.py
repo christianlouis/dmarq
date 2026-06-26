@@ -259,6 +259,7 @@ def require_api_token_scope(required_scope: str) -> Callable:
         return {
             "auth_type": "api_token",
             "token_id": token.id,
+            "workspace_id": token.workspace_id,
             "token_name": token.name,
             "scopes": sorted(scopes),
         }

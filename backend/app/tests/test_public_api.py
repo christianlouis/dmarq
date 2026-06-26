@@ -1,8 +1,10 @@
 from fastapi.testclient import TestClient
 
 from app.models.api_token import APIToken
+from app.models.workspace import Workspace
 from app.services.api_tokens import READ_POSTURE_SCOPE, READ_REPORTS_SCOPE, create_api_token
 from app.services.report_store import ReportStore
+from app.services.workspaces import get_or_create_default_workspace
 
 DOMAIN = "example.com"
 
@@ -82,6 +84,7 @@ def test_admin_can_create_list_and_revoke_api_tokens(authed_client: TestClient, 
     body = created.json()
     assert body["token"].startswith("dmarq_")
     assert body["metadata"]["scopes"] == [READ_REPORTS_SCOPE]
+    assert body["metadata"]["workspace_id"] is not None
     assert "key_hash" not in body["metadata"]
 
     listed = authed_client.get("/api/v1/api-tokens")
@@ -103,3 +106,41 @@ def test_admin_can_create_list_and_revoke_api_tokens(authed_client: TestClient, 
         headers={"X-API-Key": body["token"]},
     )
     assert denied.status_code == 401
+
+
+def test_admin_api_token_management_is_workspace_scoped(
+    authed_client: TestClient,
+    db_session,
+):
+    """Token list and revoke operations are limited to the authorized workspace."""
+    default_workspace = get_or_create_default_workspace(db_session)
+    other_workspace = Workspace(
+        slug="other",
+        name="Other Workspace",
+        active=True,
+    )
+    db_session.add(other_workspace)
+    db_session.flush()
+    other_token = create_api_token(
+        db_session,
+        name="other workspace token",
+        scopes=[READ_REPORTS_SCOPE],
+        workspace_id=other_workspace.id,
+    )
+
+    created = authed_client.post(
+        "/api/v1/api-tokens",
+        json={"name": "default workspace token", "scopes": [READ_REPORTS_SCOPE]},
+    )
+    assert created.status_code == 201
+    assert created.json()["metadata"]["workspace_id"] == default_workspace.id
+
+    listed = authed_client.get("/api/v1/api-tokens")
+    assert listed.status_code == 200
+    names = {row["name"] for row in listed.json()["tokens"]}
+    assert names == {"default workspace token"}
+
+    denied_revoke = authed_client.delete(f"/api/v1/api-tokens/{other_token.token.id}")
+    assert denied_revoke.status_code == 404
+    db_session.refresh(other_token.token)
+    assert other_token.token.active is True
