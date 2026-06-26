@@ -101,6 +101,12 @@ def test_domain_read_stats_selectors_and_search_use_workspace_auth(
     domain = seeded_client.get(f"/api/v1/domains/domains/{DOMAIN}")
     assert domain.status_code == 200
     assert domain.json()["name"] == DOMAIN
+    assert domain.json()["policy"] == "reject"
+
+    domain_list = seeded_client.get("/api/v1/domains/domains")
+    assert domain_list.status_code == 200
+    assert domain_list.json()[0]["name"] == DOMAIN
+    assert domain_list.json()[0]["policy"] == "reject"
 
     stats = seeded_client.get(f"/api/v1/domains/{DOMAIN}/stats")
     assert stats.status_code == 200
@@ -113,6 +119,7 @@ def test_domain_read_stats_selectors_and_search_use_workspace_auth(
     search = seeded_client.get("/api/v1/domains/search?q=example")
     assert search.status_code == 200
     assert search.json()[0]["name"] == DOMAIN
+    assert search.json()[0]["policy"] == "reject"
 
 
 def test_delete_domain_uses_workspace_scoped_domain_cleanup(
