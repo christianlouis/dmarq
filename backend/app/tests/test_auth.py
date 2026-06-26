@@ -361,7 +361,7 @@ class TestAuthDisabled:
             mock_settings.AUTH_DISABLED = True
             mock_req = MagicMock()
             mock_req.cookies = {}
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 require_admin_auth(request=mock_req, api_key=None, bearer=None)
             )
         assert result["auth_type"] == "disabled"
