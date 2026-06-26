@@ -10,6 +10,42 @@
 
 {% block content %}
 <div class="dashboard-page space-y-6" x-data="dashboardApp()">
+    <div class="rounded-lg bg-white p-4 shadow-sm" x-show="hasDomainData" x-cloak>
+        <div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div class="grid gap-1">
+                <label class="text-sm font-semibold text-[#120d36]" for="dashboard-date-interval">
+                    Date range
+                </label>
+                <div class="flex flex-wrap items-center gap-2">
+                    <select id="dashboard-date-interval"
+                            class="rounded-md border border-[#dfdfdf] bg-white px-3 py-2 text-sm font-semibold text-[#120d36]"
+                            x-model="dateInterval"
+                            @change="handleDateIntervalChange()">
+                        <template x-for="option in dateIntervalOptions" :key="option.value">
+                            <option :value="option.value" x-text="option.label"></option>
+                        </template>
+                    </select>
+                    <template x-if="dateInterval === 'custom'">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <input type="date"
+                                   class="rounded-md border border-[#dfdfdf] bg-white px-3 py-2 text-sm text-[#120d36]"
+                                   x-model="customStartDate">
+                            <input type="date"
+                                   class="rounded-md border border-[#dfdfdf] bg-white px-3 py-2 text-sm text-[#120d36]"
+                                   x-model="customEndDate">
+                            <button type="button"
+                                    class="rounded-md bg-[#272a5f] px-3 py-2 text-sm font-semibold text-white hover:bg-[#171346]"
+                                    @click="fetchDashboardStats()">
+                                Apply
+                            </button>
+                        </div>
+                    </template>
+                </div>
+            </div>
+            <p class="text-sm text-[#5f5c78]" x-text="dateRangeLabel"></p>
+        </div>
+    </div>
+
     <div class="grid grid-cols-1 gap-6 xl:grid-cols-12" x-show="hasDomainData" x-cloak>
         <section class="rounded-lg bg-white p-6 shadow-sm xl:col-span-6">
             <div class="mb-3 grid gap-2 sm:flex sm:items-start sm:justify-between sm:gap-4">
@@ -306,6 +342,20 @@ function dashboardApp() {
         domains: [],
         selectedDnsDomain: '',
         demoDeployment: null,
+        dateInterval: 'last_30_days',
+        customStartDate: '',
+        customEndDate: '',
+        dateRangeLabel: 'Last 30 days',
+        dateIntervalOptions: [
+            { value: 'last_24_hours', label: 'Last 24 hours' },
+            { value: 'last_48_hours', label: 'Last 48 hours' },
+            { value: 'last_7_days', label: 'Last 7 days' },
+            { value: 'last_30_days', label: 'Last 30 days' },
+            { value: 'last_90_days', label: 'Last 90 days' },
+            { value: 'week_to_date', label: 'Week to date' },
+            { value: 'month_to_date', label: 'Month to date' },
+            { value: 'custom', label: 'Custom' }
+        ],
 
         get selectedDnsDomainRecord() {
             return this.domains.find(domain => domain.domain_name === this.selectedDnsDomain) || this.domains[0] || null;
@@ -398,19 +448,55 @@ function dashboardApp() {
 
         async fetchDashboardStats() {
             try {
-                const response = await fetch('/api/v1/stats/dashboard?period_days=30');
+                const response = await fetch(this.dashboardStatsUrl());
                 if (!response.ok) {
                     console.error('Error fetching dashboard stats:', response.status);
                     return;
                 }
 
                 const data = await response.json();
+                this.updateDashboardStats(data);
+                this.updateDateRangeLabel(data.date_range);
                 this.renderDashboardCharts(data.compliance_trend || []);
                 this.populateChangeSummary(data.change_summary || []);
                 this.populateTopSources(data.top_sources || []);
             } catch (error) {
                 console.error('Error fetching dashboard stats:', error);
             }
+        },
+
+        dashboardStatsUrl() {
+            const params = new URLSearchParams();
+            params.set('interval', this.dateInterval);
+            if (this.dateInterval === 'custom') {
+                if (this.customStartDate) params.set('start_date', this.customStartDate);
+                if (this.customEndDate) params.set('end_date', this.customEndDate);
+            }
+            return `/api/v1/stats/dashboard?${params.toString()}`;
+        },
+
+        handleDateIntervalChange() {
+            if (this.dateInterval !== 'custom') {
+                this.fetchDashboardStats();
+                return;
+            }
+            if (!this.customEndDate) {
+                this.customEndDate = new Date().toISOString().slice(0, 10);
+            }
+            if (!this.customStartDate) {
+                const start = new Date();
+                start.setDate(start.getDate() - 6);
+                this.customStartDate = start.toISOString().slice(0, 10);
+            }
+        },
+
+        updateDateRangeLabel(dateRange) {
+            if (!dateRange) return;
+            const start = dateRange.start_date || '';
+            const end = dateRange.end_date || '';
+            this.dateRangeLabel = start && end
+                ? `${dateRange.label || 'Selected range'} · ${start} to ${end}`
+                : (dateRange.label || this.dateRangeLabel);
         },
 
         async fetchDeploymentShowcase() {
@@ -434,7 +520,8 @@ function dashboardApp() {
             
             if (totalDomains) totalDomains.textContent = this.formatLargeNumber(data.total_domains || 0);
             if (totalEmails) totalEmails.textContent = this.formatLargeNumber(data.total_emails || 0);
-            if (passRate) passRate.textContent = `${data.overall_pass_rate || 0}%`;
+            const rate = data.overall_pass_rate ?? data.compliance_rate ?? 0;
+            if (passRate) passRate.textContent = `${rate}%`;
             if (reportsProcessed) {
                 reportsProcessed.textContent = this.formatLargeNumber(data.reports_processed || 0);
             }
