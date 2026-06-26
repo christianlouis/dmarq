@@ -1,6 +1,8 @@
 from fastapi.testclient import TestClient
+import pytest
+from starlette.requests import Request
 
-from app.main import app
+from app.main import app, members_page
 
 
 def test_health_check(authed_client: TestClient):
@@ -69,6 +71,16 @@ def test_setup_status_includes_mailbox_recovery_hint(authed_client: TestClient):
 def test_members_page_route_is_registered():
     """The membership management page is available from the server-rendered UI."""
     assert any(getattr(route, "path", None) == "/members" for route in app.routes)
+
+
+@pytest.mark.asyncio
+async def test_members_page_renders_template():
+    """The membership management page renders the server-side template."""
+    request = Request({"type": "http", "method": "GET", "path": "/members", "headers": []})
+    response = await members_page(request)
+
+    assert response.status_code == 200
+    assert response.template.name == "members.html"
 
 
 def test_reports_upload_invalid_extension(authed_client: TestClient):
