@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Set
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.models.organization import Organization, OrganizationMembership
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceMembership
@@ -61,6 +62,19 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
     },
 }
 
+PLATFORM_ADMIN_AUTH_TYPES = {"api_key", "disabled"}
+
+ORGANIZATION_ROLE_ALIASES = {
+    "organization_owner": ROLE_WORKSPACE_OWNER,
+    "owner": ROLE_WORKSPACE_OWNER,
+    "admin": ROLE_WORKSPACE_OWNER,
+    "organization_admin": ROLE_WORKSPACE_OWNER,
+    "billing_admin": ROLE_WORKSPACE_OWNER,
+    "auditor": ROLE_AUDITOR,
+    "organization_auditor": ROLE_AUDITOR,
+    "analyst": ROLE_ANALYST,
+}
+
 
 def permissions_for_role(role: str) -> Set[str]:
     """Return normalized permissions for a workspace role."""
@@ -90,9 +104,14 @@ def role_for_auth_context(auth_context: dict) -> str:
     authenticated admin context until they are moved to workspace-aware checks.
     """
     auth_type = (auth_context or {}).get("auth_type")
-    if auth_type in {"session", "bearer", "jwt", "api_key", "disabled"}:
+    if auth_type in {"session", "bearer", "jwt", *PLATFORM_ADMIN_AUTH_TYPES}:
         return ROLE_WORKSPACE_OWNER
     return ROLE_AUDITOR
+
+
+def is_platform_admin_auth(auth_context: dict) -> bool:
+    """Return True for deployment-wide admin credentials."""
+    return (auth_context or {}).get("auth_type") in PLATFORM_ADMIN_AUTH_TYPES
 
 
 def _auth_user_id(auth_context: dict) -> Optional[int]:
@@ -141,6 +160,11 @@ def _auth_user(db: Session, auth_context: dict) -> Optional[User]:
     if email:
         return _active_user_by_email(db, str(email))
     return None
+
+
+def _normalize_organization_role(role: str) -> str:
+    normalized = (role or "").strip().lower()
+    return ORGANIZATION_ROLE_ALIASES.get(normalized, normalized)
 
 
 def role_for_workspace(
@@ -197,4 +221,135 @@ def require_workspace_permission(
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail=f"Workspace permission required: {permission}",
+    )
+
+
+def role_for_organization(
+    db: Session,
+    auth_context: dict,
+    organization: Organization,
+    permission: str,
+) -> str:
+    """Resolve an effective organization role for tenant-state endpoints."""
+    if is_platform_admin_auth(auth_context):
+        return ROLE_WORKSPACE_OWNER
+
+    user = _auth_user(db, auth_context)
+    if user is None:
+        return ""
+
+    membership = (
+        db.query(OrganizationMembership)
+        .filter(
+            OrganizationMembership.organization_id == organization.id,
+            OrganizationMembership.user_id == user.id,
+            OrganizationMembership.active.is_(True),
+        )
+        .first()
+    )
+    if membership is not None:
+        role = _normalize_organization_role(membership.role)
+        if role_allows(role, permission):
+            return role
+
+    workspace_roles = (
+        db.query(WorkspaceMembership.role)
+        .join(Workspace, WorkspaceMembership.workspace_id == Workspace.id)
+        .filter(
+            Workspace.organization_id == organization.id,
+            Workspace.active.is_(True),
+            WorkspaceMembership.user_id == user.id,
+            WorkspaceMembership.active.is_(True),
+        )
+        .all()
+    )
+    for row in workspace_roles:
+        role = _normalize_organization_role(row[0])
+        if role_allows(role, permission):
+            return role
+
+    if user.workspace_id is not None and user.is_superuser:
+        workspace = (
+            db.query(Workspace)
+            .filter(
+                Workspace.id == user.workspace_id,
+                Workspace.organization_id == organization.id,
+                Workspace.active.is_(True),
+            )
+            .first()
+        )
+        if workspace is not None and role_allows(ROLE_WORKSPACE_OWNER, permission):
+            return ROLE_WORKSPACE_OWNER
+    return ""
+
+
+def organization_ids_for_permission(
+    db: Session,
+    auth_context: dict,
+    permission: str,
+) -> Optional[List[int]]:
+    """Return authorized organization IDs, or None for platform-wide access."""
+    if is_platform_admin_auth(auth_context):
+        return None
+
+    user = _auth_user(db, auth_context)
+    if user is None:
+        return []
+
+    organization_ids: Set[int] = set()
+    organization_roles = (
+        db.query(OrganizationMembership.organization_id, OrganizationMembership.role)
+        .filter(
+            OrganizationMembership.user_id == user.id,
+            OrganizationMembership.active.is_(True),
+        )
+        .all()
+    )
+    for organization_id, role in organization_roles:
+        if role_allows(_normalize_organization_role(role), permission):
+            organization_ids.add(organization_id)
+
+    workspace_roles = (
+        db.query(Workspace.organization_id, WorkspaceMembership.role)
+        .join(Workspace, WorkspaceMembership.workspace_id == Workspace.id)
+        .filter(
+            Workspace.organization_id.isnot(None),
+            Workspace.active.is_(True),
+            WorkspaceMembership.user_id == user.id,
+            WorkspaceMembership.active.is_(True),
+        )
+        .all()
+    )
+    for organization_id, role in workspace_roles:
+        if role_allows(_normalize_organization_role(role), permission):
+            organization_ids.add(organization_id)
+
+    if user.workspace_id is not None and user.is_superuser:
+        workspace = (
+            db.query(Workspace)
+            .filter(
+                Workspace.id == user.workspace_id,
+                Workspace.organization_id.isnot(None),
+                Workspace.active.is_(True),
+            )
+            .first()
+        )
+        if workspace is not None and role_allows(ROLE_WORKSPACE_OWNER, permission):
+            organization_ids.add(workspace.organization_id)
+
+    return sorted(organization_ids)
+
+
+def require_organization_permission(
+    auth_context: dict,
+    permission: str,
+    db: Session,
+    organization: Organization,
+) -> None:
+    """Raise HTTP 403 when the caller cannot access organization tenant state."""
+    if role_for_organization(db, auth_context, organization, permission):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=f"Organization permission required: {permission}",
     )

@@ -11,12 +11,13 @@ from app.core.security import require_admin_auth
 from app.models.organization import Organization
 from app.services.organizations import (
     bootstrap_default_commercial_foundation,
-    list_organization_summaries,
+    list_scoped_organization_summaries,
     organization_summary,
 )
 from app.services.workspace_access import (
     PERMISSION_AUDIT_READ,
-    require_workspace_permission,
+    organization_ids_for_permission,
+    require_organization_permission,
 )
 
 router = APIRouter()
@@ -40,8 +41,8 @@ async def list_organizations(
     _auth: dict = Depends(require_admin_auth),
 ) -> OrganizationsResponse:
     """Return organization, workspace, subscription, and entitlement summaries."""
-    require_workspace_permission(_auth, PERMISSION_AUDIT_READ)
-    return {"organizations": list_organization_summaries(db)}
+    organization_ids = organization_ids_for_permission(db, _auth, PERMISSION_AUDIT_READ)
+    return {"organizations": list_scoped_organization_summaries(db, organization_ids)}
 
 
 @router.get("/{organization_id}", response_model=OrganizationResponse)
@@ -51,7 +52,6 @@ async def get_organization(
     _auth: dict = Depends(require_admin_auth),
 ) -> OrganizationResponse:
     """Return one organization summary."""
-    require_workspace_permission(_auth, PERMISSION_AUDIT_READ)
     bootstrap_default_commercial_foundation(db)
     organization = (
         db.query(Organization)
@@ -63,4 +63,5 @@ async def get_organization(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Organization {organization_id} not found",
         )
+    require_organization_permission(_auth, PERMISSION_AUDIT_READ, db, organization)
     return {"organization": organization_summary(db, organization)}
