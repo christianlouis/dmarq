@@ -17,9 +17,35 @@ from sqlalchemy.orm import Session
 
 from app.api.api_v1.endpoints import mail_sources as mail_sources_endpoint
 from app.core.credential_encryption import is_encrypted_secret
+from app.core.database import get_db
+from app.core.security import require_admin_auth
 from app.models.mail_source import MailSource
 from app.models.mail_source_import import MailSourceImport
+from app.models.user import User
+from app.models.workspace import Workspace
+from app.models.workspace_access import WorkspaceMembership
 from app.services.import_history import record_import_attempt
+from app.services.workspace_access import ROLE_OPERATOR
+from app.services.workspaces import get_or_create_default_workspace
+
+
+def _add_user(db_session: Session, email: str):
+    user = User(email=email, is_active=True, is_verified=True, is_superuser=False)
+    db_session.add(user)
+    db_session.flush()
+    return user
+
+
+def _add_membership(db_session: Session, workspace: Workspace, user: User, role: str):
+    membership = WorkspaceMembership(
+        workspace_id=workspace.id,
+        user_id=user.id,
+        role=role,
+        active=True,
+    )
+    db_session.add(membership)
+    db_session.flush()
+    return membership
 
 
 class TestMailSourceModel:
@@ -418,6 +444,61 @@ class TestMailSourcesAPIAuthed:
         resp = authed_client.get("/api/v1/mail-sources")
         assert resp.status_code == 200
         assert resp.json() == []
+
+    def test_mail_source_routes_require_workspace_membership(
+        self,
+        test_app,
+        db_session: Session,
+    ):
+        workspace = get_or_create_default_workspace(db_session)
+        operator = _add_user(db_session, "mail-operator@example.com")
+        outsider = _add_user(db_session, "mail-outsider@example.com")
+        _add_membership(db_session, workspace, operator, ROLE_OPERATOR)
+        db_session.commit()
+
+        current_user = {"id": operator.id}
+
+        async def mock_admin_auth():
+            return {"auth_type": "session", "user_id": current_user["id"]}
+
+        def override_get_db():
+            try:
+                yield db_session
+            finally:
+                pass
+
+        test_app.dependency_overrides[get_db] = override_get_db
+        test_app.dependency_overrides[require_admin_auth] = mock_admin_auth
+
+        with TestClient(test_app) as client:
+            list_response = client.get("/api/v1/mail-sources")
+            assert list_response.status_code == 200
+
+            create_response = client.post(
+                "/api/v1/mail-sources",
+                json={"name": "Operator IMAP", "method": "IMAP"},
+            )
+            assert create_response.status_code == 201
+
+            source_id = create_response.json()["id"]
+            update_response = client.put(
+                f"/api/v1/mail-sources/{source_id}",
+                json={"folder": "Reports"},
+            )
+            assert update_response.status_code == 200
+
+            current_user["id"] = outsider.id
+
+            list_response = client.get("/api/v1/mail-sources")
+            assert list_response.status_code == 403
+
+            create_response = client.post(
+                "/api/v1/mail-sources",
+                json={"name": "Blocked IMAP", "method": "IMAP"},
+            )
+            assert create_response.status_code == 403
+
+        test_app.dependency_overrides.clear()
 
     # ------------------------------------------------------------------
     # Create
@@ -1205,7 +1286,8 @@ class TestMicrosoft365GraphMailSource:
 
         with (
             patch(
-                "app.api.api_v1.endpoints.mail_sources.MicrosoftGraphClient.exchange_code_for_tokens",
+                "app.api.api_v1.endpoints.mail_sources."
+                "MicrosoftGraphClient.exchange_code_for_tokens",
                 return_value={"access_token": "access", "refresh_token": "refresh"},
             ),
             patch(
@@ -1259,7 +1341,8 @@ class TestMicrosoft365GraphMailSource:
 
         with (
             patch(
-                "app.api.api_v1.endpoints.mail_sources.MicrosoftGraphClient.exchange_code_for_tokens",
+                "app.api.api_v1.endpoints.mail_sources."
+                "MicrosoftGraphClient.exchange_code_for_tokens",
                 return_value={"access_token": "access", "refresh_token": "refresh"},
             ),
             patch(
@@ -2310,7 +2393,7 @@ class TestGmailTestConnectionFailure:
     """Tests for the Gmail API test failure (exception) branch."""
 
     def test_gmail_test_with_exception_returns_generic_message(self, authed_client: TestClient):
-        """When _build_service().execute() raises, return a generic error without the stack trace."""
+        """When Gmail execute raises, return a generic error without the stack trace."""
         create_resp = authed_client.post(
             "/api/v1/mail-sources",
             json={"name": "Gmail Exc Test", "method": "GMAIL_API"},
