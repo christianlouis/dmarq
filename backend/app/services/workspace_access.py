@@ -109,6 +109,36 @@ def _auth_user_id(auth_context: dict) -> Optional[int]:
     return None
 
 
+def _active_user_by_email(db: Session, email: str) -> Optional[User]:
+    return db.query(User).filter(User.email == email, User.is_active.is_(True)).first()
+
+
+def _active_user_by_logto_id(db: Session, logto_id: str) -> Optional[User]:
+    return db.query(User).filter(User.logto_id == logto_id, User.is_active.is_(True)).first()
+
+
+def _auth_user(db: Session, auth_context: dict) -> Optional[User]:
+    user_id = _auth_user_id(auth_context)
+    if user_id is not None:
+        return db.query(User).filter(User.id == user_id, User.is_active.is_(True)).first()
+
+    payload = (auth_context or {}).get("payload") or {}
+    subject = payload.get("sub")
+    if subject:
+        subject = str(subject)
+        user = _active_user_by_logto_id(db, subject)
+        if user is not None:
+            return user
+        user = _active_user_by_email(db, subject)
+        if user is not None:
+            return user
+
+    email = payload.get("email") or (auth_context or {}).get("email")
+    if email:
+        return _active_user_by_email(db, str(email))
+    return None
+
+
 def role_for_workspace(
     db: Session,
     auth_context: dict,
@@ -119,15 +149,15 @@ def role_for_workspace(
     if auth_type in {"api_key", "disabled"}:
         return ROLE_WORKSPACE_OWNER
 
-    user_id = _auth_user_id(auth_context)
-    if user_id is None:
+    user = _auth_user(db, auth_context)
+    if user is None:
         return ""
 
     membership = (
         db.query(WorkspaceMembership)
         .filter(
             WorkspaceMembership.workspace_id == workspace.id,
-            WorkspaceMembership.user_id == user_id,
+            WorkspaceMembership.user_id == user.id,
             WorkspaceMembership.active.is_(True),
         )
         .first()
@@ -135,7 +165,6 @@ def role_for_workspace(
     if membership is not None:
         return membership.role
 
-    user = db.query(User).filter(User.id == user_id, User.is_active.is_(True)).first()
     if user and user.workspace_id == workspace.id and user.is_superuser:
         return ROLE_WORKSPACE_OWNER
     return ""

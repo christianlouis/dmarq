@@ -1,10 +1,12 @@
 import json
+from contextlib import contextmanager
 
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import require_admin_auth
+from app.models.domain import Domain
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceMembership
@@ -29,9 +31,16 @@ from app.services.workspace_audit import (
 from app.services.workspaces import get_or_create_default_workspace
 
 
-def _add_user(db_session: Session, email: str, workspace_id=None, is_superuser=False):
+def _add_user(
+    db_session: Session,
+    email: str,
+    workspace_id=None,
+    is_superuser=False,
+    logto_id=None,
+):
     user = User(
         email=email,
+        logto_id=logto_id,
         workspace_id=workspace_id,
         is_superuser=is_superuser,
         is_active=True,
@@ -54,6 +63,7 @@ def _add_membership(db_session: Session, workspace: Workspace, user: User, role:
     return membership
 
 
+@contextmanager
 def _client_as_user(test_app, db_session: Session, user: User):
     async def mock_admin_auth():
         return {"auth_type": "session", "user_id": user.id}
@@ -64,9 +74,38 @@ def _client_as_user(test_app, db_session: Session, user: User):
         finally:
             pass
 
+    original_overrides = dict(test_app.dependency_overrides)
     test_app.dependency_overrides[get_db] = override_get_db
     test_app.dependency_overrides[require_admin_auth] = mock_admin_auth
-    return TestClient(test_app)
+    try:
+        with TestClient(test_app) as client:
+            yield client
+    finally:
+        test_app.dependency_overrides = original_overrides
+
+
+@contextmanager
+def _client_as_jwt(test_app, db_session: Session, subject: str, email: str | None = None):
+    async def mock_admin_auth():
+        payload = {"sub": subject}
+        if email is not None:
+            payload["email"] = email
+        return {"auth_type": "jwt", "payload": payload}
+
+    def override_get_db():
+        try:
+            yield db_session
+        finally:
+            pass
+
+    original_overrides = dict(test_app.dependency_overrides)
+    test_app.dependency_overrides[get_db] = override_get_db
+    test_app.dependency_overrides[require_admin_auth] = mock_admin_auth
+    try:
+        with TestClient(test_app) as client:
+            yield client
+    finally:
+        test_app.dependency_overrides = original_overrides
 
 
 def test_workspace_roles_endpoint_lists_permissions(authed_client: TestClient):
@@ -144,16 +183,46 @@ def test_workspace_permission_denial_and_actor_variants(db_session: Session):
 def test_workspace_role_resolution_uses_membership(db_session: Session):
     """Workspace-aware RBAC resolves roles from active memberships."""
     workspace = get_or_create_default_workspace(db_session)
-    auditor = _add_user(db_session, "auditor@example.com")
+    auditor = _add_user(db_session, "auditor@example.com", logto_id="logto-auditor")
     analyst = _add_user(db_session, "analyst@example.com")
     outsider = _add_user(db_session, "outsider@example.com")
+    conflicting_subject_user = _add_user(
+        db_session,
+        "logto-auditor",
+        logto_id="other-logto-subject",
+    )
     _add_membership(db_session, workspace, auditor, ROLE_AUDITOR)
     _add_membership(db_session, workspace, analyst, ROLE_ANALYST)
+    _add_membership(db_session, workspace, conflicting_subject_user, ROLE_ANALYST)
     db_session.commit()
 
     assert (
         role_for_workspace(db_session, {"auth_type": "session", "user_id": auditor.id}, workspace)
         == ROLE_AUDITOR
+    )
+    assert (
+        role_for_workspace(
+            db_session,
+            {"auth_type": "jwt", "payload": {"sub": "logto-auditor"}},
+            workspace,
+        )
+        == ROLE_AUDITOR
+    )
+    assert (
+        role_for_workspace(
+            db_session,
+            {"auth_type": "jwt", "payload": {"sub": "auditor@example.com"}},
+            workspace,
+        )
+        == ROLE_AUDITOR
+    )
+    assert (
+        role_for_workspace(
+            db_session,
+            {"auth_type": "jwt", "payload": {"email": "logto-auditor"}},
+            workspace,
+        )
+        == ROLE_ANALYST
     )
     assert (
         role_for_workspace(db_session, {"auth_type": "session", "user_id": analyst.id}, workspace)
@@ -190,17 +259,14 @@ def test_workspace_operator_routes_enforce_membership_roles(test_app, db_session
         )
         assert response.status_code == 403
 
-    test_app.dependency_overrides.clear()
     with _client_as_user(test_app, db_session, analyst) as client:
         response = client.get(f"/api/v1/operator/workspaces/{workspace.id}")
         assert response.status_code == 403
 
-    test_app.dependency_overrides.clear()
     with _client_as_user(test_app, db_session, outsider) as client:
         response = client.get(f"/api/v1/operator/workspaces/{workspace.id}")
         assert response.status_code == 403
 
-    test_app.dependency_overrides.clear()
     with _client_as_user(test_app, db_session, owner) as client:
         response = client.put(
             f"/api/v1/operator/workspaces/{workspace.id}/retention",
@@ -225,10 +291,58 @@ def test_workspace_audit_logs_enforce_membership(test_app, db_session: Session):
         response = client.get("/api/v1/audit/logs")
         assert response.status_code == 200
 
-    test_app.dependency_overrides.clear()
     with _client_as_user(test_app, db_session, outsider) as client:
         response = client.get("/api/v1/audit/logs")
         assert response.status_code == 403
+
+
+def test_workspace_audit_logs_support_jwt_membership_and_defer_migration(
+    test_app,
+    db_session: Session,
+):
+    """Audit reads resolve JWT users and avoid migration side effects before authorization."""
+    workspace = get_or_create_default_workspace(db_session)
+    auditor = _add_user(db_session, "jwt-auditor@example.com", logto_id="jwt-auditor-sub")
+    unscoped_domain = Domain(name="unscoped-audit.example", active=True)
+    db_session.add(unscoped_domain)
+    _add_membership(db_session, workspace, auditor, ROLE_AUDITOR)
+    db_session.commit()
+    db_session.refresh(unscoped_domain)
+
+    with _client_as_jwt(test_app, db_session, "jwt-auditor-sub") as client:
+        response = client.get("/api/v1/audit/logs")
+        assert response.status_code == 200
+
+    db_session.refresh(unscoped_domain)
+    assert unscoped_domain.workspace_id == workspace.id
+
+    unscoped_domain.workspace_id = None
+    db_session.commit()
+
+    with _client_as_jwt(test_app, db_session, "jwt-outsider-sub") as client:
+        response = client.get("/api/v1/audit/logs")
+        assert response.status_code == 403
+
+    db_session.refresh(unscoped_domain)
+    assert unscoped_domain.workspace_id is None
+
+
+def test_workspace_audit_logs_deny_jwt_without_bootstrapping_default_workspace(
+    test_app,
+    db_session: Session,
+):
+    """JWT callers cannot create or migrate the default workspace before authorization."""
+    unscoped_domain = Domain(name="unscoped-without-workspace.example", active=True)
+    db_session.add(unscoped_domain)
+    db_session.commit()
+
+    with _client_as_jwt(test_app, db_session, "unknown-logto-sub") as client:
+        response = client.get("/api/v1/audit/logs")
+        assert response.status_code == 403
+
+    assert db_session.query(Workspace).count() == 0
+    db_session.refresh(unscoped_domain)
+    assert unscoped_domain.workspace_id is None
 
 
 def test_mail_source_changes_create_workspace_audit_without_secret_values(

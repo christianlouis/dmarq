@@ -2,7 +2,7 @@
 
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -14,7 +14,7 @@ from app.services.workspace_access import (
     require_workspace_permission,
 )
 from app.services.workspace_audit import list_workspace_audit_logs
-from app.services.workspaces import assign_default_workspace_to_unscoped_rows
+from app.services.workspaces import assign_default_workspace_to_unscoped_rows, get_default_workspace
 
 router = APIRouter()
 
@@ -48,8 +48,26 @@ async def get_workspace_audit_logs(
     _auth: dict = Depends(require_admin_auth),
 ) -> WorkspaceAuditLogResponse:
     """Return recent sanitized audit events for the default workspace."""
-    workspace = assign_default_workspace_to_unscoped_rows(db)
+    workspace = get_default_workspace(db)
+    if workspace is None:
+        if (_auth or {}).get("auth_type") not in {"api_key", "disabled"}:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Workspace permission required: {PERMISSION_AUDIT_READ}",
+            )
+        workspace = assign_default_workspace_to_unscoped_rows(db)
+        require_workspace_permission(_auth, PERMISSION_AUDIT_READ, db, workspace)
+        return {
+            "audit": list_workspace_audit_logs(
+                db,
+                workspace=workspace,
+                limit=limit,
+                action=action,
+                entity_type=entity_type,
+            )
+        }
     require_workspace_permission(_auth, PERMISSION_AUDIT_READ, db, workspace)
+    workspace = assign_default_workspace_to_unscoped_rows(db)
     return {
         "audit": list_workspace_audit_logs(
             db,
