@@ -12,6 +12,7 @@ from app.models.workspace_access import WorkspaceAuditLog, WorkspaceMembership
 from app.services.workspace_access import (
     PERMISSION_AUDIT_READ,
     ROLE_ANALYST,
+    ROLE_AUDITOR,
     ROLE_OPERATOR,
     ROLE_WORKSPACE_OWNER,
     role_for_organization,
@@ -41,8 +42,14 @@ def _client_as_user(test_app, db_session: Session, user: User):
         test_app.dependency_overrides = original_overrides
 
 
-def _add_user(db_session: Session, email: str) -> User:
-    user = User(email=email, is_active=True, is_verified=True, is_superuser=False)
+def _add_user(db_session: Session, email: str, logto_id: str | None = None) -> User:
+    user = User(
+        email=email,
+        logto_id=logto_id,
+        is_active=True,
+        is_verified=True,
+        is_superuser=False,
+    )
     db_session.add(user)
     db_session.flush()
     return user
@@ -105,6 +112,27 @@ def test_workspace_membership_api_invites_updates_and_deactivates(
         emails = {row["user"]["email"] for row in listed.json()["memberships"]}
         assert {"workspace-owner@example.com", "new.member@example.com"} <= emails
 
+        inactive_before_delete = owner_client.put(
+            f"/api/v1/memberships/workspaces/{workspace.id}/users/{target.id}",
+            json={"user_id": target.id, "role": ROLE_AUDITOR, "active": False},
+        )
+        assert inactive_before_delete.status_code == 200
+        assert inactive_before_delete.json()["active"] is False
+
+        active_only = owner_client.get(f"/api/v1/memberships/workspaces/{workspace.id}")
+        assert active_only.status_code == 200
+        assert "workspace-target@example.com" not in {
+            row["user"]["email"] for row in active_only.json()["memberships"]
+        }
+
+        with_inactive = owner_client.get(
+            f"/api/v1/memberships/workspaces/{workspace.id}?include_inactive=true"
+        )
+        assert with_inactive.status_code == 200
+        assert "workspace-target@example.com" in {
+            row["user"]["email"] for row in with_inactive.json()["memberships"]
+        }
+
         deactivated = owner_client.delete(
             f"/api/v1/memberships/workspaces/{workspace.id}/users/{target.id}"
         )
@@ -122,6 +150,53 @@ def test_workspace_membership_api_invites_updates_and_deactivates(
     audit_actions = {row.action for row in db_session.query(WorkspaceAuditLog).all()}
     assert "workspace.membership_upserted" in audit_actions
     assert "workspace.membership_deactivated" in audit_actions
+
+
+def test_workspace_membership_api_validates_payload_and_invite_identity_conflicts(
+    test_app,
+    db_session: Session,
+):
+    workspace = get_or_create_default_workspace(db_session)
+    owner = _add_user(db_session, "workspace-owner-conflict@example.com")
+    email_user = _add_user(db_session, "conflict-email@example.com")
+    logto_user = _add_user(db_session, "conflict-logto@example.com", logto_id="logto-conflict")
+    _add_workspace_membership(db_session, workspace, owner, ROLE_WORKSPACE_OWNER)
+    db_session.commit()
+
+    with _client_as_user(test_app, db_session, owner) as owner_client:
+        mismatched_user = owner_client.put(
+            f"/api/v1/memberships/workspaces/{workspace.id}/users/{email_user.id}",
+            json={"user_id": logto_user.id, "role": ROLE_ANALYST},
+        )
+        assert mismatched_user.status_code == 422
+
+        invalid_role = owner_client.put(
+            f"/api/v1/memberships/workspaces/{workspace.id}/users/{email_user.id}",
+            json={"user_id": email_user.id, "role": "root"},
+        )
+        assert invalid_role.status_code == 422
+
+        conflict = owner_client.post(
+            f"/api/v1/memberships/workspaces/{workspace.id}/invites",
+            json={
+                "email": "conflict-email@example.com",
+                "role": ROLE_ANALYST,
+                "logto_id": "logto-conflict",
+            },
+        )
+        assert conflict.status_code == 409
+
+        linked = owner_client.post(
+            f"/api/v1/memberships/workspaces/{workspace.id}/invites",
+            json={
+                "email": "legacy-logto@example.com",
+                "role": ROLE_ANALYST,
+                "logto_id": "logto-conflict",
+            },
+        )
+        assert linked.status_code == 200
+        assert linked.json()["user"]["id"] == logto_user.id
+        assert linked.json()["user"]["email"] == "legacy-logto@example.com"
 
 
 def test_organization_membership_api_audits_and_deactivates(
@@ -192,3 +267,71 @@ def test_organization_membership_api_audits_and_deactivates(
     audit_actions = {row.action for row in db_session.query(WorkspaceAuditLog).all()}
     assert "organization.membership_upserted" in audit_actions
     assert "organization.membership_deactivated" in audit_actions
+
+
+def test_organization_membership_api_reuses_inactive_audit_workspace(
+    test_app,
+    db_session: Session,
+):
+    organization = Organization(slug="inactive-audit-org", name="Inactive Audit Org", active=True)
+    db_session.add(organization)
+    db_session.flush()
+    inactive_workspace = Workspace(
+        slug="inactive-audit-workspace",
+        name="Inactive Audit Workspace",
+        organization_id=organization.id,
+        active=False,
+    )
+    owner = _add_user(db_session, "inactive-audit-owner@example.com")
+    target = _add_user(db_session, "inactive-audit-target@example.com")
+    db_session.add(inactive_workspace)
+    db_session.flush()
+    db_session.add(
+        OrganizationMembership(
+            organization_id=organization.id,
+            user_id=owner.id,
+            role="organization_owner",
+            active=True,
+        )
+    )
+    db_session.commit()
+
+    with _client_as_user(test_app, db_session, owner) as owner_client:
+        updated = owner_client.put(
+            f"/api/v1/memberships/organizations/{organization.id}/users/{target.id}",
+            json={"user_id": target.id, "role": "organization_auditor"},
+        )
+        assert updated.status_code == 200
+
+    assert db_session.query(Workspace).filter(Workspace.organization_id == organization.id).count() == 1
+    audit = db_session.query(WorkspaceAuditLog).filter(
+        WorkspaceAuditLog.action == "organization.membership_upserted"
+    ).one()
+    assert audit.workspace_id == inactive_workspace.id
+
+
+def test_organization_membership_api_requires_audit_workspace(
+    test_app,
+    db_session: Session,
+):
+    organization = Organization(slug="missing-audit-org", name="Missing Audit Org", active=True)
+    db_session.add(organization)
+    db_session.flush()
+    owner = _add_user(db_session, "missing-audit-owner@example.com")
+    target = _add_user(db_session, "missing-audit-target@example.com")
+    db_session.add(
+        OrganizationMembership(
+            organization_id=organization.id,
+            user_id=owner.id,
+            role="organization_owner",
+            active=True,
+        )
+    )
+    db_session.commit()
+
+    with _client_as_user(test_app, db_session, owner) as owner_client:
+        response = owner_client.put(
+            f"/api/v1/memberships/organizations/{organization.id}/users/{target.id}",
+            json={"user_id": target.id, "role": "organization_auditor"},
+        )
+        assert response.status_code == 409
