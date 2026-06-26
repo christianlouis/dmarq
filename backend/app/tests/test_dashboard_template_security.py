@@ -28,3 +28,14 @@ def test_members_template_uses_membership_api_without_html_injection():
     assert "/api/v1/memberships/workspaces/" in template
     assert 'x-text="membership.user.email"' in template
     assert "x-html" not in template
+
+
+def test_base_template_propagates_selected_workspace_context():
+    template = (
+        Path(__file__).resolve().parents[1] / "templates" / "layouts" / "base.html"
+    ).read_text()
+
+    assert "/api/v1/workspaces" in template
+    assert "dmarq.selectedWorkspaceId" in template
+    assert "X-DMARQ-Workspace-ID" in template
+    assert "dmarq:workspace-changed" in template

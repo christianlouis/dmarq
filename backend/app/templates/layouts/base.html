@@ -20,6 +20,7 @@
 
     <!-- Alpine.js for interactivity -->
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>[x-cloak] { display: none !important; }</style>
 
     {% block head %}{% endblock %}
 </head>
@@ -39,6 +40,19 @@
             </a>
         </div>
         <div class="flex items-center gap-3">
+            <div class="hidden min-w-48 md:block" x-show="workspaces.length > 0" x-cloak>
+                <label class="sr-only" for="workspace-switcher">Workspace</label>
+                <select id="workspace-switcher"
+                        class="select select-sm w-full border-white/30 bg-white/95 text-[#272a5f]"
+                        x-model="selectedWorkspaceId"
+                        @change="selectWorkspace($event.target.value)">
+                    <template x-for="workspace in workspaces" :key="workspace.id">
+                        <option :value="workspace.id"
+                                :disabled="!workspace.active"
+                                x-text="workspaceLabel(workspace)"></option>
+                    </template>
+                </select>
+            </div>
             <nav class="hidden items-center gap-1 text-sm font-semibold lg:flex" aria-label="Primary">
                 <a href="/" class="rounded-md px-3 py-2 text-white/90 hover:bg-white/10">Dashboard</a>
                 <a href="/domains" class="rounded-md px-3 py-2 text-white/80 hover:bg-white/10">Domains</a>
@@ -121,6 +135,8 @@
         function userMenu() {
             return {
                 user: null,
+                workspaces: [],
+                selectedWorkspaceId: localStorage.getItem('dmarq.selectedWorkspaceId') || '',
                 async loadUser() {
                     try {
                         const res = await fetch('/api/v1/auth/me');
@@ -130,9 +146,67 @@
                     } catch (_) {
                         // silently ignore – user is simply not shown
                     }
+                    await this.loadWorkspaces();
+                },
+                async loadWorkspaces() {
+                    try {
+                        const res = await fetch('/api/v1/workspaces');
+                        if (!res.ok) {
+                            return;
+                        }
+                        const data = await res.json();
+                        this.workspaces = data.workspaces || [];
+                        const saved = String(this.selectedWorkspaceId || '');
+                        const selected = this.workspaces.find((workspace) => String(workspace.id) === saved && workspace.active);
+                        const fallback = this.workspaces.find((workspace) => workspace.active) || this.workspaces[0];
+                        if (!selected && fallback) {
+                            this.selectWorkspace(String(fallback.id));
+                        } else if (selected) {
+                            this.selectWorkspace(String(selected.id));
+                        }
+                    } catch (_) {
+                        // workspace selection is optional for single-tenant installs
+                    }
+                },
+                selectWorkspace(workspaceId) {
+                    this.selectedWorkspaceId = workspaceId || '';
+                    if (this.selectedWorkspaceId) {
+                        localStorage.setItem('dmarq.selectedWorkspaceId', this.selectedWorkspaceId);
+                    } else {
+                        localStorage.removeItem('dmarq.selectedWorkspaceId');
+                    }
+                    window.dispatchEvent(new CustomEvent('dmarq:workspace-changed', {
+                        detail: { workspaceId: this.selectedWorkspaceId },
+                    }));
+                },
+                workspaceLabel(workspace) {
+                    const prefix = workspace.organization ? `${workspace.organization.name} / ` : '';
+                    const suffix = workspace.active ? '' : ' (inactive)';
+                    return `${prefix}${workspace.name}${suffix}`;
                 },
             };
         }
+    </script>
+
+    <script>
+        (function attachWorkspaceContextToFetch() {
+            const originalFetch = window.fetch;
+            window.fetch = function(input, init) {
+                const workspaceId = localStorage.getItem('dmarq.selectedWorkspaceId');
+                const url = typeof input === 'string' ? input : (input && input.url) || '';
+                const isApiRequest = url.startsWith('/api/') || url.startsWith(window.location.origin + '/api/');
+                if (!workspaceId || !isApiRequest) {
+                    return originalFetch(input, init);
+                }
+                const nextInit = Object.assign({}, init || {});
+                const headers = new Headers(nextInit.headers || (input && input.headers) || {});
+                if (!headers.has('X-DMARQ-Workspace-ID')) {
+                    headers.set('X-DMARQ-Workspace-ID', workspaceId);
+                }
+                nextInit.headers = headers;
+                return originalFetch(input, nextInit);
+            };
+        })();
     </script>
 
     <!-- Initialize theme from localStorage -->
