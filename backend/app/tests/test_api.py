@@ -64,9 +64,9 @@ def test_setup_status_includes_mailbox_recovery_hint(client: TestClient):
     assert data["mailbox_recovery_hint"]["recovery_steps"]
 
 
-def test_reports_upload_invalid_extension(client: TestClient):
+def test_reports_upload_invalid_extension(authed_client: TestClient):
     """Test that uploading a file with an unsupported extension returns 400."""
-    response = client.post(
+    response = authed_client.post(
         "/api/v1/reports/upload",
         files={"file": ("report.txt", b"not a report", "text/plain")},
     )
@@ -74,9 +74,9 @@ def test_reports_upload_invalid_extension(client: TestClient):
     assert "Invalid file type" in response.json()["detail"]
 
 
-def test_reports_upload_empty_file(client: TestClient):
+def test_reports_upload_empty_file(authed_client: TestClient):
     """Test that uploading an empty file returns 400."""
-    response = client.post(
+    response = authed_client.post(
         "/api/v1/reports/upload",
         files={"file": ("report.xml", b"", "application/xml")},
     )

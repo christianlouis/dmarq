@@ -18,6 +18,16 @@ from app.services.tls_report_persistence import (
     summarize_tls_reports,
     tls_report_to_dict,
 )
+from app.services.workspace_access import (
+    PERMISSION_REPORTS_READ,
+    PERMISSION_REPORTS_WRITE,
+    require_workspace_permission,
+)
+from app.services.workspaces import (
+    assign_default_workspace_to_unscoped_rows,
+    get_default_workspace,
+    get_or_create_default_workspace,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -98,13 +108,29 @@ def _validate_upload(file: UploadFile, content: bytes) -> None:
         )
 
 
-def _filtered_tls_query(db: Session, *, domain: Optional[str] = None):
+def _authorized_reports_workspace(auth_context: Dict[str, Any], db: Session, permission: str):
+    """Authorize report access before running legacy workspace repair writes."""
+    workspace = get_default_workspace(db) or get_or_create_default_workspace(db)
+    require_workspace_permission(auth_context, permission, db, workspace)
+    return assign_default_workspace_to_unscoped_rows(db)
+
+
+def _filtered_tls_query(
+    db: Session,
+    *,
+    domain: Optional[str] = None,
+    workspace_id: Optional[int] = None,
+):
     query = db.query(TLSReport).options(
         selectinload(TLSReport.domain), selectinload(TLSReport.failures)
     )
+    if workspace_id is not None or domain:
+        query = query.outerjoin(Domain)
+    if workspace_id is not None:
+        query = query.filter(Domain.workspace_id == workspace_id)
     if domain:
         normalized = domain.lower().strip(".")
-        query = query.outerjoin(Domain).filter(
+        query = query.filter(
             (Domain.name == normalized) | (TLSReport.policy_domain == normalized)
         )
     return query
@@ -117,6 +143,7 @@ async def upload_tls_report(
     _auth: dict = Depends(require_admin_auth),
 ):
     """Upload and store an SMTP TLS Reporting aggregate."""
+    _authorized_reports_workspace(_auth, db, PERMISSION_REPORTS_WRITE)
     try:
         content = await file.read()
         _validate_upload(file, content)
@@ -160,12 +187,13 @@ async def list_tls_reports(
     _auth: dict = Depends(require_admin_auth),
 ):
     """List stored SMTP TLS reports, newest first."""
+    workspace = _authorized_reports_workspace(_auth, db, PERMISSION_REPORTS_READ)
     if get_settings().DEMO_MODE:
         return TLSReportListResponse(
             **list_demo_tls_reports(domain=domain, page=page, page_size=page_size)
         )
 
-    query = _filtered_tls_query(db, domain=domain)
+    query = _filtered_tls_query(db, domain=domain, workspace_id=workspace.id)
     total = query.count()
     rows = (
         query.order_by(TLSReport.begin_date.desc().nullslast(), TLSReport.id.desc())
@@ -193,9 +221,18 @@ async def tls_report_summary(
     _auth: dict = Depends(require_admin_auth),
 ):
     """Summarize TLS reports into trends and top failure causes."""
+    workspace = _authorized_reports_workspace(_auth, db, PERMISSION_REPORTS_READ)
     if get_settings().DEMO_MODE:
         return TLSSummaryResponse(
             **summarize_demo_tls_reports(domain=domain, days=days, limit=limit)
         )
 
-    return TLSSummaryResponse(**summarize_tls_reports(db, domain=domain, days=days, limit=limit))
+    return TLSSummaryResponse(
+        **summarize_tls_reports(
+            db,
+            domain=domain,
+            days=days,
+            limit=limit,
+            workspace_id=workspace.id,
+        )
+    )

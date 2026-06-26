@@ -214,11 +214,16 @@ def _report_rows(
     *,
     domain: Optional[str] = None,
     days: int = 30,
+    workspace_id: Optional[int] = None,
 ) -> Iterable[TLSReport]:
     cutoff = datetime.utcnow() - timedelta(days=days)
     query = db.query(TLSReport).options(
         selectinload(TLSReport.domain), selectinload(TLSReport.failures)
     )
+    if workspace_id is not None or domain:
+        query = query.outerjoin(Domain)
+    if workspace_id is not None:
+        query = query.filter(Domain.workspace_id == workspace_id)
     query = query.filter(
         (TLSReport.begin_date >= cutoff)
         | (TLSReport.end_date >= cutoff)
@@ -226,7 +231,7 @@ def _report_rows(
     )
     if domain:
         normalized = domain.lower().strip(".")
-        query = query.outerjoin(Domain).filter(
+        query = query.filter(
             (Domain.name == normalized) | (TLSReport.policy_domain == normalized)
         )
     return query.order_by(TLSReport.begin_date.desc().nullslast(), TLSReport.id.desc()).all()
@@ -238,9 +243,10 @@ def summarize_tls_reports(
     domain: Optional[str] = None,
     days: int = 30,
     limit: int = 10,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Summarize TLS reports into trends and actionable failure groupings."""
-    rows = list(_report_rows(db, domain=domain, days=days))
+    rows = list(_report_rows(db, domain=domain, days=days, workspace_id=workspace_id))
 
     totals = {
         "reports": len(rows),

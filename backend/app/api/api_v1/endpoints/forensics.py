@@ -23,6 +23,16 @@ from app.services.forensic_persistence import (
     save_forensic_report,
 )
 from app.services.forensic_redaction import get_forensic_redaction_policy
+from app.services.workspace_access import (
+    PERMISSION_REPORTS_READ,
+    PERMISSION_REPORTS_WRITE,
+    require_workspace_permission,
+)
+from app.services.workspaces import (
+    assign_default_workspace_to_unscoped_rows,
+    get_default_workspace,
+    get_or_create_default_workspace,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +136,13 @@ def _validate_upload(file: UploadFile, content: bytes) -> None:
         )
 
 
+def _authorized_reports_workspace(auth_context: Dict[str, Any], db: Session, permission: str):
+    """Authorize report access before running legacy workspace repair writes."""
+    workspace = get_default_workspace(db) or get_or_create_default_workspace(db)
+    require_workspace_permission(auth_context, permission, db, workspace)
+    return assign_default_workspace_to_unscoped_rows(db)
+
+
 def _filtered_forensic_query(
     db: Session,
     *,
@@ -133,11 +150,16 @@ def _filtered_forensic_query(
     source_ip: Optional[str] = None,
     auth_failure: Optional[str] = None,
     delivery_result: Optional[str] = None,
+    workspace_id: Optional[int] = None,
 ):
     query = db.query(ForensicReport).options(selectinload(ForensicReport.domain))
+    if workspace_id is not None or domain:
+        query = query.outerjoin(Domain)
+    if workspace_id is not None:
+        query = query.filter(Domain.workspace_id == workspace_id)
     if domain:
         normalized = domain.lower()
-        query = query.outerjoin(Domain).filter(
+        query = query.filter(
             (Domain.name == normalized) | (ForensicReport.reported_domain == normalized)
         )
     if source_ip:
@@ -162,6 +184,7 @@ async def upload_forensic_report(
     _auth: dict = Depends(require_admin_auth),
 ):
     """Upload and store a DMARC forensic/failure report email."""
+    _authorized_reports_workspace(_auth, db, PERMISSION_REPORTS_WRITE)
     try:
         content = await file.read()
         _validate_upload(file, content)
@@ -214,6 +237,7 @@ async def list_forensic_reports(
     _auth: dict = Depends(require_admin_auth),
 ):
     """List stored forensic reports, newest first."""
+    workspace = _authorized_reports_workspace(_auth, db, PERMISSION_REPORTS_READ)
     if get_settings().DEMO_MODE:
         return ForensicListResponse(
             **list_demo_forensic_reports(
@@ -232,6 +256,7 @@ async def list_forensic_reports(
         source_ip=source_ip,
         auth_failure=auth_failure,
         delivery_result=delivery_result,
+        workspace_id=workspace.id,
     )
     total = query.count()
     rows = (
@@ -262,6 +287,7 @@ async def analyze_forensic_reports(
     _auth: dict = Depends(require_admin_auth),
 ):
     """Summarize stored forensic samples into operator investigation groups."""
+    workspace = _authorized_reports_workspace(_auth, db, PERMISSION_REPORTS_READ)
     if get_settings().DEMO_MODE:
         return ForensicAnalysisResponse(
             **analyze_demo_forensic_reports(
@@ -279,6 +305,7 @@ async def analyze_forensic_reports(
         source_ip=source_ip,
         auth_failure=auth_failure,
         delivery_result=delivery_result,
+        workspace_id=workspace.id,
     )
     rows = (
         query.order_by(ForensicReport.arrival_date.desc().nullslast(), ForensicReport.id.desc())
@@ -295,6 +322,7 @@ async def get_forensic_report(
     _auth: dict = Depends(require_admin_auth),
 ):
     """Return one stored forensic report by numeric ID."""
+    workspace = _authorized_reports_workspace(_auth, db, PERMISSION_REPORTS_READ)
     if get_settings().DEMO_MODE:
         row = get_demo_forensic_report(report_id)
         if row is None:
@@ -306,7 +334,9 @@ async def get_forensic_report(
     row = (
         db.query(ForensicReport)
         .options(selectinload(ForensicReport.domain))
+        .join(Domain, ForensicReport.domain_id == Domain.id)
         .filter(ForensicReport.id == report_id)
+        .filter(Domain.workspace_id == workspace.id)
         .first()
     )
     if row is None:

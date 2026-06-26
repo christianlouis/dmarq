@@ -79,17 +79,24 @@ def _policy_parts(report: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def report_exists(db: Session, domain_name: str, report_id: str) -> bool:
+def report_exists(
+    db: Session,
+    domain_name: str,
+    report_id: str,
+    *,
+    workspace_id: Optional[int] = None,
+) -> bool:
     """Return True when the domain/report ID pair is already persisted."""
     if not report_id:
         return False
-    return (
+    query = (
         db.query(DMARCReport.id)
         .join(Domain, DMARCReport.domain_id == Domain.id)
         .filter(Domain.name == domain_name, DMARCReport.report_id == report_id)
-        .first()
-        is not None
     )
+    if workspace_id is not None:
+        query = query.filter(Domain.workspace_id == workspace_id)
+    return query.first() is not None
 
 
 def save_parsed_report(db: Session, report: Dict[str, Any]) -> tuple[DMARCReport, bool]:
@@ -250,39 +257,61 @@ def persisted_report_to_dict(report: DMARCReport) -> Dict[str, Any]:
     }
 
 
-def hydrate_report_store_from_db(db: Session, store: Optional[ReportStore] = None) -> int:
+def hydrate_report_store_from_db(
+    db: Session,
+    store: Optional[ReportStore] = None,
+    *,
+    workspace_id: Optional[int] = None,
+) -> int:
     """Load persisted reports into ReportStore when the database has report rows."""
     if get_settings().DEMO_MODE:
         return seed_demo_report_store(store)
 
-    report_count = db.query(DMARCReport.id).count()
+    count_query = db.query(DMARCReport.id)
+    if workspace_id is not None:
+        count_query = count_query.join(Domain, DMARCReport.domain_id == Domain.id).filter(
+            Domain.workspace_id == workspace_id
+        )
+    report_count = count_query.count()
+
+    store = store or ReportStore.get_instance()
+    if workspace_id is not None:
+        store.clear()
     if report_count == 0:
         return 0
 
-    store = store or ReportStore.get_instance()
-    store.clear()
-    reports = (
-        db.query(DMARCReport)
-        .options(
-            selectinload(DMARCReport.domain),
-            selectinload(DMARCReport.records),
-        )
-        .order_by(DMARCReport.end_date.desc())
-        .all()
+    query = db.query(DMARCReport).options(
+        selectinload(DMARCReport.domain),
+        selectinload(DMARCReport.records),
     )
+    if workspace_id is not None:
+        query = query.join(Domain, DMARCReport.domain_id == Domain.id).filter(
+            Domain.workspace_id == workspace_id
+        )
+    else:
+        store.clear()
+    reports = query.order_by(DMARCReport.end_date.desc()).all()
     for report in reports:
         store.add_report(persisted_report_to_dict(report))
     return len(reports)
 
 
-def delete_persisted_report(db: Session, domain_name: str, report_id: str) -> bool:
+def delete_persisted_report(
+    db: Session,
+    domain_name: str,
+    report_id: str,
+    *,
+    workspace_id: Optional[int] = None,
+) -> bool:
     """Delete a persisted report by domain/report ID."""
-    report = (
+    query = (
         db.query(DMARCReport)
         .join(Domain, DMARCReport.domain_id == Domain.id)
         .filter(Domain.name == domain_name, DMARCReport.report_id == report_id)
-        .first()
     )
+    if workspace_id is not None:
+        query = query.filter(Domain.workspace_id == workspace_id)
+    report = query.first()
     if report is None:
         return False
     db.delete(report)
