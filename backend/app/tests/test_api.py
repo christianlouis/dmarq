@@ -1,5 +1,6 @@
+import asyncio
+
 from fastapi.testclient import TestClient
-import pytest
 from starlette.requests import Request
 
 from app.main import app, members_page
@@ -73,11 +74,10 @@ def test_members_page_route_is_registered():
     assert any(getattr(route, "path", None) == "/members" for route in app.routes)
 
 
-@pytest.mark.asyncio
-async def test_members_page_renders_template():
+def test_members_page_renders_template():
     """The membership management page renders the server-side template."""
     request = Request({"type": "http", "method": "GET", "path": "/members", "headers": []})
-    response = await members_page(request)
+    response = asyncio.run(members_page(request))
 
     assert response.status_code == 200
     assert response.template.name == "members.html"
