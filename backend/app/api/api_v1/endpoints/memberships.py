@@ -5,7 +5,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.database import get_db
 from app.core.security import require_admin_auth
@@ -128,21 +128,16 @@ def _user_or_404(db: Session, user_id: int) -> User:
 def _audit_workspace_for_organization(db: Session, organization: Organization) -> Workspace:
     workspace = (
         db.query(Workspace)
-        .filter(Workspace.organization_id == organization.id, Workspace.active.is_(True))
+        .filter(Workspace.organization_id == organization.id)
         .order_by(Workspace.id.asc())
         .first()
     )
     if workspace is not None:
         return workspace
-    workspace = Workspace(
-        organization_id=organization.id,
-        slug=f"org-{organization.id}",
-        name=f"{organization.name} Workspace",
-        active=True,
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="Organization has no workspace available for audit logging",
     )
-    db.add(workspace)
-    db.flush()
-    return workspace
 
 
 def _normalize_role(role: str, available_roles: set[str]) -> str:
@@ -193,9 +188,16 @@ def _find_or_create_invited_user(
     payload: MembershipInviteRequest,
 ) -> User:
     email = str(payload.email).strip().lower()
-    user = db.query(User).filter(User.email == email).first()
-    if user is None and payload.logto_id:
-        user = db.query(User).filter(User.logto_id == payload.logto_id).first()
+    email_user = db.query(User).filter(User.email == email).first()
+    logto_user = None
+    if payload.logto_id:
+        logto_user = db.query(User).filter(User.logto_id == payload.logto_id).first()
+    if logto_user is not None and email_user is not None and logto_user.id != email_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Invite email and logto_id belong to different users",
+        )
+    user = logto_user or email_user
     if user is None:
         user = User(
             email=email,
@@ -208,6 +210,8 @@ def _find_or_create_invited_user(
         db.add(user)
         db.flush()
         return user
+    if user.email != email:
+        user.email = email
     if payload.logto_id and not user.logto_id:
         user.logto_id = payload.logto_id
     if payload.full_name and not user.full_name:
@@ -227,7 +231,11 @@ async def list_workspace_memberships(
     """List users assigned to one workspace."""
     workspace = _workspace_or_404(db, workspace_id)
     require_workspace_permission(_auth, PERMISSION_WORKSPACE_ADMIN, db, workspace)
-    query = db.query(WorkspaceMembership).filter(WorkspaceMembership.workspace_id == workspace.id)
+    query = (
+        db.query(WorkspaceMembership)
+        .options(selectinload(WorkspaceMembership.user))
+        .filter(WorkspaceMembership.workspace_id == workspace.id)
+    )
     if not include_inactive:
         query = query.filter(WorkspaceMembership.active.is_(True))
     rows = query.order_by(WorkspaceMembership.id.asc()).all()
@@ -375,8 +383,10 @@ async def list_organization_memberships(
     """List users assigned across one organization."""
     organization = _organization_or_404(db, organization_id)
     require_organization_permission(_auth, PERMISSION_WORKSPACE_ADMIN, db, organization)
-    query = db.query(OrganizationMembership).filter(
-        OrganizationMembership.organization_id == organization.id
+    query = (
+        db.query(OrganizationMembership)
+        .options(selectinload(OrganizationMembership.user))
+        .filter(OrganizationMembership.organization_id == organization.id)
     )
     if not include_inactive:
         query = query.filter(OrganizationMembership.active.is_(True))
