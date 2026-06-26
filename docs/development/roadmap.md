@@ -1,153 +1,335 @@
-# DMARQ Development Roadmap
+# DMARQ Product Roadmap
 
-Last updated: 2026-05-23
+Last updated: 2026-06-26
 
-This roadmap tracks implementation status and near-term engineering priorities. The project has moved beyond the initial MVP and now needs production-grade import visibility, better reporting, and hardened operations.
+DMARQ has moved beyond its original MVP. The product now parses aggregate and
+forensic DMARC reports, imports from IMAP/Gmail/Microsoft 365, persists report
+data, provides DNS posture guidance, supports alerts, exposes API/webhook/SIEM
+integrations, and has workspace foundations for MSP-style operation.
 
-## Current Status
+The next roadmap turns that foundation into three durable product modes:
 
-Complete:
-- Core DMARC aggregate parsing for XML, ZIP, and GZIP reports.
-- Secure XML parsing with `defusedxml`.
-- Upload validation and archive safety checks.
-- IMAP mailbox ingestion.
-- Gmail OAuth ingestion.
-- Persistent database models and migrations for domains, reports, records, settings, users, and mail sources.
-- Domain, report, settings, and mail source APIs.
-- Dashboard and domain detail views.
-- Logto auth integration and local development auth-disabled mode.
-- DNS resolver foundation and DNS-related endpoint tests.
+- **Self-hosted DMARQ:** privacy-first deployment where operators keep full
+  control of reports, secrets, and infrastructure.
+- **DMARQaaS:** hosted DMARQ with subscriptions, onboarding, tenant isolation,
+  billing, and support expectations.
+- **ISP/OEM DMARQ:** DMARQ embedded into ISP, MSP, registrar, and hosting
+  provider environments, including provider-owned billing and provisioning.
 
-Recently improved:
-- Gmail ingestion now matches the real Google DMARC report messages found in the connected inbox.
-- Gmail import now uses the same parser path as uploads and IMAP.
-- Gmail and IMAP imports now skip duplicate domain/report IDs.
-- Tests cover Google-style DMARC ZIP attachment imports.
-- Mail source imports now create sanitized import-history records for manual and scheduled polls.
-- Parsed upload, Gmail, and IMAP reports are now persisted to `dmarc_reports` and `report_records`.
-- Report/domain API reads can hydrate the dashboard projection from persisted data after restart.
-- Mail source import history is visible in the Mail Sources UI.
-- Individual mail sources can be manually imported from the Mail Sources UI.
-- Import-history rows include sanitized per-attachment outcomes and imported report IDs.
-- Mail source backfills can be launched from the UI with configurable search windows.
-- The current Alpine-based UI is allowed by CSP and renders dynamic tables in real browsers.
-- Sending-source summaries now retain SPF, DKIM, DMARC, and disposition pass/fail totals per IP instead of showing only the latest result.
+This roadmap is intentionally product-oriented. It should drive implementation
+issues, not replace release notes or the completed milestone history in
+[`milestones.md`](../milestones.md).
 
-Implementation note:
-- The legacy `ReportStore` remains as a projection layer for existing report/dashboard code, but durable report data now lives in the database.
+## Product Commitments
 
-## Completed Milestone: Meaningful Reports
+The roadmap must continue to honor the public DMARQ promise:
 
-Objective: turn parsed DMARC data into administrator-friendly reports.
+- Ingest and visualize **aggregate and forensic** DMARC reports.
+- Show who sends mail for a domain, what passes DMARC/SPF/DKIM, what fails, and
+  how to fix it.
+- Keep self-hosted deployment first-class through Docker and documented
+  production operation.
+- Keep Cloudflare and DNS integrations read-only by default: discover, analyze,
+  suggest, and track changes. Any future write automation must be opt-in,
+  previewed, permission-scoped, and audited.
+- Preserve privacy boundaries. Self-hosted deployments do not require a third
+  party to see reports. Hosted and ISP modes must state clearly who operates the
+  service and must enforce tenant isolation, audit logs, retention controls, and
+  secret redaction.
+- Keep normal operation GUI-first: setup, mailbox connection, DNS linting,
+  alerts, and report review should not require CLI work.
 
-Delivered:
-- Dashboard time-series charts show daily mail volume, compliance rate, and failure rate.
-- Top sending sources show DMARC, SPF, and DKIM pass/fail breakdowns on the dashboard.
-- Per-domain timelines include daily volume, pass, fail, compliance-rate, and failure-rate rollups.
-- Domain reports can be exported to CSV for a selected date range.
-- Source reports include actionable recommendations for unknown sources, SPF-only passes, DKIM-only passes, full failures, and unenforced policies.
-- What changed summaries identify newly observed senders and sudden compliance drops.
+## Current Baseline
 
-Quality bar:
-- A domain owner can understand who sends mail as their domain, which sources fail, and what to fix next.
+Completed or substantially delivered:
 
-## Completed Milestone: Reporting Quality and Import Confidence
+- Aggregate report parsing for XML, ZIP, GZIP, legacy DMARC, and DMARCbis-style
+  report variants.
+- Forensic/RUF report metadata parsing with privacy controls.
+- IMAP, Gmail, and Microsoft 365 Graph mail-source ingestion.
+- Durable report and record storage with duplicate handling and import history.
+- Dashboard, domain reports, source reports, trend charts, exports, and
+  recommendations.
+- DNS health checks for DMARC/SPF/DKIM plus posture checks for MTA-STS, TLS-RPT,
+  and BIMI.
+- Cloudflare read-only inspection, DNS snapshots, and DNS change history.
+- Notifications, alert rules, alert history, and Apprise delivery.
+- API tokens, webhooks, SIEM templates, and ticketing/chatops templates.
+- Workspace, RBAC vocabulary, audit-log, onboarding-template, and MSP operator
+  foundations.
+- Demo deployment that rolls forward from main through CI/GitOps.
 
-Objective: make mailbox imports auditable and make report totals trustworthy.
+The main open strategic issues are:
 
-Delivered:
-- Duplicate skips are reported separately from parse failures.
-- Import history exposes per-attachment results and sanitized errors.
-- Individual sources can be manually imported and backfilled from the UI.
-- Source rollups track pass/fail counts over time by sender IP.
+- [Issue #12](https://github.com/christianlouis/dmarq/issues/12): user
+  management, SaaS, ISP/OEM, subscription, and billing foundation.
+- [Issue #206](https://github.com/christianlouis/dmarq/issues/206): Kubernetes
+  high availability for loss of one hardware host.
 
-Quality bar:
-- Importing the same mailbox twice does not change aggregate totals, parse failures are visible, and source totals are not overwritten by the latest result.
+## Roadmap Tracks
 
-## Completed Milestone: Production Hardening
+### Track A: Trustworthy Core Product
 
-Objective: make self-hosted deployments safer.
+Goal: keep DMARQ excellent at the thing users came for before adding commerce.
 
-Delivered:
-- Documented a 1Password secret-injection deployment flow for local, Docker Compose, and systemd deployments.
-- Redacted secret-like values from mail-source diagnostics, stored import history, OAuth error logs, and validated admin auth contexts.
-- Added production startup validation for stable secrets, configured auth, auth-disabled mode, and Logto TLS verification.
-- Added database backup and restore guidance for SQLite and PostgreSQL deployments.
-- Added a release checklist covering migrations, tests, smoke checks, release automation, and rollback readiness.
+Deliverables:
 
-Quality bar:
-- A self-hosted deployment can be configured without copying secrets into source-controlled files or chat logs.
+- Keep parser compatibility current with real-world aggregate and forensic
+  report formats.
+- Keep demo data realistic for `dmarq.org` and `dmarq.com`, including
+  30/60/90-day windows, ordinary sources, corner cases, and safe
+  misconfiguration examples.
+- Improve dashboard-to-detail navigation so every summary card leads to the
+  evidence and recommended action.
+- Continue polishing detail views so the whole app feels useful, dense, and
+  visually consistent.
+- Maintain export and data-access guarantees for a customer's own report data.
 
-Follow-up:
-- Use the production hardening docs in at least one real production upgrade and capture any gaps.
+Exit criteria:
 
-## Later Milestones
+- A domain owner can answer who sends mail, what is failing, what changed, and
+  what to do next without leaving the dashboard/detail flow.
+- Demo mode continues to showcase realistic aggregate, forensic, DNS, TLS-RPT,
+  MTA-STS, and BIMI states without touching production paths.
 
-- Notifications and alert rules. Apprise delivery, test notifications, alert-rule evaluation, scheduled daily/weekly summaries, and alert history are in place.
-- DNS health and Cloudflare read-only inspection are in place, including zone import, record recommendations, and DNS change tracking.
-- Guided setup and operator health screens.
-- Forensic/RUF report support.
-- Email security posture beyond DMARC, including MTA-STS, TLS-RPT, BIMI, and evidence-first posture playbooks.
+### Track B: Auth, RBAC, and Tenant Safety
 
-See [milestones.md](../milestones.md) for the full milestone breakdown and exit criteria.
+Goal: make multi-user and multi-tenant operation real, not just a login screen.
 
-## Roadmap Extension (Beyond the Current Milestones)
+Build on the existing workspace model:
 
-The milestone breakdown in `docs/milestones.md` is intentionally focused on exit criteria. This section adds a product-oriented view: a feature landscape (themes), priority, and a tentative release plan for what comes after the currently defined scope.
+- **Organization/account:** billing and legal customer boundary.
+- **Workspace:** operational tenant boundary for domains, mail sources, reports,
+  alerts, API tokens, audit logs, and retention settings.
+- **Membership:** user-to-organization and user-to-workspace role assignment.
+- **Entitlement:** local materialized feature/quota state used by access checks.
 
-### Feature Landscape (Themes)
+Deliverables:
 
-**Standards & coverage**
-- Track DMARC report format changes and keep parsing/export stable across real-world variants.
-- Expand to adjacent email-auth posture checks where that directly helps operators take action.
+- Keep OIDC/Logto as the preferred production authentication path.
+- Preserve explicit auth-disabled mode for local development only.
+- Add invitation and membership management for organizations/workspaces.
+- Add workspace/account switcher for users with access to multiple tenants.
+- Enforce workspace-scoped RBAC in API dependencies and UI actions.
+- Record audit events for login-sensitive actions, membership changes, billing
+  changes, provider provisioning, and support access.
+- Support MFA policy enforcement for business/enterprise plans.
+- Add SCIM 2.0 after membership management is stable.
+- Add SAML only if OIDC is insufficient for real customer requirements.
 
-**Ingestion & reliability**
-- Add connectors (notably Microsoft 365) and higher-volume import patterns.
-- Improve import observability (auditable outcomes), retention controls, and backfill ergonomics.
+Exit criteria:
 
-**Remediation & change management**
-- Strengthen DNS posture guidance and close the loop from “finding” to “fix plan”.
-- Keep provider integrations read-only by default, with explicit and auditable change workflows when enabled.
+- Users can belong to multiple organizations/workspaces and switch safely.
+- Every read/write path enforces tenant boundaries.
+- Audit logs can explain who changed membership, billing, domains, mail sources,
+  DNS recommendations, alerts, and retention.
 
-**Integrations & automation**
-- Add APIs and webhooks to feed security and operations workflows (SIEM, ticketing, chatops).
+### Track C: DMARQaaS
 
-**Governance (teams / MSP)**
-- Workspaces, domain ownership, audit trails, and operator-friendly management for multi-org deployments.
+Goal: offer hosted DMARQ without weakening self-hosted DMARQ.
 
-**Optional AI + MCP**
-- Opt-in, privacy-preserving assistance for summarization and remediation planning.
-- Provide a clean automation surface for agents (read-only first).
+Deliverables:
 
-### Priority (Now / Next / Later)
+- Signup flow that creates organization, owner membership, first workspace, and
+  guided first-domain checklist.
+- Domain ownership verification before production use.
+- Hosted onboarding for IMAP, Gmail, Microsoft 365, Cloudflare, alerts, and DNS
+  linting.
+- Plan-limit UI for domains, message volume, users, retention, API/webhooks, and
+  SSO/SCIM.
+- Hosted privacy documentation for data processing, retention, tenant isolation,
+  support access, backups, and deletion.
+- Admin/support tooling with strict impersonation controls and audit trail.
 
-- **Now**: release hardening and follow-up triage.
-- **Next**: production smoke testing and deployment feedback.
-- **Later**: production-driven improvements from deployment feedback.
+Exit criteria:
 
-### Tentative Release Plan (Subject to Change)
+- A new hosted customer can sign up, pay or start trial, add a domain, connect a
+  report mailbox, and reach a useful dashboard without operator intervention.
+- Self-hosted installs continue to work without Stripe, DMARQ cloud accounts, or
+  hosted-only dependencies.
 
-| Release | Target window | Primary milestones |
-| --- | --- | --- |
-| `0.4.0` | 2026 Q3 | 8–9 |
-| `0.5.0` | 2026 Q4 | 10–11 |
-| `0.6.0` | 2027 Q1 | 12 |
-| `0.7.0` | 2027 Q2 | 13–14 |
-| `0.8.0` | 2027 Q3 | 15–16 |
+### Track D: Billing, Subscriptions, and Entitlements
 
-Notes:
-- Releases are planned as *themes*, not promises; reprioritize based on what production deployments surface.
-- “AI + MCP” is explicitly opt-in and should default to safe, privacy-preserving, read-only behavior.
+Goal: separate product access from payment processor assumptions.
 
-### Roadmap Tracking (GitHub)
+Billing modes to support:
 
-- Release plan: [Issue #167](https://github.com/christianlouis/dmarq/issues/167)
-- Milestone 8: [Issue #158](https://github.com/christianlouis/dmarq/issues/158)
-- Milestone 9: [Issue #161](https://github.com/christianlouis/dmarq/issues/161)
-- Milestone 10: [Issue #166](https://github.com/christianlouis/dmarq/issues/166)
-- Milestone 11: [Issue #129](https://github.com/christianlouis/dmarq/issues/129)
-- Milestone 12: [Issue #133](https://github.com/christianlouis/dmarq/issues/133)
-- Milestone 13: [Issue #138](https://github.com/christianlouis/dmarq/issues/138)
-- Milestone 14: [Issue #143](https://github.com/christianlouis/dmarq/issues/143)
-- Milestone 15: [Issue #148](https://github.com/christianlouis/dmarq/issues/148)
-- Milestone 16: [Issue #153](https://github.com/christianlouis/dmarq/issues/153)
+| Mode | Customer invoice owner | Payment/ledger owner | DMARQ role |
+| --- | --- | --- | --- |
+| `direct_stripe` | DMARQ | Stripe Billing | Subscription checkout, webhooks, entitlements |
+| `manual_contract` | DMARQ | External/manual | Contract-driven entitlement state |
+| `provider_resale` | ISP/MSP/hoster | Provider billing system | Provisioning, usage export, provider references |
+| `provider_whmcs` | Hosting provider | WHMCS | Provisioning module plus usage/overage export |
+| `provider_tmf` | ISP/telco | OSS/BSS stack | TM Forum-aligned customer/bill/payment references |
+| `self_hosted_license` | Customer/operator | None or external | License/support entitlement only |
+
+Suggested DMARQaaS price hypotheses:
+
+| Tier | Price hypothesis | Included |
+| --- | ---: | --- |
+| Free / Trial | EUR 0 | 1 sending domain, 10k msgs/mo, 14-30d history, 1 user |
+| Starter | EUR 19/mo | 2 sending domains, 100k msgs/mo, 90d history, 1 user |
+| Growth | EUR 49/mo | 8 sending domains, 500k-1M msgs/mo, 180d history, 3 users |
+| Business | EUR 129/mo | 25 sending domains, 2M msgs/mo, 1y history, 10 users, API/webhooks |
+| Enterprise | from EUR 399/mo | SSO, SCIM, audit export, custom retention, SLA/support |
+| ISP/OEM | custom | Wholesale domains/volume, provider SSO, provisioning API |
+
+Implementation guidance:
+
+- Use Stripe Billing, Checkout Sessions in subscription mode, and Stripe
+  Customer Portal for direct DMARQaaS.
+- Use Stripe Prices, not deprecated plan objects.
+- Store Stripe price IDs and provider product codes as configuration/data, not
+  hard-coded business logic.
+- Treat Stripe, WHMCS, and ISP systems as event sources that update local
+  subscriptions and entitlements asynchronously.
+- Enforce application access from local entitlements only.
+- Keep provider-billed accounts valid without Stripe customer/subscription IDs.
+- Export idempotent usage records by period for provider monthly billing.
+
+Exit criteria:
+
+- Stripe subscription changes update local entitlements through webhooks.
+- Provider-billed accounts can appear on an ISP monthly bill without Stripe.
+- Usage exports are stable enough for recurring invoicing and overage billing.
+- Suspended accounts enter safe read-only/grace states before termination.
+
+### Track E: ISP, MSP, and Hosting Provider Integrations
+
+Goal: make DMARQ easy for providers to embed into existing customer portals and
+billing stacks.
+
+Standards and ecosystems to align with:
+
+- OIDC/OAuth 2.0 for SSO.
+- SCIM 2.0 for enterprise/provider user provisioning.
+- Domain Connect for guided DNS setup where DNS providers support it.
+- WHMCS provisioning modules and usage metrics for hosting providers.
+- cPanel/WHM and Plesk APIs or extensions for hosting-control-panel workflows.
+- TM Forum Open APIs as a conceptual mapping for larger ISP/telco integrations.
+
+Deliverables:
+
+- Provider API tokens with scopes for customer/workspace provisioning.
+- Create/suspend/reactivate/terminate lifecycle endpoints.
+- Provider SSO handoff and workspace deep links.
+- Usage export endpoints for monthly billing.
+- Provider-visible health and import summaries without exposing raw tenant report
+  rows.
+- WHMCS provisioning module as the first practical hosting integration.
+- Domain Connect templates for DMARC/SPF/DKIM/MTA-STS/BIMI setup assistance.
+- cPanel/WHM and Plesk adapters after the provider API stabilizes.
+
+Exit criteria:
+
+- An ISP can sell DMARQ as a package, provision a customer workspace, bill it on
+  the customer's existing monthly invoice, and suspend/reactivate service without
+  using the DMARQ UI manually.
+- Customer-facing users land directly in the right organization/workspace
+  through provider SSO.
+
+### Track F: Production Reliability and HA
+
+Goal: make self-hosted, SaaS, and provider deployments operationally credible.
+
+Deliverables:
+
+- Complete [issue #206](https://github.com/christianlouis/dmarq/issues/206):
+  tolerate loss of any one Kubernetes hardware host for prod/preprod.
+- Move Alembic migrations out of app init containers into a single migration
+  job/release step.
+- Run multiple app replicas with readiness/liveness probes, topology spread, and
+  PDBs.
+- Confirm sessions, auth state, scheduler behavior, and background imports are
+  safe across replicas.
+- Align CloudNativePG and Longhorn topology with the cluster HA standard.
+- Document disaster recovery, restore drills, and operational SLOs for hosted
+  and provider deployments.
+
+Exit criteria:
+
+- App and preprod remain reachable after losing one hardware host.
+- Deployments do not run racing migrations.
+- Operators can verify rollout, rollback, backup, restore, and tenant isolation
+  from documented runbooks.
+
+## Sequencing
+
+### Phase 1: Product Roadmap and Design Freeze
+
+Outcome: shared implementation blueprint for #12.
+
+- Finalize this roadmap and #12 issue comments.
+- Split #12 into child issues for schema, auth/RBAC, SaaS onboarding, billing,
+  provider API, WHMCS, and website copy.
+- Define non-negotiable guardrails for self-hosted mode and DNS read-only
+  defaults.
+
+### Phase 2: Organization and Entitlement Foundation
+
+Outcome: local data model can represent SaaS, ISP, and self-hosted modes.
+
+- Add organization/account model above workspaces.
+- Add subscription, billing account, entitlement, usage record, provider
+  integration, and billing event models.
+- Backfill existing installs into a default organization and default workspace.
+- Add entitlement checks without changing current self-hosted behavior.
+
+### Phase 3: Auth and Workspace RBAC
+
+Outcome: multi-user access is enforced.
+
+- Add membership management and workspace/account switching.
+- Enforce role checks in API dependencies.
+- Add UI affordances for users, roles, invitations, and audit logs.
+- Add tests for cross-workspace isolation and forbidden access.
+
+### Phase 4: Direct DMARQaaS Billing
+
+Outcome: hosted customers can subscribe directly.
+
+- Add Stripe Checkout, Customer Portal, webhook handling, and local entitlement
+  sync.
+- Add plan-limit display and warning states.
+- Add hosted signup/onboarding flow.
+- Add billing/audit UI for organization owners.
+
+### Phase 5: Provider-Billed ISP/OEM Mode
+
+Outcome: providers can provision and bill DMARQ themselves.
+
+- Add provider provisioning API and provider-scoped tokens.
+- Add monthly usage export.
+- Add suspend/reactivate/cancel lifecycle enforcement.
+- Build first WHMCS module.
+- Add provider SSO handoff.
+
+### Phase 6: HA and Operational Maturity
+
+Outcome: commercial deployments are reliable enough to sell.
+
+- Complete Kubernetes HA work.
+- Add migration job pattern.
+- Document SLOs, backup/restore, retention, support access, and incident
+  response for SaaS/provider modes.
+- Run production-like failover and restore drills.
+
+## GitHub Tracking
+
+- [Issue #12](https://github.com/christianlouis/dmarq/issues/12): auth,
+  multi-user, SaaS, ISP/OEM, subscription, billing, and entitlement roadmap.
+- [Issue #206](https://github.com/christianlouis/dmarq/issues/206):
+  Kubernetes host-loss high availability.
+
+Recommended child issues for #12:
+
+- Organization/account schema and migration.
+- Entitlements and plan limits.
+- Workspace RBAC enforcement.
+- Invite/member management UI.
+- Stripe Billing integration.
+- Provider billing state and monthly usage exports.
+- Provider provisioning API.
+- WHMCS module.
+- Domain Connect templates.
+- Website copy update for self-hosted, SaaS, and ISP modes.

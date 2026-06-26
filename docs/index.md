@@ -27,8 +27,11 @@ For Microsoft 365 setup, see [Microsoft 365 Mail Sources](user_guide/microsoft36
 For connector implementation boundaries, see the
 [Microsoft 365 Graph Connector Contract](reference/microsoft365-graph-connector.md).
 
-For SMTP TLS reporting imports and privacy controls, see [TLS Reports](user_guide/tls_reports.md).
+SMTP TLS reporting imports and privacy controls are covered in [TLS Reports](user_guide/tls_reports.md).
 
-For aggregate-report parser support, known edge cases, and fixture guidance, see [DMARC Aggregate Format Compatibility](reference/dmarc-compatibility.md).
+Aggregate-report parser support, known edge cases, and fixture guidance are documented in [DMARC Aggregate Format Compatibility](reference/dmarc-compatibility.md).
 
-For opt-in AI summaries and read-only MCP automation, see [AI and MCP Automation](reference/ai-mcp-automation.md).
+Opt-in AI summaries and read-only MCP automation are covered in [AI and MCP Automation](reference/ai-mcp-automation.md).
+
+The current product direction across self-hosted, hosted SaaS, ISP/OEM,
+billing, and multi-tenant work is captured in the [Product Roadmap](development/roadmap.md).
