@@ -41,11 +41,13 @@ def _date_range_response(
     label: str,
     start_at: datetime,
     end_at: datetime,
+    is_filtered: bool = True,
 ) -> Dict[str, Any]:
     seconds = max(1, int((end_at - start_at).total_seconds()))
     return {
         "interval": interval,
         "label": label,
+        "is_filtered": is_filtered,
         "start_at": start_at.isoformat(),
         "end_at": end_at.isoformat(),
         "start_date": start_at.date().isoformat(),
@@ -112,14 +114,15 @@ def _days_from_interval(interval: str, fallback_days: Optional[int]) -> int:
 
 def resolve_dashboard_date_range(
     *,
-    interval: str = "last_30_days",
+    interval: Optional[str] = None,
     period_days: Optional[int] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Resolve dashboard interval presets and custom dates into UTC boundaries."""
     now = datetime.now(timezone.utc)
-    selected = (interval or "").strip().lower()
+    requested_interval = (interval or "").strip().lower()
+    selected = requested_interval
     if selected not in DATE_INTERVALS:
         if period_days is not None:
             selected = f"last_{period_days}_days"
@@ -147,7 +150,9 @@ def resolve_dashboard_date_range(
         return _to_date_range(now, selected)
 
     days = max(1, min(365, _days_from_interval(selected, period_days)))
-    return _rolling_date_range(now, selected, days)
+    date_range = _rolling_date_range(now, selected, days)
+    date_range["is_filtered"] = bool(requested_interval)
+    return date_range
 
 
 @router.get("/dashboard")
@@ -155,7 +160,7 @@ async def get_dashboard_statistics(
     db: Session = Depends(get_db),
     force_refresh: bool = Query(False, title="Force refresh of statistics"),
     period_days: int = Query(30, ge=1, le=365, title="Period in days for time-based statistics"),
-    interval: str = Query("last_30_days", title="Named date interval"),
+    interval: Optional[str] = Query(None, title="Named date interval"),
     start_date: Optional[str] = Query(None, title="Custom start date in YYYY-MM-DD format"),
     end_date: Optional[str] = Query(None, title="Custom end date in YYYY-MM-DD format"),
 ) -> Dict[str, Any]:
@@ -177,6 +182,11 @@ async def get_dashboard_statistics(
         end_date=end_date,
     )
     resolved_days = date_range["period_days"]
+    start_ts = int(datetime.fromisoformat(date_range["start_at"]).timestamp())
+    end_ts = int(datetime.fromisoformat(date_range["end_at"]).timestamp())
+    if not date_range["is_filtered"]:
+        start_ts = None
+        end_ts = None
 
     if get_settings().DEMO_MODE:
         stats = build_demo_dashboard_statistics(period_days=resolved_days)
@@ -196,8 +206,8 @@ async def get_dashboard_statistics(
     stats = stats_summarizer.calculate_summary_statistics(
         db,
         period_days=resolved_days,
-        start_ts=int(datetime.fromisoformat(date_range["start_at"]).timestamp()),
-        end_ts=int(datetime.fromisoformat(date_range["end_at"]).timestamp()),
+        start_ts=start_ts,
+        end_ts=end_ts,
     )
 
     # Add version and timestamp
@@ -214,7 +224,7 @@ async def get_domain_statistics(
     db: Session = Depends(get_db),
     force_refresh: bool = Query(False, title="Force refresh of statistics"),
     period_days: int = Query(30, ge=1, le=365, title="Period in days for time-based statistics"),
-    interval: str = Query("last_30_days", title="Named date interval"),
+    interval: Optional[str] = Query(None, title="Named date interval"),
     start_date: Optional[str] = Query(None, title="Custom start date in YYYY-MM-DD format"),
     end_date: Optional[str] = Query(None, title="Custom end date in YYYY-MM-DD format"),
 ) -> Dict[str, Any]:
@@ -236,6 +246,11 @@ async def get_domain_statistics(
         end_date=end_date,
     )
     resolved_days = date_range["period_days"]
+    start_ts = int(datetime.fromisoformat(date_range["start_at"]).timestamp())
+    end_ts = int(datetime.fromisoformat(date_range["end_at"]).timestamp())
+    if not date_range["is_filtered"]:
+        start_ts = None
+        end_ts = None
 
     if get_settings().DEMO_MODE:
         stats = build_demo_dashboard_statistics(period_days=resolved_days, domain=domain_id)
@@ -256,8 +271,8 @@ async def get_domain_statistics(
         db,
         domain_id,
         period_days=resolved_days,
-        start_ts=int(datetime.fromisoformat(date_range["start_at"]).timestamp()),
-        end_ts=int(datetime.fromisoformat(date_range["end_at"]).timestamp()),
+        start_ts=start_ts,
+        end_ts=end_ts,
     )
 
     # Add version and timestamp

@@ -219,6 +219,8 @@ class StatsSummarizer:
         start_ts: Optional[int] = None,
         end_ts: Optional[int] = None,
     ):
+        if start_ts is None and end_ts is None:
+            return query
         query = query.filter(DMARCReport.begin_date >= self._window_start_ts(period_days, start_ts))
         if end_ts is not None:
             query = query.filter(DMARCReport.begin_date < int(end_ts))
