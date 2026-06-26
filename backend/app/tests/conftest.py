@@ -1,4 +1,6 @@
 # Import all models so Base.metadata knows every table
+from importlib import import_module
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -22,6 +24,8 @@ from app.core.database import Base, get_db
 from app.core.security import require_admin_auth
 from app.main import create_app
 from app.services.report_store import ReportStore
+
+import_module("app.models.organization")
 
 
 @pytest.fixture()

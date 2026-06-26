@@ -160,7 +160,12 @@ class StatsSummarizer:
         return os.path.join(self.cache_dir, f"domain_{safe_domain}_{period_days}d.json")
 
     def calculate_summary_statistics(
-        self, db: Session, domain_id: Optional[str] = None, period_days: int = 30
+        self,
+        db: Session,
+        domain_id: Optional[str] = None,
+        period_days: int = 30,
+        start_ts: Optional[int] = None,
+        end_ts: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Calculate summary statistics from the database
@@ -175,42 +180,99 @@ class StatsSummarizer:
         """
         period_days = max(1, int(period_days or 30))
 
-        # First check if we have cached stats
-        cached_stats = self.get_cached_summary(domain_id, period_days=period_days)
-        if cached_stats and "change_summary" in cached_stats:
-            return cached_stats
+        use_cache = start_ts is None and end_ts is None
+        if use_cache:
+            cached_stats = self.get_cached_summary(domain_id, period_days=period_days)
+            if cached_stats and "change_summary" in cached_stats:
+                return cached_stats
 
         if domain_id is None:
-            stats = self._calculate_global_statistics(db, period_days)
+            stats = self._calculate_global_statistics(db, period_days, start_ts, end_ts)
         else:
-            stats = self._calculate_domain_statistics(db, domain_id, period_days)
+            stats = self._calculate_domain_statistics(
+                db,
+                domain_id,
+                period_days,
+                start_ts,
+                end_ts,
+            )
 
-        # Cache the statistics
-        self.save_summary(stats, domain_id, period_days)
+        if use_cache:
+            self.save_summary(stats, domain_id, period_days)
 
         return stats
 
-    def _calculate_global_statistics(self, db: Session, period_days: int = 30) -> Dict[str, Any]:
+    def _window_start_ts(
+        self,
+        period_days: int,
+        start_ts: Optional[int] = None,
+    ) -> int:
+        if start_ts is not None:
+            return int(start_ts)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=period_days)
+        return int(cutoff.timestamp())
+
+    def _apply_report_window(
+        self,
+        query,
+        period_days: int,
+        start_ts: Optional[int] = None,
+        end_ts: Optional[int] = None,
+    ):
+        if start_ts is None and end_ts is None:
+            return query
+        query = query.filter(DMARCReport.begin_date >= self._window_start_ts(period_days, start_ts))
+        if end_ts is not None:
+            query = query.filter(DMARCReport.begin_date < int(end_ts))
+        return query
+
+    def _calculate_global_statistics(
+        self,
+        db: Session,
+        period_days: int = 30,
+        start_ts: Optional[int] = None,
+        end_ts: Optional[int] = None,
+    ) -> Dict[str, Any]:
         """Calculate global statistics across all domains from the database."""
         # Count total domains
         total_domains = db.query(func.count(Domain.id)).scalar() or 0
 
         # Aggregate email counts from report records
-        totals = db.query(
-            func.coalesce(func.sum(ReportRecord.count), 0).label("total_emails"),
+        totals_query = db.query(
+            func.coalesce(func.sum(ReportRecord.count), 0).label("total_emails")
+        ).join(DMARCReport, ReportRecord.report_id == DMARCReport.id)
+        totals = self._apply_report_window(
+            totals_query,
+            period_days,
+            start_ts,
+            end_ts,
         ).first()
         total_emails = int(totals.total_emails) if totals else 0
 
         # Count compliant emails (DKIM pass OR SPF pass)
-        compliant_emails = (
+        compliant_query = (
             db.query(func.coalesce(func.sum(ReportRecord.count), 0))
+            .join(DMARCReport, ReportRecord.report_id == DMARCReport.id)
             .filter((ReportRecord.dkim == "pass") | (ReportRecord.spf == "pass"))
-            .scalar()
         )
+        compliant_emails = self._apply_report_window(
+            compliant_query,
+            period_days,
+            start_ts,
+            end_ts,
+        ).scalar()
         compliant_emails = int(compliant_emails) if compliant_emails else 0
 
         # Count reports processed
-        reports_processed = db.query(func.count(DMARCReport.id)).scalar() or 0
+        reports_processed = (
+            self._apply_report_window(
+                db.query(func.count(DMARCReport.id)),
+                period_days,
+                start_ts,
+                end_ts,
+            ).scalar()
+            or 0
+        )
 
         # Compliance rate
         compliance_rate = 0.0
@@ -218,13 +280,29 @@ class StatsSummarizer:
             compliance_rate = round((compliant_emails / total_emails) * 100, 1)
 
         # Top sending sources by volume
-        top_sources = self._get_top_sources(db)
+        top_sources = self._get_top_sources(
+            db,
+            period_days=period_days,
+            start_ts=start_ts,
+            end_ts=end_ts,
+        )
 
         # Compliance trend over recent days
-        compliance_trend = self._get_compliance_trend(db, days=period_days)
+        compliance_trend = self._get_compliance_trend(
+            db,
+            days=period_days,
+            start_ts=start_ts,
+            end_ts=end_ts,
+        )
 
         # Recently changed source and compliance signals
-        change_summary = self._get_change_summary(db, days=period_days, trend=compliance_trend)
+        change_summary = self._get_change_summary(
+            db,
+            days=period_days,
+            trend=compliance_trend,
+            start_ts=start_ts,
+            end_ts=end_ts,
+        )
 
         return {
             "total_domains": total_domains,
@@ -238,7 +316,12 @@ class StatsSummarizer:
         }
 
     def _calculate_domain_statistics(
-        self, db: Session, domain_id: str, period_days: int = 30
+        self,
+        db: Session,
+        domain_id: str,
+        period_days: int = 30,
+        start_ts: Optional[int] = None,
+        end_ts: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Calculate statistics for a specific domain from the database."""
         # Look up the domain by name
@@ -256,27 +339,42 @@ class StatsSummarizer:
             }
 
         # Aggregate email counts for this domain
-        total_emails = (
+        total_query = (
             db.query(func.coalesce(func.sum(ReportRecord.count), 0))
             .join(DMARCReport, ReportRecord.report_id == DMARCReport.id)
             .filter(DMARCReport.domain_id == domain.id)
-            .scalar()
         )
+        total_emails = self._apply_report_window(
+            total_query,
+            period_days,
+            start_ts,
+            end_ts,
+        ).scalar()
         total_emails = int(total_emails) if total_emails else 0
 
         # Count compliant emails for this domain
-        compliant_emails = (
+        compliant_query = (
             db.query(func.coalesce(func.sum(ReportRecord.count), 0))
             .join(DMARCReport, ReportRecord.report_id == DMARCReport.id)
             .filter(DMARCReport.domain_id == domain.id)
             .filter((ReportRecord.dkim == "pass") | (ReportRecord.spf == "pass"))
-            .scalar()
         )
+        compliant_emails = self._apply_report_window(
+            compliant_query,
+            period_days,
+            start_ts,
+            end_ts,
+        ).scalar()
         compliant_emails = int(compliant_emails) if compliant_emails else 0
 
         # Count reports for this domain
         reports_processed = (
-            db.query(func.count(DMARCReport.id)).filter(DMARCReport.domain_id == domain.id).scalar()
+            self._apply_report_window(
+                db.query(func.count(DMARCReport.id)).filter(DMARCReport.domain_id == domain.id),
+                period_days,
+                start_ts,
+                end_ts,
+            ).scalar()
         ) or 0
 
         # Compliance rate
@@ -285,10 +383,22 @@ class StatsSummarizer:
             compliance_rate = round((compliant_emails / total_emails) * 100, 1)
 
         # Top sources for this domain
-        sources = self._get_domain_sources(db, domain.id)
+        sources = self._get_domain_sources(
+            db,
+            domain.id,
+            period_days=period_days,
+            start_ts=start_ts,
+            end_ts=end_ts,
+        )
 
         # Compliance trend for this domain
-        compliance_trend = self._get_compliance_trend(db, domain.id, days=period_days)
+        compliance_trend = self._get_compliance_trend(
+            db,
+            domain.id,
+            days=period_days,
+            start_ts=start_ts,
+            end_ts=end_ts,
+        )
 
         # Recently changed source and compliance signals
         change_summary = self._get_change_summary(
@@ -296,6 +406,8 @@ class StatsSummarizer:
             domain.id,
             days=period_days,
             trend=compliance_trend,
+            start_ts=start_ts,
+            end_ts=end_ts,
         )
 
         return {
@@ -309,9 +421,16 @@ class StatsSummarizer:
             "change_summary": change_summary,
         }
 
-    def _get_top_sources(self, db: Session, limit: int = 10) -> List[Dict[str, Any]]:
+    def _get_top_sources(
+        self,
+        db: Session,
+        limit: int = 10,
+        period_days: int = 30,
+        start_ts: Optional[int] = None,
+        end_ts: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
         """Get top sending sources by email volume across all domains."""
-        results = (
+        query = (
             db.query(
                 ReportRecord.source_ip,
                 func.sum(ReportRecord.count).label("total_count"),
@@ -337,6 +456,10 @@ class StatsSummarizer:
                     )
                 ).label("dmarc_pass_count"),
             )
+            .join(DMARCReport, ReportRecord.report_id == DMARCReport.id)
+        )
+        results = (
+            self._apply_report_window(query, period_days, start_ts, end_ts)
             .group_by(ReportRecord.source_ip)
             .order_by(func.sum(ReportRecord.count).desc())
             .limit(limit)
@@ -368,10 +491,16 @@ class StatsSummarizer:
         ]
 
     def _get_domain_sources(
-        self, db: Session, domain_db_id: int, limit: int = 10
+        self,
+        db: Session,
+        domain_db_id: int,
+        limit: int = 10,
+        period_days: int = 30,
+        start_ts: Optional[int] = None,
+        end_ts: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """Get top sending sources for a specific domain."""
-        results = (
+        query = (
             db.query(
                 ReportRecord.source_ip,
                 func.sum(ReportRecord.count).label("total_count"),
@@ -399,6 +528,9 @@ class StatsSummarizer:
             )
             .join(DMARCReport, ReportRecord.report_id == DMARCReport.id)
             .filter(DMARCReport.domain_id == domain_db_id)
+        )
+        results = (
+            self._apply_report_window(query, period_days, start_ts, end_ts)
             .group_by(ReportRecord.source_ip)
             .order_by(func.sum(ReportRecord.count).desc())
             .limit(limit)
@@ -430,15 +562,19 @@ class StatsSummarizer:
         ]
 
     def _get_compliance_trend(
-        self, db: Session, domain_db_id: Optional[int] = None, days: int = 30
+        self,
+        db: Session,
+        domain_db_id: Optional[int] = None,
+        days: int = 30,
+        start_ts: Optional[int] = None,
+        end_ts: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
         Calculate compliance trend over recent days from report data.
 
         Groups reports by their date range and calculates daily compliance rates.
         """
-        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-        cutoff_ts = int(cutoff.timestamp())
+        cutoff_ts = self._window_start_ts(days, start_ts)
 
         # Build the base query for records within the time window
         query = (
@@ -458,6 +594,8 @@ class StatsSummarizer:
             .join(ReportRecord, ReportRecord.report_id == DMARCReport.id)
             .filter(DMARCReport.begin_date >= cutoff_ts)
         )
+        if end_ts is not None:
+            query = query.filter(DMARCReport.begin_date < int(end_ts))
 
         if domain_db_id is not None:
             query = query.filter(DMARCReport.domain_id == domain_db_id)
@@ -503,11 +641,12 @@ class StatsSummarizer:
         days: int = 30,
         trend: Optional[List[Dict[str, Any]]] = None,
         limit: int = 5,
+        start_ts: Optional[int] = None,
+        end_ts: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """Return notable source and compliance changes for the reporting window."""
         days = max(1, int(days or 30))
-        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-        cutoff_ts = int(cutoff.timestamp())
+        cutoff_ts = self._window_start_ts(days, start_ts)
         changes: List[Dict[str, Any]] = []
 
         current_query = (
@@ -520,6 +659,8 @@ class StatsSummarizer:
             .join(Domain, DMARCReport.domain_id == Domain.id)
             .filter(DMARCReport.begin_date >= cutoff_ts)
         )
+        if end_ts is not None:
+            current_query = current_query.filter(DMARCReport.begin_date < int(end_ts))
         previous_query = (
             db.query(Domain.name.label("domain"), ReportRecord.source_ip.label("source_ip"))
             .join(DMARCReport, ReportRecord.report_id == DMARCReport.id)
@@ -554,7 +695,9 @@ class StatsSummarizer:
                         f"{row.source_ip} first appeared for {row.domain} in the last "
                         f"{days} days with {int(row.message_count or 0)} messages."
                     ),
-                    "action": "Review whether this source is legitimate before changing SPF or DKIM.",
+                    "action": (
+                        "Review whether this source is legitimate before changing SPF or DKIM."
+                    ),
                 }
             )
             if len(changes) >= limit:

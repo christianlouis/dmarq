@@ -14,7 +14,9 @@ from app.api.api_v1.endpoints import (
     mcp,
     onboarding,
     operator,
+    organizations,
     public,
+    provider,
     reports,
     settings,
     setup,
@@ -44,6 +46,8 @@ api_router.include_router(mail_sources.router, prefix="/mail-sources", tags=["ma
 api_router.include_router(mcp.router, prefix="/mcp", tags=["mcp"])
 api_router.include_router(onboarding.router, prefix="/onboarding", tags=["onboarding"])
 api_router.include_router(operator.router, prefix="/operator", tags=["operator"])
+api_router.include_router(organizations.router, prefix="/organizations", tags=["organizations"])
+api_router.include_router(provider.router, prefix="/provider", tags=["provider"])
 api_router.include_router(settings.router, prefix="/settings", tags=["settings"])
 api_router.include_router(tls_reports.router, prefix="/tls-reports", tags=["tls-reports"])
 api_router.include_router(webhook.router, prefix="/webhook", tags=["webhook"])

@@ -265,14 +265,20 @@ Outcome: shared implementation blueprint for #12.
 - Define non-negotiable guardrails for self-hosted mode and DNS read-only
   defaults.
 
-### Phase 2: Organization and Entitlement Foundation
+### Phase 2: Organization and Entitlement Foundation (Started)
 
 Outcome: local data model can represent SaaS, ISP, and self-hosted modes.
 
-- Add organization/account model above workspaces.
+- Add organization/account model above workspaces. (Initial schema added.)
 - Add subscription, billing account, entitlement, usage record, provider
   integration, and billing event models.
 - Backfill existing installs into a default organization and default workspace.
+  (Initial migration and runtime bootstrap added.)
+- Add demo-mode SaaS, managed-service, and ISP deployment data for public demos.
+- Add organization summary and provider usage export APIs for UI/provider
+  integration work. (Initial read APIs added.)
+- Add provider subscription state update API for ISP billing systems to push
+  suspend/reactivate/cancel lifecycle changes. (Initial write API added.)
 - Add entitlement checks without changing current self-hosted behavior.
 
 ### Phase 3: Auth and Workspace RBAC

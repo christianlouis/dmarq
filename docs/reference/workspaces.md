@@ -19,7 +19,12 @@ workspace. New domain rows created by the API also default to this workspace.
 
 ## Ownership Boundaries
 
-The initial workspace model relates these core records to a workspace:
+Organizations sit above workspaces as the account, billing, and legal customer
+boundary. Existing self-hosted installs are attached to a default organization
+and default workspace so the single-tenant path keeps working while SaaS and ISP
+mode are built out.
+
+The workspace model relates these core records to a workspace:
 
 - monitored domains
 - mail sources
@@ -28,6 +33,26 @@ The initial workspace model relates these core records to a workspace:
 Domain, mail-source, and user query helpers scope reads to a workspace by
 default. This prevents cross-tenant reads in new M15 surfaces and gives later
 RBAC work a single ownership field to enforce.
+
+The organization model adds these account-level records:
+
+- organization memberships
+- billing accounts
+- plans and subscriptions
+- entitlements
+- usage records for billing exports
+- provider integrations
+- billing events
+
+Supported billing modes are `direct_stripe`, `manual_contract`,
+`provider_resale`, `provider_whmcs`, `provider_tmf`, and
+`self_hosted_license`. Provider-billed modes intentionally do not require Stripe
+customer or subscription identifiers.
+
+`GET /api/v1/organizations` returns the current organization/account model,
+including workspaces, billing accounts, subscriptions, active entitlements, and
+basic workspace/user counts. This is the local state the UI should read; payment
+providers update it asynchronously rather than being called inline.
 
 ## Roles And Permissions
 
@@ -75,6 +100,12 @@ legacy rows to the default workspace when needed.
 
 The RBAC/audit migration adds `workspace_memberships` for role assignments and
 `workspace_audit_logs` for workspace-scoped change history.
+
+The organization/billing migration adds the `organizations` account boundary,
+links workspaces to an organization, seeds a default organization and
+self-hosted plan, and creates the commercial foundation tables. Runtime helpers
+can create the default billing account, active self-hosted subscription, and
+plan entitlements without calling any external billing provider.
 
 ## Onboarding Templates
 
@@ -131,6 +162,33 @@ Workspace retention controls are stored on the workspace row:
 Operators can update these controls with
 `PUT /api/v1/operator/workspaces/{workspace_id}/retention`. Updates are written
 to the workspace audit log as `workspace.retention_updated`.
+
+`GET /api/v1/operator/demo/multi-user` returns generated demo data for three
+deployment models:
+
+- direct DMARQaaS subscription for `dmarq.org`
+- managed-service account for `dmarq.com`
+- ISP/reseller deployment with provider-owned billing and multiple customer
+  workspaces
+
+The endpoint is read-only and uses generated identities, provider IDs, and
+invoice references. The dashboard uses it opportunistically to display a
+multi-user deployment showcase on demo instances.
+
+Provider billing integrations can read monthly usage with
+`GET /api/v1/provider/billing/usage?period=YYYY-MM`. A single external customer
+can be filtered with
+`GET /api/v1/provider/billing/accounts/{external_customer_id}/usage?period=YYYY-MM`.
+Exports include stable idempotency keys and local metrics such as customer
+workspaces, monitored domains, active sending domains, aggregate reports,
+aggregate message volume, forensic reports, active users, and stored usage
+records.
+
+Provider systems can also push lifecycle state to
+`POST /api/v1/provider/subscriptions/{external_subscription_id}/state`.
+Supported states are `trialing`, `active`, `past_due_provider_reported`,
+`suspended`, `canceled`, and `terminated`. Updates change the local
+subscription state and create a sanitized billing event for auditability.
 
 The current implementation keeps domain names globally unique. That matches the
 existing single-domain ownership model and avoids ambiguous ownership while MSP
