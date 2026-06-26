@@ -48,8 +48,8 @@ async def get_workspace_audit_logs(
     _auth: dict = Depends(require_admin_auth),
 ) -> WorkspaceAuditLogResponse:
     """Return recent sanitized audit events for the default workspace."""
-    require_workspace_permission(_auth, PERMISSION_AUDIT_READ)
     workspace = assign_default_workspace_to_unscoped_rows(db)
+    require_workspace_permission(_auth, PERMISSION_AUDIT_READ, db, workspace)
     return {
         "audit": list_workspace_audit_logs(
             db,

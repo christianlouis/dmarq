@@ -213,6 +213,24 @@ def test_workspace_operator_routes_enforce_membership_roles(test_app, db_session
         assert response.status_code == 200
 
 
+def test_workspace_audit_logs_enforce_membership(test_app, db_session: Session):
+    """Audit logs use the default workspace membership before returning data."""
+    workspace = get_or_create_default_workspace(db_session)
+    auditor = _add_user(db_session, "audit-member@example.com")
+    outsider = _add_user(db_session, "audit-outsider@example.com")
+    _add_membership(db_session, workspace, auditor, ROLE_AUDITOR)
+    db_session.commit()
+
+    with _client_as_user(test_app, db_session, auditor) as client:
+        response = client.get("/api/v1/audit/logs")
+        assert response.status_code == 200
+
+    test_app.dependency_overrides.clear()
+    with _client_as_user(test_app, db_session, outsider) as client:
+        response = client.get("/api/v1/audit/logs")
+        assert response.status_code == 403
+
+
 def test_mail_source_changes_create_workspace_audit_without_secret_values(
     authed_client: TestClient,
     db_session: Session,
