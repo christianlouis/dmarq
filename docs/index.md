@@ -32,3 +32,6 @@ For SMTP TLS reporting imports and privacy controls, see [TLS Reports](user_guid
 For aggregate-report parser support, known edge cases, and fixture guidance, see [DMARC Aggregate Format Compatibility](reference/dmarc-compatibility.md).
 
 For opt-in AI summaries and read-only MCP automation, see [AI and MCP Automation](reference/ai-mcp-automation.md).
+
+For the current product direction across self-hosted, hosted SaaS, ISP/OEM,
+billing, and multi-tenant work, see the [Product Roadmap](development/roadmap.md).
