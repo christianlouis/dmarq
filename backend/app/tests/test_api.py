@@ -1,5 +1,7 @@
 from fastapi.testclient import TestClient
 
+from app.main import app
+
 
 def test_health_check(authed_client: TestClient):
     """Test the health check endpoint returns status ok."""
@@ -62,6 +64,11 @@ def test_setup_status_includes_mailbox_recovery_hint(authed_client: TestClient):
     data = response.json()
     assert data["mailbox_recovery_hint"]["category"] == "not_configured"
     assert data["mailbox_recovery_hint"]["recovery_steps"]
+
+
+def test_members_page_route_is_registered():
+    """The membership management page is available from the server-rendered UI."""
+    assert any(getattr(route, "path", None) == "/members" for route in app.routes)
 
 
 def test_reports_upload_invalid_extension(authed_client: TestClient):

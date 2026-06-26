@@ -1,0 +1,518 @@
+{% extends "layouts/base.html" %}
+{% from "components/ui/card.html" import card, card_header, card_title, card_description, card_content %}
+
+{% block title %}Members - DMARQ{% endblock %}
+
+{% block content %}
+<div x-data="membershipApp()" x-init="init()" class="mx-auto max-w-7xl space-y-6 py-4">
+    <section class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+            <p class="text-sm font-semibold uppercase text-[#2c9aa3]">Access control</p>
+            <h1 class="mt-1 text-3xl font-bold text-[#120d36]">Members</h1>
+            <p class="mt-2 max-w-2xl text-sm text-[#5f5c78]">
+                Manage who can administer workspaces, review reports, operate ingestion, and audit tenant activity.
+            </p>
+        </div>
+        <div class="grid grid-cols-3 gap-3 sm:min-w-[32rem]">
+            <div class="rounded-lg border border-[#e6e3df] bg-white p-4 shadow-sm">
+                <p class="text-xs font-semibold uppercase text-[#5f5c78]">Organizations</p>
+                <p class="mt-2 text-2xl font-bold text-[#120d36]" x-text="organizations.length"></p>
+            </div>
+            <div class="rounded-lg border border-[#e6e3df] bg-white p-4 shadow-sm">
+                <p class="text-xs font-semibold uppercase text-[#5f5c78]">Workspaces</p>
+                <p class="mt-2 text-2xl font-bold text-[#120d36]" x-text="workspaceCount()"></p>
+            </div>
+            <div class="rounded-lg border border-[#e6e3df] bg-white p-4 shadow-sm">
+                <p class="text-xs font-semibold uppercase text-[#5f5c78]">Visible Members</p>
+                <p class="mt-2 text-2xl font-bold text-[#120d36]" x-text="memberships.length"></p>
+            </div>
+        </div>
+    </section>
+
+    <template x-if="flash.message">
+        <div class="alert shadow-sm" :class="flash.ok ? 'alert-success' : 'alert-error'">
+            <span x-text="flash.message"></span>
+        </div>
+    </template>
+
+    <div class="grid grid-cols-1 gap-6 xl:grid-cols-[22rem_1fr]">
+        {% call card() %}
+            {% call card_header() %}
+                {% call card_title() %}Tenant Scope{% endcall %}
+                {% call card_description() %}Choose the organization or workspace to manage.{% endcall %}
+            {% endcall %}
+            {% call card_content() %}
+                <div class="space-y-4">
+                    <div class="join w-full">
+                        <button type="button"
+                                class="btn join-item flex-1"
+                                :class="scope === 'workspace' ? 'btn-primary' : 'btn-outline'"
+                                @click="setScope('workspace')">
+                            Workspace
+                        </button>
+                        <button type="button"
+                                class="btn join-item flex-1"
+                                :class="scope === 'organization' ? 'btn-primary' : 'btn-outline'"
+                                @click="setScope('organization')">
+                            Organization
+                        </button>
+                    </div>
+
+                    <label class="form-control">
+                        <span class="label-text mb-2 font-semibold">Organization</span>
+                        <select class="select select-bordered w-full"
+                                x-model="selectedOrgId"
+                                @change="selectOrganization(selectedOrgId)">
+                            <template x-for="organization in organizations" :key="organization.id">
+                                <option :value="organization.id" x-text="organization.name"></option>
+                            </template>
+                        </select>
+                    </label>
+
+                    <template x-if="scope === 'workspace'">
+                        <label class="form-control">
+                            <span class="label-text mb-2 font-semibold">Workspace</span>
+                            <select class="select select-bordered w-full"
+                                    x-model="selectedWorkspaceId"
+                                    @change="loadMemberships()">
+                                <template x-for="workspace in currentWorkspaces()" :key="workspace.id">
+                                    <option :value="workspace.id" x-text="workspace.name"></option>
+                                </template>
+                            </select>
+                        </label>
+                    </template>
+
+                    <div class="rounded-lg border border-[#e6e3df] bg-[#f9f8f6] p-4">
+                        <p class="text-xs font-semibold uppercase text-[#5f5c78]">Current Scope</p>
+                        <p class="mt-2 font-semibold text-[#120d36]" x-text="scopeLabel()"></p>
+                        <p class="mt-1 text-sm text-[#5f5c78]" x-text="scopeDescription()"></p>
+                    </div>
+                </div>
+            {% endcall %}
+        {% endcall %}
+
+        <div class="space-y-6">
+            {% call card() %}
+                {% call card_header() %}
+                    <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div>
+                            {% call card_title() %}Invite or Link Member{% endcall %}
+                            {% call card_description() %}
+                                Add a user to the selected scope and assign the least-privilege role they need.
+                            {% endcall %}
+                        </div>
+                        <span class="badge badge-outline border-[#2c9aa3] text-[#247982]" x-text="scopeLabel()"></span>
+                    </div>
+                {% endcall %}
+                {% call card_content() %}
+                    <form class="grid grid-cols-1 gap-3 lg:grid-cols-[1.2fr_1fr_1fr_auto]"
+                          @submit.prevent="inviteMember()">
+                        <label class="form-control">
+                            <span class="label-text mb-2 font-semibold">Email</span>
+                            <input class="input input-bordered w-full"
+                                   type="email"
+                                   x-model.trim="invite.email"
+                                   placeholder="name@example.com"
+                                   required>
+                        </label>
+                        <label class="form-control">
+                            <span class="label-text mb-2 font-semibold">Display name</span>
+                            <input class="input input-bordered w-full"
+                                   type="text"
+                                   x-model.trim="invite.full_name"
+                                   placeholder="Optional">
+                        </label>
+                        <label class="form-control">
+                            <span class="label-text mb-2 font-semibold">Role</span>
+                            <select class="select select-bordered w-full" x-model="invite.role" required>
+                                <template x-for="role in availableRoles" :key="role">
+                                    <option :value="role" x-text="roleLabel(role)"></option>
+                                </template>
+                            </select>
+                        </label>
+                        <div class="flex items-end">
+                            <button type="submit"
+                                    class="btn btn-primary w-full lg:w-auto"
+                                    :disabled="saving || !canInvite()">
+                                <span x-show="saving" class="loading loading-spinner loading-xs"></span>
+                                Add
+                            </button>
+                        </div>
+                    </form>
+                {% endcall %}
+            {% endcall %}
+
+            {% call card() %}
+                {% call card_header() %}
+                    <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div>
+                            {% call card_title() %}Assigned Members{% endcall %}
+                            {% call card_description() %}
+                                Active and inactive assignments for the selected tenant boundary.
+                            {% endcall %}
+                        </div>
+                        <button type="button" class="btn btn-outline btn-sm" @click="loadMemberships()" :disabled="loading">
+                            <span x-show="loading" class="loading loading-spinner loading-xs"></span>
+                            Refresh
+                        </button>
+                    </div>
+                {% endcall %}
+                {% call card_content() %}
+                    <template x-if="loading">
+                        <div class="flex min-h-40 items-center justify-center text-[#5f5c78]">
+                            <span class="loading loading-spinner loading-md"></span>
+                        </div>
+                    </template>
+
+                    <template x-if="!loading && memberships.length === 0">
+                        <div class="rounded-lg border border-dashed border-[#d8d5d0] bg-[#f9f8f6] p-8 text-center">
+                            <p class="font-semibold text-[#120d36]">No members in this scope</p>
+                            <p class="mt-1 text-sm text-[#5f5c78]">Add the first assignment above.</p>
+                        </div>
+                    </template>
+
+                    <template x-if="!loading && memberships.length > 0">
+                        <div class="overflow-x-auto rounded-lg border border-[#e6e3df]">
+                            <table class="table">
+                                <thead class="bg-[#f9f8f6] text-[#5f5c78]">
+                                    <tr>
+                                        <th>Member</th>
+                                        <th>Role</th>
+                                        <th>Status</th>
+                                        <th class="text-right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="membership in memberships" :key="membership.scope + '-' + membership.id">
+                                        <tr>
+                                            <td>
+                                                <div class="flex items-center gap-3">
+                                                    <div class="grid h-10 w-10 place-items-center rounded-full bg-[#272a5f] text-sm font-bold text-white"
+                                                         x-text="memberInitial(membership)"></div>
+                                                    <div class="min-w-0">
+                                                        <p class="truncate font-semibold text-[#120d36]"
+                                                           x-text="membership.user.full_name || membership.user.email"></p>
+                                                        <p class="truncate text-xs text-[#5f5c78]"
+                                                           x-text="membership.user.email"></p>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td class="min-w-56">
+                                                <select class="select select-bordered select-sm w-full"
+                                                        :disabled="saving"
+                                                        x-model="membership.role"
+                                                        @change="updateMembership(membership, true)">
+                                                    <template x-for="role in availableRoles" :key="role">
+                                                        <option :value="role" x-text="roleLabel(role)"></option>
+                                                    </template>
+                                                </select>
+                                            </td>
+                                            <td>
+                                                <span class="badge"
+                                                      :class="membership.active ? 'badge-success' : 'badge-ghost'"
+                                                      x-text="membership.active ? 'Active' : 'Inactive'"></span>
+                                            </td>
+                                            <td class="text-right">
+                                                <button type="button"
+                                                        class="btn btn-outline btn-xs"
+                                                        x-show="membership.active"
+                                                        :disabled="saving"
+                                                        @click="deactivateMembership(membership)">
+                                                    Deactivate
+                                                </button>
+                                                <button type="button"
+                                                        class="btn btn-primary btn-xs"
+                                                        x-show="!membership.active"
+                                                        :disabled="saving"
+                                                        @click="updateMembership(membership, true)">
+                                                    Restore
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </template>
+                {% endcall %}
+            {% endcall %}
+        </div>
+    </div>
+</div>
+
+<script>
+function membershipApp() {
+    return {
+        organizations: [],
+        memberships: [],
+        availableRoles: [],
+        selectedOrgId: '',
+        selectedWorkspaceId: '',
+        scope: 'workspace',
+        loading: false,
+        saving: false,
+        flash: { message: '', ok: true },
+        invite: { email: '', full_name: '', role: '' },
+
+        async init() {
+            await this.loadOrganizations();
+        },
+
+        apiHeaders() {
+            return { 'Content-Type': 'application/json' };
+        },
+
+        async loadOrganizations() {
+            this.loading = true;
+            try {
+                const response = await fetch('/api/v1/organizations');
+                if (response.status === 401) {
+                    window.location.href = '/login?next=/members';
+                    return;
+                }
+                if (!response.ok) {
+                    throw new Error(await this.errorText(response));
+                }
+                const data = await response.json();
+                this.organizations = data.organizations || [];
+                if (this.organizations.length > 0) {
+                    this.selectedOrgId = this.organizations[0].id;
+                    const workspaces = this.currentWorkspaces();
+                    this.selectedWorkspaceId = workspaces.length > 0 ? workspaces[0].id : '';
+                    if (!this.selectedWorkspaceId) {
+                        this.scope = 'organization';
+                    }
+                }
+                await this.loadMemberships();
+            } catch (error) {
+                this.showFlash(`Could not load tenants: ${error.message}`, false);
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        async loadMemberships() {
+            const endpoint = this.membershipEndpoint();
+            if (!endpoint) {
+                this.memberships = [];
+                this.availableRoles = [];
+                return;
+            }
+            this.loading = true;
+            try {
+                const response = await fetch(`${endpoint}?include_inactive=true`);
+                if (response.status === 401) {
+                    window.location.href = '/login?next=/members';
+                    return;
+                }
+                if (!response.ok) {
+                    throw new Error(await this.errorText(response));
+                }
+                const data = await response.json();
+                this.memberships = data.memberships || [];
+                this.availableRoles = data.available_roles || [];
+                if (!this.invite.role || !this.availableRoles.includes(this.invite.role)) {
+                    this.invite.role = this.defaultRole();
+                }
+            } catch (error) {
+                this.memberships = [];
+                this.availableRoles = [];
+                this.showFlash(`Could not load members: ${error.message}`, false);
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        async inviteMember() {
+            if (!this.canInvite()) {
+                return;
+            }
+            this.saving = true;
+            try {
+                const response = await fetch(`${this.membershipEndpoint()}/invites`, {
+                    method: 'POST',
+                    headers: this.apiHeaders(),
+                    body: JSON.stringify({
+                        email: this.invite.email,
+                        full_name: this.invite.full_name || null,
+                        role: this.invite.role,
+                    }),
+                });
+                if (!response.ok) {
+                    throw new Error(await this.errorText(response));
+                }
+                this.invite.email = '';
+                this.invite.full_name = '';
+                this.showFlash('Member assignment added.', true);
+                await this.loadMemberships();
+            } catch (error) {
+                this.showFlash(`Could not add member: ${error.message}`, false);
+            } finally {
+                this.saving = false;
+            }
+        },
+
+        async updateMembership(membership, active) {
+            this.saving = true;
+            try {
+                const response = await fetch(`${this.membershipEndpoint()}/users/${membership.user.id}`, {
+                    method: 'PUT',
+                    headers: this.apiHeaders(),
+                    body: JSON.stringify({
+                        user_id: membership.user.id,
+                        role: membership.role,
+                        active,
+                    }),
+                });
+                if (!response.ok) {
+                    throw new Error(await this.errorText(response));
+                }
+                this.showFlash('Member assignment updated.', true);
+                await this.loadMemberships();
+            } catch (error) {
+                this.showFlash(`Could not update member: ${error.message}`, false);
+                await this.loadMemberships();
+            } finally {
+                this.saving = false;
+            }
+        },
+
+        async deactivateMembership(membership) {
+            this.saving = true;
+            try {
+                const response = await fetch(`${this.membershipEndpoint()}/users/${membership.user.id}`, {
+                    method: 'DELETE',
+                    headers: this.apiHeaders(),
+                });
+                if (!response.ok) {
+                    throw new Error(await this.errorText(response));
+                }
+                this.showFlash('Member assignment deactivated.', true);
+                await this.loadMemberships();
+            } catch (error) {
+                this.showFlash(`Could not deactivate member: ${error.message}`, false);
+            } finally {
+                this.saving = false;
+            }
+        },
+
+        setScope(scope) {
+            this.scope = scope;
+            if (scope === 'workspace' && !this.selectedWorkspaceId) {
+                const workspaces = this.currentWorkspaces();
+                this.selectedWorkspaceId = workspaces.length > 0 ? workspaces[0].id : '';
+            }
+            this.loadMemberships();
+        },
+
+        selectOrganization(value) {
+            this.selectedOrgId = value;
+            const workspaces = this.currentWorkspaces();
+            this.selectedWorkspaceId = workspaces.length > 0 ? workspaces[0].id : '';
+            if (this.scope === 'workspace' && !this.selectedWorkspaceId) {
+                this.scope = 'organization';
+            }
+            this.loadMemberships();
+        },
+
+        membershipEndpoint() {
+            if (this.scope === 'organization') {
+                return this.selectedOrgId
+                    ? `/api/v1/memberships/organizations/${this.selectedOrgId}`
+                    : '';
+            }
+            return this.selectedWorkspaceId
+                ? `/api/v1/memberships/workspaces/${this.selectedWorkspaceId}`
+                : '';
+        },
+
+        currentOrganization() {
+            return this.organizations.find((organization) => String(organization.id) === String(this.selectedOrgId));
+        },
+
+        currentWorkspaces() {
+            const organization = this.currentOrganization();
+            return organization ? (organization.workspaces || []) : [];
+        },
+
+        workspaceCount() {
+            return this.organizations.reduce((count, organization) => {
+                return count + (organization.workspaces || []).length;
+            }, 0);
+        },
+
+        currentWorkspace() {
+            return this.currentWorkspaces().find((workspace) => String(workspace.id) === String(this.selectedWorkspaceId));
+        },
+
+        scopeLabel() {
+            if (this.scope === 'organization') {
+                const organization = this.currentOrganization();
+                return organization ? organization.name : 'Organization';
+            }
+            const workspace = this.currentWorkspace();
+            return workspace ? workspace.name : 'Workspace';
+        },
+
+        scopeDescription() {
+            if (this.scope === 'organization') {
+                return 'Organization roles apply across tenant-level account and billing surfaces.';
+            }
+            return 'Workspace roles control reports, domains, mail sources, settings, and audit access.';
+        },
+
+        roleLabel(role) {
+            const labels = {
+                workspace_owner: 'Workspace owner',
+                domain_admin: 'Domain admin',
+                operator: 'Operator',
+                analyst: 'Analyst',
+                auditor: 'Auditor',
+                organization_owner: 'Organization owner',
+                organization_admin: 'Organization admin',
+                billing_admin: 'Billing admin',
+                organization_auditor: 'Organization auditor',
+            };
+            return labels[role] || role.replaceAll('_', ' ');
+        },
+
+        defaultRole() {
+            if (this.scope === 'organization' && this.availableRoles.includes('organization_auditor')) {
+                return 'organization_auditor';
+            }
+            if (this.availableRoles.includes('analyst')) {
+                return 'analyst';
+            }
+            return this.availableRoles[0] || '';
+        },
+
+        canInvite() {
+            return Boolean(this.membershipEndpoint() && this.invite.email && this.invite.role);
+        },
+
+        memberInitial(membership) {
+            const value = membership.user.full_name || membership.user.email || '?';
+            return value.trim().charAt(0).toUpperCase();
+        },
+
+        showFlash(message, ok) {
+            this.flash = { message, ok };
+            window.setTimeout(() => {
+                if (this.flash.message === message) {
+                    this.flash.message = '';
+                }
+            }, 4500);
+        },
+
+        async errorText(response) {
+            try {
+                const data = await response.json();
+                return data.detail || response.statusText;
+            } catch (_) {
+                return response.statusText;
+            }
+        },
+    };
+}
+</script>
+{% endblock %}

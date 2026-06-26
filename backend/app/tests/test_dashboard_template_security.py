@@ -18,3 +18,13 @@ def test_dashboard_domain_details_links_are_encoded():
     template = (Path(__file__).resolve().parents[1] / "templates" / "index.html").read_text()
 
     assert "encodeURIComponent(domainId)" in template
+
+
+def test_members_template_uses_membership_api_without_html_injection():
+    template = (Path(__file__).resolve().parents[1] / "templates" / "members.html").read_text()
+
+    assert "/api/v1/organizations" in template
+    assert "/api/v1/memberships/organizations/" in template
+    assert "/api/v1/memberships/workspaces/" in template
+    assert 'x-text="membership.user.email"' in template
+    assert "x-html" not in template

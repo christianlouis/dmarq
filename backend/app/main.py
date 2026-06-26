@@ -697,6 +697,11 @@ async def profile_page(request: Request):
     )
 
 
+@app.get("/members", response_class=HTMLResponse)
+async def members_page(request: Request):
+    return templates.TemplateResponse(request, "members.html")
+
+
 @app.get("/mail-sources", response_class=HTMLResponse)
 async def mail_sources_page(request: Request):
     return templates.TemplateResponse(request, "mail_sources.html")
