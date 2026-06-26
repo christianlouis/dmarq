@@ -54,6 +54,62 @@ def _date_range_response(
     }
 
 
+def _custom_date_range(start_date: Optional[str], end_date: Optional[str]) -> Dict[str, Any]:
+    if not start_date or not end_date:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="custom interval requires start_date and end_date",
+        )
+    start_day = _parse_date(start_date, "start_date")
+    end_day = _parse_date(end_date, "end_date")
+    if end_day < start_day:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="end_date must be on or after start_date",
+        )
+    start_at = datetime.combine(start_day, time.min, tzinfo=timezone.utc)
+    end_at = datetime.combine(end_day + timedelta(days=1), time.min, tzinfo=timezone.utc)
+    return _date_range_response(
+        interval="custom",
+        label=f"{start_day.isoformat()} to {end_day.isoformat()}",
+        start_at=start_at,
+        end_at=end_at,
+    )
+
+
+def _rolling_date_range(now: datetime, interval: str, days: int) -> Dict[str, Any]:
+    interval_name = interval if interval in DATE_INTERVALS else f"last_{days}_days"
+    return _date_range_response(
+        interval=interval_name,
+        label=DATE_INTERVALS.get(interval_name, f"Last {days} days"),
+        start_at=now - timedelta(days=days),
+        end_at=now,
+    )
+
+
+def _to_date_range(now: datetime, interval: str) -> Dict[str, Any]:
+    today = now.date()
+    if interval == "week_to_date":
+        start_day = today - timedelta(days=today.weekday())
+    else:
+        start_day = today.replace(day=1)
+    return _date_range_response(
+        interval=interval,
+        label=DATE_INTERVALS[interval],
+        start_at=datetime.combine(start_day, time.min, tzinfo=timezone.utc),
+        end_at=now,
+    )
+
+
+def _days_from_interval(interval: str, fallback_days: Optional[int]) -> int:
+    if interval.startswith("last_") and interval.endswith("_days"):
+        try:
+            return int(interval.removeprefix("last_").removesuffix("_days"))
+        except ValueError:
+            pass
+    return int(fallback_days or 30)
+
+
 def resolve_dashboard_date_range(
     *,
     interval: str = "last_30_days",
@@ -71,27 +127,7 @@ def resolve_dashboard_date_range(
             selected = "last_30_days"
 
     if selected == "custom":
-        if not start_date or not end_date:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="custom interval requires start_date and end_date",
-            )
-        start_day = _parse_date(start_date, "start_date")
-        end_day = _parse_date(end_date, "end_date")
-        if end_day < start_day:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="end_date must be on or after start_date",
-            )
-        start_at = datetime.combine(start_day, time.min, tzinfo=timezone.utc)
-        end_at = datetime.combine(end_day + timedelta(days=1), time.min, tzinfo=timezone.utc)
-        label = f"{start_day.isoformat()} to {end_day.isoformat()}"
-        return _date_range_response(
-            interval=selected,
-            label=label,
-            start_at=start_at,
-            end_at=end_at,
-        )
+        return _custom_date_range(start_date, end_date)
 
     if selected == "last_24_hours":
         return _date_range_response(
@@ -107,40 +143,11 @@ def resolve_dashboard_date_range(
             start_at=now - timedelta(hours=48),
             end_at=now,
         )
-    if selected == "week_to_date":
-        today = now.date()
-        start_day = today - timedelta(days=today.weekday())
-        return _date_range_response(
-            interval=selected,
-            label=DATE_INTERVALS[selected],
-            start_at=datetime.combine(start_day, time.min, tzinfo=timezone.utc),
-            end_at=now,
-        )
-    if selected == "month_to_date":
-        today = now.date()
-        start_day = today.replace(day=1)
-        return _date_range_response(
-            interval=selected,
-            label=DATE_INTERVALS[selected],
-            start_at=datetime.combine(start_day, time.min, tzinfo=timezone.utc),
-            end_at=now,
-        )
+    if selected in {"week_to_date", "month_to_date"}:
+        return _to_date_range(now, selected)
 
-    days = period_days
-    if selected.startswith("last_") and selected.endswith("_days"):
-        try:
-            days = int(selected.removeprefix("last_").removesuffix("_days"))
-        except ValueError:
-            days = None
-    days = max(1, min(365, int(days or 30)))
-    interval_name = selected if selected in DATE_INTERVALS else f"last_{days}_days"
-    label = DATE_INTERVALS.get(interval_name, f"Last {days} days")
-    return _date_range_response(
-        interval=interval_name,
-        label=label,
-        start_at=now - timedelta(days=days),
-        end_at=now,
-    )
+    days = max(1, min(365, _days_from_interval(selected, period_days)))
+    return _rolling_date_range(now, selected, days)
 
 
 @router.get("/dashboard")
