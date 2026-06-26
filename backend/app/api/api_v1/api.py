@@ -12,11 +12,12 @@ from app.api.api_v1.endpoints import (
     integrations,
     mail_sources,
     mcp,
+    memberships,
     onboarding,
     operator,
     organizations,
-    public,
     provider,
+    public,
     reports,
     settings,
     setup,
@@ -44,6 +45,7 @@ api_router.include_router(integrations.router, prefix="/integrations", tags=["in
 api_router.include_router(stats.router, prefix="/stats", tags=["stats"])
 api_router.include_router(mail_sources.router, prefix="/mail-sources", tags=["mail-sources"])
 api_router.include_router(mcp.router, prefix="/mcp", tags=["mcp"])
+api_router.include_router(memberships.router, prefix="/memberships", tags=["memberships"])
 api_router.include_router(onboarding.router, prefix="/onboarding", tags=["onboarding"])
 api_router.include_router(operator.router, prefix="/operator", tags=["operator"])
 api_router.include_router(organizations.router, prefix="/organizations", tags=["organizations"])
