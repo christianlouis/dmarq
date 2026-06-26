@@ -1329,15 +1329,14 @@ async def read_domain(
         )
 
     summary = store.get_domain_summary(domain_name)
+    policy = summary.get("policy")
+    if isinstance(policy, dict):
+        policy = policy.get("p")
 
     return DomainResponse(
         name=domain_name,
         description=stored_domain.description if stored_domain else None,
-        policy=(
-            summary.get("policy")
-            or (stored_domain.dmarc_policy if stored_domain else None)
-            or "unknown"
-        ),
+        policy=policy or (stored_domain.dmarc_policy if stored_domain else None) or "unknown",
         reports_count=summary.get("reports_processed", 0),
         emails_count=summary.get("total_count", 0),
         compliance_rate=summary.get("compliance_rate", 0.0),
@@ -2374,8 +2373,12 @@ async def search_domains(
         if q and q.lower() not in domain_name.lower():
             continue
 
+        reported_policy = summary.get("policy", "unknown")
+        if isinstance(reported_policy, dict):
+            reported_policy = reported_policy.get("p") or "unknown"
+
         # Skip domain if it doesn't match the policy filter
-        if policy and summary.get("policy") != policy:
+        if policy and reported_policy != policy:
             continue
 
         # Domain passed all filters
@@ -2383,7 +2386,7 @@ async def search_domains(
             {
                 "name": domain_name,
                 "description": "",  # No description in in-memory store
-                "policy": summary.get("policy", "unknown"),
+                "policy": reported_policy,
                 "reports_count": summary.get("reports_processed", 0),
                 "emails_count": summary.get("total_count", 0),
                 "compliance_rate": summary.get("compliance_rate", 0.0),

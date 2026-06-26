@@ -94,6 +94,37 @@ def test_get_domain_reports_returns_200(seeded_client: TestClient):
     assert "compliance_timeline" in data
 
 
+def test_domain_read_stats_selectors_and_search_use_workspace_auth(
+    seeded_client: TestClient,
+):
+    """Read-only domain surfaces remain available after workspace RBAC checks."""
+    domain = seeded_client.get(f"/api/v1/domains/domains/{DOMAIN}")
+    assert domain.status_code == 200
+    assert domain.json()["name"] == DOMAIN
+
+    stats = seeded_client.get(f"/api/v1/domains/{DOMAIN}/stats")
+    assert stats.status_code == 200
+    assert stats.json()["totalEmails"] == 10
+
+    selectors = seeded_client.get(f"/api/v1/domains/{DOMAIN}/selectors")
+    assert selectors.status_code == 200
+    assert selectors.json() == {"selectors": [], "report_selectors": []}
+
+    search = seeded_client.get("/api/v1/domains/search?q=example")
+    assert search.status_code == 200
+    assert search.json()[0]["name"] == DOMAIN
+
+
+def test_delete_domain_uses_workspace_scoped_domain_cleanup(
+    seeded_client: TestClient,
+):
+    """Domain deletion removes the authorized workspace domain state."""
+    response = seeded_client.delete(f"/api/v1/domains/{DOMAIN}")
+
+    assert response.status_code == 204
+    assert ReportStore.get_instance().get_domains() == []
+
+
 def test_get_domain_reports_policy_dict_extracted(seeded_client: TestClient):
     """When the stored policy is a dict, the 'p' value should be surfaced."""
     response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/reports")

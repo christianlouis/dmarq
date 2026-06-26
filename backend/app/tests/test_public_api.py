@@ -64,6 +64,20 @@ def test_public_reports_api_requires_scoped_token(client: TestClient, db_session
     assert token.last_used_ip
 
 
+def test_public_domains_summary_uses_scoped_token_context(client: TestClient, db_session):
+    """Public domain summaries reuse workspace-aware domain authorization."""
+    _seed_report_store()
+    created = create_api_token(db_session, name="summary bot", scopes=[READ_REPORTS_SCOPE])
+
+    response = client.get(
+        "/api/v1/public/domains",
+        headers={"X-API-Key": created.secret},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["domains"][0]["domain_name"] == DOMAIN
+
+
 def test_public_api_rejects_token_without_required_scope(client: TestClient, db_session):
     """Tokens are least-privilege: reports scope cannot read posture payloads."""
     _seed_report_store()
