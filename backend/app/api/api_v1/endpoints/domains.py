@@ -38,9 +38,14 @@ from app.services.report_persistence import (
     hydrate_report_store_from_db,
 )
 from app.services.report_store import ReportStore
+from app.services.workspace_access import (
+    PERMISSION_DOMAINS_WRITE,
+    require_workspace_permission,
+)
 from app.services.workspace_audit import record_workspace_audit_log
 from app.services.workspaces import (
     assign_default_workspace_to_unscoped_rows,
+    get_default_workspace,
     workspace_domain_query,
 )
 from app.utils.domain_validator import validate_domain_config
@@ -49,6 +54,17 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 DOMAIN_SELECTOR_LOOKUP_CHUNK_SIZE = 500
+
+
+def _authorized_domain_workspace(
+    auth_context: Dict[str, Any],
+    db: Session,
+    permission: str = PERMISSION_DOMAINS_WRITE,
+):
+    """Authorize workspace domain/DNS setup before legacy repair writes."""
+    workspace = get_default_workspace(db)
+    require_workspace_permission(auth_context, permission, db, workspace)
+    return assign_default_workspace_to_unscoped_rows(db)
 
 
 class DomainBase(BaseModel):
@@ -1233,7 +1249,7 @@ async def create_domain(
     _auth: dict = Depends(require_admin_auth),
 ):
     """Create a monitored domain before any DMARC reports have arrived."""
-    workspace = assign_default_workspace_to_unscoped_rows(db)
+    workspace = _authorized_domain_workspace(_auth, db)
     name = _normalize_domain_name(payload.name)
     validation = validate_domain_config({"name": name, "description": payload.description or ""})
     if not validation["valid"]:
@@ -1615,8 +1631,12 @@ async def get_domain_bimi(
 
 
 @router.get("/cloudflare/discover", response_model=List[CloudflareZoneResponse])
-async def discover_cloudflare_domains(db: Session = Depends(get_db)):
+async def discover_cloudflare_domains(
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
     """Discover active Cloudflare zones visible to the configured API token."""
+    _authorized_domain_workspace(_auth, db)
     try:
         return await discover_cloudflare_zones(db)
     except LookupError as exc:
@@ -1630,8 +1650,10 @@ async def discover_cloudflare_domains(db: Session = Depends(get_db)):
 async def import_cloudflare_domain_zones(
     payload: CloudflareImportRequest,
     db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
 ):
     """Import selected, or all, Cloudflare zones as monitored domains."""
+    _authorized_domain_workspace(_auth, db)
     try:
         return await import_cloudflare_domains(db, requested_domains=payload.domains)
     except LookupError as exc:
@@ -1645,8 +1667,10 @@ async def import_cloudflare_domain_zones(
 async def get_cloudflare_domain_dns_analysis(
     domain_id: str = Path(..., title="The domain ID or name"),
     db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
 ):
     """Analyze Cloudflare-managed DNS records and persist detected changes."""
+    _authorized_domain_workspace(_auth, db)
     try:
         zone_data = await get_zone_for_domain(db, domain_id)
     except LookupError as exc:
@@ -1687,8 +1711,10 @@ async def get_domain_dns_change_history(
     domain_id: str = Path(..., title="The domain ID or name"),
     limit: int = Query(50, title="Maximum number of change events to return"),
     db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
 ):
     """Return recent provider-backed DNS record changes for a domain."""
+    _authorized_domain_workspace(_auth, db)
     return DNSChangeHistoryResponse(history=list_dns_record_changes(db, domain_id, limit=limit))
 
 
@@ -2159,7 +2185,7 @@ async def add_domain_selector(
     """
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    workspace = assign_default_workspace_to_unscoped_rows(db)
+    workspace = _authorized_domain_workspace(_auth, db)
     if not _domain_exists(db, store, domain_id, workspace):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -2208,7 +2234,7 @@ async def delete_domain_selector(
     _auth: dict = Depends(require_admin_auth),
 ):
     """Remove a manually configured DKIM selector from a domain."""
-    workspace = assign_default_workspace_to_unscoped_rows(db)
+    workspace = _authorized_domain_workspace(_auth, db)
     domain_db = workspace_domain_query(db, workspace).filter(Domain.name == domain_id).first()
     if not domain_db:
         raise HTTPException(

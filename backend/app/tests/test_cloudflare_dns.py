@@ -4,14 +4,19 @@ import asyncio
 from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
 from app.api.api_v1.endpoints.domains import _policy_enforcement_suggestions
 from app.core.credential_encryption import encrypt_secret
+from app.core.database import get_db
+from app.core.security import require_admin_auth
 from app.models.dns_cache import DNSRecordChange, DNSRecordSnapshot
 from app.models.domain import Domain
 from app.models.setting import Setting
+from app.models.user import User
 from app.services import cloudflare_dns
 from app.services.cloudflare_dns import analyze_dns_records, sync_dns_record_changes
+from app.services.workspaces import get_or_create_default_workspace
 
 DOMAIN = "example.com"
 
@@ -372,7 +377,7 @@ def test_policy_enforcement_suggestion_ignores_enforced_policy():
     assert suggestions == []
 
 
-def test_cloudflare_discover_endpoint_returns_zones(client: TestClient):
+def test_cloudflare_discover_endpoint_returns_zones(authed_client: TestClient):
     with patch(
         "app.api.api_v1.endpoints.domains.discover_cloudflare_zones",
         new=AsyncMock(
@@ -387,13 +392,13 @@ def test_cloudflare_discover_endpoint_returns_zones(client: TestClient):
             ]
         ),
     ):
-        response = client.get("/api/v1/domains/cloudflare/discover")
+        response = authed_client.get("/api/v1/domains/cloudflare/discover")
 
     assert response.status_code == 200
     assert response.json()[0]["name"] == DOMAIN
 
 
-def test_cloudflare_import_endpoint_returns_import_summary(client: TestClient):
+def test_cloudflare_import_endpoint_returns_import_summary(authed_client: TestClient):
     with patch(
         "app.api.api_v1.endpoints.domains.import_cloudflare_domains",
         new=AsyncMock(
@@ -405,7 +410,7 @@ def test_cloudflare_import_endpoint_returns_import_summary(client: TestClient):
             }
         ),
     ):
-        response = client.post(
+        response = authed_client.post(
             "/api/v1/domains/cloudflare/import",
             json={"domains": [DOMAIN]},
         )
@@ -414,7 +419,10 @@ def test_cloudflare_import_endpoint_returns_import_summary(client: TestClient):
     assert response.json()["imported"] == [DOMAIN]
 
 
-def test_cloudflare_dns_analysis_endpoint_persists_history(client: TestClient, db_session):
+def test_cloudflare_dns_analysis_endpoint_persists_history(
+    authed_client: TestClient,
+    db_session,
+):
     db_session.add(Domain(name=DOMAIN))
     db_session.commit()
     records = [
@@ -426,7 +434,7 @@ def test_cloudflare_dns_analysis_endpoint_persists_history(client: TestClient, d
         "app.api.api_v1.endpoints.domains.get_zone_for_domain",
         new=AsyncMock(return_value={"id": "zone-1", "name": DOMAIN, "records": records}),
     ):
-        response = client.get(f"/api/v1/domains/{DOMAIN}/dns/cloudflare")
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns/cloudflare")
 
     assert response.status_code == 200
     data = response.json()
@@ -435,17 +443,57 @@ def test_cloudflare_dns_analysis_endpoint_persists_history(client: TestClient, d
     assert len(data["changes"]) == 2
     assert len(data["history"]) == 2
 
-    history_response = client.get(f"/api/v1/domains/{DOMAIN}/dns/history")
+    history_response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns/history")
     assert history_response.status_code == 200
     assert len(history_response.json()["history"]) == 2
 
 
-def test_cloudflare_dns_analysis_endpoint_returns_configuration_errors(client: TestClient):
+def test_cloudflare_dns_analysis_endpoint_returns_configuration_errors(authed_client: TestClient):
     with patch(
         "app.api.api_v1.endpoints.domains.get_zone_for_domain",
         new=AsyncMock(side_effect=LookupError("Cloudflare API token is not configured")),
     ):
-        response = client.get(f"/api/v1/domains/{DOMAIN}/dns/cloudflare")
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns/cloudflare")
 
     assert response.status_code == 400
     assert "Cloudflare API token" in response.json()["detail"]
+
+
+def test_cloudflare_discover_denies_user_without_workspace_membership(
+    test_app,
+    db_session: Session,
+):
+    get_or_create_default_workspace(db_session)
+    user = User(
+        email="domain-outsider@example.com",
+        is_active=True,
+        is_verified=True,
+        is_superuser=False,
+    )
+    db_session.add(user)
+    db_session.commit()
+
+    async def mock_admin_auth():
+        return {"auth_type": "session", "user_id": user.id}
+
+    def override_get_db():
+        try:
+            yield db_session
+        finally:
+            pass
+
+    test_app.dependency_overrides[get_db] = override_get_db
+    test_app.dependency_overrides[require_admin_auth] = mock_admin_auth
+    discover_mock = AsyncMock(return_value=[])
+    with (
+        TestClient(test_app) as client,
+        patch(
+            "app.api.api_v1.endpoints.domains.discover_cloudflare_zones",
+            new=discover_mock,
+        ),
+    ):
+        response = client.get("/api/v1/domains/cloudflare/discover")
+
+    test_app.dependency_overrides.clear()
+    assert response.status_code == 403
+    discover_mock.assert_not_awaited()
