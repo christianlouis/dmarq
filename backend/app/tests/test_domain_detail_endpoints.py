@@ -74,10 +74,10 @@ REPORT_STR_POLICY = {
 
 
 @pytest.fixture()
-def seeded_client(client: TestClient):
+def seeded_client(authed_client: TestClient):
     """Client with one report (dict-style policy) in the ReportStore."""
     ReportStore.get_instance().add_report(REPORT_DICT_POLICY)
-    return client
+    return authed_client
 
 
 # ---------------------------------------------------------------------------
@@ -103,10 +103,10 @@ def test_get_domain_reports_policy_dict_extracted(seeded_client: TestClient):
     assert reports[0]["policy"] == "reject"
 
 
-def test_get_domain_reports_policy_string_preserved(client: TestClient):
+def test_get_domain_reports_policy_string_preserved(authed_client: TestClient):
     """When the stored policy is already a string it should be kept as-is."""
     ReportStore.get_instance().add_report(REPORT_STR_POLICY)
-    response = client.get(f"/api/v1/domains/{DOMAIN}/reports")
+    response = authed_client.get(f"/api/v1/domains/{DOMAIN}/reports")
     assert response.status_code == 200
     reports = response.json()["reports"]
     assert len(reports) == 1
@@ -132,9 +132,9 @@ def test_get_domain_reports_uses_nested_summary_totals(seeded_client: TestClient
     assert report["total_emails"] == 10
 
 
-def test_get_domain_reports_unknown_domain_returns_404(client: TestClient):
+def test_get_domain_reports_unknown_domain_returns_404(authed_client: TestClient):
     """Returns 404 when the requested domain has no reports."""
-    response = client.get("/api/v1/domains/no-such-domain.example.com/reports")
+    response = authed_client.get("/api/v1/domains/no-such-domain.example.com/reports")
     assert response.status_code == 404
 
 
@@ -171,7 +171,7 @@ def test_export_domain_reports_returns_csv(seeded_client: TestClient):
     assert rows[0]["generator"] == "ExampleRUA 2.0"
 
 
-def test_export_domain_reports_filters_by_date_range(client: TestClient):
+def test_export_domain_reports_filters_by_date_range(authed_client: TestClient):
     """CSV export only includes reports inside the requested date range."""
     ReportStore.get_instance().add_report(REPORT_DICT_POLICY)
     ReportStore.get_instance().add_report(
@@ -185,7 +185,7 @@ def test_export_domain_reports_filters_by_date_range(client: TestClient):
         }
     )
 
-    response = client.get(
+    response = authed_client.get(
         f"/api/v1/domains/{DOMAIN}/reports/export?start_date=2020-08-16&end_date=2020-08-16"
     )
 
@@ -203,9 +203,9 @@ def test_export_domain_reports_rejects_invalid_date_order(seeded_client: TestCli
     assert response.status_code == 422
 
 
-def test_export_domain_reports_unknown_domain_returns_404(client: TestClient):
+def test_export_domain_reports_unknown_domain_returns_404(authed_client: TestClient):
     """Returns 404 when exporting a domain with no reports."""
-    response = client.get("/api/v1/domains/no-such-domain.example.com/reports/export")
+    response = authed_client.get("/api/v1/domains/no-such-domain.example.com/reports/export")
     assert response.status_code == 404
 
 
@@ -228,7 +228,7 @@ def test_get_domain_sources_returns_200(seeded_client: TestClient):
     assert source["dmarc"] == "pass"
 
 
-def test_get_domain_sources_returns_rollup_counts(client: TestClient):
+def test_get_domain_sources_returns_rollup_counts(authed_client: TestClient):
     """Endpoint reports pass/fail totals instead of only the latest IP result."""
     report = {
         **REPORT_DICT_POLICY,
@@ -255,7 +255,7 @@ def test_get_domain_sources_returns_rollup_counts(client: TestClient):
     }
     ReportStore.get_instance().add_report(report)
 
-    response = client.get(f"/api/v1/domains/{DOMAIN}/sources")
+    response = authed_client.get(f"/api/v1/domains/{DOMAIN}/sources")
 
     assert response.status_code == 200
     source = response.json()["sources"][0]
@@ -274,7 +274,7 @@ def test_get_domain_sources_returns_rollup_counts(client: TestClient):
 
 
 def test_get_domain_sources_returns_recommendations(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+    authed_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):
     """Endpoint includes actionable guidance for common failure patterns."""
 
@@ -299,7 +299,7 @@ def test_get_domain_sources_returns_recommendations(
     }
     ReportStore.get_instance().add_report(report)
 
-    response = client.get(f"/api/v1/domains/{DOMAIN}/sources")
+    response = authed_client.get(f"/api/v1/domains/{DOMAIN}/sources")
 
     assert response.status_code == 200
     source = response.json()["sources"][0]
@@ -385,7 +385,7 @@ def test_get_domain_sources_days_param_accepted(seeded_client: TestClient):
     assert response.status_code == 200
 
 
-def test_get_domain_sources_unknown_domain_returns_404(client: TestClient):
+def test_get_domain_sources_unknown_domain_returns_404(authed_client: TestClient):
     """Returns 404 when the requested domain has no reports."""
-    response = client.get("/api/v1/domains/no-such-domain.example.com/sources")
+    response = authed_client.get("/api/v1/domains/no-such-domain.example.com/sources")
     assert response.status_code == 404

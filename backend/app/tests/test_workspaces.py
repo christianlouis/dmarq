@@ -1,10 +1,16 @@
+from contextlib import contextmanager
+
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.core.database import get_db
+from app.core.security import require_admin_auth
 from app.models.domain import Domain
 from app.models.mail_source import MailSource
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.models.workspace_access import WorkspaceMembership
+from app.services.workspace_access import ROLE_ANALYST
 from app.services.workspaces import (
     DEFAULT_WORKSPACE_SLUG,
     assign_default_workspace_to_unscoped_rows,
@@ -15,6 +21,27 @@ from app.services.workspaces import (
     workspace_mail_source_query,
     workspace_user_query,
 )
+
+
+@contextmanager
+def _client_as_user(test_app, db_session: Session, user: User):
+    async def mock_admin_auth():
+        return {"auth_type": "session", "user_id": user.id}
+
+    def override_get_db():
+        try:
+            yield db_session
+        finally:
+            pass
+
+    original_overrides = dict(test_app.dependency_overrides)
+    test_app.dependency_overrides[get_db] = override_get_db
+    test_app.dependency_overrides[require_admin_auth] = mock_admin_auth
+    try:
+        with TestClient(test_app) as client:
+            yield client
+    finally:
+        test_app.dependency_overrides = original_overrides
 
 
 def test_default_workspace_claims_legacy_rows(db_session: Session):
@@ -105,3 +132,35 @@ def test_domain_api_defaults_to_default_workspace(
     names = {item["name"] for item in listed.json()}
     assert "default.example" in names
     assert "other.example" not in names
+
+
+def test_domain_read_routes_enforce_workspace_membership(
+    test_app,
+    client: TestClient,
+    db_session: Session,
+):
+    """Read-only domain surfaces allow analysts but reject unauthenticated callers."""
+    workspace = get_or_create_default_workspace(db_session)
+    domain = Domain(name="analyst.example", workspace_id=workspace.id, active=True)
+    analyst = User(email="domain-analyst@example.com", is_active=True, is_verified=True)
+    db_session.add_all([domain, analyst])
+    db_session.flush()
+    db_session.add(
+        WorkspaceMembership(
+            workspace_id=workspace.id,
+            user_id=analyst.id,
+            role=ROLE_ANALYST,
+            active=True,
+        )
+    )
+    db_session.commit()
+
+    assert client.get("/api/v1/domains/domains").status_code == 401
+
+    with _client_as_user(test_app, db_session, analyst) as user_client:
+        listed = user_client.get("/api/v1/domains/domains")
+        assert listed.status_code == 200
+        assert {item["name"] for item in listed.json()} == {"analyst.example"}
+
+        deleted = user_client.delete("/api/v1/domains/analyst.example")
+        assert deleted.status_code == 403
