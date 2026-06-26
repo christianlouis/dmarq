@@ -32,6 +32,10 @@ from app.services.mailbox_recovery import (
     redact_recovery_text,
 )
 from app.services.microsoft_graph_client import MicrosoftGraphClient
+from app.services.workspace_access import (
+    PERMISSION_MAIL_SOURCES_WRITE,
+    require_workspace_permission,
+)
 from app.services.workspace_audit import changed_fields, record_workspace_audit_log
 from app.services.workspaces import (
     assign_default_workspace_to_unscoped_rows,
@@ -213,6 +217,11 @@ def _get_source_or_404(source_id: int, db: Session, workspace=None) -> MailSourc
             detail=f"Mail source {source_id} not found",
         )
     return source
+
+
+def _require_mail_source_access(auth_context: Dict[str, Any], db: Session, workspace) -> None:
+    """Require permission to inspect or manage workspace mail-source setup."""
+    require_workspace_permission(auth_context, PERMISSION_MAIL_SOURCES_WRITE, db, workspace)
 
 
 def _audit_mail_source_change(
@@ -476,6 +485,7 @@ async def list_mail_sources(
 ) -> List[MailSourceResponse]:
     """Return all configured mail sources (passwords redacted)."""
     workspace = assign_default_workspace_to_unscoped_rows(db)
+    _require_mail_source_access(_auth, db, workspace)
     sources = workspace_mail_source_query(db, workspace).order_by(MailSource.id).all()
     return [_source_to_response(s) for s in sources]
 
@@ -489,6 +499,7 @@ async def create_mail_source(
 ) -> MailSourceResponse:
     """Create a new mail source."""
     workspace = assign_default_workspace_to_unscoped_rows(db)
+    _require_mail_source_access(_auth, db, workspace)
     source = MailSource(
         workspace_id=workspace.id,
         name=payload.name,
@@ -535,6 +546,7 @@ async def get_mail_source(
 ) -> MailSourceResponse:
     """Return a single mail source by ID (password redacted)."""
     workspace = assign_default_workspace_to_unscoped_rows(db)
+    _require_mail_source_access(_auth, db, workspace)
     source = _get_source_or_404(source_id, db, workspace)
     return _source_to_response(source)
 
@@ -548,6 +560,7 @@ async def list_mail_source_imports(
 ) -> List[MailSourceImportResponse]:
     """Return recent sanitized import attempts for one mail source."""
     workspace = assign_default_workspace_to_unscoped_rows(db)
+    _require_mail_source_access(_auth, db, workspace)
     _get_source_or_404(source_id, db, workspace)
     safe_limit = min(max(limit, 1), 100)
     rows = (
@@ -572,6 +585,7 @@ async def fetch_mail_source(
         raise HTTPException(status_code=400, detail="Days parameter must be between 1 and 365")
 
     workspace = assign_default_workspace_to_unscoped_rows(db)
+    _require_mail_source_access(_auth, db, workspace)
     source = _get_source_or_404(source_id, db, workspace)
     results = _fetch_source(source, db, days)
     logger.info(
@@ -603,6 +617,7 @@ async def update_mail_source(
 ) -> MailSourceResponse:
     """Update one or more fields of an existing mail source."""
     workspace = assign_default_workspace_to_unscoped_rows(db)
+    _require_mail_source_access(_auth, db, workspace)
     source = _get_source_or_404(source_id, db, workspace)
 
     update_data = payload.model_dump(exclude_unset=True)
@@ -637,6 +652,7 @@ async def delete_mail_source(
 ) -> None:
     """Delete a mail source permanently."""
     workspace = assign_default_workspace_to_unscoped_rows(db)
+    _require_mail_source_access(_auth, db, workspace)
     source = _get_source_or_404(source_id, db, workspace)
     source_name = source.name
     source_method = source.method
@@ -666,6 +682,7 @@ async def toggle_mail_source(
 ) -> MailSourceResponse:
     """Toggle the *enabled* flag of a mail source."""
     workspace = assign_default_workspace_to_unscoped_rows(db)
+    _require_mail_source_access(_auth, db, workspace)
     source = _get_source_or_404(source_id, db, workspace)
     source.enabled = not source.enabled
     source.updated_at = datetime.utcnow()
@@ -691,6 +708,7 @@ async def test_stored_mail_source(  # noqa: C901
 ) -> Dict[str, Any]:
     """Test the connection for an already-stored mail source using its saved credentials."""
     workspace = assign_default_workspace_to_unscoped_rows(db)
+    _require_mail_source_access(_auth, db, workspace)
     source = _get_source_or_404(source_id, db, workspace)
 
     if source.method == "GMAIL_API":
@@ -796,6 +814,7 @@ async def test_stored_mail_source(  # noqa: C901
 @router.post("/test-connection", response_model=Dict[str, Any])
 async def test_connection_adhoc(
     request: TestConnectionRequest,
+    db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
 ) -> Dict[str, Any]:
     """
@@ -803,6 +822,8 @@ async def test_connection_adhoc(
 
     Useful when filling out the *add/edit mail source* form before saving.
     """
+    workspace = assign_default_workspace_to_unscoped_rows(db)
+    _require_mail_source_access(_auth, db, workspace)
     method = request.method.upper()
 
     if method != "IMAP":
@@ -836,6 +857,7 @@ async def m365_authorize_url(
 ) -> Dict[str, Any]:
     """Return a Microsoft identity platform authorization URL for M365_GRAPH."""
     workspace = assign_default_workspace_to_unscoped_rows(db)
+    _require_mail_source_access(_auth, db, workspace)
     source = _get_source_or_404(source_id, db, workspace)
 
     if source.method != "M365_GRAPH":
@@ -868,6 +890,7 @@ async def m365_list_folders(
 ) -> Dict[str, Any]:
     """Return selectable Microsoft 365 mail folders for this source."""
     workspace = assign_default_workspace_to_unscoped_rows(db)
+    _require_mail_source_access(_auth, db, workspace)
     source = _get_source_or_404(source_id, db, workspace)
 
     if source.method != "M365_GRAPH":
@@ -1017,6 +1040,7 @@ async def m365_oauth_callback_post(
 ) -> MailSourceResponse:
     """Exchange a Microsoft OAuth2 authorization code for Graph tokens."""
     workspace = assign_default_workspace_to_unscoped_rows(db)
+    _require_mail_source_access(_auth, db, workspace)
     source = _get_source_or_404(source_id, db, workspace)
 
     if source.method != "M365_GRAPH":
@@ -1091,6 +1115,7 @@ async def m365_fetch_reports(
 ) -> Dict[str, Any]:
     """Manually trigger a Microsoft 365 Graph DMARC report fetch."""
     workspace = assign_default_workspace_to_unscoped_rows(db)
+    _require_mail_source_access(_auth, db, workspace)
     source = _get_source_or_404(source_id, db, workspace)
 
     if source.method != "M365_GRAPH":
@@ -1125,6 +1150,7 @@ async def m365_disconnect(
 ) -> None:
     """Clear the stored Microsoft Graph OAuth2 tokens for this source."""
     workspace = assign_default_workspace_to_unscoped_rows(db)
+    _require_mail_source_access(_auth, db, workspace)
     source = _get_source_or_404(source_id, db, workspace)
 
     if source.method != "M365_GRAPH":
@@ -1169,6 +1195,7 @@ async def gmail_authorize_url(
     ``<origin>/mail-sources/<id>/gmail/callback`` with a ``code`` parameter.
     """
     workspace = assign_default_workspace_to_unscoped_rows(db)
+    _require_mail_source_access(_auth, db, workspace)
     source = _get_source_or_404(source_id, db, workspace)
 
     if source.method != "GMAIL_API":
@@ -1306,6 +1333,7 @@ async def gmail_oauth_callback_post(
     admin authentication.
     """
     workspace = assign_default_workspace_to_unscoped_rows(db)
+    _require_mail_source_access(_auth, db, workspace)
     source = _get_source_or_404(source_id, db, workspace)
 
     if source.method != "GMAIL_API":
@@ -1329,7 +1357,10 @@ async def gmail_oauth_callback_post(
         )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Token exchange failed. Please check the Gmail connection settings and try again.",
+            detail=(
+                "Token exchange failed. Please check the Gmail connection settings "
+                "and try again."
+            ),
         ) from exc
 
     access_token = token_data.get("access_token")
@@ -1382,6 +1413,7 @@ async def gmail_fetch_reports(
     any attachments not yet seen, and returns a summary.
     """
     workspace = assign_default_workspace_to_unscoped_rows(db)
+    _require_mail_source_access(_auth, db, workspace)
     source = _get_source_or_404(source_id, db, workspace)
 
     if source.method != "GMAIL_API":
@@ -1459,6 +1491,7 @@ async def gmail_disconnect(
 ) -> None:
     """Revoke / clear the stored Gmail OAuth2 tokens for this source."""
     workspace = assign_default_workspace_to_unscoped_rows(db)
+    _require_mail_source_access(_auth, db, workspace)
     source = _get_source_or_404(source_id, db, workspace)
 
     if source.method != "GMAIL_API":
