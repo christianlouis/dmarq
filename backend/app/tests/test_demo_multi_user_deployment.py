@@ -10,8 +10,8 @@ def test_demo_multi_user_deployment_has_saas_and_isp_scenarios():
     assert {"dmarq-foundation", "dmarq-commercial", "northstar-isp"} <= set(organizations)
     assert organizations["dmarq-foundation"]["billing_mode"] == "direct_stripe"
     assert organizations["northstar-isp"]["billing_mode"] == "provider_resale"
-    assert "dmarq.org" in organizations["dmarq-foundation"]["workspaces"][0]["domains"]
-    assert "dmarq.com" in organizations["dmarq-commercial"]["workspaces"][0]["domains"]
+    assert organizations["dmarq-foundation"]["workspaces"][0]["domains"] == ["dmarq.org"]
+    assert organizations["dmarq-commercial"]["workspaces"][0]["domains"] == ["dmarq.com"]
     assert any(scenario["label"] == "ISP operator" for scenario in deployment["viewer_scenarios"])
 
 
