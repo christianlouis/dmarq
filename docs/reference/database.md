@@ -21,6 +21,7 @@ workspace during migration.
 | Column | Type | Description |
 |--------|------|-------------|
 | id | INTEGER | Primary key |
+| organization_id | INTEGER | Foreign key to organizations.id |
 | slug | VARCHAR | Unique stable workspace slug |
 | name | VARCHAR | Display name |
 | description | TEXT | Optional operator-facing description |
@@ -30,6 +31,167 @@ workspace during migration.
 | tls_report_retention_days | INTEGER | SMTP TLS report retention target |
 | created_at | TIMESTAMP | When the workspace was created |
 | updated_at | TIMESTAMP | When the workspace was last updated |
+
+### Organizations
+
+The `organizations` table stores the account boundary above one or more
+workspaces. It represents the SaaS customer, ISP provider account, managed
+service customer, or default self-hosted account.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | INTEGER | Primary key |
+| slug | VARCHAR | Unique stable organization slug |
+| name | VARCHAR | Display name |
+| description | TEXT | Optional operator-facing description |
+| active | BOOLEAN | Whether the organization can be used |
+| created_at | TIMESTAMP | When the organization was created |
+| updated_at | TIMESTAMP | When the organization was last updated |
+
+### Organization_Memberships
+
+The `organization_memberships` table stores account-level roles that can span
+multiple workspaces.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | INTEGER | Primary key |
+| organization_id | INTEGER | Foreign key to organizations.id |
+| user_id | INTEGER | Foreign key to users.id |
+| role | VARCHAR(50) | Organization role such as organization_owner or billing_admin |
+| active | BOOLEAN | Whether the membership can be used |
+| created_at | TIMESTAMP | When the membership was created |
+| updated_at | TIMESTAMP | When the membership was last updated |
+
+### Plans
+
+The `plans` table stores entitlement bundles for hosted, provider-billed, and
+self-hosted deployments.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | INTEGER | Primary key |
+| code | VARCHAR(80) | Stable plan code |
+| name | VARCHAR | Display name |
+| billing_mode | VARCHAR(50) | Billing mode such as direct_stripe or provider_resale |
+| public | BOOLEAN | Whether the plan is visible in self-service flows |
+| active | BOOLEAN | Whether the plan can be used |
+| monthly_price_cents | INTEGER | Optional monthly list price |
+| annual_price_cents | INTEGER | Optional annual list price |
+| currency | VARCHAR(3) | ISO currency code |
+| included_sending_domains | INTEGER | Included domain limit, if any |
+| included_message_volume | INTEGER | Included aggregate message volume, if any |
+| included_users | INTEGER | Included user limit, if any |
+| retention_days | INTEGER | Default report retention target |
+| features | TEXT | Comma-separated feature keys |
+
+### Billing_Accounts
+
+The `billing_accounts` table stores the billing destination for an organization.
+It supports Stripe subscriptions, manual contracts, provider resale, WHMCS-style
+hosting billing, TM Forum style provider billing, and self-hosted licenses.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | INTEGER | Primary key |
+| organization_id | INTEGER | Foreign key to organizations.id |
+| billing_mode | VARCHAR(50) | Billing mode |
+| status | VARCHAR(50) | Billing account status |
+| provider_id | VARCHAR(120) | Optional external provider identifier |
+| external_customer_id | VARCHAR(120) | Optional provider customer identifier |
+| stripe_customer_id | VARCHAR(120) | Optional Stripe customer identifier |
+| invoice_delivery_mode | VARCHAR(50) | How invoices are delivered |
+| tax_reference | VARCHAR(120) | Optional tax or contract reference |
+
+### Subscriptions
+
+The `subscriptions` table stores current and historical plan assignments. Stripe
+IDs are optional so provider-billed and self-hosted accounts can be represented
+without Stripe.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | INTEGER | Primary key |
+| organization_id | INTEGER | Foreign key to organizations.id |
+| plan_id | INTEGER | Foreign key to plans.id |
+| billing_account_id | INTEGER | Foreign key to billing_accounts.id |
+| billing_mode | VARCHAR(50) | Billing mode |
+| status | VARCHAR(50) | Subscription lifecycle status |
+| current_period_start | TIMESTAMP | Current billing period start |
+| current_period_end | TIMESTAMP | Current billing period end |
+| stripe_subscription_id | VARCHAR(120) | Optional Stripe subscription identifier |
+| external_subscription_id | VARCHAR(120) | Optional provider subscription identifier |
+| external_product_code | VARCHAR(120) | Optional provider product code |
+| canceled_at | TIMESTAMP | Cancellation time, if any |
+
+### Entitlements
+
+The `entitlements` table stores normalized feature grants and limits derived
+from plans, contracts, provider billing systems, or local configuration.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | INTEGER | Primary key |
+| organization_id | INTEGER | Foreign key to organizations.id |
+| subscription_id | INTEGER | Optional foreign key to subscriptions.id |
+| key | VARCHAR(120) | Feature or limit key |
+| value | VARCHAR(255) | Feature or limit value |
+| source | VARCHAR(50) | Source such as plan, contract, or provider |
+| active | BOOLEAN | Whether the entitlement is currently active |
+| effective_from | TIMESTAMP | Start of the grant |
+| expires_at | TIMESTAMP | Optional expiry |
+
+### Usage_Records
+
+The `usage_records` table stores period-based usage for invoices, overages, and
+provider monthly-bill exports.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | INTEGER | Primary key |
+| organization_id | INTEGER | Foreign key to organizations.id |
+| workspace_id | INTEGER | Optional foreign key to workspaces.id |
+| metric | VARCHAR(120) | Usage metric key |
+| quantity | INTEGER | Usage quantity |
+| unit | VARCHAR(50) | Unit such as messages or workspaces |
+| period_start | TIMESTAMP | Usage period start |
+| period_end | TIMESTAMP | Usage period end |
+| idempotency_key | VARCHAR(160) | Stable key for exports and retries |
+| source | VARCHAR(50) | Source system |
+| external_customer_id | VARCHAR(120) | Optional provider customer identifier |
+
+### Provider_Integrations
+
+The `provider_integrations` table stores ISP, MSP, registrar, or hosting-system
+integration registrations.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | INTEGER | Primary key |
+| organization_id | INTEGER | Optional foreign key to organizations.id |
+| name | VARCHAR | Operator-facing name |
+| provider_type | VARCHAR(80) | Integration type such as whmcs or tmf |
+| status | VARCHAR(50) | Integration lifecycle status |
+| external_provider_id | VARCHAR(120) | Optional external provider identifier |
+| scopes | TEXT | Comma-separated scopes or capabilities |
+| callback_url | TEXT | Optional callback URL |
+
+### Billing_Events
+
+The `billing_events` table stores auditable billing lifecycle events without
+retaining full provider payloads.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | INTEGER | Primary key |
+| organization_id | INTEGER | Optional foreign key to organizations.id |
+| subscription_id | INTEGER | Optional foreign key to subscriptions.id |
+| billing_mode | VARCHAR(50) | Billing mode |
+| event_type | VARCHAR(120) | Stable event key |
+| provider_id | VARCHAR(120) | Optional provider identifier |
+| external_event_id | VARCHAR(160) | Optional provider event identifier |
+| status | VARCHAR(50) | Processing status |
+| payload_summary | TEXT | Sanitized event summary |
 
 ### Workspace_Memberships
 

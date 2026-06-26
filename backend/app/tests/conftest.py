@@ -12,6 +12,7 @@ import app.models.dns_cache  # noqa: F401  # pylint: disable=unused-import
 import app.models.domain  # noqa: F401  # pylint: disable=unused-import
 import app.models.mail_source as _mail_source_model  # noqa: F401  # pylint: disable=unused-import
 import app.models.mail_source_import  # noqa: F401  # pylint: disable=unused-import
+import app.models.organization  # noqa: F401  # pylint: disable=unused-import
 import app.models.report  # noqa: F401  # pylint: disable=unused-import
 import app.models.setting  # noqa: F401  # pylint: disable=unused-import
 import app.models.user  # noqa: F401  # pylint: disable=unused-import

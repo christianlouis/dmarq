@@ -10,6 +10,14 @@ from app.services.report_store import ReportStore
 
 DEMO_DOMAINS = ("dmarq.org", "dmarq.com")
 DEMO_DAYS = 90
+DEMO_MULTI_USER_ROLES = (
+    "organization_owner",
+    "billing_admin",
+    "workspace_admin",
+    "analyst",
+    "auditor",
+    "provider_operator",
+)
 DEMO_TLS_REPORT_PRIVACY_CONTROLS = {
     "retention": (
         "TLS reports store aggregate session counts, reporting organization metadata, "
@@ -36,6 +44,315 @@ DEMO_TLS_REPORT_PRIVACY_CONTROLS = {
         "mailbox credentials or source message identifiers",
     ],
 }
+
+
+def build_demo_multi_user_deployment() -> Dict[str, Any]:
+    """Return a rolling SaaS/ISP demo deployment model without real customers."""
+    today = date.today()
+    period_start = today - timedelta(days=29)
+    prior_period_start = today - timedelta(days=59)
+    quarter_start = today - timedelta(days=89)
+    return {
+        "generated_for": today.isoformat(),
+        "window": {
+            "current_period_start": period_start.isoformat(),
+            "prior_period_start": prior_period_start.isoformat(),
+            "historical_start": quarter_start.isoformat(),
+            "period_days": 30,
+            "retention_days": 90,
+        },
+        "roles": list(DEMO_MULTI_USER_ROLES),
+        "billing_modes": [
+            {
+                "mode": "direct_stripe",
+                "label": "DMARQaaS direct subscription",
+                "invoice_owner": "DMARQ",
+                "settlement": "Stripe subscription and hosted invoices",
+            },
+            {
+                "mode": "manual_contract",
+                "label": "Contracted managed service",
+                "invoice_owner": "DMARQ",
+                "settlement": "Contract invoice with optional purchase order reference",
+            },
+            {
+                "mode": "provider_resale",
+                "label": "ISP bundled subscription",
+                "invoice_owner": "ISP",
+                "settlement": "Usage and entitlement export for the ISP monthly bill",
+            },
+            {
+                "mode": "provider_whmcs",
+                "label": "Hosting-panel billing",
+                "invoice_owner": "Hosting provider",
+                "settlement": "Provisioning and usage sync through a hosting platform",
+            },
+            {
+                "mode": "self_hosted_license",
+                "label": "Self-hosted deployment",
+                "invoice_owner": "Customer",
+                "settlement": "Local license or no external billing integration",
+            },
+        ],
+        "organizations": [
+            {
+                "slug": "dmarq-foundation",
+                "name": "DMARQ Foundation",
+                "deployment_model": "dmarq_cloud",
+                "billing_mode": "direct_stripe",
+                "plan": {
+                    "code": "business",
+                    "name": "Business",
+                    "price": {"monthly": 12900, "annual": 129000, "currency": "EUR"},
+                    "included": {
+                        "domains": 15,
+                        "users": 25,
+                        "aggregate_messages": 1_000_000,
+                        "retention_days": 400,
+                    },
+                },
+                "billing": {
+                    "status": "active",
+                    "next_invoice_date": (today + timedelta(days=12)).isoformat(),
+                    "current_period_total_cents": 12900,
+                    "invoice_delivery_mode": "stripe_customer_portal",
+                    "external_customer_id": "cus_demo_foundation",
+                },
+                "workspaces": [
+                    {
+                        "slug": "dmarq-org",
+                        "name": "dmarq.org Public Infrastructure",
+                        "domains": ["dmarq.org"],
+                        "health": "attention",
+                        "primary_findings": [
+                            "newsletter DKIM selector intermittently fails",
+                            "legacy CRM source should be retired or isolated",
+                        ],
+                    }
+                ],
+                "users": [
+                    {
+                        "name": "Alex Morgan",
+                        "email": "alex@dmarq.example",
+                        "roles": ["organization_owner", "workspace_admin"],
+                        "workspaces": ["dmarq-org"],
+                    },
+                    {
+                        "name": "Mira Chen",
+                        "email": "mira@dmarq.example",
+                        "roles": ["analyst"],
+                        "workspaces": ["dmarq-org"],
+                    },
+                    {
+                        "name": "Sam Rivera",
+                        "email": "sam.audit@dmarq.example",
+                        "roles": ["auditor"],
+                        "workspaces": ["dmarq-org"],
+                    },
+                ],
+                "usage": [
+                    {
+                        "metric": "aggregate_messages",
+                        "period_start": period_start.isoformat(),
+                        "period_end": today.isoformat(),
+                        "quantity": 197_430,
+                        "unit": "messages",
+                    },
+                    {
+                        "metric": "forensic_samples",
+                        "period_start": period_start.isoformat(),
+                        "period_end": today.isoformat(),
+                        "quantity": 34,
+                        "unit": "reports",
+                    },
+                ],
+            },
+            {
+                "slug": "dmarq-commercial",
+                "name": "DMARQ Commercial",
+                "deployment_model": "managed_service",
+                "billing_mode": "manual_contract",
+                "plan": {
+                    "code": "enterprise",
+                    "name": "Enterprise",
+                    "price": {"monthly": 44900, "annual": 449000, "currency": "EUR"},
+                    "included": {
+                        "domains": 100,
+                        "users": 100,
+                        "aggregate_messages": 10_000_000,
+                        "retention_days": 730,
+                    },
+                },
+                "billing": {
+                    "status": "active",
+                    "next_invoice_date": (today + timedelta(days=4)).isoformat(),
+                    "current_period_total_cents": 44900,
+                    "invoice_delivery_mode": "contract_invoice",
+                    "external_customer_id": "acct-demo-dmarq-commercial",
+                },
+                "workspaces": [
+                    {
+                        "slug": "dmarq-com",
+                        "name": "dmarq.com Product Mail",
+                        "domains": ["dmarq.com"],
+                        "health": "monitoring",
+                        "primary_findings": [
+                            "policy is still p=none while marketing sources are being aligned",
+                            "unknown forwarder appears on low-volume days",
+                        ],
+                    }
+                ],
+                "users": [
+                    {
+                        "name": "Jordan Lee",
+                        "email": "jordan@dmarq.example",
+                        "roles": ["organization_owner", "billing_admin"],
+                        "workspaces": ["dmarq-com"],
+                    },
+                    {
+                        "name": "Priya Shah",
+                        "email": "priya@dmarq.example",
+                        "roles": ["workspace_admin", "analyst"],
+                        "workspaces": ["dmarq-com"],
+                    },
+                ],
+                "usage": [
+                    {
+                        "metric": "aggregate_messages",
+                        "period_start": period_start.isoformat(),
+                        "period_end": today.isoformat(),
+                        "quantity": 121_820,
+                        "unit": "messages",
+                    },
+                    {
+                        "metric": "dns_snapshots",
+                        "period_start": period_start.isoformat(),
+                        "period_end": today.isoformat(),
+                        "quantity": 60,
+                        "unit": "snapshots",
+                    },
+                ],
+            },
+            {
+                "slug": "northstar-isp",
+                "name": "Northstar ISP Demo",
+                "deployment_model": "isp_resale",
+                "billing_mode": "provider_resale",
+                "plan": {
+                    "code": "provider-growth",
+                    "name": "Provider Growth",
+                    "price": {"monthly": 99000, "annual": None, "currency": "EUR"},
+                    "included": {
+                        "customer_workspaces": 250,
+                        "users": 500,
+                        "aggregate_messages": 50_000_000,
+                        "retention_days": 400,
+                    },
+                },
+                "billing": {
+                    "status": "active",
+                    "next_invoice_date": (today + timedelta(days=18)).isoformat(),
+                    "current_period_total_cents": 118_500,
+                    "invoice_delivery_mode": "provider_monthly_bill",
+                    "external_customer_id": "isp-demo-northstar",
+                },
+                "provider_integration": {
+                    "type": "hosting_management",
+                    "status": "mock_connected",
+                    "external_provider_id": "northstar-panel-demo",
+                    "scopes": [
+                        "customer.read",
+                        "domain.read",
+                        "dns.read",
+                        "subscription.usage.write",
+                    ],
+                },
+                "workspaces": [
+                    {
+                        "slug": "bakery-example",
+                        "name": "Bakery Example Customer",
+                        "domains": ["bakery.example"],
+                        "health": "healthy",
+                        "primary_findings": ["ready to move from quarantine to reject"],
+                    },
+                    {
+                        "slug": "lawfirm-example",
+                        "name": "Law Firm Example Customer",
+                        "domains": ["lawfirm.example"],
+                        "health": "critical",
+                        "primary_findings": [
+                            "new mail platform sends without DKIM",
+                            "SPF includes exceed the lookup budget",
+                        ],
+                    },
+                ],
+                "users": [
+                    {
+                        "name": "Nora Patel",
+                        "email": "nora.ops@northstar.example",
+                        "roles": ["provider_operator"],
+                        "workspaces": ["bakery-example", "lawfirm-example"],
+                    },
+                    {
+                        "name": "Chris Becker",
+                        "email": "chris.billing@northstar.example",
+                        "roles": ["billing_admin"],
+                        "workspaces": [],
+                    },
+                    {
+                        "name": "Taylor Brooks",
+                        "email": "taylor@bakery.example",
+                        "roles": ["workspace_admin"],
+                        "workspaces": ["bakery-example"],
+                    },
+                ],
+                "usage": [
+                    {
+                        "metric": "customer_workspaces",
+                        "period_start": period_start.isoformat(),
+                        "period_end": today.isoformat(),
+                        "quantity": 42,
+                        "unit": "workspaces",
+                    },
+                    {
+                        "metric": "aggregate_messages",
+                        "period_start": period_start.isoformat(),
+                        "period_end": today.isoformat(),
+                        "quantity": 2_423_900,
+                        "unit": "messages",
+                    },
+                    {
+                        "metric": "provider_billable_addons",
+                        "period_start": period_start.isoformat(),
+                        "period_end": today.isoformat(),
+                        "quantity": 7,
+                        "unit": "customer_addons",
+                    },
+                ],
+            },
+        ],
+        "viewer_scenarios": [
+            {
+                "label": "DMARQaaS account owner",
+                "email": "alex@dmarq.example",
+                "visible_organizations": ["dmarq-foundation"],
+                "default_workspace": "dmarq-org",
+            },
+            {
+                "label": "Managed-service analyst",
+                "email": "priya@dmarq.example",
+                "visible_organizations": ["dmarq-commercial"],
+                "default_workspace": "dmarq-com",
+            },
+            {
+                "label": "ISP operator",
+                "email": "nora.ops@northstar.example",
+                "visible_organizations": ["northstar-isp"],
+                "default_workspace": "lawfirm-example",
+            },
+        ],
+    }
+
 
 _SOURCE_PROFILES = {
     "dmarq.org": [
@@ -194,9 +511,7 @@ def _record(domain: str, profile: Dict[str, Any], day_index: int) -> Dict[str, A
                 "selector": profile["selector"],
                 "result": dkim_result,
                 "human_result": (
-                    "signature verified"
-                    if dkim_result == "pass"
-                    else "body hash did not verify"
+                    "signature verified" if dkim_result == "pass" else "body hash did not verify"
                 ),
             }
         ],
@@ -206,9 +521,7 @@ def _record(domain: str, profile: Dict[str, Any], day_index: int) -> Dict[str, A
                 "scope": "mfrom",
                 "result": spf_result,
                 "human_result": (
-                    "sender authorized"
-                    if spf_result == "pass"
-                    else "sender not authorized by SPF"
+                    "sender authorized" if spf_result == "pass" else "sender not authorized by SPF"
                 ),
             }
         ],
@@ -380,9 +693,7 @@ def build_demo_dashboard_statistics(
                 "dkim_fail_count": source["dkim_fail_count"],
                 "dmarc_pass_count": source["dmarc_pass_count"],
                 "dmarc_fail_count": source["dmarc_fail_count"],
-                "spf": _auth_status_from_counts(
-                    source["spf_pass_count"], source["spf_fail_count"]
-                ),
+                "spf": _auth_status_from_counts(source["spf_pass_count"], source["spf_fail_count"]),
                 "dkim": _auth_status_from_counts(
                     source["dkim_pass_count"], source["dkim_fail_count"]
                 ),
@@ -649,9 +960,10 @@ def summarize_demo_tls_reports(
                 item["receiving_mx_hostnames"].add(failure["receiving_mx_hostname"])
             if failure.get("failure_reason_code"):
                 item["reason_codes"].add(failure["failure_reason_code"])
-            if top_failure is None or failure["failed_session_count"] > top_failure[
-                "failed_session_count"
-            ]:
+            if (
+                top_failure is None
+                or failure["failed_session_count"] > top_failure["failed_session_count"]
+            ):
                 top_failure = failure
         if top_failure:
             domain_summary["top_failure"] = top_failure["result_type"]
@@ -823,9 +1135,7 @@ def _analyze_demo_forensic_item(item: Dict[str, Any]) -> Dict[str, Any]:
     priority = _priority_for_forensic(item)
     dkim_domain = item.get("reported_domain")
     mail_from = (
-        str(item.get("authentication_results") or "")
-        .split("smtp.mailfrom=")[-1]
-        .split(";")[0]
+        str(item.get("authentication_results") or "").split("smtp.mailfrom=")[-1].split(";")[0]
     )
     signals = [
         f"Identity alignment: {headers.get('identity_alignment', failure)}",

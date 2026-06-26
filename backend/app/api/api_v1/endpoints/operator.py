@@ -6,9 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.workspace import Workspace
+from app.services.demo_data import build_demo_multi_user_deployment
 from app.services.workspace_access import (
     PERMISSION_AUDIT_READ,
     PERMISSION_WORKSPACE_ADMIN,
@@ -45,6 +47,13 @@ class WorkspaceRetentionResponse(BaseModel):
     retention: Dict[str, int]
 
 
+class DemoMultiUserDeploymentResponse(BaseModel):
+    """Read-only SaaS/ISP demo deployment showcase."""
+
+    demo_mode: bool
+    deployment: Dict[str, Any]
+
+
 def _workspace_or_404(db: Session, workspace_id: int) -> Workspace:
     workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
     if workspace is None:
@@ -63,6 +72,18 @@ async def list_operator_workspaces(
     """Return safe cross-workspace health, drift, import, and retention summaries."""
     require_workspace_permission(_auth, PERMISSION_AUDIT_READ)
     return {"workspaces": list_workspace_operator_summaries(db)}
+
+
+@router.get("/demo/multi-user", response_model=DemoMultiUserDeploymentResponse)
+async def get_demo_multi_user_deployment(
+    _auth: dict = Depends(require_admin_auth),
+) -> DemoMultiUserDeploymentResponse:
+    """Return deterministic demo data for SaaS, managed-service, and ISP views."""
+    require_workspace_permission(_auth, PERMISSION_AUDIT_READ)
+    return {
+        "demo_mode": get_settings().DEMO_MODE,
+        "deployment": build_demo_multi_user_deployment(),
+    }
 
 
 @router.get("/workspaces/{workspace_id}", response_model=Dict[str, Any])

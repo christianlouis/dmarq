@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Index, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -12,6 +12,7 @@ class Workspace(Base):
     __tablename__ = "workspaces"
 
     id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
     slug = Column(String, unique=True, nullable=False, index=True)
     name = Column(String, nullable=False)
     description = Column(Text, nullable=True)
@@ -22,6 +23,7 @@ class Workspace(Base):
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    organization = relationship("Organization", back_populates="workspaces")
     domains = relationship("Domain", back_populates="workspace")
     mail_sources = relationship("MailSource", back_populates="workspace")
     users = relationship("User", back_populates="workspace")
