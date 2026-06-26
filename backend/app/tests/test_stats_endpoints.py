@@ -9,6 +9,24 @@ from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
+from app.api.api_v1.endpoints.stats import _summary_cache_key, resolve_dashboard_date_range
+
+
+def test_summary_cache_key_includes_custom_date_bounds():
+    date_range = resolve_dashboard_date_range(
+        interval="custom",
+        start_date="2026-06-01",
+        end_date="2026-06-07",
+    )
+
+    assert _summary_cache_key(date_range) == "custom_2026-06-01_2026-06-07"
+
+
+def test_summary_cache_key_partitions_open_calendar_ranges():
+    date_range = resolve_dashboard_date_range(interval="week_to_date")
+
+    assert _summary_cache_key(date_range).startswith("week_to_date_")
+
 
 class TestDashboardStatistics:
     """Tests for GET /api/v1/stats/dashboard"""
@@ -42,6 +60,12 @@ class TestDashboardStatistics:
             response = client.get("/api/v1/stats/dashboard?period_days=7")
             assert response.status_code == 200
             assert mock_instance.calculate_summary_statistics.call_args.kwargs["period_days"] == 7
+            assert mock_instance.calculate_summary_statistics.call_args.kwargs["start_ts"]
+            assert mock_instance.calculate_summary_statistics.call_args.kwargs["end_ts"]
+            assert (
+                mock_instance.calculate_summary_statistics.call_args.kwargs["cache_key"]
+                == "last_7_days"
+            )
 
     def test_dashboard_force_refresh(self, client: TestClient):
         """force_refresh=true should trigger cache invalidation without error."""
@@ -72,9 +96,7 @@ class TestDashboardStatistics:
             assert response.status_code == 200
             mock_instance.invalidate_cache.assert_not_called()
 
-    def test_dashboard_uses_demo_data_when_demo_mode_enabled(
-        self, client: TestClient, monkeypatch
-    ):
+    def test_dashboard_uses_demo_data_when_demo_mode_enabled(self, client: TestClient, monkeypatch):
         monkeypatch.setattr(
             "app.api.api_v1.endpoints.stats.get_settings",
             lambda: SimpleNamespace(DEMO_MODE=True),
@@ -123,6 +145,12 @@ class TestDomainStatistics:
             assert response.status_code == 200
             assert mock_instance.calculate_summary_statistics.call_args.args[1] == "example.com"
             assert mock_instance.calculate_summary_statistics.call_args.kwargs["period_days"] == 14
+            assert mock_instance.calculate_summary_statistics.call_args.kwargs["start_ts"]
+            assert mock_instance.calculate_summary_statistics.call_args.kwargs["end_ts"]
+            assert (
+                mock_instance.calculate_summary_statistics.call_args.kwargs["cache_key"]
+                == "last_14_days"
+            )
 
     def test_domain_stats_force_refresh(self, client: TestClient):
         response = client.get("/api/v1/stats/domain/example.com?force_refresh=true")

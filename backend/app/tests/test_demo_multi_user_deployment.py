@@ -3,6 +3,19 @@ from fastapi.testclient import TestClient
 from app.services.demo_data import build_demo_multi_user_deployment
 
 
+class _DemoSettings:
+    def __init__(self, demo_mode: bool):
+        self.DEMO_MODE = demo_mode
+
+
+def _settings_with_demo_enabled():
+    return _DemoSettings(demo_mode=True)
+
+
+def _settings_with_demo_disabled():
+    return _DemoSettings(demo_mode=False)
+
+
 def test_demo_multi_user_deployment_has_saas_and_isp_scenarios():
     deployment = build_demo_multi_user_deployment()
 
@@ -17,10 +30,30 @@ def test_demo_multi_user_deployment_has_saas_and_isp_scenarios():
 
 def test_operator_demo_multi_user_endpoint_returns_showcase(
     authed_client: TestClient,
+    monkeypatch,
 ):
+    monkeypatch.setattr(
+        "app.api.api_v1.endpoints.operator.get_settings",
+        _settings_with_demo_enabled,
+    )
+
     response = authed_client.get("/api/v1/operator/demo/multi-user")
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["deployment"]["organizations"][0]["slug"] == "dmarq-foundation"
     assert payload["deployment"]["billing_modes"][0]["mode"] == "direct_stripe"
+
+
+def test_operator_demo_multi_user_endpoint_is_hidden_outside_demo_mode(
+    authed_client: TestClient,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "app.api.api_v1.endpoints.operator.get_settings",
+        _settings_with_demo_disabled,
+    )
+
+    response = authed_client.get("/api/v1/operator/demo/multi-user")
+
+    assert response.status_code == 404

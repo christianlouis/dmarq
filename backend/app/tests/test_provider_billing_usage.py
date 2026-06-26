@@ -8,6 +8,7 @@ from app.models.organization import BillingAccount, BillingEvent, Subscription
 from app.models.report import DMARCReport, ForensicReport, ReportRecord
 from app.models.workspace import Workspace
 from app.services.organizations import (
+    MAX_PROVIDER_PAYLOAD_SUMMARY_LENGTH,
     bootstrap_default_commercial_foundation,
     build_usage_export,
     update_external_subscription_state,
@@ -87,9 +88,7 @@ def test_provider_usage_endpoint_rejects_bad_period(authed_client: TestClient):
 def test_provider_subscription_state_update_records_billing_event(db_session: Session):
     organization = bootstrap_default_commercial_foundation(db_session)
     subscription = (
-        db_session.query(Subscription)
-        .filter(Subscription.organization_id == organization.id)
-        .one()
+        db_session.query(Subscription).filter(Subscription.organization_id == organization.id).one()
     )
     subscription.external_subscription_id = "sub-provider-123"
     db_session.commit()
@@ -110,3 +109,66 @@ def test_provider_subscription_state_update_records_billing_event(db_session: Se
     assert subscription.status == "suspended"
     assert event.event_type == "provider.subscription_state_updated"
     assert event.external_event_id == "evt-1"
+
+
+def test_provider_subscription_state_update_sanitizes_payload_summary(db_session: Session):
+    organization = bootstrap_default_commercial_foundation(db_session)
+    subscription = (
+        db_session.query(Subscription).filter(Subscription.organization_id == organization.id).one()
+    )
+    subscription.external_subscription_id = "sub-provider-unsafe"
+    db_session.commit()
+
+    update_external_subscription_state(
+        db_session,
+        external_subscription_id="sub-provider-unsafe",
+        status="suspended",
+        provider_id="isp-demo",
+        external_event_id="evt-unsafe",
+        payload_summary=" <script>alert(1)</script>\n provider update ",
+    )
+
+    event = db_session.query(BillingEvent).filter_by(external_event_id="evt-unsafe").one()
+    assert event.payload_summary == "&lt;script&gt;alert(1)&lt;/script&gt; provider update"
+
+
+def test_provider_subscription_state_update_drops_blank_payload_summary(db_session: Session):
+    organization = bootstrap_default_commercial_foundation(db_session)
+    subscription = (
+        db_session.query(Subscription).filter(Subscription.organization_id == organization.id).one()
+    )
+    subscription.external_subscription_id = "sub-provider-blank"
+    db_session.commit()
+
+    update_external_subscription_state(
+        db_session,
+        external_subscription_id="sub-provider-blank",
+        status="suspended",
+        provider_id="isp-demo",
+        external_event_id="evt-blank",
+        payload_summary=" \n\t ",
+    )
+
+    event = db_session.query(BillingEvent).filter_by(external_event_id="evt-blank").one()
+    assert event.payload_summary is None
+
+
+def test_provider_subscription_state_update_truncates_payload_summary(db_session: Session):
+    organization = bootstrap_default_commercial_foundation(db_session)
+    subscription = (
+        db_session.query(Subscription).filter(Subscription.organization_id == organization.id).one()
+    )
+    subscription.external_subscription_id = "sub-provider-long"
+    db_session.commit()
+
+    update_external_subscription_state(
+        db_session,
+        external_subscription_id="sub-provider-long",
+        status="suspended",
+        provider_id="isp-demo",
+        external_event_id="evt-long",
+        payload_summary="a" * (MAX_PROVIDER_PAYLOAD_SUMMARY_LENGTH + 10),
+    )
+
+    event = db_session.query(BillingEvent).filter_by(external_event_id="evt-long").one()
+    assert len(event.payload_summary) == MAX_PROVIDER_PAYLOAD_SUMMARY_LENGTH
