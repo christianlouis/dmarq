@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.security import require_admin_auth
 from app.services.dmarc_parser import DMARCParser
 from app.services.report_persistence import (
     delete_persisted_report,
@@ -14,6 +15,16 @@ from app.services.report_persistence import (
     save_parsed_report,
 )
 from app.services.report_store import ReportStore
+from app.services.workspace_access import (
+    PERMISSION_REPORTS_READ,
+    PERMISSION_REPORTS_WRITE,
+    require_workspace_permission,
+)
+from app.services.workspaces import (
+    assign_default_workspace_to_unscoped_rows,
+    get_default_workspace,
+    get_or_create_default_workspace,
+)
 from app.utils.domain_validator import DomainValidationError, validate_domain
 
 logger = logging.getLogger(__name__)
@@ -42,6 +53,13 @@ ALLOWED_MIME_TYPES = {
 
 # Security: Allowed file extensions
 ALLOWED_EXTENSIONS = {".xml", ".zip", ".gz", ".gzip"}
+
+
+def _authorized_reports_workspace(auth_context: Dict[str, Any], db: Session, permission: str):
+    """Authorize report access before running legacy workspace repair writes."""
+    workspace = get_default_workspace(db) or get_or_create_default_workspace(db)
+    require_workspace_permission(auth_context, permission, db, workspace)
+    return assign_default_workspace_to_unscoped_rows(db)
 
 
 def _validate_mime_type(file_content: bytes) -> None:
@@ -165,7 +183,11 @@ class PaginatedReportResponse(BaseModel):
 
 
 @router.post("/upload", response_model=UploadResponse)
-async def upload_report(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_report(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
     """
     Upload and process a DMARC aggregate report file (XML, ZIP, or GZIP)
 
@@ -175,6 +197,7 @@ async def upload_report(file: UploadFile = File(...), db: Session = Depends(get_
     - Zip bomb protection
     - Sanitized error messages
     """
+    workspace = _authorized_reports_workspace(_auth, db, PERMISSION_REPORTS_WRITE)
     try:
         # Read content first so validators can inspect it
         file_content = await file.read()
@@ -203,9 +226,7 @@ async def upload_report(file: UploadFile = File(...), db: Session = Depends(get_
         # Check for duplicate report before storing
         store = ReportStore.get_instance()
         report_id = report.get("report_id", "")
-        if report_id and (
-            store.has_report(domain, report_id) or report_exists(db, domain, report_id)
-        ):
+        if report_id and report_exists(db, domain, report_id, workspace_id=workspace.id):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=(
@@ -243,12 +264,16 @@ async def upload_report(file: UploadFile = File(...), db: Session = Depends(get_
 
 
 @router.get("", response_model=List[AllReportsItem])
-async def get_all_reports(db: Session = Depends(get_db)):
+async def get_all_reports(
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
     """
     Get all DMARC reports across all domains, sorted by end_date descending.
     """
+    workspace = _authorized_reports_workspace(_auth, db, PERMISSION_REPORTS_READ)
     store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store)
+    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
     domains = store.get_domains()
 
     all_reports: List[AllReportsItem] = []
@@ -280,22 +305,31 @@ async def get_all_reports(db: Session = Depends(get_db)):
 
 
 @router.get("/domains", response_model=List[str])
-async def get_domains(db: Session = Depends(get_db)):
+async def get_domains(
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
     """
     Get list of all domains with reports
     """
+    workspace = _authorized_reports_workspace(_auth, db, PERMISSION_REPORTS_READ)
     store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store)
+    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
     return store.get_domains()
 
 
 @router.get("/domain/{domain}/summary", response_model=DomainSummary)
-async def get_domain_summary(domain: str, db: Session = Depends(get_db)):
+async def get_domain_summary(
+    domain: str,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
     """
     Get summary statistics for a specific domain
     """
+    workspace = _authorized_reports_workspace(_auth, db, PERMISSION_REPORTS_READ)
     store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store)
+    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
     summary = store.get_domain_summary(domain)
 
     if not summary:
@@ -307,24 +341,33 @@ async def get_domain_summary(domain: str, db: Session = Depends(get_db)):
 
 
 @router.get("/summary", response_model=List[DomainSummary])
-async def get_all_summaries(db: Session = Depends(get_db)):
+async def get_all_summaries(
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
     """
     Get summary statistics for all domains
     """
+    workspace = _authorized_reports_workspace(_auth, db, PERMISSION_REPORTS_READ)
     store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store)
+    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
     all_summaries = store.get_all_domain_summaries()
 
     return [DomainSummary(domain=domain, **summary) for domain, summary in all_summaries.items()]
 
 
 @router.get("/domain/{domain}/reports", response_model=List[ReportSummary])
-async def get_domain_reports(domain: str, db: Session = Depends(get_db)):
+async def get_domain_reports(
+    domain: str,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
     """
     Get all reports for a specific domain
     """
+    workspace = _authorized_reports_workspace(_auth, db, PERMISSION_REPORTS_READ)
     store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store)
+    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
     reports = store.get_domain_reports(domain)
 
     if not reports:
@@ -354,6 +397,7 @@ async def get_domain_reports_paginated(
     sort_by: str = "end_date",
     sort_order: str = "desc",
     db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
 ):
     """
     Get paginated reports for a specific domain with sorting options
@@ -365,8 +409,9 @@ async def get_domain_reports_paginated(
         sort_by: Field to sort by (report_id, org_name, begin_date, end_date, total_count)
         sort_order: Sort order (asc or desc)
     """
+    workspace = _authorized_reports_workspace(_auth, db, PERMISSION_REPORTS_READ)
     store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store)
+    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
     all_reports = store.get_domain_reports(domain)
 
     if not all_reports:
@@ -423,15 +468,21 @@ class DeleteReportResponse(BaseModel):
     "/domain/{domain}/reports/{report_id}",
     response_model=DeleteReportResponse,
 )
-async def delete_report(domain: str, report_id: str, db: Session = Depends(get_db)):
+async def delete_report(
+    domain: str,
+    report_id: str,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
     """
     Delete a single DMARC report for a domain.
 
     Removes the report from the store and recomputes all domain statistics so
     that aggregated numbers remain accurate after deletion.
     """
+    workspace = _authorized_reports_workspace(_auth, db, PERMISSION_REPORTS_WRITE)
     store = ReportStore.get_instance()
-    deleted_from_db = delete_persisted_report(db, domain, report_id)
+    deleted_from_db = delete_persisted_report(db, domain, report_id, workspace_id=workspace.id)
     if deleted_from_db:
         db.commit()
     deleted = store.delete_report(domain, report_id) or deleted_from_db
@@ -495,12 +546,17 @@ class ReportDetail(BaseModel):
 
 
 @router.get("/{report_id}", response_model=ReportDetail)
-async def get_report_by_id(report_id: str, db: Session = Depends(get_db)):
+async def get_report_by_id(
+    report_id: str,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
     """
     Get full details for a single DMARC report by its report ID.
     """
+    workspace = _authorized_reports_workspace(_auth, db, PERMISSION_REPORTS_READ)
     store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store)
+    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
     report = store.get_report_by_id(report_id)
 
     if report is None:

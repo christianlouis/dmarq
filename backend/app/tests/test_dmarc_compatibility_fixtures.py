@@ -124,11 +124,11 @@ def test_aggregate_compatibility_fixtures_parse_xml_zip_and_gzip(fixture):
 
 @pytest.mark.parametrize("fixture", DMARC_COMPATIBILITY_FIXTURES, ids=_fixture_id)
 def test_aggregate_compatibility_fixtures_import_via_upload(
-    client: TestClient, db_session, fixture
+    authed_client: TestClient, db_session, fixture
 ):
     zip_bytes = _zip_xml(_fixture_bytes(fixture), fixture["filename"])
 
-    response = client.post(
+    response = authed_client.post(
         "/api/v1/reports/upload",
         files={"file": (fixture["filename"] + ".zip", zip_bytes, "application/zip")},
     )
@@ -136,11 +136,11 @@ def test_aggregate_compatibility_fixtures_import_via_upload(
     assert response.status_code == 200
     _assert_persisted_report(db_session, fixture)
 
-    reports = client.get(f"/api/v1/domains/{fixture['domain']}/reports")
+    reports = authed_client.get(f"/api/v1/domains/{fixture['domain']}/reports")
     assert reports.status_code == 200
     assert reports.json()["reports"][0]["id"] == fixture["report_id"]
 
-    export = client.get(f"/api/v1/domains/{fixture['domain']}/reports/export")
+    export = authed_client.get(f"/api/v1/domains/{fixture['domain']}/reports/export")
     assert export.status_code == 200
     assert fixture["report_id"] in export.text
     assert "report_variant" in export.text

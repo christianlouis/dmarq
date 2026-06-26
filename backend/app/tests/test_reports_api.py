@@ -1,12 +1,19 @@
 import io
 import zipfile
+from contextlib import contextmanager
 
 from fastapi.testclient import TestClient
 
+from app.core.database import get_db
+from app.core.security import require_admin_auth
 from app.models.domain import Domain
 from app.models.report import DMARCReport, ReportRecord
-from app.services.report_persistence import persisted_report_to_dict
+from app.models.user import User
+from app.models.workspace_access import WorkspaceMembership
+from app.services.report_persistence import persisted_report_to_dict, save_parsed_report
 from app.services.report_store import ReportStore
+from app.services.workspace_access import ROLE_ANALYST
+from app.services.workspaces import get_or_create_default_workspace
 from app.tests.test_data import SAMPLE_XML, load_dmarc_fixture
 
 
@@ -21,10 +28,60 @@ def _make_zip(xml_content: str) -> bytes:
     return buf.getvalue()
 
 
-def test_upload_report_success(client: TestClient):
+def _persist_parsed_report(db_session, report: dict) -> None:
+    save_parsed_report(db_session, report)
+    db_session.commit()
+
+
+def _add_user(db_session, email: str, *, is_superuser: bool = False) -> User:
+    user = User(
+        email=email,
+        is_active=True,
+        is_superuser=is_superuser,
+        is_verified=True,
+    )
+    db_session.add(user)
+    db_session.flush()
+    return user
+
+
+def _add_membership(db_session, workspace, user: User, role: str) -> None:
+    db_session.add(
+        WorkspaceMembership(
+            workspace_id=workspace.id,
+            user_id=user.id,
+            role=role,
+            active=True,
+        )
+    )
+    db_session.flush()
+
+
+@contextmanager
+def _client_as_user(test_app, db_session, user: User):
+    async def mock_admin_auth():
+        return {"auth_type": "session", "user_id": user.id}
+
+    def override_get_db():
+        try:
+            yield db_session
+        finally:
+            pass
+
+    original_overrides = dict(test_app.dependency_overrides)
+    test_app.dependency_overrides[get_db] = override_get_db
+    test_app.dependency_overrides[require_admin_auth] = mock_admin_auth
+    try:
+        with TestClient(test_app) as client:
+            yield client
+    finally:
+        test_app.dependency_overrides = original_overrides
+
+
+def test_upload_report_success(authed_client: TestClient):
     """Uploading a valid zipped DMARC report succeeds."""
     zip_bytes = _make_zip(SAMPLE_XML)
-    response = client.post(
+    response = authed_client.post(
         "/api/v1/reports/upload",
         files={"file": ("report.zip", zip_bytes, "application/zip")},
     )
@@ -34,10 +91,47 @@ def test_upload_report_success(client: TestClient):
     assert data["domain"] == "example.com"
 
 
-def test_upload_persists_report_rows(client: TestClient, db_session):
+def test_report_routes_enforce_workspace_read_and_write_roles(test_app, db_session):
+    """Analysts can read report surfaces, but uploads require report write access."""
+    workspace = get_or_create_default_workspace(db_session)
+    analyst = _add_user(db_session, "analyst@example.test")
+    outsider = _add_user(db_session, "outsider@example.test")
+    _add_membership(db_session, workspace, analyst, ROLE_ANALYST)
+    db_session.commit()
+
+    zip_bytes = _make_zip(SAMPLE_XML)
+    with _client_as_user(test_app, db_session, analyst) as client:
+        read_response = client.get("/api/v1/reports/domains")
+        all_reports_response = client.get("/api/v1/reports")
+        summary_response = client.get("/api/v1/reports/summary")
+        delete_response = client.delete("/api/v1/reports/domain/example.com/reports/123456789")
+        write_response = client.post(
+            "/api/v1/reports/upload",
+            files={"file": ("report.zip", zip_bytes, "application/zip")},
+        )
+
+    assert read_response.status_code == 200
+    assert all_reports_response.status_code == 200
+    assert summary_response.status_code == 200
+    assert delete_response.status_code == 403
+    assert "reports:write" in delete_response.json()["detail"]
+    assert write_response.status_code == 403
+    assert "reports:write" in write_response.json()["detail"]
+
+    with _client_as_user(test_app, db_session, outsider) as client:
+        denied = client.get("/api/v1/reports/domains")
+        denied_list = client.get("/api/v1/reports")
+
+    assert denied.status_code == 403
+    assert "reports:read" in denied.json()["detail"]
+    assert denied_list.status_code == 403
+    assert "reports:read" in denied_list.json()["detail"]
+
+
+def test_upload_persists_report_rows(authed_client: TestClient, db_session):
     """Uploaded reports are written to the durable report tables."""
     zip_bytes = _make_zip(SAMPLE_XML)
-    response = client.post(
+    response = authed_client.post(
         "/api/v1/reports/upload",
         files={"file": ("report.zip", zip_bytes, "application/zip")},
     )
@@ -49,10 +143,10 @@ def test_upload_persists_report_rows(client: TestClient, db_session):
     assert db_session.query(ReportRecord).filter_by(report_id=report.id).count() == 1
 
 
-def test_upload_persists_rfc9990_optional_fields(client: TestClient, db_session):
+def test_upload_persists_rfc9990_optional_fields(authed_client: TestClient, db_session):
     """RFC 9990 / DMARCbis metadata is kept for exports and future UI use."""
     zip_bytes = _make_zip(SAMPLE_RFC9990_XML)
-    response = client.post(
+    response = authed_client.post(
         "/api/v1/reports/upload",
         files={"file": ("report.zip", zip_bytes, "application/zip")},
     )
@@ -141,10 +235,10 @@ def test_persisted_report_to_dict_hydrates_optional_json_metadata(db_session):
     assert hydrated_with_bad_json["records"][0]["extensions"] == {}
 
 
-def test_report_reads_hydrate_from_persisted_rows(client: TestClient):
+def test_report_reads_hydrate_from_persisted_rows(authed_client: TestClient):
     """Report read APIs rebuild the in-memory projection from the database."""
     zip_bytes = _make_zip(SAMPLE_XML)
-    response = client.post(
+    response = authed_client.post(
         "/api/v1/reports/upload",
         files={"file": ("report.zip", zip_bytes, "application/zip")},
     )
@@ -152,52 +246,52 @@ def test_report_reads_hydrate_from_persisted_rows(client: TestClient):
 
     ReportStore.get_instance().clear()
 
-    domains = client.get("/api/v1/reports/domains")
+    domains = authed_client.get("/api/v1/reports/domains")
     assert domains.status_code == 200
     assert domains.json() == ["example.com"]
 
-    detail = client.get("/api/v1/reports/123456789")
+    detail = authed_client.get("/api/v1/reports/123456789")
     assert detail.status_code == 200
     assert detail.json()["summary"]["total_count"] == 2
 
 
-def test_upload_populates_domains_list(client: TestClient):
+def test_upload_populates_domains_list(authed_client: TestClient):
     """After uploading a report, the domain appears in the reports/domains endpoint."""
     zip_bytes = _make_zip(SAMPLE_XML)
-    client.post(
+    authed_client.post(
         "/api/v1/reports/upload",
         files={"file": ("report.zip", zip_bytes, "application/zip")},
     )
 
-    response = client.get("/api/v1/reports/domains")
+    response = authed_client.get("/api/v1/reports/domains")
     assert response.status_code == 200
     domains = response.json()
     assert any(d == "example.com" for d in domains)
 
 
-def test_reports_domains_empty(client: TestClient):
+def test_reports_domains_empty(authed_client: TestClient):
     """GET /api/v1/reports/domains returns empty list when no reports uploaded."""
-    response = client.get("/api/v1/reports/domains")
+    response = authed_client.get("/api/v1/reports/domains")
     assert response.status_code == 200
     assert response.json() == []
 
 
-def test_reports_summary_empty(client: TestClient):
+def test_reports_summary_empty(authed_client: TestClient):
     """GET /api/v1/reports/summary returns empty list when no reports uploaded."""
-    response = client.get("/api/v1/reports/summary")
+    response = authed_client.get("/api/v1/reports/summary")
     assert response.status_code == 200
     assert response.json() == []
 
 
-def test_upload_and_get_domain_summary(client: TestClient):
+def test_upload_and_get_domain_summary(authed_client: TestClient):
     """After uploading a report, the domain summary endpoint returns correct data."""
     zip_bytes = _make_zip(SAMPLE_XML)
-    client.post(
+    authed_client.post(
         "/api/v1/reports/upload",
         files={"file": ("report.zip", zip_bytes, "application/zip")},
     )
 
-    response = client.get("/api/v1/reports/domain/example.com/summary")
+    response = authed_client.get("/api/v1/reports/domain/example.com/summary")
     assert response.status_code == 200
     data = response.json()
     assert data["domain"] == "example.com"
@@ -205,17 +299,17 @@ def test_upload_and_get_domain_summary(client: TestClient):
     assert data["reports_processed"] == 1
 
 
-def test_duplicate_upload_returns_409(client: TestClient):
+def test_duplicate_upload_returns_409(authed_client: TestClient):
     """Uploading the same report twice returns 409 Conflict."""
     zip_bytes = _make_zip(SAMPLE_XML)
 
-    first = client.post(
+    first = authed_client.post(
         "/api/v1/reports/upload",
         files={"file": ("report.zip", zip_bytes, "application/zip")},
     )
     assert first.status_code == 200
 
-    second = client.post(
+    second = authed_client.post(
         "/api/v1/reports/upload",
         files={"file": ("report.zip", zip_bytes, "application/zip")},
     )
@@ -223,11 +317,11 @@ def test_duplicate_upload_returns_409(client: TestClient):
     assert "already been uploaded" in second.json()["detail"].lower()
 
 
-def test_duplicate_upload_checks_persisted_rows(client: TestClient):
+def test_duplicate_upload_checks_persisted_rows(authed_client: TestClient):
     """Duplicate detection still works when the in-memory store is empty."""
     zip_bytes = _make_zip(SAMPLE_XML)
 
-    first = client.post(
+    first = authed_client.post(
         "/api/v1/reports/upload",
         files={"file": ("report.zip", zip_bytes, "application/zip")},
     )
@@ -235,52 +329,52 @@ def test_duplicate_upload_checks_persisted_rows(client: TestClient):
 
     ReportStore.get_instance().clear()
 
-    second = client.post(
+    second = authed_client.post(
         "/api/v1/reports/upload",
         files={"file": ("report.zip", zip_bytes, "application/zip")},
     )
     assert second.status_code == 409
 
 
-def test_delete_report_success(client: TestClient, db_session):
+def test_delete_report_success(authed_client: TestClient, db_session):
     """Deleting an existing report returns 200 and removes it from the store."""
     zip_bytes = _make_zip(SAMPLE_XML)
-    client.post(
+    authed_client.post(
         "/api/v1/reports/upload",
         files={"file": ("report.zip", zip_bytes, "application/zip")},
     )
 
     # Confirm the domain exists first
-    assert client.get("/api/v1/reports/domain/example.com/summary").status_code == 200
+    assert authed_client.get("/api/v1/reports/domain/example.com/summary").status_code == 200
 
     # Delete the report (report_id comes from SAMPLE_XML: "123456789")
-    response = client.delete("/api/v1/reports/domain/example.com/reports/123456789")
+    response = authed_client.delete("/api/v1/reports/domain/example.com/reports/123456789")
     assert response.status_code == 200
     data = response.json()
     assert data["success"] is True
     assert db_session.query(DMARCReport).filter_by(report_id="123456789").count() == 0
 
     # Domain should be gone now
-    assert client.get("/api/v1/reports/domain/example.com/summary").status_code == 404
+    assert authed_client.get("/api/v1/reports/domain/example.com/summary").status_code == 404
 
 
-def test_delete_nonexistent_report_returns_404(client: TestClient):
+def test_delete_nonexistent_report_returns_404(authed_client: TestClient):
     """Deleting a report that does not exist returns 404."""
-    response = client.delete("/api/v1/reports/domain/example.com/reports/no-such-id")
+    response = authed_client.delete("/api/v1/reports/domain/example.com/reports/no-such-id")
     assert response.status_code == 404
 
 
-def test_upload_after_delete_succeeds(client: TestClient):
+def test_upload_after_delete_succeeds(authed_client: TestClient):
     """After deleting a report, the same report can be uploaded again."""
     zip_bytes = _make_zip(SAMPLE_XML)
 
-    client.post(
+    authed_client.post(
         "/api/v1/reports/upload",
         files={"file": ("report.zip", zip_bytes, "application/zip")},
     )
-    client.delete("/api/v1/reports/domain/example.com/reports/123456789")
+    authed_client.delete("/api/v1/reports/domain/example.com/reports/123456789")
 
-    response = client.post(
+    response = authed_client.post(
         "/api/v1/reports/upload",
         files={"file": ("report.zip", zip_bytes, "application/zip")},
     )
@@ -288,15 +382,15 @@ def test_upload_after_delete_succeeds(client: TestClient):
     assert response.json()["success"] is True
 
 
-def test_get_report_by_id_returns_detail(client: TestClient):
+def test_get_report_by_id_returns_detail(authed_client: TestClient):
     """GET /api/v1/reports/{report_id} returns full report detail after upload."""
     zip_bytes = _make_zip(SAMPLE_XML)
-    client.post(
+    authed_client.post(
         "/api/v1/reports/upload",
         files={"file": ("report.zip", zip_bytes, "application/zip")},
     )
 
-    response = client.get("/api/v1/reports/123456789")
+    response = authed_client.get("/api/v1/reports/123456789")
     assert response.status_code == 200
     data = response.json()
     assert data["report_id"] == "123456789"
@@ -308,9 +402,9 @@ def test_get_report_by_id_returns_detail(client: TestClient):
     assert data["summary"]["total_count"] == 2
 
 
-def test_get_report_by_id_not_found(client: TestClient):
+def test_get_report_by_id_not_found(authed_client: TestClient):
     """GET /api/v1/reports/{report_id} returns 404 when report does not exist."""
-    response = client.get("/api/v1/reports/no-such-report-id")
+    response = authed_client.get("/api/v1/reports/no-such-report-id")
     assert response.status_code == 404
 
 
@@ -334,22 +428,22 @@ def test_report_detail_html_page():
 # ---------------------------------------------------------------------------
 
 
-def test_get_all_reports_empty(client: TestClient):
+def test_get_all_reports_empty(authed_client: TestClient):
     """GET /api/v1/reports returns an empty list when no reports have been uploaded."""
-    response = client.get("/api/v1/reports")
+    response = authed_client.get("/api/v1/reports")
     assert response.status_code == 200
     assert response.json() == []
 
 
-def test_get_all_reports_single_report(client: TestClient):
+def test_get_all_reports_single_report(authed_client: TestClient):
     """GET /api/v1/reports returns the report after a successful upload."""
     zip_bytes = _make_zip(SAMPLE_XML)
-    client.post(
+    authed_client.post(
         "/api/v1/reports/upload",
         files={"file": ("report.zip", zip_bytes, "application/zip")},
     )
 
-    response = client.get("/api/v1/reports")
+    response = authed_client.get("/api/v1/reports")
     assert response.status_code == 200
     items = response.json()
     assert len(items) == 1
@@ -366,12 +460,8 @@ def test_get_all_reports_single_report(client: TestClient):
     assert isinstance(item["pass_rate"], float)
 
 
-def test_get_all_reports_multiple_domains(client: TestClient):
+def test_get_all_reports_multiple_domains(authed_client: TestClient, db_session):
     """GET /api/v1/reports returns reports from all domains."""
-    from app.services.report_store import ReportStore
-
-    store = ReportStore.get_instance()
-
     report_a = {
         "domain": "alpha.com",
         "report_id": "rpt-alpha",
@@ -382,8 +472,16 @@ def test_get_all_reports_multiple_domains(client: TestClient):
         "begin_timestamp": 1704067200,
         "end_timestamp": 1704153599,
         "policy": {"p": "none", "sp": "none", "pct": "100"},
-        "records": [],
-        "summary": {"total_count": 10, "passed_count": 10, "failed_count": 0},
+        "records": [
+            {
+                "source_ip": "192.0.2.10",
+                "count": 10,
+                "disposition": "none",
+                "dkim_result": "pass",
+                "spf_result": "pass",
+                "header_from": "alpha.com",
+            }
+        ],
     }
     report_b = {
         "domain": "beta.com",
@@ -395,13 +493,29 @@ def test_get_all_reports_multiple_domains(client: TestClient):
         "begin_timestamp": 1704153600,
         "end_timestamp": 1704239999,
         "policy": {"p": "reject", "sp": "reject", "pct": "100"},
-        "records": [],
-        "summary": {"total_count": 5, "passed_count": 3, "failed_count": 2},
+        "records": [
+            {
+                "source_ip": "192.0.2.20",
+                "count": 3,
+                "disposition": "none",
+                "dkim_result": "pass",
+                "spf_result": "fail",
+                "header_from": "beta.com",
+            },
+            {
+                "source_ip": "192.0.2.21",
+                "count": 2,
+                "disposition": "reject",
+                "dkim_result": "fail",
+                "spf_result": "fail",
+                "header_from": "beta.com",
+            },
+        ],
     }
-    store.add_report(report_a)
-    store.add_report(report_b)
+    _persist_parsed_report(db_session, report_a)
+    _persist_parsed_report(db_session, report_b)
 
-    response = client.get("/api/v1/reports")
+    response = authed_client.get("/api/v1/reports")
     assert response.status_code == 200
     items = response.json()
     assert len(items) == 2
@@ -409,12 +523,8 @@ def test_get_all_reports_multiple_domains(client: TestClient):
     assert domains_returned == {"alpha.com", "beta.com"}
 
 
-def test_get_all_reports_sorted_by_end_date_desc(client: TestClient):
+def test_get_all_reports_sorted_by_end_date_desc(authed_client: TestClient, db_session):
     """GET /api/v1/reports returns items sorted by end_date descending."""
-    from app.services.report_store import ReportStore
-
-    store = ReportStore.get_instance()
-
     older = {
         "domain": "example.com",
         "report_id": "rpt-older",
@@ -425,8 +535,16 @@ def test_get_all_reports_sorted_by_end_date_desc(client: TestClient):
         "begin_timestamp": 1685577600,
         "end_timestamp": 1685663999,
         "policy": {"p": "none"},
-        "records": [],
-        "summary": {"total_count": 4, "passed_count": 4, "failed_count": 0},
+        "records": [
+            {
+                "source_ip": "192.0.2.30",
+                "count": 4,
+                "disposition": "none",
+                "dkim_result": "pass",
+                "spf_result": "pass",
+                "header_from": "example.com",
+            }
+        ],
     }
     newer = {
         "domain": "example.com",
@@ -438,13 +556,21 @@ def test_get_all_reports_sorted_by_end_date_desc(client: TestClient):
         "begin_timestamp": 1704067200,
         "end_timestamp": 1704153599,
         "policy": {"p": "none"},
-        "records": [],
-        "summary": {"total_count": 6, "passed_count": 6, "failed_count": 0},
+        "records": [
+            {
+                "source_ip": "192.0.2.31",
+                "count": 6,
+                "disposition": "none",
+                "dkim_result": "pass",
+                "spf_result": "pass",
+                "header_from": "example.com",
+            }
+        ],
     }
-    store.add_report(older)
-    store.add_report(newer)
+    _persist_parsed_report(db_session, older)
+    _persist_parsed_report(db_session, newer)
 
-    response = client.get("/api/v1/reports")
+    response = authed_client.get("/api/v1/reports")
     assert response.status_code == 200
     items = response.json()
     assert len(items) == 2
@@ -453,12 +579,8 @@ def test_get_all_reports_sorted_by_end_date_desc(client: TestClient):
     assert items[1]["report_id"] == "rpt-older"
 
 
-def test_get_all_reports_pass_rate_computed_correctly(client: TestClient):
+def test_get_all_reports_pass_rate_computed_correctly(authed_client: TestClient, db_session):
     """pass_rate is computed from passed_count / total_count * 100."""
-    from app.services.report_store import ReportStore
-
-    store = ReportStore.get_instance()
-
     report = {
         "domain": "example.com",
         "report_id": "rpt-rate",
@@ -469,24 +591,36 @@ def test_get_all_reports_pass_rate_computed_correctly(client: TestClient):
         "begin_timestamp": 1709251200,
         "end_timestamp": 1709337599,
         "policy": {"p": "none"},
-        "records": [],
-        "summary": {"total_count": 8, "passed_count": 6, "failed_count": 2},
+        "records": [
+            {
+                "source_ip": "192.0.2.40",
+                "count": 6,
+                "disposition": "none",
+                "dkim_result": "pass",
+                "spf_result": "fail",
+                "header_from": "example.com",
+            },
+            {
+                "source_ip": "192.0.2.41",
+                "count": 2,
+                "disposition": "none",
+                "dkim_result": "fail",
+                "spf_result": "fail",
+                "header_from": "example.com",
+            },
+        ],
     }
-    store.add_report(report)
+    _persist_parsed_report(db_session, report)
 
-    response = client.get("/api/v1/reports")
+    response = authed_client.get("/api/v1/reports")
     assert response.status_code == 200
     items = response.json()
     assert len(items) == 1
     assert items[0]["pass_rate"] == 75.0
 
 
-def test_get_all_reports_zero_total_gives_zero_pass_rate(client: TestClient):
+def test_get_all_reports_zero_total_gives_zero_pass_rate(authed_client: TestClient, db_session):
     """pass_rate is 0.0 when total_count is 0 (no division by zero)."""
-    from app.services.report_store import ReportStore
-
-    store = ReportStore.get_instance()
-
     report = {
         "domain": "example.com",
         "report_id": "rpt-zero",
@@ -498,11 +632,10 @@ def test_get_all_reports_zero_total_gives_zero_pass_rate(client: TestClient):
         "end_timestamp": 1712015999,
         "policy": {"p": "none"},
         "records": [],
-        "summary": {"total_count": 0, "passed_count": 0, "failed_count": 0},
     }
-    store.add_report(report)
+    _persist_parsed_report(db_session, report)
 
-    response = client.get("/api/v1/reports")
+    response = authed_client.get("/api/v1/reports")
     assert response.status_code == 200
     items = response.json()
     assert len(items) == 1
