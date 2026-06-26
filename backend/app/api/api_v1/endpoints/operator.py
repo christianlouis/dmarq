@@ -93,8 +93,9 @@ async def get_operator_workspace(
     _auth: dict = Depends(require_admin_auth),
 ) -> Dict[str, Any]:
     """Return one workspace operator summary."""
-    require_workspace_permission(_auth, PERMISSION_AUDIT_READ)
-    return workspace_operator_summary(db, _workspace_or_404(db, workspace_id))
+    workspace = _workspace_or_404(db, workspace_id)
+    require_workspace_permission(_auth, PERMISSION_AUDIT_READ, db, workspace)
+    return workspace_operator_summary(db, workspace)
 
 
 @router.put("/workspaces/{workspace_id}/retention", response_model=WorkspaceRetentionResponse)
@@ -106,8 +107,8 @@ async def update_workspace_retention(
     _auth: dict = Depends(require_admin_auth),
 ) -> WorkspaceRetentionResponse:
     """Update workspace retention controls and audit the change."""
-    require_workspace_permission(_auth, PERMISSION_WORKSPACE_ADMIN)
     workspace = _workspace_or_404(db, workspace_id)
+    require_workspace_permission(_auth, PERMISSION_WORKSPACE_ADMIN, db, workspace)
     old_retention = retention_to_dict(workspace)
     workspace.report_retention_days = payload.aggregate_reports_days
     workspace.forensic_retention_days = payload.forensic_reports_days
