@@ -33,11 +33,11 @@ def _add_report_to_store(
 class TestComplianceTimeline:
     """Tests that the compliance timeline returns real data instead of mock."""
 
-    def test_timeline_has_entries_after_upload(self, client: TestClient):
+    def test_timeline_has_entries_after_upload(self, authed_client: TestClient):
         """When a domain has reports, the timeline should have entries."""
         _add_report_to_store("example.com", "rpt-001", 1597449600, 1597535999, 10, 8, 2)
 
-        response = client.get("/api/v1/domains/example.com/reports?limit=10")
+        response = authed_client.get("/api/v1/domains/example.com/reports?limit=10")
         assert response.status_code == 200
         data = response.json()
         timeline = data["compliance_timeline"]
@@ -48,11 +48,11 @@ class TestComplianceTimeline:
         assert timeline[0]["failed"] == 2
         assert timeline[0]["failure_rate"] == 20.0
 
-    def test_timeline_uses_real_dates(self, client: TestClient):
+    def test_timeline_uses_real_dates(self, authed_client: TestClient):
         """Timeline dates should come from actual report begin_dates."""
         _add_report_to_store("example.com", "rpt-001", 1597449600, 1597535999, 10, 8, 2)
 
-        response = client.get("/api/v1/domains/example.com/reports?limit=10")
+        response = authed_client.get("/api/v1/domains/example.com/reports?limit=10")
         data = response.json()
         timeline = data["compliance_timeline"]
 
@@ -60,18 +60,18 @@ class TestComplianceTimeline:
         dates = [point["date"] for point in timeline]
         assert "2020-08-15" in dates
 
-    def test_timeline_compliance_rate_is_deterministic(self, client: TestClient):
+    def test_timeline_compliance_rate_is_deterministic(self, authed_client: TestClient):
         """Compliance rate should be deterministic, not random."""
         _add_report_to_store("example.com", "rpt-001", 1597449600, 1597535999, 10, 8, 2)
 
-        resp1 = client.get("/api/v1/domains/example.com/reports?limit=10")
-        resp2 = client.get("/api/v1/domains/example.com/reports?limit=10")
+        resp1 = authed_client.get("/api/v1/domains/example.com/reports?limit=10")
+        resp2 = authed_client.get("/api/v1/domains/example.com/reports?limit=10")
 
         timeline1 = resp1.json()["compliance_timeline"]
         timeline2 = resp2.json()["compliance_timeline"]
         assert timeline1 == timeline2
 
-    def test_timeline_empty_for_domain_with_no_valid_dates(self, client: TestClient):
+    def test_timeline_empty_for_domain_with_no_valid_dates(self, authed_client: TestClient):
         """A domain with begin_date=0 should have an empty timeline."""
         store = ReportStore.get_instance()
         store.add_report(
@@ -87,12 +87,12 @@ class TestComplianceTimeline:
             }
         )
 
-        response = client.get("/api/v1/domains/empty-timeline.com/reports?limit=10")
+        response = authed_client.get("/api/v1/domains/empty-timeline.com/reports?limit=10")
         assert response.status_code == 200
         data = response.json()
         assert data["compliance_timeline"] == []
 
-    def test_timeline_handles_iso_string_dates(self, client: TestClient):
+    def test_timeline_handles_iso_string_dates(self, authed_client: TestClient):
         """Timeline should handle reports with ISO-format string dates."""
         from app.api.api_v1.endpoints.domains import _build_compliance_timeline
 
@@ -123,12 +123,12 @@ class TestComplianceTimeline:
 class TestBuildComplianceTimelineMultipleReports:
     """Test timeline aggregation with multiple reports."""
 
-    def test_multiple_reports_same_day(self, client: TestClient):
+    def test_multiple_reports_same_day(self, authed_client: TestClient):
         """Multiple reports on the same day should be aggregated."""
         _add_report_to_store("multi.com", "rpt-1", 1597449600, 1597535999, 10, 8, 2)
         _add_report_to_store("multi.com", "rpt-2", 1597449600, 1597535999, 10, 6, 4)
 
-        response = client.get("/api/v1/domains/multi.com/reports?limit=10")
+        response = authed_client.get("/api/v1/domains/multi.com/reports?limit=10")
         assert response.status_code == 200
         data = response.json()
         timeline = data["compliance_timeline"]
@@ -142,12 +142,12 @@ class TestBuildComplianceTimelineMultipleReports:
         assert timeline[0]["compliance_rate"] == 70.0
         assert timeline[0]["failure_rate"] == 30.0
 
-    def test_reports_on_different_days(self, client: TestClient):
+    def test_reports_on_different_days(self, authed_client: TestClient):
         """Reports on different days should produce separate timeline points."""
         _add_report_to_store("days.com", "rpt-d1", 1597449600, 1597535999, 10, 10, 0)
         _add_report_to_store("days.com", "rpt-d2", 1597536000, 1597622399, 10, 5, 5)
 
-        response = client.get("/api/v1/domains/days.com/reports?limit=10")
+        response = authed_client.get("/api/v1/domains/days.com/reports?limit=10")
         assert response.status_code == 200
         data = response.json()
         timeline = data["compliance_timeline"]

@@ -1,18 +1,18 @@
 from fastapi.testclient import TestClient
 
 
-def test_health_check(client: TestClient):
+def test_health_check(authed_client: TestClient):
     """Test the health check endpoint returns status ok."""
-    response = client.get("/api/v1/health")
+    response = authed_client.get("/api/v1/health")
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "ok"
     assert "version" in data
 
 
-def test_domains_empty(client: TestClient):
+def test_domains_empty(authed_client: TestClient):
     """Test that GET /api/v1/domains/domains returns empty list when no reports uploaded."""
-    response = client.get("/api/v1/domains/domains")
+    response = authed_client.get("/api/v1/domains/domains")
     assert response.status_code == 200
     data = response.json()
     assert data == []
@@ -55,9 +55,9 @@ def test_operations_health_endpoint(authed_client: TestClient):
     assert data["mailbox_recovery"][0]["category"] == "not_configured"
 
 
-def test_setup_status_includes_mailbox_recovery_hint(client: TestClient):
+def test_setup_status_includes_mailbox_recovery_hint(authed_client: TestClient):
     """Setup status points first-run operators at mailbox configuration."""
-    response = client.get("/api/v1/setup/status")
+    response = authed_client.get("/api/v1/setup/status")
     assert response.status_code == 200
     data = response.json()
     assert data["mailbox_recovery_hint"]["category"] == "not_configured"

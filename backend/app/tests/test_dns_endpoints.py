@@ -87,18 +87,18 @@ def _mock_dns(result: DomainDNSResult = MOCK_DNS_RESULT):
 # ---------------------------------------------------------------------------
 
 
-def test_get_selectors_empty(client: TestClient):
+def test_get_selectors_empty(authed_client: TestClient):
     """Returns an empty list when no selectors have been configured."""
-    response = client.get(f"/api/v1/domains/{DOMAIN}/selectors")
+    response = authed_client.get(f"/api/v1/domains/{DOMAIN}/selectors")
     assert response.status_code == 200
     data = response.json()
     assert data["selectors"] == []
     assert "report_selectors" in data
 
 
-def test_get_selectors_unknown_domain(client: TestClient):
+def test_get_selectors_unknown_domain(authed_client: TestClient):
     """Returns 404 for a domain not in the ReportStore."""
-    response = client.get("/api/v1/domains/unknown.example.com/selectors")
+    response = authed_client.get("/api/v1/domains/unknown.example.com/selectors")
     assert response.status_code == 404
 
 
@@ -190,16 +190,16 @@ def test_delete_selector_unknown_domain(authed_client: TestClient):
 # ---------------------------------------------------------------------------
 
 
-def test_get_selectors_includes_report_selectors(client: TestClient):
+def test_get_selectors_includes_report_selectors(authed_client: TestClient):
     """Report selectors (from DMARC report records) are returned in report_selectors."""
-    response = client.get(f"/api/v1/domains/{DOMAIN}/selectors")
+    response = authed_client.get(f"/api/v1/domains/{DOMAIN}/selectors")
     assert response.status_code == 200
     data = response.json()
     # The MINIMAL_REPORT has a record with selector "google" in its dkim auth results
     assert "google" in data["report_selectors"]
 
 
-def test_get_selectors_ignores_missing_dkim_detail_lists(client: TestClient):
+def test_get_selectors_ignores_missing_dkim_detail_lists(authed_client: TestClient):
     """Missing or malformed DKIM auth-detail arrays should not break selectors."""
     ReportStore.get_instance().add_report(
         {
@@ -219,7 +219,7 @@ def test_get_selectors_ignores_missing_dkim_detail_lists(client: TestClient):
         }
     )
 
-    response = client.get(f"/api/v1/domains/{DOMAIN}/selectors")
+    response = authed_client.get(f"/api/v1/domains/{DOMAIN}/selectors")
 
     assert response.status_code == 200
     assert "mail" in response.json()["report_selectors"]
@@ -241,10 +241,10 @@ def test_get_selectors_report_selector_moves_to_manual_when_added(authed_client:
     assert "google" not in data["report_selectors"]
 
 
-def test_dns_endpoint_returns_dkim_selectors_as_list(client: TestClient):
+def test_dns_endpoint_returns_dkim_selectors_as_list(authed_client: TestClient):
     """The /dns endpoint should return dkimSelectors as a list."""
     with _mock_dns():
-        response = client.get(f"/api/v1/domains/{DOMAIN}/dns")
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns")
 
     assert response.status_code == 200
     data = response.json()
@@ -252,10 +252,10 @@ def test_dns_endpoint_returns_dkim_selectors_as_list(client: TestClient):
     assert "google" in data["dkimSelectors"]
 
 
-def test_dns_endpoint_returns_real_data(client: TestClient):
+def test_dns_endpoint_returns_real_data(authed_client: TestClient):
     """The /dns endpoint should return the mocked DNS check result."""
     with _mock_dns():
-        response = client.get(f"/api/v1/domains/{DOMAIN}/dns")
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns")
 
     assert response.status_code == 200
     data = response.json()
@@ -267,7 +267,7 @@ def test_dns_endpoint_returns_real_data(client: TestClient):
     assert data["checkedAt"] is not None
 
 
-def test_dns_endpoint_returns_dmarc_lint_findings(client: TestClient):
+def test_dns_endpoint_returns_dmarc_lint_findings(authed_client: TestClient):
     result = DomainDNSResult(
         dmarc=True,
         dmarc_record="v=DMARC1; p=none; rua=mailto:dmarc@reports.example.net",
@@ -279,7 +279,7 @@ def test_dns_endpoint_returns_dmarc_lint_findings(client: TestClient):
     )
 
     with _mock_dns(result):
-        response = client.get(f"/api/v1/domains/{DOMAIN}/dns")
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns")
 
     assert response.status_code == 200
     data = response.json()
@@ -287,7 +287,7 @@ def test_dns_endpoint_returns_dmarc_lint_findings(client: TestClient):
     assert data["dmarcSuggestions"] == result.dmarc_suggestions
 
 
-def test_dns_lint_endpoint_returns_typed_findings_and_targets(client: TestClient):
+def test_dns_lint_endpoint_returns_typed_findings_and_targets(authed_client: TestClient):
     result = DomainDNSResult(
         dmarc=True,
         dmarc_record="v=DMARC1; p=none; rua=mailto:dmarc@example.com",
@@ -310,16 +310,14 @@ def test_dns_lint_endpoint_returns_typed_findings_and_targets(client: TestClient
             new=AsyncMock(return_value=(bimi, False, None)),
         ),
     ):
-        response = client.get(f"/api/v1/domains/{DOMAIN}/dns/lint")
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns/lint")
 
     assert response.status_code == 200
     data = response.json()
     assert data["domain"] == DOMAIN
     assert data["status"] == "attention"
     codes = {finding["code"] for finding in data["findings"]}
-    assert {"dkim_selector_missing", "tls_rpt_missing", "bimi_dmarc_not_enforced"}.issubset(
-        codes
-    )
+    assert {"dkim_selector_missing", "tls_rpt_missing", "bimi_dmarc_not_enforced"}.issubset(codes)
     assert {record["code"] for record in data["target_records"]} >= {
         "target_dmarc",
         "target_spf",
@@ -328,7 +326,7 @@ def test_dns_lint_endpoint_returns_typed_findings_and_targets(client: TestClient
     }
 
 
-def test_dns_lint_bulk_and_export(client: TestClient):
+def test_dns_lint_bulk_and_export(authed_client: TestClient):
     mta_sts = MTAStsResult(status="pass")
     bimi = BIMIResult(status="pass")
 
@@ -343,8 +341,8 @@ def test_dns_lint_bulk_and_export(client: TestClient):
             new=AsyncMock(return_value=(bimi, False, None)),
         ),
     ):
-        response = client.get("/api/v1/domains/dns/lint")
-        export = client.get("/api/v1/domains/dns/lint/export")
+        response = authed_client.get("/api/v1/domains/dns/lint")
+        export = authed_client.get("/api/v1/domains/dns/lint/export")
 
     assert response.status_code == 200
     data = response.json()
@@ -355,7 +353,7 @@ def test_dns_lint_bulk_and_export(client: TestClient):
     assert DOMAIN in export.text
 
 
-def test_dns_endpoint_uses_cached_result(client: TestClient, db_session):
+def test_dns_endpoint_uses_cached_result(authed_client: TestClient, db_session):
     """Repeated DNS checks reuse a fresh cached result."""
     mock_provider = AsyncMock(check_domain=AsyncMock(return_value=MOCK_DNS_RESULT))
 
@@ -363,8 +361,8 @@ def test_dns_endpoint_uses_cached_result(client: TestClient, db_session):
         "app.api.api_v1.endpoints.domains.get_default_provider",
         return_value=mock_provider,
     ):
-        first = client.get(f"/api/v1/domains/{DOMAIN}/dns")
-        second = client.get(f"/api/v1/domains/{DOMAIN}/dns")
+        first = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns")
+        second = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns")
 
     assert first.status_code == 200
     assert second.status_code == 200
@@ -440,7 +438,7 @@ async def test_dns_cache_reraises_when_conflict_row_missing(db_session, monkeypa
         )
 
 
-def test_dns_endpoint_refresh_bypasses_cache(client: TestClient):
+def test_dns_endpoint_refresh_bypasses_cache(authed_client: TestClient):
     """The refresh query parameter forces a new DNS lookup."""
     mock_provider = AsyncMock(check_domain=AsyncMock(return_value=MOCK_DNS_RESULT))
 
@@ -448,8 +446,8 @@ def test_dns_endpoint_refresh_bypasses_cache(client: TestClient):
         "app.api.api_v1.endpoints.domains.get_default_provider",
         return_value=mock_provider,
     ):
-        client.get(f"/api/v1/domains/{DOMAIN}/dns")
-        refreshed = client.get(f"/api/v1/domains/{DOMAIN}/dns?refresh=true")
+        authed_client.get(f"/api/v1/domains/{DOMAIN}/dns")
+        refreshed = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns?refresh=true")
 
     assert refreshed.status_code == 200
     assert refreshed.json()["cached"] is False
@@ -476,31 +474,31 @@ def test_dns_endpoint_uses_manual_selectors(authed_client: TestClient):
     assert "customsel" in captured_selectors
 
 
-def test_dns_endpoint_404_for_unknown_domain(client: TestClient):
+def test_dns_endpoint_404_for_unknown_domain(authed_client: TestClient):
     with _mock_dns():
-        response = client.get("/api/v1/domains/unknown.example.com/dns")
+        response = authed_client.get("/api/v1/domains/unknown.example.com/dns")
     assert response.status_code == 404
 
 
-def test_dns_endpoint_supports_manually_configured_domain(client: TestClient, db_session):
+def test_dns_endpoint_supports_manually_configured_domain(authed_client: TestClient, db_session):
     """A domain created before reports arrive can still run DNS checks."""
     db_session.add(Domain(name="manual.example", active=True))
     db_session.commit()
 
     with _mock_dns():
-        response = client.get("/api/v1/domains/manual.example/dns")
+        response = authed_client.get("/api/v1/domains/manual.example/dns")
 
     assert response.status_code == 200
     assert response.json()["dmarc"] is True
 
 
-def test_dns_health_404_for_unknown_domain(client: TestClient):
+def test_dns_health_404_for_unknown_domain(authed_client: TestClient):
     with _mock_dns():
-        response = client.get("/api/v1/domains/unknown.example.com/dns/health")
+        response = authed_client.get("/api/v1/domains/unknown.example.com/dns/health")
     assert response.status_code == 404
 
 
-def test_dns_health_links_checks_to_evidence(client: TestClient):
+def test_dns_health_links_checks_to_evidence(authed_client: TestClient):
     """DNS health returns provider-neutral checks, recommendations, and evidence links."""
     missing_dkim = DomainDNSResult(
         dmarc=True,
@@ -536,7 +534,7 @@ def test_dns_health_links_checks_to_evidence(client: TestClient):
             new=AsyncMock(return_value=(bimi, False, None)),
         ),
     ):
-        response = client.get(f"/api/v1/domains/{DOMAIN}/dns/health")
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns/health")
 
     assert response.status_code == 200
     data = response.json()
@@ -554,7 +552,7 @@ def test_dns_health_links_checks_to_evidence(client: TestClient):
     assert any(item["type"] == "missing_dkim" for item in data["recommendations"])
 
 
-def test_dns_health_recommends_enforcement_when_evidence_supports_it(client: TestClient):
+def test_dns_health_recommends_enforcement_when_evidence_supports_it(authed_client: TestClient):
     """High-volume p=none domains with strong compliance get plan-only guidance."""
     store = ReportStore.get_instance()
     store.clear()
@@ -574,7 +572,7 @@ def test_dns_health_recommends_enforcement_when_evidence_supports_it(client: Tes
     )
 
     with _mock_dns():
-        response = client.get(f"/api/v1/domains/{DOMAIN}/dns/health")
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns/health")
 
     assert response.status_code == 200
     recommendations = response.json()["recommendations"]
@@ -583,7 +581,7 @@ def test_dns_health_recommends_enforcement_when_evidence_supports_it(client: Tes
     assert any(item["label"] == "Compliance" for item in readiness["evidence"])
 
 
-def test_dns_health_marks_all_missing_records_critical(client: TestClient):
+def test_dns_health_marks_all_missing_records_critical(authed_client: TestClient):
     """Missing DMARC, SPF, and DKIM produce specific repair recommendations."""
     missing_all = DomainDNSResult(
         dmarc=False,
@@ -593,7 +591,7 @@ def test_dns_health_marks_all_missing_records_critical(client: TestClient):
     )
 
     with _mock_dns(result=missing_all):
-        response = client.get(f"/api/v1/domains/{DOMAIN}/dns/health")
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns/health")
 
     assert response.status_code == 200
     data = response.json()
@@ -605,7 +603,7 @@ def test_dns_health_marks_all_missing_records_critical(client: TestClient):
     assert any(item["type"] == "policy_needs_more_data" for item in data["recommendations"])
 
 
-def test_mta_sts_endpoint_returns_cached_posture(client: TestClient):
+def test_mta_sts_endpoint_returns_cached_posture(authed_client: TestClient):
     """The domain detail page can fetch MTA-STS posture with cache metadata."""
     checked_at = datetime(2026, 5, 23, 12, 0, 0)
     result = MTAStsResult(
@@ -619,7 +617,7 @@ def test_mta_sts_endpoint_returns_cached_posture(client: TestClient):
         "app.api.api_v1.endpoints.domains.check_mta_sts_cached",
         new=AsyncMock(return_value=(result, True, checked_at)),
     ):
-        response = client.get(f"/api/v1/domains/{DOMAIN}/dns/mta-sts")
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns/mta-sts")
 
     assert response.status_code == 200
     data = response.json()
@@ -629,13 +627,13 @@ def test_mta_sts_endpoint_returns_cached_posture(client: TestClient):
     assert data["errors"] == ["No _mta-sts TXT record was found."]
 
 
-def test_mta_sts_endpoint_returns_404_for_unknown_domain(client: TestClient):
-    response = client.get("/api/v1/domains/unknown.example.com/dns/mta-sts")
+def test_mta_sts_endpoint_returns_404_for_unknown_domain(authed_client: TestClient):
+    response = authed_client.get("/api/v1/domains/unknown.example.com/dns/mta-sts")
 
     assert response.status_code == 404
 
 
-def test_bimi_endpoint_returns_cached_posture(client: TestClient):
+def test_bimi_endpoint_returns_cached_posture(authed_client: TestClient):
     """The domain detail page can fetch BIMI posture with cache metadata."""
     checked_at = datetime(2026, 5, 23, 12, 0, 0)
     result = BIMIResult(
@@ -651,7 +649,7 @@ def test_bimi_endpoint_returns_cached_posture(client: TestClient):
         "app.api.api_v1.endpoints.domains.check_bimi_cached",
         new=AsyncMock(return_value=(result, True, checked_at)),
     ):
-        response = client.get(f"/api/v1/domains/{DOMAIN}/dns/bimi")
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns/bimi")
 
     assert response.status_code == 200
     data = response.json()
@@ -662,14 +660,14 @@ def test_bimi_endpoint_returns_cached_posture(client: TestClient):
     assert data["checked_at"] == checked_at.isoformat()
 
 
-def test_bimi_endpoint_returns_404_for_unknown_domain(client: TestClient):
-    response = client.get("/api/v1/domains/unknown.example.com/dns/bimi")
+def test_bimi_endpoint_returns_404_for_unknown_domain(authed_client: TestClient):
+    response = authed_client.get("/api/v1/domains/unknown.example.com/dns/bimi")
 
     assert response.status_code == 404
 
 
 def test_posture_dashboard_links_recommendations_changes_and_playbooks(
-    client: TestClient, db_session
+    authed_client: TestClient, db_session
 ):
     """The posture dashboard is actionable and links back to underlying evidence."""
     db_session.add(
@@ -722,7 +720,7 @@ def test_posture_dashboard_links_recommendations_changes_and_playbooks(
             new=AsyncMock(return_value=(bimi, False, None)),
         ),
     ):
-        response = client.get(f"/api/v1/domains/{DOMAIN}/posture")
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/posture")
 
     assert response.status_code == 200
     data = response.json()
@@ -738,22 +736,22 @@ def test_posture_dashboard_links_recommendations_changes_and_playbooks(
     assert any(playbook["key"] == "missing_spf" for playbook in data["playbooks"])
 
 
-def test_posture_dashboard_returns_404_for_unknown_domain(client: TestClient):
-    response = client.get("/api/v1/domains/unknown.example.com/posture")
+def test_posture_dashboard_returns_404_for_unknown_domain(authed_client: TestClient):
+    response = authed_client.get("/api/v1/domains/unknown.example.com/posture")
 
     assert response.status_code == 404
 
 
 def test_domain_detail_data_endpoints_support_manually_configured_domain(
-    client: TestClient, db_session
+    authed_client: TestClient, db_session
 ):
     """Manually monitored domains should render empty detail data instead of 404s."""
     db_session.add(Domain(name="manual.example", active=True))
     db_session.commit()
 
-    reports = client.get("/api/v1/domains/manual.example/reports")
-    sources = client.get("/api/v1/domains/manual.example/sources")
-    selectors = client.get("/api/v1/domains/manual.example/selectors")
+    reports = authed_client.get("/api/v1/domains/manual.example/reports")
+    sources = authed_client.get("/api/v1/domains/manual.example/sources")
+    selectors = authed_client.get("/api/v1/domains/manual.example/selectors")
 
     assert reports.status_code == 200
     assert reports.json()["reports"] == []
@@ -808,10 +806,10 @@ def test_enforcement_recommendation_common_states(
 # ---------------------------------------------------------------------------
 
 
-def test_summary_includes_dns_fields(client: TestClient):
+def test_summary_includes_dns_fields(authed_client: TestClient):
     """The summary endpoint should include dmarc_status, spf_status, dkim_status."""
     with _mock_dns():
-        response = client.get("/api/v1/domains/summary")
+        response = authed_client.get("/api/v1/domains/summary")
 
     assert response.status_code == 200
     data = response.json()
@@ -826,12 +824,12 @@ def test_summary_includes_dns_fields(client: TestClient):
     assert domain["dmarc_policy"] == "none"
 
 
-def test_summary_dns_failure_defaults_false(client: TestClient):
+def test_summary_dns_failure_defaults_false(authed_client: TestClient):
     """If DNS check fails, status fields default to False rather than crashing."""
     empty_result = DomainDNSResult()
 
     with _mock_dns(result=empty_result):
-        response = client.get("/api/v1/domains/summary")
+        response = authed_client.get("/api/v1/domains/summary")
 
     assert response.status_code == 200
     domain = response.json()["domains"][0]
@@ -920,13 +918,13 @@ def _mock_provider(hostname=None):
     )
 
 
-def test_sources_endpoint_includes_hostname(client: TestClient):
+def test_sources_endpoint_includes_hostname(authed_client: TestClient):
     """The /sources endpoint should return the rDNS hostname when available."""
     store = ReportStore.get_instance()
     store.add_report(FAILING_SOURCE_REPORT)
 
     with _mock_provider(hostname="mail.example.com"):
-        response = client.get(f"/api/v1/domains/{DOMAIN}/sources")
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/sources")
 
     assert response.status_code == 200
     sources = response.json()["sources"]
@@ -936,10 +934,10 @@ def test_sources_endpoint_includes_hostname(client: TestClient):
     assert failing["hostname"] == "mail.example.com"
 
 
-def test_sources_endpoint_hostname_none_when_no_ptr(client: TestClient):
+def test_sources_endpoint_hostname_none_when_no_ptr(authed_client: TestClient):
     """The /sources endpoint should return null hostname when no PTR record exists."""
     with _mock_provider(hostname=None):
-        response = client.get(f"/api/v1/domains/{DOMAIN}/sources")
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/sources")
 
     assert response.status_code == 200
     sources = response.json()["sources"]
@@ -948,13 +946,13 @@ def test_sources_endpoint_hostname_none_when_no_ptr(client: TestClient):
         assert "hostname" in source
 
 
-def test_sources_endpoint_spf_fix_hint_for_failing_ip(client: TestClient):
+def test_sources_endpoint_spf_fix_hint_for_failing_ip(authed_client: TestClient):
     """A source with spf=fail should receive an spf_fix_hint containing its IP."""
     store = ReportStore.get_instance()
     store.add_report(FAILING_SOURCE_REPORT)
 
     with _mock_provider():
-        response = client.get(f"/api/v1/domains/{DOMAIN}/sources")
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/sources")
 
     assert response.status_code == 200
     sources = response.json()["sources"]
@@ -963,10 +961,10 @@ def test_sources_endpoint_spf_fix_hint_for_failing_ip(client: TestClient):
     assert failing["spf_fix_hint"] == "ip4:10.0.0.1"
 
 
-def test_sources_endpoint_no_fix_hint_when_spf_passes(client: TestClient):
+def test_sources_endpoint_no_fix_hint_when_spf_passes(authed_client: TestClient):
     """A source with spf=pass should not receive an spf_fix_hint."""
     with _mock_provider():
-        response = client.get(f"/api/v1/domains/{DOMAIN}/sources")
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/sources")
 
     assert response.status_code == 200
     sources = response.json()["sources"]

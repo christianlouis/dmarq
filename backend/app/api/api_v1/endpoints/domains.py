@@ -34,18 +34,19 @@ from app.services.dns_resolver import (
 )
 from app.services.mta_sts import MTAStsResult, check_mta_sts_cached
 from app.services.report_persistence import (
-    delete_persisted_domain,
     hydrate_report_store_from_db,
 )
 from app.services.report_store import ReportStore
 from app.services.workspace_access import (
     PERMISSION_DOMAINS_WRITE,
+    PERMISSION_REPORTS_READ,
     require_workspace_permission,
 )
 from app.services.workspace_audit import record_workspace_audit_log
 from app.services.workspaces import (
     assign_default_workspace_to_unscoped_rows,
     get_default_workspace,
+    get_or_create_default_workspace,
     workspace_domain_query,
 )
 from app.utils.domain_validator import validate_domain_config
@@ -62,9 +63,14 @@ def _authorized_domain_workspace(
     permission: str = PERMISSION_DOMAINS_WRITE,
 ):
     """Authorize workspace domain/DNS setup before legacy repair writes."""
-    workspace = get_default_workspace(db)
+    workspace = get_default_workspace(db) or get_or_create_default_workspace(db)
     require_workspace_permission(auth_context, permission, db, workspace)
     return assign_default_workspace_to_unscoped_rows(db)
+
+
+def _authorized_domain_read_workspace(auth_context: Dict[str, Any], db: Session):
+    """Authorize read-only domain/report/DNS visibility for the default workspace."""
+    return _authorized_domain_workspace(auth_context, db, PERMISSION_REPORTS_READ)
 
 
 class DomainBase(BaseModel):
@@ -1107,7 +1113,10 @@ def _build_posture_dashboard(
 
 
 @router.get("/summary", response_model=DomainSummaryResponse)
-async def get_domains_summary(db: Session = Depends(get_db)):
+async def get_domains_summary(
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
     """
     Get summary statistics for all domains, formatted for the dashboard.
 
@@ -1116,9 +1125,10 @@ async def get_domains_summary(db: Session = Depends(get_db)):
     A per-domain timeout of 10 s prevents slow DNS responses from blocking the
     page load.
     """
+    workspace = _authorized_domain_read_workspace(_auth, db)
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    domains = _domain_names_for_summary(db, store)
+    domains = _domain_names_for_summary(db, store, workspace)
     summaries = store.get_all_domain_summaries()
 
     # Perform DNS checks for all domains, reusing fresh cached results.
@@ -1207,13 +1217,16 @@ async def get_domains_summary(db: Session = Depends(get_db)):
 
 
 @router.get("/domains", response_model=List[DomainResponse])
-async def read_domains(db: Session = Depends(get_db)):
+async def read_domains(
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
     """
     Retrieve domains with their statistics.
     """
+    workspace = _authorized_domain_read_workspace(_auth, db)
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    workspace = assign_default_workspace_to_unscoped_rows(db)
     domains = _domain_names_for_summary(db, store, workspace)
     summaries = store.get_all_domain_summaries()
     stored = {
@@ -1295,14 +1308,18 @@ async def create_domain(
 
 
 @router.get("/domains/{domain_name}", response_model=DomainResponse)
-async def read_domain(domain_name: str, db: Session = Depends(get_db)):
+async def read_domain(
+    domain_name: str,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
     """
     Get statistics for a specific domain.
     """
+    workspace = _authorized_domain_read_workspace(_auth, db)
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    domains = store.get_domains()
-    workspace = assign_default_workspace_to_unscoped_rows(db)
+    domains = _domain_names_for_summary(db, store, workspace)
     stored_domain = workspace_domain_query(db, workspace).filter(Domain.name == domain_name).first()
 
     if domain_name not in domains and stored_domain is None:
@@ -1332,11 +1349,12 @@ async def lint_all_domain_dns(
     refresh: bool = Query(False, title="Refresh cached DNS results"),
     limit: int = Query(100, ge=1, le=500, title="Maximum domains to lint"),
     db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
 ):
     """Return typed DNS lint findings and target records for monitored domains."""
+    workspace = _authorized_domain_read_workspace(_auth, db)
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    workspace = assign_default_workspace_to_unscoped_rows(db)
     domains = _domain_names_for_summary(db, store, workspace)[:limit]
 
     items: List[DNSBulkGuidanceItem] = []
@@ -1361,11 +1379,12 @@ async def export_all_domain_dns_lint(
     refresh: bool = Query(False, title="Refresh cached DNS results"),
     limit: int = Query(500, ge=1, le=1000, title="Maximum domains to export"),
     db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
 ):
     """Export typed DNS lint findings for monitored domains as CSV."""
+    workspace = _authorized_domain_read_workspace(_auth, db)
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    workspace = assign_default_workspace_to_unscoped_rows(db)
     domains = _domain_names_for_summary(db, store, workspace)[:limit]
 
     output = io.StringIO()
@@ -1417,13 +1436,15 @@ async def export_all_domain_dns_lint(
 async def get_domain_stats(
     domain_id: str = Path(..., title="The domain ID or name"),
     db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
 ):
     """
     Get detailed statistics for a specific domain
     """
+    workspace = _authorized_domain_read_workspace(_auth, db)
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    domains = _domain_names_for_summary(db, store)
+    domains = _domain_names_for_summary(db, store, workspace)
 
     if domain_id not in domains:
         raise HTTPException(
@@ -1451,6 +1472,7 @@ async def get_domain_dns_records(
     domain_id: str = Path(..., title="The domain ID or name"),
     refresh: bool = Query(False, title="Refresh cached DNS result"),
     db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
 ):
     """
     Get DNS records for a specific domain using live DNS lookups.
@@ -1459,9 +1481,9 @@ async def get_domain_dns_records(
     selectors observed in stored DMARC reports, with common well-known
     selectors used as a final fallback.
     """
+    workspace = _authorized_domain_read_workspace(_auth, db)
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    workspace = assign_default_workspace_to_unscoped_rows(db)
 
     if not _domain_exists(db, store, domain_id, workspace):
         raise HTTPException(
@@ -1501,11 +1523,12 @@ async def get_domain_dns_lint(
     domain_id: str = Path(..., title="The domain ID or name"),
     refresh: bool = Query(False, title="Refresh cached DNS result"),
     db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
 ):
     """Return typed DNS lint findings and target records for one monitored domain."""
+    workspace = _authorized_domain_read_workspace(_auth, db)
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    workspace = assign_default_workspace_to_unscoped_rows(db)
 
     if not _domain_exists(db, store, domain_id, workspace):
         raise HTTPException(
@@ -1521,11 +1544,12 @@ async def get_domain_dns_health(
     domain_id: str = Path(..., title="The domain ID or name"),
     refresh: bool = Query(False, title="Refresh cached DNS result"),
     db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
 ):
     """Return evidence-linked DNS health and enforcement readiness guidance."""
+    workspace = _authorized_domain_read_workspace(_auth, db)
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    workspace = assign_default_workspace_to_unscoped_rows(db)
     if not _domain_exists(db, store, domain_id, workspace):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1540,11 +1564,12 @@ async def get_domain_posture_dashboard(
     domain_id: str = Path(..., title="The domain ID or name"),
     refresh: bool = Query(False, title="Refresh cached DNS posture"),
     db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
 ):
     """Return an evidence-first posture dashboard for a monitored domain."""
+    workspace = _authorized_domain_read_workspace(_auth, db)
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    workspace = assign_default_workspace_to_unscoped_rows(db)
     if not _domain_exists(db, store, domain_id, workspace):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1561,11 +1586,12 @@ async def get_domain_mta_sts(
     domain_id: str = Path(..., title="The domain ID or name"),
     refresh: bool = Query(False, title="Refresh cached MTA-STS result"),
     db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
 ):
     """Return cached MTA-STS DNS and HTTPS policy posture for a domain."""
+    workspace = _authorized_domain_read_workspace(_auth, db)
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    workspace = assign_default_workspace_to_unscoped_rows(db)
     if not _domain_exists(db, store, domain_id, workspace):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1598,11 +1624,12 @@ async def get_domain_bimi(
     selector: str = Query("default", title="BIMI selector"),
     refresh: bool = Query(False, title="Refresh cached BIMI result"),
     db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
 ):
     """Return cached BIMI DNS posture for a domain."""
+    workspace = _authorized_domain_read_workspace(_auth, db)
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    workspace = assign_default_workspace_to_unscoped_rows(db)
     if not _domain_exists(db, store, domain_id, workspace):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1723,13 +1750,14 @@ async def get_domain_reports(
     domain_id: str = Path(..., title="The domain ID or name"),
     limit: int = Query(10, title="Maximum number of reports to return"),
     db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
 ):
     """
     Get recent DMARC reports for a specific domain, along with compliance timeline
     """
+    workspace = _authorized_domain_read_workspace(_auth, db)
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    workspace = assign_default_workspace_to_unscoped_rows(db)
 
     if not _domain_exists(db, store, domain_id, workspace):
         raise HTTPException(
@@ -1771,6 +1799,7 @@ async def export_domain_reports(
     start_date: Optional[date] = Query(None, title="Start date for exported reports"),
     end_date: Optional[date] = Query(None, title="End date for exported reports"),
     db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
 ):
     """
     Export DMARC report summaries for a specific domain as CSV.
@@ -1781,9 +1810,9 @@ async def export_domain_reports(
             detail="start_date must be on or before end_date",
         )
 
+    workspace = _authorized_domain_read_workspace(_auth, db)
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    workspace = assign_default_workspace_to_unscoped_rows(db)
 
     if not _domain_exists(db, store, domain_id, workspace):
         raise HTTPException(
@@ -2091,14 +2120,15 @@ async def get_domain_sources(
     domain_id: str = Path(..., title="The domain ID or name"),
     days: int = Query(30, title="Number of days to look back"),
     db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
 ):
     """
     Get sending sources for a specific domain, including reverse-DNS hostnames
     and SPF fix hints for sources that fail authentication.
     """
+    workspace = _authorized_domain_read_workspace(_auth, db)
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    workspace = assign_default_workspace_to_unscoped_rows(db)
 
     if not _domain_exists(db, store, domain_id, workspace):
         raise HTTPException(
@@ -2147,6 +2177,7 @@ async def get_domain_sources(
 async def get_domain_selectors(
     domain_id: str = Path(..., title="The domain ID or name"),
     db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
 ):
     """Return the manually configured DKIM selectors for a domain.
 
@@ -2154,9 +2185,9 @@ async def get_domain_selectors(
     deleted) and ``report_selectors`` (automatically discovered from received
     DMARC reports, read-only).
     """
+    workspace = _authorized_domain_read_workspace(_auth, db)
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    workspace = assign_default_workspace_to_unscoped_rows(db)
     if not _domain_exists(db, store, domain_id, workspace):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -2272,14 +2303,16 @@ async def delete_domain_selector(
 async def delete_domain(
     domain_id: str = Path(..., title="The domain ID or name"),
     db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
 ):
     """
     Delete a domain and all associated data.
     This performs a full cleanup of all reports and records related to this domain.
     """
+    workspace = _authorized_domain_workspace(_auth, db)
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    domains = store.get_domains()
+    domains = _domain_names_for_summary(db, store, workspace)
 
     if domain_id not in domains:
         raise HTTPException(
@@ -2288,7 +2321,11 @@ async def delete_domain(
         )
 
     # Perform deletion with cleanup
-    deleted_from_db = delete_persisted_domain(db, domain_id)
+    domain_row = workspace_domain_query(db, workspace).filter(Domain.name == domain_id).first()
+    deleted_from_db = False
+    if domain_row is not None:
+        db.delete(domain_row)
+        deleted_from_db = True
     if deleted_from_db:
         db.commit()
     deleted = store.delete_domain_with_cleanup(domain_id) or deleted_from_db
@@ -2310,6 +2347,7 @@ async def search_domains(
     page: int = Query(1, title="Page number", ge=1),
     limit: int = Query(10, title="Number of domains per page", ge=1, le=100),
     db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
 ):
     """
     Search domains with filtering and pagination.
@@ -2321,9 +2359,10 @@ async def search_domains(
         page: Page number (1-based)
         limit: Number of domains per page (max 100)
     """
+    workspace = _authorized_domain_read_workspace(_auth, db)
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
-    domains = store.get_domains()
+    domains = _domain_names_for_summary(db, store, workspace)
     summaries = store.get_all_domain_summaries()
 
     # Apply search filter if provided

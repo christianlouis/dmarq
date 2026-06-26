@@ -19,7 +19,7 @@ async def public_domain_summary(
     _auth: dict = Depends(require_api_token_scope(READ_REPORTS_SCOPE)),
 ):
     """List monitored domains with report and DNS posture summary fields."""
-    return await domains.get_domains_summary(db=db)
+    return await domains.get_domains_summary(db=db, _auth=_auth)
 
 
 @router.get(
@@ -37,6 +37,7 @@ async def public_domain_posture(
         domain_id=domain_id,
         refresh=refresh,
         db=db,
+        _auth=_auth,
     )
 
 
@@ -51,7 +52,12 @@ async def public_domain_reports(
     _auth: dict = Depends(require_api_token_scope(READ_REPORTS_SCOPE)),
 ):
     """Return recent DMARC aggregate report summaries for one domain."""
-    return await domains.get_domain_reports(domain_id=domain_id, limit=limit, db=db)
+    return await domains.get_domain_reports(
+        domain_id=domain_id,
+        limit=limit,
+        db=db,
+        _auth=_auth,
+    )
 
 
 @router.get("/tls-reports/summary", response_model=tls_reports.TLSSummaryResponse)
