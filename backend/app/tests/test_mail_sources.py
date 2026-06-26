@@ -48,21 +48,6 @@ def _add_membership(db_session: Session, workspace: Workspace, user: User, role:
     return membership
 
 
-def _client_as_user(test_app, db_session: Session, user: User):
-    async def mock_admin_auth():
-        return {"auth_type": "session", "user_id": user.id}
-
-    def override_get_db():
-        try:
-            yield db_session
-        finally:
-            pass
-
-    test_app.dependency_overrides[get_db] = override_get_db
-    test_app.dependency_overrides[require_admin_auth] = mock_admin_auth
-    return TestClient(test_app)
-
-
 class TestMailSourceModel:
     """Unit tests for the MailSource ORM model."""
 
@@ -471,7 +456,21 @@ class TestMailSourcesAPIAuthed:
         _add_membership(db_session, workspace, operator, ROLE_OPERATOR)
         db_session.commit()
 
-        with _client_as_user(test_app, db_session, operator) as client:
+        current_user = {"id": operator.id}
+
+        async def mock_admin_auth():
+            return {"auth_type": "session", "user_id": current_user["id"]}
+
+        def override_get_db():
+            try:
+                yield db_session
+            finally:
+                pass
+
+        test_app.dependency_overrides[get_db] = override_get_db
+        test_app.dependency_overrides[require_admin_auth] = mock_admin_auth
+
+        with TestClient(test_app) as client:
             list_response = client.get("/api/v1/mail-sources")
             assert list_response.status_code == 200
 
@@ -488,8 +487,8 @@ class TestMailSourcesAPIAuthed:
             )
             assert update_response.status_code == 200
 
-        test_app.dependency_overrides.clear()
-        with _client_as_user(test_app, db_session, outsider) as client:
+            current_user["id"] = outsider.id
+
             list_response = client.get("/api/v1/mail-sources")
             assert list_response.status_code == 403
 
@@ -498,6 +497,8 @@ class TestMailSourcesAPIAuthed:
                 json={"name": "Blocked IMAP", "method": "IMAP"},
             )
             assert create_response.status_code == 403
+
+        test_app.dependency_overrides.clear()
 
     # ------------------------------------------------------------------
     # Create
