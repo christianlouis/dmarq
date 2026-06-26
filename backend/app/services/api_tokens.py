@@ -11,6 +11,7 @@ import bcrypt
 from sqlalchemy.orm import Session
 
 from app.models.api_token import APIToken
+from app.services.workspaces import get_or_create_default_workspace
 
 READ_REPORTS_SCOPE = "reports:read"
 READ_POSTURE_SCOPE = "posture:read"
@@ -72,13 +73,22 @@ def verify_api_key_secret(secret: str, hashed_secret: str) -> bool:
         return False
 
 
-def create_api_token(db: Session, *, name: str, scopes: Iterable[str]) -> CreatedAPIToken:
+def create_api_token(
+    db: Session,
+    *,
+    name: str,
+    scopes: Iterable[str],
+    workspace_id: Optional[int] = None,
+) -> CreatedAPIToken:
     """Create a persistent API token and return the raw secret once."""
     clean_name = name.strip()
     if not clean_name:
         raise ValueError("Token name is required")
+    if workspace_id is None:
+        workspace_id = get_or_create_default_workspace(db, commit=False).id
     secret = generate_public_api_key()
     token = APIToken(
+        workspace_id=workspace_id,
         name=clean_name,
         key_hash=hash_api_key(secret),
         key_prefix=secret[:12],
@@ -114,9 +124,17 @@ def record_api_token_use(db: Session, token: APIToken, *, ip_address: Optional[s
     db.commit()
 
 
-def revoke_api_token(db: Session, token_id: int) -> bool:
+def revoke_api_token(
+    db: Session,
+    token_id: int,
+    *,
+    workspace_id: Optional[int] = None,
+) -> bool:
     """Deactivate an API token by id."""
-    token = db.query(APIToken).filter(APIToken.id == token_id).first()
+    query = db.query(APIToken).filter(APIToken.id == token_id)
+    if workspace_id is not None:
+        query = query.filter(APIToken.workspace_id == workspace_id)
+    token = query.first()
     if token is None or not token.active:
         return False
     token.active = False
@@ -129,6 +147,7 @@ def token_to_dict(token: APIToken) -> dict:
     """Return an API-safe token representation without the secret hash."""
     return {
         "id": token.id,
+        "workspace_id": token.workspace_id,
         "name": token.name,
         "key_prefix": token.key_prefix,
         "scopes": sorted(parse_scopes(token.scopes)),

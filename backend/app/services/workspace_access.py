@@ -152,6 +152,13 @@ def role_for_workspace(
     auth_type = (auth_context or {}).get("auth_type")
     if auth_type in {"api_key", "disabled"}:
         return ROLE_WORKSPACE_OWNER
+    if auth_type == "api_token":
+        try:
+            token_workspace_id = int((auth_context or {}).get("workspace_id") or 0)
+        except (TypeError, ValueError):
+            token_workspace_id = 0
+        if token_workspace_id == workspace.id:
+            return ROLE_ANALYST
 
     user = _auth_user(db, auth_context)
     if user is None:

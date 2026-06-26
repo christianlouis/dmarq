@@ -1,6 +1,6 @@
 """Admin API token management endpoints."""
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
@@ -15,10 +15,25 @@ from app.services.api_tokens import (
     revoke_api_token,
     token_to_dict,
 )
+from app.services.workspace_access import (
+    PERMISSION_WORKSPACE_ADMIN,
+    require_workspace_permission,
+)
 from app.services.workspace_audit import record_workspace_audit_log
-from app.services.workspaces import assign_default_workspace_to_unscoped_rows
+from app.services.workspaces import (
+    assign_default_workspace_to_unscoped_rows,
+    get_default_workspace,
+    get_or_create_default_workspace,
+)
 
 router = APIRouter()
+
+
+def _authorized_api_token_workspace(auth_context: Dict[str, Any], db: Session):
+    """Authorize API-token management for the current workspace."""
+    workspace = get_default_workspace(db) or get_or_create_default_workspace(db)
+    require_workspace_permission(auth_context, PERMISSION_WORKSPACE_ADMIN, db, workspace)
+    return assign_default_workspace_to_unscoped_rows(db)
 
 
 class APITokenCreateRequest(BaseModel):
@@ -32,6 +47,7 @@ class APITokenResponse(BaseModel):
     """API-safe token metadata."""
 
     id: int
+    workspace_id: Optional[int] = None
     name: str
     key_prefix: str
     scopes: List[str]
@@ -63,7 +79,13 @@ async def list_api_tokens(
     _auth: dict = Depends(require_admin_auth),
 ):
     """List API token metadata without exposing raw secrets or hashes."""
-    rows = db.query(APIToken).order_by(APIToken.created_at.desc(), APIToken.id.desc()).all()
+    workspace = _authorized_api_token_workspace(_auth, db)
+    rows = (
+        db.query(APIToken)
+        .filter(APIToken.workspace_id == workspace.id)
+        .order_by(APIToken.created_at.desc(), APIToken.id.desc())
+        .all()
+    )
     return APITokenListResponse(
         tokens=[APITokenResponse(**token_to_dict(row)) for row in rows],
         available_scopes=sorted(PUBLIC_READ_SCOPES),
@@ -78,9 +100,14 @@ async def create_public_api_token(
     _auth: dict = Depends(require_admin_auth),
 ):
     """Create a scoped API token for read-only automation."""
-    workspace = assign_default_workspace_to_unscoped_rows(db)
+    workspace = _authorized_api_token_workspace(_auth, db)
     try:
-        created = create_api_token(db, name=payload.name, scopes=payload.scopes)
+        created = create_api_token(
+            db,
+            name=payload.name,
+            scopes=payload.scopes,
+            workspace_id=workspace.id,
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -115,9 +142,13 @@ async def revoke_public_api_token(
     _auth: dict = Depends(require_admin_auth),
 ):
     """Revoke a scoped API token."""
-    workspace = assign_default_workspace_to_unscoped_rows(db)
-    token = db.query(APIToken).filter(APIToken.id == token_id).first()
-    if not revoke_api_token(db, token_id):
+    workspace = _authorized_api_token_workspace(_auth, db)
+    token = (
+        db.query(APIToken)
+        .filter(APIToken.id == token_id, APIToken.workspace_id == workspace.id)
+        .first()
+    )
+    if not revoke_api_token(db, token_id, workspace_id=workspace.id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="API token not found",
