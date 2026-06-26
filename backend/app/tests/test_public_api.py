@@ -4,6 +4,11 @@ from app.models.api_token import APIToken
 from app.models.workspace import Workspace
 from app.services.api_tokens import READ_POSTURE_SCOPE, READ_REPORTS_SCOPE, create_api_token
 from app.services.report_store import ReportStore
+from app.services.workspace_access import (
+    ROLE_ANALYST,
+    ROLE_WORKSPACE_OWNER,
+    role_for_workspace,
+)
 from app.services.workspaces import get_or_create_default_workspace
 
 DOMAIN = "example.com"
@@ -144,3 +149,54 @@ def test_admin_api_token_management_is_workspace_scoped(
     assert denied_revoke.status_code == 404
     db_session.refresh(other_token.token)
     assert other_token.token.active is True
+
+
+def test_api_token_workspace_role_is_limited_to_matching_workspace(db_session):
+    """Workspace-aware permission checks only trust tokens for their own tenant."""
+    default_workspace = get_or_create_default_workspace(db_session)
+    other_workspace = Workspace(
+        slug="token-role-other",
+        name="Token Role Other",
+        active=True,
+    )
+    db_session.add(other_workspace)
+    db_session.flush()
+
+    assert (
+        role_for_workspace(
+            db_session,
+            {"auth_type": "api_token", "workspace_id": str(default_workspace.id)},
+            default_workspace,
+        )
+        == ROLE_ANALYST
+    )
+    assert (
+        role_for_workspace(
+            db_session,
+            {"auth_type": "api_token", "workspace_id": other_workspace.id},
+            default_workspace,
+        )
+        == ""
+    )
+    assert (
+        role_for_workspace(
+            db_session,
+            {"auth_type": "api_token", "workspace_id": "not-an-int"},
+            default_workspace,
+        )
+        == ""
+    )
+
+
+def test_legacy_api_key_workspace_role_remains_owner(db_session):
+    """Legacy admin API-key contexts retain owner access until fully migrated."""
+    workspace = get_or_create_default_workspace(db_session)
+
+    assert (
+        role_for_workspace(
+            db_session,
+            {"auth_type": "api_key"},
+            workspace,
+        )
+        == ROLE_WORKSPACE_OWNER
+    )
