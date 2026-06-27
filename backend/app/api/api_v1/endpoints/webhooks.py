@@ -2,7 +2,7 @@
 
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -18,8 +18,12 @@ from app.services.webhook_events import (
     queue_test_webhook,
     update_webhook_endpoint,
 )
+from app.services.workspace_access import (
+    PERMISSION_NOTIFICATIONS_WRITE,
+    parse_selected_workspace_id,
+    resolve_authorized_workspace,
+)
 from app.services.workspace_audit import changed_fields, record_workspace_audit_log
-from app.services.workspaces import assign_default_workspace_to_unscoped_rows
 
 router = APIRouter()
 
@@ -52,6 +56,7 @@ class WebhookEndpointResponse(BaseModel):
     """API-safe webhook endpoint metadata."""
 
     id: int
+    workspace_id: Optional[int] = None
     name: str
     url: str
     event_types: List[str]
@@ -107,13 +112,38 @@ class WebhookTestResponse(BaseModel):
     delivery: WebhookDeliveryResponse
 
 
+def _authorized_webhook_workspace(
+    auth_context: Dict[str, Any],
+    db: Session,
+    selected_workspace_id: Optional[int] = None,
+):
+    """Resolve and authorize the selected workspace for webhook configuration."""
+    return resolve_authorized_workspace(
+        db,
+        auth_context,
+        PERMISSION_NOTIFICATIONS_WRITE,
+        selected_workspace_id=selected_workspace_id,
+    )
+
+
 @router.get("", response_model=WebhookEndpointListResponse)
 async def list_webhook_endpoints(
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> Dict[str, Any]:
     """Return configured outbound webhook endpoints."""
-    endpoints = db.query(WebhookEndpoint).order_by(WebhookEndpoint.created_at.desc()).all()
+    workspace = _authorized_webhook_workspace(
+        _auth,
+        db,
+        parse_selected_workspace_id(selected_workspace),
+    )
+    endpoints = (
+        db.query(WebhookEndpoint)
+        .filter(WebhookEndpoint.workspace_id == workspace.id)
+        .order_by(WebhookEndpoint.created_at.desc())
+        .all()
+    )
     return {
         "endpoints": [endpoint_to_dict(endpoint) for endpoint in endpoints],
         "supported_event_types": SUPPORTED_EVENT_TYPES,
@@ -126,11 +156,20 @@ async def create_webhook(
     request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> Dict[str, Any]:
     """Create an outbound webhook endpoint."""
-    workspace = assign_default_workspace_to_unscoped_rows(db)
+    workspace = _authorized_webhook_workspace(
+        _auth,
+        db,
+        parse_selected_workspace_id(selected_workspace),
+    )
     try:
-        endpoint, raw_secret = create_webhook_endpoint(db, **payload.model_dump())
+        endpoint, raw_secret = create_webhook_endpoint(
+            db,
+            workspace_id=workspace.id,
+            **payload.model_dump(),
+        )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     record_workspace_audit_log(
@@ -157,10 +196,19 @@ async def update_webhook(
     request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> Dict[str, Any]:
     """Update an outbound webhook endpoint."""
-    workspace = assign_default_workspace_to_unscoped_rows(db)
-    endpoint = db.query(WebhookEndpoint).filter(WebhookEndpoint.id == endpoint_id).first()
+    workspace = _authorized_webhook_workspace(
+        _auth,
+        db,
+        parse_selected_workspace_id(selected_workspace),
+    )
+    endpoint = (
+        db.query(WebhookEndpoint)
+        .filter(WebhookEndpoint.id == endpoint_id, WebhookEndpoint.workspace_id == workspace.id)
+        .first()
+    )
     if endpoint is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Webhook endpoint not found"
@@ -196,10 +244,19 @@ async def disable_webhook(
     request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> Dict[str, Any]:
     """Disable a webhook endpoint without deleting delivery history."""
-    workspace = assign_default_workspace_to_unscoped_rows(db)
-    endpoint = db.query(WebhookEndpoint).filter(WebhookEndpoint.id == endpoint_id).first()
+    workspace = _authorized_webhook_workspace(
+        _auth,
+        db,
+        parse_selected_workspace_id(selected_workspace),
+    )
+    endpoint = (
+        db.query(WebhookEndpoint)
+        .filter(WebhookEndpoint.id == endpoint_id, WebhookEndpoint.workspace_id == workspace.id)
+        .first()
+    )
     if endpoint is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Webhook endpoint not found"
@@ -230,9 +287,18 @@ async def list_webhook_deliveries(
     limit: int = 50,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> Dict[str, Any]:
     """Return recent outbound webhook deliveries."""
-    query = db.query(WebhookDelivery)
+    workspace = _authorized_webhook_workspace(
+        _auth,
+        db,
+        parse_selected_workspace_id(selected_workspace),
+    )
+    query = db.query(WebhookDelivery).join(
+        WebhookEndpoint, WebhookDelivery.endpoint_id == WebhookEndpoint.id
+    )
+    query = query.filter(WebhookEndpoint.workspace_id == workspace.id)
     if endpoint_id is not None:
         query = query.filter(WebhookDelivery.endpoint_id == endpoint_id)
     if delivery_status:
@@ -251,14 +317,33 @@ async def test_webhook(
     request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> Dict[str, Any]:
     """Queue and immediately attempt a test delivery for an endpoint."""
-    workspace = assign_default_workspace_to_unscoped_rows(db)
+    workspace = _authorized_webhook_workspace(
+        _auth,
+        db,
+        parse_selected_workspace_id(selected_workspace),
+    )
+    endpoint = (
+        db.query(WebhookEndpoint)
+        .filter(WebhookEndpoint.id == endpoint_id, WebhookEndpoint.workspace_id == workspace.id)
+        .first()
+    )
+    if endpoint is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Webhook endpoint not found"
+        )
     try:
         delivery = queue_test_webhook(db, endpoint_id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    delivered = deliver_due_webhooks(db, endpoint_id=endpoint_id, limit=1)
+    delivered = deliver_due_webhooks(
+        db,
+        endpoint_id=endpoint_id,
+        workspace_id=workspace.id,
+        limit=1,
+    )
     record_workspace_audit_log(
         db,
         workspace=workspace,
@@ -278,7 +363,17 @@ async def process_due_webhooks(
     limit: int = 25,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> Dict[str, Any]:
     """Attempt due pending webhook deliveries."""
-    deliveries = deliver_due_webhooks(db, limit=max(1, min(limit, 100)))
+    workspace = _authorized_webhook_workspace(
+        _auth,
+        db,
+        parse_selected_workspace_id(selected_workspace),
+    )
+    deliveries = deliver_due_webhooks(
+        db,
+        workspace_id=workspace.id,
+        limit=max(1, min(limit, 100)),
+    )
     return {"deliveries": [delivery_to_dict(delivery) for delivery in deliveries]}

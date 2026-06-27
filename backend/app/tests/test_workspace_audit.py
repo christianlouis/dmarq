@@ -10,8 +10,7 @@ from app.models.domain import Domain
 from app.models.organization import Organization, OrganizationMembership
 from app.models.user import User
 from app.models.workspace import Workspace
-from app.models.workspace_access import WorkspaceMembership
-from app.models.workspace_access import WorkspaceAuditLog
+from app.models.workspace_access import WorkspaceAuditLog, WorkspaceMembership
 from app.services.workspace_access import (
     PERMISSION_REPORTS_READ,
     PERMISSION_WORKSPACE_ADMIN,
@@ -343,11 +342,14 @@ def test_organization_role_resolution_uses_org_workspace_and_superuser_paths(
         == ""
     )
 
-    assert organization_ids_for_permission(
-        db_session,
-        {"auth_type": "api_key"},
-        PERMISSION_WORKSPACE_ADMIN,
-    ) is None
+    assert (
+        organization_ids_for_permission(
+            db_session,
+            {"auth_type": "api_key"},
+            PERMISSION_WORKSPACE_ADMIN,
+        )
+        is None
+    )
     assert (
         organization_ids_for_permission(
             db_session,
@@ -433,6 +435,51 @@ def test_workspace_audit_logs_enforce_membership(test_app, db_session: Session):
     with _client_as_user(test_app, db_session, outsider) as client:
         response = client.get("/api/v1/audit/logs")
         assert response.status_code == 403
+
+
+def test_workspace_audit_logs_respect_selected_workspace_header(
+    authed_client: TestClient,
+    db_session: Session,
+):
+    """Audit log reads only return events from the selected workspace."""
+    default_workspace = get_or_create_default_workspace(db_session)
+    selected_workspace = Workspace(
+        slug="selected-audit-workspace",
+        name="Selected Audit Workspace",
+        active=True,
+    )
+    db_session.add(selected_workspace)
+    db_session.flush()
+
+    record_workspace_audit_log(
+        db_session,
+        workspace=default_workspace,
+        action="default.event",
+        entity_type="setting",
+        entity_id="default",
+        entity_name="Default",
+        commit=False,
+    )
+    record_workspace_audit_log(
+        db_session,
+        workspace=selected_workspace,
+        action="selected.event",
+        entity_type="setting",
+        entity_id="selected",
+        entity_name="Selected",
+        commit=True,
+    )
+
+    default_response = authed_client.get("/api/v1/audit/logs?entity_type=setting")
+    selected_response = authed_client.get(
+        "/api/v1/audit/logs?entity_type=setting",
+        headers={"X-DMARQ-Workspace-ID": str(selected_workspace.id)},
+    )
+
+    assert default_response.status_code == 200
+    assert [event["action"] for event in default_response.json()["audit"]] == ["default.event"]
+    assert selected_response.status_code == 200
+    assert [event["action"] for event in selected_response.json()["audit"]] == ["selected.event"]
 
 
 def test_workspace_audit_logs_support_jwt_membership_and_defer_migration(
@@ -548,6 +595,39 @@ def test_notification_setting_audit_is_workspace_scoped_and_redacted(
     assert events[0]["ip_address"] == "203.0.113.5"
     assert events[0]["details"]["new_value"] == "[redacted]"
     assert "password@example.com" not in str(events)
+
+
+def test_notification_setting_audit_respects_selected_workspace_header(
+    authed_client: TestClient,
+    db_session: Session,
+):
+    """Notification setting audit events land in the selected workspace."""
+    get_or_create_default_workspace(db_session)
+    selected_workspace = Workspace(
+        slug="selected-setting-audit",
+        name="Selected Setting Audit",
+        active=True,
+    )
+    db_session.add(selected_workspace)
+    db_session.commit()
+    selected_header = {"X-DMARQ-Workspace-ID": str(selected_workspace.id)}
+
+    response = authed_client.put(
+        "/api/v1/settings/notifications.apprise_enabled",
+        json={"value": "true"},
+        headers=selected_header,
+    )
+    default_audit = authed_client.get("/api/v1/audit/logs?entity_type=setting")
+    selected_audit = authed_client.get(
+        "/api/v1/audit/logs?entity_type=setting",
+        headers=selected_header,
+    )
+
+    assert response.status_code == 200
+    assert default_audit.status_code == 200
+    assert default_audit.json()["audit"] == []
+    assert selected_audit.status_code == 200
+    assert [event["action"] for event in selected_audit.json()["audit"]] == ["setting.changed"]
 
 
 def test_api_token_create_and_revoke_are_audited_without_raw_token(

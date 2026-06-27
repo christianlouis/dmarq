@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -16,8 +16,12 @@ from app.services.ai_assistance import (
     build_safe_context,
     get_assistance_config,
 )
+from app.services.workspace_access import (
+    PERMISSION_REPORTS_READ,
+    parse_selected_workspace_id,
+    resolve_authorized_workspace,
+)
 from app.services.workspace_audit import record_workspace_audit_log
-from app.services.workspaces import assign_default_workspace_to_unscoped_rows
 
 router = APIRouter()
 
@@ -48,6 +52,20 @@ class ProposalConfirmation(BaseModel):
     proposal_id: str
     confirmation_text: str
     note: Optional[str] = None
+
+
+def _authorized_ai_workspace(
+    auth_context: Dict[str, Any],
+    db: Session,
+    selected_workspace_id: Optional[int] = None,
+):
+    """Resolve and authorize the selected workspace for AI assistance audit events."""
+    return resolve_authorized_workspace(
+        db,
+        auth_context,
+        PERMISSION_REPORTS_READ,
+        selected_workspace_id=selected_workspace_id,
+    )
 
 
 def _require_ai_enabled(db: Session) -> None:
@@ -87,6 +105,7 @@ async def get_domain_evidence_summary(
     request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> EvidenceSummaryResponse:
     """Return deterministic evidence-first assistance for one domain."""
     _require_ai_enabled(db)
@@ -94,7 +113,11 @@ async def get_domain_evidence_summary(
         summary = build_evidence_summary(db, domain)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    workspace = assign_default_workspace_to_unscoped_rows(db, commit=False)
+    workspace = _authorized_ai_workspace(
+        _auth,
+        db,
+        parse_selected_workspace_id(selected_workspace),
+    )
     record_workspace_audit_log(
         db,
         workspace=workspace,
@@ -119,6 +142,7 @@ async def get_domain_action_proposals(
     request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> ActionProposalResponse:
     """Return reviewable proposals; this endpoint never applies changes."""
     _require_ai_enabled(db)
@@ -126,7 +150,11 @@ async def get_domain_action_proposals(
         payload = build_action_proposals(db, domain)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    workspace = assign_default_workspace_to_unscoped_rows(db, commit=False)
+    workspace = _authorized_ai_workspace(
+        _auth,
+        db,
+        parse_selected_workspace_id(selected_workspace),
+    )
     record_workspace_audit_log(
         db,
         workspace=workspace,
@@ -149,6 +177,7 @@ async def confirm_action_proposal(
     request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> Dict[str, Any]:
     """Audit human confirmation for a proposal without applying external changes."""
     _require_ai_enabled(db)
@@ -157,8 +186,7 @@ async def confirm_action_proposal(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(
-                "Action tools are disabled. Enable ai.action_tools_enabled to confirm "
-                "proposals."
+                "Action tools are disabled. Enable ai.action_tools_enabled to confirm " "proposals."
             ),
         )
     proposals = build_action_proposals(db, domain)["proposals"]
@@ -173,7 +201,11 @@ async def confirm_action_proposal(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="confirmation_text must match proposal_id",
         )
-    workspace = assign_default_workspace_to_unscoped_rows(db, commit=False)
+    workspace = _authorized_ai_workspace(
+        _auth,
+        db,
+        parse_selected_workspace_id(selected_workspace),
+    )
     record_workspace_audit_log(
         db,
         workspace=workspace,

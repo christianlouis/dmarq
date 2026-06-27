@@ -146,6 +146,7 @@ def test_admin_api_token_management_is_workspace_scoped(
     )
     db_session.add(other_workspace)
     db_session.flush()
+    other_header = {"X-DMARQ-Workspace-ID": str(other_workspace.id)}
     other_token = create_api_token(
         db_session,
         name="other workspace token",
@@ -169,6 +170,26 @@ def test_admin_api_token_management_is_workspace_scoped(
     assert denied_revoke.status_code == 404
     db_session.refresh(other_token.token)
     assert other_token.token.active is True
+
+    other_listed = authed_client.get("/api/v1/api-tokens", headers=other_header)
+    assert other_listed.status_code == 200
+    assert [row["name"] for row in other_listed.json()["tokens"]] == ["other workspace token"]
+
+    other_created = authed_client.post(
+        "/api/v1/api-tokens",
+        headers=other_header,
+        json={"name": "selected workspace token", "scopes": [READ_REPORTS_SCOPE]},
+    )
+    assert other_created.status_code == 201
+    assert other_created.json()["metadata"]["workspace_id"] == other_workspace.id
+
+    selected_revoke = authed_client.delete(
+        f"/api/v1/api-tokens/{other_token.token.id}",
+        headers=other_header,
+    )
+    assert selected_revoke.status_code == 200
+    db_session.refresh(other_token.token)
+    assert other_token.token.active is False
 
 
 def test_api_token_workspace_role_is_limited_to_matching_workspace(db_session):

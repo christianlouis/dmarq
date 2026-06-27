@@ -70,10 +70,17 @@ def build_cloudflare_provider(db: Session) -> CloudflareDNSProvider:
     )
 
 
-async def discover_cloudflare_zones(db: Session) -> List[Dict[str, Any]]:
+async def discover_cloudflare_zones(
+    db: Session,
+    *,
+    workspace_id: Optional[int] = None,
+) -> List[Dict[str, Any]]:
     """Return zones visible to the configured Cloudflare token with import state."""
     provider = build_cloudflare_provider(db)
-    known_domains = {name for (name,) in db.query(Domain.name).all()}
+    known_query = db.query(Domain.name)
+    if workspace_id is not None:
+        known_query = known_query.filter(Domain.workspace_id == workspace_id)
+    known_domains = {name for (name,) in known_query.all()}
     zones = await provider.list_zones()
     return [
         {
@@ -92,10 +99,13 @@ async def import_cloudflare_domains(
     db: Session,
     *,
     requested_domains: Optional[List[str]] = None,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Create Domain rows for Cloudflare zones, returning imported and existing names."""
-    zones = await discover_cloudflare_zones(db)
-    workspace = assign_default_workspace_to_unscoped_rows(db)
+    if workspace_id is None:
+        workspace = assign_default_workspace_to_unscoped_rows(db)
+        workspace_id = workspace.id
+    zones = await discover_cloudflare_zones(db, workspace_id=workspace_id)
     requested = {domain.strip().lower() for domain in requested_domains or [] if domain.strip()}
     imported: List[str] = []
     existing: List[str] = []
@@ -108,11 +118,11 @@ async def import_cloudflare_domains(
             continue
         domain = (
             db.query(Domain)
-            .filter(Domain.name == name, Domain.workspace_id == workspace.id)
+            .filter(Domain.name == name, Domain.workspace_id == workspace_id)
             .first()
         )
         if domain is None:
-            db.add(Domain(name=name, active=True, verified=True, workspace_id=workspace.id))
+            db.add(Domain(name=name, active=True, verified=True, workspace_id=workspace_id))
             imported.append(name)
         else:
             existing.append(name)

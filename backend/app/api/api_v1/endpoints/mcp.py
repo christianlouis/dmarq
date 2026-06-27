@@ -18,8 +18,8 @@ from app.services.ai_assistance import (
 from app.services.api_tokens import MCP_READ_SCOPE
 from app.services.report_persistence import hydrate_report_store_from_db
 from app.services.report_store import ReportStore
+from app.services.workspace_access import PERMISSION_REPORTS_READ, resolve_authorized_workspace
 from app.services.workspace_audit import record_workspace_audit_log
-from app.services.workspaces import assign_default_workspace_to_unscoped_rows
 
 router = APIRouter()
 
@@ -80,9 +80,9 @@ def _require_mcp_enabled(db: Session) -> None:
         )
 
 
-def _list_domains(db: Session) -> Dict[str, Any]:
+def _list_domains(db: Session, *, workspace_id: Optional[int] = None) -> Dict[str, Any]:
     store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store)
+    hydrate_report_store_from_db(db, store, workspace_id=workspace_id)
     summaries = store.get_all_domain_summaries()
     return {
         "domains": [
@@ -126,9 +126,14 @@ async def mcp_jsonrpc(
 
     name = payload.params.get("name")
     arguments = payload.params.get("arguments") or {}
+    workspace = resolve_authorized_workspace(
+        db,
+        _auth,
+        PERMISSION_REPORTS_READ,
+    )
     try:
         if name == "list_domains":
-            result = _list_domains(db)
+            result = _list_domains(db, workspace_id=workspace.id)
         elif name == "domain_summary":
             result = build_evidence_summary(db, str(arguments.get("domain", "")))
         elif name == "action_proposals":
@@ -141,7 +146,6 @@ async def mcp_jsonrpc(
     except ValueError as exc:
         return _jsonrpc_response(payload.id, error={"code": -32004, "message": str(exc)})
 
-    workspace = assign_default_workspace_to_unscoped_rows(db, commit=False)
     record_workspace_audit_log(
         db,
         workspace=workspace,
