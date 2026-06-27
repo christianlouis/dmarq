@@ -1253,11 +1253,13 @@ async def get_domains_summary(
 async def read_domains(
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ):
     """
     Retrieve domains with their statistics.
     """
-    workspace = _authorized_domain_read_workspace(_auth, db)
+    selected_workspace_id = parse_selected_workspace_id(selected_workspace)
+    workspace = _authorized_domain_read_workspace(_auth, db, selected_workspace_id)
     store = ReportStore()
     hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
     domains = _domain_names_for_summary(

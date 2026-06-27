@@ -134,6 +134,33 @@ def test_domain_api_defaults_to_default_workspace(
     assert "other.example" not in names
 
 
+def test_domain_api_listing_respects_selected_workspace_header(
+    authed_client: TestClient,
+    db_session: Session,
+):
+    """Domain listing follows the UI-selected workspace instead of the default."""
+    default = get_or_create_default_workspace(db_session)
+    other = Workspace(slug="selected-client", name="Selected Client", active=True)
+    db_session.add(other)
+    db_session.flush()
+    db_session.add_all(
+        [
+            Domain(name="default-list.example", workspace_id=default.id, active=True),
+            Domain(name="selected-list.example", workspace_id=other.id, active=True),
+        ]
+    )
+    db_session.commit()
+
+    listed = authed_client.get(
+        "/api/v1/domains/domains",
+        headers={"X-DMARQ-Workspace-ID": str(other.id)},
+    )
+
+    assert listed.status_code == 200
+    names = {item["name"] for item in listed.json()}
+    assert names == {"selected-list.example"}
+
+
 def test_domain_read_routes_enforce_workspace_membership(
     test_app,
     client: TestClient,
