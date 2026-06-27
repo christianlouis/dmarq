@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile, status
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -69,6 +70,10 @@ def _authorized_reports_workspace(
 
 def _selected_workspace_id(selected_workspace: Optional[str]) -> Optional[int]:
     return parse_selected_workspace_id(selected_workspace)
+
+
+def _normalize_domain_name(name: str) -> str:
+    return name.strip().strip(".").lower()
 
 
 def _hydrated_report_store(db: Session, workspace) -> ReportStore:
@@ -235,6 +240,8 @@ async def upload_report(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Report does not contain a valid domain",
             )
+        domain = _normalize_domain_name(domain)
+        report["domain"] = domain
 
         # Validate domain format (not DNS resolution to avoid external calls)
         is_valid, error_msg, error_code = validate_domain(domain, check_dns=False)
@@ -266,8 +273,21 @@ async def upload_report(
             )
 
         # Store the report
-        save_parsed_report(db, report, workspace_id=workspace.id)
-        db.commit()
+        try:
+            save_parsed_report(db, report, workspace_id=workspace.id)
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            existing_domain = db.query(Domain).filter(Domain.name == domain).first()
+            if existing_domain is not None and existing_domain.workspace_id != workspace.id:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        f"Domain '{domain}' already belongs to another workspace. "
+                        "Move or rename the domain before uploading reports for this workspace."
+                    ),
+                ) from exc
+            raise
 
         processed_records = report.get("summary", {}).get("total_count", 0)
 
