@@ -421,4 +421,4 @@ def test_save_forensic_report_reraises_unexpected_integrity_errors(db_session, m
     monkeypatch.setattr(db_session, "flush", raise_integrity_error)
 
     with pytest.raises(IntegrityError):
-        save_forensic_report(db_session, parsed)
+        save_forensic_report(db_session, parsed, workspace_id=workspace.id)
