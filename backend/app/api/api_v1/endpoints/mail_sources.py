@@ -7,14 +7,13 @@ persisting anything.  Gmail API and Microsoft 365 sources additionally have
 OAuth2 helper endpoints (authorize-url, callback, fetch).
 """
 
-import base64
-import hmac
 import json
 import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from jose import JWTError, jwt
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -252,32 +251,12 @@ def _authorized_mail_source_workspace(
 
 def _oauth_state(workspace_id: int, source_id: int) -> str:
     """Return a signed OAuth state value bound to one workspace and source."""
-    payload = json.dumps(
+    token = jwt.encode(
         {"source_id": int(source_id), "workspace_id": int(workspace_id)},
-        separators=(",", ":"),
-        sort_keys=True,
-    ).encode("utf-8")
-    encoded_payload = _base64url_encode(payload)
-    signature = _oauth_state_signature(encoded_payload)
-    return f"v1.{encoded_payload}.{_base64url_encode(signature)}"
-
-
-def _base64url_encode(value: bytes) -> str:
-    return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
-
-
-def _base64url_decode(value: str) -> bytes:
-    padded = value + ("=" * (-len(value) % 4))
-    return base64.urlsafe_b64decode(padded.encode("ascii"))
-
-
-def _oauth_state_signature(encoded_payload: str) -> bytes:
-    # lgtm[py/weak-sensitive-data-hashing] This HMAC signs an OAuth state payload; it is not password hashing.
-    return hmac.digest(
-        get_settings().SECRET_KEY.encode("utf-8"),
-        encoded_payload.encode("ascii"),
-        "sha256",
+        get_settings().SECRET_KEY,
+        algorithm="HS256",
     )
+    return f"v1.{token}"
 
 
 def _invalid_oauth_state() -> HTTPException:
@@ -292,22 +271,22 @@ def _oauth_state_source_mismatch() -> HTTPException:
 
 
 def _signed_oauth_state_workspace_id(state_value: str, source_id: int) -> int:
-    parts = state_value.split(".")
-    if len(parts) != 3:
+    token = state_value.removeprefix("v1.")
+    if not token:
         raise _invalid_oauth_state()
 
-    encoded_payload, encoded_signature = parts[1], parts[2]
-    expected_signature = _oauth_state_signature(encoded_payload)
     try:
-        actual_signature = _base64url_decode(encoded_signature)
-        payload = json.loads(_base64url_decode(encoded_payload))
+        payload = jwt.decode(
+            token,
+            get_settings().SECRET_KEY,
+            algorithms=["HS256"],
+            options={"verify_aud": False},
+        )
         workspace_id = int(payload["workspace_id"])
         state_source_id = int(payload["source_id"])
-    except (ValueError, KeyError, TypeError, json.JSONDecodeError):
+    except (JWTError, ValueError, KeyError, TypeError):
         raise _invalid_oauth_state() from None
 
-    if not hmac.compare_digest(actual_signature, expected_signature):
-        raise _invalid_oauth_state()
     if state_source_id != int(source_id):
         raise _oauth_state_source_mismatch()
     return workspace_id

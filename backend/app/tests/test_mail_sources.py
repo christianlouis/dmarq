@@ -58,14 +58,14 @@ class TestOAuthStateHelpers:
 
     def test_signed_oauth_state_rejects_tampered_payload(self):
         state = mail_sources_endpoint._oauth_state(workspace_id=42, source_id=7)
-        _, _payload, signature = state.split(".")
-        tampered_payload = mail_sources_endpoint._base64url_encode(
-            b'{"source_id":7,"workspace_id":43}'
-        )
+        prefix, token = state.split(".", 1)
+        header, payload, signature = token.split(".")
+        replacement = "A" if not payload.startswith("A") else "B"
+        tampered_payload = f"{replacement}{payload[1:]}"
 
         with pytest.raises(HTTPException) as exc:
             mail_sources_endpoint._workspace_id_from_oauth_state(
-                f"v1.{tampered_payload}.{signature}",
+                f"{prefix}.{header}.{tampered_payload}.{signature}",
                 source_id=7,
             )
 
@@ -2358,9 +2358,10 @@ class TestGmailCallbackGet:
             headers=selected_header,
         )
         state = parse_qs(urlparse(auth_resp.json()["authorization_url"]).query)["state"][0]
-        prefix, payload, signature = state.split(".")
+        prefix, token = state.split(".", 1)
+        header, payload, signature = token.split(".")
         replacement = "A" if not signature.startswith("A") else "B"
-        tampered_state = f"{prefix}.{payload}.{replacement}{signature[1:]}"
+        tampered_state = f"{prefix}.{header}.{payload}.{replacement}{signature[1:]}"
 
         with patch(
             "app.api.api_v1.endpoints.mail_sources.GmailClient.exchange_code_for_tokens"
