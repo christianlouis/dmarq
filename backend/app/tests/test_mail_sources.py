@@ -7,10 +7,12 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -27,6 +29,104 @@ from app.models.workspace_access import WorkspaceMembership
 from app.services.import_history import record_import_attempt
 from app.services.workspace_access import ROLE_OPERATOR
 from app.services.workspaces import get_or_create_default_workspace
+
+
+class TestOAuthStateHelpers:
+    """Unit coverage for the signed OAuth state helpers."""
+
+    def test_signed_oauth_state_round_trip(self):
+        state = mail_sources_endpoint._oauth_state(workspace_id=42, source_id=7)
+
+        assert state.startswith("v1.")
+        assert (
+            mail_sources_endpoint._workspace_id_from_oauth_state(
+                state,
+                source_id=7,
+            )
+            == 42
+        )
+
+    def test_signed_oauth_state_rejects_bad_shape(self):
+        with pytest.raises(HTTPException) as exc:
+            mail_sources_endpoint._workspace_id_from_oauth_state(
+                "v1.only-two-parts",
+                source_id=7,
+            )
+
+        assert exc.value.status_code == 400
+        assert exc.value.detail == "Invalid OAuth state."
+
+    def test_signed_oauth_state_rejects_tampered_payload(self):
+        state = mail_sources_endpoint._oauth_state(workspace_id=42, source_id=7)
+        _, _payload, signature = state.split(".")
+        tampered_payload = mail_sources_endpoint._base64url_encode(
+            b'{"source_id":7,"workspace_id":43}'
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            mail_sources_endpoint._workspace_id_from_oauth_state(
+                f"v1.{tampered_payload}.{signature}",
+                source_id=7,
+            )
+
+        assert exc.value.status_code == 400
+        assert exc.value.detail == "Invalid OAuth state."
+
+    def test_signed_oauth_state_rejects_source_mismatch(self):
+        state = mail_sources_endpoint._oauth_state(workspace_id=42, source_id=7)
+
+        with pytest.raises(HTTPException) as exc:
+            mail_sources_endpoint._workspace_id_from_oauth_state(
+                state,
+                source_id=8,
+            )
+
+        assert exc.value.status_code == 400
+        assert exc.value.detail == "OAuth state does not match the requested mail source."
+
+    @pytest.mark.parametrize(
+        ("state", "source_id", "expected_workspace_id"),
+        [
+            ("workspace:42:source:7", 7, 42),
+            ("7", 7, None),
+        ],
+    )
+    def test_legacy_oauth_state_accepts_matching_source(
+        self,
+        state: str,
+        source_id: int,
+        expected_workspace_id: Optional[int],
+    ):
+        assert (
+            mail_sources_endpoint._workspace_id_from_oauth_state(
+                state,
+                source_id=source_id,
+            )
+            == expected_workspace_id
+        )
+
+    @pytest.mark.parametrize(
+        ("state", "expected_detail"),
+        [
+            ("workspace:42:source:not-an-int", "Invalid OAuth state."),
+            (
+                "workspace:42:source:8",
+                "OAuth state does not match the requested mail source.",
+            ),
+            ("8", "OAuth state does not match the requested mail source."),
+            ("workspace:42", "Invalid OAuth state."),
+        ],
+    )
+    def test_legacy_oauth_state_rejects_invalid_or_mismatched_source(
+        self,
+        state: str,
+        expected_detail: str,
+    ):
+        with pytest.raises(HTTPException) as exc:
+            mail_sources_endpoint._workspace_id_from_oauth_state(state, source_id=7)
+
+        assert exc.value.status_code == 400
+        assert exc.value.detail == expected_detail
 
 
 def _add_user(db_session: Session, email: str):
