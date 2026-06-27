@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import require_admin_auth
+from app.models.domain import Domain
 from app.services.dmarc_parser import DMARCParser
 from app.services.report_persistence import (
     delete_persisted_report,
@@ -251,6 +252,16 @@ async def upload_report(
                 detail=(
                     f"Report '{report_id}' for domain '{domain}' has already been uploaded. "
                     "Duplicate reports are not stored to keep statistics accurate."
+                ),
+            )
+
+        existing_domain = db.query(Domain).filter(Domain.name == domain).first()
+        if existing_domain is not None and existing_domain.workspace_id != workspace.id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Domain '{domain}' already belongs to another workspace. "
+                    "Move or rename the domain before uploading reports for this workspace."
                 ),
             )
 

@@ -203,6 +203,33 @@ def test_upload_report_respects_selected_workspace_header(
     assert selected_listing.json() == ["example.com"]
 
 
+def test_upload_report_rejects_domain_owned_by_another_workspace(
+    authed_client: TestClient,
+    db_session,
+):
+    """Uploading a cross-workspace duplicate domain returns a controlled conflict."""
+    default_workspace = get_or_create_default_workspace(db_session)
+    other_workspace = Workspace(slug="duplicate-domain-upload", name="Duplicate Domain Upload")
+    db_session.add(other_workspace)
+    db_session.flush()
+    _persist_parsed_report(
+        db_session,
+        _parsed_report(domain="example.com", report_id="default-example"),
+        workspace_id=default_workspace.id,
+    )
+
+    response = authed_client.post(
+        "/api/v1/reports/upload",
+        headers={"X-DMARQ-Workspace-ID": str(other_workspace.id)},
+        files={"file": ("report.zip", _make_zip(SAMPLE_XML), "application/zip")},
+    )
+
+    assert response.status_code == 409
+    assert "already belongs to another workspace" in response.json()["detail"]
+    assert db_session.query(Domain).filter(Domain.name == "example.com").count() == 1
+    assert db_session.query(DMARCReport).filter_by(report_id="123456789").count() == 0
+
+
 def test_upload_persists_rfc9990_optional_fields(authed_client: TestClient, db_session):
     """RFC 9990 / DMARCbis metadata is kept for exports and future UI use."""
     zip_bytes = _make_zip(SAMPLE_RFC9990_XML)
