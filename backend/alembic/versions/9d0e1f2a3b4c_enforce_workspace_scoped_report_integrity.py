@@ -39,12 +39,10 @@ def upgrade() -> None:
         f"UPDATE webhook_endpoints SET workspace_id = {_default_workspace_id_sql()} "
         "WHERE workspace_id IS NULL"
     )
-    op.execute("""
-        DELETE FROM tls_report_failures
-        WHERE report_id IN (
-            SELECT id FROM tls_reports WHERE domain_id IS NULL
-        )
-        """)
+    op.execute(
+        "DELETE FROM tls_report_failures "
+        "WHERE report_id IN (SELECT id FROM tls_reports WHERE domain_id IS NULL)"
+    )
     op.execute("DELETE FROM tls_reports WHERE domain_id IS NULL")
     op.execute("DELETE FROM forensic_reports WHERE domain_id IS NULL")
 
