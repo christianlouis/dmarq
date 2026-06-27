@@ -28,6 +28,39 @@ def test_demo_multi_user_deployment_has_saas_and_isp_scenarios():
     assert any(scenario["label"] == "ISP operator" for scenario in deployment["viewer_scenarios"])
 
 
+def test_demo_multi_user_deployment_includes_billing_profiles_and_entitlements():
+    deployment = build_demo_multi_user_deployment()
+
+    organizations = {org["slug"]: org for org in deployment["organizations"]}
+    foundation = organizations["dmarq-foundation"]
+    commercial = organizations["dmarq-commercial"]
+    northstar = organizations["northstar-isp"]
+
+    assert foundation["billing_profile"]["collection_model"] == "self_service_subscription"
+    assert foundation["billing_profile"]["payment_rail"] == "card_on_file"
+    assert foundation["entitlements"]["aggregate_messages"]["included"] == 1_000_000
+    assert commercial["billing_profile"]["collection_model"] == "contract_invoice"
+    assert commercial["billing_profile"]["payment_rail"] == "bank_transfer"
+    assert northstar["billing_profile"]["collection_model"] == "provider_pass_through"
+    assert northstar["billing_profile"]["payment_rail"] == "isp_monthly_invoice"
+    assert northstar["entitlements"]["customer_workspaces"]["used"] == 42
+
+
+def test_demo_multi_user_deployment_showcases_provider_customer_billing():
+    deployment = build_demo_multi_user_deployment()
+    northstar = next(org for org in deployment["organizations"] if org["slug"] == "northstar-isp")
+
+    customers = northstar["provider_customers"]
+    assert len(customers) >= 3
+    assert {customer["billing_status"] for customer in customers} >= {
+        "included",
+        "billable_addon",
+        "grace_period",
+    }
+    assert all(customer["monthly_charge_cents"] > 0 for customer in customers)
+    assert all(customer["external_customer_id"].startswith("ns-cust-") for customer in customers)
+
+
 def test_operator_demo_multi_user_endpoint_returns_showcase(
     authed_client: TestClient,
     monkeypatch,
@@ -43,6 +76,10 @@ def test_operator_demo_multi_user_endpoint_returns_showcase(
     payload = response.json()
     assert payload["deployment"]["organizations"][0]["slug"] == "dmarq-foundation"
     assert payload["deployment"]["billing_modes"][0]["mode"] == "direct_stripe"
+    assert (
+        payload["deployment"]["organizations"][0]["billing_profile"]["collection_model"]
+        == "self_service_subscription"
+    )
 
 
 def test_operator_demo_multi_user_endpoint_is_hidden_outside_demo_mode(
