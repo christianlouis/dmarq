@@ -9,13 +9,13 @@ from app.core.security import require_admin_auth
 from app.models.domain import Domain
 from app.models.report import DMARCReport, ReportRecord
 from app.models.user import User
+from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceMembership
 from app.services.report_persistence import persisted_report_to_dict, save_parsed_report
 from app.services.report_store import ReportStore
 from app.services.workspace_access import ROLE_ANALYST
 from app.services.workspaces import get_or_create_default_workspace
 from app.tests.test_data import SAMPLE_XML, load_dmarc_fixture
-
 
 SAMPLE_RFC9990_XML = load_dmarc_fixture("rfc9990-treewalk-extension.xml")
 
@@ -28,9 +28,38 @@ def _make_zip(xml_content: str) -> bytes:
     return buf.getvalue()
 
 
-def _persist_parsed_report(db_session, report: dict) -> None:
-    save_parsed_report(db_session, report)
+def _persist_parsed_report(db_session, report: dict, workspace_id: int | None = None) -> None:
+    save_parsed_report(db_session, report, workspace_id=workspace_id)
     db_session.commit()
+
+
+def _parsed_report(
+    *,
+    domain: str,
+    report_id: str,
+    count: int = 5,
+    begin_ts: int = 1704067200,
+    end_ts: int = 1704153599,
+) -> dict:
+    return {
+        "domain": domain,
+        "report_id": report_id,
+        "org_name": "Workspace Test Org",
+        "email": "",
+        "begin_timestamp": begin_ts,
+        "end_timestamp": end_ts,
+        "policy": {"p": "none", "sp": "none", "pct": "100"},
+        "records": [
+            {
+                "source_ip": "192.0.2.55",
+                "count": count,
+                "disposition": "none",
+                "dkim_result": "pass",
+                "spf_result": "pass",
+                "header_from": domain,
+            }
+        ],
+    }
 
 
 def _add_user(db_session, email: str, *, is_superuser: bool = False) -> User:
@@ -141,6 +170,37 @@ def test_upload_persists_report_rows(authed_client: TestClient, db_session):
     assert report.org_name == "google.com"
     assert report.domain.name == "example.com"
     assert db_session.query(ReportRecord).filter_by(report_id=report.id).count() == 1
+
+
+def test_upload_report_respects_selected_workspace_header(
+    authed_client: TestClient,
+    db_session,
+):
+    """Uploaded reports are persisted in the selected workspace."""
+    other_workspace = Workspace(slug="selected-report-upload", name="Selected Report Upload")
+    db_session.add(other_workspace)
+    db_session.commit()
+
+    zip_bytes = _make_zip(SAMPLE_XML)
+    response = authed_client.post(
+        "/api/v1/reports/upload",
+        headers={"X-DMARQ-Workspace-ID": str(other_workspace.id)},
+        files={"file": ("report.zip", zip_bytes, "application/zip")},
+    )
+
+    assert response.status_code == 200
+    domain = db_session.query(Domain).filter(Domain.name == "example.com").one()
+    assert domain.workspace_id == other_workspace.id
+
+    default_listing = authed_client.get("/api/v1/reports/domains")
+    selected_listing = authed_client.get(
+        "/api/v1/reports/domains",
+        headers={"X-DMARQ-Workspace-ID": str(other_workspace.id)},
+    )
+    assert default_listing.status_code == 200
+    assert default_listing.json() == []
+    assert selected_listing.status_code == 200
+    assert selected_listing.json() == ["example.com"]
 
 
 def test_upload_persists_rfc9990_optional_fields(authed_client: TestClient, db_session):
@@ -281,6 +341,94 @@ def test_reports_summary_empty(authed_client: TestClient):
     response = authed_client.get("/api/v1/reports/summary")
     assert response.status_code == 200
     assert response.json() == []
+
+
+def test_report_read_and_delete_routes_respect_selected_workspace(
+    authed_client: TestClient,
+    db_session,
+):
+    """Report read/delete APIs operate inside the selected workspace boundary."""
+    default_workspace = get_or_create_default_workspace(db_session)
+    selected_workspace = Workspace(slug="selected-report-reads", name="Selected Report Reads")
+    db_session.add(selected_workspace)
+    db_session.flush()
+    _persist_parsed_report(
+        db_session,
+        _parsed_report(domain="default-reports.example", report_id="default-report", count=4),
+        workspace_id=default_workspace.id,
+    )
+    _persist_parsed_report(
+        db_session,
+        _parsed_report(domain="selected-reports.example", report_id="selected-report", count=9),
+        workspace_id=selected_workspace.id,
+    )
+
+    selected_header = {"X-DMARQ-Workspace-ID": str(selected_workspace.id)}
+
+    domains = authed_client.get("/api/v1/reports/domains", headers=selected_header)
+    all_reports = authed_client.get("/api/v1/reports", headers=selected_header)
+    summaries = authed_client.get("/api/v1/reports/summary", headers=selected_header)
+    domain_summary = authed_client.get(
+        "/api/v1/reports/domain/selected-reports.example/summary",
+        headers=selected_header,
+    )
+    domain_reports = authed_client.get(
+        "/api/v1/reports/domain/selected-reports.example/reports",
+        headers=selected_header,
+    )
+    paginated_reports = authed_client.get(
+        "/api/v1/reports/domain/selected-reports.example/reports/paginated",
+        headers=selected_header,
+    )
+    detail = authed_client.get("/api/v1/reports/selected-report", headers=selected_header)
+    hidden_detail = authed_client.get("/api/v1/reports/default-report", headers=selected_header)
+    hidden_domain_summary = authed_client.get(
+        "/api/v1/reports/domain/default-reports.example/summary",
+        headers=selected_header,
+    )
+    hidden_domain_reports = authed_client.get(
+        "/api/v1/reports/domain/default-reports.example/reports",
+        headers=selected_header,
+    )
+    hidden_paginated_reports = authed_client.get(
+        "/api/v1/reports/domain/default-reports.example/reports/paginated",
+        headers=selected_header,
+    )
+
+    assert domains.status_code == 200
+    assert domains.json() == ["selected-reports.example"]
+    assert all_reports.status_code == 200
+    assert [item["report_id"] for item in all_reports.json()] == ["selected-report"]
+    assert summaries.status_code == 200
+    assert [item["domain"] for item in summaries.json()] == ["selected-reports.example"]
+    assert domain_summary.status_code == 200
+    assert domain_summary.json()["total_count"] == 9
+    assert domain_reports.status_code == 200
+    assert [item["report_id"] for item in domain_reports.json()] == ["selected-report"]
+    assert paginated_reports.status_code == 200
+    assert [item["report_id"] for item in paginated_reports.json()["reports"]] == [
+        "selected-report"
+    ]
+    assert detail.status_code == 200
+    assert detail.json()["summary"]["total_count"] == 9
+    assert hidden_detail.status_code == 404
+    assert hidden_domain_summary.status_code == 404
+    assert hidden_domain_reports.status_code == 404
+    assert hidden_paginated_reports.status_code == 404
+
+    delete_hidden = authed_client.delete(
+        "/api/v1/reports/domain/default-reports.example/reports/default-report",
+        headers=selected_header,
+    )
+    delete_selected = authed_client.delete(
+        "/api/v1/reports/domain/selected-reports.example/reports/selected-report",
+        headers=selected_header,
+    )
+
+    assert delete_hidden.status_code == 404
+    assert delete_selected.status_code == 200
+    assert db_session.query(DMARCReport).filter_by(report_id="default-report").count() == 1
+    assert db_session.query(DMARCReport).filter_by(report_id="selected-report").count() == 0
 
 
 def test_upload_and_get_domain_summary(authed_client: TestClient):

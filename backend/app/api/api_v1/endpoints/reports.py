@@ -1,7 +1,7 @@
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -18,12 +18,8 @@ from app.services.report_store import ReportStore
 from app.services.workspace_access import (
     PERMISSION_REPORTS_READ,
     PERMISSION_REPORTS_WRITE,
-    require_workspace_permission,
-)
-from app.services.workspaces import (
-    assign_default_workspace_to_unscoped_rows,
-    get_default_workspace,
-    get_or_create_default_workspace,
+    parse_selected_workspace_id,
+    resolve_authorized_workspace,
 )
 from app.utils.domain_validator import DomainValidationError, validate_domain
 
@@ -55,11 +51,29 @@ ALLOWED_MIME_TYPES = {
 ALLOWED_EXTENSIONS = {".xml", ".zip", ".gz", ".gzip"}
 
 
-def _authorized_reports_workspace(auth_context: Dict[str, Any], db: Session, permission: str):
+def _authorized_reports_workspace(
+    auth_context: Dict[str, Any],
+    db: Session,
+    permission: str,
+    selected_workspace_id: Optional[int] = None,
+):
     """Authorize report access before running legacy workspace repair writes."""
-    workspace = get_default_workspace(db) or get_or_create_default_workspace(db)
-    require_workspace_permission(auth_context, permission, db, workspace)
-    return assign_default_workspace_to_unscoped_rows(db)
+    return resolve_authorized_workspace(
+        db,
+        auth_context,
+        permission,
+        selected_workspace_id=selected_workspace_id,
+    )
+
+
+def _selected_workspace_id(selected_workspace: Optional[str]) -> Optional[int]:
+    return parse_selected_workspace_id(selected_workspace)
+
+
+def _hydrated_report_store(db: Session, workspace) -> ReportStore:
+    store = ReportStore()
+    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
+    return store
 
 
 def _validate_mime_type(file_content: bytes) -> None:
@@ -187,6 +201,7 @@ async def upload_report(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ):
     """
     Upload and process a DMARC aggregate report file (XML, ZIP, or GZIP)
@@ -197,7 +212,12 @@ async def upload_report(
     - Zip bomb protection
     - Sanitized error messages
     """
-    workspace = _authorized_reports_workspace(_auth, db, PERMISSION_REPORTS_WRITE)
+    workspace = _authorized_reports_workspace(
+        _auth,
+        db,
+        PERMISSION_REPORTS_WRITE,
+        _selected_workspace_id(selected_workspace),
+    )
     try:
         # Read content first so validators can inspect it
         file_content = await file.read()
@@ -224,7 +244,6 @@ async def upload_report(
             )
 
         # Check for duplicate report before storing
-        store = ReportStore.get_instance()
         report_id = report.get("report_id", "")
         if report_id and report_exists(db, domain, report_id, workspace_id=workspace.id):
             raise HTTPException(
@@ -236,9 +255,8 @@ async def upload_report(
             )
 
         # Store the report
-        save_parsed_report(db, report)
+        save_parsed_report(db, report, workspace_id=workspace.id)
         db.commit()
-        store.add_report(report)
 
         processed_records = report.get("summary", {}).get("total_count", 0)
 
@@ -267,13 +285,18 @@ async def upload_report(
 async def get_all_reports(
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ):
     """
     Get all DMARC reports across all domains, sorted by end_date descending.
     """
-    workspace = _authorized_reports_workspace(_auth, db, PERMISSION_REPORTS_READ)
-    store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
+    workspace = _authorized_reports_workspace(
+        _auth,
+        db,
+        PERMISSION_REPORTS_READ,
+        _selected_workspace_id(selected_workspace),
+    )
+    store = _hydrated_report_store(db, workspace)
     domains = store.get_domains()
 
     all_reports: List[AllReportsItem] = []
@@ -308,13 +331,18 @@ async def get_all_reports(
 async def get_domains(
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ):
     """
     Get list of all domains with reports
     """
-    workspace = _authorized_reports_workspace(_auth, db, PERMISSION_REPORTS_READ)
-    store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
+    workspace = _authorized_reports_workspace(
+        _auth,
+        db,
+        PERMISSION_REPORTS_READ,
+        _selected_workspace_id(selected_workspace),
+    )
+    store = _hydrated_report_store(db, workspace)
     return store.get_domains()
 
 
@@ -323,13 +351,18 @@ async def get_domain_summary(
     domain: str,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ):
     """
     Get summary statistics for a specific domain
     """
-    workspace = _authorized_reports_workspace(_auth, db, PERMISSION_REPORTS_READ)
-    store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
+    workspace = _authorized_reports_workspace(
+        _auth,
+        db,
+        PERMISSION_REPORTS_READ,
+        _selected_workspace_id(selected_workspace),
+    )
+    store = _hydrated_report_store(db, workspace)
     summary = store.get_domain_summary(domain)
 
     if not summary:
@@ -344,13 +377,18 @@ async def get_domain_summary(
 async def get_all_summaries(
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ):
     """
     Get summary statistics for all domains
     """
-    workspace = _authorized_reports_workspace(_auth, db, PERMISSION_REPORTS_READ)
-    store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
+    workspace = _authorized_reports_workspace(
+        _auth,
+        db,
+        PERMISSION_REPORTS_READ,
+        _selected_workspace_id(selected_workspace),
+    )
+    store = _hydrated_report_store(db, workspace)
     all_summaries = store.get_all_domain_summaries()
 
     return [DomainSummary(domain=domain, **summary) for domain, summary in all_summaries.items()]
@@ -361,13 +399,18 @@ async def get_domain_reports(
     domain: str,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ):
     """
     Get all reports for a specific domain
     """
-    workspace = _authorized_reports_workspace(_auth, db, PERMISSION_REPORTS_READ)
-    store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
+    workspace = _authorized_reports_workspace(
+        _auth,
+        db,
+        PERMISSION_REPORTS_READ,
+        _selected_workspace_id(selected_workspace),
+    )
+    store = _hydrated_report_store(db, workspace)
     reports = store.get_domain_reports(domain)
 
     if not reports:
@@ -398,6 +441,7 @@ async def get_domain_reports_paginated(
     sort_order: str = "desc",
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ):
     """
     Get paginated reports for a specific domain with sorting options
@@ -409,9 +453,13 @@ async def get_domain_reports_paginated(
         sort_by: Field to sort by (report_id, org_name, begin_date, end_date, total_count)
         sort_order: Sort order (asc or desc)
     """
-    workspace = _authorized_reports_workspace(_auth, db, PERMISSION_REPORTS_READ)
-    store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
+    workspace = _authorized_reports_workspace(
+        _auth,
+        db,
+        PERMISSION_REPORTS_READ,
+        _selected_workspace_id(selected_workspace),
+    )
+    store = _hydrated_report_store(db, workspace)
     all_reports = store.get_domain_reports(domain)
 
     if not all_reports:
@@ -473,6 +521,7 @@ async def delete_report(
     report_id: str,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ):
     """
     Delete a single DMARC report for a domain.
@@ -480,12 +529,16 @@ async def delete_report(
     Removes the report from the store and recomputes all domain statistics so
     that aggregated numbers remain accurate after deletion.
     """
-    workspace = _authorized_reports_workspace(_auth, db, PERMISSION_REPORTS_WRITE)
-    store = ReportStore.get_instance()
+    workspace = _authorized_reports_workspace(
+        _auth,
+        db,
+        PERMISSION_REPORTS_WRITE,
+        _selected_workspace_id(selected_workspace),
+    )
     deleted_from_db = delete_persisted_report(db, domain, report_id, workspace_id=workspace.id)
     if deleted_from_db:
         db.commit()
-    deleted = store.delete_report(domain, report_id) or deleted_from_db
+    deleted = deleted_from_db
 
     if not deleted:
         raise HTTPException(
@@ -550,13 +603,18 @@ async def get_report_by_id(
     report_id: str,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ):
     """
     Get full details for a single DMARC report by its report ID.
     """
-    workspace = _authorized_reports_workspace(_auth, db, PERMISSION_REPORTS_READ)
-    store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
+    workspace = _authorized_reports_workspace(
+        _auth,
+        db,
+        PERMISSION_REPORTS_READ,
+        _selected_workspace_id(selected_workspace),
+    )
+    store = _hydrated_report_store(db, workspace)
     report = store.get_report_by_id(report_id)
 
     if report is None:
