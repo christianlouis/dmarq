@@ -101,6 +101,15 @@ def _workspace_or_404(db: Session, workspace_id: int) -> Workspace:
     return workspace
 
 
+def _ensure_workspace_accepts_mutation(workspace: Workspace) -> None:
+    if workspace.active:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="Inactive workspace cannot be modified",
+    )
+
+
 def _organization_or_404(db: Session, organization_id: int) -> Organization:
     organization = (
         db.query(Organization)
@@ -262,6 +271,7 @@ async def upsert_workspace_membership(
         )
     workspace = _workspace_or_404(db, workspace_id)
     require_workspace_permission(_auth, PERMISSION_WORKSPACE_ADMIN, db, workspace)
+    _ensure_workspace_accepts_mutation(workspace)
     user = _user_or_404(db, user_id)
     role = _normalize_role(payload.role, WORKSPACE_ROLES)
     membership = (
@@ -319,6 +329,7 @@ async def invite_workspace_member(
     """Invite or link a user by email and assign a workspace role."""
     workspace = _workspace_or_404(db, workspace_id)
     require_workspace_permission(_auth, PERMISSION_WORKSPACE_ADMIN, db, workspace)
+    _ensure_workspace_accepts_mutation(workspace)
     user = _find_or_create_invited_user(db, payload)
     upsert = MembershipUpsertRequest(user_id=user.id, role=payload.role, active=True)
     return await upsert_workspace_membership(
@@ -342,6 +353,7 @@ async def deactivate_workspace_membership(
     """Deactivate one workspace membership without deleting audit history."""
     workspace = _workspace_or_404(db, workspace_id)
     require_workspace_permission(_auth, PERMISSION_WORKSPACE_ADMIN, db, workspace)
+    _ensure_workspace_accepts_mutation(workspace)
     membership = (
         db.query(WorkspaceMembership)
         .filter(
