@@ -31,10 +31,19 @@ class OnboardingWorkspace(BaseModel):
     description: Optional[str] = None
 
 
+class OnboardingOrganization(BaseModel):
+    """Organization target for an onboarding plan."""
+
+    slug: Optional[str] = None
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
 class OnboardingPlanRequest(BaseModel):
     """Request body for rendering or applying an onboarding template."""
 
     template_id: str
+    organization: Optional[OnboardingOrganization] = None
     workspace: OnboardingWorkspace
     variables: Dict[str, Any] = Field(default_factory=dict)
     domains: Optional[List[Dict[str, Any]]] = None
@@ -65,6 +74,7 @@ def _build_plan_or_422(payload: OnboardingPlanRequest) -> Dict[str, Any]:
     try:
         plan = build_onboarding_plan(
             template_id=payload.template_id,
+            organization=payload.organization.model_dump() if payload.organization else None,
             workspace=payload.workspace.model_dump(),
             variables=payload.variables,
             domains=payload.domains,
@@ -113,6 +123,11 @@ async def apply_workspace_onboarding(
     plan = _build_plan_or_422(payload)
     try:
         result = apply_onboarding_plan(db, plan=plan, auth_context=_auth, request=request)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
     except IntegrityError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

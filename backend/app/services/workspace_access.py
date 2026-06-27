@@ -163,6 +163,11 @@ def _auth_user(db: Session, auth_context: dict) -> Optional[User]:
     return None
 
 
+def user_for_auth_context(db: Session, auth_context: dict) -> Optional[User]:
+    """Return the active local user represented by an auth context, when available."""
+    return _auth_user(db, auth_context)
+
+
 def _normalize_organization_role(role: str) -> str:
     normalized = (role or "").strip().lower()
     return ORGANIZATION_ROLE_ALIASES.get(normalized, normalized)

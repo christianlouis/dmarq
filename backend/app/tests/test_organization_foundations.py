@@ -19,7 +19,9 @@ from app.services.organizations import (
     BILLING_MODE_SELF_HOSTED,
     DEFAULT_ORGANIZATION_SLUG,
     SELF_HOSTED_PLAN_CODE,
+    STARTER_PLAN_CODE,
     bootstrap_default_commercial_foundation,
+    get_or_create_starter_plan,
     list_organization_summaries,
 )
 from app.services.workspace_access import ROLE_AUDITOR
@@ -93,6 +95,15 @@ def test_bootstrap_default_commercial_foundation_is_idempotent(db_session: Sessi
     assert db_session.query(Plan).count() == 1
     assert db_session.query(BillingAccount).count() == 1
     assert db_session.query(Subscription).count() == 1
+
+
+def test_get_or_create_starter_plan_commits_public_saas_plan(db_session: Session):
+    plan = get_or_create_starter_plan(db_session)
+
+    assert plan.code == STARTER_PLAN_CODE
+    assert plan.public is True
+    assert plan.retention_days == 90
+    assert db_session.query(Plan).filter(Plan.code == STARTER_PLAN_CODE).one().id == plan.id
 
 
 def test_list_organization_summaries_materializes_account_state(db_session: Session):
