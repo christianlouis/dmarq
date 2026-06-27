@@ -289,10 +289,10 @@ class StatsSummarizer:
     ) -> Dict[str, Any]:
         """Calculate global statistics across all domains from the database."""
         # Count total domains
-        domain_query = db.query(Domain)
+        domain_query = db.query(func.count(Domain.id))
         if workspace_id is not None:
             domain_query = domain_query.filter(Domain.workspace_id == workspace_id)
-        total_domains = domain_query.count()
+        total_domains = int(domain_query.scalar() or 0)
 
         # Aggregate email counts from report records
         totals_query = db.query(

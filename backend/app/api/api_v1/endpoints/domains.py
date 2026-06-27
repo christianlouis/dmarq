@@ -1152,17 +1152,17 @@ async def get_domains_summary(
     """
     selected_workspace_id = parse_selected_workspace_id(selected_workspace)
     workspace = _authorized_domain_read_workspace(_auth, db, selected_workspace_id)
-    store = ReportStore.get_instance()
+    store = ReportStore()
     hydrate_report_store_from_db(
         db,
         store,
-        workspace_id=workspace.id if selected_workspace_id is not None else None,
+        workspace_id=workspace.id,
     )
     domains = _domain_names_for_summary(
         db,
         store,
         workspace,
-        include_unscoped_report_domains=selected_workspace_id is None,
+        include_unscoped_report_domains=False,
     )
     summaries = store.get_all_domain_summaries()
 
@@ -1258,9 +1258,14 @@ async def read_domains(
     Retrieve domains with their statistics.
     """
     workspace = _authorized_domain_read_workspace(_auth, db)
-    store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store)
-    domains = _domain_names_for_summary(db, store, workspace)
+    store = ReportStore()
+    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
+    domains = _domain_names_for_summary(
+        db,
+        store,
+        workspace,
+        include_unscoped_report_domains=False,
+    )
     summaries = store.get_all_domain_summaries()
     stored = {
         domain.name: domain

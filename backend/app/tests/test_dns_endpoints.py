@@ -19,11 +19,13 @@ from app.api.api_v1.endpoints import domains as domains_endpoint
 from app.api.api_v1.endpoints.domains import _domain_names_for_summary, _spf_fix_hint
 from app.models.dns_cache import DNSCache, DNSRecordChange
 from app.models.domain import Domain
+from app.models.report import DMARCReport, ReportRecord
 from app.models.workspace import Workspace
 from app.services.bimi import BIMIResult
 from app.services.dns_cache import _selectors_key, resolve_domain_dns_cached
 from app.services.dns_resolver import DomainDNSResult
 from app.services.mta_sts import MTAStsResult
+from app.services.report_persistence import save_parsed_report
 from app.services.report_store import ReportStore
 
 # ---------------------------------------------------------------------------
@@ -81,6 +83,19 @@ def _mock_dns(result: DomainDNSResult = MOCK_DNS_RESULT):
         "app.api.api_v1.endpoints.domains.get_default_provider",
         return_value=provider,
     )
+
+
+def _persist_minimal_report(db_session, domain_name: str = DOMAIN):
+    """Persist the default report fixture into the workspace-scoped report tables."""
+    save_parsed_report(
+        db_session,
+        {
+            **MINIMAL_REPORT,
+            "domain": domain_name,
+            "report_id": f"{domain_name}-summary-fixture",
+        },
+    )
+    db_session.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -807,8 +822,10 @@ def test_enforcement_recommendation_common_states(
 # ---------------------------------------------------------------------------
 
 
-def test_summary_includes_dns_fields(authed_client: TestClient):
+def test_summary_includes_dns_fields(authed_client: TestClient, db_session):
     """The summary endpoint should include dmarc_status, spf_status, dkim_status."""
+    _persist_minimal_report(db_session)
+
     with _mock_dns():
         response = authed_client.get("/api/v1/domains/summary")
 
@@ -825,8 +842,9 @@ def test_summary_includes_dns_fields(authed_client: TestClient):
     assert domain["dmarc_policy"] == "none"
 
 
-def test_summary_dns_failure_defaults_false(authed_client: TestClient):
+def test_summary_dns_failure_defaults_false(authed_client: TestClient, db_session):
     """If DNS check fails, status fields default to False rather than crashing."""
+    _persist_minimal_report(db_session)
     empty_result = DomainDNSResult()
 
     with _mock_dns(result=empty_result):
@@ -839,8 +857,9 @@ def test_summary_dns_failure_defaults_false(authed_client: TestClient):
     assert domain["dkim_status"] is False
 
 
-def test_summary_endpoint_uses_manual_selectors(authed_client: TestClient):
+def test_summary_endpoint_uses_manual_selectors(authed_client: TestClient, db_session):
     """Manually configured selectors are forwarded by the summary endpoint."""
+    _persist_minimal_report(db_session)
     authed_client.post(f"/api/v1/domains/{DOMAIN}/selectors", json={"selector": "manualsel"})
     captured_selectors = []
 
@@ -868,12 +887,36 @@ def test_summary_endpoint_respects_selected_workspace_header(
     beta = Workspace(slug="summary-beta", name="Summary Beta", active=True)
     db_session.add_all([alpha, beta])
     db_session.flush()
+    alpha_domain = Domain(name="alpha-summary.example", workspace_id=alpha.id, active=True)
+    beta_domain = Domain(name="beta-summary.example", workspace_id=beta.id, active=True)
     db_session.add_all(
         [
-            Domain(name="alpha-summary.example", workspace_id=alpha.id, active=True),
-            Domain(name="beta-summary.example", workspace_id=beta.id, active=True),
+            alpha_domain,
+            beta_domain,
         ]
     )
+    db_session.flush()
+    for domain, count in ((alpha_domain, 7), (beta_domain, 13)):
+        report = DMARCReport(
+            domain_id=domain.id,
+            report_id=f"{domain.name}-summary-report",
+            org_name="Summary Org",
+            begin_date=1597449600,
+            end_date=1597535999,
+            policy="none",
+        )
+        db_session.add(report)
+        db_session.flush()
+        db_session.add(
+            ReportRecord(
+                report_id=report.id,
+                source_ip="203.0.113.200",
+                count=count,
+                disposition="none",
+                dkim="pass",
+                spf="pass",
+            )
+        )
     db_session.commit()
 
     with _mock_dns():
@@ -883,7 +926,9 @@ def test_summary_endpoint_respects_selected_workspace_header(
         )
 
     assert response.status_code == 200
-    assert [item["domain_name"] for item in response.json()["domains"]] == ["alpha-summary.example"]
+    domains = response.json()["domains"]
+    assert [item["domain_name"] for item in domains] == ["alpha-summary.example"]
+    assert domains[0]["total_emails"] == 7
 
 
 def test_domain_names_for_selected_workspace_excludes_unscoped_report_cache(db_session):

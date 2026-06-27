@@ -76,17 +76,27 @@ class TestDashboardStatistics:
         data = response.json()
         assert "api_version" in data
 
-    def test_dashboard_force_refresh_calls_invalidate_cache(self, authed_client: TestClient):
+    def test_dashboard_force_refresh_calls_invalidate_cache(
+        self,
+        authed_client: TestClient,
+        db_session: Session,
+    ):
         """Verify StatsSummarizer.invalidate_cache is called when force_refresh is set."""
+        workspace = Workspace(slug="refresh-stats", name="Refresh Stats", active=True)
+        db_session.add(workspace)
+        db_session.commit()
         with patch("app.api.api_v1.endpoints.stats.StatsSummarizer") as MockSummarizer:
             mock_instance = MagicMock()
             mock_instance.calculate_summary_statistics.return_value = {"total": 0}
             MockSummarizer.return_value = mock_instance
 
-            response = authed_client.get("/api/v1/stats/dashboard?force_refresh=true")
+            response = authed_client.get(
+                "/api/v1/stats/dashboard?force_refresh=true",
+                headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+            )
             assert response.status_code == 200
             mock_instance.invalidate_cache.assert_called_once()
-            assert "workspace_id" in mock_instance.invalidate_cache.call_args.kwargs
+            assert mock_instance.invalidate_cache.call_args.kwargs == {"workspace_id": workspace.id}
 
     def test_dashboard_no_force_refresh_skips_invalidate(self, authed_client: TestClient):
         """Without force_refresh, invalidate_cache should NOT be called."""
@@ -196,19 +206,27 @@ class TestDomainStatistics:
         assert response.status_code == 200
 
     def test_domain_stats_force_refresh_calls_invalidate_with_domain(
-        self, authed_client: TestClient
+        self,
+        authed_client: TestClient,
+        db_session: Session,
     ):
         """Verify invalidate_cache is called with the domain ID."""
+        workspace = Workspace(slug="refresh-domain-stats", name="Refresh Domain Stats", active=True)
+        db_session.add(workspace)
+        db_session.commit()
         with patch("app.api.api_v1.endpoints.stats.StatsSummarizer") as MockSummarizer:
             mock_instance = MagicMock()
             mock_instance.calculate_summary_statistics.return_value = {"total": 0}
             MockSummarizer.return_value = mock_instance
 
-            response = authed_client.get("/api/v1/stats/domain/example.com?force_refresh=true")
+            response = authed_client.get(
+                "/api/v1/stats/domain/example.com?force_refresh=true",
+                headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+            )
             assert response.status_code == 200
             mock_instance.invalidate_cache.assert_called_once()
             assert mock_instance.invalidate_cache.call_args.args == ("example.com",)
-            assert "workspace_id" in mock_instance.invalidate_cache.call_args.kwargs
+            assert mock_instance.invalidate_cache.call_args.kwargs == {"workspace_id": workspace.id}
 
     def test_domain_stats_no_force_refresh_skips_invalidate(self, authed_client: TestClient):
         with patch("app.api.api_v1.endpoints.stats.StatsSummarizer") as MockSummarizer:
