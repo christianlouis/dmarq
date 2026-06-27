@@ -272,6 +272,7 @@ def _base64url_decode(value: str) -> bytes:
 
 
 def _oauth_state_signature(encoded_payload: str) -> bytes:
+    # lgtm[py/weak-sensitive-data-hashing] This HMAC signs an OAuth state payload; it is not password hashing.
     return hmac.digest(
         get_settings().SECRET_KEY.encode("utf-8"),
         encoded_payload.encode("ascii"),

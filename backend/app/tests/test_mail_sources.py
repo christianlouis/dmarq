@@ -2358,8 +2358,9 @@ class TestGmailCallbackGet:
             headers=selected_header,
         )
         state = parse_qs(urlparse(auth_resp.json()["authorization_url"]).query)["state"][0]
-        replacement = "x" if not state.endswith("x") else "y"
-        tampered_state = f"{state[:-1]}{replacement}"
+        prefix, payload, signature = state.split(".")
+        replacement = "A" if not signature.startswith("A") else "B"
+        tampered_state = f"{prefix}.{payload}.{replacement}{signature[1:]}"
 
         with patch(
             "app.api.api_v1.endpoints.mail_sources.GmailClient.exchange_code_for_tokens"
