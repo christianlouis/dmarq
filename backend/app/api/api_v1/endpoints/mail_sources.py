@@ -8,7 +8,6 @@ OAuth2 helper endpoints (authorize-url, callback, fetch).
 """
 
 import base64
-import hashlib
 import hmac
 import json
 import logging
@@ -259,11 +258,7 @@ def _oauth_state(workspace_id: int, source_id: int) -> str:
         sort_keys=True,
     ).encode("utf-8")
     encoded_payload = _base64url_encode(payload)
-    signature = hmac.new(
-        get_settings().SECRET_KEY.encode("utf-8"),
-        encoded_payload.encode("ascii"),
-        hashlib.sha256,
-    ).digest()
+    signature = _oauth_state_signature(encoded_payload)
     return f"v1.{encoded_payload}.{_base64url_encode(signature)}"
 
 
@@ -274,6 +269,14 @@ def _base64url_encode(value: bytes) -> str:
 def _base64url_decode(value: str) -> bytes:
     padded = value + ("=" * (-len(value) % 4))
     return base64.urlsafe_b64decode(padded.encode("ascii"))
+
+
+def _oauth_state_signature(encoded_payload: str) -> bytes:
+    return hmac.digest(
+        get_settings().SECRET_KEY.encode("utf-8"),
+        encoded_payload.encode("ascii"),
+        "sha256",
+    )
 
 
 def _invalid_oauth_state() -> HTTPException:
@@ -293,11 +296,7 @@ def _signed_oauth_state_workspace_id(state_value: str, source_id: int) -> int:
         raise _invalid_oauth_state()
 
     encoded_payload, encoded_signature = parts[1], parts[2]
-    expected_signature = hmac.new(
-        get_settings().SECRET_KEY.encode("utf-8"),
-        encoded_payload.encode("ascii"),
-        hashlib.sha256,
-    ).digest()
+    expected_signature = _oauth_state_signature(encoded_payload)
     try:
         actual_signature = _base64url_decode(encoded_signature)
         payload = json.loads(_base64url_decode(encoded_payload))
