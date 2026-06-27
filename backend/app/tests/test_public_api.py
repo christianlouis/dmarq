@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from app.models.api_token import APIToken
 from app.models.workspace import Workspace
 from app.services.api_tokens import READ_POSTURE_SCOPE, READ_REPORTS_SCOPE, create_api_token
+from app.services.report_persistence import save_parsed_report
 from app.services.report_store import ReportStore
 from app.services.workspace_access import (
     ROLE_ANALYST,
@@ -37,6 +38,11 @@ def _seed_report_store():
     ReportStore.get_instance().add_report(MINIMAL_REPORT)
 
 
+def _persist_report(db_session):
+    save_parsed_report(db_session, MINIMAL_REPORT)
+    db_session.commit()
+
+
 def test_public_reports_api_requires_scoped_token(client: TestClient, db_session):
     """Stable public report endpoints require scoped tokens and audit usage."""
     _seed_report_store()
@@ -66,7 +72,7 @@ def test_public_reports_api_requires_scoped_token(client: TestClient, db_session
 
 def test_public_domains_summary_uses_scoped_token_context(client: TestClient, db_session):
     """Public domain summaries reuse workspace-aware domain authorization."""
-    _seed_report_store()
+    _persist_report(db_session)
     created = create_api_token(db_session, name="summary bot", scopes=[READ_REPORTS_SCOPE])
 
     response = client.get(
