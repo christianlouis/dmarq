@@ -333,6 +333,16 @@ def build_demo_multi_user_deployment() -> Dict[str, Any]:
                             "SPF includes exceed the lookup budget",
                         ],
                     },
+                    {
+                        "slug": "retail-example",
+                        "name": "Retail Chain Example",
+                        "domains": ["retail.example", "shop.retail.example"],
+                        "health": "warning",
+                        "primary_findings": [
+                            "legacy sender still aligned through SPF only",
+                            "monitoring grace period expires next week",
+                        ],
+                    },
                 ],
                 "provider_customers": [
                     {
