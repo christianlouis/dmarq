@@ -42,3 +42,14 @@ def test_base_template_propagates_selected_workspace_context():
     assert "X-DMARQ-Workspace-ID" in template
     assert "dmarq:workspace-changed" in template
     assert "input instanceof URL" in template
+
+
+def test_dashboard_renders_demo_billing_profiles_without_html_injection():
+    template = (Path(__file__).resolve().parents[1] / "templates" / "index.html").read_text()
+
+    assert "Multi-User Deployment" in template
+    assert "Provider billing samples" in template
+    assert "billing_profile.display_name" in template
+    assert "formatDemoUsage(organization, usage)" in template
+    assert "formatMoney(demoMonthlyTotal())" in template
+    assert "x-html" not in template
