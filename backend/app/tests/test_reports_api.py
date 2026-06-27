@@ -300,6 +300,44 @@ def test_upload_report_translates_raced_domain_integrity_error(
     assert db_session.query(DMARCReport).filter_by(report_id="123456789").count() == 0
 
 
+def test_upload_report_recovers_from_same_workspace_domain_race(
+    authed_client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    """A same-workspace raced domain insert retries instead of leaking a 500."""
+    default_workspace = get_or_create_default_workspace(db_session)
+    db_session.commit()
+    TestingSessionLocal = sessionmaker(bind=db_session.get_bind())
+    real_save_parsed_report = reports_endpoint.save_parsed_report
+    call_count = 0
+
+    def raced_save(db, report, *, workspace_id=None):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            concurrent_db = TestingSessionLocal()
+            try:
+                concurrent_db.add(Domain(name="example.com", workspace_id=default_workspace.id))
+                concurrent_db.commit()
+            finally:
+                concurrent_db.close()
+            raise IntegrityError("insert", {}, Exception("UNIQUE constraint failed: domains.name"))
+        return real_save_parsed_report(db, report, workspace_id=workspace_id)
+
+    monkeypatch.setattr(reports_endpoint, "save_parsed_report", raced_save)
+
+    response = authed_client.post(
+        "/api/v1/reports/upload",
+        files={"file": ("report.zip", _make_zip(SAMPLE_XML), "application/zip")},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["domain"] == "example.com"
+    assert db_session.query(Domain).filter(Domain.name == "example.com").count() == 1
+    assert db_session.query(DMARCReport).filter_by(report_id="123456789").count() == 1
+
+
 def test_upload_persists_rfc9990_optional_fields(authed_client: TestClient, db_session):
     """RFC 9990 / DMARCbis metadata is kept for exports and future UI use."""
     zip_bytes = _make_zip(SAMPLE_RFC9990_XML)

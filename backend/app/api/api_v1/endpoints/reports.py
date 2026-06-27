@@ -23,7 +23,7 @@ from app.services.workspace_access import (
     parse_selected_workspace_id,
     resolve_authorized_workspace,
 )
-from app.utils.domain_validator import DomainValidationError, validate_domain
+from app.utils.domain_validator import DomainValidationError, normalize_domain_name, validate_domain
 
 logger = logging.getLogger(__name__)
 
@@ -72,10 +72,6 @@ def _selected_workspace_id(selected_workspace: Optional[str]) -> Optional[int]:
     return parse_selected_workspace_id(selected_workspace)
 
 
-def _normalize_domain_name(name: str) -> str:
-    return name.strip().strip(".").lower()
-
-
 def _domain_workspace_conflict(domain: str) -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_409_CONFLICT,
@@ -104,7 +100,8 @@ def _save_uploaded_report(
             _raise_if_domain_owned_by_other_workspace(db, domain, workspace_id)
         except HTTPException as conflict:
             raise conflict from exc
-        raise
+        save_parsed_report(db, report, workspace_id=workspace_id)
+        db.commit()
 
 
 def _hydrated_report_store(db: Session, workspace) -> ReportStore:
@@ -271,7 +268,7 @@ async def upload_report(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Report does not contain a valid domain",
             )
-        domain = _normalize_domain_name(domain)
+        domain = normalize_domain_name(domain)
         report["domain"] = domain
 
         # Validate domain format (not DNS resolution to avoid external calls)

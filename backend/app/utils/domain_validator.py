@@ -17,6 +17,11 @@ class DomainValidationError:
     DNS_RESOLUTION_FAILED = "dns_resolution_failed"
 
 
+def normalize_domain_name(name: str) -> str:
+    """Return the canonical stored form for domain names."""
+    return name.strip().strip(".").lower()
+
+
 def _validate_domain_characters(
     domain_name: str,
 ) -> Tuple[bool, Optional[str], Optional[str]]:

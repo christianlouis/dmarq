@@ -47,7 +47,7 @@ from app.services.workspace_audit import record_workspace_audit_log
 from app.services.workspaces import (
     workspace_domain_query,
 )
-from app.utils.domain_validator import validate_domain_config
+from app.utils.domain_validator import normalize_domain_name, validate_domain_config
 
 logger = logging.getLogger(__name__)
 
@@ -511,10 +511,6 @@ def _policy_enforcement_suggestions(
             }
         ]
     return []
-
-
-def _normalize_domain_name(name: str) -> str:
-    return name.strip().strip(".").lower()
 
 
 def _domain_names_for_summary(
@@ -1303,7 +1299,7 @@ async def create_domain(
 ):
     """Create a monitored domain before any DMARC reports have arrived."""
     workspace = _authorized_domain_workspace(_auth, db)
-    name = _normalize_domain_name(payload.name)
+    name = normalize_domain_name(payload.name)
     validation = validate_domain_config({"name": name, "description": payload.description or ""})
     if not validation["valid"]:
         raise HTTPException(
