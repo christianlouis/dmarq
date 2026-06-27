@@ -81,12 +81,14 @@ def save_forensic_report(
         return existing, False
 
     domain = _domain_for_report(db, report.get("reported_domain"), workspace_id=workspace_id)
+    if domain is None:
+        raise ValueError("Forensic reported_domain is invalid or missing")
     feedback_headers = report.get("feedback_headers")
     if isinstance(feedback_headers, dict):
         feedback_headers = json.dumps(feedback_headers, sort_keys=True)
 
     row = ForensicReport(
-        domain_id=domain.id if domain else None,
+        domain_id=domain.id,
         report_id=report_id,
         source_email=report.get("source_email"),
         feedback_type=report.get("feedback_type"),

@@ -5,7 +5,7 @@ Tests for MailSource model and mail-sources API endpoints.
 import asyncio
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 from unittest.mock import MagicMock, patch
@@ -83,6 +83,40 @@ class TestOAuthStateHelpers:
 
         assert exc.value.status_code == 400
         assert exc.value.detail == "OAuth state does not match the requested mail source."
+
+    def test_signed_oauth_state_rejects_expired_token(self):
+        now = datetime.now(timezone.utc)
+        expired = mail_sources_endpoint.jwt.encode(
+            {
+                "source_id": 7,
+                "workspace_id": 42,
+                "iat": now - timedelta(minutes=20),
+                "exp": now - timedelta(minutes=10),
+            },
+            mail_sources_endpoint._oauth_state_signing_key(),
+            algorithm=mail_sources_endpoint._OAUTH_STATE_ALGORITHM,
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            mail_sources_endpoint._workspace_id_from_oauth_state(
+                f"v1.{expired}",
+                source_id=7,
+            )
+
+        assert exc.value.status_code == 400
+        assert exc.value.detail == "Invalid OAuth state."
+
+    def test_signed_oauth_state_uses_dedicated_signing_key(self):
+        state = mail_sources_endpoint._oauth_state(workspace_id=42, source_id=7)
+        token = state.removeprefix("v1.")
+
+        with pytest.raises(mail_sources_endpoint.JWTError):
+            mail_sources_endpoint.jwt.decode(
+                token,
+                mail_sources_endpoint.get_settings().SECRET_KEY,
+                algorithms=[mail_sources_endpoint._OAUTH_STATE_ALGORITHM],
+                options={"verify_aud": False},
+            )
 
     @pytest.mark.parametrize(
         ("state", "source_id", "expected_workspace_id"),

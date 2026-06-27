@@ -9,7 +9,7 @@ OAuth2 helper endpoints (authorize-url, callback, fetch).
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
@@ -46,6 +46,8 @@ from app.services.workspaces import (
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+_OAUTH_STATE_ALGORITHM = "HS256"
+_OAUTH_STATE_TTL = timedelta(minutes=10)
 
 
 # ---------------------------------------------------------------------------
@@ -249,12 +251,23 @@ def _authorized_mail_source_workspace(
     )
 
 
+def _oauth_state_signing_key() -> str:
+    """Scope OAuth state tokens away from admin auth tokens using the same secret."""
+    return f"{get_settings().SECRET_KEY}:mail-source-oauth-state"
+
+
 def _oauth_state(workspace_id: int, source_id: int) -> str:
     """Return a signed OAuth state value bound to one workspace and source."""
+    now = datetime.now(timezone.utc)
     token = jwt.encode(
-        {"source_id": int(source_id), "workspace_id": int(workspace_id)},
-        get_settings().SECRET_KEY,
-        algorithm="HS256",
+        {
+            "source_id": int(source_id),
+            "workspace_id": int(workspace_id),
+            "iat": now,
+            "exp": now + _OAUTH_STATE_TTL,
+        },
+        _oauth_state_signing_key(),
+        algorithm=_OAUTH_STATE_ALGORITHM,
     )
     return f"v1.{token}"
 
@@ -278,8 +291,8 @@ def _signed_oauth_state_workspace_id(state_value: str, source_id: int) -> int:
     try:
         payload = jwt.decode(
             token,
-            get_settings().SECRET_KEY,
-            algorithms=["HS256"],
+            _oauth_state_signing_key(),
+            algorithms=[_OAUTH_STATE_ALGORITHM],
             options={"verify_aud": False},
         )
         workspace_id = int(payload["workspace_id"])

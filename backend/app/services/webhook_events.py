@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.core.credential_encryption import decrypt_secret, encrypt_secret, is_encrypted_secret
 from app.models.webhook import WebhookDelivery, WebhookEndpoint
+from app.services.workspaces import get_or_create_default_workspace
 
 EVENT_REPORT_IMPORTED = "dmarq.report.imported"
 EVENT_SENDER_NEW = "dmarq.sender.new"
@@ -115,6 +116,12 @@ def validate_webhook_url(url: str) -> str:
     return clean_url
 
 
+def _webhook_workspace_id(db: Session, workspace_id: Optional[int]) -> int:
+    if workspace_id is not None:
+        return int(workspace_id)
+    return get_or_create_default_workspace(db, commit=False).id
+
+
 def create_webhook_endpoint(
     db: Session,
     *,
@@ -135,9 +142,10 @@ def create_webhook_endpoint(
     raw_secret = secret.strip() if secret else generate_webhook_secret()
     if len(raw_secret) < 16:
         raise ValueError("Webhook signing secret must be at least 16 characters")
+    resolved_workspace_id = _webhook_workspace_id(db, workspace_id)
 
     endpoint = WebhookEndpoint(
-        workspace_id=workspace_id,
+        workspace_id=resolved_workspace_id,
         name=clean_name,
         url=_encrypt(clean_url),
         secret=_encrypt(raw_secret),
@@ -222,10 +230,15 @@ def enqueue_webhook_event(
     """Create pending deliveries for all enabled endpoints matching an event."""
     if event_type not in SUPPORTED_EVENT_TYPES:
         raise ValueError(f"Unsupported webhook event type: {event_type}")
-    endpoints_query = db.query(WebhookEndpoint).filter(WebhookEndpoint.enabled.is_(True))
-    if workspace_id is not None:
-        endpoints_query = endpoints_query.filter(WebhookEndpoint.workspace_id == workspace_id)
-    endpoints = endpoints_query.all()
+    resolved_workspace_id = _webhook_workspace_id(db, workspace_id)
+    endpoints = (
+        db.query(WebhookEndpoint)
+        .filter(
+            WebhookEndpoint.enabled.is_(True),
+            WebhookEndpoint.workspace_id == resolved_workspace_id,
+        )
+        .all()
+    )
     event_payload = build_event_payload(event_type, payload)
     key = idempotency_key or default_idempotency_key(event_type, event_payload)
     deliveries: List[WebhookDelivery] = []
