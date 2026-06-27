@@ -58,6 +58,7 @@ class StatsSummarizer:
         max_age_minutes: int = 60,
         period_days: int = 30,
         cache_key: Optional[str] = None,
+        workspace_id: Optional[int] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Get cached summary statistics if available and not too old
@@ -71,7 +72,12 @@ class StatsSummarizer:
         Returns:
             Cached statistics or None if not available or too old
         """
-        cache_file = self._get_cache_filename(domain_id, period_days, cache_key=cache_key)
+        cache_file = self._get_cache_filename(
+            domain_id,
+            period_days,
+            cache_key=cache_key,
+            workspace_id=workspace_id,
+        )
 
         try:
             if not os.path.exists(cache_file):
@@ -98,6 +104,7 @@ class StatsSummarizer:
         domain_id: Optional[str] = None,
         period_days: int = 30,
         cache_key: Optional[str] = None,
+        workspace_id: Optional[int] = None,
     ) -> bool:
         """
         Save summary statistics to cache
@@ -110,7 +117,12 @@ class StatsSummarizer:
         Returns:
             True if save was successful, False otherwise
         """
-        cache_file = self._get_cache_filename(domain_id, period_days, cache_key=cache_key)
+        cache_file = self._get_cache_filename(
+            domain_id,
+            period_days,
+            cache_key=cache_key,
+            workspace_id=workspace_id,
+        )
 
         try:
             # Add timestamp
@@ -125,7 +137,11 @@ class StatsSummarizer:
             logger.error("Error writing cache file %s: %s", cache_file, str(e))
             return False
 
-    def invalidate_cache(self, domain_id: Optional[str] = None) -> None:
+    def invalidate_cache(
+        self,
+        domain_id: Optional[str] = None,
+        workspace_id: Optional[int] = None,
+    ) -> None:
         """
         Invalidate cache for a domain or all domains
 
@@ -133,11 +149,12 @@ class StatsSummarizer:
             domain_id: Optional domain ID to invalidate specific domain cache
                        If None, invalidates global summary cache
         """
+        workspace_prefix = f"workspace_{workspace_id}_" if workspace_id is not None else ""
         if domain_id is None:
-            self._remove_cache_files("global_summary")
+            self._remove_cache_files(f"{workspace_prefix}global_summary")
         else:
             safe_domain = domain_id.replace(".", "_").replace("/", "_")
-            self._remove_cache_files(f"domain_{safe_domain}")
+            self._remove_cache_files(f"{workspace_prefix}domain_{safe_domain}")
 
     def _remove_cache_files(self, prefix: str) -> None:
         """Remove cached summary files that begin with the provided prefix."""
@@ -150,6 +167,7 @@ class StatsSummarizer:
         domain_id: Optional[str] = None,
         period_days: int = 30,
         cache_key: Optional[str] = None,
+        workspace_id: Optional[int] = None,
     ) -> str:
         """
         Get the filename for a cache file
@@ -167,11 +185,12 @@ class StatsSummarizer:
             safe_key = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(cache_key)).strip("_")
             if safe_key:
                 suffix = f"{suffix}_{safe_key}"
+        workspace_prefix = f"workspace_{workspace_id}_" if workspace_id is not None else ""
         if domain_id is None:
-            return os.path.join(self.cache_dir, f"global_summary_{suffix}.json")
+            return os.path.join(self.cache_dir, f"{workspace_prefix}global_summary_{suffix}.json")
         # Sanitize domain_id to use as filename
         safe_domain = domain_id.replace(".", "_").replace("/", "_")
-        return os.path.join(self.cache_dir, f"domain_{safe_domain}_{suffix}.json")
+        return os.path.join(self.cache_dir, f"{workspace_prefix}domain_{safe_domain}_{suffix}.json")
 
     def calculate_summary_statistics(
         self,
@@ -181,6 +200,7 @@ class StatsSummarizer:
         start_ts: Optional[int] = None,
         end_ts: Optional[int] = None,
         cache_key: Optional[str] = None,
+        workspace_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Calculate summary statistics from the database
@@ -201,12 +221,19 @@ class StatsSummarizer:
                 domain_id,
                 period_days=period_days,
                 cache_key=cache_key,
+                workspace_id=workspace_id,
             )
             if cached_stats and "change_summary" in cached_stats:
                 return cached_stats
 
         if domain_id is None:
-            stats = self._calculate_global_statistics(db, period_days, start_ts, end_ts)
+            stats = self._calculate_global_statistics(
+                db,
+                period_days,
+                start_ts,
+                end_ts,
+                workspace_id=workspace_id,
+            )
         else:
             stats = self._calculate_domain_statistics(
                 db,
@@ -214,10 +241,17 @@ class StatsSummarizer:
                 period_days,
                 start_ts,
                 end_ts,
+                workspace_id=workspace_id,
             )
 
         if use_cache:
-            self.save_summary(stats, domain_id, period_days, cache_key=cache_key)
+            self.save_summary(
+                stats,
+                domain_id,
+                period_days,
+                cache_key=cache_key,
+                workspace_id=workspace_id,
+            )
 
         return stats
 
@@ -251,15 +285,23 @@ class StatsSummarizer:
         period_days: int = 30,
         start_ts: Optional[int] = None,
         end_ts: Optional[int] = None,
+        workspace_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Calculate global statistics across all domains from the database."""
         # Count total domains
-        total_domains = db.query(func.count(Domain.id)).scalar() or 0
+        domain_query = db.query(Domain)
+        if workspace_id is not None:
+            domain_query = domain_query.filter(Domain.workspace_id == workspace_id)
+        total_domains = domain_query.count()
 
         # Aggregate email counts from report records
         totals_query = db.query(
             func.coalesce(func.sum(ReportRecord.count), 0).label("total_emails")
         ).join(DMARCReport, ReportRecord.report_id == DMARCReport.id)
+        if workspace_id is not None:
+            totals_query = totals_query.join(Domain, DMARCReport.domain_id == Domain.id).filter(
+                Domain.workspace_id == workspace_id
+            )
         totals = self._apply_report_window(
             totals_query,
             period_days,
@@ -274,6 +316,10 @@ class StatsSummarizer:
             .join(DMARCReport, ReportRecord.report_id == DMARCReport.id)
             .filter((ReportRecord.dkim == "pass") | (ReportRecord.spf == "pass"))
         )
+        if workspace_id is not None:
+            compliant_query = compliant_query.join(
+                Domain, DMARCReport.domain_id == Domain.id
+            ).filter(Domain.workspace_id == workspace_id)
         compliant_emails = self._apply_report_window(
             compliant_query,
             period_days,
@@ -283,9 +329,14 @@ class StatsSummarizer:
         compliant_emails = int(compliant_emails) if compliant_emails else 0
 
         # Count reports processed
+        reports_query = db.query(func.count(DMARCReport.id))
+        if workspace_id is not None:
+            reports_query = reports_query.join(Domain, DMARCReport.domain_id == Domain.id).filter(
+                Domain.workspace_id == workspace_id
+            )
         reports_processed = (
             self._apply_report_window(
-                db.query(func.count(DMARCReport.id)),
+                reports_query,
                 period_days,
                 start_ts,
                 end_ts,
@@ -304,6 +355,7 @@ class StatsSummarizer:
             period_days=period_days,
             start_ts=start_ts,
             end_ts=end_ts,
+            workspace_id=workspace_id,
         )
 
         # Compliance trend over recent days
@@ -312,6 +364,7 @@ class StatsSummarizer:
             days=period_days,
             start_ts=start_ts,
             end_ts=end_ts,
+            workspace_id=workspace_id,
         )
 
         # Recently changed source and compliance signals
@@ -321,6 +374,7 @@ class StatsSummarizer:
             trend=compliance_trend,
             start_ts=start_ts,
             end_ts=end_ts,
+            workspace_id=workspace_id,
         )
 
         return {
@@ -341,10 +395,14 @@ class StatsSummarizer:
         period_days: int = 30,
         start_ts: Optional[int] = None,
         end_ts: Optional[int] = None,
+        workspace_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Calculate statistics for a specific domain from the database."""
         # Look up the domain by name
-        domain = db.query(Domain).filter(Domain.name == domain_id).first()
+        domain_query = db.query(Domain).filter(Domain.name == domain_id)
+        if workspace_id is not None:
+            domain_query = domain_query.filter(Domain.workspace_id == workspace_id)
+        domain = domain_query.first()
         if not domain:
             return {
                 "domain": domain_id,
@@ -417,6 +475,7 @@ class StatsSummarizer:
             days=period_days,
             start_ts=start_ts,
             end_ts=end_ts,
+            workspace_id=workspace_id,
         )
 
         # Recently changed source and compliance signals
@@ -427,6 +486,7 @@ class StatsSummarizer:
             trend=compliance_trend,
             start_ts=start_ts,
             end_ts=end_ts,
+            workspace_id=workspace_id,
         )
 
         return {
@@ -447,6 +507,7 @@ class StatsSummarizer:
         period_days: int = 30,
         start_ts: Optional[int] = None,
         end_ts: Optional[int] = None,
+        workspace_id: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """Get top sending sources by email volume across all domains."""
         query = db.query(
@@ -474,6 +535,10 @@ class StatsSummarizer:
                 )
             ).label("dmarc_pass_count"),
         ).join(DMARCReport, ReportRecord.report_id == DMARCReport.id)
+        if workspace_id is not None:
+            query = query.join(Domain, DMARCReport.domain_id == Domain.id).filter(
+                Domain.workspace_id == workspace_id
+            )
         results = (
             self._apply_report_window(query, period_days, start_ts, end_ts)
             .group_by(ReportRecord.source_ip)
@@ -584,6 +649,7 @@ class StatsSummarizer:
         days: int = 30,
         start_ts: Optional[int] = None,
         end_ts: Optional[int] = None,
+        workspace_id: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
         Calculate compliance trend over recent days from report data.
@@ -615,6 +681,10 @@ class StatsSummarizer:
 
         if domain_db_id is not None:
             query = query.filter(DMARCReport.domain_id == domain_db_id)
+        if workspace_id is not None:
+            query = query.join(Domain, DMARCReport.domain_id == Domain.id).filter(
+                Domain.workspace_id == workspace_id
+            )
 
         results = query.group_by(DMARCReport.begin_date).order_by(DMARCReport.begin_date).all()
 
@@ -659,6 +729,7 @@ class StatsSummarizer:
         limit: int = 5,
         start_ts: Optional[int] = None,
         end_ts: Optional[int] = None,
+        workspace_id: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """Return notable source and compliance changes for the reporting window."""
         days = max(1, int(days or 30))
@@ -687,6 +758,9 @@ class StatsSummarizer:
         if domain_db_id is not None:
             current_query = current_query.filter(DMARCReport.domain_id == domain_db_id)
             previous_query = previous_query.filter(DMARCReport.domain_id == domain_db_id)
+        if workspace_id is not None:
+            current_query = current_query.filter(Domain.workspace_id == workspace_id)
+            previous_query = previous_query.filter(Domain.workspace_id == workspace_id)
 
         previous_sources = {(row.domain, row.source_ip) for row in previous_query.distinct().all()}
         current_sources = (

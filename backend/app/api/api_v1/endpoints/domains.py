@@ -7,7 +7,7 @@ from dataclasses import asdict
 from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
@@ -40,13 +40,11 @@ from app.services.report_store import ReportStore
 from app.services.workspace_access import (
     PERMISSION_DOMAINS_WRITE,
     PERMISSION_REPORTS_READ,
-    require_workspace_permission,
+    parse_selected_workspace_id,
+    resolve_authorized_workspace,
 )
 from app.services.workspace_audit import record_workspace_audit_log
 from app.services.workspaces import (
-    assign_default_workspace_to_unscoped_rows,
-    get_default_workspace,
-    get_or_create_default_workspace,
     workspace_domain_query,
 )
 from app.utils.domain_validator import validate_domain_config
@@ -61,16 +59,29 @@ def _authorized_domain_workspace(
     auth_context: Dict[str, Any],
     db: Session,
     permission: str = PERMISSION_DOMAINS_WRITE,
+    selected_workspace_id: Optional[int] = None,
 ):
     """Authorize workspace domain/DNS setup before legacy repair writes."""
-    workspace = get_default_workspace(db) or get_or_create_default_workspace(db)
-    require_workspace_permission(auth_context, permission, db, workspace)
-    return assign_default_workspace_to_unscoped_rows(db)
+    return resolve_authorized_workspace(
+        db,
+        auth_context,
+        permission,
+        selected_workspace_id=selected_workspace_id,
+    )
 
 
-def _authorized_domain_read_workspace(auth_context: Dict[str, Any], db: Session):
+def _authorized_domain_read_workspace(
+    auth_context: Dict[str, Any],
+    db: Session,
+    selected_workspace_id: Optional[int] = None,
+):
     """Authorize read-only domain/report/DNS visibility for the default workspace."""
-    return _authorized_domain_workspace(auth_context, db, PERMISSION_REPORTS_READ)
+    return _authorized_domain_workspace(
+        auth_context,
+        db,
+        PERMISSION_REPORTS_READ,
+        selected_workspace_id=selected_workspace_id,
+    )
 
 
 def _normalize_reported_policy(policy_value: Any) -> Optional[str]:
@@ -506,7 +517,12 @@ def _normalize_domain_name(name: str) -> str:
     return name.strip().strip(".").lower()
 
 
-def _domain_names_for_summary(db: Session, store: ReportStore, workspace=None) -> List[str]:
+def _domain_names_for_summary(
+    db: Session,
+    store: ReportStore,
+    workspace=None,
+    include_unscoped_report_domains: bool = True,
+) -> List[str]:
     report_domains = store.get_domains()
     stored_query = db.query(Domain.name).filter(Domain.active == True)  # noqa: E712
     if workspace is not None:
@@ -525,7 +541,8 @@ def _domain_names_for_summary(db: Session, store: ReportStore, workspace=None) -
         scoped_report_domains = [
             name
             for name in report_domains
-            if name not in stored_scope or stored_scope[name] == workspace.id
+            if stored_scope.get(name) == workspace.id
+            or (include_unscoped_report_domains and name not in stored_scope)
         ]
     return list(dict.fromkeys(stored_domains + scoped_report_domains))
 
@@ -1123,6 +1140,7 @@ def _build_posture_dashboard(
 async def get_domains_summary(
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ):
     """
     Get summary statistics for all domains, formatted for the dashboard.
@@ -1132,10 +1150,20 @@ async def get_domains_summary(
     A per-domain timeout of 10 s prevents slow DNS responses from blocking the
     page load.
     """
-    workspace = _authorized_domain_read_workspace(_auth, db)
+    selected_workspace_id = parse_selected_workspace_id(selected_workspace)
+    workspace = _authorized_domain_read_workspace(_auth, db, selected_workspace_id)
     store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store)
-    domains = _domain_names_for_summary(db, store, workspace)
+    hydrate_report_store_from_db(
+        db,
+        store,
+        workspace_id=workspace.id if selected_workspace_id is not None else None,
+    )
+    domains = _domain_names_for_summary(
+        db,
+        store,
+        workspace,
+        include_unscoped_report_domains=selected_workspace_id is None,
+    )
     summaries = store.get_all_domain_summaries()
 
     # Perform DNS checks for all domains, reusing fresh cached results.

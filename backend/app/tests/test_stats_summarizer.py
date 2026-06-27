@@ -9,11 +9,16 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 import app.models.domain  # noqa: F401
+import app.models.mail_source  # noqa: F401
+import app.models.organization  # noqa: F401
 import app.models.report  # noqa: F401
 import app.models.user  # noqa: F401
+import app.models.workspace  # noqa: F401
+import app.models.workspace_access  # noqa: F401
 from app.core.database import Base
 from app.models.domain import Domain
 from app.models.report import DMARCReport, ReportRecord
+from app.models.workspace import Workspace
 from app.utils.stats_summarizer import StatsSummarizer, _auth_status_from_counts
 
 
@@ -41,9 +46,16 @@ def summarizer():
     shutil.rmtree(cache_dir, ignore_errors=True)
 
 
-def _seed_domain_and_reports(db, domain_name="example.com"):
+def _workspace(db, slug: str) -> Workspace:
+    workspace = Workspace(slug=slug, name=slug.title(), active=True)
+    db.add(workspace)
+    db.flush()
+    return workspace
+
+
+def _seed_domain_and_reports(db, domain_name="example.com", workspace_id=None):
     """Insert a domain with reports and records into the database."""
-    domain = Domain(name=domain_name)
+    domain = Domain(name=domain_name, workspace_id=workspace_id)
     db.add(domain)
     db.flush()
 
@@ -379,6 +391,23 @@ class TestStatsSummarizerGlobal:
         assert stats["total_emails"] == 16  # 8 * 2
         assert stats["reports_processed"] == 2
 
+    def test_workspace_global_stats_exclude_other_workspaces(self, db_session, summarizer):
+        alpha = _workspace(db_session, "alpha-stats")
+        beta = _workspace(db_session, "beta-stats")
+        _seed_domain_and_reports(db_session, "alpha.example", workspace_id=alpha.id)
+        _seed_domain_and_reports(db_session, "beta.example", workspace_id=beta.id)
+        db_session.commit()
+
+        stats = summarizer.calculate_summary_statistics(db_session, workspace_id=alpha.id)
+
+        assert stats["total_domains"] == 1
+        assert stats["total_emails"] == 8
+        assert stats["reports_processed"] == 1
+        assert {source["ip"] for source in stats["top_sources"]} == {
+            "203.0.113.1",
+            "198.51.100.1",
+        }
+
     def test_global_trend_includes_volume_and_failure_rate(self, db_session, summarizer):
         _seed_recent_trend_records(db_session)
         db_session.commit()
@@ -485,6 +514,39 @@ class TestStatsSummarizerDomain:
 
         stats = summarizer.calculate_summary_statistics(db_session, domain_id="example.com")
         assert stats["total_emails"] == 8  # Only example.com's data
+
+    def test_domain_stats_respect_workspace_scope(self, db_session, summarizer):
+        alpha = _workspace(db_session, "alpha-domain-stats")
+        beta = _workspace(db_session, "beta-domain-stats")
+        _seed_domain_and_reports(db_session, "alpha-only.example", workspace_id=alpha.id)
+        _seed_domain_and_reports(db_session, "beta-only.example", workspace_id=beta.id)
+        db_session.commit()
+
+        stats = summarizer.calculate_summary_statistics(
+            db_session,
+            domain_id="alpha-only.example",
+            workspace_id=alpha.id,
+        )
+
+        assert stats["domain"] == "alpha-only.example"
+        assert stats["total_emails"] == 8
+        assert stats["reports_processed"] == 1
+
+    def test_domain_stats_return_empty_for_domain_outside_workspace(self, db_session, summarizer):
+        alpha = _workspace(db_session, "alpha-empty-domain")
+        beta = _workspace(db_session, "beta-empty-domain")
+        _seed_domain_and_reports(db_session, "beta-only.example", workspace_id=beta.id)
+        db_session.commit()
+
+        stats = summarizer.calculate_summary_statistics(
+            db_session,
+            domain_id="beta-only.example",
+            workspace_id=alpha.id,
+        )
+
+        assert stats["domain"] == "beta-only.example"
+        assert stats["total_emails"] == 0
+        assert stats["reports_processed"] == 0
 
     def test_domain_trend_isolation(self, db_session, summarizer):
         _seed_recent_trend_records(db_session, "example.com")
