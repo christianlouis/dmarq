@@ -500,6 +500,70 @@ class TestMailSourcesAPIAuthed:
 
         test_app.dependency_overrides.clear()
 
+    def test_mail_source_routes_respect_selected_workspace_header(
+        self,
+        authed_client: TestClient,
+        db_session: Session,
+    ):
+        """Mail-source CRUD actions stay inside the selected workspace."""
+        get_or_create_default_workspace(db_session)
+        selected_workspace = Workspace(
+            slug="selected-mail-sources",
+            name="Selected Mail Sources",
+        )
+        db_session.add(selected_workspace)
+        db_session.commit()
+        selected_header = {"X-DMARQ-Workspace-ID": str(selected_workspace.id)}
+
+        create_response = authed_client.post(
+            "/api/v1/mail-sources",
+            headers=selected_header,
+            json={"name": "Selected IMAP", "method": "IMAP", "enabled": True},
+        )
+
+        assert create_response.status_code == 201
+        source_id = create_response.json()["id"]
+        source = db_session.get(MailSource, source_id)
+        assert source.workspace_id == selected_workspace.id
+
+        default_list = authed_client.get("/api/v1/mail-sources")
+        selected_list = authed_client.get("/api/v1/mail-sources", headers=selected_header)
+        default_get = authed_client.get(f"/api/v1/mail-sources/{source_id}")
+        selected_get = authed_client.get(
+            f"/api/v1/mail-sources/{source_id}",
+            headers=selected_header,
+        )
+
+        assert default_list.status_code == 200
+        assert default_list.json() == []
+        assert selected_list.status_code == 200
+        assert [item["id"] for item in selected_list.json()] == [source_id]
+        assert default_get.status_code == 404
+        assert selected_get.status_code == 200
+        assert selected_get.json()["name"] == "Selected IMAP"
+
+        update_response = authed_client.put(
+            f"/api/v1/mail-sources/{source_id}",
+            headers=selected_header,
+            json={"name": "Selected IMAP Updated"},
+        )
+        toggle_response = authed_client.post(
+            f"/api/v1/mail-sources/{source_id}/toggle",
+            headers=selected_header,
+        )
+        default_delete = authed_client.delete(f"/api/v1/mail-sources/{source_id}")
+        selected_delete = authed_client.delete(
+            f"/api/v1/mail-sources/{source_id}",
+            headers=selected_header,
+        )
+
+        assert update_response.status_code == 200
+        assert update_response.json()["name"] == "Selected IMAP Updated"
+        assert toggle_response.status_code == 200
+        assert toggle_response.json()["enabled"] is False
+        assert default_delete.status_code == 404
+        assert selected_delete.status_code == 204
+
     # ------------------------------------------------------------------
     # Create
     # ------------------------------------------------------------------
@@ -1461,9 +1525,7 @@ class TestMicrosoft365GraphMailSource:
             "/api/v1/mail-sources",
             json={"name": "No Token Folder List", "method": "M365_GRAPH"},
         )
-        no_token = authed_client.get(
-            f"/api/v1/mail-sources/{m365_resp.json()['id']}/m365/folders"
-        )
+        no_token = authed_client.get(f"/api/v1/mail-sources/{m365_resp.json()['id']}/m365/folders")
         assert no_token.status_code == 400
 
     def test_m365_callback_post_failure_modes(self, authed_client: TestClient):
@@ -2108,6 +2170,64 @@ class TestGmailCallbackGet:
         get_resp = authed_client.get(f"/api/v1/mail-sources/{source_id}")
         assert get_resp.json()["gmail_connected"] is True
         assert get_resp.json()["gmail_email"] == "user@gmail.com"
+
+    def test_callback_uses_oauth_state_for_selected_workspace(
+        self,
+        authed_client: TestClient,
+        db_session: Session,
+    ):
+        """Provider redirects can complete selected-workspace OAuth without custom headers."""
+        get_or_create_default_workspace(db_session)
+        selected_workspace = Workspace(slug="gmail-oauth-selected", name="Gmail OAuth Selected")
+        db_session.add(selected_workspace)
+        db_session.commit()
+        selected_header = {"X-DMARQ-Workspace-ID": str(selected_workspace.id)}
+
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            headers=selected_header,
+            json={
+                "name": "Selected Gmail",
+                "method": "GMAIL_API",
+                "gmail_client_id": "cid",
+                "gmail_client_secret": "secret",
+            },
+        )
+        source_id = create_resp.json()["id"]
+        auth_resp = authed_client.get(
+            f"/api/v1/mail-sources/{source_id}/gmail/authorize-url",
+            headers=selected_header,
+        )
+        auth_url = auth_resp.json()["authorization_url"]
+        state = parse_qs(urlparse(auth_url).query)["state"][0]
+
+        with (
+            patch(
+                "app.api.api_v1.endpoints.mail_sources.GmailClient.exchange_code_for_tokens",
+                return_value={"access_token": "acc", "refresh_token": "ref"},
+            ),
+            patch(
+                "app.api.api_v1.endpoints.mail_sources.GmailClient.get_gmail_email",
+                return_value="selected@gmail.com",
+            ),
+        ):
+            callback_resp = authed_client.get(
+                f"/api/v1/mail-sources/{source_id}/gmail/callback?code=abc&state={state}"
+            )
+
+        assert auth_resp.status_code == 200
+        assert state == f"workspace:{selected_workspace.id}:source:{source_id}"
+        assert callback_resp.status_code == 200
+
+        default_get = authed_client.get(f"/api/v1/mail-sources/{source_id}")
+        selected_get = authed_client.get(
+            f"/api/v1/mail-sources/{source_id}",
+            headers=selected_header,
+        )
+        assert default_get.status_code == 404
+        assert selected_get.status_code == 200
+        assert selected_get.json()["gmail_connected"] is True
+        assert selected_get.json()["gmail_email"] == "selected@gmail.com"
 
     def test_callback_success_without_email(self, authed_client: TestClient):
         """Successful callback where get_gmail_email returns None still saves token."""

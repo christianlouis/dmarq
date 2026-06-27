@@ -12,7 +12,7 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -34,12 +34,11 @@ from app.services.mailbox_recovery import (
 from app.services.microsoft_graph_client import MicrosoftGraphClient
 from app.services.workspace_access import (
     PERMISSION_MAIL_SOURCES_WRITE,
-    require_workspace_permission,
+    parse_selected_workspace_id,
+    resolve_authorized_workspace,
 )
 from app.services.workspace_audit import changed_fields, record_workspace_audit_log
 from app.services.workspaces import (
-    assign_default_workspace_to_unscoped_rows,
-    get_default_workspace,
     workspace_mail_source_query,
 )
 
@@ -220,16 +219,44 @@ def _get_source_or_404(source_id: int, db: Session, workspace=None) -> MailSourc
     return source
 
 
-def _require_mail_source_access(auth_context: Dict[str, Any], db: Session, workspace) -> None:
-    """Require permission to inspect or manage workspace mail-source setup."""
-    require_workspace_permission(auth_context, PERMISSION_MAIL_SOURCES_WRITE, db, workspace)
+def _selected_workspace_id(selected_workspace: Optional[str]) -> Optional[int]:
+    return parse_selected_workspace_id(selected_workspace)
 
 
-def _authorized_mail_source_workspace(auth_context: Dict[str, Any], db: Session):
-    """Authorize against the current workspace before running legacy repair writes."""
-    workspace = get_default_workspace(db)
-    _require_mail_source_access(auth_context, db, workspace)
-    return assign_default_workspace_to_unscoped_rows(db)
+def _selected_workspace_or_oauth_state(
+    selected_workspace: Optional[str],
+    state_value: Optional[str],
+) -> Optional[int]:
+    return _workspace_id_from_oauth_state(state_value) or _selected_workspace_id(selected_workspace)
+
+
+def _authorized_mail_source_workspace(
+    auth_context: Dict[str, Any],
+    db: Session,
+    selected_workspace_id: Optional[int] = None,
+):
+    """Resolve and authorize the selected workspace for mail-source operations."""
+    return resolve_authorized_workspace(
+        db,
+        auth_context,
+        PERMISSION_MAIL_SOURCES_WRITE,
+        selected_workspace_id=selected_workspace_id,
+    )
+
+
+def _oauth_state(workspace_id: int, source_id: int) -> str:
+    """Encode selected workspace context for OAuth provider redirects."""
+    return f"workspace:{workspace_id}:source:{source_id}"
+
+
+def _workspace_id_from_oauth_state(state_value: Optional[str]) -> Optional[int]:
+    """Return a selected workspace id from OAuth state, tolerating old state values."""
+    if not state_value:
+        return None
+    parts = state_value.split(":")
+    if len(parts) == 4 and parts[0] == "workspace" and parts[2] == "source":
+        return _selected_workspace_id(parts[1])
+    return None
 
 
 def _audit_mail_source_change(
@@ -490,9 +517,14 @@ def _fetch_source(source: MailSource, db: Session, days: int) -> Dict[str, Any]:
 async def list_mail_sources(
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> List[MailSourceResponse]:
     """Return all configured mail sources (passwords redacted)."""
-    workspace = _authorized_mail_source_workspace(_auth, db)
+    workspace = _authorized_mail_source_workspace(
+        _auth,
+        db,
+        _selected_workspace_id(selected_workspace),
+    )
     sources = workspace_mail_source_query(db, workspace).order_by(MailSource.id).all()
     return [_source_to_response(s) for s in sources]
 
@@ -503,9 +535,14 @@ async def create_mail_source(
     request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> MailSourceResponse:
     """Create a new mail source."""
-    workspace = _authorized_mail_source_workspace(_auth, db)
+    workspace = _authorized_mail_source_workspace(
+        _auth,
+        db,
+        _selected_workspace_id(selected_workspace),
+    )
     source = MailSource(
         workspace_id=workspace.id,
         name=payload.name,
@@ -549,9 +586,14 @@ async def get_mail_source(
     source_id: int,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> MailSourceResponse:
     """Return a single mail source by ID (password redacted)."""
-    workspace = _authorized_mail_source_workspace(_auth, db)
+    workspace = _authorized_mail_source_workspace(
+        _auth,
+        db,
+        _selected_workspace_id(selected_workspace),
+    )
     source = _get_source_or_404(source_id, db, workspace)
     return _source_to_response(source)
 
@@ -562,9 +604,14 @@ async def list_mail_source_imports(
     limit: int = 20,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> List[MailSourceImportResponse]:
     """Return recent sanitized import attempts for one mail source."""
-    workspace = _authorized_mail_source_workspace(_auth, db)
+    workspace = _authorized_mail_source_workspace(
+        _auth,
+        db,
+        _selected_workspace_id(selected_workspace),
+    )
     _get_source_or_404(source_id, db, workspace)
     safe_limit = min(max(limit, 1), 100)
     rows = (
@@ -583,12 +630,15 @@ async def fetch_mail_source(
     days: int = 7,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> Dict[str, Any]:
     """Manually fetch DMARC reports for one configured mail source."""
     if days < 1 or days > 365:
         raise HTTPException(status_code=400, detail="Days parameter must be between 1 and 365")
 
-    workspace = _authorized_mail_source_workspace(_auth, db)
+    workspace = _authorized_mail_source_workspace(
+        _auth, db, _selected_workspace_id(selected_workspace)
+    )
     source = _get_source_or_404(source_id, db, workspace)
     results = _fetch_source(source, db, days)
     logger.info(
@@ -617,9 +667,12 @@ async def update_mail_source(
     request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> MailSourceResponse:
     """Update one or more fields of an existing mail source."""
-    workspace = _authorized_mail_source_workspace(_auth, db)
+    workspace = _authorized_mail_source_workspace(
+        _auth, db, _selected_workspace_id(selected_workspace)
+    )
     source = _get_source_or_404(source_id, db, workspace)
 
     update_data = payload.model_dump(exclude_unset=True)
@@ -651,9 +704,12 @@ async def delete_mail_source(
     request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> None:
     """Delete a mail source permanently."""
-    workspace = _authorized_mail_source_workspace(_auth, db)
+    workspace = _authorized_mail_source_workspace(
+        _auth, db, _selected_workspace_id(selected_workspace)
+    )
     source = _get_source_or_404(source_id, db, workspace)
     source_name = source.name
     source_method = source.method
@@ -680,9 +736,12 @@ async def toggle_mail_source(
     request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> MailSourceResponse:
     """Toggle the *enabled* flag of a mail source."""
-    workspace = _authorized_mail_source_workspace(_auth, db)
+    workspace = _authorized_mail_source_workspace(
+        _auth, db, _selected_workspace_id(selected_workspace)
+    )
     source = _get_source_or_404(source_id, db, workspace)
     source.enabled = not source.enabled
     source.updated_at = datetime.utcnow()
@@ -705,9 +764,12 @@ async def test_stored_mail_source(  # noqa: C901
     source_id: int,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> Dict[str, Any]:
     """Test the connection for an already-stored mail source using its saved credentials."""
-    workspace = _authorized_mail_source_workspace(_auth, db)
+    workspace = _authorized_mail_source_workspace(
+        _auth, db, _selected_workspace_id(selected_workspace)
+    )
     source = _get_source_or_404(source_id, db, workspace)
 
     if source.method == "GMAIL_API":
@@ -815,13 +877,14 @@ async def test_connection_adhoc(
     request: TestConnectionRequest,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> Dict[str, Any]:
     """
     Test a connection using ad-hoc credentials (not stored in the database).
 
     Useful when filling out the *add/edit mail source* form before saving.
     """
-    _authorized_mail_source_workspace(_auth, db)
+    _authorized_mail_source_workspace(_auth, db, _selected_workspace_id(selected_workspace))
     method = request.method.upper()
 
     if method != "IMAP":
@@ -852,9 +915,12 @@ async def m365_authorize_url(
     request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> Dict[str, Any]:
     """Return a Microsoft identity platform authorization URL for M365_GRAPH."""
-    workspace = _authorized_mail_source_workspace(_auth, db)
+    workspace = _authorized_mail_source_workspace(
+        _auth, db, _selected_workspace_id(selected_workspace)
+    )
     source = _get_source_or_404(source_id, db, workspace)
 
     if source.method != "M365_GRAPH":
@@ -874,7 +940,7 @@ async def m365_authorize_url(
         tenant_id=source.m365_tenant_id or "common",
         client_id=source.m365_client_id,
         redirect_uri=redirect_uri,
-        state=str(source_id),
+        state=_oauth_state(workspace.id, source_id),
     )
     return {"authorization_url": auth_url, "redirect_uri": redirect_uri}
 
@@ -884,9 +950,12 @@ async def m365_list_folders(
     source_id: int,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> Dict[str, Any]:
     """Return selectable Microsoft 365 mail folders for this source."""
-    workspace = _authorized_mail_source_workspace(_auth, db)
+    workspace = _authorized_mail_source_workspace(
+        _auth, db, _selected_workspace_id(selected_workspace)
+    )
     source = _get_source_or_404(source_id, db, workspace)
 
     if source.method != "M365_GRAPH":
@@ -948,6 +1017,7 @@ async def m365_oauth_callback(
     request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> Any:
     """Handle the Microsoft identity platform OAuth2 redirect."""
     from fastapi.responses import HTMLResponse
@@ -963,7 +1033,14 @@ async def m365_oauth_callback(
         )
         return HTMLResponse(content=html, status_code=400)
 
-    workspace = _authorized_mail_source_workspace(_auth, db)
+    workspace = _authorized_mail_source_workspace(
+        _auth,
+        db,
+        _selected_workspace_or_oauth_state(
+            selected_workspace,
+            request.query_params.get("state"),
+        ),
+    )
     source = _get_source_or_404(source_id, db, workspace)
     if source.method != "M365_GRAPH":
         return HTMLResponse(
@@ -1035,9 +1112,12 @@ async def m365_oauth_callback_post(
     request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> MailSourceResponse:
     """Exchange a Microsoft OAuth2 authorization code for Graph tokens."""
-    workspace = _authorized_mail_source_workspace(_auth, db)
+    workspace = _authorized_mail_source_workspace(
+        _auth, db, _selected_workspace_id(selected_workspace)
+    )
     source = _get_source_or_404(source_id, db, workspace)
 
     if source.method != "M365_GRAPH":
@@ -1109,9 +1189,12 @@ async def m365_fetch_reports(
     days: int = Query(7, ge=1, le=365, title="Number of days to fetch"),
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> Dict[str, Any]:
     """Manually trigger a Microsoft 365 Graph DMARC report fetch."""
-    workspace = _authorized_mail_source_workspace(_auth, db)
+    workspace = _authorized_mail_source_workspace(
+        _auth, db, _selected_workspace_id(selected_workspace)
+    )
     source = _get_source_or_404(source_id, db, workspace)
 
     if source.method != "M365_GRAPH":
@@ -1143,9 +1226,12 @@ async def m365_disconnect(
     request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> None:
     """Clear the stored Microsoft Graph OAuth2 tokens for this source."""
-    workspace = _authorized_mail_source_workspace(_auth, db)
+    workspace = _authorized_mail_source_workspace(
+        _auth, db, _selected_workspace_id(selected_workspace)
+    )
     source = _get_source_or_404(source_id, db, workspace)
 
     if source.method != "M365_GRAPH":
@@ -1181,6 +1267,7 @@ async def gmail_authorize_url(
     request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> Dict[str, Any]:
     """
     Return a Google OAuth2 authorization URL for the given GMAIL_API source.
@@ -1189,7 +1276,9 @@ async def gmail_authorize_url(
     grants access Google redirects back to
     ``<origin>/mail-sources/<id>/gmail/callback`` with a ``code`` parameter.
     """
-    workspace = _authorized_mail_source_workspace(_auth, db)
+    workspace = _authorized_mail_source_workspace(
+        _auth, db, _selected_workspace_id(selected_workspace)
+    )
     source = _get_source_or_404(source_id, db, workspace)
 
     if source.method != "GMAIL_API":
@@ -1210,7 +1299,7 @@ async def gmail_authorize_url(
     auth_url = GmailClient.build_authorization_url(
         client_id=source.gmail_client_id,
         redirect_uri=redirect_uri,
-        state=str(source_id),
+        state=_oauth_state(workspace.id, source_id),
     )
     return {
         "authorization_url": auth_url,
@@ -1224,6 +1313,7 @@ async def gmail_oauth_callback(
     request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> Any:
     """
     Handle the Google OAuth2 redirect after the user grants Gmail access.
@@ -1245,7 +1335,14 @@ async def gmail_oauth_callback(
         )
         return HTMLResponse(content=html, status_code=400)
 
-    workspace = _authorized_mail_source_workspace(_auth, db)
+    workspace = _authorized_mail_source_workspace(
+        _auth,
+        db,
+        _selected_workspace_or_oauth_state(
+            selected_workspace,
+            request.query_params.get("state"),
+        ),
+    )
     source = _get_source_or_404(source_id, db, workspace)
     if source.method != "GMAIL_API":
         return HTMLResponse(
@@ -1318,6 +1415,7 @@ async def gmail_oauth_callback_post(
     request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> MailSourceResponse:
     """
     Exchange an OAuth2 authorization code for tokens (JSON / programmatic flow).
@@ -1326,7 +1424,9 @@ async def gmail_oauth_callback_post(
     themselves and post the code here as JSON.  Requires the standard
     admin authentication.
     """
-    workspace = _authorized_mail_source_workspace(_auth, db)
+    workspace = _authorized_mail_source_workspace(
+        _auth, db, _selected_workspace_id(selected_workspace)
+    )
     source = _get_source_or_404(source_id, db, workspace)
 
     if source.method != "GMAIL_API":
@@ -1398,6 +1498,7 @@ async def gmail_fetch_reports(
     source_id: int,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> Dict[str, Any]:
     """
     Manually trigger a Gmail DMARC report fetch for the given source.
@@ -1405,7 +1506,9 @@ async def gmail_fetch_reports(
     Searches Gmail for emails matching the DMARC report heuristic, ingests
     any attachments not yet seen, and returns a summary.
     """
-    workspace = _authorized_mail_source_workspace(_auth, db)
+    workspace = _authorized_mail_source_workspace(
+        _auth, db, _selected_workspace_id(selected_workspace)
+    )
     source = _get_source_or_404(source_id, db, workspace)
 
     if source.method != "GMAIL_API":
@@ -1480,9 +1583,12 @@ async def gmail_disconnect(
     request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> None:
     """Revoke / clear the stored Gmail OAuth2 tokens for this source."""
-    workspace = _authorized_mail_source_workspace(_auth, db)
+    workspace = _authorized_mail_source_workspace(
+        _auth, db, _selected_workspace_id(selected_workspace)
+    )
     source = _get_source_or_404(source_id, db, workspace)
 
     if source.method != "GMAIL_API":
