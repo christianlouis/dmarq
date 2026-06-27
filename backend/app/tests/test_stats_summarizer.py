@@ -1,5 +1,6 @@
 """Tests for the StatsSummarizer with real database queries."""
 
+import os
 import shutil
 import tempfile
 from datetime import datetime, timedelta, timezone
@@ -396,6 +397,17 @@ class TestStatsSummarizerGlobal:
         beta = _workspace(db_session, "beta-stats")
         _seed_domain_and_reports(db_session, "alpha.example", workspace_id=alpha.id)
         _seed_domain_and_reports(db_session, "beta.example", workspace_id=beta.id)
+        beta_records = (
+            db_session.query(ReportRecord)
+            .join(DMARCReport, ReportRecord.report_id == DMARCReport.id)
+            .join(Domain, DMARCReport.domain_id == Domain.id)
+            .filter(Domain.workspace_id == beta.id)
+            .order_by(ReportRecord.id)
+            .all()
+        )
+        for index, record in enumerate(beta_records, start=1):
+            record.source_ip = f"192.0.2.{index}"
+            record.count = 40 + index
         db_session.commit()
 
         stats = summarizer.calculate_summary_statistics(db_session, workspace_id=alpha.id)
@@ -407,6 +419,9 @@ class TestStatsSummarizerGlobal:
             "203.0.113.1",
             "198.51.100.1",
         }
+        assert {source["ip"] for source in stats["top_sources"]}.isdisjoint(
+            {"192.0.2.1", "192.0.2.2"}
+        )
 
     def test_global_trend_includes_volume_and_failure_rate(self, db_session, summarizer):
         _seed_recent_trend_records(db_session)
@@ -626,6 +641,21 @@ class TestStatsSummarizerCaching:
         assert seven_day_cache != thirty_day_cache
         assert "7d_shared_window" in seven_day_cache
         assert "30d_shared_window" in thirty_day_cache
+
+    def test_workspace_cache_keys_are_partitioned_and_invalidated(self, summarizer):
+        summarizer.save_summary({"total_domains": 1, "change_summary": {}}, workspace_id=101)
+        summarizer.save_summary({"total_domains": 2, "change_summary": {}}, workspace_id=202)
+
+        assert os.path.basename(summarizer._get_cache_filename(workspace_id=101)).startswith(
+            "workspace_101_global_summary"
+        )
+        assert summarizer.get_cached_summary(workspace_id=101)["total_domains"] == 1
+        assert summarizer.get_cached_summary(workspace_id=202)["total_domains"] == 2
+
+        summarizer.invalidate_cache(workspace_id=101)
+
+        assert summarizer.get_cached_summary(workspace_id=101) is None
+        assert summarizer.get_cached_summary(workspace_id=202)["total_domains"] == 2
 
     def test_old_cache_without_change_summary_is_refreshed(self, db_session, summarizer):
         _seed_new_source_records(db_session)

@@ -15,7 +15,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.api_v1.endpoints import domains as domains_endpoint
+from app.models.domain import Domain
 from app.services.report_store import ReportStore
+from app.services.workspaces import get_or_create_default_workspace
 
 # ---------------------------------------------------------------------------
 # Helpers / constants
@@ -74,8 +76,13 @@ REPORT_STR_POLICY = {
 
 
 @pytest.fixture()
-def seeded_client(authed_client: TestClient):
+def seeded_client(authed_client: TestClient, db_session):
     """Client with one report (dict-style policy) in the ReportStore."""
+    workspace = get_or_create_default_workspace(db_session)
+    db_session.add(
+        Domain(name=DOMAIN, workspace_id=workspace.id, active=True, dmarc_policy="reject")
+    )
+    db_session.commit()
     ReportStore.get_instance().add_report(REPORT_DICT_POLICY)
     return authed_client
 
