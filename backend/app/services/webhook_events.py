@@ -118,6 +118,7 @@ def validate_webhook_url(url: str) -> str:
 def create_webhook_endpoint(
     db: Session,
     *,
+    workspace_id: Optional[int] = None,
     name: str,
     url: str,
     secret: Optional[str] = None,
@@ -136,6 +137,7 @@ def create_webhook_endpoint(
         raise ValueError("Webhook signing secret must be at least 16 characters")
 
     endpoint = WebhookEndpoint(
+        workspace_id=workspace_id,
         name=clean_name,
         url=_encrypt(clean_url),
         secret=_encrypt(raw_secret),
@@ -215,11 +217,15 @@ def enqueue_webhook_event(
     event_type: str,
     payload: Dict[str, Any],
     idempotency_key: Optional[str] = None,
+    workspace_id: Optional[int] = None,
 ) -> List[WebhookDelivery]:
     """Create pending deliveries for all enabled endpoints matching an event."""
     if event_type not in SUPPORTED_EVENT_TYPES:
         raise ValueError(f"Unsupported webhook event type: {event_type}")
-    endpoints = db.query(WebhookEndpoint).filter(WebhookEndpoint.enabled.is_(True)).all()
+    endpoints_query = db.query(WebhookEndpoint).filter(WebhookEndpoint.enabled.is_(True))
+    if workspace_id is not None:
+        endpoints_query = endpoints_query.filter(WebhookEndpoint.workspace_id == workspace_id)
+    endpoints = endpoints_query.all()
     event_payload = build_event_payload(event_type, payload)
     key = idempotency_key or default_idempotency_key(event_type, event_payload)
     deliveries: List[WebhookDelivery] = []
@@ -375,6 +381,7 @@ def deliver_due_webhooks(
     *,
     limit: int = 25,
     endpoint_id: Optional[int] = None,
+    workspace_id: Optional[int] = None,
     sender: WebhookSender = default_webhook_sender,
 ) -> List[WebhookDelivery]:
     """Deliver pending webhook deliveries whose retry time has arrived."""
@@ -385,6 +392,9 @@ def deliver_due_webhooks(
     )
     if endpoint_id is not None:
         query = query.filter(WebhookDelivery.endpoint_id == endpoint_id)
+    if workspace_id is not None:
+        query = query.join(WebhookEndpoint, WebhookDelivery.endpoint_id == WebhookEndpoint.id)
+        query = query.filter(WebhookEndpoint.workspace_id == workspace_id)
     deliveries = (
         query.order_by(WebhookDelivery.next_attempt_at, WebhookDelivery.id).limit(limit).all()
     )
@@ -420,6 +430,7 @@ def endpoint_to_dict(endpoint: WebhookEndpoint) -> Dict[str, Any]:
     raw_url = _decrypt(endpoint.url)
     return {
         "id": endpoint.id,
+        "workspace_id": endpoint.workspace_id,
         "name": endpoint.name,
         "url": _redact_url(raw_url),
         "event_types": parse_event_types(endpoint.event_types),

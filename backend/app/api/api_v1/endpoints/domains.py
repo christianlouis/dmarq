@@ -1694,11 +1694,16 @@ async def get_domain_bimi(
 async def discover_cloudflare_domains(
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ):
     """Discover active Cloudflare zones visible to the configured API token."""
-    _authorized_domain_workspace(_auth, db)
+    workspace = _authorized_domain_workspace(
+        _auth,
+        db,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
+    )
     try:
-        return await discover_cloudflare_zones(db)
+        return await discover_cloudflare_zones(db, workspace_id=workspace.id)
     except LookupError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1711,11 +1716,20 @@ async def import_cloudflare_domain_zones(
     payload: CloudflareImportRequest,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ):
     """Import selected, or all, Cloudflare zones as monitored domains."""
-    _authorized_domain_workspace(_auth, db)
+    workspace = _authorized_domain_workspace(
+        _auth,
+        db,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
+    )
     try:
-        return await import_cloudflare_domains(db, requested_domains=payload.domains)
+        return await import_cloudflare_domains(
+            db,
+            requested_domains=payload.domains,
+            workspace_id=workspace.id,
+        )
     except LookupError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

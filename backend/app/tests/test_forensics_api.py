@@ -7,7 +7,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 
 from app.api.api_v1.endpoints import forensics as forensics_endpoint
+from app.models.domain import Domain
 from app.models.report import ForensicReport
+from app.models.workspace import Workspace
 from app.services.forensic_parser import ForensicParser
 from app.services.forensic_persistence import (
     forensic_report_exists,
@@ -65,6 +67,62 @@ def test_list_and_detail_forensic_reports(authed_client):
     detail_response = authed_client.get(f"/api/v1/forensics/{item['id']}")
     assert detail_response.status_code == 200
     assert detail_response.json()["reported_domain"] == "example.com"
+
+
+def test_forensic_reports_respect_selected_workspace_header(authed_client, db_session):
+    selected_workspace = Workspace(
+        slug="selected-forensics",
+        name="Selected Forensics",
+        active=True,
+    )
+    db_session.add(selected_workspace)
+    db_session.flush()
+    selected_header = {"X-DMARQ-Workspace-ID": str(selected_workspace.id)}
+    selected_content = SAMPLE_FORENSIC_EMAIL.replace(b"example.com", b"selected.example")
+
+    default_upload = authed_client.post(
+        "/api/v1/forensics/upload",
+        files={"file": ("report.eml", SAMPLE_FORENSIC_EMAIL, "message/rfc822")},
+    )
+    selected_upload = authed_client.post(
+        "/api/v1/forensics/upload",
+        headers=selected_header,
+        files={"file": ("report.eml", selected_content, "message/rfc822")},
+    )
+
+    assert default_upload.status_code == 200
+    assert selected_upload.status_code == 200
+    assert db_session.query(ForensicReport).count() == 2
+
+    selected_domain = (
+        db_session.query(Domain)
+        .filter(Domain.name == "selected.example", Domain.workspace_id == selected_workspace.id)
+        .one()
+    )
+    selected_report = (
+        db_session.query(ForensicReport)
+        .filter(ForensicReport.domain_id == selected_domain.id)
+        .one()
+    )
+
+    default_list = authed_client.get("/api/v1/forensics?domain=example.com")
+    selected_list = authed_client.get(
+        "/api/v1/forensics?domain=selected.example",
+        headers=selected_header,
+    )
+    default_detail = authed_client.get(f"/api/v1/forensics/{selected_report.id}")
+    selected_detail = authed_client.get(
+        f"/api/v1/forensics/{selected_report.id}",
+        headers=selected_header,
+    )
+
+    assert default_list.status_code == 200
+    assert default_list.json()["total"] == 1
+    assert selected_list.status_code == 200
+    assert selected_list.json()["total"] == 1
+    assert selected_list.json()["reports"][0]["id"] == selected_report.id
+    assert default_detail.status_code == 404
+    assert selected_detail.status_code == 200
 
 
 def test_list_forensic_reports_filters_failure_fields(authed_client, db_session):
@@ -256,11 +314,15 @@ def test_upload_forensic_report_rejects_invalid_email(authed_client):
 def test_upload_forensic_report_handles_save_duplicate_race(authed_client, monkeypatch):
     parsed = ForensicParser.parse_bytes(SAMPLE_FORENSIC_EMAIL)
     row = ForensicReport(report_id=parsed["report_id"], reported_domain=parsed["reported_domain"])
-    monkeypatch.setattr(forensics_endpoint, "forensic_report_exists", lambda *_args: False)
+    monkeypatch.setattr(
+        forensics_endpoint,
+        "forensic_report_exists",
+        lambda *_args, **_kwargs: False,
+    )
     monkeypatch.setattr(
         forensics_endpoint,
         "save_forensic_report",
-        lambda *_args: (row, False),
+        lambda *_args, **_kwargs: (row, False),
     )
 
     response = authed_client.post(

@@ -14,6 +14,7 @@ from app.models.dns_cache import DNSRecordChange, DNSRecordSnapshot
 from app.models.domain import Domain
 from app.models.setting import Setting
 from app.models.user import User
+from app.models.workspace import Workspace
 from app.services import cloudflare_dns
 from app.services.cloudflare_dns import analyze_dns_records, sync_dns_record_changes
 from app.services.workspaces import get_or_create_default_workspace
@@ -237,7 +238,11 @@ def test_build_cloudflare_provider_requires_token(db_session):
 
 
 def test_discover_cloudflare_zones_marks_imported_and_filters_invalid(db_session):
-    db_session.add(Domain(name=DOMAIN))
+    default_workspace = get_or_create_default_workspace(db_session)
+    selected_workspace = Workspace(slug="cf-selected", name="CF Selected", active=True)
+    db_session.add(selected_workspace)
+    db_session.flush()
+    db_session.add(Domain(name=DOMAIN, workspace_id=default_workspace.id))
     db_session.commit()
     provider = FakeCloudflareProvider(
         zones=[
@@ -253,6 +258,12 @@ def test_discover_cloudflare_zones_marks_imported_and_filters_invalid(db_session
 
     with patch("app.services.cloudflare_dns.build_cloudflare_provider", return_value=provider):
         zones = asyncio.run(cloudflare_dns.discover_cloudflare_zones(db_session))
+        selected_zones = asyncio.run(
+            cloudflare_dns.discover_cloudflare_zones(
+                db_session,
+                workspace_id=selected_workspace.id,
+            )
+        )
 
     assert zones == [
         {
@@ -263,13 +274,14 @@ def test_discover_cloudflare_zones_marks_imported_and_filters_invalid(db_session
             "imported": True,
         }
     ]
+    assert selected_zones[0]["imported"] is False
 
 
 def test_import_cloudflare_domains_imports_requested_and_skips_others(db_session):
     db_session.add(Domain(name=DOMAIN))
     db_session.commit()
 
-    async def fake_discover(_db):
+    async def fake_discover(_db, workspace_id=None):
         return [
             {"id": "zone-1", "name": DOMAIN, "imported": True},
             {"id": "zone-2", "name": "new.example", "imported": False},

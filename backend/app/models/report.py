@@ -144,7 +144,7 @@ class ForensicReport(Base):
     domain = relationship("Domain", back_populates="forensic_reports")
 
     __table_args__ = (
-        UniqueConstraint("report_id", name="uq_forensic_reports_report_id"),
+        UniqueConstraint("domain_id", "report_id", name="uq_forensic_reports_domain_report"),
         Index("ix_forensic_reports_domain_arrival", "domain_id", "arrival_date"),
         Index("ix_forensic_reports_failure_source", "auth_failure", "source_ip"),
     )
@@ -181,7 +181,12 @@ class TLSReport(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("report_id", "policy_domain", name="uq_tls_reports_report_domain"),
+        UniqueConstraint(
+            "domain_id",
+            "report_id",
+            "policy_domain",
+            name="uq_tls_reports_domain_report_policy",
+        ),
         Index("ix_tls_reports_domain_dates", "domain_id", "begin_date", "end_date"),
         Index("ix_tls_reports_policy_domain_dates", "policy_domain", "begin_date", "end_date"),
     )

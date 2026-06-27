@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 from fastapi import HTTPException
@@ -6,13 +7,14 @@ from fastapi.testclient import TestClient
 from app.api.api_v1.endpoints import tls_reports as tls_endpoint
 from app.models.domain import Domain
 from app.models.report import TLSReport, TLSReportFailure
+from app.models.workspace import Workspace
 from app.services.tls_report_parser import TLSReportParser
 from app.services.tls_report_persistence import (
     save_tls_report,
     summarize_tls_reports,
     tls_report_exists,
 )
-from app.tests.test_tls_report_parser import sample_tls_report_bytes
+from app.tests.test_tls_report_parser import SAMPLE_TLS_REPORT, sample_tls_report_bytes
 
 
 def test_upload_tls_report_persists_policy_and_failure_details(authed_client, db_session):
@@ -70,6 +72,56 @@ def test_tls_report_summary_groups_failures_and_domains(authed_client):
     assert data["top_failures"][0]["affected_domains"] == ["example.com"]
     assert data["affected_domains"][0]["failure_rate"] > 0
     assert "sender or recipient addresses" in data["privacy"]["not_stored"]
+
+
+def test_tls_reports_respect_selected_workspace_header(authed_client, db_session):
+    selected_workspace = Workspace(
+        slug="selected-tls",
+        name="Selected TLS",
+        active=True,
+    )
+    db_session.add(selected_workspace)
+    db_session.flush()
+    selected_header = {"X-DMARQ-Workspace-ID": str(selected_workspace.id)}
+    selected_report = json.loads(json.dumps(SAMPLE_TLS_REPORT))
+    selected_report["policies"][0]["policy"]["policy-domain"] = "Selected.example."
+    selected_report["policies"][0]["policy"]["mx-host"] = ["mx.selected.example"]
+    selected_bytes = sample_tls_report_bytes(selected_report)
+
+    default_upload = authed_client.post(
+        "/api/v1/tls-reports/upload",
+        files={"file": ("tls-report.json", sample_tls_report_bytes(), "application/json")},
+    )
+    selected_upload = authed_client.post(
+        "/api/v1/tls-reports/upload",
+        headers=selected_header,
+        files={"file": ("tls-report.json", selected_bytes, "application/json")},
+    )
+
+    assert default_upload.status_code == 200
+    assert selected_upload.status_code == 200
+    assert db_session.query(TLSReport).count() == 2
+
+    default_list = authed_client.get("/api/v1/tls-reports?domain=example.com")
+    selected_list = authed_client.get(
+        "/api/v1/tls-reports?domain=selected.example",
+        headers=selected_header,
+    )
+    default_summary = authed_client.get("/api/v1/tls-reports/summary?domain=example.com")
+    selected_summary = authed_client.get(
+        "/api/v1/tls-reports/summary?domain=selected.example",
+        headers=selected_header,
+    )
+
+    assert default_list.status_code == 200
+    assert default_list.json()["total"] == 1
+    assert selected_list.status_code == 200
+    assert selected_list.json()["total"] == 1
+    assert selected_list.json()["reports"][0]["domain"] == "selected.example"
+    assert default_summary.status_code == 200
+    assert default_summary.json()["totals"]["reports"] == 1
+    assert selected_summary.status_code == 200
+    assert selected_summary.json()["totals"]["reports"] == 1
 
 
 def test_list_tls_reports_filters_by_domain(authed_client, db_session):

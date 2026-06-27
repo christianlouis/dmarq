@@ -2,7 +2,7 @@
 
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -17,23 +17,26 @@ from app.services.api_tokens import (
 )
 from app.services.workspace_access import (
     PERMISSION_WORKSPACE_ADMIN,
-    require_workspace_permission,
+    parse_selected_workspace_id,
+    resolve_authorized_workspace,
 )
 from app.services.workspace_audit import record_workspace_audit_log
-from app.services.workspaces import (
-    assign_default_workspace_to_unscoped_rows,
-    get_default_workspace,
-    get_or_create_default_workspace,
-)
 
 router = APIRouter()
 
 
-def _authorized_api_token_workspace(auth_context: Dict[str, Any], db: Session):
+def _authorized_api_token_workspace(
+    auth_context: Dict[str, Any],
+    db: Session,
+    selected_workspace_id: Optional[int] = None,
+):
     """Authorize API-token management for the current workspace."""
-    workspace = get_default_workspace(db) or get_or_create_default_workspace(db)
-    require_workspace_permission(auth_context, PERMISSION_WORKSPACE_ADMIN, db, workspace)
-    return assign_default_workspace_to_unscoped_rows(db)
+    return resolve_authorized_workspace(
+        db,
+        auth_context,
+        PERMISSION_WORKSPACE_ADMIN,
+        selected_workspace_id=selected_workspace_id,
+    )
 
 
 class APITokenCreateRequest(BaseModel):
@@ -77,9 +80,14 @@ class APITokenListResponse(BaseModel):
 async def list_api_tokens(
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ):
     """List API token metadata without exposing raw secrets or hashes."""
-    workspace = _authorized_api_token_workspace(_auth, db)
+    workspace = _authorized_api_token_workspace(
+        _auth,
+        db,
+        parse_selected_workspace_id(selected_workspace),
+    )
     rows = (
         db.query(APIToken)
         .filter(APIToken.workspace_id == workspace.id)
@@ -98,9 +106,14 @@ async def create_public_api_token(
     request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ):
     """Create a scoped API token for read-only automation."""
-    workspace = _authorized_api_token_workspace(_auth, db)
+    workspace = _authorized_api_token_workspace(
+        _auth,
+        db,
+        parse_selected_workspace_id(selected_workspace),
+    )
     try:
         created = create_api_token(
             db,
@@ -140,9 +153,14 @@ async def revoke_public_api_token(
     request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ):
     """Revoke a scoped API token."""
-    workspace = _authorized_api_token_workspace(_auth, db)
+    workspace = _authorized_api_token_workspace(
+        _auth,
+        db,
+        parse_selected_workspace_id(selected_workspace),
+    )
     token = (
         db.query(APIToken)
         .filter(APIToken.id == token_id, APIToken.workspace_id == workspace.id)

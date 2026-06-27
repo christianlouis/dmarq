@@ -4,6 +4,7 @@ import json
 from fastapi.testclient import TestClient
 
 from app.models.webhook import WebhookDelivery
+from app.models.workspace import Workspace
 from app.services.webhook_events import (
     DELIVERY_ABANDONED,
     DELIVERY_DELIVERED,
@@ -207,7 +208,7 @@ def test_admin_webhook_endpoints_hide_secrets_and_show_delivery_status(
     assert listed.json()["endpoints"][0]["url"] == "https://ops.example/hooks/dmarq"
     assert body["secret"] not in listed.text
 
-    def fake_deliver_due_webhooks(db, endpoint_id=None, limit=25):
+    def fake_deliver_due_webhooks(db, endpoint_id=None, limit=25, workspace_id=None):
         delivery = (
             db.query(WebhookDelivery)
             .filter(WebhookDelivery.endpoint_id == endpoint_id)
@@ -277,7 +278,7 @@ def test_admin_webhook_update_disable_filter_and_process(
     missing_test = authed_client.post("/api/v1/webhooks/9999/test")
     assert missing_test.status_code == 404
 
-    def fake_process(db, endpoint_id=None, limit=25):
+    def fake_process(db, endpoint_id=None, limit=25, workspace_id=None):
         delivery = queue_test_webhook(db, created["id"])
         delivery.status = DELIVERY_DELIVERED
         delivery.attempt_count = 1
@@ -306,3 +307,79 @@ def test_admin_webhook_update_disable_filter_and_process(
 
     missing_delete = authed_client.delete("/api/v1/webhooks/9999")
     assert missing_delete.status_code == 404
+
+
+def test_admin_webhook_endpoints_respect_selected_workspace_header(
+    authed_client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    """Webhook endpoints and deliveries stay inside the selected workspace."""
+    selected_workspace = Workspace(
+        slug="selected-webhooks",
+        name="Selected Webhooks",
+        active=True,
+    )
+    db_session.add(selected_workspace)
+    db_session.flush()
+    selected_header = {"X-DMARQ-Workspace-ID": str(selected_workspace.id)}
+
+    default_created = authed_client.post(
+        "/api/v1/webhooks",
+        json={"name": "default hook", "url": "https://default.example/hooks/dmarq"},
+    ).json()
+    assert default_created["workspace_id"] is not None
+    selected_created = authed_client.post(
+        "/api/v1/webhooks",
+        headers=selected_header,
+        json={"name": "selected hook", "url": "https://selected.example/hooks/dmarq"},
+    )
+    assert selected_created.status_code == 200
+    selected_body = selected_created.json()
+    assert selected_body["workspace_id"] == selected_workspace.id
+
+    default_list = authed_client.get("/api/v1/webhooks")
+    selected_list = authed_client.get("/api/v1/webhooks", headers=selected_header)
+    assert [item["name"] for item in default_list.json()["endpoints"]] == ["default hook"]
+    assert [item["name"] for item in selected_list.json()["endpoints"]] == ["selected hook"]
+
+    default_update = authed_client.put(
+        f"/api/v1/webhooks/{selected_body['id']}",
+        json={"name": "wrong workspace"},
+    )
+    assert default_update.status_code == 404
+
+    def fake_deliver_due_webhooks(db, endpoint_id=None, limit=25, workspace_id=None):
+        query = db.query(WebhookDelivery)
+        if endpoint_id is not None:
+            query = query.filter(WebhookDelivery.endpoint_id == endpoint_id)
+        delivery = query.order_by(WebhookDelivery.id.desc()).first()
+        delivery.status = DELIVERY_DELIVERED
+        delivery.attempt_count = 1
+        db.commit()
+        db.refresh(delivery)
+        return [delivery]
+
+    monkeypatch.setattr(
+        "app.api.api_v1.endpoints.webhooks.deliver_due_webhooks",
+        fake_deliver_due_webhooks,
+    )
+    selected_test = authed_client.post(
+        f"/api/v1/webhooks/{selected_body['id']}/test",
+        headers=selected_header,
+    )
+    assert selected_test.status_code == 200
+
+    default_history = authed_client.get("/api/v1/webhooks/deliveries")
+    selected_history = authed_client.get("/api/v1/webhooks/deliveries", headers=selected_header)
+    assert default_history.json()["deliveries"] == []
+    assert len(selected_history.json()["deliveries"]) == 1
+
+    default_disable = authed_client.delete(f"/api/v1/webhooks/{selected_body['id']}")
+    selected_disable = authed_client.delete(
+        f"/api/v1/webhooks/{selected_body['id']}",
+        headers=selected_header,
+    )
+    assert default_disable.status_code == 404
+    assert selected_disable.status_code == 200
+    assert selected_disable.json()["enabled"] is False

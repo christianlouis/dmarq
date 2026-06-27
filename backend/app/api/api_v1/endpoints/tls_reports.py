@@ -1,7 +1,7 @@
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, selectinload
 
@@ -21,12 +21,8 @@ from app.services.tls_report_persistence import (
 from app.services.workspace_access import (
     PERMISSION_REPORTS_READ,
     PERMISSION_REPORTS_WRITE,
-    require_workspace_permission,
-)
-from app.services.workspaces import (
-    assign_default_workspace_to_unscoped_rows,
-    get_default_workspace,
-    get_or_create_default_workspace,
+    parse_selected_workspace_id,
+    resolve_authorized_workspace,
 )
 
 logger = logging.getLogger(__name__)
@@ -108,11 +104,19 @@ def _validate_upload(file: UploadFile, content: bytes) -> None:
         )
 
 
-def _authorized_reports_workspace(auth_context: Dict[str, Any], db: Session, permission: str):
-    """Authorize report access before running legacy workspace repair writes."""
-    workspace = get_default_workspace(db) or get_or_create_default_workspace(db)
-    require_workspace_permission(auth_context, permission, db, workspace)
-    return assign_default_workspace_to_unscoped_rows(db)
+def _authorized_reports_workspace(
+    auth_context: Dict[str, Any],
+    db: Session,
+    permission: str,
+    selected_workspace_id: Optional[int] = None,
+):
+    """Resolve and authorize the selected workspace for TLS report operations."""
+    return resolve_authorized_workspace(
+        db,
+        auth_context,
+        permission,
+        selected_workspace_id=selected_workspace_id,
+    )
 
 
 def _filtered_tls_query(
@@ -130,9 +134,7 @@ def _filtered_tls_query(
         query = query.filter(Domain.workspace_id == workspace_id)
     if domain:
         normalized = domain.lower().strip(".")
-        query = query.filter(
-            (Domain.name == normalized) | (TLSReport.policy_domain == normalized)
-        )
+        query = query.filter((Domain.name == normalized) | (TLSReport.policy_domain == normalized))
     return query
 
 
@@ -141,14 +143,20 @@ async def upload_tls_report(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ):
     """Upload and store an SMTP TLS Reporting aggregate."""
-    _authorized_reports_workspace(_auth, db, PERMISSION_REPORTS_WRITE)
+    workspace = _authorized_reports_workspace(
+        _auth,
+        db,
+        PERMISSION_REPORTS_WRITE,
+        parse_selected_workspace_id(selected_workspace),
+    )
     try:
         content = await file.read()
         _validate_upload(file, content)
         parsed = TLSReportParser.parse_file(content, file.filename or "")
-        result = save_tls_report(db, parsed)
+        result = save_tls_report(db, parsed, workspace_id=workspace.id)
         db.commit()
         return TLSReportUploadResponse(
             success=True,
@@ -185,9 +193,15 @@ async def list_tls_reports(
     page_size: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ):
     """List stored SMTP TLS reports, newest first."""
-    workspace = _authorized_reports_workspace(_auth, db, PERMISSION_REPORTS_READ)
+    workspace = _authorized_reports_workspace(
+        _auth,
+        db,
+        PERMISSION_REPORTS_READ,
+        parse_selected_workspace_id(selected_workspace),
+    )
     if get_settings().DEMO_MODE:
         return TLSReportListResponse(
             **list_demo_tls_reports(domain=domain, page=page, page_size=page_size)
@@ -219,9 +233,15 @@ async def tls_report_summary(
     limit: int = Query(default=10, ge=1, le=50),
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ):
     """Summarize TLS reports into trends and top failure causes."""
-    workspace = _authorized_reports_workspace(_auth, db, PERMISSION_REPORTS_READ)
+    workspace = _authorized_reports_workspace(
+        _auth,
+        db,
+        PERMISSION_REPORTS_READ,
+        parse_selected_workspace_id(selected_workspace),
+    )
     if get_settings().DEMO_MODE:
         return TLSSummaryResponse(
             **summarize_demo_tls_reports(domain=domain, days=days, limit=limit)

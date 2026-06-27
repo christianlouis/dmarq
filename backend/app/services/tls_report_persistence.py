@@ -44,24 +44,35 @@ TLS_REPORT_PRIVACY_CONTROLS = {
 }
 
 
-def tls_report_exists(db: Session, report_id: str, policy_domain: str) -> bool:
+def tls_report_exists(
+    db: Session,
+    report_id: str,
+    policy_domain: str,
+    *,
+    workspace_id: Optional[int] = None,
+) -> bool:
     """Return True when a TLS report policy entry already exists."""
     normalized_report_id = str(report_id or "").strip()
     normalized_domain = str(policy_domain or "").strip().lower().strip(".")
     if not normalized_report_id or not normalized_domain:
         return False
-    return (
-        db.query(TLSReport.id)
-        .filter(
-            TLSReport.report_id == normalized_report_id,
-            TLSReport.policy_domain == normalized_domain,
-        )
-        .first()
-        is not None
+    query = db.query(TLSReport.id).filter(
+        TLSReport.report_id == normalized_report_id,
+        TLSReport.policy_domain == normalized_domain,
     )
+    if workspace_id is not None:
+        query = query.join(Domain, TLSReport.domain_id == Domain.id).filter(
+            Domain.workspace_id == workspace_id
+        )
+    return query.first() is not None
 
 
-def _domain_for_report(db: Session, domain_name: Optional[str]) -> Optional[Domain]:
+def _domain_for_report(
+    db: Session,
+    domain_name: Optional[str],
+    *,
+    workspace_id: Optional[int] = None,
+) -> Optional[Domain]:
     if not domain_name:
         return None
     normalized = domain_name.lower().strip(".")
@@ -69,14 +80,16 @@ def _domain_for_report(db: Session, domain_name: Optional[str]) -> Optional[Doma
     if not is_valid and error_code != DomainValidationError.DNS_RESOLUTION_FAILED:
         return None
 
-    workspace = assign_default_workspace_to_unscoped_rows(db, commit=False)
+    if workspace_id is None:
+        workspace = assign_default_workspace_to_unscoped_rows(db, commit=False)
+        workspace_id = workspace.id
     domain = (
         db.query(Domain)
-        .filter(Domain.name == normalized, Domain.workspace_id == workspace.id)
+        .filter(Domain.name == normalized, Domain.workspace_id == workspace_id)
         .first()
     )
     if domain is None:
-        domain = Domain(name=normalized, workspace_id=workspace.id)
+        domain = Domain(name=normalized, workspace_id=workspace_id)
         db.add(domain)
         db.flush()
     return domain
@@ -86,24 +99,27 @@ def _save_policy_report(
     db: Session,
     parsed_report: Dict[str, Any],
     policy: Dict[str, Any],
+    *,
+    workspace_id: Optional[int] = None,
 ) -> tuple[Optional[TLSReport], bool]:
     report_id = str(parsed_report.get("report_id") or "").strip()
     policy_domain = str(policy.get("policy_domain") or "").strip().lower().strip(".")
     if not report_id or not policy_domain:
         return None, False
 
-    existing = (
-        db.query(TLSReport)
-        .filter(
-            TLSReport.report_id == report_id,
-            TLSReport.policy_domain == policy_domain,
-        )
-        .first()
+    existing_query = db.query(TLSReport).filter(
+        TLSReport.report_id == report_id,
+        TLSReport.policy_domain == policy_domain,
     )
+    if workspace_id is not None:
+        existing_query = existing_query.join(Domain, TLSReport.domain_id == Domain.id).filter(
+            Domain.workspace_id == workspace_id
+        )
+    existing = existing_query.first()
     if existing is not None:
         return existing, False
 
-    domain = _domain_for_report(db, policy_domain)
+    domain = _domain_for_report(db, policy_domain, workspace_id=workspace_id)
     row = TLSReport(
         domain_id=domain.id if domain else None,
         report_id=report_id,
@@ -136,21 +152,27 @@ def _save_policy_report(
         db.flush()
     except IntegrityError:
         db.rollback()
-        existing = (
-            db.query(TLSReport)
-            .filter(
-                TLSReport.report_id == report_id,
-                TLSReport.policy_domain == policy_domain,
-            )
-            .first()
+        existing_query = db.query(TLSReport).filter(
+            TLSReport.report_id == report_id,
+            TLSReport.policy_domain == policy_domain,
         )
+        if workspace_id is not None:
+            existing_query = existing_query.join(Domain, TLSReport.domain_id == Domain.id).filter(
+                Domain.workspace_id == workspace_id
+            )
+        existing = existing_query.first()
         if existing is not None:
             return existing, False
         raise
     return row, True
 
 
-def save_tls_report(db: Session, parsed_report: Dict[str, Any]) -> Dict[str, Any]:
+def save_tls_report(
+    db: Session,
+    parsed_report: Dict[str, Any],
+    *,
+    workspace_id: Optional[int] = None,
+) -> Dict[str, Any]:
     """Persist parsed TLS report policy entries.
 
     One TLS-RPT JSON can carry multiple policy domains. Each policy is stored
@@ -161,7 +183,12 @@ def save_tls_report(db: Session, parsed_report: Dict[str, Any]) -> Dict[str, Any
     created = 0
     skipped = 0
     for policy in parsed_report.get("policies") or []:
-        row, was_created = _save_policy_report(db, parsed_report, policy)
+        row, was_created = _save_policy_report(
+            db,
+            parsed_report,
+            policy,
+            workspace_id=workspace_id,
+        )
         if row is None:
             skipped += 1
             continue
@@ -231,9 +258,7 @@ def _report_rows(
     )
     if domain:
         normalized = domain.lower().strip(".")
-        query = query.filter(
-            (Domain.name == normalized) | (TLSReport.policy_domain == normalized)
-        )
+        query = query.filter((Domain.name == normalized) | (TLSReport.policy_domain == normalized))
     return query.order_by(TLSReport.begin_date.desc().nullslast(), TLSReport.id.desc()).all()
 
 

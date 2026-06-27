@@ -11,6 +11,7 @@ class WebhookEndpoint(Base):
     __tablename__ = "webhook_endpoints"
 
     id = Column(Integer, primary_key=True, index=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=True, index=True)
     name = Column(String(120), nullable=False)
     url = Column(Text, nullable=False)
     secret = Column(Text, nullable=False)
@@ -24,7 +25,10 @@ class WebhookEndpoint(Base):
     last_failure_at = Column(DateTime, nullable=True, index=True)
     failure_count = Column(Integer, default=0, nullable=False)
 
-    __table_args__ = (Index("ix_webhook_endpoints_enabled_events", "enabled", "event_types"),)
+    __table_args__ = (
+        Index("ix_webhook_endpoints_enabled_events", "enabled", "event_types"),
+        Index("ix_webhook_endpoints_workspace_enabled", "workspace_id", "enabled"),
+    )
 
     def __repr__(self):
         return f"<WebhookEndpoint {self.name} enabled={self.enabled}>"

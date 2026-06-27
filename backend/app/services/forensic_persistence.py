@@ -11,17 +11,29 @@ from app.services.workspaces import assign_default_workspace_to_unscoped_rows
 from app.utils.domain_validator import DomainValidationError, validate_domain
 
 
-def forensic_report_exists(db: Session, report_id: str) -> bool:
+def forensic_report_exists(
+    db: Session,
+    report_id: str,
+    *,
+    workspace_id: Optional[int] = None,
+) -> bool:
     """Return True when a forensic report ID is already persisted."""
     if not str(report_id or "").strip():
         return False
-    return (
-        db.query(ForensicReport.id).filter(ForensicReport.report_id == report_id).first()
-        is not None
-    )
+    query = db.query(ForensicReport.id).filter(ForensicReport.report_id == report_id)
+    if workspace_id is not None:
+        query = query.join(Domain, ForensicReport.domain_id == Domain.id).filter(
+            Domain.workspace_id == workspace_id
+        )
+    return query.first() is not None
 
 
-def _domain_for_report(db: Session, domain_name: Optional[str]) -> Optional[Domain]:
+def _domain_for_report(
+    db: Session,
+    domain_name: Optional[str],
+    *,
+    workspace_id: Optional[int] = None,
+) -> Optional[Domain]:
     if not domain_name:
         return None
     normalized = domain_name.lower().strip(".")
@@ -29,20 +41,27 @@ def _domain_for_report(db: Session, domain_name: Optional[str]) -> Optional[Doma
     if not is_valid and error_code != DomainValidationError.DNS_RESOLUTION_FAILED:
         return None
 
-    workspace = assign_default_workspace_to_unscoped_rows(db, commit=False)
+    if workspace_id is None:
+        workspace = assign_default_workspace_to_unscoped_rows(db, commit=False)
+        workspace_id = workspace.id
     domain = (
         db.query(Domain)
-        .filter(Domain.name == normalized, Domain.workspace_id == workspace.id)
+        .filter(Domain.name == normalized, Domain.workspace_id == workspace_id)
         .first()
     )
     if domain is None:
-        domain = Domain(name=normalized, workspace_id=workspace.id)
+        domain = Domain(name=normalized, workspace_id=workspace_id)
         db.add(domain)
         db.flush()
     return domain
 
 
-def save_forensic_report(db: Session, report: Dict[str, Any]) -> tuple[ForensicReport, bool]:
+def save_forensic_report(
+    db: Session,
+    report: Dict[str, Any],
+    *,
+    workspace_id: Optional[int] = None,
+) -> tuple[ForensicReport, bool]:
     """Persist a parsed forensic report.
 
     Returns ``(row, created)``. The caller owns the transaction and should
@@ -52,11 +71,16 @@ def save_forensic_report(db: Session, report: Dict[str, Any]) -> tuple[ForensicR
     if not report_id:
         raise ValueError("Forensic report_id is required")
 
-    existing = db.query(ForensicReport).filter(ForensicReport.report_id == report_id).first()
+    existing_query = db.query(ForensicReport).filter(ForensicReport.report_id == report_id)
+    if workspace_id is not None:
+        existing_query = existing_query.join(Domain, ForensicReport.domain_id == Domain.id).filter(
+            Domain.workspace_id == workspace_id
+        )
+    existing = existing_query.first()
     if existing is not None:
         return existing, False
 
-    domain = _domain_for_report(db, report.get("reported_domain"))
+    domain = _domain_for_report(db, report.get("reported_domain"), workspace_id=workspace_id)
     feedback_headers = report.get("feedback_headers")
     if isinstance(feedback_headers, dict):
         feedback_headers = json.dumps(feedback_headers, sort_keys=True)
@@ -87,7 +111,12 @@ def save_forensic_report(db: Session, report: Dict[str, Any]) -> tuple[ForensicR
         db.flush()
     except IntegrityError:
         db.rollback()
-        existing = db.query(ForensicReport).filter(ForensicReport.report_id == report_id).first()
+        existing_query = db.query(ForensicReport).filter(ForensicReport.report_id == report_id)
+        if workspace_id is not None:
+            existing_query = existing_query.join(
+                Domain, ForensicReport.domain_id == Domain.id
+            ).filter(Domain.workspace_id == workspace_id)
+        existing = existing_query.first()
         if existing is not None:
             return existing, False
         raise

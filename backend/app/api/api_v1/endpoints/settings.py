@@ -15,7 +15,7 @@ in the ``settings`` database table.  Settings are organised into categories:
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -36,6 +36,11 @@ from app.services.alert_rules import (
 )
 from app.services.notifications import send_notification
 from app.services.summary_notifications import build_summary, send_summary_notification
+from app.services.workspace_access import (
+    PERMISSION_NOTIFICATIONS_WRITE,
+    parse_selected_workspace_id,
+    resolve_authorized_workspace,
+)
 from app.services.workspace_audit import record_workspace_audit_log
 from app.services.workspaces import assign_default_workspace_to_unscoped_rows
 
@@ -395,6 +400,7 @@ def _audit_setting_change(
     new_plain: Optional[str],
     auth_context: Optional[Dict[str, Any]],
     request: Optional[Request] = None,
+    selected_workspace_id: Optional[int] = None,
 ) -> None:
     if not _should_audit_setting(key) or old_plain == new_plain:
         return
@@ -405,7 +411,15 @@ def _audit_setting_change(
         new_value=_audit_value_for_setting(key, new_plain),
         auth_context=auth_context,
     )
-    workspace = assign_default_workspace_to_unscoped_rows(db, commit=False)
+    if selected_workspace_id is None:
+        workspace = assign_default_workspace_to_unscoped_rows(db, commit=False)
+    else:
+        workspace = resolve_authorized_workspace(
+            db,
+            auth_context or {},
+            PERMISSION_NOTIFICATIONS_WRITE,
+            selected_workspace_id=selected_workspace_id,
+        )
     record_workspace_audit_log(
         db,
         workspace=workspace,
@@ -677,8 +691,10 @@ async def update_setting(
     request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> SettingResponse:
     """Update or create a single setting."""
+    selected_workspace_id = parse_selected_workspace_id(selected_workspace)
     row = _get_setting(key, db)
     new_value = payload.value
     if row is None:
@@ -700,6 +716,7 @@ async def update_setting(
             new_plain=new_plain,
             auth_context=_auth,
             request=request,
+            selected_workspace_id=selected_workspace_id,
         )
     else:
         # For secret keys, only update if not the redacted placeholder
@@ -716,6 +733,7 @@ async def update_setting(
             new_plain=new_plain,
             auth_context=_auth,
             request=request,
+            selected_workspace_id=selected_workspace_id,
         )
     db.commit()
     db.refresh(row)
@@ -728,6 +746,7 @@ async def bulk_update_settings(
     request: Request,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> List[SettingResponse]:
     """
     Update multiple settings in a single request.
@@ -735,6 +754,7 @@ async def bulk_update_settings(
     Accepts ``{"settings": {"key1": "value1", "key2": "value2", ...}}``.
     """
     results = []
+    selected_workspace_id = parse_selected_workspace_id(selected_workspace)
     for key, value in payload.settings.items():
         row = _get_setting(key, db)
         if row is None:
@@ -755,6 +775,7 @@ async def bulk_update_settings(
                 new_plain=new_plain,
                 auth_context=_auth,
                 request=request,
+                selected_workspace_id=selected_workspace_id,
             )
         else:
             # Skip secret placeholder updates
@@ -771,6 +792,7 @@ async def bulk_update_settings(
                 new_plain=new_plain,
                 auth_context=_auth,
                 request=request,
+                selected_workspace_id=selected_workspace_id,
             )
         results.append(_row_to_dict(row))
     db.commit()
