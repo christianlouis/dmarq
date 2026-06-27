@@ -128,6 +128,36 @@ def test_webhook_idempotency_skips_duplicate_deliveries(db_session):
     assert db_session.query(WebhookDelivery).count() == 1
 
 
+def test_webhook_events_without_workspace_stay_in_default_workspace(db_session):
+    default_endpoint, _ = create_webhook_endpoint(
+        db_session,
+        name="default receiver",
+        url="https://default.example/webhook",
+        event_types=[EVENT_ALERT_CREATED],
+    )
+    other_workspace = Workspace(slug="webhook-other", name="Webhook Other", active=True)
+    db_session.add(other_workspace)
+    db_session.flush()
+    other_endpoint, _ = create_webhook_endpoint(
+        db_session,
+        workspace_id=other_workspace.id,
+        name="other receiver",
+        url="https://other.example/webhook",
+        event_types=[EVENT_ALERT_CREATED],
+    )
+
+    deliveries = enqueue_webhook_event(
+        db_session,
+        event_type=EVENT_ALERT_CREATED,
+        payload={"domain": "example.com"},
+        idempotency_key="default-only",
+    )
+
+    assert default_endpoint.workspace_id is not None
+    assert other_endpoint.workspace_id == other_workspace.id
+    assert [delivery.endpoint_id for delivery in deliveries] == [default_endpoint.id]
+
+
 def test_webhook_validation_update_and_abandoned_delivery(db_session):
     """Endpoint helpers validate input, update secrets, and abandon disabled endpoints."""
     assert normalize_event_types([]) == ["*"]

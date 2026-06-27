@@ -400,15 +400,20 @@ def test_save_forensic_report_duplicate_and_invalid_domain_paths(db_session):
     invalid = dict(parsed)
     invalid["report_id"] = "ruf-invalid-domain"
     invalid["reported_domain"] = "bad domain"
-    row, invalid_created = save_forensic_report(db_session, invalid)
-    assert invalid_created is True
-    assert row.domain_id is None
+    with pytest.raises(ValueError, match="reported_domain"):
+        save_forensic_report(db_session, invalid)
 
 
 def test_save_forensic_report_reraises_unexpected_integrity_errors(db_session, monkeypatch):
     parsed = ForensicParser.parse_bytes(SAMPLE_FORENSIC_EMAIL)
     parsed["report_id"] = "ruf-race-without-existing-row"
-    parsed["reported_domain"] = ""
+    workspace = Workspace(slug="integrity-workspace", name="Integrity Workspace", active=True)
+    db_session.add(workspace)
+    db_session.flush()
+    domain = Domain(name="integrity.example", workspace_id=workspace.id)
+    db_session.add(domain)
+    db_session.flush()
+    parsed["reported_domain"] = "integrity.example"
 
     def raise_integrity_error():
         raise IntegrityError("insert", {}, Exception("unique"))

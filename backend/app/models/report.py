@@ -112,7 +112,7 @@ class ForensicReport(Base):
     __tablename__ = "forensic_reports"
 
     id = Column(Integer, primary_key=True, index=True)
-    domain_id = Column(Integer, ForeignKey("domains.id"), nullable=True, index=True)
+    domain_id = Column(Integer, ForeignKey("domains.id"), nullable=False, index=True)
 
     # Report metadata
     report_id = Column(String, nullable=False, index=True)
@@ -159,7 +159,7 @@ class TLSReport(Base):
     __tablename__ = "tls_reports"
 
     id = Column(Integer, primary_key=True, index=True)
-    domain_id = Column(Integer, ForeignKey("domains.id"), nullable=True, index=True)
+    domain_id = Column(Integer, ForeignKey("domains.id"), nullable=False, index=True)
 
     report_id = Column(String, nullable=False, index=True)
     org_name = Column(String, nullable=True, index=True)

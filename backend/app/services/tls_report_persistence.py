@@ -120,8 +120,10 @@ def _save_policy_report(
         return existing, False
 
     domain = _domain_for_report(db, policy_domain, workspace_id=workspace_id)
+    if domain is None:
+        return None, False
     row = TLSReport(
-        domain_id=domain.id if domain else None,
+        domain_id=domain.id,
         report_id=report_id,
         org_name=parsed_report.get("org_name"),
         contact_info=parsed_report.get("contact_info"),

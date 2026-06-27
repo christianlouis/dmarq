@@ -11,7 +11,7 @@ class WebhookEndpoint(Base):
     __tablename__ = "webhook_endpoints"
 
     id = Column(Integer, primary_key=True, index=True)
-    workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=True, index=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=False, index=True)
     name = Column(String(120), nullable=False)
     url = Column(Text, nullable=False)
     secret = Column(Text, nullable=False)

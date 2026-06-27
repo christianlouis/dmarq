@@ -183,6 +183,13 @@ def test_tls_report_persistence_helpers(db_session):
     summary = summarize_tls_reports(db_session, domain="example.com")
     assert summary["totals"]["successful_sessions"] == 125
 
+    invalid = dict(parsed)
+    invalid["report_id"] = "tls-invalid-domain"
+    invalid["policies"] = [dict(parsed["policies"][0], policy_domain="bad domain")]
+    skipped = save_tls_report(db_session, invalid)
+    assert skipped["created"] == 0
+    assert skipped["skipped"] == 1
+
 
 def test_upload_tls_report_rejects_invalid_file_type(authed_client):
     response = authed_client.post(
