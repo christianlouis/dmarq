@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
@@ -225,8 +225,10 @@ def require_workspace_permission(
     )
 
 
-def parse_selected_workspace_id(value: Optional[str]) -> Optional[int]:
+def parse_selected_workspace_id(value: Optional[Any]) -> Optional[int]:
     """Return a selected workspace id from the UI propagation header."""
+    if value is not None and not isinstance(value, (str, int)):
+        return None
     if value is None or not str(value).strip():
         return None
     try:
@@ -244,6 +246,17 @@ def parse_selected_workspace_id(value: Optional[str]) -> Optional[int]:
     return workspace_id
 
 
+def _workspace_id_from_auth_context(auth_context: dict) -> Optional[int]:
+    """Return the workspace bound to scoped API-token auth, when present."""
+    if (auth_context or {}).get("auth_type") != "api_token":
+        return None
+    try:
+        workspace_id = int((auth_context or {}).get("workspace_id") or 0)
+    except (TypeError, ValueError):
+        return None
+    return workspace_id if workspace_id > 0 else None
+
+
 def resolve_authorized_workspace(
     db: Session,
     auth_context: dict,
@@ -252,6 +265,7 @@ def resolve_authorized_workspace(
     selected_workspace_id: Optional[int] = None,
 ) -> Workspace:
     """Resolve and authorize the selected workspace, defaulting legacy installs safely."""
+    selected_workspace_id = selected_workspace_id or _workspace_id_from_auth_context(auth_context)
     if selected_workspace_id is None:
         workspace = assign_default_workspace_to_unscoped_rows(db)
     else:
