@@ -39,6 +39,14 @@ def upgrade() -> None:
         f"UPDATE webhook_endpoints SET workspace_id = {_default_workspace_id_sql()} "
         "WHERE workspace_id IS NULL"
     )
+    op.execute("""
+        DELETE FROM tls_report_failures
+        WHERE report_id IN (
+            SELECT id FROM tls_reports WHERE domain_id IS NULL
+        )
+        """)
+    op.execute("DELETE FROM tls_reports WHERE domain_id IS NULL")
+    op.execute("DELETE FROM forensic_reports WHERE domain_id IS NULL")
 
     with op.batch_alter_table("webhook_endpoints") as batch_op:
         batch_op.alter_column("workspace_id", existing_type=sa.Integer(), nullable=False)

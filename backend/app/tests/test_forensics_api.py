@@ -17,6 +17,7 @@ from app.services.forensic_persistence import (
     save_forensic_report,
 )
 from app.services.forensic_redaction import ForensicRedactionPolicy
+from app.services.workspaces import get_or_create_default_workspace
 from app.tests.test_forensic_parser import SAMPLE_FORENSIC_EMAIL
 
 
@@ -407,9 +408,7 @@ def test_save_forensic_report_duplicate_and_invalid_domain_paths(db_session):
 def test_save_forensic_report_reraises_unexpected_integrity_errors(db_session, monkeypatch):
     parsed = ForensicParser.parse_bytes(SAMPLE_FORENSIC_EMAIL)
     parsed["report_id"] = "ruf-race-without-existing-row"
-    workspace = Workspace(slug="integrity-workspace", name="Integrity Workspace", active=True)
-    db_session.add(workspace)
-    db_session.flush()
+    workspace = get_or_create_default_workspace(db_session, commit=False)
     domain = Domain(name="integrity.example", workspace_id=workspace.id)
     db_session.add(domain)
     db_session.flush()
