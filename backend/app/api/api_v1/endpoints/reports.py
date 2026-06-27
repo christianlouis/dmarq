@@ -76,6 +76,37 @@ def _normalize_domain_name(name: str) -> str:
     return name.strip().strip(".").lower()
 
 
+def _domain_workspace_conflict(domain: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=(
+            f"Domain '{domain}' already belongs to another workspace. "
+            "Move or rename the domain before uploading reports for this workspace."
+        ),
+    )
+
+
+def _raise_if_domain_owned_by_other_workspace(db: Session, domain: str, workspace_id: int) -> None:
+    existing_domain = db.query(Domain).filter(Domain.name == domain).first()
+    if existing_domain is not None and existing_domain.workspace_id != workspace_id:
+        raise _domain_workspace_conflict(domain)
+
+
+def _save_uploaded_report(
+    db: Session, report: Dict[str, Any], domain: str, workspace_id: int
+) -> None:
+    try:
+        save_parsed_report(db, report, workspace_id=workspace_id)
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        try:
+            _raise_if_domain_owned_by_other_workspace(db, domain, workspace_id)
+        except HTTPException as conflict:
+            raise conflict from exc
+        raise
+
+
 def _hydrated_report_store(db: Session, workspace) -> ReportStore:
     store = ReportStore()
     hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
@@ -262,32 +293,10 @@ async def upload_report(
                 ),
             )
 
-        existing_domain = db.query(Domain).filter(Domain.name == domain).first()
-        if existing_domain is not None and existing_domain.workspace_id != workspace.id:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    f"Domain '{domain}' already belongs to another workspace. "
-                    "Move or rename the domain before uploading reports for this workspace."
-                ),
-            )
+        _raise_if_domain_owned_by_other_workspace(db, domain, workspace.id)
 
         # Store the report
-        try:
-            save_parsed_report(db, report, workspace_id=workspace.id)
-            db.commit()
-        except IntegrityError as exc:
-            db.rollback()
-            existing_domain = db.query(Domain).filter(Domain.name == domain).first()
-            if existing_domain is not None and existing_domain.workspace_id != workspace.id:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=(
-                        f"Domain '{domain}' already belongs to another workspace. "
-                        "Move or rename the domain before uploading reports for this workspace."
-                    ),
-                ) from exc
-            raise
+        _save_uploaded_report(db, report, domain, workspace.id)
 
         processed_records = report.get("summary", {}).get("total_count", 0)
 
