@@ -3,7 +3,10 @@ import zipfile
 from contextlib import contextmanager
 
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import sessionmaker
 
+from app.api.api_v1.endpoints import reports as reports_endpoint
 from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.domain import Domain
@@ -228,6 +231,111 @@ def test_upload_report_rejects_domain_owned_by_another_workspace(
     assert "already belongs to another workspace" in response.json()["detail"]
     assert db_session.query(Domain).filter(Domain.name == "example.com").count() == 1
     assert db_session.query(DMARCReport).filter_by(report_id="123456789").count() == 0
+
+
+def test_upload_report_normalizes_domain_before_conflict_check(
+    authed_client: TestClient,
+    db_session,
+):
+    """Cross-workspace domain checks use the same normalized domain as persistence."""
+    default_workspace = get_or_create_default_workspace(db_session)
+    other_workspace = Workspace(slug="case-domain-upload", name="Case Domain Upload")
+    db_session.add(other_workspace)
+    db_session.flush()
+    _persist_parsed_report(
+        db_session,
+        _parsed_report(domain="example.com", report_id="default-example"),
+        workspace_id=default_workspace.id,
+    )
+    uppercase_xml = SAMPLE_XML.replace(
+        "<domain>example.com</domain>",
+        "<domain>Example.COM.</domain>",
+        1,
+    )
+
+    response = authed_client.post(
+        "/api/v1/reports/upload",
+        headers={"X-DMARQ-Workspace-ID": str(other_workspace.id)},
+        files={"file": ("report.zip", _make_zip(uppercase_xml), "application/zip")},
+    )
+
+    assert response.status_code == 409
+    assert "Domain 'example.com' already belongs to another workspace" in response.json()["detail"]
+    assert db_session.query(Domain).filter(Domain.name == "example.com").count() == 1
+    assert db_session.query(DMARCReport).filter_by(report_id="123456789").count() == 0
+
+
+def test_upload_report_translates_raced_domain_integrity_error(
+    authed_client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    """A concurrent cross-workspace domain insert is returned as a controlled 409."""
+    get_or_create_default_workspace(db_session)
+    other_workspace = Workspace(slug="raced-domain-upload", name="Raced Domain Upload")
+    db_session.add(other_workspace)
+    db_session.commit()
+    TestingSessionLocal = sessionmaker(bind=db_session.get_bind())
+
+    def raced_save(db, report, *, workspace_id=None):  # pylint: disable=unused-argument
+        concurrent_db = TestingSessionLocal()
+        try:
+            default_workspace = get_or_create_default_workspace(concurrent_db)
+            concurrent_db.add(Domain(name="example.com", workspace_id=default_workspace.id))
+            concurrent_db.commit()
+        finally:
+            concurrent_db.close()
+        raise IntegrityError("insert", {}, Exception("UNIQUE constraint failed: domains.name"))
+
+    monkeypatch.setattr(reports_endpoint, "save_parsed_report", raced_save)
+
+    response = authed_client.post(
+        "/api/v1/reports/upload",
+        headers={"X-DMARQ-Workspace-ID": str(other_workspace.id)},
+        files={"file": ("report.zip", _make_zip(SAMPLE_XML), "application/zip")},
+    )
+
+    assert response.status_code == 409
+    assert "Domain 'example.com' already belongs to another workspace" in response.json()["detail"]
+    assert db_session.query(DMARCReport).filter_by(report_id="123456789").count() == 0
+
+
+def test_upload_report_recovers_from_same_workspace_domain_race(
+    authed_client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    """A same-workspace raced domain insert retries instead of leaking a 500."""
+    default_workspace = get_or_create_default_workspace(db_session)
+    db_session.commit()
+    TestingSessionLocal = sessionmaker(bind=db_session.get_bind())
+    real_save_parsed_report = reports_endpoint.save_parsed_report
+    call_count = 0
+
+    def raced_save(db, report, *, workspace_id=None):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            concurrent_db = TestingSessionLocal()
+            try:
+                concurrent_db.add(Domain(name="example.com", workspace_id=default_workspace.id))
+                concurrent_db.commit()
+            finally:
+                concurrent_db.close()
+            raise IntegrityError("insert", {}, Exception("UNIQUE constraint failed: domains.name"))
+        return real_save_parsed_report(db, report, workspace_id=workspace_id)
+
+    monkeypatch.setattr(reports_endpoint, "save_parsed_report", raced_save)
+
+    response = authed_client.post(
+        "/api/v1/reports/upload",
+        files={"file": ("report.zip", _make_zip(SAMPLE_XML), "application/zip")},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["domain"] == "example.com"
+    assert db_session.query(Domain).filter(Domain.name == "example.com").count() == 1
+    assert db_session.query(DMARCReport).filter_by(report_id="123456789").count() == 1
 
 
 def test_upload_persists_rfc9990_optional_fields(authed_client: TestClient, db_session):

@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile, status
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -22,7 +23,7 @@ from app.services.workspace_access import (
     parse_selected_workspace_id,
     resolve_authorized_workspace,
 )
-from app.utils.domain_validator import DomainValidationError, validate_domain
+from app.utils.domain_validator import DomainValidationError, normalize_domain_name, validate_domain
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,38 @@ def _authorized_reports_workspace(
 
 def _selected_workspace_id(selected_workspace: Optional[str]) -> Optional[int]:
     return parse_selected_workspace_id(selected_workspace)
+
+
+def _domain_workspace_conflict(domain: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=(
+            f"Domain '{domain}' already belongs to another workspace. "
+            "Move or rename the domain before uploading reports for this workspace."
+        ),
+    )
+
+
+def _raise_if_domain_owned_by_other_workspace(db: Session, domain: str, workspace_id: int) -> None:
+    existing_domain = db.query(Domain).filter(Domain.name == domain).first()
+    if existing_domain is not None and existing_domain.workspace_id != workspace_id:
+        raise _domain_workspace_conflict(domain)
+
+
+def _save_uploaded_report(
+    db: Session, report: Dict[str, Any], domain: str, workspace_id: int
+) -> None:
+    try:
+        save_parsed_report(db, report, workspace_id=workspace_id)
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        try:
+            _raise_if_domain_owned_by_other_workspace(db, domain, workspace_id)
+        except HTTPException as conflict:
+            raise conflict from exc
+        save_parsed_report(db, report, workspace_id=workspace_id)
+        db.commit()
 
 
 def _hydrated_report_store(db: Session, workspace) -> ReportStore:
@@ -235,6 +268,8 @@ async def upload_report(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Report does not contain a valid domain",
             )
+        domain = normalize_domain_name(domain)
+        report["domain"] = domain
 
         # Validate domain format (not DNS resolution to avoid external calls)
         is_valid, error_msg, error_code = validate_domain(domain, check_dns=False)
@@ -255,19 +290,10 @@ async def upload_report(
                 ),
             )
 
-        existing_domain = db.query(Domain).filter(Domain.name == domain).first()
-        if existing_domain is not None and existing_domain.workspace_id != workspace.id:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    f"Domain '{domain}' already belongs to another workspace. "
-                    "Move or rename the domain before uploading reports for this workspace."
-                ),
-            )
+        _raise_if_domain_owned_by_other_workspace(db, domain, workspace.id)
 
         # Store the report
-        save_parsed_report(db, report, workspace_id=workspace.id)
-        db.commit()
+        _save_uploaded_report(db, report, domain, workspace.id)
 
         processed_records = report.get("summary", {}).get("total_count", 0)
 
