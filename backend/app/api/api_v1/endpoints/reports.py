@@ -538,7 +538,6 @@ async def delete_report(
     deleted_from_db = delete_persisted_report(db, domain, report_id, workspace_id=workspace.id)
     if deleted_from_db:
         db.commit()
-    ReportStore.get_instance().delete_report(domain, report_id)
     deleted = deleted_from_db
 
     if not deleted:

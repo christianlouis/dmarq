@@ -368,8 +368,32 @@ def test_report_read_and_delete_routes_respect_selected_workspace(
     domains = authed_client.get("/api/v1/reports/domains", headers=selected_header)
     all_reports = authed_client.get("/api/v1/reports", headers=selected_header)
     summaries = authed_client.get("/api/v1/reports/summary", headers=selected_header)
+    domain_summary = authed_client.get(
+        "/api/v1/reports/domain/selected-reports.example/summary",
+        headers=selected_header,
+    )
+    domain_reports = authed_client.get(
+        "/api/v1/reports/domain/selected-reports.example/reports",
+        headers=selected_header,
+    )
+    paginated_reports = authed_client.get(
+        "/api/v1/reports/domain/selected-reports.example/reports/paginated",
+        headers=selected_header,
+    )
     detail = authed_client.get("/api/v1/reports/selected-report", headers=selected_header)
     hidden_detail = authed_client.get("/api/v1/reports/default-report", headers=selected_header)
+    hidden_domain_summary = authed_client.get(
+        "/api/v1/reports/domain/default-reports.example/summary",
+        headers=selected_header,
+    )
+    hidden_domain_reports = authed_client.get(
+        "/api/v1/reports/domain/default-reports.example/reports",
+        headers=selected_header,
+    )
+    hidden_paginated_reports = authed_client.get(
+        "/api/v1/reports/domain/default-reports.example/reports/paginated",
+        headers=selected_header,
+    )
 
     assert domains.status_code == 200
     assert domains.json() == ["selected-reports.example"]
@@ -377,9 +401,20 @@ def test_report_read_and_delete_routes_respect_selected_workspace(
     assert [item["report_id"] for item in all_reports.json()] == ["selected-report"]
     assert summaries.status_code == 200
     assert [item["domain"] for item in summaries.json()] == ["selected-reports.example"]
+    assert domain_summary.status_code == 200
+    assert domain_summary.json()["total_count"] == 9
+    assert domain_reports.status_code == 200
+    assert [item["report_id"] for item in domain_reports.json()] == ["selected-report"]
+    assert paginated_reports.status_code == 200
+    assert [item["report_id"] for item in paginated_reports.json()["reports"]] == [
+        "selected-report"
+    ]
     assert detail.status_code == 200
     assert detail.json()["summary"]["total_count"] == 9
     assert hidden_detail.status_code == 404
+    assert hidden_domain_summary.status_code == 404
+    assert hidden_domain_reports.status_code == 404
+    assert hidden_paginated_reports.status_code == 404
 
     delete_hidden = authed_client.delete(
         "/api/v1/reports/domain/default-reports.example/reports/default-report",
