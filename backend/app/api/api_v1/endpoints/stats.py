@@ -2,12 +2,18 @@ from datetime import date, datetime, time, timedelta, timezone
 from math import ceil
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import get_db
+from app.core.security import require_admin_auth
 from app.services.demo_data import build_demo_dashboard_statistics
+from app.services.workspace_access import (
+    PERMISSION_REPORTS_READ,
+    parse_selected_workspace_id,
+    resolve_authorized_workspace,
+)
 from app.utils.stats_summarizer import StatsSummarizer
 
 router = APIRouter()
@@ -168,6 +174,8 @@ def resolve_dashboard_date_range(
 @router.get("/dashboard")
 async def get_dashboard_statistics(
     db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
     force_refresh: bool = Query(False, title="Force refresh of statistics"),
     period_days: int = Query(30, ge=1, le=365, title="Period in days for time-based statistics"),
     interval: Optional[str] = Query(None, title="Named date interval"),
@@ -195,6 +203,14 @@ async def get_dashboard_statistics(
     start_ts = int(datetime.fromisoformat(date_range["start_at"]).timestamp())
     end_ts = int(datetime.fromisoformat(date_range["end_at"]).timestamp())
 
+    selected_workspace_id = parse_selected_workspace_id(selected_workspace)
+    workspace = resolve_authorized_workspace(
+        db,
+        _auth,
+        PERMISSION_REPORTS_READ,
+        selected_workspace_id=selected_workspace_id,
+    )
+
     if get_settings().DEMO_MODE:
         stats = build_demo_dashboard_statistics(period_days=resolved_days)
         stats["api_version"] = "1.0"
@@ -207,7 +223,7 @@ async def get_dashboard_statistics(
 
     # If force refresh, invalidate cache
     if force_refresh:
-        stats_summarizer.invalidate_cache()
+        stats_summarizer.invalidate_cache(workspace_id=workspace.id)
 
     # Get statistics (from cache or calculate if needed)
     stats = stats_summarizer.calculate_summary_statistics(
@@ -216,6 +232,7 @@ async def get_dashboard_statistics(
         start_ts=start_ts,
         end_ts=end_ts,
         cache_key=_summary_cache_key(date_range),
+        workspace_id=workspace.id,
     )
 
     # Add version and timestamp
@@ -230,6 +247,8 @@ async def get_dashboard_statistics(
 async def get_domain_statistics(
     domain_id: str = Path(..., title="The domain ID or name"),
     db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
     force_refresh: bool = Query(False, title="Force refresh of statistics"),
     period_days: int = Query(30, ge=1, le=365, title="Period in days for time-based statistics"),
     interval: Optional[str] = Query(None, title="Named date interval"),
@@ -257,6 +276,14 @@ async def get_domain_statistics(
     start_ts = int(datetime.fromisoformat(date_range["start_at"]).timestamp())
     end_ts = int(datetime.fromisoformat(date_range["end_at"]).timestamp())
 
+    selected_workspace_id = parse_selected_workspace_id(selected_workspace)
+    workspace = resolve_authorized_workspace(
+        db,
+        _auth,
+        PERMISSION_REPORTS_READ,
+        selected_workspace_id=selected_workspace_id,
+    )
+
     if get_settings().DEMO_MODE:
         stats = build_demo_dashboard_statistics(period_days=resolved_days, domain=domain_id)
         stats["api_version"] = "1.0"
@@ -269,7 +296,7 @@ async def get_domain_statistics(
 
     # If force refresh, invalidate domain cache
     if force_refresh:
-        stats_summarizer.invalidate_cache(domain_id)
+        stats_summarizer.invalidate_cache(domain_id, workspace_id=workspace.id)
 
     # Get domain statistics (from cache or calculate if needed)
     stats = stats_summarizer.calculate_summary_statistics(
@@ -279,6 +306,7 @@ async def get_domain_statistics(
         start_ts=start_ts,
         end_ts=end_ts,
         cache_key=_summary_cache_key(date_range),
+        workspace_id=workspace.id,
     )
 
     # Add version and timestamp

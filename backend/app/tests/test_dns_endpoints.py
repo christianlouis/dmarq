@@ -16,9 +16,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 
 from app.api.api_v1.endpoints import domains as domains_endpoint
-from app.api.api_v1.endpoints.domains import _spf_fix_hint
+from app.api.api_v1.endpoints.domains import _domain_names_for_summary, _spf_fix_hint
 from app.models.dns_cache import DNSCache, DNSRecordChange
 from app.models.domain import Domain
+from app.models.workspace import Workspace
 from app.services.bimi import BIMIResult
 from app.services.dns_cache import _selectors_key, resolve_domain_dns_cached
 from app.services.dns_resolver import DomainDNSResult
@@ -856,6 +857,52 @@ def test_summary_endpoint_uses_manual_selectors(authed_client: TestClient):
     assert response.status_code == 200
     assert "manualsel" in captured_selectors
     assert "google" in captured_selectors
+
+
+def test_summary_endpoint_respects_selected_workspace_header(
+    authed_client: TestClient,
+    db_session,
+):
+    """The dashboard domain summary only returns domains in the selected workspace."""
+    alpha = Workspace(slug="summary-alpha", name="Summary Alpha", active=True)
+    beta = Workspace(slug="summary-beta", name="Summary Beta", active=True)
+    db_session.add_all([alpha, beta])
+    db_session.flush()
+    db_session.add_all(
+        [
+            Domain(name="alpha-summary.example", workspace_id=alpha.id, active=True),
+            Domain(name="beta-summary.example", workspace_id=beta.id, active=True),
+        ]
+    )
+    db_session.commit()
+
+    with _mock_dns():
+        response = authed_client.get(
+            "/api/v1/domains/summary",
+            headers={"X-DMARQ-Workspace-ID": str(alpha.id)},
+        )
+
+    assert response.status_code == 200
+    assert [item["domain_name"] for item in response.json()["domains"]] == ["alpha-summary.example"]
+
+
+def test_domain_names_for_selected_workspace_excludes_unscoped_report_cache(db_session):
+    """Selected workspace summaries must not inherit unrelated in-memory report domains."""
+    workspace = Workspace(slug="summary-cache-scope", name="Summary Cache Scope", active=True)
+    db_session.add(workspace)
+    db_session.flush()
+    db_session.add(Domain(name="scoped-cache-summary.example", workspace_id=workspace.id))
+    db_session.commit()
+
+    store = ReportStore()
+    store.add_report({**MINIMAL_REPORT, "domain": "ghost-cache-summary.example"})
+
+    assert _domain_names_for_summary(
+        db_session,
+        store,
+        workspace,
+        include_unscoped_report_domains=False,
+    ) == ["scoped-cache-summary.example"]
 
 
 def test_selector_map_lookup_chunks_domain_names(db_session, monkeypatch):

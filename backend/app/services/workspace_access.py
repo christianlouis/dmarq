@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
@@ -11,6 +11,7 @@ from app.models.organization import Organization, OrganizationMembership
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceMembership
+from app.services.workspaces import assign_default_workspace_to_unscoped_rows
 
 ROLE_WORKSPACE_OWNER = "workspace_owner"
 ROLE_DOMAIN_ADMIN = "domain_admin"
@@ -222,6 +223,67 @@ def require_workspace_permission(
         status_code=status.HTTP_403_FORBIDDEN,
         detail=f"Workspace permission required: {permission}",
     )
+
+
+def parse_selected_workspace_id(value: Optional[Any]) -> Optional[int]:
+    """Return a selected workspace id from the UI propagation header."""
+    if value is not None and not isinstance(value, (str, int)):
+        return None
+    if value is None or not str(value).strip():
+        return None
+    try:
+        workspace_id = int(str(value).strip())
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="X-DMARQ-Workspace-ID must be an integer",
+        ) from exc
+    if workspace_id <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="X-DMARQ-Workspace-ID must be a positive integer",
+        )
+    return workspace_id
+
+
+def _workspace_id_from_auth_context(auth_context: dict) -> Optional[int]:
+    """Return the workspace bound to scoped API-token auth, when present."""
+    if (auth_context or {}).get("auth_type") != "api_token":
+        return None
+    try:
+        workspace_id = int((auth_context or {}).get("workspace_id") or 0)
+    except (TypeError, ValueError):
+        return None
+    return workspace_id if workspace_id > 0 else None
+
+
+def resolve_authorized_workspace(
+    db: Session,
+    auth_context: dict,
+    permission: str,
+    *,
+    selected_workspace_id: Optional[int] = None,
+) -> Workspace:
+    """Resolve and authorize the selected workspace, defaulting legacy installs safely."""
+    selected_workspace_id = selected_workspace_id or _workspace_id_from_auth_context(auth_context)
+    if selected_workspace_id is None:
+        workspace = assign_default_workspace_to_unscoped_rows(db)
+    else:
+        workspace = (
+            db.query(Workspace)
+            .filter(
+                Workspace.id == selected_workspace_id,
+                Workspace.active.is_(True),
+            )
+            .first()
+        )
+        if workspace is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Selected workspace not found",
+            )
+    require_workspace_permission(auth_context, permission, db, workspace)
+    return workspace
 
 
 def role_for_organization(
