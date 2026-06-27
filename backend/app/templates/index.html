@@ -235,7 +235,7 @@
                         </div>
                         <div class="rounded-md bg-[#f4f3f2] p-3">
                             <p class="text-[#5f5c78]">Billing</p>
-                            <p class="mt-1 font-semibold text-[#120d36]" x-text="formatMoney(organization.billing.current_period_total_cents, organization.plan.price.currency)"></p>
+                            <p class="mt-1 font-semibold text-[#120d36]" x-text="formatMoney(organization.billing?.current_period_total_cents, organization.plan.price.currency)"></p>
                         </div>
                     </div>
                     <div class="mt-4 rounded-md border border-[#e6e3e1] p-3 text-sm">
@@ -877,8 +877,7 @@ function dashboardApp() {
         formatMoney(cents, currency = 'EUR') {
             return new Intl.NumberFormat(undefined, {
                 style: 'currency',
-                currency,
-                maximumFractionDigits: 0
+                currency
             }).format((Number(cents) || 0) / 100);
         },
 
@@ -922,7 +921,9 @@ function dashboardApp() {
         formatDemoUsage(organization, usage) {
             const entitlement = organization.entitlements?.[usage.metric];
             const used = this.formatLargeNumber(usage.quantity || 0);
-            const limit = entitlement?.included ? ` / ${this.formatLargeNumber(entitlement.included)}` : '';
+            const limit = entitlement?.included !== undefined && entitlement?.included !== null
+                ? ` / ${this.formatLargeNumber(entitlement.included)}`
+                : '';
             return `${this.formatDemoLabel(usage.metric)} ${used}${limit} ${usage.unit || ''}`.trim();
         },
 
