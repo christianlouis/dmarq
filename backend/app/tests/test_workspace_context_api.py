@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import require_admin_auth
+from app.api.api_v1.endpoints.workspaces import _workspace_context_row
 from app.models.organization import Organization
 from app.models.user import User
 from app.models.workspace import Workspace
@@ -124,3 +125,101 @@ def test_workspace_context_platform_admin_sees_inactive_workspaces(
     assert rows["inactive-client"]["active"] is False
     assert rows["active-client"]["effective_role"] == ROLE_WORKSPACE_OWNER
     assert data["default_workspace_id"] == active.id
+
+
+def test_workspace_context_api_token_limits_context_to_token_workspace(
+    test_app,
+    db_session: Session,
+):
+    organization = Organization(slug="token-context", name="Token Context", active=True)
+    db_session.add(organization)
+    db_session.flush()
+    scoped = _add_workspace(db_session, "token-scoped", organization)
+    hidden = _add_workspace(db_session, "token-hidden", organization)
+    db_session.commit()
+
+    with _client_as_auth(
+        test_app,
+        db_session,
+        {"auth_type": "api_token", "workspace_id": str(scoped.id)},
+    ) as client:
+        response = client.get("/api/v1/workspaces")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert [workspace["slug"] for workspace in data["workspaces"]] == ["token-scoped"]
+    assert data["workspaces"][0]["effective_role"] == ROLE_ANALYST
+    assert data["default_workspace_id"] == scoped.id
+    assert hidden.slug not in {workspace["slug"] for workspace in data["workspaces"]}
+
+
+def test_workspace_context_invalid_api_token_workspace_returns_empty_context(
+    test_app,
+    db_session: Session,
+):
+    with _client_as_auth(
+        test_app,
+        db_session,
+        {"auth_type": "api_token", "workspace_id": "not-a-workspace-id"},
+    ) as client:
+        response = client.get("/api/v1/workspaces")
+
+    assert response.status_code == 200
+    assert response.json() == {"workspaces": [], "default_workspace_id": None}
+
+
+def test_workspace_context_superuser_uses_primary_workspace_role(
+    test_app,
+    db_session: Session,
+):
+    organization = Organization(slug="super-context", name="Super Context", active=True)
+    db_session.add(organization)
+    db_session.flush()
+    workspace = _add_workspace(db_session, "super-primary", organization)
+    user = User(
+        email="super-context@example.com",
+        is_active=True,
+        is_verified=True,
+        is_superuser=True,
+        workspace_id=workspace.id,
+    )
+    db_session.add(user)
+    db_session.commit()
+
+    with _client_as_auth(
+        test_app,
+        db_session,
+        {"auth_type": "session", "user_id": user.id},
+    ) as client:
+        response = client.get("/api/v1/workspaces")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert [workspace["slug"] for workspace in data["workspaces"]] == ["super-primary"]
+    assert data["workspaces"][0]["effective_role"] == ROLE_WORKSPACE_OWNER
+
+
+def test_workspace_context_missing_session_user_returns_empty_context(
+    test_app,
+    db_session: Session,
+):
+    with _client_as_auth(
+        test_app,
+        db_session,
+        {"auth_type": "session", "user_id": 999_999},
+    ) as client:
+        response = client.get("/api/v1/workspaces")
+
+    assert response.status_code == 200
+    assert response.json() == {"workspaces": [], "default_workspace_id": None}
+
+
+def test_workspace_context_row_omits_workspaces_without_effective_role(
+    db_session: Session,
+):
+    organization = Organization(slug="row-context", name="Row Context", active=True)
+    db_session.add(organization)
+    db_session.flush()
+    workspace = _add_workspace(db_session, "row-context-workspace", organization)
+
+    assert _workspace_context_row(workspace, "") is None

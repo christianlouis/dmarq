@@ -41,3 +41,4 @@ def test_base_template_propagates_selected_workspace_context():
     assert "dmarq.selectedWorkspaceId" in template
     assert "X-DMARQ-Workspace-ID" in template
     assert "dmarq:workspace-changed" in template
+    assert "input instanceof URL" in template

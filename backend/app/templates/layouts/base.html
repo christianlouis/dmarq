@@ -193,7 +193,9 @@
             const originalFetch = window.fetch;
             window.fetch = function(input, init) {
                 const workspaceId = localStorage.getItem('dmarq.selectedWorkspaceId');
-                const url = typeof input === 'string' ? input : (input && input.url) || '';
+                const url = input instanceof URL
+                    ? input.toString()
+                    : (typeof input === 'string' ? input : (input && input.url) || '');
                 const isApiRequest = url.startsWith('/api/') || url.startsWith(window.location.origin + '/api/');
                 if (!workspaceId || !isApiRequest) {
                     return originalFetch(input, init);
