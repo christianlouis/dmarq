@@ -2216,7 +2216,8 @@ class TestGmailCallbackGet:
             )
 
         assert auth_resp.status_code == 200
-        assert state == f"workspace:{selected_workspace.id}:source:{source_id}"
+        assert state.startswith("v1.")
+        assert state != f"workspace:{selected_workspace.id}:source:{source_id}"
         assert callback_resp.status_code == 200
 
         default_get = authed_client.get(f"/api/v1/mail-sources/{source_id}")
@@ -2228,6 +2229,115 @@ class TestGmailCallbackGet:
         assert selected_get.status_code == 200
         assert selected_get.json()["gmail_connected"] is True
         assert selected_get.json()["gmail_email"] == "selected@gmail.com"
+
+    def test_callback_rejects_tampered_oauth_state_before_token_exchange(
+        self,
+        authed_client: TestClient,
+        db_session: Session,
+    ):
+        """Tampered OAuth state is rejected before persisting provider tokens."""
+        get_or_create_default_workspace(db_session)
+        selected_workspace = Workspace(slug="tampered-oauth", name="Tampered OAuth")
+        db_session.add(selected_workspace)
+        db_session.commit()
+        selected_header = {"X-DMARQ-Workspace-ID": str(selected_workspace.id)}
+
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            headers=selected_header,
+            json={
+                "name": "Tampered Gmail",
+                "method": "GMAIL_API",
+                "gmail_client_id": "cid",
+                "gmail_client_secret": "secret",
+            },
+        )
+        source_id = create_resp.json()["id"]
+        auth_resp = authed_client.get(
+            f"/api/v1/mail-sources/{source_id}/gmail/authorize-url",
+            headers=selected_header,
+        )
+        state = parse_qs(urlparse(auth_resp.json()["authorization_url"]).query)["state"][0]
+        replacement = "x" if not state.endswith("x") else "y"
+        tampered_state = f"{state[:-1]}{replacement}"
+
+        with patch(
+            "app.api.api_v1.endpoints.mail_sources.GmailClient.exchange_code_for_tokens"
+        ) as exchange_mock:
+            callback_resp = authed_client.get(
+                f"/api/v1/mail-sources/{source_id}/gmail/callback"
+                f"?code=abc&state={tampered_state}"
+            )
+
+        assert callback_resp.status_code == 400
+        assert callback_resp.json()["detail"] == "Invalid OAuth state."
+        exchange_mock.assert_not_called()
+
+        selected_get = authed_client.get(
+            f"/api/v1/mail-sources/{source_id}",
+            headers=selected_header,
+        )
+        assert selected_get.json()["gmail_connected"] is False
+
+    def test_callback_rejects_oauth_state_for_another_source(
+        self,
+        authed_client: TestClient,
+        db_session: Session,
+    ):
+        """OAuth state must be bound to the same source as the callback path."""
+        get_or_create_default_workspace(db_session)
+        selected_workspace = Workspace(slug="source-bound-oauth", name="Source Bound OAuth")
+        db_session.add(selected_workspace)
+        db_session.commit()
+        selected_header = {"X-DMARQ-Workspace-ID": str(selected_workspace.id)}
+
+        first_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            headers=selected_header,
+            json={
+                "name": "First Gmail",
+                "method": "GMAIL_API",
+                "gmail_client_id": "cid-1",
+                "gmail_client_secret": "secret",
+            },
+        )
+        second_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            headers=selected_header,
+            json={
+                "name": "Second Gmail",
+                "method": "GMAIL_API",
+                "gmail_client_id": "cid-2",
+                "gmail_client_secret": "secret",
+            },
+        )
+        first_id = first_resp.json()["id"]
+        second_id = second_resp.json()["id"]
+        auth_resp = authed_client.get(
+            f"/api/v1/mail-sources/{first_id}/gmail/authorize-url",
+            headers=selected_header,
+        )
+        state = parse_qs(urlparse(auth_resp.json()["authorization_url"]).query)["state"][0]
+
+        with patch(
+            "app.api.api_v1.endpoints.mail_sources.GmailClient.exchange_code_for_tokens"
+        ) as exchange_mock:
+            callback_resp = authed_client.get(
+                f"/api/v1/mail-sources/{second_id}/gmail/callback?code=abc&state={state}"
+            )
+
+        assert callback_resp.status_code == 400
+        assert (
+            callback_resp.json()["detail"]
+            == "OAuth state does not match the requested mail source."
+        )
+        exchange_mock.assert_not_called()
+
+        selected_get = authed_client.get(
+            f"/api/v1/mail-sources/{second_id}",
+            headers=selected_header,
+        )
+        assert selected_get.json()["gmail_connected"] is False
 
     def test_callback_success_without_email(self, authed_client: TestClient):
         """Successful callback where get_gmail_email returns None still saves token."""

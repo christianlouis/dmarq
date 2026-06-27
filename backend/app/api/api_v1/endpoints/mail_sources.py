@@ -7,6 +7,9 @@ persisting anything.  Gmail API and Microsoft 365 sources additionally have
 OAuth2 helper endpoints (authorize-url, callback, fetch).
 """
 
+import base64
+import hashlib
+import hmac
 import json
 import logging
 from datetime import datetime
@@ -16,6 +19,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, s
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.redaction import sanitize_for_log
 from app.core.security import require_admin_auth
@@ -226,8 +230,11 @@ def _selected_workspace_id(selected_workspace: Optional[str]) -> Optional[int]:
 def _selected_workspace_or_oauth_state(
     selected_workspace: Optional[str],
     state_value: Optional[str],
+    source_id: int,
 ) -> Optional[int]:
-    return _workspace_id_from_oauth_state(state_value) or _selected_workspace_id(selected_workspace)
+    return _workspace_id_from_oauth_state(state_value, source_id) or _selected_workspace_id(
+        selected_workspace
+    )
 
 
 def _authorized_mail_source_workspace(
@@ -245,18 +252,101 @@ def _authorized_mail_source_workspace(
 
 
 def _oauth_state(workspace_id: int, source_id: int) -> str:
-    """Encode selected workspace context for OAuth provider redirects."""
-    return f"workspace:{workspace_id}:source:{source_id}"
+    """Return a signed OAuth state value bound to one workspace and source."""
+    payload = json.dumps(
+        {"source_id": int(source_id), "workspace_id": int(workspace_id)},
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    encoded_payload = _base64url_encode(payload)
+    signature = hmac.new(
+        get_settings().SECRET_KEY.encode("utf-8"),
+        encoded_payload.encode("ascii"),
+        hashlib.sha256,
+    ).digest()
+    return f"v1.{encoded_payload}.{_base64url_encode(signature)}"
 
 
-def _workspace_id_from_oauth_state(state_value: Optional[str]) -> Optional[int]:
-    """Return a selected workspace id from OAuth state, tolerating old state values."""
-    if not state_value:
-        return None
+def _base64url_encode(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
+
+
+def _base64url_decode(value: str) -> bytes:
+    padded = value + ("=" * (-len(value) % 4))
+    return base64.urlsafe_b64decode(padded.encode("ascii"))
+
+
+def _invalid_oauth_state() -> HTTPException:
+    return HTTPException(status_code=400, detail="Invalid OAuth state.")
+
+
+def _oauth_state_source_mismatch() -> HTTPException:
+    return HTTPException(
+        status_code=400,
+        detail="OAuth state does not match the requested mail source.",
+    )
+
+
+def _signed_oauth_state_workspace_id(state_value: str, source_id: int) -> int:
+    parts = state_value.split(".")
+    if len(parts) != 3:
+        raise _invalid_oauth_state()
+
+    encoded_payload, encoded_signature = parts[1], parts[2]
+    expected_signature = hmac.new(
+        get_settings().SECRET_KEY.encode("utf-8"),
+        encoded_payload.encode("ascii"),
+        hashlib.sha256,
+    ).digest()
+    try:
+        actual_signature = _base64url_decode(encoded_signature)
+        payload = json.loads(_base64url_decode(encoded_payload))
+        workspace_id = int(payload["workspace_id"])
+        state_source_id = int(payload["source_id"])
+    except (ValueError, KeyError, TypeError, json.JSONDecodeError):
+        raise _invalid_oauth_state() from None
+
+    if not hmac.compare_digest(actual_signature, expected_signature):
+        raise _invalid_oauth_state()
+    if state_source_id != int(source_id):
+        raise _oauth_state_source_mismatch()
+    return workspace_id
+
+
+def _legacy_oauth_state_workspace_id(state_value: str, source_id: int) -> Optional[int]:
+    # Legacy states from older authorization URLs are accepted only when they
+    # bind to the callback source id; they are not treated as trusted workspace
+    # selectors.
     parts = state_value.split(":")
     if len(parts) == 4 and parts[0] == "workspace" and parts[2] == "source":
-        return _selected_workspace_id(parts[1])
-    return None
+        try:
+            workspace_id = int(parts[1])
+            state_source_id = int(parts[3])
+        except ValueError:
+            raise _invalid_oauth_state() from None
+        if state_source_id != int(source_id):
+            raise _oauth_state_source_mismatch()
+        return workspace_id
+
+    if state_value.isdigit():
+        if int(state_value) != int(source_id):
+            raise _oauth_state_source_mismatch()
+        return None
+
+    raise _invalid_oauth_state()
+
+
+def _workspace_id_from_oauth_state(
+    state_value: Optional[str],
+    source_id: int,
+) -> Optional[int]:
+    """Return a workspace id from OAuth state after validating source binding."""
+    if not state_value:
+        return None
+
+    if state_value.startswith("v1."):
+        return _signed_oauth_state_workspace_id(state_value, source_id)
+    return _legacy_oauth_state_workspace_id(state_value, source_id)
 
 
 def _audit_mail_source_change(
@@ -1039,6 +1129,7 @@ async def m365_oauth_callback(
         _selected_workspace_or_oauth_state(
             selected_workspace,
             request.query_params.get("state"),
+            source_id,
         ),
     )
     source = _get_source_or_404(source_id, db, workspace)
@@ -1341,6 +1432,7 @@ async def gmail_oauth_callback(
         _selected_workspace_or_oauth_state(
             selected_workspace,
             request.query_params.get("state"),
+            source_id,
         ),
     )
     source = _get_source_or_404(source_id, db, workspace)
