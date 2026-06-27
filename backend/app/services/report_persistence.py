@@ -99,7 +99,12 @@ def report_exists(
     return query.first() is not None
 
 
-def save_parsed_report(db: Session, report: Dict[str, Any]) -> tuple[DMARCReport, bool]:
+def save_parsed_report(
+    db: Session,
+    report: Dict[str, Any],
+    *,
+    workspace_id: Optional[int] = None,
+) -> tuple[DMARCReport, bool]:
     """Persist a parsed DMARC report and its records.
 
     Returns ``(row, created)``. The caller owns the transaction and should
@@ -108,15 +113,17 @@ def save_parsed_report(db: Session, report: Dict[str, Any]) -> tuple[DMARCReport
     domain_name = report.get("domain") or "unknown"
     report_id = report.get("report_id") or ""
     policy = _policy_parts(report)
-    workspace = assign_default_workspace_to_unscoped_rows(db, commit=False)
+    if workspace_id is None:
+        workspace = assign_default_workspace_to_unscoped_rows(db, commit=False)
+        workspace_id = workspace.id
 
     domain = (
         db.query(Domain)
-        .filter(Domain.name == domain_name, Domain.workspace_id == workspace.id)
+        .filter(Domain.name == domain_name, Domain.workspace_id == workspace_id)
         .first()
     )
     if domain is None:
-        domain = Domain(name=domain_name, dmarc_policy=policy["p"], workspace_id=workspace.id)
+        domain = Domain(name=domain_name, dmarc_policy=policy["p"], workspace_id=workspace_id)
         db.add(domain)
         db.flush()
     elif policy.get("p"):
