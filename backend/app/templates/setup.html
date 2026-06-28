@@ -136,7 +136,9 @@
                         </div>
                         <div class="flex flex-wrap gap-3">
                             <a href="/login" class="btn btn-primary">Sign in</a>
+                            {% if logto_configured %}
                             <a href="/onboarding" class="btn btn-secondary">Start workspace onboarding</a>
+                            {% endif %}
                             <a href="/" class="btn btn-outline">Open dashboard</a>
                         </div>
                     </div>

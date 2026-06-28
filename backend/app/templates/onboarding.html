@@ -235,12 +235,32 @@ function workspaceOnboarding() {
             return this.previewing || this.applying;
         },
         init() {
-            this.form.organizationName = localStorage.getItem('dmarq.onboarding.organizationName') || '';
-            this.form.workspaceName = localStorage.getItem('dmarq.onboarding.workspaceName') || '';
-            this.form.domain = localStorage.getItem('dmarq.onboarding.domain') || '';
+            this.draftFields().forEach((field) => {
+                const storedValue = localStorage.getItem(`dmarq.onboarding.${field}`);
+                if (storedValue !== null) {
+                    this.form[field] = storedValue;
+                }
+                this.$watch(`form.${field}`, () => this.persistDraft());
+            });
+        },
+        draftFields() {
+            return [
+                'organizationName',
+                'workspaceName',
+                'workspaceDescription',
+                'domain',
+                'dnsProvider',
+                'reportMailbox',
+                'mailSourcePath',
+                'imapServer',
+                'imapUsername',
+            ];
+        },
+        normalizeDomain(value) {
+            return value.trim().replace(/^\.+|\.+$/g, '').toLowerCase();
         },
         payload() {
-            const domain = this.form.domain.trim().toLowerCase();
+            const domain = this.normalizeDomain(this.form.domain);
             const workspaceName = this.form.workspaceName.trim() || this.form.organizationName.trim() || domain;
             const organizationName = this.form.organizationName.trim() || workspaceName;
             const reportMailbox = this.form.reportMailbox.trim() || (domain ? `dmarc@${domain}` : '');
@@ -267,7 +287,7 @@ function workspaceOnboarding() {
             };
         },
         validate() {
-            if (!this.form.domain.trim()) {
+            if (!this.normalizeDomain(this.form.domain)) {
                 throw new Error('Domain is required.');
             }
             if (!this.form.workspaceName.trim() && !this.form.organizationName.trim()) {
@@ -340,9 +360,9 @@ function workspaceOnboarding() {
             }));
         },
         persistDraft() {
-            localStorage.setItem('dmarq.onboarding.organizationName', this.form.organizationName);
-            localStorage.setItem('dmarq.onboarding.workspaceName', this.form.workspaceName);
-            localStorage.setItem('dmarq.onboarding.domain', this.form.domain);
+            this.draftFields().forEach((field) => {
+                localStorage.setItem(`dmarq.onboarding.${field}`, this.form[field] || '');
+            });
         },
     };
 }
