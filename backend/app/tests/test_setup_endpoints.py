@@ -92,6 +92,26 @@ class TestSetupPage:
         assert "/api/v1/setup/status" in response.text
         assert "/api/v1/setup/admin" in response.text
         assert "/api/v1/setup/system" in response.text
+        assert "/onboarding" in response.text
+
+    def test_onboarding_page_renders_workspace_bootstrap_flow(self):
+        from unittest.mock import MagicMock, patch
+
+        from app.main import app as main_app
+
+        with patch("app.core.config.get_settings") as mock_get_settings:
+            mock_cfg = MagicMock()
+            mock_cfg.AUTH_DISABLED = True
+            mock_get_settings.return_value = mock_cfg
+            with TestClient(main_app) as test_client:
+                response = test_client.get("/onboarding")
+
+        assert response.status_code == 200
+        assert "Workspace onboarding" in response.text
+        assert "workspaceOnboarding()" in response.text
+        assert "/api/v1/onboarding/preview" in response.text
+        assert "/api/v1/onboarding/apply" in response.text
+        assert "dmarq.selectedWorkspaceId" in response.text
 
 
 class TestSetupAdmin:

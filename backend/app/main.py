@@ -597,6 +597,11 @@ async def setup(request: Request):
     )
 
 
+@app.get("/onboarding", response_class=HTMLResponse)
+async def onboarding(request: Request):
+    return templates.TemplateResponse(request, "onboarding.html")
+
+
 @app.get("/domains", response_class=HTMLResponse)
 async def domains(request: Request):
     return templates.TemplateResponse(request, "domains.html")
