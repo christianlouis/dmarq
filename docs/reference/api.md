@@ -69,11 +69,10 @@ and usage count for auditing.
 ### Provider API
 
 Provider, ISP, MSP, and hosting-control-panel integrations use
-`/provider` endpoints under the `/api/v1` base URL and provider-scoped machine
-tokens. See
-[Provider Integrations](provider-integrations.md) for customer provisioning,
-subscription state updates, WHMCS-style lifecycle mapping, TMF-style OSS/BSS
-mapping, and monthly provider billing exports.
+`/provider` endpoints under the `/api/v1` base URL with provider-scoped
+machine tokens. See [Provider Integrations](provider-integrations.md) for
+customer provisioning, subscription state updates, WHMCS-style lifecycle
+mapping, TMF-style OSS/BSS mapping, and monthly provider billing exports.
 
 ### API Tokens
 
