@@ -225,6 +225,82 @@ def test_provider_customer_provisioning_rejects_conflicting_identifiers(
         )
 
 
+def test_provider_customer_provisioning_requires_provider_scope(
+    db_session: Session,
+):
+    with pytest.raises(ValueError, match="provider_id"):
+        provision_provider_customer(
+            db_session,
+            provider_id=" ",
+            external_customer_id="cust-no-provider",
+            external_subscription_id="sub-no-provider",
+            organization_slug="No Provider Customer",
+            organization_name="No Provider Customer",
+        )
+
+
+def test_provider_customer_provisioning_rejects_blank_workspace_name(
+    db_session: Session,
+):
+    with pytest.raises(ValueError, match="workspace_name"):
+        provision_provider_customer(
+            db_session,
+            provider_id="isp-demo",
+            external_customer_id="cust-blank-workspace",
+            external_subscription_id="sub-blank-workspace",
+            organization_slug="Blank Workspace Customer",
+            organization_name="Blank Workspace Customer",
+            workspace_name=" ",
+        )
+
+
+def test_provider_customer_provisioning_rejects_non_starter_plan(
+    db_session: Session,
+):
+    with pytest.raises(ValueError, match="plan_code must be starter"):
+        provision_provider_customer(
+            db_session,
+            provider_id="isp-demo",
+            external_customer_id="cust-enterprise-plan",
+            external_subscription_id="sub-enterprise-plan",
+            organization_slug="Enterprise Plan Customer",
+            organization_name="Enterprise Plan Customer",
+            plan_code="enterprise",
+        )
+
+
+def test_provider_customer_provisioning_scopes_replays_by_provider(
+    db_session: Session,
+):
+    first = provision_provider_customer(
+        db_session,
+        provider_id="isp-demo",
+        external_customer_id="cust-provider-scoped",
+        external_subscription_id="sub-provider-scoped-a",
+        external_event_id="evt-provider-scoped",
+        organization_slug="Provider Scoped A",
+        organization_name="Provider Scoped A",
+    )
+    second = provision_provider_customer(
+        db_session,
+        provider_id="msp-demo",
+        external_customer_id="cust-provider-scoped",
+        external_subscription_id="sub-provider-scoped-b",
+        external_event_id="evt-provider-scoped",
+        organization_slug="Provider Scoped B",
+        organization_name="Provider Scoped B",
+    )
+
+    assert first["idempotent_replay"] is False
+    assert second["idempotent_replay"] is False
+    assert (
+        db_session.query(BillingAccount)
+        .filter(BillingAccount.external_customer_id == "cust-provider-scoped")
+        .count()
+        == 2
+    )
+
+
 def test_provider_customer_provisioning_endpoint_creates_customer(
     test_app,
     db_session: Session,
@@ -265,6 +341,27 @@ def test_provider_customer_provisioning_endpoint_creates_customer(
         )
         assert replay.status_code == 200
         assert replay.json()["result"]["idempotent_replay"] is True
+
+
+def test_provider_customer_provisioning_endpoint_requires_provider_id(
+    test_app,
+    db_session: Session,
+):
+    user = User(email="provider-requires-scope@example.com", is_active=True, is_verified=True)
+    db_session.add(user)
+    db_session.commit()
+
+    with _client_as_user(test_app, db_session, user) as client:
+        response = client.post(
+            "/api/v1/provider/customers",
+            json={
+                "external_customer_id": "cust-missing-provider",
+                "external_subscription_id": "sub-missing-provider",
+                "organization_slug": "Missing Provider Customer",
+                "organization_name": "Missing Provider Customer",
+            },
+        )
+        assert response.status_code == 422
 
 
 def test_provider_usage_export_computes_monthly_metrics(db_session: Session):

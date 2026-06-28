@@ -476,39 +476,45 @@ def _billing_event_to_dict(event: BillingEvent) -> Dict[str, Any]:
 def _find_provider_event(
     db: Session,
     *,
-    provider_id: Optional[str],
+    provider_id: str,
     external_event_id: Optional[str],
 ) -> Optional[BillingEvent]:
     if not external_event_id:
         return None
-    event_query = db.query(BillingEvent).filter(
-        BillingEvent.event_type == "provider.customer_provisioned",
-        BillingEvent.external_event_id == external_event_id,
+    return (
+        db.query(BillingEvent)
+        .filter(
+            BillingEvent.event_type == "provider.customer_provisioned",
+            BillingEvent.external_event_id == external_event_id,
+            BillingEvent.provider_id == provider_id,
+        )
+        .order_by(BillingEvent.id.asc())
+        .first()
     )
-    if provider_id:
-        event_query = event_query.filter(BillingEvent.provider_id == provider_id)
-    return event_query.order_by(BillingEvent.id.asc()).first()
 
 
 def _find_provider_account(
     db: Session,
     *,
-    provider_id: Optional[str],
+    provider_id: str,
     external_customer_id: str,
 ) -> Optional[BillingAccount]:
-    account_query = db.query(BillingAccount).filter(
-        BillingAccount.external_customer_id == external_customer_id
+    return (
+        db.query(BillingAccount)
+        .filter(
+            BillingAccount.external_customer_id == external_customer_id,
+            BillingAccount.provider_id == provider_id,
+        )
+        .order_by(BillingAccount.id.asc())
+        .first()
     )
-    if provider_id:
-        account_query = account_query.filter(BillingAccount.provider_id == provider_id)
-    return account_query.order_by(BillingAccount.id.asc()).first()
 
 
 def _provider_replay_response(
     db: Session,
     *,
     event: BillingEvent,
-    provider_id: Optional[str],
+    provider_id: str,
     external_customer_id: str,
 ) -> Dict[str, Any]:
     organization = None
@@ -534,7 +540,7 @@ def _provider_replay_response(
 def _resolve_provider_organization_and_account(
     db: Session,
     *,
-    provider_id: Optional[str],
+    provider_id: str,
     external_customer_id: str,
     organization_slug: str,
     organization_name: str,
@@ -576,7 +582,6 @@ def _resolve_provider_organization_and_account(
         )
         db.add(account)
         db.flush()
-        created = True
 
     organization.name = organization_name
     organization.active = True
@@ -672,7 +677,7 @@ def provision_provider_customer(
     organization_name: str,
     workspace_slug: Optional[str] = None,
     workspace_name: Optional[str] = None,
-    provider_id: Optional[str] = None,
+    provider_id: str,
     plan_code: str = STARTER_PLAN_CODE,
     external_product_code: Optional[str] = None,
     external_event_id: Optional[str] = None,
@@ -680,7 +685,7 @@ def provision_provider_customer(
     commit: bool = True,
 ) -> Dict[str, Any]:
     """Provision or update a provider-billed customer tenant idempotently."""
-    provider = (provider_id or "").strip() or None
+    provider = _clean_required(provider_id, field_name="provider_id")
     external_customer = _clean_required(
         external_customer_id,
         field_name="external_customer_id",
@@ -695,8 +700,13 @@ def provision_provider_customer(
         workspace_slug or f"{org_slug}-workspace",
         field_name="workspace_slug",
     )
-    ws_name = (workspace_name or f"{org_name} Workspace").strip()
+    ws_name = _clean_required(
+        workspace_name if workspace_name is not None else f"{org_name} Workspace",
+        field_name="workspace_name",
+    )
     plan_key = (plan_code or STARTER_PLAN_CODE).strip()
+    if plan_key != STARTER_PLAN_CODE:
+        raise ValueError("plan_code must be starter until provider entitlements are configurable")
 
     replay_event = _find_provider_event(
         db,
