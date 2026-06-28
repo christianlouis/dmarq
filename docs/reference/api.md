@@ -66,6 +66,14 @@ through the `/public` path and avoid UI-specific payloads.
 Successful public API calls update the token's last-used timestamp, source IP,
 and usage count for auditing.
 
+### Provider API
+
+Provider, ISP, MSP, and hosting-control-panel integrations use
+`/api/v1/provider` endpoints and provider-scoped machine tokens. See
+[Provider Integrations](provider-integrations.md) for customer provisioning,
+subscription state updates, WHMCS-style lifecycle mapping, TMF-style OSS/BSS
+mapping, and monthly provider billing exports.
+
 ### API Tokens
 
 #### List API Tokens
