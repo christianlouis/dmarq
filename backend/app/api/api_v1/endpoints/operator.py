@@ -11,6 +11,10 @@ from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.workspace import Workspace
 from app.services.demo_data import build_demo_multi_user_deployment
+from app.services.organizations import (
+    OrganizationPlanLimitError,
+    require_organization_retention_limit,
+)
 from app.services.workspace_access import (
     PERMISSION_AUDIT_READ,
     PERMISSION_WORKSPACE_ADMIN,
@@ -64,6 +68,14 @@ def _workspace_or_404(db: Session, workspace_id: int) -> Workspace:
     return workspace
 
 
+def _raise_plan_limit_error(db: Session, exc: OrganizationPlanLimitError) -> None:
+    db.rollback()
+    raise HTTPException(
+        status_code=status.HTTP_402_PAYMENT_REQUIRED,
+        detail=exc.to_detail(),
+    ) from exc
+
+
 @router.get("/workspaces", response_model=OperatorWorkspacesResponse)
 async def list_operator_workspaces(
     db: Session = Depends(get_db),
@@ -114,6 +126,19 @@ async def update_workspace_retention(
     """Update workspace retention controls and audit the change."""
     workspace = _workspace_or_404(db, workspace_id)
     require_workspace_permission(_auth, PERMISSION_WORKSPACE_ADMIN, db, workspace)
+    if workspace.organization is not None:
+        try:
+            require_organization_retention_limit(
+                db,
+                workspace.organization,
+                max(
+                    payload.aggregate_reports_days,
+                    payload.forensic_reports_days,
+                    payload.tls_reports_days,
+                ),
+            )
+        except OrganizationPlanLimitError as exc:
+            _raise_plan_limit_error(db, exc)
     old_retention = retention_to_dict(workspace)
     workspace.report_retention_days = payload.aggregate_reports_days
     workspace.forensic_retention_days = payload.forensic_reports_days

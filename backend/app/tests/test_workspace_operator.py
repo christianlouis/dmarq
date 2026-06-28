@@ -7,6 +7,7 @@ from app.models.alert import AlertHistory
 from app.models.domain import Domain
 from app.models.mail_source import MailSource
 from app.models.mail_source_import import MailSourceImport
+from app.models.organization import Entitlement, Organization
 from app.models.report import DMARCReport
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog
@@ -159,3 +160,59 @@ def test_workspace_retention_update_is_audited(
     assert audit.workspace_id == workspace.id
     assert audit.ip_address == "203.0.113.9"
     assert "730" in (audit.details or "")
+
+
+def test_workspace_retention_update_respects_plan_limit(
+    authed_client: TestClient,
+    db_session: Session,
+):
+    """Operators cannot raise retention beyond the organization plan."""
+    organization = Organization(slug="retention-plan", name="Retention Plan", active=True)
+    workspace = Workspace(
+        slug="retention-plan-main",
+        name="Retention Plan Main",
+        organization=organization,
+        report_retention_days=30,
+        forensic_retention_days=30,
+        tls_report_retention_days=30,
+        active=True,
+    )
+    db_session.add_all(
+        [
+            organization,
+            workspace,
+            Entitlement(
+                organization=organization,
+                key="retention_days",
+                value="90",
+                source="plan",
+                active=True,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    response = authed_client.put(
+        f"/api/v1/operator/workspaces/{workspace.id}/retention",
+        json={
+            "aggregate_reports_days": 120,
+            "forensic_reports_days": 60,
+            "tls_reports_days": 90,
+        },
+    )
+
+    assert response.status_code == 402
+    detail = response.json()["detail"]
+    assert detail["code"] == "plan_limit_exceeded"
+    assert detail["metric"] == "retention_days"
+    assert detail["current"] == 30
+    assert detail["limit"] == 90
+    assert detail["attempted"] == 90
+    assert detail["unit"] == "days"
+    assert detail["entitlement_key"] == "retention_days"
+    assert detail["can_export"] is True
+    db_session.refresh(workspace)
+    assert workspace.report_retention_days == 30
+    assert workspace.forensic_retention_days == 30
+    assert workspace.tls_report_retention_days == 30
+    assert db_session.query(WorkspaceAuditLog).count() == 0
