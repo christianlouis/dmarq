@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.api.api_v1.endpoints import memberships as memberships_endpoint
 from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.organization import Entitlement, Organization, OrganizationMembership
@@ -70,6 +71,65 @@ def _add_workspace_membership(
     db_session.add(membership)
     db_session.flush()
     return membership
+
+
+def test_require_user_seat_capacity_skips_non_consuming_memberships(
+    db_session: Session,
+    monkeypatch,
+):
+    organization = Organization(slug="seat-helper", name="Seat Helper")
+    user = User(email="seat-helper@example.com", is_active=True, is_verified=True)
+    inactive_user = User(
+        email="inactive-seat-helper@example.com",
+        is_active=False,
+        is_verified=True,
+    )
+    db_session.add_all([organization, user, inactive_user])
+    db_session.flush()
+    calls: list[tuple[int, str]] = []
+
+    monkeypatch.setattr(
+        memberships_endpoint,
+        "organization_user_has_active_seat",
+        lambda _db, _organization, _user: _user.id == user.id,
+    )
+    monkeypatch.setattr(
+        memberships_endpoint,
+        "require_organization_plan_limit",
+        lambda _db, checked_organization, metric: calls.append((checked_organization.id, metric)),
+    )
+
+    memberships_endpoint._require_user_seat_capacity(db_session, None, user, active=True)
+    memberships_endpoint._require_user_seat_capacity(
+        db_session,
+        organization,
+        user,
+        active=False,
+    )
+    memberships_endpoint._require_user_seat_capacity(
+        db_session,
+        organization,
+        inactive_user,
+        active=True,
+    )
+    memberships_endpoint._require_user_seat_capacity(
+        db_session,
+        organization,
+        user,
+        active=True,
+    )
+
+    assert calls == []
+
+    memberships_endpoint._require_user_seat_capacity(
+        db_session,
+        organization,
+        inactive_user,
+        active=True,
+        activate_user=True,
+    )
+
+    assert calls == [(organization.id, "users")]
 
 
 def test_workspace_membership_api_invites_updates_and_deactivates(

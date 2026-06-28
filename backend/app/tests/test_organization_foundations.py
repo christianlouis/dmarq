@@ -32,6 +32,7 @@ from app.services.organizations import (
     list_organization_summaries,
     organization_plan_limit,
     organization_summary,
+    organization_user_has_active_seat,
     require_organization_feature,
     require_organization_plan_limit,
 )
@@ -243,6 +244,39 @@ def test_organization_summary_exposes_plan_limit_usage(db_session: Session):
     assert limits["webhooks"]["current"] == 1
     assert limits["webhooks"]["limit"] == 0
     assert limits["webhooks"]["enforced"] is True
+
+
+def test_organization_user_has_active_seat_requires_active_user(db_session: Session):
+    organization = Organization(slug="seat-detection", name="Seat Detection", active=True)
+    workspace = Workspace(
+        slug="seat-detection-main",
+        name="Seat Detection Main",
+        organization=organization,
+    )
+    active_user = User(email="seat-active@example.com", is_active=True, is_verified=True)
+    inactive_user = User(email="seat-inactive@example.com", is_active=False, is_verified=True)
+    db_session.add_all([organization, workspace, active_user, inactive_user])
+    db_session.flush()
+    db_session.add_all(
+        [
+            WorkspaceMembership(
+                workspace_id=workspace.id,
+                user_id=active_user.id,
+                role=ROLE_WORKSPACE_OWNER,
+                active=True,
+            ),
+            WorkspaceMembership(
+                workspace_id=workspace.id,
+                user_id=inactive_user.id,
+                role=ROLE_WORKSPACE_OWNER,
+                active=True,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    assert organization_user_has_active_seat(db_session, organization, active_user) is True
+    assert organization_user_has_active_seat(db_session, organization, inactive_user) is False
 
 
 def test_organization_plan_limit_returns_configured_metric(db_session: Session):
