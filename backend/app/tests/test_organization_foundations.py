@@ -180,7 +180,7 @@ def test_organization_summary_exposes_plan_limit_usage(db_session: Session):
                 workspace_id=workspace.id,
                 name="hook",
                 url="https://hooks.example/dmarq",
-                secret="stored",
+                secret="stored",  # noqa: S106 - test fixture value, not a real secret
                 event_types="*",
                 enabled=True,
             ),
