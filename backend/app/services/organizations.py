@@ -704,6 +704,7 @@ def organization_summary(
         .all()
     )
     entitlements = _active_entitlements_query(db, organization).all()
+    entitlements_by_key = _entitlements_by_key(entitlements)
     summary = {
         "id": organization.id,
         "slug": organization.slug,
@@ -722,7 +723,7 @@ def organization_summary(
                 "source": entitlement.source,
                 "expires_at": _iso(entitlement.expires_at),
             }
-            for entitlement in entitlements
+            for entitlement in entitlements_by_key.values()
         },
         "metrics": {
             "workspace_count": len(workspaces),
