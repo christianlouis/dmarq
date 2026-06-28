@@ -33,6 +33,7 @@ from app.services.dns_resolver import (
     extract_dmarc_policy,
     get_default_provider,
 )
+from app.services.health_score import build_health_summary, score_domain_health
 from app.services.mta_sts import MTAStsResult, check_mta_sts_cached
 from app.services.organizations import (
     OrganizationPlanLimitError,
@@ -437,6 +438,7 @@ class DomainSummaryResponse(BaseModel):
     overall_pass_rate: float
     reports_processed: int
     domains: List[Dict[str, Any]]
+    health_summary: Dict[str, Any] = Field(default_factory=dict)
 
 
 class SelectorRequest(BaseModel):
@@ -1219,30 +1221,30 @@ async def get_domains_summary(
         dmarc_policy = live_policy or reported_policy or "none"
 
         # Format domain data for frontend
-        domains_list.append(
-            {
-                "id": domain_name,
-                "domain_name": domain_name,
-                "total_emails": summary.get("total_count", 0),
-                "passed_count": summary.get("passed_count", 0),
-                "failed_count": summary.get("failed_count", 0),
-                "pass_rate": summary.get("compliance_rate", 0),
-                "report_count": summary.get("reports_processed", 0),
-                # Real DNS status
-                "dmarc_status": dns.dmarc,
-                "dmarc_policy": dmarc_policy,
-                "spf_status": dns.spf,
-                "dkim_status": dns.dkim,
-                "dns_cached": getattr(dns, "cached", False),
-                "dns_checked_at": (
-                    getattr(dns, "checked_at", None).isoformat()
-                    if getattr(dns, "checked_at", None)
-                    else None
-                ),
-                "dmarc_warnings": dns.dmarc_warnings,
-                "dmarc_suggestions": dns.dmarc_suggestions,
-            }
-        )
+        domain_row = {
+            "id": domain_name,
+            "domain_name": domain_name,
+            "total_emails": summary.get("total_count", 0),
+            "passed_count": summary.get("passed_count", 0),
+            "failed_count": summary.get("failed_count", 0),
+            "pass_rate": summary.get("compliance_rate", 0),
+            "report_count": summary.get("reports_processed", 0),
+            # Real DNS status
+            "dmarc_status": dns.dmarc,
+            "dmarc_policy": dmarc_policy,
+            "spf_status": dns.spf,
+            "dkim_status": dns.dkim,
+            "dns_cached": getattr(dns, "cached", False),
+            "dns_checked_at": (
+                getattr(dns, "checked_at", None).isoformat()
+                if getattr(dns, "checked_at", None)
+                else None
+            ),
+            "dmarc_warnings": dns.dmarc_warnings,
+            "dmarc_suggestions": dns.dmarc_suggestions,
+        }
+        domain_row["health"] = score_domain_health(domain_row)
+        domains_list.append(domain_row)
 
     # Calculate overall pass rate
     overall_pass_rate = 0
@@ -1255,6 +1257,7 @@ async def get_domains_summary(
         overall_pass_rate=overall_pass_rate,
         reports_processed=total_reports,
         domains=domains_list,
+        health_summary=build_health_summary(domains_list),
     )
 
 

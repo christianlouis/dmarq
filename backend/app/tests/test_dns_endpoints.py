@@ -940,8 +940,12 @@ def test_summary_endpoint_returns_demo_domains_in_demo_mode(
         response = authed_client.get("/api/v1/domains/summary")
 
     assert response.status_code == 200
-    domains = {item["domain_name"] for item in response.json()["domains"]}
+    data = response.json()
+    domains = {item["domain_name"] for item in data["domains"]}
     assert {"dmarq.org", "dmarq.com"} <= domains
+    assert data["health_summary"]["score"] > 0
+    assert data["health_summary"]["grade"] in {"A+", "A", "A-", "B+", "B", "B-", "C", "D", "F"}
+    assert all("health" in item for item in data["domains"])
 
 
 def test_summary_endpoint_respects_selected_workspace_header(
