@@ -47,13 +47,13 @@ class ProviderSubscriptionStateResponse(BaseModel):
 class ProviderCustomerProvisionRequest(BaseModel):
     """Provider request to provision or refresh a billed customer tenant."""
 
+    provider_id: str
     external_customer_id: str
     external_subscription_id: str
     organization_slug: str
     organization_name: str
     workspace_slug: Optional[str] = None
     workspace_name: Optional[str] = None
-    provider_id: Optional[str] = None
     plan_code: str = "starter"
     external_product_code: Optional[str] = None
     external_event_id: Optional[str] = None
