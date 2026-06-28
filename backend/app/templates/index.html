@@ -109,6 +109,88 @@
         </div>
     </div>
 
+    <section class="rounded-lg bg-white p-6 shadow-sm" x-show="healthSummary && hasDomainData" x-cloak data-tour="health-score">
+        <div class="grid gap-6 xl:grid-cols-[18rem_minmax(0,1fr)]">
+            <div class="rounded-lg bg-[#f4f3f2] p-5">
+                <p class="text-xs font-semibold uppercase tracking-wide text-[#2f9da5]">System Health</p>
+                <div class="mt-4 flex items-end gap-4">
+                    <div class="text-6xl font-bold leading-none text-[#120d36]" x-text="healthSummary?.score ?? 0"></div>
+                    <div class="pb-1">
+                        <div class="inline-flex min-w-16 justify-center rounded-md px-3 py-1 text-2xl font-bold"
+                             :class="gradeClass(healthSummary?.grade)"
+                             x-text="healthSummary?.grade || 'F'"></div>
+                        <p class="mt-2 text-sm font-semibold capitalize text-[#5f5c78]" x-text="healthSummary?.status || 'unknown'"></p>
+                    </div>
+                </div>
+                <p class="mt-4 text-sm text-[#5f5c78]">
+                    <span x-text="healthSummary?.attention_domains || 0"></span>
+                    <span> of </span>
+                    <span x-text="healthSummary?.domain_count || 0"></span>
+                    <span> domains need attention.</span>
+                </p>
+            </div>
+            <div class="grid gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
+                <div>
+                    <div class="flex items-start justify-between gap-3">
+                        <div>
+                            <h2 class="text-2xl font-semibold tracking-normal text-[#07071f]">Action Plan</h2>
+                            <p class="mt-1 text-sm text-[#5f5c78]">Prioritized fixes with expected score impact.</p>
+                        </div>
+                        <a href="/domains" class="text-sm font-semibold text-[#2f9da5] hover:text-[#272a5f]">Open domains</a>
+                    </div>
+                    <div class="mt-4 grid gap-3">
+                        <template x-if="!(healthSummary?.top_actions || []).length">
+                            <div class="rounded-md border border-[#e6e3e1] p-4 text-sm text-[#5f5c78]">
+                                No immediate remediation actions. Keep monitoring reports and DNS drift.
+                            </div>
+                        </template>
+                        <template x-for="action in (healthSummary?.top_actions || []).slice(0, 3)" :key="action.domain + action.type">
+                            <a class="rounded-md border border-[#e6e3e1] p-4 transition hover:border-[#2f9da5] hover:shadow-sm"
+                               :href="`/domains/${encodeURIComponent(action.domain)}`">
+                                <div class="flex items-start justify-between gap-3">
+                                    <div>
+                                        <p class="text-xs font-semibold uppercase tracking-wide"
+                                           :class="severityClass(action.severity)"
+                                           x-text="action.severity"></p>
+                                        <h3 class="mt-1 font-semibold text-[#120d36]" x-text="action.title"></h3>
+                                    </div>
+                                    <span class="rounded-full bg-[#edf7f7] px-3 py-1 text-xs font-semibold text-[#247982]">
+                                        +<span x-text="action.score_impact"></span>
+                                    </span>
+                                </div>
+                                <p class="mt-2 text-sm text-[#5f5c78]" x-text="action.detail"></p>
+                                <p class="mt-2 text-sm font-semibold text-[#272a5f]" x-text="action.next_step"></p>
+                                <p class="mt-2 text-xs text-[#5f5c78]" x-text="action.domain"></p>
+                            </a>
+                        </template>
+                    </div>
+                </div>
+                <div>
+                    <h2 class="text-2xl font-semibold tracking-normal text-[#07071f]">Domain Grades</h2>
+                    <div class="mt-4 space-y-3">
+                        <template x-for="domainHealth in healthDomains()" :key="domainHealth.domain">
+                            <a class="flex items-center justify-between gap-3 rounded-md border border-[#e6e3e1] p-3 transition hover:border-[#2f9da5]"
+                               :href="`/domains/${encodeURIComponent(domainHealth.domain)}`">
+                                <div class="min-w-0">
+                                    <p class="truncate font-semibold text-[#120d36]" x-text="domainHealth.domain"></p>
+                                    <p class="mt-1 text-xs capitalize text-[#5f5c78]" x-text="domainHealth.status"></p>
+                                </div>
+                                <div class="text-right">
+                                    <div class="inline-flex min-w-12 justify-center rounded-md px-2 py-1 text-lg font-bold"
+                                         :class="gradeClass(domainHealth.grade)"
+                                         x-text="domainHealth.grade"></div>
+                                    <p class="mt-1 text-xs text-[#5f5c78]">
+                                        <span x-text="domainHealth.score"></span><span>/100</span>
+                                    </p>
+                                </div>
+                            </a>
+                        </template>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
     <div class="grid grid-cols-1 gap-6 xl:grid-cols-12" x-show="hasDomainData" x-cloak>
         <section class="rounded-lg bg-white p-6 shadow-sm xl:col-span-6" data-tour="compliance-chart">
             <div class="mb-3 grid gap-2 sm:flex sm:items-start sm:justify-between sm:gap-4">
@@ -477,6 +559,7 @@
                         {% call tr() %}
                             {% call th() %}Domain{% endcall %}
                             {% call th() %}Emails{% endcall %}
+                            {% call th() %}Grade{% endcall %}
                             {% call th() %}Pass Rate{% endcall %}
                             {% call th() %}Failed{% endcall %}
                             {% call th() %}Reports{% endcall %}
@@ -594,6 +677,7 @@ function dashboardApp() {
         volumeTrendChart: null,
         complianceTrendChart: null,
         domains: [],
+        healthSummary: null,
         selectedDnsDomain: '',
         demoDeployment: null,
         selectedDemoScenarioId: 'single-user-multiple-domains',
@@ -713,6 +797,7 @@ function dashboardApp() {
                 
                 if (data && data.domains && data.domains.length > 0) {
                     this.domains = data.domains || [];
+                    this.healthSummary = data.health_summary || null;
                     if (!this.domains.some(domain => domain.domain_name === this.selectedDnsDomain)) {
                         this.selectedDnsDomain = this.domains[0]?.domain_name || '';
                     }
@@ -726,6 +811,7 @@ function dashboardApp() {
                     });
                 } else {
                     this.domains = [];
+                    this.healthSummary = null;
                     this.selectedDnsDomain = '';
                     this.hasDomainData = false;
                     this.clearDashboardCharts();
@@ -735,6 +821,7 @@ function dashboardApp() {
             } catch (error) {
                 console.error('Error fetching domain summary:', error);
                 this.domains = [];
+                this.healthSummary = null;
                 this.selectedDnsDomain = '';
                 this.hasDomainData = false;
                 this.clearDashboardCharts();
@@ -1099,6 +1186,27 @@ function dashboardApp() {
 
         formatDemoLabel(value) {
             return String(value || '').replaceAll('_', ' ');
+        },
+
+        healthDomains() {
+            return this.healthSummary?.domains || [];
+        },
+
+        gradeClass(grade) {
+            const value = String(grade || 'F');
+            if (value.startsWith('A')) return 'bg-[#dff3e8] text-[#1f6f45]';
+            if (value.startsWith('B')) return 'bg-[#edf7f7] text-[#247982]';
+            if (value.startsWith('C')) return 'bg-[#fff7df] text-[#8a6418]';
+            if (value.startsWith('D')) return 'bg-[#fff1ea] text-[#b8431d]';
+            return 'bg-[#ffe8e8] text-[#9f2525]';
+        },
+
+        severityClass(severity) {
+            const value = String(severity || '').toLowerCase();
+            if (value === 'critical') return 'text-[#9f2525]';
+            if (value === 'high') return 'text-[#b8431d]';
+            if (value === 'medium') return 'text-[#8a6418]';
+            return 'text-[#247982]';
         },
 
         demoOrganizations() {
@@ -1569,6 +1677,7 @@ function dashboardApp() {
 
                 row.appendChild(this.createDomainNameCell(domain.domain_name));
                 row.appendChild(this.createTextCell(this.formatLargeNumber(domain.total_emails || 0)));
+                row.appendChild(this.createGradeCell(domain.health));
                 row.appendChild(this.createPassRateCell(domain.pass_rate || 0));
                 row.appendChild(this.createTextCell(this.formatLargeNumber(domain.failed_count || 0)));
                 row.appendChild(this.createTextCell(this.formatLargeNumber(domain.report_count || 0)));
@@ -1587,6 +1696,27 @@ function dashboardApp() {
             content.textContent = domainName || 'Unknown';
             cell.appendChild(content);
 
+            return cell;
+        },
+
+        createGradeCell(health) {
+            const cell = document.createElement('td');
+            cell.className = 'table-cell';
+
+            const wrapper = document.createElement('div');
+            wrapper.className = 'flex flex-col gap-1';
+
+            const badge = document.createElement('span');
+            badge.className = `inline-flex w-fit min-w-10 justify-center rounded-md px-2 py-1 text-xs font-bold ${this.gradeClass(health?.grade)}`;
+            badge.textContent = health?.grade || 'F';
+            wrapper.appendChild(badge);
+
+            const score = document.createElement('span');
+            score.className = 'text-xs text-muted-foreground whitespace-nowrap';
+            score.textContent = `${health?.score ?? 0}/100`;
+            wrapper.appendChild(score);
+
+            cell.appendChild(wrapper);
             return cell;
         },
 
