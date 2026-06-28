@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.domain import Domain
@@ -1165,11 +1166,12 @@ async def get_domains_summary(
         store,
         workspace_id=workspace.id,
     )
+    demo_mode = get_settings().DEMO_MODE
     domains = _domain_names_for_summary(
         db,
         store,
         workspace,
-        include_unscoped_report_domains=False,
+        include_unscoped_report_domains=demo_mode,
     )
     summaries = store.get_all_domain_summaries()
 

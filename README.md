@@ -67,6 +67,12 @@ Included:
 - `DEMO_MODE=true` seeds deterministic, rolling demo data for `dmarq.org` and `dmarq.com`
 - Demo data fills the dashboard, domain details, DNS posture, aggregate reports,
   forensic reports, TLS reports, exports, and linting views
+- The dashboard starts in a single-user, multi-domain view and can zoom out into
+  SaaS, managed-service, ISP/reseller, and self-hosted deployment examples
+- Demo visitors can switch generated personas to see which accounts, workspaces,
+  billing profiles, and domains different users would experience
+- A guided dashboard tour walks through the opinionated product flow from domain
+  posture to sender evidence and account drill-down
 - The public demo is read-only so visitors can explore without modifying data
 
 ### ⚙️ Web-Based Setup Wizard

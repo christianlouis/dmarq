@@ -96,6 +96,13 @@ Reporting summaries. Public demo deployments should also keep the demo
 read-only guard enabled by leaving `DEMO_MODE=true`; mutating requests are
 blocked so visitors cannot upload, delete, or reconfigure demo content.
 
+The public dashboard uses the same demo payload to present a guided product
+tour. The default view is a single user managing multiple domains, with
+`dmarq.org` and `dmarq.com` visible immediately. Visitors can then zoom out to
+SaaS, managed-service, ISP/reseller, or self-hosted deployment examples and
+switch generated personas to inspect the account, workspace, billing, and
+domain scope that each user would see.
+
 ### Notification Configuration
 
 DMARQ stores notification targets in the web settings table. Configure them under

@@ -9,6 +9,7 @@ DNS lookups are mocked so no real network calls are made.
 """
 
 from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -916,6 +917,31 @@ def test_summary_endpoint_uses_manual_selectors(authed_client: TestClient, db_se
     assert response.status_code == 200
     assert "manualsel" in captured_selectors
     assert "google" in captured_selectors
+
+
+def test_summary_endpoint_returns_demo_domains_in_demo_mode(
+    authed_client: TestClient,
+    monkeypatch,
+):
+    """Demo mode should surface generated dmarq.org and dmarq.com reports."""
+    monkeypatch.setattr(
+        "app.api.api_v1.endpoints.domains.get_settings",
+        lambda: SimpleNamespace(DEMO_MODE=True),
+    )
+    monkeypatch.setattr(
+        "app.services.report_persistence.get_settings",
+        lambda: SimpleNamespace(DEMO_MODE=True),
+    )
+
+    with patch(
+        "app.api.api_v1.endpoints.domains.get_default_provider",
+        return_value=AsyncMock(check_domain=AsyncMock(return_value=MOCK_DNS_RESULT)),
+    ):
+        response = authed_client.get("/api/v1/domains/summary")
+
+    assert response.status_code == 200
+    domains = {item["domain_name"] for item in response.json()["domains"]}
+    assert {"dmarq.org", "dmarq.com"} <= domains
 
 
 def test_summary_endpoint_respects_selected_workspace_header(

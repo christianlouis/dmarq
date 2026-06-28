@@ -20,10 +20,20 @@ def test_demo_multi_user_deployment_has_saas_and_isp_scenarios():
     deployment = build_demo_multi_user_deployment()
 
     organizations = {org["slug"]: org for org in deployment["organizations"]}
-    assert {"dmarq-foundation", "dmarq-commercial", "northstar-isp"} <= set(organizations)
+    assert {
+        "dmarq-foundation",
+        "dmarq-commercial",
+        "northstar-isp",
+        "studio-self-hosted",
+    } <= set(organizations)
     assert organizations["dmarq-foundation"]["billing_mode"] == "direct_stripe"
     assert organizations["northstar-isp"]["billing_mode"] == "provider_resale"
-    assert organizations["dmarq-foundation"]["workspaces"][0]["domains"] == ["dmarq.org"]
+    foundation_domains = {
+        domain
+        for workspace in organizations["dmarq-foundation"]["workspaces"]
+        for domain in workspace["domains"]
+    }
+    assert {"dmarq.org", "dmarq.com"} <= foundation_domains
     assert organizations["dmarq-commercial"]["workspaces"][0]["domains"] == ["dmarq.com"]
     assert any(scenario["label"] == "ISP operator" for scenario in deployment["viewer_scenarios"])
 
@@ -35,6 +45,7 @@ def test_demo_multi_user_deployment_includes_billing_profiles_and_entitlements()
     foundation = organizations["dmarq-foundation"]
     commercial = organizations["dmarq-commercial"]
     northstar = organizations["northstar-isp"]
+    self_hosted = organizations["studio-self-hosted"]
 
     assert foundation["billing_profile"]["collection_model"] == "self_service_subscription"
     assert foundation["billing_profile"]["payment_rail"] == "card_on_file"
@@ -44,6 +55,8 @@ def test_demo_multi_user_deployment_includes_billing_profiles_and_entitlements()
     assert northstar["billing_profile"]["collection_model"] == "provider_pass_through"
     assert northstar["billing_profile"]["payment_rail"] == "isp_monthly_invoice"
     assert northstar["entitlements"]["customer_workspaces"]["used"] == 42
+    assert self_hosted["billing_profile"]["collection_model"] == "none"
+    assert self_hosted["billing_profile"]["invoice_owner"] == "Customer"
 
 
 def test_demo_multi_user_deployment_showcases_provider_customer_billing():
@@ -59,6 +72,38 @@ def test_demo_multi_user_deployment_showcases_provider_customer_billing():
     }
     assert all(customer["monthly_charge_cents"] > 0 for customer in customers)
     assert all(customer["external_customer_id"].startswith("ns-cust-") for customer in customers)
+
+
+def test_demo_multi_user_deployment_has_opinionated_default_and_impersonation():
+    deployment = build_demo_multi_user_deployment()
+
+    assert deployment["default_viewer"] == "single-user-multiple-domains"
+    assert [level["level"] for level in deployment["zoom_levels"]] == [
+        "workspace",
+        "account",
+        "provider",
+    ]
+    assert {row["domain"] for row in deployment["domain_showcase"]} == {"dmarq.org", "dmarq.com"}
+
+    scenarios = {scenario["id"]: scenario for scenario in deployment["viewer_scenarios"]}
+    assert scenarios["single-user-multiple-domains"]["visible_organizations"] == [
+        "dmarq-foundation"
+    ]
+    assert scenarios["single-user-multiple-domains"]["default_domain"] == "dmarq.org"
+    assert "self-hosted-admin" in scenarios
+
+    users = [
+        user
+        for organization in deployment["organizations"]
+        for user in organization["users"]
+        if user.get("can_impersonate")
+    ]
+    assert users
+    assert {user["demo_persona"] for user in users} >= {
+        "single-user-multiple-domains",
+        "isp-operator",
+        "self-hosted-admin",
+    }
 
 
 def test_operator_demo_multi_user_endpoint_returns_showcase(

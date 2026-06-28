@@ -163,17 +163,21 @@ Operators can update these controls with
 `PUT /api/v1/operator/workspaces/{workspace_id}/retention`. Updates are written
 to the workspace audit log as `workspace.retention_updated`.
 
-`GET /api/v1/operator/demo/multi-user` returns generated demo data for three
-deployment models:
+`GET /api/v1/operator/demo/multi-user` returns generated demo data for four
+deployment models and the dashboard persona switcher:
 
-- direct DMARQaaS subscription for `dmarq.org`
+- direct DMARQaaS subscription with a single-user, multi-domain view for
+  `dmarq.org` and `dmarq.com`
 - managed-service account for `dmarq.com`
 - ISP/reseller deployment with provider-owned billing and multiple customer
   workspaces
+- self-hosted deployment with local users, local billing ownership, and multiple
+  internal domains
 
 The endpoint is read-only and uses generated identities, provider IDs, and
 invoice references. The dashboard uses it opportunistically to display a
-multi-user deployment showcase on demo instances.
+multi-user deployment showcase on demo instances, including account drill-down,
+provider customer samples, and generated user impersonation scenarios.
 
 Provider billing integrations can read monthly usage with
 `GET /api/v1/provider/billing/usage?period=YYYY-MM`. A single external customer
