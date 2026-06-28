@@ -598,9 +598,49 @@ def _limit_status(current: int, limit: Optional[int]) -> str:
         return "ok"
     if current > limit:
         return "exceeded"
-    if limit > 0 and current >= max(1, int(limit * 0.8)):
+    if limit > 0 and current >= _limit_warning_threshold(limit):
         return "warning"
     return "ok"
+
+
+def _limit_warning_threshold(limit: Optional[int]) -> Optional[int]:
+    if limit is None:
+        return None
+    if limit <= 0:
+        return 0
+    return max(1, int(limit * 0.8))
+
+
+def _limit_usage_percent(current: int, limit: Optional[int]) -> Optional[float]:
+    if limit is None:
+        return None
+    if limit <= 0:
+        return 100.0 if current > 0 else 0.0
+    return round((current / limit) * 100, 1)
+
+
+def _metric_label(metric: str) -> str:
+    return metric.replace("_", " ")
+
+
+def _metric_verb(metric: str) -> str:
+    return "is" if metric == "retention_days" else "are"
+
+
+def _limit_message(metric: str, current: int, limit: Optional[int], status: str) -> Optional[str]:
+    if limit is None or status == "ok":
+        return None
+    label = _metric_label(metric)
+    verb = _metric_verb(metric)
+    if status == "exceeded":
+        return (
+            f"{label} {verb} over the plan limit ({current}/{limit}). "
+            "Exports remain available; reduce usage or upgrade the plan."
+        )
+    remaining = max(0, limit - current)
+    if remaining == 0:
+        return f"{label} {verb} at the plan limit ({current}/{limit})."
+    return f"{label} {verb} approaching the plan limit ({current}/{limit}); {remaining} remaining."
 
 
 def _limit_payload(
@@ -611,14 +651,20 @@ def _limit_payload(
     unit: str = "count",
     enforced: bool = True,
 ) -> Dict[str, Any]:
+    current_value = int(current or 0)
+    status = _limit_status(current_value, limit)
     return {
         "metric": metric,
-        "current": int(current or 0),
+        "current": current_value,
         "limit": limit,
-        "remaining": None if limit is None else max(0, limit - int(current or 0)),
+        "remaining": None if limit is None else max(0, limit - current_value),
         "unit": unit,
-        "status": _limit_status(int(current or 0), limit),
+        "status": status,
         "enforced": enforced,
+        "near_limit": status in {"warning", "exceeded"},
+        "usage_percent": _limit_usage_percent(current_value, limit),
+        "warning_threshold": _limit_warning_threshold(limit),
+        "message": _limit_message(metric, current_value, limit, status),
     }
 
 

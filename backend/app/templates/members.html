@@ -86,6 +86,15 @@
                         <p class="text-xs font-semibold uppercase text-[#5f5c78]">Current Scope</p>
                         <p class="mt-2 font-semibold text-[#120d36]" x-text="scopeLabel()"></p>
                         <p class="mt-1 text-sm text-[#5f5c78]" x-text="scopeDescription()"></p>
+                        <template x-if="seatLimitWarning()">
+                            <div class="mt-3 rounded-md border border-[#f2c280] bg-[#fff8eb] p-3 text-sm text-[#7a4a12]">
+                                <div class="flex items-start justify-between gap-3">
+                                    <span x-text="seatLimitWarning().message"></span>
+                                    <span class="shrink-0 rounded-full bg-white px-2 py-1 text-xs font-semibold"
+                                          x-text="`${seatLimitWarning().remaining} left`"></span>
+                                </div>
+                            </div>
+                        </template>
                     </div>
                 </div>
             {% endcall %}
@@ -459,6 +468,16 @@ function membershipApp() {
                 return 'Organization roles apply across tenant-level account and billing surfaces.';
             }
             return 'Workspace roles control reports, domains, mail sources, settings, and audit access.';
+        },
+
+        planLimit(metric) {
+            return this.currentOrganization()?.plan_limits?.[metric] || null;
+        },
+
+        seatLimitWarning() {
+            const limit = this.planLimit('users');
+            if (!limit || !limit.near_limit || !limit.message) return null;
+            return limit;
         },
 
         roleLabel(role) {
