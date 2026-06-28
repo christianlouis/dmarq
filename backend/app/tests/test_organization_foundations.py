@@ -23,7 +23,6 @@ from app.models.workspace_access import WorkspaceMembership
 from app.services.organizations import (
     BILLING_MODE_SELF_HOSTED,
     DEFAULT_ORGANIZATION_SLUG,
-    OrganizationPlanLimitError,
     SELF_HOSTED_PLAN_CODE,
     STARTER_PLAN_CODE,
     OrganizationPlanLimitError,
@@ -33,7 +32,6 @@ from app.services.organizations import (
     list_organization_summaries,
     organization_plan_limit,
     organization_summary,
-    require_organization_plan_limit,
     require_organization_feature,
     require_organization_plan_limit,
 )
