@@ -239,6 +239,37 @@ def test_provider_customer_provisioning_requires_provider_scope(
         )
 
 
+def test_provider_customer_provisioning_reports_created_for_existing_organization_account(
+    db_session: Session,
+):
+    organization = Organization(
+        slug="existing-provider-customer",
+        name="Existing Provider Customer",
+        active=True,
+    )
+    db_session.add(organization)
+    db_session.flush()
+
+    result = provision_provider_customer(
+        db_session,
+        provider_id="isp-demo",
+        external_customer_id="cust-existing-org",
+        external_subscription_id="sub-existing-org",
+        organization_slug="existing-provider-customer",
+        organization_name="Existing Provider Customer",
+    )
+
+    assert result["created"] is True
+    assert (
+        db_session.query(BillingAccount)
+        .filter(
+            BillingAccount.organization_id == organization.id,
+            BillingAccount.external_customer_id == "cust-existing-org",
+        )
+        .one()
+    )
+
+
 def test_provider_customer_provisioning_rejects_blank_workspace_name(
     db_session: Session,
 ):

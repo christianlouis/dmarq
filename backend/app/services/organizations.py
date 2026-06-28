@@ -552,10 +552,9 @@ def _resolve_provider_organization_and_account(
     )
     if account:
         organization = account.organization
-        created = False
+        account_created = False
     else:
         organization = db.query(Organization).filter(Organization.slug == organization_slug).first()
-        created = organization is None
         if organization is None:
             organization = Organization(slug=organization_slug, name=organization_name, active=True)
             db.add(organization)
@@ -582,6 +581,7 @@ def _resolve_provider_organization_and_account(
         )
         db.add(account)
         db.flush()
+        account_created = True
 
     organization.name = organization_name
     organization.active = True
@@ -590,7 +590,7 @@ def _resolve_provider_organization_and_account(
     account.provider_id = provider_id
     account.external_customer_id = external_customer_id
     account.invoice_delivery_mode = "provider_invoice"
-    return organization, account, created
+    return organization, account, account_created
 
 
 def _resolve_provider_workspace(
