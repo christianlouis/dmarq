@@ -1,7 +1,10 @@
 import json
 
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
+from app.models.organization import Entitlement, Organization
+from app.models.workspace import Workspace
 from app.services.ticketing_chatops_templates import (
     TICKETING_CHATOPS_SCHEMA_VERSION,
     WORKFLOW_EVENT_TYPES,
@@ -113,6 +116,45 @@ def test_ticketing_chatops_endpoint_returns_workflow_templates(
     }
     assert body["payload_templates"]["jira"]["operation"] == "create_or_update_issue"
     assert body["payload_templates"]["slack"]["thread_key"] == "{dedupe_key}"
+
+
+def test_ticketing_chatops_endpoint_requires_advanced_integrations_entitlement(
+    authed_client: TestClient,
+    db_session: Session,
+):
+    """Tenant-scoped ticketing/chatops templates are gated as advanced integrations."""
+    organization = Organization(slug="chatops-disabled", name="ChatOps Disabled", active=True)
+    workspace = Workspace(
+        slug="chatops-disabled-main",
+        name="ChatOps Disabled Main",
+        organization=organization,
+        active=True,
+    )
+    db_session.add_all(
+        [
+            organization,
+            workspace,
+            Entitlement(
+                organization=organization,
+                key="advanced_integrations",
+                value="false",
+                source="plan",
+                active=True,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    response = authed_client.get(
+        "/api/v1/integrations/ticketing-chatops/templates",
+        headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+    )
+
+    assert response.status_code == 402
+    detail = response.json()["detail"]
+    assert detail["code"] == "feature_not_included"
+    assert detail["feature"] == "advanced_integrations"
+    assert detail["can_export"] is True
 
 
 def test_ticketing_chatops_endpoint_requires_admin_auth(client: TestClient):

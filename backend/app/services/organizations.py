@@ -59,6 +59,7 @@ STARTER_PLAN_ENTITLEMENTS: Dict[str, str] = {
     "mail_sources": "1",
     "users": "1",
     "retention_days": "90",
+    "advanced_integrations": "false",
     "api_tokens": "false",
     "webhooks": "false",
     "sso": "false",
@@ -86,6 +87,14 @@ ENFORCED_PLAN_LIMITS = {
     "webhooks",
 }
 FEATURE_ENTITLEMENT_ALIASES: Dict[str, tuple[str, ...]] = {
+    "advanced_integrations": (
+        "advanced_integrations",
+        "advanced_integration",
+        "integrations",
+        "mcp",
+        "siem",
+        "ticketing_chatops",
+    ),
     "api_tokens": ("api_tokens", "api_access"),
     "sso": ("sso", "single_sign_on", "oidc", "logto"),
     "webhooks": ("webhooks",),
