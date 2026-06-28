@@ -215,7 +215,7 @@ def test_provider_read_token_can_export_usage_without_workspace_membership(
     assert token.token.last_used_at is not None
 
 
-def test_workspace_scoped_provider_scope_token_cannot_bypass_provider_scoping(
+def test_workspace_scoped_provider_scope_token_falls_back_to_admin_auth(
     client: TestClient,
     db_session: Session,
 ):
@@ -238,8 +238,8 @@ def test_workspace_scoped_provider_scope_token_cannot_bypass_provider_scoping(
         headers={"X-API-Key": token.secret},
     )
 
-    assert response.status_code == 403
-    assert response.json()["detail"] == "Provider API token must be global"
+    assert response.status_code == 401
+    assert response.json()["detail"].startswith("Authentication required")
     db_session.refresh(token.token)
     assert token.token.usage_count == 0
     assert token.token.last_used_at is None

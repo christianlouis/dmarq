@@ -284,18 +284,15 @@ def _api_token_context_for_scope(
     if token is None:
         return None
 
-    if require_global_token and token.workspace_id is not None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Provider API token must be global",
-        )
-
     scopes = parse_scopes(token.scopes)
     if required_scope not in scopes:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"API token requires scope: {required_scope}",
         )
+
+    if require_global_token and token.workspace_id is not None:
+        return None
 
     client_host = request.client.host if request.client else None
     record_api_token_use(db, token, ip_address=client_host)
