@@ -271,8 +271,8 @@ def require_workspace_account_mutation_allowed(
         )
         .order_by(
             status_priority.asc(),
-            Subscription.updated_at.desc(),
-            Subscription.created_at.desc(),
+            Subscription.updated_at.desc().nullslast(),
+            Subscription.created_at.desc().nullslast(),
         )
         .first()
     )
