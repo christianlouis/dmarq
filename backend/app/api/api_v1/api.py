@@ -5,6 +5,7 @@ from app.api.api_v1.endpoints import (
     api_tokens,
     audit,
     auth,
+    billing,
     domains,
     forensics,
     health,
@@ -32,6 +33,7 @@ api_router = APIRouter()
 
 # Include all endpoint routers
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
+api_router.include_router(billing.router, prefix="/billing", tags=["billing"])
 api_router.include_router(ai.router, prefix="/ai", tags=["ai"])
 api_router.include_router(api_tokens.router, prefix="/api-tokens", tags=["api-tokens"])
 api_router.include_router(audit.router, prefix="/audit", tags=["audit"])
