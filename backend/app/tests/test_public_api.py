@@ -1,8 +1,16 @@
 from fastapi.testclient import TestClient
 
 from app.models.api_token import APIToken
+from app.models.organization import BillingAccount, Organization
 from app.models.workspace import Workspace
 from app.services.api_tokens import READ_POSTURE_SCOPE, READ_REPORTS_SCOPE, create_api_token
+from app.services.organizations import (
+    BILLING_MODE_MANUAL_CONTRACT,
+    STARTER_PLAN_ENTITLEMENTS,
+    ensure_entitlements,
+    ensure_subscription,
+    get_or_create_starter_plan,
+)
 from app.services.report_persistence import save_parsed_report
 from app.services.report_store import ReportStore
 from app.services.workspace_access import (
@@ -131,6 +139,46 @@ def test_admin_can_create_list_and_revoke_api_tokens(authed_client: TestClient, 
         headers={"X-API-Key": body["token"]},
     )
     assert denied.status_code == 401
+
+
+def test_admin_api_token_creation_respects_plan_entitlement(
+    authed_client: TestClient,
+    db_session,
+):
+    """Plans with API access disabled can still list tokens but cannot create new ones."""
+    workspace = get_or_create_default_workspace(db_session)
+    organization = Organization(slug="api-disabled", name="API Disabled", active=True)
+    workspace.organization = organization
+    plan = get_or_create_starter_plan(db_session, commit=False)
+    account = BillingAccount(
+        organization=organization,
+        billing_mode=BILLING_MODE_MANUAL_CONTRACT,
+        status="active",
+        invoice_delivery_mode="internal",
+    )
+    db_session.add_all([organization, account])
+    db_session.flush()
+    subscription = ensure_subscription(db_session, organization, plan, account, commit=False)
+    ensure_entitlements(
+        db_session,
+        organization,
+        subscription,
+        STARTER_PLAN_ENTITLEMENTS,
+        commit=False,
+    )
+    db_session.commit()
+
+    listed = authed_client.get("/api/v1/api-tokens")
+    assert listed.status_code == 200
+
+    created = authed_client.post(
+        "/api/v1/api-tokens",
+        json={"name": "automation", "scopes": [READ_REPORTS_SCOPE]},
+    )
+
+    assert created.status_code == 402
+    assert created.json()["detail"]["code"] == "feature_not_included"
+    assert created.json()["detail"]["feature"] == "api_tokens"
 
 
 def test_admin_api_token_management_is_workspace_scoped(

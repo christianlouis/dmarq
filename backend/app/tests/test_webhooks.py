@@ -3,8 +3,16 @@ import json
 
 from fastapi.testclient import TestClient
 
+from app.models.organization import BillingAccount, Organization
 from app.models.webhook import WebhookDelivery
 from app.models.workspace import Workspace
+from app.services.organizations import (
+    BILLING_MODE_MANUAL_CONTRACT,
+    STARTER_PLAN_ENTITLEMENTS,
+    ensure_entitlements,
+    ensure_subscription,
+    get_or_create_starter_plan,
+)
 from app.services.webhook_events import (
     DELIVERY_ABANDONED,
     DELIVERY_DELIVERED,
@@ -25,6 +33,7 @@ from app.services.webhook_events import (
     update_webhook_endpoint,
     validate_webhook_url,
 )
+from app.services.workspaces import get_or_create_default_workspace
 
 
 def test_webhook_event_delivery_signs_and_records_success(db_session):
@@ -265,6 +274,65 @@ def test_admin_webhook_endpoints_hide_secrets_and_show_delivery_status(
     history = authed_client.get("/api/v1/webhooks/deliveries")
     assert history.status_code == 200
     assert history.json()["deliveries"][0]["event_type"] == EVENT_WEBHOOK_TEST
+
+
+def test_admin_webhook_creation_respects_plan_entitlement(
+    authed_client: TestClient,
+    db_session,
+):
+    """Plans with webhooks disabled can inspect existing config but cannot create endpoints."""
+    workspace = get_or_create_default_workspace(db_session)
+    organization = Organization(slug="webhooks-disabled", name="Webhooks Disabled", active=True)
+    workspace.organization = organization
+    plan = get_or_create_starter_plan(db_session, commit=False)
+    account = BillingAccount(
+        organization=organization,
+        billing_mode=BILLING_MODE_MANUAL_CONTRACT,
+        status="active",
+        invoice_delivery_mode="internal",
+    )
+    db_session.add_all([organization, account])
+    db_session.flush()
+    subscription = ensure_subscription(db_session, organization, plan, account, commit=False)
+    ensure_entitlements(
+        db_session,
+        organization,
+        subscription,
+        STARTER_PLAN_ENTITLEMENTS,
+        commit=False,
+    )
+    db_session.commit()
+
+    listed = authed_client.get("/api/v1/webhooks")
+    assert listed.status_code == 200
+    endpoint, _secret = create_webhook_endpoint(
+        db_session,
+        workspace_id=workspace.id,
+        name="existing",
+        url="https://ops.example/existing",
+    )
+    db_session.commit()
+
+    updated = authed_client.put(
+        f"/api/v1/webhooks/{endpoint.id}",
+        json={"name": "blocked"},
+    )
+    assert updated.status_code == 402
+    assert updated.json()["detail"]["code"] == "feature_not_included"
+    assert updated.json()["detail"]["feature"] == "webhooks"
+
+    disabled = authed_client.delete(f"/api/v1/webhooks/{endpoint.id}")
+    assert disabled.status_code == 200
+    assert disabled.json()["enabled"] is False
+
+    created = authed_client.post(
+        "/api/v1/webhooks",
+        json={"name": "ops", "url": "https://ops.example/hooks/dmarq"},
+    )
+
+    assert created.status_code == 402
+    assert created.json()["detail"]["code"] == "feature_not_included"
+    assert created.json()["detail"]["feature"] == "webhooks"
 
 
 def test_admin_webhook_update_disable_filter_and_process(
