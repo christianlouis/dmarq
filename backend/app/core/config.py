@@ -54,6 +54,13 @@ class Settings(BaseSettings):
     CLOUDFLARE_ZONE_ID: Optional[str] = None
     WEBHOOK_SECRET: Optional[str] = None
 
+    # Optional Stripe Billing integration. Self-hosted and provider-billed
+    # deployments work without these values.
+    STRIPE_SECRET_KEY: Optional[str] = None
+    STRIPE_WEBHOOK_SECRET: Optional[str] = None
+    STRIPE_PRICE_PLAN_MAP: Optional[str] = None
+    STRIPE_API_BASE_URL: str = "https://api.stripe.com/v1"
+
     # Admin API Key (optional)
     # If set, this key is used directly instead of generating a random one at startup.
     # Use: openssl rand -hex 32
