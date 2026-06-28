@@ -15,11 +15,13 @@ from app.core.credential_encryption import decrypt_secret
 from app.models.dns_cache import DNSRecordChange, DNSRecordSnapshot
 from app.models.domain import Domain
 from app.models.setting import Setting
+from app.models.workspace import Workspace
 from app.services.dns_resolver import (
     CloudflareDNSProvider,
     extract_dmarc_policy,
     parse_dmarc_record_tags,
 )
+from app.services.organizations import require_organization_plan_limit
 from app.services.workspaces import assign_default_workspace_to_unscoped_rows
 
 PROVIDER_NAME = "cloudflare"
@@ -105,27 +107,47 @@ async def import_cloudflare_domains(
     if workspace_id is None:
         workspace = assign_default_workspace_to_unscoped_rows(db)
         workspace_id = workspace.id
+    else:
+        workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
     zones = await discover_cloudflare_zones(db, workspace_id=workspace_id)
     requested = {domain.strip().lower() for domain in requested_domains or [] if domain.strip()}
     imported: List[str] = []
     existing: List[str] = []
     skipped: List[str] = []
+    candidate_names: List[str] = []
 
     for zone in zones:
         name = str(zone["name"]).lower()
         if requested and name not in requested:
             skipped.append(name)
             continue
-        domain = (
-            db.query(Domain)
-            .filter(Domain.name == name, Domain.workspace_id == workspace_id)
-            .first()
+        candidate_names.append(name)
+
+    existing_names = set()
+    if candidate_names:
+        existing_names = {
+            row[0]
+            for row in (
+                db.query(Domain.name)
+                .filter(Domain.name.in_(candidate_names), Domain.workspace_id == workspace_id)
+                .all()
+            )
+        }
+    new_names = [name for name in candidate_names if name not in existing_names]
+    if workspace and workspace.organization and new_names:
+        require_organization_plan_limit(
+            db,
+            workspace.organization,
+            "monitored_domains",
+            increment=len(new_names),
         )
-        if domain is None:
+
+    for name in candidate_names:
+        if name in existing_names:
+            existing.append(name)
+        else:
             db.add(Domain(name=name, active=True, verified=True, workspace_id=workspace_id))
             imported.append(name)
-        else:
-            existing.append(name)
 
     db.commit()
     return {

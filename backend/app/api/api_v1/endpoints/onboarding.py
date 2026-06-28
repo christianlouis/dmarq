@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import require_admin_auth
+from app.services.organizations import OrganizationPlanLimitError
 from app.services.workspace_access import (
     PERMISSION_WORKSPACE_ADMIN,
     require_workspace_permission,
@@ -123,6 +124,12 @@ async def apply_workspace_onboarding(
     plan = _build_plan_or_422(payload)
     try:
         result = apply_onboarding_plan(db, plan=plan, auth_context=_auth, request=request)
+    except OrganizationPlanLimitError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=exc.to_detail(),
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

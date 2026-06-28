@@ -162,9 +162,7 @@ def test_apply_onboarding_creates_workspace_assets_and_audit(
     source = db_session.query(MailSource).filter(MailSource.name == "Client One DMARC inbox").one()
     starter_plan = db_session.query(Plan).filter(Plan.code == STARTER_PLAN_CODE).one()
     subscription = (
-        db_session.query(Subscription)
-        .filter(Subscription.organization_id == organization.id)
-        .one()
+        db_session.query(Subscription).filter(Subscription.organization_id == organization.id).one()
     )
     entitlement_keys = {
         entitlement.key
@@ -196,6 +194,37 @@ def test_apply_onboarding_creates_workspace_assets_and_audit(
     assert audit.workspace_id == workspace.id
     assert audit.ip_address == "198.51.100.25"
     assert "super-secret-password" not in (audit.details or "")
+
+
+def test_apply_onboarding_respects_monitored_domain_plan_limit(
+    authed_client: TestClient,
+    db_session: Session,
+):
+    """Starter onboarding cannot create more monitored domains than the plan allows."""
+    response = authed_client.post(
+        "/api/v1/onboarding/apply",
+        json=_standard_payload(
+            domains=[
+                {"name": "one.example", "description": "Primary domain"},
+                {"name": "two.example", "description": "Second domain"},
+            ]
+        ),
+    )
+
+    assert response.status_code == 402
+    detail = response.json()["detail"]
+    assert detail["code"] == "plan_limit_exceeded"
+    assert detail["metric"] == "monitored_domains"
+    assert detail["current"] == 1
+    assert detail["limit"] == 1
+    assert detail["attempted"] == 1
+    assert detail["can_export"] is True
+    assert db_session.query(Organization).filter(Organization.slug == "client-one").count() == 0
+    assert db_session.query(Workspace).filter(Workspace.slug == "client-one").count() == 0
+    assert (
+        db_session.query(Domain).filter(Domain.name.in_(["one.example", "two.example"])).count()
+        == 0
+    )
 
 
 def test_apply_onboarding_is_idempotent_for_existing_assets(
