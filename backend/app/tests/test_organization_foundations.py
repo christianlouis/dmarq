@@ -661,6 +661,60 @@ def test_require_organization_retention_limit_allows_safe_requests(
     require_organization_retention_limit(db_session, bounded, 0)
 
 
+def test_require_organization_retention_limit_raises_structured_limit_error(
+    db_session: Session,
+):
+    organization = Organization(
+        slug="retention-blocked",
+        name="Retention Blocked",
+        active=True,
+    )
+    workspace = Workspace(
+        slug="retention-blocked-main",
+        name="Retention Blocked Main",
+        organization=organization,
+        report_retention_days=30,
+        forensic_retention_days=30,
+        tls_report_retention_days=30,
+    )
+    db_session.add_all(
+        [
+            organization,
+            workspace,
+            Entitlement(
+                organization=organization,
+                key="retention_days",
+                value="90",
+                source="plan",
+                active=True,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    with pytest.raises(OrganizationPlanLimitError) as exc_info:
+        require_organization_retention_limit(db_session, organization, 120)
+
+    assert str(exc_info.value) == (
+        "Plan limit for retention_days would be exceeded "
+        "(30 current + 90 requested > 90 days)"
+    )
+    assert exc_info.value.to_detail() == {
+        "code": "plan_limit_exceeded",
+        "metric": "retention_days",
+        "current": 30,
+        "limit": 90,
+        "attempted": 90,
+        "unit": "days",
+        "entitlement_key": "retention_days",
+        "can_export": True,
+        "message": (
+            "Plan limit for retention_days would be exceeded "
+            "(30 current + 90 requested > 90 days)"
+        ),
+    }
+
+
 def test_require_organization_plan_limit_raises_structured_limit_error(
     db_session: Session,
 ):
