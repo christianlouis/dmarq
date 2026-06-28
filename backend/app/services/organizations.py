@@ -722,7 +722,7 @@ def organization_summary(
                 "source": entitlement.source,
                 "expires_at": _iso(entitlement.expires_at),
             }
-            for entitlement in entitlements
+            for entitlement in _entitlements_by_key(entitlements).values()
         },
         "metrics": {
             "workspace_count": len(workspaces),
