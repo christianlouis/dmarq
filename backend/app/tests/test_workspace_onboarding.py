@@ -222,9 +222,7 @@ def test_apply_onboarding_respects_monitored_domain_plan_limit(
     assert db_session.query(Organization).filter(Organization.slug == "client-one").count() == 0
     assert db_session.query(Workspace).filter(Workspace.slug == "client-one").count() == 0
     assert (
-        db_session.query(Domain)
-        .filter(Domain.name.in_(["one.example", "two.example"]))
-        .count()
+        db_session.query(Domain).filter(Domain.name.in_(["one.example", "two.example"])).count()
         == 0
     )
 
