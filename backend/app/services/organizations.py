@@ -759,33 +759,41 @@ def _plan_limits_for_organization(
     organization: Organization,
     workspaces: List[Workspace],
     entitlements: List[Entitlement],
+    metrics: Optional[Iterable[str]] = None,
 ) -> Dict[str, Dict[str, Any]]:
     entitlement_map = _entitlements_by_key(entitlements)
     workspace_ids = [workspace.id for workspace in workspaces]
     workspace_filter = workspace_ids or [-1]
-    active_workspace_count = sum(1 for workspace in workspaces if workspace.active)
+    metric_filter = set(metrics) if metrics is not None else set(PLAN_LIMIT_ENTITLEMENT_ALIASES)
 
-    current_values = {
-        "monitored_domains": (
+    current_values: Dict[str, int] = {}
+    if "monitored_domains" in metric_filter:
+        current_values["monitored_domains"] = (
             db.query(func.count(Domain.id))
             .filter(Domain.workspace_id.in_(workspace_filter), Domain.active.is_(True))
             .scalar()
             or 0
-        ),
-        "mail_sources": (
+        )
+    if "mail_sources" in metric_filter:
+        current_values["mail_sources"] = (
             db.query(func.count(MailSource.id))
             .filter(MailSource.workspace_id.in_(workspace_filter), MailSource.enabled.is_(True))
             .scalar()
             or 0
-        ),
-        "users": (len(_active_user_ids_for_organization(db, organization, workspaces))),
-        "api_tokens": (
+        )
+    if "users" in metric_filter:
+        current_values["users"] = len(
+            _active_user_ids_for_organization(db, organization, workspaces)
+        )
+    if "api_tokens" in metric_filter:
+        current_values["api_tokens"] = (
             db.query(func.count(APIToken.id))
             .filter(APIToken.workspace_id.in_(workspace_filter), APIToken.active.is_(True))
             .scalar()
             or 0
-        ),
-        "webhooks": (
+        )
+    if "webhooks" in metric_filter:
+        current_values["webhooks"] = (
             db.query(func.count(WebhookEndpoint.id))
             .filter(
                 WebhookEndpoint.workspace_id.in_(workspace_filter),
@@ -793,15 +801,16 @@ def _plan_limits_for_organization(
             )
             .scalar()
             or 0
-        ),
-        "retention_days": max(
+        )
+    if "retention_days" in metric_filter:
+        current_values["retention_days"] = max(
             [workspace.report_retention_days or 0 for workspace in workspaces] or [0]
-        ),
-    }
-    current_values["workspaces"] = active_workspace_count
+        )
 
     limits: Dict[str, Dict[str, Any]] = {}
     for metric, aliases in PLAN_LIMIT_ENTITLEMENT_ALIASES.items():
+        if metric not in metric_filter:
+            continue
         entitlement = next(
             (entitlement_map.get(alias) for alias in aliases if alias in entitlement_map), None
         )
@@ -876,6 +885,7 @@ def organization_summary(
     organization: Organization,
     *,
     include_plan_limits: bool = True,
+    include_plan_limit_metrics: Optional[Iterable[str]] = None,
 ) -> Dict[str, Any]:
     """Return an API-safe organization/account summary."""
     workspaces = (
@@ -935,6 +945,7 @@ def organization_summary(
             organization,
             workspaces,
             entitlements,
+            metrics=include_plan_limit_metrics,
         )
     return summary
 
@@ -1261,7 +1272,10 @@ def list_organization_summaries(db: Session) -> List[Dict[str, Any]]:
     """Return all organizations with local commercial state materialized."""
     bootstrap_default_commercial_foundation(db)
     organizations = db.query(Organization).order_by(Organization.slug.asc()).all()
-    return [organization_summary(db, organization) for organization in organizations]
+    return [
+        organization_summary(db, organization, include_plan_limit_metrics=("users",))
+        for organization in organizations
+    ]
 
 
 def list_scoped_organization_summaries(
@@ -1275,7 +1289,10 @@ def list_scoped_organization_summaries(
         if not organization_ids:
             return []
         query = query.filter(Organization.id.in_(organization_ids))
-    return [organization_summary(db, organization) for organization in query.all()]
+    return [
+        organization_summary(db, organization, include_plan_limit_metrics=("users",))
+        for organization in query.all()
+    ]
 
 
 def parse_usage_period(period: str) -> tuple[datetime, datetime]:

@@ -138,7 +138,6 @@ def test_list_organization_summaries_materializes_account_state(db_session: Sess
     assert summaries[0]["account_state"]["can_mutate"] is True
     assert summaries[0]["account_state"]["can_export"] is True
     assert "plan_limits" in summaries[0]
-    assert summaries[0]["plan_limits"]["retention_days"]["status"] == "ok"
 
 
 def test_organization_summary_exposes_plan_limit_usage(db_session: Session):
@@ -267,6 +266,14 @@ def test_organization_summary_exposes_plan_limit_usage(db_session: Session):
     assert limits["webhooks"]["current"] == 1
     assert limits["webhooks"]["limit"] == 0
     assert limits["webhooks"]["enforced"] is True
+
+    list_summary = next(
+        summary
+        for summary in list_organization_summaries(db_session)
+        if summary["slug"] == "limits"
+    )
+    assert list_summary["plan_limits"]["users"]["message"] == "users are at the plan limit (3/3)."
+    assert "api_tokens" not in list_summary["plan_limits"]
 
 
 def test_organization_user_has_active_seat_requires_active_user(db_session: Session):
