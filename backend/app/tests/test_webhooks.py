@@ -321,6 +321,16 @@ def test_admin_webhook_creation_respects_plan_entitlement(
     assert updated.json()["detail"]["code"] == "feature_not_included"
     assert updated.json()["detail"]["feature"] == "webhooks"
 
+    tested = authed_client.post(f"/api/v1/webhooks/{endpoint.id}/test")
+    assert tested.status_code == 402
+    assert tested.json()["detail"]["code"] == "feature_not_included"
+    assert tested.json()["detail"]["feature"] == "webhooks"
+
+    processed = authed_client.post("/api/v1/webhooks/deliveries/process")
+    assert processed.status_code == 402
+    assert processed.json()["detail"]["code"] == "feature_not_included"
+    assert processed.json()["detail"]["feature"] == "webhooks"
+
     disabled = authed_client.delete(f"/api/v1/webhooks/{endpoint.id}")
     assert disabled.status_code == 200
     assert disabled.json()["enabled"] is False
