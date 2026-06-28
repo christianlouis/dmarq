@@ -403,7 +403,7 @@ class IMAPClient:
         """
         for part in msg.walk():
             content_disposition = part.get_content_disposition()
-            if content_disposition == "attachment":
+            if content_disposition in ["attachment", "inline"]:
                 filename = part.get_filename()
                 if filename:
                     # Decode filename if needed
@@ -628,7 +628,7 @@ class IMAPClient:
         reports_found = 0
 
         for part in msg.walk():
-            if part.get_content_disposition() != "attachment":
+            if part.get_content_disposition() not in ["attachment", "inline"]:
                 continue
 
             filename = part.get_filename()

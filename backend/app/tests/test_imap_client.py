@@ -14,6 +14,7 @@ from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from zipfile import ZipFile
+from gzip import GzipFile
 
 import pytest
 
@@ -82,19 +83,27 @@ def _make_zip_content(xml_bytes: bytes, filename: str = "report.xml") -> bytes:
     return buf.getvalue()
 
 
+def _make_gzip_content(xml_bytes: bytes, filename: str = "report.xml") -> bytes:
+    buf = BytesIO()
+    with GzipFile(filename=filename, mode="w", fileobj=buf) as zf:
+        zf.write(xml_bytes)
+    return buf.getvalue()
+
+
 def _make_email_with_attachment(
     filename: str = "dmarc-report.xml",
     content: bytes = MINIMAL_DMARC_XML,
     content_type: str = "application/xml",
     subject: str = "DMARC Report",
     from_addr: str = "noreply@example.com",
+    disposition_type: str = "attachment"
 ) -> bytes:
     msg = MIMEMultipart()
     msg["Subject"] = subject
     msg["From"] = from_addr
     msg.attach(MIMEText("DMARC report attached."))
     part = MIMEApplication(content, Name=filename)
-    part["Content-Disposition"] = f'attachment; filename="{filename}"'
+    part["Content-Disposition"] = f'{disposition_type}; filename="{filename}"'
     part.set_type(content_type)
     msg.attach(part)
     return msg.as_bytes()
@@ -493,6 +502,24 @@ class TestProcessAttachments:
         zip_content = _make_zip_content(MINIMAL_DMARC_XML, "report.xml")
         msg = email.message_from_bytes(
             _make_email_with_attachment("report.zip", zip_content, "application/zip")
+        )
+        count = client._process_attachments(msg)
+        assert count == 1
+
+    def test_processes_gzip_attachment(self):
+        client = self._make_client()
+        gzip_content = _make_gzip_content(MINIMAL_DMARC_XML, "report.xml")
+        msg = email.message_from_bytes(
+            _make_email_with_attachment("report.gz", gzip_content, "application/gzip")
+        )
+        count = client._process_attachments(msg)
+        assert count == 1
+
+    def test_processes_gzip_inline(self):
+        client = self._make_client()
+        gzip_content = _make_gzip_content(MINIMAL_DMARC_XML, "report.xml")
+        msg = email.message_from_bytes(
+            _make_email_with_attachment("report.gz", gzip_content, "application/gzip", disposition_type="inline")
         )
         count = client._process_attachments(msg)
         assert count == 1
