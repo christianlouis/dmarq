@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from datetime import date, datetime, timedelta
 
 import pytest
 from fastapi import HTTPException
@@ -17,6 +18,7 @@ from app.models.organization import (
     Plan,
     Subscription,
 )
+from app.models.report import DMARCReport, ReportRecord
 from app.models.user import User
 from app.models.webhook import WebhookEndpoint
 from app.models.workspace import Workspace
@@ -38,6 +40,7 @@ from app.services.organizations import (
     require_organization_plan_limit,
     require_organization_retention_limit,
 )
+from app.services.report_persistence import save_parsed_report
 from app.services.workspace_access import (
     PERMISSION_DOMAINS_WRITE,
     PERMISSION_REPORTS_READ,
@@ -144,6 +147,7 @@ def test_list_organization_summaries_materializes_account_state(db_session: Sess
 def test_organization_summary_exposes_plan_limit_usage(db_session: Session):
     organization = Organization(slug="limits", name="Limits", active=True)
     workspace = Workspace(slug="limits-main", name="Limits Main", organization=organization)
+    domain = Domain(workspace=workspace, name="example.com", active=True)
     db_session.add_all(
         [
             organization,
@@ -176,6 +180,13 @@ def test_organization_summary_exposes_plan_limit_usage(db_session: Session):
                 source="plan",
                 active=True,
             ),
+            Entitlement(
+                organization=organization,
+                key="aggregate_messages",
+                value="100",
+                source="plan",
+                active=True,
+            ),
         ]
     )
     db_session.flush()
@@ -198,7 +209,7 @@ def test_organization_summary_exposes_plan_limit_usage(db_session: Session):
             organization_user,
             inactive_user,
             legacy_user,
-            Domain(workspace_id=workspace.id, name="example.com", active=True),
+            domain,
             APIToken(
                 workspace_id=workspace.id,
                 name="existing",
@@ -218,6 +229,58 @@ def test_organization_summary_exposes_plan_limit_usage(db_session: Session):
         ]
     )
     db_session.flush()
+    today = date.today()
+    current_period_start = datetime(today.year, today.month, 1, 12, 0, 0)
+    prior_period = current_period_start - timedelta(days=1)
+    current_report = DMARCReport(
+        domain_id=domain.id,
+        report_id="current-message-volume",
+        org_name="Reporter",
+        begin_date=1,
+        end_date=2,
+        processed_at=current_period_start,
+    )
+    prior_report = DMARCReport(
+        domain_id=domain.id,
+        report_id="prior-message-volume",
+        org_name="Reporter",
+        begin_date=1,
+        end_date=2,
+        processed_at=prior_period,
+    )
+    db_session.add_all([current_report, prior_report])
+    db_session.flush()
+    db_session.add_all(
+        [
+            ReportRecord(
+                report_id=current_report.id,
+                source_ip="203.0.113.10",
+                count=80,
+                disposition="none",
+                dkim="pass",
+                spf="pass",
+                header_from="example.com",
+            ),
+            ReportRecord(
+                report_id=current_report.id,
+                source_ip="203.0.113.12",
+                count=-500,
+                disposition="none",
+                dkim="fail",
+                spf="fail",
+                header_from="example.com",
+            ),
+            ReportRecord(
+                report_id=prior_report.id,
+                source_ip="203.0.113.11",
+                count=50,
+                disposition="none",
+                dkim="pass",
+                spf="pass",
+                header_from="example.com",
+            ),
+        ]
+    )
     db_session.add_all(
         [
             WorkspaceMembership(
@@ -267,6 +330,14 @@ def test_organization_summary_exposes_plan_limit_usage(db_session: Session):
     assert limits["webhooks"]["current"] == 1
     assert limits["webhooks"]["limit"] == 0
     assert limits["webhooks"]["enforced"] is True
+    assert limits["aggregate_messages"]["current"] == 80
+    assert limits["aggregate_messages"]["limit"] == 100
+    assert limits["aggregate_messages"]["unit"] == "messages"
+    assert limits["aggregate_messages"]["status"] == "warning"
+    assert limits["aggregate_messages"]["enforced"] is True
+    assert limits["aggregate_messages"]["period"] == f"{today.year:04d}-{today.month:02d}"
+    assert "period_start" in limits["aggregate_messages"]
+    assert "period_end" in limits["aggregate_messages"]
 
     list_summary = next(
         summary
@@ -696,8 +767,7 @@ def test_require_organization_retention_limit_raises_structured_limit_error(
         require_organization_retention_limit(db_session, organization, 120)
 
     assert str(exc_info.value) == (
-        "Plan limit for retention_days would be exceeded "
-        "(30 current + 90 requested > 90 days)"
+        "Plan limit for retention_days would be exceeded " "(30 current + 90 requested > 90 days)"
     )
     assert exc_info.value.to_detail() == {
         "code": "plan_limit_exceeded",
@@ -797,6 +867,148 @@ def test_require_organization_plan_limit_allows_within_limit_increment(
         db_session,
         organization,
         "monitored_domains",
+    )
+
+
+def test_save_parsed_report_enforces_aggregate_message_volume_limit(
+    db_session: Session,
+):
+    organization = Organization(slug="message-volume", name="Message Volume", active=True)
+    workspace = Workspace(
+        slug="message-volume-main",
+        name="Message Volume Main",
+        organization=organization,
+    )
+    domain = Domain(workspace=workspace, name="volume.example", active=True)
+    db_session.add_all(
+        [
+            organization,
+            workspace,
+            domain,
+            Entitlement(
+                organization=organization,
+                key="aggregate_messages",
+                value="100",
+                source="plan",
+                active=True,
+            ),
+        ]
+    )
+    db_session.flush()
+    today = date.today()
+    existing_report = DMARCReport(
+        domain_id=domain.id,
+        report_id="existing-volume",
+        org_name="Reporter",
+        begin_date=1,
+        end_date=2,
+        processed_at=datetime(today.year, today.month, 1, 12, 0, 0),
+    )
+    db_session.add(existing_report)
+    db_session.flush()
+    db_session.add(
+        ReportRecord(
+            report_id=existing_report.id,
+            source_ip="203.0.113.10",
+            count=80,
+            disposition="none",
+            dkim="pass",
+            spf="pass",
+            header_from="volume.example",
+        )
+    )
+    db_session.commit()
+
+    with pytest.raises(OrganizationPlanLimitError) as exc_info:
+        save_parsed_report(
+            db_session,
+            {
+                "domain": "volume.example",
+                "report_id": "new-volume",
+                "org_name": "Reporter",
+                "policy": {"p": "none", "pct": "100"},
+                "records": [
+                    {
+                        "source_ip": "203.0.113.20",
+                        "count": 25,
+                        "disposition": "none",
+                        "dkim_result": "pass",
+                        "spf_result": "pass",
+                        "header_from": "volume.example",
+                    }
+                ],
+            },
+            workspace_id=workspace.id,
+        )
+
+    assert exc_info.value.to_detail() == {
+        "code": "plan_limit_exceeded",
+        "metric": "aggregate_messages",
+        "current": 80,
+        "limit": 100,
+        "attempted": 25,
+        "unit": "messages",
+        "entitlement_key": "aggregate_messages",
+        "can_export": True,
+        "message": (
+            "Plan limit for aggregate_messages would be exceeded "
+            "(80 current + 25 requested > 100 messages)"
+        ),
+    }
+    assert (
+        db_session.query(DMARCReport).filter(DMARCReport.report_id == "new-volume").first() is None
+    )
+
+
+@pytest.mark.parametrize(
+    ("count", "message"),
+    [
+        (-1, "DMARC record count cannot be negative"),
+        ("not-a-number", "DMARC record count must be an integer"),
+    ],
+)
+def test_save_parsed_report_rejects_invalid_aggregate_message_counts(
+    db_session: Session,
+    count,
+    message,
+):
+    organization = Organization(slug="negative-volume", name="Negative Volume", active=True)
+    workspace = Workspace(
+        slug="negative-volume-main",
+        name="Negative Volume Main",
+        organization=organization,
+    )
+    domain = Domain(workspace=workspace, name="negative.example", active=True)
+    db_session.add_all([organization, workspace, domain])
+    db_session.flush()
+
+    with pytest.raises(ValueError, match=message):
+        save_parsed_report(
+            db_session,
+            {
+                "domain": "negative.example",
+                "report_id": "negative-volume",
+                "org_name": "Reporter",
+                "policy": {"p": "none", "pct": "100"},
+                "records": [
+                    {
+                        "source_ip": "203.0.113.30",
+                        "count": count,
+                        "disposition": "none",
+                        "dkim_result": "fail",
+                        "spf_result": "fail",
+                        "header_from": "negative.example",
+                    }
+                ],
+            },
+            workspace_id=workspace.id,
+        )
+
+    assert (
+        db_session.query(DMARCReport)
+        .filter(DMARCReport.report_id == "negative-volume")
+        .first()
+        is None
     )
 
 

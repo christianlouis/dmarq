@@ -78,6 +78,7 @@ ACCOUNT_GRACE_STATUSES = {"past_due_provider_reported"}
 ACCOUNT_READ_ONLY_STATUSES = {"suspended", "canceled", "terminated"}
 ACCOUNT_CLOSED_STATUSES = {"canceled", "terminated"}
 ENFORCED_PLAN_LIMITS = {
+    "aggregate_messages",
     "api_tokens",
     "monitored_domains",
     "retention_days",
@@ -89,12 +90,17 @@ FEATURE_ENTITLEMENT_ALIASES: Dict[str, tuple[str, ...]] = {
     "webhooks": ("webhooks",),
 }
 PLAN_LIMIT_ENTITLEMENT_ALIASES: Dict[str, tuple[str, ...]] = {
+    "aggregate_messages": ("aggregate_messages", "message_volume", "included_message_volume"),
     "monitored_domains": ("monitored_domains", "sending_domains"),
     "mail_sources": ("mail_sources",),
     "users": ("users",),
     "api_tokens": FEATURE_ENTITLEMENT_ALIASES["api_tokens"],
     "webhooks": FEATURE_ENTITLEMENT_ALIASES["webhooks"],
     "retention_days": ("retention_days",),
+}
+PLAN_LIMIT_UNITS = {
+    "aggregate_messages": "messages",
+    "retention_days": "days",
 }
 
 
@@ -760,6 +766,62 @@ def organization_user_has_active_seat(
     return user.id in _active_user_ids_for_organization(db, organization)
 
 
+def _aggregate_messages_for_period(
+    db: Session,
+    workspace_ids: List[int],
+    period_start: datetime,
+    period_end: datetime,
+) -> int:
+    if not workspace_ids:
+        return 0
+    return int(
+        db.query(func.sum(ReportRecord.count))
+        .join(DMARCReport, ReportRecord.report_id == DMARCReport.id)
+        .join(Domain, DMARCReport.domain_id == Domain.id)
+        .filter(
+            Domain.workspace_id.in_(workspace_ids),
+            DMARCReport.processed_at >= period_start,
+            DMARCReport.processed_at < period_end,
+            ReportRecord.count > 0,
+        )
+        .scalar()
+        or 0
+    )
+
+
+def _period_plan_limit_usage(
+    db: Session,
+    workspace_ids: List[int],
+    metric_filter: set[str],
+    entitlement_map: Dict[str, Entitlement],
+) -> tuple[Dict[str, int], Dict[str, Dict[str, str]]]:
+    if "aggregate_messages" not in metric_filter:
+        return {}, {}
+    if not any(
+        alias in entitlement_map for alias in PLAN_LIMIT_ENTITLEMENT_ALIASES["aggregate_messages"]
+    ):
+        return {}, {}
+    usage_period = usage_period_for_current_month()
+    usage_period_start, usage_period_end = parse_usage_period(usage_period)
+    return (
+        {
+            "aggregate_messages": _aggregate_messages_for_period(
+                db,
+                workspace_ids,
+                usage_period_start,
+                usage_period_end,
+            )
+        },
+        {
+            "aggregate_messages": {
+                "period": usage_period,
+                "period_start": usage_period_start.isoformat(),
+                "period_end": usage_period_end.isoformat(),
+            }
+        },
+    )
+
+
 def _plan_limits_for_organization(
     db: Session,
     organization: Organization,
@@ -773,6 +835,13 @@ def _plan_limits_for_organization(
     metric_filter = set(metrics) if metrics is not None else set(PLAN_LIMIT_ENTITLEMENT_ALIASES)
 
     current_values: Dict[str, int] = {}
+    period_values, period_contexts = _period_plan_limit_usage(
+        db,
+        workspace_ids,
+        metric_filter,
+        entitlement_map,
+    )
+    current_values.update(period_values)
     if "monitored_domains" in metric_filter:
         current_values["monitored_domains"] = (
             db.query(func.count(Domain.id))
@@ -835,11 +904,12 @@ def _plan_limits_for_organization(
             metric=metric,
             current=current_values.get(metric, 0),
             limit=_entitlement_limit(entitlement.value),
-            unit="days" if metric == "retention_days" else "count",
+            unit=PLAN_LIMIT_UNITS.get(metric, "count"),
             enforced=metric in ENFORCED_PLAN_LIMITS,
         )
         limits[metric]["source"] = entitlement.source
         limits[metric]["entitlement_key"] = entitlement.key
+        limits[metric].update(period_contexts.get(metric, {}))
     return limits
 
 

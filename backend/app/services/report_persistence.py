@@ -7,7 +7,9 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.config import get_settings
 from app.models.domain import Domain
 from app.models.report import DMARCReport, ReportRecord
+from app.models.workspace import Workspace
 from app.services.demo_data import seed_demo_report_store
+from app.services.organizations import require_organization_plan_limit
 from app.services.report_store import ReportStore
 from app.services.workspaces import assign_default_workspace_to_unscoped_rows
 
@@ -79,6 +81,42 @@ def _policy_parts(report: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _record_message_count(record: Dict[str, Any]) -> int:
+    try:
+        count = int(record.get("count") or 0)
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ValueError("DMARC record count must be an integer") from exc
+    if count < 0:
+        raise ValueError("DMARC record count cannot be negative")
+    return count
+
+
+def _aggregate_message_count(report: Dict[str, Any]) -> int:
+    return sum(_record_message_count(record) for record in report.get("records") or [])
+
+
+def _require_message_volume_limit(
+    db: Session,
+    *,
+    workspace_id: Optional[int],
+    report: Dict[str, Any],
+) -> None:
+    if workspace_id is None:
+        return
+    increment = _aggregate_message_count(report)
+    if increment <= 0:
+        return
+    workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    if workspace is None or workspace.organization is None:
+        return
+    require_organization_plan_limit(
+        db,
+        workspace.organization,
+        "aggregate_messages",
+        increment=increment,
+    )
+
+
 def report_exists(
     db: Session,
     domain_name: str,
@@ -137,6 +175,8 @@ def save_parsed_report(
     if existing is not None:
         return existing, False
 
+    _require_message_volume_limit(db, workspace_id=workspace_id, report=report)
+
     begin_ts = _parse_timestamp(report.get("begin_timestamp") or report.get("begin_date"))
     end_ts = _parse_timestamp(report.get("end_timestamp") or report.get("end_date"))
     pct = _parse_timestamp(policy.get("pct")) or 100
@@ -173,7 +213,7 @@ def save_parsed_report(
             ReportRecord(
                 report_id=db_report.id,
                 source_ip=record.get("source_ip") or "unknown",
-                count=int(record.get("count") or 0),
+                count=_record_message_count(record),
                 disposition=record.get("disposition") or "none",
                 dkim=record.get("dkim_result") or record.get("dkim") or "unknown",
                 spf=record.get("spf_result") or record.get("spf") or "unknown",
