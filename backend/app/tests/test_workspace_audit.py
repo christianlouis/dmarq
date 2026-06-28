@@ -1,5 +1,7 @@
+import csv
 import json
 from contextlib import contextmanager
+from io import StringIO
 
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -7,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.domain import Domain
-from app.models.organization import Organization, OrganizationMembership
+from app.models.organization import BillingEvent, Entitlement, Organization, OrganizationMembership
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog, WorkspaceMembership
@@ -681,6 +683,112 @@ def test_webhook_changes_are_audited_without_signing_secret(authed_client: TestC
     serialized = str(audit.json())
     assert "very-secret-webhook-signing-value" not in serialized
     assert "another-secret-webhook-value" not in serialized
+
+
+def test_enterprise_audit_export_includes_account_security_events(
+    authed_client: TestClient,
+    db_session: Session,
+):
+    """Enterprise CSV export combines sanitized workspace, billing, and entitlement rows."""
+    organization = Organization(slug="enterprise-audit", name="Enterprise Audit")
+    workspace = Workspace(
+        slug="enterprise-audit-main",
+        name="Enterprise Audit Main",
+        organization=organization,
+    )
+    db_session.add_all([organization, workspace])
+    db_session.flush()
+    record_workspace_audit_log(
+        db_session,
+        workspace=workspace,
+        action="organization.membership_upserted",
+        entity_type="organization_membership",
+        entity_id="42",
+        entity_name="admin@example.com",
+        auth_context={"auth_type": "api_key"},
+        details={
+            "new": {"role": "organization_admin", "active": True},
+            "api_token": "raw-token-value",
+        },
+        commit=False,
+    )
+    db_session.add_all(
+        [
+            BillingEvent(
+                organization_id=organization.id,
+                billing_mode="provider_resale",
+                event_type="provider.customer_provisioned",
+                provider_id="isp-demo",
+                external_event_id="evt-enterprise-audit",
+                status="applied",
+                payload_summary="provisioned access_token=raw-provider-token",
+            ),
+            Entitlement(
+                organization=organization,
+                key="sso",
+                value="true",
+                source="plan",
+                active=True,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    response = authed_client.get(
+        "/api/v1/audit/export",
+        headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert "enterprise-audit-main-enterprise-audit.csv" in response.headers["content-disposition"]
+    rows = list(csv.DictReader(StringIO(response.text)))
+    categories = {row["category"] for row in rows}
+    actions = {row["action"] for row in rows}
+    assert {"workspace_audit", "billing_event", "entitlement"}.issubset(categories)
+    assert "organization.membership_upserted" in actions
+    assert "provider.customer_provisioned" in actions
+    assert "entitlement.active" in actions
+    serialized = response.text
+    assert "raw-token-value" not in serialized
+    assert "raw-provider-token" not in serialized
+    assert "[redacted]" in serialized
+
+
+def test_enterprise_audit_export_respects_workspace_filters(
+    authed_client: TestClient,
+    db_session: Session,
+):
+    """CSV export keeps existing audit filters for selected workspace rows."""
+    workspace = get_or_create_default_workspace(db_session)
+    record_workspace_audit_log(
+        db_session,
+        workspace=workspace,
+        action="setting.changed",
+        entity_type="setting",
+        entity_id="notifications.apprise_enabled",
+        details={"new_value": "true"},
+        commit=True,
+    )
+    record_workspace_audit_log(
+        db_session,
+        workspace=workspace,
+        action="webhook.created",
+        entity_type="webhook_endpoint",
+        entity_id="1",
+        details={"url": "https://example.com"},
+        commit=True,
+    )
+
+    response = authed_client.get(
+        "/api/v1/audit/export?action=webhook.created&entity_type=webhook_endpoint",
+        headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+    )
+
+    assert response.status_code == 200
+    rows = list(csv.DictReader(StringIO(response.text)))
+    assert [row["action"] for row in rows] == ["webhook.created"]
+    assert [row["entity_type"] for row in rows] == ["webhook_endpoint"]
 
 
 def test_manual_selector_changes_are_audited(authed_client: TestClient):
