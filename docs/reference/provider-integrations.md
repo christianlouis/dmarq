@@ -5,16 +5,43 @@ control-panel environments. In this mode, the provider owns the commercial
 relationship and DMARQ stores external customer and subscription identifiers
 instead of requiring Stripe customer records for every end customer.
 
-Provider endpoints live under `/api/v1/provider` and require administrator
-access. Provider-scoped machine tokens are tracked separately on the roadmap;
-until then, expose these endpoints only through trusted automation or an
-internal integration layer.
+Provider endpoints live under `/api/v1/provider`. Administrators can use the
+normal admin session/API key, while ISP/MSP automation should use global
+provider-scoped machine tokens with `provider:read` and/or `provider:write`.
+
+## Provider Machine Tokens
+
+```text
+GET /api/v1/provider/api-tokens
+POST /api/v1/provider/api-tokens
+DELETE /api/v1/provider/api-tokens/{token_id}
+```
+
+Token management requires administrator access. Provider tokens are global,
+not workspace-scoped, and are intended for trusted provider control panels,
+billing runs, and hosting-management integrations.
+
+Request:
+
+```json
+{
+  "name": "ISP control panel",
+  "scopes": ["provider:read", "provider:write"]
+}
+```
+
+The raw token is returned only once. Store it in the provider-side secret store
+and send it as `X-API-Key` when calling provider lifecycle and usage endpoints.
+Use `provider:read` for usage exports and `provider:write` for customer
+provisioning or subscription state changes.
 
 ## Provision A Customer
 
 ```text
 POST /api/v1/provider/customers
 ```
+
+Required token scope: `provider:write`.
 
 Request:
 
@@ -51,6 +78,8 @@ is received again, DMARQ returns the existing customer summary with
 POST /api/v1/provider/subscriptions/{external_subscription_id}/state
 ```
 
+Required token scope: `provider:write`.
+
 Request:
 
 ```json
@@ -73,8 +102,9 @@ GET /api/v1/provider/billing/usage?period=2026-06
 GET /api/v1/provider/billing/accounts/{external_customer_id}/usage?period=2026-06
 ```
 
+Required token scope: `provider:read`.
+
 Usage exports are deterministic for a billing period and include workspace,
 domain, aggregate report, message volume, forensic report, and active user
 metrics. The payload is intended for provider-side monthly invoicing, including
 WHMCS-style billing runs or custom ISP account-management systems.
-
