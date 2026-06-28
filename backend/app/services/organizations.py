@@ -17,6 +17,7 @@ from app.models.organization import (
     BillingEvent,
     Entitlement,
     Organization,
+    OrganizationMembership,
     Plan,
     Subscription,
     UsageRecord,
@@ -25,6 +26,7 @@ from app.models.report import DMARCReport, ForensicReport, ReportRecord
 from app.models.user import User
 from app.models.webhook import WebhookEndpoint
 from app.models.workspace import Workspace
+from app.models.workspace_access import WorkspaceMembership
 from app.services.workspaces import normalize_workspace_slug
 
 DEFAULT_ORGANIZATION_SLUG = "default"
@@ -75,7 +77,7 @@ ACCOUNT_ACTIVE_STATUSES = {"active", "trialing"}
 ACCOUNT_GRACE_STATUSES = {"past_due_provider_reported"}
 ACCOUNT_READ_ONLY_STATUSES = {"suspended", "canceled", "terminated"}
 ACCOUNT_CLOSED_STATUSES = {"canceled", "terminated"}
-ENFORCED_PLAN_LIMITS = {"api_tokens", "monitored_domains", "webhooks"}
+ENFORCED_PLAN_LIMITS = {"api_tokens", "monitored_domains", "users", "webhooks"}
 FEATURE_ENTITLEMENT_ALIASES: Dict[str, tuple[str, ...]] = {
     "api_tokens": ("api_tokens", "api_access"),
     "webhooks": ("webhooks",),
@@ -648,6 +650,64 @@ def require_organization_feature(
     )
 
 
+def _active_user_ids_for_organization(
+    db: Session,
+    organization: Organization,
+    workspaces: Optional[List[Workspace]] = None,
+) -> set[int]:
+    """Return active user IDs that currently consume seats for an organization."""
+    if workspaces is None:
+        workspaces = (
+            db.query(Workspace)
+            .filter(Workspace.organization_id == organization.id)
+            .order_by(Workspace.slug.asc())
+            .all()
+        )
+    workspace_ids = [workspace.id for workspace in workspaces]
+    workspace_filter = workspace_ids or [-1]
+
+    user_ids = {
+        user_id
+        for (user_id,) in db.query(User.id)
+        .filter(User.workspace_id.in_(workspace_filter), User.is_active.is_(True))
+        .all()
+    }
+    user_ids.update(
+        user_id
+        for (user_id,) in db.query(WorkspaceMembership.user_id)
+        .join(User, WorkspaceMembership.user_id == User.id)
+        .filter(
+            WorkspaceMembership.workspace_id.in_(workspace_filter),
+            WorkspaceMembership.active.is_(True),
+            User.is_active.is_(True),
+        )
+        .all()
+    )
+    user_ids.update(
+        user_id
+        for (user_id,) in db.query(OrganizationMembership.user_id)
+        .join(User, OrganizationMembership.user_id == User.id)
+        .filter(
+            OrganizationMembership.organization_id == organization.id,
+            OrganizationMembership.active.is_(True),
+            User.is_active.is_(True),
+        )
+        .all()
+    )
+    return user_ids
+
+
+def organization_user_has_active_seat(
+    db: Session,
+    organization: Organization,
+    user: User,
+) -> bool:
+    """Return whether a user already consumes one active seat in an organization."""
+    if not user.is_active:
+        return False
+    return user.id in _active_user_ids_for_organization(db, organization)
+
+
 def _plan_limits_for_organization(
     db: Session,
     organization: Organization,
@@ -672,12 +732,7 @@ def _plan_limits_for_organization(
             .scalar()
             or 0
         ),
-        "users": (
-            db.query(func.count(User.id))
-            .filter(User.workspace_id.in_(workspace_filter), User.is_active.is_(True))
-            .scalar()
-            or 0
-        ),
+        "users": (len(_active_user_ids_for_organization(db, organization, workspaces))),
         "api_tokens": (
             db.query(func.count(APIToken.id))
             .filter(APIToken.workspace_id.in_(workspace_filter), APIToken.active.is_(True))

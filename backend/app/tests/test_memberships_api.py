@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import require_admin_auth
-from app.models.organization import Organization, OrganizationMembership
+from app.models.organization import Entitlement, Organization, OrganizationMembership
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog, WorkspaceMembership
@@ -139,6 +139,11 @@ def test_workspace_membership_api_invites_updates_and_deactivates(
         assert deactivated.status_code == 200
         assert deactivated.json()["active"] is False
 
+        missing_membership = owner_client.delete(
+            f"/api/v1/memberships/workspaces/{workspace.id}/users/999999"
+        )
+        assert missing_membership.status_code == 404
+
     assert (
         role_for_workspace(
             db_session,
@@ -199,6 +204,99 @@ def test_workspace_membership_api_validates_payload_and_invite_identity_conflict
         assert linked.json()["user"]["email"] == "legacy-logto@example.com"
 
 
+def test_workspace_membership_invite_respects_user_seat_plan_limit(
+    test_app,
+    db_session: Session,
+):
+    organization = Organization(slug="workspace-seat-limit", name="Workspace Seat Limit")
+    workspace = Workspace(
+        slug="workspace-seat-limit-main",
+        name="Workspace Seat Limit Main",
+        organization=organization,
+        active=True,
+    )
+    owner = _add_user(db_session, "workspace-seat-owner@example.com")
+    db_session.add_all(
+        [
+            organization,
+            workspace,
+            Entitlement(
+                organization=organization,
+                key="users",
+                value="1",
+                source="plan",
+                active=True,
+            ),
+        ]
+    )
+    db_session.flush()
+    _add_workspace_membership(db_session, workspace, owner, ROLE_WORKSPACE_OWNER)
+    db_session.commit()
+
+    with _client_as_user(test_app, db_session, owner) as owner_client:
+        response = owner_client.post(
+            f"/api/v1/memberships/workspaces/{workspace.id}/invites",
+            json={"email": "workspace-seat-new@example.com", "role": ROLE_ANALYST},
+        )
+
+    assert response.status_code == 402
+    detail = response.json()["detail"]
+    assert detail["code"] == "plan_limit_exceeded"
+    assert detail["metric"] == "users"
+    assert detail["current"] == 1
+    assert detail["limit"] == 1
+    assert detail["can_export"] is True
+    assert (
+        db_session.query(User).filter(User.email == "workspace-seat-new@example.com").first()
+        is None
+    )
+    assert db_session.query(WorkspaceMembership).count() == 1
+
+
+def test_workspace_membership_allows_existing_active_seat_with_full_quota(
+    test_app,
+    db_session: Session,
+):
+    organization = Organization(
+        slug="workspace-seat-reuse",
+        name="Workspace Seat Reuse",
+        active=True,
+    )
+    workspace = Workspace(
+        slug="workspace-seat-reuse-main",
+        name="Workspace Seat Reuse Main",
+        organization=organization,
+        active=True,
+    )
+    owner = _add_user(db_session, "workspace-seat-reuse-owner@example.com")
+    db_session.add_all(
+        [
+            organization,
+            workspace,
+            Entitlement(
+                organization=organization,
+                key="users",
+                value="1",
+                source="plan",
+                active=True,
+            ),
+        ]
+    )
+    db_session.flush()
+    _add_workspace_membership(db_session, workspace, owner, ROLE_WORKSPACE_OWNER)
+    db_session.commit()
+
+    with _client_as_user(test_app, db_session, owner) as owner_client:
+        response = owner_client.put(
+            f"/api/v1/memberships/workspaces/{workspace.id}/users/{owner.id}",
+            json={"user_id": owner.id, "role": ROLE_ANALYST},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["role"] == ROLE_ANALYST
+    assert db_session.query(WorkspaceMembership).count() == 1
+
+
 def test_organization_membership_api_audits_and_deactivates(
     test_app,
     db_session: Session,
@@ -245,6 +343,13 @@ def test_organization_membership_api_audits_and_deactivates(
         assert updated.status_code == 200
         assert updated.json()["role"] == "organization_auditor"
 
+        updated_again = owner_client.put(
+            f"/api/v1/memberships/organizations/{organization.id}/users/{target.id}",
+            json={"user_id": target.id, "role": "billing_admin"},
+        )
+        assert updated_again.status_code == 200
+        assert updated_again.json()["role"] == "billing_admin"
+
         listed = owner_client.get(f"/api/v1/memberships/organizations/{organization.id}")
         assert listed.status_code == 200
         assert len(listed.json()["memberships"]) == 3
@@ -267,6 +372,182 @@ def test_organization_membership_api_audits_and_deactivates(
     audit_actions = {row.action for row in db_session.query(WorkspaceAuditLog).all()}
     assert "organization.membership_upserted" in audit_actions
     assert "organization.membership_deactivated" in audit_actions
+
+
+def test_organization_membership_invite_respects_user_seat_plan_limit(
+    test_app,
+    db_session: Session,
+):
+    organization = Organization(slug="organization-seat-limit", name="Organization Seat Limit")
+    workspace = Workspace(
+        slug="organization-seat-limit-workspace",
+        name="Organization Seat Limit Workspace",
+        organization=organization,
+        active=True,
+    )
+    owner = _add_user(db_session, "organization-seat-owner@example.com")
+    db_session.add_all(
+        [
+            organization,
+            workspace,
+            Entitlement(
+                organization=organization,
+                key="users",
+                value="1",
+                source="plan",
+                active=True,
+            ),
+        ]
+    )
+    db_session.flush()
+    db_session.add(
+        OrganizationMembership(
+            organization_id=organization.id,
+            user_id=owner.id,
+            role="organization_owner",
+            active=True,
+        )
+    )
+    db_session.commit()
+
+    with _client_as_user(test_app, db_session, owner) as owner_client:
+        response = owner_client.post(
+            f"/api/v1/memberships/organizations/{organization.id}/invites",
+            json={"email": "organization-seat-new@example.com", "role": "organization_auditor"},
+        )
+
+    assert response.status_code == 402
+    detail = response.json()["detail"]
+    assert detail["code"] == "plan_limit_exceeded"
+    assert detail["metric"] == "users"
+    assert detail["current"] == 1
+    assert detail["limit"] == 1
+    assert (
+        db_session.query(User).filter(User.email == "organization-seat-new@example.com").first()
+        is None
+    )
+    assert db_session.query(OrganizationMembership).count() == 1
+
+
+def test_organization_invite_existing_inactive_user_respects_seat_limit(
+    test_app,
+    db_session: Session,
+):
+    organization = Organization(
+        slug="organization-inactive-seat-limit",
+        name="Organization Inactive Seat Limit",
+    )
+    workspace = Workspace(
+        slug="organization-inactive-seat-limit-workspace",
+        name="Organization Inactive Seat Limit Workspace",
+        organization=organization,
+        active=True,
+    )
+    owner = _add_user(db_session, "organization-inactive-seat-owner@example.com")
+    inactive = User(
+        email="organization-inactive-seat-user@example.com",
+        is_active=False,
+        is_verified=False,
+        is_superuser=False,
+    )
+    db_session.add_all(
+        [
+            organization,
+            workspace,
+            inactive,
+            Entitlement(
+                organization=organization,
+                key="users",
+                value="1",
+                source="plan",
+                active=True,
+            ),
+        ]
+    )
+    db_session.flush()
+    db_session.add(
+        OrganizationMembership(
+            organization_id=organization.id,
+            user_id=owner.id,
+            role="organization_owner",
+            active=True,
+        )
+    )
+    db_session.commit()
+
+    with _client_as_user(test_app, db_session, owner) as owner_client:
+        response = owner_client.post(
+            f"/api/v1/memberships/organizations/{organization.id}/invites",
+            json={
+                "email": "organization-inactive-seat-user@example.com",
+                "role": "organization_auditor",
+                "logto_id": "logto-inactive-seat",
+                "full_name": "Inactive Seat User",
+            },
+        )
+
+    assert response.status_code == 402
+    detail = response.json()["detail"]
+    assert detail["code"] == "plan_limit_exceeded"
+    assert detail["metric"] == "users"
+    db_session.refresh(inactive)
+    assert inactive.is_active is False
+    assert inactive.logto_id is None
+    assert inactive.full_name is None
+    assert db_session.query(OrganizationMembership).count() == 1
+
+    with _client_as_user(test_app, db_session, owner) as owner_client:
+        direct_response = owner_client.put(
+            f"/api/v1/memberships/organizations/{organization.id}/users/{inactive.id}",
+            json={"user_id": inactive.id, "role": "organization_auditor"},
+        )
+
+    assert direct_response.status_code == 200
+    db_session.refresh(inactive)
+    assert inactive.is_active is False
+    assert db_session.query(OrganizationMembership).count() == 2
+
+
+def test_organization_membership_api_validates_payload_and_missing_membership(
+    test_app,
+    db_session: Session,
+):
+    organization = Organization(
+        slug="organization-membership-validation",
+        name="Organization Membership Validation",
+        active=True,
+    )
+    workspace = Workspace(
+        slug="organization-membership-validation-workspace",
+        name="Organization Membership Validation Workspace",
+        organization=organization,
+        active=True,
+    )
+    owner = _add_user(db_session, "organization-validation-owner@example.com")
+    target = _add_user(db_session, "organization-validation-target@example.com")
+    db_session.add_all([organization, workspace])
+    db_session.flush()
+    db_session.add(
+        OrganizationMembership(
+            organization_id=organization.id,
+            user_id=owner.id,
+            role="organization_owner",
+            active=True,
+        )
+    )
+    db_session.commit()
+
+    with _client_as_user(test_app, db_session, owner) as owner_client:
+        mismatched_user = owner_client.put(
+            f"/api/v1/memberships/organizations/{organization.id}/users/{target.id}",
+            json={"user_id": owner.id, "role": "organization_auditor"},
+        )
+        assert mismatched_user.status_code == 422
+
+        missing_membership = owner_client.delete(
+            f"/api/v1/memberships/organizations/{organization.id}/users/{target.id}"
+        )
+        assert missing_membership.status_code == 404
 
 
 def test_organization_membership_api_reuses_inactive_audit_workspace(
@@ -303,10 +584,15 @@ def test_organization_membership_api_reuses_inactive_audit_workspace(
         )
         assert updated.status_code == 200
 
-    assert db_session.query(Workspace).filter(Workspace.organization_id == organization.id).count() == 1
-    audit = db_session.query(WorkspaceAuditLog).filter(
-        WorkspaceAuditLog.action == "organization.membership_upserted"
-    ).one()
+    assert (
+        db_session.query(Workspace).filter(Workspace.organization_id == organization.id).count()
+        == 1
+    )
+    audit = (
+        db_session.query(WorkspaceAuditLog)
+        .filter(WorkspaceAuditLog.action == "organization.membership_upserted")
+        .one()
+    )
     assert audit.workspace_id == inactive_workspace.id
 
 

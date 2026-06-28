@@ -39,6 +39,7 @@ from app.services.workspace_access import (
     PERMISSION_DOMAINS_WRITE,
     PERMISSION_REPORTS_READ,
     ROLE_AUDITOR,
+    ROLE_WORKSPACE_OWNER,
     require_workspace_permission,
 )
 
@@ -165,11 +166,29 @@ def test_organization_summary_exposes_plan_limit_usage(db_session: Session):
                 source="plan",
                 active=True,
             ),
+            Entitlement(
+                organization=organization,
+                key="users",
+                value="2",
+                source="plan",
+                active=True,
+            ),
         ]
     )
     db_session.flush()
+    active_user = User(email="active-seat@example.com", is_active=True, is_verified=True)
+    inactive_user = User(email="inactive-seat@example.com", is_active=False, is_verified=True)
+    legacy_user = User(
+        workspace_id=workspace.id,
+        email="legacy-seat@example.com",
+        is_active=True,
+        is_verified=True,
+    )
     db_session.add_all(
         [
+            active_user,
+            inactive_user,
+            legacy_user,
             Domain(workspace_id=workspace.id, name="example.com", active=True),
             APIToken(
                 workspace_id=workspace.id,
@@ -189,6 +208,23 @@ def test_organization_summary_exposes_plan_limit_usage(db_session: Session):
             ),
         ]
     )
+    db_session.flush()
+    db_session.add_all(
+        [
+            WorkspaceMembership(
+                workspace_id=workspace.id,
+                user_id=active_user.id,
+                role=ROLE_WORKSPACE_OWNER,
+                active=True,
+            ),
+            WorkspaceMembership(
+                workspace_id=workspace.id,
+                user_id=inactive_user.id,
+                role=ROLE_WORKSPACE_OWNER,
+                active=True,
+            ),
+        ]
+    )
     db_session.commit()
 
     limits = organization_summary(db_session, organization)["plan_limits"]
@@ -201,6 +237,9 @@ def test_organization_summary_exposes_plan_limit_usage(db_session: Session):
     assert limits["api_tokens"]["limit"] == 0
     assert limits["api_tokens"]["status"] == "exceeded"
     assert limits["api_tokens"]["enforced"] is True
+    assert limits["users"]["current"] == 2
+    assert limits["users"]["limit"] == 2
+    assert limits["users"]["enforced"] is True
     assert limits["webhooks"]["current"] == 1
     assert limits["webhooks"]["limit"] == 0
     assert limits["webhooks"]["enforced"] is True
