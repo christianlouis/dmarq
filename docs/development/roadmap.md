@@ -1,6 +1,6 @@
 # DMARQ Product Roadmap
 
-Last updated: 2026-06-26
+Last updated: 2026-06-29
 
 DMARQ has moved beyond its original MVP. The product now parses aggregate and
 forensic DMARC reports, imports from IMAP/Gmail/Microsoft 365, persists report
@@ -15,6 +15,11 @@ The next roadmap turns that foundation into three durable product modes:
   billing, and support expectations.
 - **ISP/OEM DMARQ:** DMARQ embedded into ISP, MSP, registrar, and hosting
   provider environments, including provider-owned billing and provisioning.
+
+It also grows DMARQ toward competitive parity with commercial DMARC monitoring
+platforms such as Valimail, EasyDMARC, dmarcian, PowerDMARC, and DMARCguard
+while preserving DMARQ's differentiators: self-hosted operation, transparent
+evidence, operator-approved DNS changes, and no forced DNS delegation.
 
 This roadmap is intentionally product-oriented. It should drive implementation
 issues, not replace release notes or the completed milestone history in
@@ -58,13 +63,18 @@ Completed or substantially delivered:
 - Workspace, RBAC vocabulary, audit-log, onboarding-template, and MSP operator
   foundations.
 - Demo deployment that rolls forward from main through CI/GitOps.
+- Kubernetes high-availability work for tolerating loss of one hardware host.
 
 The main open strategic issues are:
 
 - [Issue #12](https://github.com/christianlouis/dmarq/issues/12): user
-  management, SaaS, ISP/OEM, subscription, and billing foundation.
-- [Issue #206](https://github.com/christianlouis/dmarq/issues/206): Kubernetes
-  high availability for loss of one hardware host.
+  management, SaaS, ISP/OEM, subscription, and billing tracker. Most foundation
+  slices are complete; the remaining active child is enterprise identity and
+  support-access hardening.
+- [Issue #304](https://github.com/christianlouis/dmarq/issues/304): health
+  score, A-F rating, and remediation action plan.
+- [Issue #305](https://github.com/christianlouis/dmarq/issues/305): competitive
+  parity tracker for DMARC monitoring platforms.
 
 ## Roadmap Tracks
 
@@ -76,6 +86,10 @@ Deliverables:
 
 - Keep parser compatibility current with real-world aggregate and forensic
   report formats.
+- Add a dashboard-level health score, A-F rating, score breakdown, and
+  prioritized action plan.
+- Add named sender identification so raw source IPs become recognizable services
+  with provider-specific remediation.
 - Keep demo data realistic for `dmarq.org` and `dmarq.com`, including
   30/60/90-day windows, ordinary sources, corner cases, and safe
   misconfiguration examples.
@@ -84,6 +98,7 @@ Deliverables:
 - Continue polishing detail views so the whole app feels useful, dense, and
   visually consistent.
 - Maintain export and data-access guarantees for a customer's own report data.
+- Add score history and compliance evidence exports for audit workflows.
 
 Exit criteria:
 
@@ -234,7 +249,8 @@ Goal: make self-hosted, SaaS, and provider deployments operationally credible.
 
 Deliverables:
 
-- Complete [issue #206](https://github.com/christianlouis/dmarq/issues/206):
+- Preserve the completed
+  [issue #206](https://github.com/christianlouis/dmarq/issues/206) guarantee:
   tolerate loss of any one Kubernetes hardware host for prod/preprod.
 - Move Alembic migrations out of app init containers into a single migration
   job/release step.
@@ -252,6 +268,37 @@ Exit criteria:
 - Deployments do not run racing migrations.
 - Operators can verify rollout, rollback, backup, restore, and tenant isolation
   from documented runbooks.
+
+### Track G: Competitive Parity and Product Intelligence
+
+Goal: make DMARQ credible against established DMARC monitoring platforms without
+copying their lock-in patterns.
+
+Deliverables:
+
+- Implement health score, A-F rating, score factors, and score-driven action
+  plans.
+- Add named sender identification and provider-specific remediation.
+- Persist score history and expose audit-ready evidence exports.
+- Expand advanced DNS linting for SPF, DKIM, DMARC, MTA-STS, TLS-RPT, and BIMI.
+- Productize public API and MCP tools for posture, reporting, DNS health,
+  action plans, and tenant summaries.
+- Evaluate DANE, ARC, and ARF as passive validation/reporting features before
+  deciding whether active hosted services belong in DMARQ.
+- Add migration and data-portability workflows from other DMARC tools.
+- Polish ISP, MSP, and multi-tenant demos so users can move between single
+  domain, organization, provider, customer, billing, and support-access views.
+- Add geo/source enrichment and anomaly detection views.
+- Design operator-approved DNS change plans and optional provider write
+  integrations without changing the read-only default.
+
+Exit criteria:
+
+- DMARQ can answer the same buyer questions as commercial DMARC monitoring
+  platforms: score, grade, sender identity, what changed, what to fix, what the
+  audit evidence is, and how to migrate in or out.
+- Features remain evidence-linked, tenant-safe, exportable, and usable in
+  self-hosted mode.
 
 ## Sequencing
 
@@ -314,28 +361,58 @@ Outcome: providers can provision and bill DMARQ themselves.
 
 Outcome: commercial deployments are reliable enough to sell.
 
-- Complete Kubernetes HA work.
+- Maintain Kubernetes HA behavior from the completed host-loss work.
 - Add migration job pattern.
 - Document SLOs, backup/restore, retention, support access, and incident
   response for SaaS/provider modes.
 - Run production-like failover and restore drills.
 
+### Phase 7: Competitive Parity Slices
+
+Outcome: DMARQ becomes comparable with commercial DMARC monitoring products on
+the features buyers expect.
+
+- Build health score, A-F rating, and action plan first.
+- Add named sender identification and provider remediation.
+- Add score history and compliance evidence exports.
+- Expand DNS linting and guided configuration.
+- Productize API/MCP surfaces for posture and reporting.
+- Add migration, portability, geo/source intelligence, anomaly detection, and
+  optional DNS change-plan workflows.
+
 ## GitHub Tracking
 
 - [Issue #12](https://github.com/christianlouis/dmarq/issues/12): auth,
   multi-user, SaaS, ISP/OEM, subscription, billing, and entitlement roadmap.
-- [Issue #206](https://github.com/christianlouis/dmarq/issues/206):
-  Kubernetes host-loss high availability.
+- [Issue #243](https://github.com/christianlouis/dmarq/issues/243):
+  enterprise identity provisioning and support-access controls.
+- [Issue #304](https://github.com/christianlouis/dmarq/issues/304): health
+  score, A-F rating, and remediation action plan.
+- [Issue #305](https://github.com/christianlouis/dmarq/issues/305):
+  competitive parity tracker.
+- [Issue #306](https://github.com/christianlouis/dmarq/issues/306): named
+  sender identification and provider-specific remediation.
+- [Issue #307](https://github.com/christianlouis/dmarq/issues/307): score
+  history, trends, and compliance evidence exports.
+- [Issue #308](https://github.com/christianlouis/dmarq/issues/308): advanced
+  DNS linting and guided configuration.
+- [Issue #309](https://github.com/christianlouis/dmarq/issues/309): public API
+  and MCP tools for posture and reporting.
+- [Issue #310](https://github.com/christianlouis/dmarq/issues/310): DANE, ARC,
+  and ARF competitive protocol coverage evaluation.
+- [Issue #311](https://github.com/christianlouis/dmarq/issues/311): migration
+  and data portability workflows.
+- [Issue #312](https://github.com/christianlouis/dmarq/issues/312): ISP, MSP,
+  and multi-tenant demo workflow polish.
+- [Issue #313](https://github.com/christianlouis/dmarq/issues/313): geo/source
+  enrichment and anomaly detection views.
+- [Issue #314](https://github.com/christianlouis/dmarq/issues/314):
+  operator-approved DNS change plans and optional provider write integrations.
 
-Recommended child issues for #12:
+Completed reference issues:
 
-- Organization/account schema and migration.
-- Entitlements and plan limits.
-- Workspace RBAC enforcement.
-- Invite/member management UI.
-- Stripe Billing integration.
-- Provider billing state and monthly usage exports.
-- Provider provisioning API.
-- WHMCS module.
-- Domain Connect templates.
-- Website copy update for self-hosted, SaaS, and ISP modes.
+- [Issue #206](https://github.com/christianlouis/dmarq/issues/206): Kubernetes
+  host-loss high availability.
+- [Issues #236-#242](https://github.com/christianlouis/dmarq/issues?q=repo%3Achristianlouis%2Fdmarq+is%3Aissue+236..242):
+  #12 foundation slices for RBAC, membership, workspace switching, SaaS
+  onboarding, Stripe billing, provider lifecycle, and entitlement visibility.
