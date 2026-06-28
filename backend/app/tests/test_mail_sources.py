@@ -21,6 +21,7 @@ from app.api.api_v1.endpoints import mail_sources as mail_sources_endpoint
 from app.core.credential_encryption import is_encrypted_secret
 from app.core.database import get_db
 from app.core.security import require_admin_auth
+from app.models.domain import Domain
 from app.models.mail_source import MailSource
 from app.models.mail_source_import import MailSourceImport
 from app.models.user import User
@@ -180,6 +181,24 @@ def _add_membership(db_session: Session, workspace: Workspace, user: User, role:
     db_session.add(membership)
     db_session.flush()
     return membership
+
+
+def _add_domain(
+    db_session: Session,
+    workspace: Workspace,
+    *,
+    name: str = "example.com",
+    verified: bool = False,
+) -> Domain:
+    domain = Domain(
+        workspace_id=workspace.id,
+        name=name,
+        active=True,
+        verified=verified,
+    )
+    db_session.add(domain)
+    db_session.commit()
+    return domain
 
 
 class TestMailSourceModel:
@@ -731,6 +750,46 @@ class TestMailSourcesAPIAuthed:
         assert resp.status_code == 201
         assert resp.json()["method"] == "IMAP"
 
+    def test_create_enabled_source_requires_verified_domains(
+        self,
+        authed_client: TestClient,
+        db_session: Session,
+    ):
+        workspace = get_or_create_default_workspace(db_session)
+        _add_domain(db_session, workspace, verified=False)
+
+        blocked = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "Blocked IMAP", "method": "IMAP", "enabled": True},
+        )
+        disabled = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "Staged IMAP", "method": "IMAP", "enabled": False},
+        )
+
+        assert blocked.status_code == 409
+        detail = blocked.json()["detail"]
+        assert detail["code"] == "domain_verification_required"
+        assert detail["unverified_domains"] == ["example.com"]
+        assert disabled.status_code == 201
+        assert disabled.json()["enabled"] is False
+
+    def test_create_enabled_source_allows_verified_domains(
+        self,
+        authed_client: TestClient,
+        db_session: Session,
+    ):
+        workspace = get_or_create_default_workspace(db_session)
+        _add_domain(db_session, workspace, verified=True)
+
+        response = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "Verified IMAP", "method": "IMAP", "enabled": True},
+        )
+
+        assert response.status_code == 201
+        assert response.json()["enabled"] is True
+
     # ------------------------------------------------------------------
     # Get single
     # ------------------------------------------------------------------
@@ -843,6 +902,32 @@ class TestMailSourcesAPIAuthed:
         assert update_resp.status_code == 200
         assert update_resp.json()["method"] == "POP3"
 
+    def test_update_enable_requires_verified_domains(
+        self,
+        authed_client: TestClient,
+        db_session: Session,
+    ):
+        workspace = get_or_create_default_workspace(db_session)
+        _add_domain(db_session, workspace, verified=False)
+        source = MailSource(
+            workspace_id=workspace.id,
+            name="Staged IMAP",
+            method="IMAP",
+            enabled=False,
+        )
+        db_session.add(source)
+        db_session.commit()
+
+        response = authed_client.put(
+            f"/api/v1/mail-sources/{source.id}",
+            json={"enabled": True},
+        )
+
+        db_session.refresh(source)
+        assert response.status_code == 409
+        assert response.json()["detail"]["code"] == "domain_verification_required"
+        assert source.enabled is False
+
     def test_update_nonexistent_source_returns_404(self, authed_client: TestClient):
         resp = authed_client.put("/api/v1/mail-sources/99999", json={"name": "x"})
         assert resp.status_code == 404
@@ -898,6 +983,29 @@ class TestMailSourcesAPIAuthed:
         toggle_resp2 = authed_client.post(f"/api/v1/mail-sources/{source_id}/toggle")
         assert toggle_resp2.status_code == 200
         assert toggle_resp2.json()["enabled"] is True
+
+    def test_toggle_enable_requires_verified_domains(
+        self,
+        authed_client: TestClient,
+        db_session: Session,
+    ):
+        workspace = get_or_create_default_workspace(db_session)
+        _add_domain(db_session, workspace, verified=False)
+        source = MailSource(
+            workspace_id=workspace.id,
+            name="Toggle staged",
+            method="IMAP",
+            enabled=False,
+        )
+        db_session.add(source)
+        db_session.commit()
+
+        response = authed_client.post(f"/api/v1/mail-sources/{source.id}/toggle")
+
+        db_session.refresh(source)
+        assert response.status_code == 409
+        assert response.json()["detail"]["action"] == "mail_source.toggle_enabled"
+        assert source.enabled is False
 
     def test_toggle_nonexistent_returns_404(self, authed_client: TestClient):
         resp = authed_client.post("/api/v1/mail-sources/99999/toggle")
@@ -1847,6 +1955,60 @@ class TestMicrosoft365GraphMailSource:
 
 class TestManualSourceFetchEndpoint:
     """Tests for POST /api/v1/mail-sources/{source_id}/fetch."""
+
+    def test_fetch_requires_verified_domains(
+        self,
+        authed_client: TestClient,
+        db_session: Session,
+    ):
+        workspace = get_or_create_default_workspace(db_session)
+        _add_domain(db_session, workspace, verified=False)
+        source = MailSource(
+            workspace_id=workspace.id,
+            name="Unverified fetch",
+            method="IMAP",
+            server="imap.example.com",
+            enabled=True,
+        )
+        db_session.add(source)
+        db_session.commit()
+
+        with patch("app.api.api_v1.endpoints.mail_sources.IMAPClient") as mock_imap:
+            response = authed_client.post(f"/api/v1/mail-sources/{source.id}/fetch?days=30")
+
+        assert response.status_code == 409
+        assert response.json()["detail"]["action"] == "mail_source.fetch"
+        mock_imap.assert_not_called()
+
+    def test_provider_fetches_require_verified_domains(
+        self,
+        authed_client: TestClient,
+        db_session: Session,
+    ):
+        workspace = get_or_create_default_workspace(db_session)
+        _add_domain(db_session, workspace, verified=False)
+        gmail_source = MailSource(
+            workspace_id=workspace.id,
+            name="Unverified Gmail",
+            method="GMAIL_API",
+            enabled=True,
+        )
+        m365_source = MailSource(
+            workspace_id=workspace.id,
+            name="Unverified M365",
+            method="M365_GRAPH",
+            enabled=True,
+        )
+        db_session.add_all([gmail_source, m365_source])
+        db_session.commit()
+
+        gmail_response = authed_client.post(f"/api/v1/mail-sources/{gmail_source.id}/gmail/fetch")
+        m365_response = authed_client.post(f"/api/v1/mail-sources/{m365_source.id}/m365/fetch")
+
+        assert gmail_response.status_code == 409
+        assert gmail_response.json()["detail"]["action"] == "mail_source.gmail_fetch"
+        assert m365_response.status_code == 409
+        assert m365_response.json()["detail"]["action"] == "mail_source.m365_fetch"
 
     def test_fetch_imap_source(self, authed_client: TestClient, caplog):
         create_resp = authed_client.post(
