@@ -264,6 +264,67 @@ def test_workspace_membership_api_validates_payload_and_invite_identity_conflict
         assert linked.json()["user"]["email"] == "legacy-logto@example.com"
 
 
+def test_workspace_membership_invite_requires_sso_entitlement_for_logto_identity(
+    test_app,
+    db_session: Session,
+):
+    organization = Organization(slug="workspace-sso-disabled", name="Workspace SSO Disabled")
+    workspace = Workspace(
+        slug="workspace-sso-disabled-main",
+        name="Workspace SSO Disabled Main",
+        organization=organization,
+        active=True,
+    )
+    owner = _add_user(db_session, "workspace-sso-owner@example.com")
+    db_session.add_all(
+        [
+            organization,
+            workspace,
+            Entitlement(
+                organization=organization,
+                key="sso",
+                value="false",
+                source="plan",
+                active=True,
+            ),
+        ]
+    )
+    db_session.flush()
+    _add_workspace_membership(db_session, workspace, owner, ROLE_WORKSPACE_OWNER)
+    db_session.commit()
+
+    with _client_as_user(test_app, db_session, owner) as owner_client:
+        blocked = owner_client.post(
+            f"/api/v1/memberships/workspaces/{workspace.id}/invites",
+            json={
+                "email": "workspace-logto-disabled@example.com",
+                "role": ROLE_ANALYST,
+                "logto_id": "logto-workspace-disabled",
+            },
+        )
+        assert blocked.status_code == 402
+        detail = blocked.json()["detail"]
+        assert detail["code"] == "feature_not_included"
+        assert detail["feature"] == "sso"
+        assert detail["can_export"] is True
+
+        email_only = owner_client.post(
+            f"/api/v1/memberships/workspaces/{workspace.id}/invites",
+            json={
+                "email": "workspace-email-only@example.com",
+                "role": ROLE_ANALYST,
+            },
+        )
+        assert email_only.status_code == 200
+        assert email_only.json()["user"]["logto_id"] is None
+
+    assert (
+        db_session.query(User).filter(User.email == "workspace-logto-disabled@example.com").first()
+        is None
+    )
+    assert db_session.query(User).filter(User.email == "workspace-email-only@example.com").first()
+
+
 def test_workspace_membership_invite_respects_user_seat_plan_limit(
     test_app,
     db_session: Session,
@@ -432,6 +493,78 @@ def test_organization_membership_api_audits_and_deactivates(
     audit_actions = {row.action for row in db_session.query(WorkspaceAuditLog).all()}
     assert "organization.membership_upserted" in audit_actions
     assert "organization.membership_deactivated" in audit_actions
+
+
+def test_organization_membership_invite_requires_sso_entitlement_for_logto_identity(
+    test_app,
+    db_session: Session,
+):
+    organization = Organization(slug="organization-sso-disabled", name="Organization SSO Disabled")
+    workspace = Workspace(
+        slug="organization-sso-disabled-workspace",
+        name="Organization SSO Disabled Workspace",
+        organization=organization,
+        active=True,
+    )
+    owner = _add_user(db_session, "organization-sso-owner@example.com")
+    db_session.add_all(
+        [
+            organization,
+            workspace,
+            Entitlement(
+                organization=organization,
+                key="sso",
+                value="false",
+                source="plan",
+                active=True,
+            ),
+        ]
+    )
+    db_session.flush()
+    db_session.add(
+        OrganizationMembership(
+            organization_id=organization.id,
+            user_id=owner.id,
+            role="organization_owner",
+            active=True,
+        )
+    )
+    db_session.commit()
+
+    with _client_as_user(test_app, db_session, owner) as owner_client:
+        blocked = owner_client.post(
+            f"/api/v1/memberships/organizations/{organization.id}/invites",
+            json={
+                "email": "organization-logto-disabled@example.com",
+                "role": "organization_auditor",
+                "logto_id": "logto-organization-disabled",
+            },
+        )
+        assert blocked.status_code == 402
+        detail = blocked.json()["detail"]
+        assert detail["code"] == "feature_not_included"
+        assert detail["feature"] == "sso"
+        assert detail["can_export"] is True
+
+        email_only = owner_client.post(
+            f"/api/v1/memberships/organizations/{organization.id}/invites",
+            json={
+                "email": "organization-email-only@example.com",
+                "role": "organization_auditor",
+            },
+        )
+        assert email_only.status_code == 200
+        assert email_only.json()["user"]["logto_id"] is None
+
+    assert (
+        db_session.query(User)
+        .filter(User.email == "organization-logto-disabled@example.com")
+        .first()
+        is None
+    )
+    assert (
+        db_session.query(User).filter(User.email == "organization-email-only@example.com").first()
+    )
 
 
 def test_organization_membership_invite_respects_user_seat_plan_limit(

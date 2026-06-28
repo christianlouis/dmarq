@@ -16,6 +16,7 @@ from app.models.workspace_access import WorkspaceMembership
 from app.services.organizations import (
     OrganizationPlanLimitError,
     organization_user_has_active_seat,
+    require_organization_feature,
     require_organization_plan_limit,
 )
 from app.services.workspace_access import (
@@ -203,6 +204,28 @@ def _raise_plan_limit_error(db: Session, exc: OrganizationPlanLimitError) -> Non
         status_code=status.HTTP_402_PAYMENT_REQUIRED,
         detail=exc.to_detail(),
     ) from exc
+
+
+def _require_sso_identity_linking(
+    db: Session,
+    organization: Optional[Organization],
+    payload: MembershipInviteRequest,
+) -> None:
+    if organization is None or not payload.logto_id:
+        return
+    try:
+        require_organization_feature(db, organization, "sso")
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "code": "feature_not_included",
+                "feature": "sso",
+                "message": str(exc),
+                "can_export": True,
+            },
+        ) from exc
 
 
 def _require_user_seat_capacity(
@@ -467,6 +490,7 @@ async def invite_workspace_member(
     require_workspace_permission(_auth, PERMISSION_WORKSPACE_ADMIN, db, workspace)
     _ensure_workspace_accepts_mutation(workspace)
     role = _normalize_role(payload.role, WORKSPACE_ROLES)
+    _require_sso_identity_linking(db, workspace.organization, payload)
     user = _find_or_create_invited_user(db, payload)
     membership = _upsert_workspace_membership_row(
         db=db,
@@ -594,6 +618,7 @@ async def invite_organization_member(
     organization = _organization_or_404(db, organization_id)
     require_organization_permission(_auth, PERMISSION_WORKSPACE_ADMIN, db, organization)
     role = _normalize_role(payload.role, ORGANIZATION_ROLES)
+    _require_sso_identity_linking(db, organization, payload)
     user = _find_or_create_invited_user(db, payload)
     membership = _upsert_organization_membership_row(
         db=db,
