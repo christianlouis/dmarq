@@ -137,7 +137,8 @@ def test_list_organization_summaries_materializes_account_state(db_session: Sess
     assert summaries[0]["account_state"]["status"] == "active"
     assert summaries[0]["account_state"]["can_mutate"] is True
     assert summaries[0]["account_state"]["can_export"] is True
-    assert "plan_limits" not in summaries[0]
+    assert "plan_limits" in summaries[0]
+    assert summaries[0]["plan_limits"]["retention_days"]["status"] == "ok"
 
 
 def test_organization_summary_exposes_plan_limit_usage(db_session: Session):
@@ -257,6 +258,8 @@ def test_organization_summary_exposes_plan_limit_usage(db_session: Session):
     assert limits["api_tokens"]["enforced"] is True
     assert limits["api_tokens"]["near_limit"] is True
     assert "over the plan limit" in limits["api_tokens"]["message"]
+    assert "(1/0)" not in limits["api_tokens"]["message"]
+    assert "1 used, limit 0" in limits["api_tokens"]["message"]
     assert limits["users"]["current"] == 3
     assert limits["users"]["limit"] == 3
     assert limits["users"]["enforced"] is True
@@ -341,6 +344,35 @@ def test_organization_plan_limit_warning_payload_is_actionable(db_session: Sessi
     assert limit["message"] == (
         "monitored domains are approaching the plan limit (4/5); 1 remaining."
     )
+
+
+def test_organization_summary_uses_plural_retention_limit_message(db_session: Session):
+    organization = Organization(slug="retention-limit", name="Retention Limit", active=True)
+    workspace = Workspace(
+        slug="retention-limit-main",
+        name="Retention Limit Main",
+        organization=organization,
+        report_retention_days=90,
+    )
+    db_session.add_all(
+        [
+            organization,
+            workspace,
+            Entitlement(
+                organization=organization,
+                key="retention_days",
+                value="90",
+                source="plan",
+                active=True,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    limits = organization_summary(db_session, organization)["plan_limits"]
+
+    assert limits["retention_days"]["status"] == "warning"
+    assert limits["retention_days"]["message"] == "retention days are at the plan limit (90/90)."
 
 
 def test_organization_plan_limit_returns_configured_metric(db_session: Session):

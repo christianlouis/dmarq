@@ -623,18 +623,18 @@ def _metric_label(metric: str) -> str:
     return metric.replace("_", " ")
 
 
-def _metric_verb(metric: str) -> str:
-    return "is" if metric == "retention_days" else "are"
+def _metric_verb() -> str:
+    return "are"
 
 
 def _limit_message(metric: str, current: int, limit: Optional[int], status: str) -> Optional[str]:
     if limit is None or status == "ok":
         return None
     label = _metric_label(metric)
-    verb = _metric_verb(metric)
+    verb = _metric_verb()
     if status == "exceeded":
         return (
-            f"{label} {verb} over the plan limit ({current}/{limit}). "
+            f"{label} {verb} over the plan limit ({current} used, limit {limit}). "
             "Exports remain available; reduce usage or upgrade the plan."
         )
     remaining = max(0, limit - current)
@@ -1261,10 +1261,7 @@ def list_organization_summaries(db: Session) -> List[Dict[str, Any]]:
     """Return all organizations with local commercial state materialized."""
     bootstrap_default_commercial_foundation(db)
     organizations = db.query(Organization).order_by(Organization.slug.asc()).all()
-    return [
-        organization_summary(db, organization, include_plan_limits=False)
-        for organization in organizations
-    ]
+    return [organization_summary(db, organization) for organization in organizations]
 
 
 def list_scoped_organization_summaries(
@@ -1278,10 +1275,7 @@ def list_scoped_organization_summaries(
         if not organization_ids:
             return []
         query = query.filter(Organization.id.in_(organization_ids))
-    return [
-        organization_summary(db, organization, include_plan_limits=False)
-        for organization in query.all()
-    ]
+    return [organization_summary(db, organization) for organization in query.all()]
 
 
 def parse_usage_period(period: str) -> tuple[datetime, datetime]:
