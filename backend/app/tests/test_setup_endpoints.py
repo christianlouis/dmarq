@@ -92,6 +92,20 @@ class TestSetupPage:
         assert "/api/v1/setup/status" in response.text
         assert "/api/v1/setup/admin" in response.text
         assert "/api/v1/setup/system" in response.text
+        assert "/onboarding" not in response.text
+
+    def test_setup_page_links_onboarding_when_logto_is_configured(self, monkeypatch):
+        from app.main import app as main_app
+        from app.main import settings as main_settings
+
+        monkeypatch.setattr(main_settings, "LOGTO_ENDPOINT", "https://logto.example.test")
+        monkeypatch.setattr(main_settings, "LOGTO_APP_ID", "app-id")
+        monkeypatch.setattr(main_settings, "LOGTO_APP_SECRET", "app-secret")
+
+        with TestClient(main_app) as test_client:
+            response = test_client.get("/setup")
+
+        assert response.status_code == 200
         assert "/onboarding" in response.text
 
     def test_onboarding_page_renders_workspace_bootstrap_flow(self):
@@ -111,6 +125,8 @@ class TestSetupPage:
         assert "workspaceOnboarding()" in response.text
         assert "/api/v1/onboarding/preview" in response.text
         assert "/api/v1/onboarding/apply" in response.text
+        assert "draftFields()" in response.text
+        assert "normalizeDomain(value)" in response.text
         assert "dmarq.selectedWorkspaceId" in response.text
 
 
