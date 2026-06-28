@@ -13,6 +13,7 @@ from app.models.organization import (
     BillingAccount,
     Entitlement,
     Organization,
+    OrganizationMembership,
     Plan,
     Subscription,
 )
@@ -32,6 +33,7 @@ from app.services.organizations import (
     list_organization_summaries,
     organization_plan_limit,
     organization_summary,
+    organization_user_has_active_seat,
     require_organization_feature,
     require_organization_plan_limit,
 )
@@ -39,6 +41,7 @@ from app.services.workspace_access import (
     PERMISSION_DOMAINS_WRITE,
     PERMISSION_REPORTS_READ,
     ROLE_AUDITOR,
+    ROLE_WORKSPACE_OWNER,
     require_workspace_permission,
 )
 
@@ -165,11 +168,35 @@ def test_organization_summary_exposes_plan_limit_usage(db_session: Session):
                 source="plan",
                 active=True,
             ),
+            Entitlement(
+                organization=organization,
+                key="users",
+                value="3",
+                source="plan",
+                active=True,
+            ),
         ]
     )
     db_session.flush()
+    active_user = User(email="active-seat@example.com", is_active=True, is_verified=True)
+    organization_user = User(
+        email="organization-seat@example.com",
+        is_active=True,
+        is_verified=True,
+    )
+    inactive_user = User(email="inactive-seat@example.com", is_active=False, is_verified=True)
+    legacy_user = User(
+        workspace_id=workspace.id,
+        email="legacy-seat@example.com",
+        is_active=True,
+        is_verified=True,
+    )
     db_session.add_all(
         [
+            active_user,
+            organization_user,
+            inactive_user,
+            legacy_user,
             Domain(workspace_id=workspace.id, name="example.com", active=True),
             APIToken(
                 workspace_id=workspace.id,
@@ -189,6 +216,29 @@ def test_organization_summary_exposes_plan_limit_usage(db_session: Session):
             ),
         ]
     )
+    db_session.flush()
+    db_session.add_all(
+        [
+            WorkspaceMembership(
+                workspace_id=workspace.id,
+                user_id=active_user.id,
+                role=ROLE_WORKSPACE_OWNER,
+                active=True,
+            ),
+            WorkspaceMembership(
+                workspace_id=workspace.id,
+                user_id=inactive_user.id,
+                role=ROLE_WORKSPACE_OWNER,
+                active=True,
+            ),
+            OrganizationMembership(
+                organization_id=organization.id,
+                user_id=organization_user.id,
+                role="organization_auditor",
+                active=True,
+            ),
+        ]
+    )
     db_session.commit()
 
     limits = organization_summary(db_session, organization)["plan_limits"]
@@ -201,9 +251,45 @@ def test_organization_summary_exposes_plan_limit_usage(db_session: Session):
     assert limits["api_tokens"]["limit"] == 0
     assert limits["api_tokens"]["status"] == "exceeded"
     assert limits["api_tokens"]["enforced"] is True
+    assert limits["users"]["current"] == 3
+    assert limits["users"]["limit"] == 3
+    assert limits["users"]["enforced"] is True
     assert limits["webhooks"]["current"] == 1
     assert limits["webhooks"]["limit"] == 0
     assert limits["webhooks"]["enforced"] is True
+
+
+def test_organization_user_has_active_seat_requires_active_user(db_session: Session):
+    organization = Organization(slug="seat-detection", name="Seat Detection", active=True)
+    workspace = Workspace(
+        slug="seat-detection-main",
+        name="Seat Detection Main",
+        organization=organization,
+    )
+    active_user = User(email="seat-active@example.com", is_active=True, is_verified=True)
+    inactive_user = User(email="seat-inactive@example.com", is_active=False, is_verified=True)
+    db_session.add_all([organization, workspace, active_user, inactive_user])
+    db_session.flush()
+    db_session.add_all(
+        [
+            WorkspaceMembership(
+                workspace_id=workspace.id,
+                user_id=active_user.id,
+                role=ROLE_WORKSPACE_OWNER,
+                active=True,
+            ),
+            WorkspaceMembership(
+                workspace_id=workspace.id,
+                user_id=inactive_user.id,
+                role=ROLE_WORKSPACE_OWNER,
+                active=True,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    assert organization_user_has_active_seat(db_session, organization, active_user) is True
+    assert organization_user_has_active_seat(db_session, organization, inactive_user) is False
 
 
 def test_organization_plan_limit_returns_configured_metric(db_session: Session):
