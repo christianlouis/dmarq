@@ -38,6 +38,57 @@ BILLING_MODE_PROVIDER_RESALE = "provider_resale"
 BILLING_MODE_PROVIDER_WHMCS = "provider_whmcs"
 BILLING_MODE_PROVIDER_TMF = "provider_tmf"
 BILLING_MODE_SELF_HOSTED = "self_hosted_license"
+BILLING_OWNER_MODES: Dict[str, Dict[str, Any]] = {
+    BILLING_MODE_DIRECT_STRIPE: {
+        "label": "Direct Stripe",
+        "owner_type": "dmarq",
+        "owner": "DMARQ direct billing",
+        "invoice_label": "Stripe customer portal",
+        "can_manage_in_app": True,
+    },
+    "stripe": {
+        "label": "Direct Stripe",
+        "owner_type": "dmarq",
+        "owner": "DMARQ direct billing",
+        "invoice_label": "Stripe customer portal",
+        "can_manage_in_app": True,
+    },
+    BILLING_MODE_MANUAL_CONTRACT: {
+        "label": "Manual contract",
+        "owner_type": "dmarq",
+        "owner": "DMARQ contract invoice",
+        "invoice_label": "Manual invoice",
+        "can_manage_in_app": False,
+    },
+    BILLING_MODE_PROVIDER_RESALE: {
+        "label": "Provider resale",
+        "owner_type": "provider",
+        "owner": "Provider-billed customer",
+        "invoice_label": "Provider monthly bill",
+        "can_manage_in_app": False,
+    },
+    BILLING_MODE_PROVIDER_WHMCS: {
+        "label": "WHMCS provider",
+        "owner_type": "provider",
+        "owner": "Hosting provider billing system",
+        "invoice_label": "Provider WHMCS invoice",
+        "can_manage_in_app": False,
+    },
+    BILLING_MODE_PROVIDER_TMF: {
+        "label": "TM Forum provider",
+        "owner_type": "provider",
+        "owner": "TM Forum integrated provider",
+        "invoice_label": "Provider BSS invoice",
+        "can_manage_in_app": False,
+    },
+    BILLING_MODE_SELF_HOSTED: {
+        "label": "Self-hosted license",
+        "owner_type": "self_hosted",
+        "owner": "Local self-hosted deployment",
+        "invoice_label": "Internal license record",
+        "can_manage_in_app": False,
+    },
+}
 
 SELF_HOSTED_PLAN_CODE = "self_hosted"
 DEFAULT_SELF_HOSTED_ENTITLEMENTS: Dict[str, str] = {
@@ -497,6 +548,79 @@ def _primary_subscription(subscriptions: Iterable[Subscription]) -> Optional[Sub
             if subscription.status in status_group:
                 return subscription
     return subscription_list[0] if subscription_list else None
+
+
+def _primary_billing_account(
+    billing_accounts: Iterable[BillingAccount],
+    subscriptions: Iterable[Subscription],
+) -> Optional[BillingAccount]:
+    account_list = list(billing_accounts)
+    subscription = _primary_subscription(subscriptions)
+    if subscription and subscription.billing_account:
+        return subscription.billing_account
+    for status in ("active", "trialing"):
+        for account in account_list:
+            if account.status == status:
+                return account
+    return account_list[0] if account_list else None
+
+
+def _billing_owner_summary(
+    billing_accounts: Iterable[BillingAccount],
+    subscriptions: Iterable[Subscription],
+) -> Dict[str, Any]:
+    account = _primary_billing_account(billing_accounts, subscriptions)
+    subscription = _primary_subscription(subscriptions)
+    mode = (
+        account.billing_mode
+        if account
+        else subscription.billing_mode if subscription else "unconfigured"
+    )
+    metadata = BILLING_OWNER_MODES.get(
+        mode,
+        {
+            "label": mode.replace("_", " ").title() if mode else "Unconfigured",
+            "owner_type": "external",
+            "owner": "External billing owner",
+            "invoice_label": "External invoice",
+            "can_manage_in_app": False,
+        },
+    )
+    if account is None and subscription is None:
+        return {
+            "billing_mode": "unconfigured",
+            "billing_mode_label": "Unconfigured",
+            "owner_type": "unconfigured",
+            "owner": "No billing owner configured",
+            "status": "unconfigured",
+            "invoice_delivery_mode": None,
+            "invoice_delivery_label": "Not configured",
+            "provider_id": None,
+            "external_customer_id": None,
+            "stripe_customer_id": None,
+            "subscription_id": None,
+            "subscription_status": None,
+            "plan_code": None,
+            "plan_name": None,
+            "can_manage_in_app": False,
+        }
+    return {
+        "billing_mode": mode,
+        "billing_mode_label": metadata["label"],
+        "owner_type": metadata["owner_type"],
+        "owner": metadata["owner"],
+        "status": account.status if account else subscription.status,
+        "invoice_delivery_mode": account.invoice_delivery_mode if account else None,
+        "invoice_delivery_label": metadata["invoice_label"],
+        "provider_id": account.provider_id if account else None,
+        "external_customer_id": account.external_customer_id if account else None,
+        "stripe_customer_id": account.stripe_customer_id if account else None,
+        "subscription_id": subscription.id if subscription else None,
+        "subscription_status": subscription.status if subscription else None,
+        "plan_code": subscription.plan.code if subscription else None,
+        "plan_name": subscription.plan.name if subscription else None,
+        "can_manage_in_app": metadata["can_manage_in_app"],
+    }
 
 
 def account_state_for_subscriptions(
@@ -1053,6 +1177,7 @@ def organization_summary(
         "workspaces": [_workspace_to_dict(workspace) for workspace in workspaces],
         "billing_accounts": [_billing_account_to_dict(account) for account in billing_accounts],
         "subscriptions": [_subscription_to_dict(subscription) for subscription in subscriptions],
+        "billing_owner": _billing_owner_summary(billing_accounts, subscriptions),
         "account_state": account_state_for_subscriptions(subscriptions),
         "entitlements": {
             entitlement.key: {

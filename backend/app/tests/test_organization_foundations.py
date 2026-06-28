@@ -24,6 +24,11 @@ from app.models.webhook import WebhookEndpoint
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceMembership
 from app.services.organizations import (
+    BILLING_MODE_DIRECT_STRIPE,
+    BILLING_MODE_MANUAL_CONTRACT,
+    BILLING_MODE_PROVIDER_RESALE,
+    BILLING_MODE_PROVIDER_TMF,
+    BILLING_MODE_PROVIDER_WHMCS,
     BILLING_MODE_SELF_HOSTED,
     DEFAULT_ORGANIZATION_SLUG,
     SELF_HOSTED_PLAN_CODE,
@@ -137,6 +142,8 @@ def test_list_organization_summaries_materializes_account_state(db_session: Sess
     assert summaries[0]["slug"] == DEFAULT_ORGANIZATION_SLUG
     assert summaries[0]["billing_accounts"][0]["billing_mode"] == BILLING_MODE_SELF_HOSTED
     assert summaries[0]["subscriptions"][0]["plan"]["code"] == SELF_HOSTED_PLAN_CODE
+    assert summaries[0]["billing_owner"]["billing_mode"] == BILLING_MODE_SELF_HOSTED
+    assert summaries[0]["billing_owner"]["owner_type"] == "self_hosted"
     assert summaries[0]["entitlements"]["aggregate_reports"]["value"] == "true"
     assert summaries[0]["account_state"]["status"] == "active"
     assert summaries[0]["account_state"]["can_mutate"] is True
@@ -1005,9 +1012,7 @@ def test_save_parsed_report_rejects_invalid_aggregate_message_counts(
         )
 
     assert (
-        db_session.query(DMARCReport)
-        .filter(DMARCReport.report_id == "negative-volume")
-        .first()
+        db_session.query(DMARCReport).filter(DMARCReport.report_id == "negative-volume").first()
         is None
     )
 
@@ -1067,6 +1072,109 @@ def test_account_state_reports_provider_grace_without_blocking(db_session: Sessi
     assert state["grace_period"] is True
     assert state["read_only"] is False
     assert state["can_mutate"] is True
+
+
+def test_organization_summary_exposes_billing_ownership(db_session: Session):
+    plan = get_or_create_starter_plan(db_session)
+    organization = Organization(slug="provider-owner", name="Provider Owner", active=True)
+    account = BillingAccount(
+        organization=organization,
+        billing_mode=BILLING_MODE_PROVIDER_WHMCS,
+        status="active",
+        provider_id="whmcs-demo",
+        external_customer_id="cust-42",
+        invoice_delivery_mode="provider_invoice",
+    )
+    subscription = Subscription(
+        organization=organization,
+        billing_account=account,
+        plan=plan,
+        billing_mode=BILLING_MODE_PROVIDER_WHMCS,
+        status="active",
+        external_subscription_id="sub-42",
+    )
+    db_session.add_all([organization, account, subscription])
+    db_session.commit()
+
+    summary = organization_summary(db_session, organization)
+
+    assert summary["billing_owner"]["billing_mode"] == BILLING_MODE_PROVIDER_WHMCS
+    assert summary["billing_owner"]["billing_mode_label"] == "WHMCS provider"
+    assert summary["billing_owner"]["owner_type"] == "provider"
+    assert summary["billing_owner"]["owner"] == "Hosting provider billing system"
+    assert summary["billing_owner"]["invoice_delivery_mode"] == "provider_invoice"
+    assert summary["billing_owner"]["invoice_delivery_label"] == "Provider WHMCS invoice"
+    assert summary["billing_owner"]["provider_id"] == "whmcs-demo"
+    assert summary["billing_owner"]["external_customer_id"] == "cust-42"
+    assert summary["billing_owner"]["subscription_status"] == "active"
+    assert summary["billing_owner"]["plan_code"] == STARTER_PLAN_CODE
+    assert summary["billing_owner"]["can_manage_in_app"] is False
+
+
+@pytest.mark.parametrize(
+    ("billing_mode", "expected_label", "expected_owner_type", "expected_in_app"),
+    [
+        (BILLING_MODE_DIRECT_STRIPE, "Direct Stripe", "dmarq", True),
+        ("stripe", "Direct Stripe", "dmarq", True),
+        (BILLING_MODE_MANUAL_CONTRACT, "Manual contract", "dmarq", False),
+        (BILLING_MODE_PROVIDER_RESALE, "Provider resale", "provider", False),
+        (BILLING_MODE_PROVIDER_TMF, "TM Forum provider", "provider", False),
+        (BILLING_MODE_SELF_HOSTED, "Self-hosted license", "self_hosted", False),
+        ("partner_portal", "Partner Portal", "external", False),
+    ],
+)
+def test_organization_summary_labels_billing_owner_modes(
+    db_session: Session,
+    billing_mode: str,
+    expected_label: str,
+    expected_owner_type: str,
+    expected_in_app: bool,
+):
+    plan = get_or_create_starter_plan(db_session)
+    safe_slug = billing_mode.replace("_", "-")
+    organization = Organization(slug=f"billing-{safe_slug}", name=f"Billing {billing_mode}")
+    account = BillingAccount(
+        organization=organization,
+        billing_mode=billing_mode,
+        status="trialing",
+        invoice_delivery_mode="internal",
+    )
+    subscription = Subscription(
+        organization=organization,
+        billing_account=account,
+        plan=plan,
+        billing_mode=billing_mode,
+        status="trialing",
+    )
+    db_session.add_all([organization, account, subscription])
+    db_session.commit()
+
+    owner = organization_summary(db_session, organization)["billing_owner"]
+
+    assert owner["billing_mode"] == billing_mode
+    assert owner["billing_mode_label"] == expected_label
+    assert owner["owner_type"] == expected_owner_type
+    assert owner["status"] == "trialing"
+    assert owner["subscription_status"] == "trialing"
+    assert owner["can_manage_in_app"] is expected_in_app
+
+
+def test_organization_summary_reports_unconfigured_billing_owner(db_session: Session):
+    organization = Organization(slug="billing-unconfigured", name="Billing Unconfigured")
+    db_session.add(organization)
+    db_session.commit()
+
+    owner = organization_summary(db_session, organization)["billing_owner"]
+
+    assert owner["billing_mode"] == "unconfigured"
+    assert owner["billing_mode_label"] == "Unconfigured"
+    assert owner["owner_type"] == "unconfigured"
+    assert owner["owner"] == "No billing owner configured"
+    assert owner["status"] == "unconfigured"
+    assert owner["invoice_delivery_mode"] is None
+    assert owner["subscription_status"] is None
+    assert owner["plan_code"] is None
+    assert owner["can_manage_in_app"] is False
 
 
 def test_account_state_reports_unclassified_status_without_active_reason(

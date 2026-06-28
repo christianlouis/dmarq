@@ -36,69 +36,162 @@
     </template>
 
     <div class="grid grid-cols-1 gap-6 xl:grid-cols-[22rem_1fr]">
-        {% call card() %}
-            {% call card_header() %}
-                {% call card_title() %}Tenant Scope{% endcall %}
-                {% call card_description() %}Choose the organization or workspace to manage.{% endcall %}
-            {% endcall %}
-            {% call card_content() %}
-                <div class="space-y-4">
-                    <div class="join w-full">
-                        <button type="button"
-                                class="btn join-item flex-1"
-                                :class="scope === 'workspace' ? 'btn-primary' : 'btn-outline'"
-                                @click="setScope('workspace')">
-                            Workspace
-                        </button>
-                        <button type="button"
-                                class="btn join-item flex-1"
-                                :class="scope === 'organization' ? 'btn-primary' : 'btn-outline'"
-                                @click="setScope('organization')">
-                            Organization
-                        </button>
-                    </div>
+        <div class="space-y-6">
+            {% call card() %}
+                {% call card_header() %}
+                    {% call card_title() %}Tenant Scope{% endcall %}
+                    {% call card_description() %}Choose the organization or workspace to manage.{% endcall %}
+                {% endcall %}
+                {% call card_content() %}
+                    <div class="space-y-4">
+                        <div class="join w-full">
+                            <button type="button"
+                                    class="btn join-item flex-1"
+                                    :class="scope === 'workspace' ? 'btn-primary' : 'btn-outline'"
+                                    @click="setScope('workspace')">
+                                Workspace
+                            </button>
+                            <button type="button"
+                                    class="btn join-item flex-1"
+                                    :class="scope === 'organization' ? 'btn-primary' : 'btn-outline'"
+                                    @click="setScope('organization')">
+                                Organization
+                            </button>
+                        </div>
 
-                    <label class="form-control">
-                        <span class="label-text mb-2 font-semibold">Organization</span>
-                        <select class="select select-bordered w-full"
-                                x-model="selectedOrgId"
-                                @change="selectOrganization(selectedOrgId)">
-                            <template x-for="organization in organizations" :key="organization.id">
-                                <option :value="organization.id" x-text="organization.name"></option>
-                            </template>
-                        </select>
-                    </label>
-
-                    <template x-if="scope === 'workspace'">
                         <label class="form-control">
-                            <span class="label-text mb-2 font-semibold">Workspace</span>
+                            <span class="label-text mb-2 font-semibold">Organization</span>
                             <select class="select select-bordered w-full"
-                                    x-model="selectedWorkspaceId"
-                                    @change="loadMemberships()">
-                                <template x-for="workspace in currentWorkspaces()" :key="workspace.id">
-                                    <option :value="workspace.id" x-text="workspace.name"></option>
+                                    x-model="selectedOrgId"
+                                    @change="selectOrganization(selectedOrgId)">
+                                <template x-for="organization in organizations" :key="organization.id">
+                                    <option :value="organization.id" x-text="organization.name"></option>
                                 </template>
                             </select>
                         </label>
-                    </template>
 
-                    <div class="rounded-lg border border-[#e6e3df] bg-[#f9f8f6] p-4">
-                        <p class="text-xs font-semibold uppercase text-[#5f5c78]">Current Scope</p>
-                        <p class="mt-2 font-semibold text-[#120d36]" x-text="scopeLabel()"></p>
-                        <p class="mt-1 text-sm text-[#5f5c78]" x-text="scopeDescription()"></p>
-                        <template x-if="seatLimitWarning()">
-                            <div class="mt-3 rounded-md border border-[#f2c280] bg-[#fff8eb] p-3 text-sm text-[#7a4a12]">
-                                <div class="flex items-start justify-between gap-3">
-                                    <span x-text="seatLimitWarning().message"></span>
-                                    <span class="shrink-0 rounded-full bg-white px-2 py-1 text-xs font-semibold"
-                                          x-text="`${seatLimitWarning().remaining} left`"></span>
+                        <template x-if="scope === 'workspace'">
+                            <label class="form-control">
+                                <span class="label-text mb-2 font-semibold">Workspace</span>
+                                <select class="select select-bordered w-full"
+                                        x-model="selectedWorkspaceId"
+                                        @change="loadMemberships()">
+                                    <template x-for="workspace in currentWorkspaces()" :key="workspace.id">
+                                        <option :value="workspace.id" x-text="workspace.name"></option>
+                                    </template>
+                                </select>
+                            </label>
+                        </template>
+
+                        <div class="rounded-lg border border-[#e6e3df] bg-[#f9f8f6] p-4">
+                            <p class="text-xs font-semibold uppercase text-[#5f5c78]">Current Scope</p>
+                            <p class="mt-2 font-semibold text-[#120d36]" x-text="scopeLabel()"></p>
+                            <p class="mt-1 text-sm text-[#5f5c78]" x-text="scopeDescription()"></p>
+                            <template x-if="seatLimitWarning()">
+                                <div class="mt-3 rounded-md border border-[#f2c280] bg-[#fff8eb] p-3 text-sm text-[#7a4a12]">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <span x-text="seatLimitWarning().message"></span>
+                                        <span class="shrink-0 rounded-full bg-white px-2 py-1 text-xs font-semibold"
+                                              x-text="`${seatLimitWarning().remaining} left`"></span>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                {% endcall %}
+            {% endcall %}
+
+            {% call card() %}
+                {% call card_header() %}
+                    <div class="flex items-start justify-between gap-3">
+                        <div>
+                            {% call card_title() %}Billing & Plan{% endcall %}
+                            {% call card_description() %}Owner, invoice path, and active limits for this organization.{% endcall %}
+                        </div>
+                        <span class="badge"
+                              :class="ownerBadgeClass()"
+                              x-text="currentBillingOwner().billing_mode_label || 'Unconfigured'"></span>
+                    </div>
+                {% endcall %}
+                {% call card_content() %}
+                    <div class="space-y-4">
+                        <div class="rounded-lg border border-[#e6e3df] bg-[#f9f8f6] p-4">
+                            <p class="text-xs font-semibold uppercase text-[#5f5c78]">Billing owner</p>
+                            <p class="mt-2 font-semibold text-[#120d36]" x-text="currentBillingOwner().owner || 'No billing owner configured'"></p>
+                            <div class="mt-3 grid gap-3 text-sm text-[#5f5c78]">
+                                <div class="flex items-center justify-between gap-3">
+                                    <span>Invoice path</span>
+                                    <span class="text-right font-semibold text-[#120d36]"
+                                          x-text="currentBillingOwner().invoice_delivery_label || 'Not configured'"></span>
+                                </div>
+                                <div class="flex items-center justify-between gap-3">
+                                    <span>Account status</span>
+                                    <span class="badge badge-sm"
+                                          :class="stateBadgeClass()"
+                                          x-text="accountStateLabel()"></span>
+                                </div>
+                                <div class="flex items-center justify-between gap-3" x-show="currentBillingOwner().provider_id">
+                                    <span>Provider</span>
+                                    <span class="max-w-40 truncate text-right font-semibold text-[#120d36]"
+                                          x-text="currentBillingOwner().provider_id"></span>
+                                </div>
+                                <div class="flex items-center justify-between gap-3" x-show="currentBillingOwner().external_customer_id || currentBillingOwner().stripe_customer_id">
+                                    <span>Customer ID</span>
+                                    <span class="max-w-40 truncate text-right font-mono text-xs text-[#120d36]"
+                                          x-text="currentBillingOwner().external_customer_id || currentBillingOwner().stripe_customer_id"></span>
                                 </div>
                             </div>
+                        </div>
+
+                        <div class="rounded-lg border border-[#e6e3df] bg-white p-4">
+                            <p class="text-xs font-semibold uppercase text-[#5f5c78]">Plan</p>
+                            <p class="mt-2 font-semibold text-[#120d36]" x-text="currentBillingOwner().plan_name || 'No plan configured'"></p>
+                            <p class="mt-1 text-sm text-[#5f5c78]"
+                               x-text="currentBillingOwner().subscription_status ? `Subscription ${currentBillingOwner().subscription_status}` : 'No subscription state available'"></p>
+                        </div>
+
+                        <template x-if="isAccountRestricted()">
+                            <div class="rounded-lg border border-[#f2c280] bg-[#fff8eb] p-4 text-sm text-[#7a4a12]">
+                                <p class="font-semibold" x-text="currentAccountState().read_only ? 'Read-only account' : 'Grace period'"></p>
+                                <p class="mt-1" x-text="currentAccountState().reason"></p>
+                            </div>
                         </template>
+
+                        <div>
+                            <div class="mb-3 flex items-center justify-between">
+                                <p class="text-xs font-semibold uppercase text-[#5f5c78]">Plan limits</p>
+                                <span class="text-xs text-[#5f5c78]" x-text="`${planLimitRows().length} tracked`"></span>
+                            </div>
+                            <template x-if="planLimitRows().length === 0">
+                                <div class="rounded-lg border border-dashed border-[#d8d5d0] bg-[#f9f8f6] p-4 text-sm text-[#5f5c78]">
+                                    No visible plan limits.
+                                </div>
+                            </template>
+                            <div class="space-y-3">
+                                <template x-for="limit in planLimitRows()" :key="limit.metric">
+                                    <div class="rounded-lg border border-[#e6e3df] bg-white p-3">
+                                        <div class="flex items-start justify-between gap-3">
+                                            <div>
+                                                <p class="font-semibold text-[#120d36]" x-text="limit.label"></p>
+                                                <p class="text-xs text-[#5f5c78]" x-text="limit.enforced ? 'Enforced' : 'Visible'"></p>
+                                            </div>
+                                            <span class="shrink-0 text-sm font-semibold text-[#120d36]"
+                                                  x-text="formatLimitUsage(limit)"></span>
+                                        </div>
+                                        <div class="mt-3 h-2 overflow-hidden rounded-full bg-[#ebe9e6]">
+                                            <div class="h-full rounded-full"
+                                                 :class="limitTrackClass(limit)"
+                                                 :style="`width: ${Math.min(limit.usage_percent || 0, 100)}%`"></div>
+                                        </div>
+                                        <p class="mt-2 text-xs text-[#7a4a12]" x-show="limit.message" x-text="limit.message"></p>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
                     </div>
-                </div>
+                {% endcall %}
             {% endcall %}
-        {% endcall %}
+        </div>
 
         <div class="space-y-6">
             {% call card() %}
@@ -444,6 +537,14 @@ function membershipApp() {
             return organization ? (organization.workspaces || []) : [];
         },
 
+        currentBillingOwner() {
+            return this.currentOrganization()?.billing_owner || {};
+        },
+
+        currentAccountState() {
+            return this.currentOrganization()?.account_state || {};
+        },
+
         workspaceCount() {
             return this.organizations.reduce((count, organization) => {
                 return count + (organization.workspaces || []).length;
@@ -474,10 +575,84 @@ function membershipApp() {
             return this.currentOrganization()?.plan_limits?.[metric] || null;
         },
 
+        planLimitRows() {
+            const limits = this.currentOrganization()?.plan_limits || {};
+            return Object.entries(limits)
+                .map(([metric, limit]) => ({
+                    metric,
+                    label: this.planLimitLabel(metric),
+                    current: limit.current,
+                    limit: limit.limit,
+                    unit: limit.unit || '',
+                    enforced: Boolean(limit.enforced),
+                    near_limit: Boolean(limit.near_limit),
+                    usage_percent: Number(limit.usage_percent || 0),
+                    message: limit.message || '',
+                }))
+                .sort((left, right) => left.label.localeCompare(right.label));
+        },
+
         seatLimitWarning() {
             const limit = this.planLimit('users');
             if (!limit || !limit.near_limit || !limit.message) return null;
             return limit;
+        },
+
+        planLimitLabel(metric) {
+            const labels = {
+                aggregate_messages: 'Monthly messages',
+                api_tokens: 'API tokens',
+                mail_sources: 'Mail sources',
+                monitored_domains: 'Monitored domains',
+                retention_days: 'Retention',
+                users: 'Seats',
+                webhooks: 'Webhooks',
+            };
+            return labels[metric] || metric.replaceAll('_', ' ');
+        },
+
+        formatLimitValue(value, unit) {
+            if (value === null || value === undefined) return 'unlimited';
+            if (typeof value === 'boolean') return value ? 'enabled' : 'disabled';
+            const suffix = unit ? ` ${unit}` : '';
+            return `${value}${suffix}`;
+        },
+
+        formatLimitUsage(limit) {
+            return `${this.formatLimitValue(limit.current, limit.unit)} / ${this.formatLimitValue(limit.limit, limit.unit)}`;
+        },
+
+        limitTrackClass(limit) {
+            if (limit.limit === null || limit.limit === undefined) return 'bg-[#2c9aa3]';
+            if (limit.usage_percent >= 100) return 'bg-[#ff6333]';
+            if (limit.near_limit) return 'bg-[#f2a23a]';
+            return 'bg-[#2c9aa3]';
+        },
+
+        ownerBadgeClass() {
+            const ownerType = this.currentBillingOwner().owner_type;
+            if (ownerType === 'provider') return 'badge-info';
+            if (ownerType === 'self_hosted') return 'badge-success';
+            if (ownerType === 'dmarq') return 'badge-primary';
+            return 'badge-ghost';
+        },
+
+        accountStateLabel() {
+            const state = this.currentAccountState();
+            return state.status ? state.status.replaceAll('_', ' ') : 'unconfigured';
+        },
+
+        stateBadgeClass() {
+            const state = this.currentAccountState();
+            if (state.read_only || state.closed) return 'badge-error';
+            if (state.grace_period) return 'badge-warning';
+            if (state.can_mutate) return 'badge-success';
+            return 'badge-ghost';
+        },
+
+        isAccountRestricted() {
+            const state = this.currentAccountState();
+            return Boolean(state.read_only || state.grace_period);
         },
 
         roleLabel(role) {
