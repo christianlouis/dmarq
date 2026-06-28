@@ -13,6 +13,7 @@ from app.models.organization import (
     BillingAccount,
     Entitlement,
     Organization,
+    OrganizationMembership,
     Plan,
     Subscription,
 )
@@ -170,7 +171,7 @@ def test_organization_summary_exposes_plan_limit_usage(db_session: Session):
             Entitlement(
                 organization=organization,
                 key="users",
-                value="2",
+                value="3",
                 source="plan",
                 active=True,
             ),
@@ -178,6 +179,11 @@ def test_organization_summary_exposes_plan_limit_usage(db_session: Session):
     )
     db_session.flush()
     active_user = User(email="active-seat@example.com", is_active=True, is_verified=True)
+    organization_user = User(
+        email="organization-seat@example.com",
+        is_active=True,
+        is_verified=True,
+    )
     inactive_user = User(email="inactive-seat@example.com", is_active=False, is_verified=True)
     legacy_user = User(
         workspace_id=workspace.id,
@@ -188,6 +194,7 @@ def test_organization_summary_exposes_plan_limit_usage(db_session: Session):
     db_session.add_all(
         [
             active_user,
+            organization_user,
             inactive_user,
             legacy_user,
             Domain(workspace_id=workspace.id, name="example.com", active=True),
@@ -224,6 +231,12 @@ def test_organization_summary_exposes_plan_limit_usage(db_session: Session):
                 role=ROLE_WORKSPACE_OWNER,
                 active=True,
             ),
+            OrganizationMembership(
+                organization_id=organization.id,
+                user_id=organization_user.id,
+                role="organization_auditor",
+                active=True,
+            ),
         ]
     )
     db_session.commit()
@@ -238,8 +251,8 @@ def test_organization_summary_exposes_plan_limit_usage(db_session: Session):
     assert limits["api_tokens"]["limit"] == 0
     assert limits["api_tokens"]["status"] == "exceeded"
     assert limits["api_tokens"]["enforced"] is True
-    assert limits["users"]["current"] == 2
-    assert limits["users"]["limit"] == 2
+    assert limits["users"]["current"] == 3
+    assert limits["users"]["limit"] == 3
     assert limits["users"]["enforced"] is True
     assert limits["webhooks"]["current"] == 1
     assert limits["webhooks"]["limit"] == 0
