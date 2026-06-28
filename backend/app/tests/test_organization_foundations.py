@@ -36,6 +36,7 @@ from app.services.organizations import (
     organization_user_has_active_seat,
     require_organization_feature,
     require_organization_plan_limit,
+    require_organization_retention_limit,
 )
 from app.services.workspace_access import (
     PERMISSION_DOMAINS_WRITE,
@@ -360,6 +361,8 @@ def test_organization_summary_uses_plural_retention_limit_message(db_session: Se
         name="Retention Limit Main",
         organization=organization,
         report_retention_days=90,
+        forensic_retention_days=90,
+        tls_report_retention_days=90,
     )
     db_session.add_all(
         [
@@ -533,6 +536,43 @@ def test_organization_summary_handles_unbounded_and_missing_entitlements(
     assert limits["mail_sources"]["source"] == "override"
 
 
+def test_organization_summary_counts_largest_retention_window(db_session: Session):
+    organization = Organization(slug="retention-window", name="Retention Window", active=True)
+    workspace = Workspace(
+        slug="retention-window-main",
+        name="Retention Window Main",
+        organization=organization,
+        report_retention_days=30,
+        forensic_retention_days=60,
+        tls_report_retention_days=120,
+    )
+    db_session.add_all(
+        [
+            organization,
+            workspace,
+            Entitlement(
+                organization=organization,
+                key="retention_days",
+                value="90",
+                source="plan",
+                active=True,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    limit = organization_plan_limit(db_session, organization, "retention_days")
+
+    assert limit is not None
+    assert limit["current"] == 120
+    assert limit["limit"] == 90
+    assert limit["remaining"] == 0
+    assert limit["status"] == "exceeded"
+    assert limit["enforced"] is True
+    assert limit["unit"] == "days"
+    assert "over the plan limit" in limit["message"]
+
+
 def test_require_organization_plan_limit_allows_unconfigured_and_unlimited_limits(
     db_session: Session,
 ):
@@ -571,6 +611,54 @@ def test_require_organization_plan_limit_allows_unconfigured_and_unlimited_limit
         "mail_sources",
         increment=0,
     )
+
+
+def test_require_organization_retention_limit_allows_safe_requests(
+    db_session: Session,
+):
+    unconfigured = Organization(
+        slug="retention-unconfigured",
+        name="Retention Unconfigured",
+        active=True,
+    )
+    bounded = Organization(slug="retention-bounded", name="Retention Bounded", active=True)
+    bounded_workspace = Workspace(
+        slug="retention-bounded-main",
+        name="Retention Bounded Main",
+        organization=bounded,
+        report_retention_days=30,
+        forensic_retention_days=30,
+        tls_report_retention_days=30,
+    )
+    unlimited = Organization(slug="retention-unlimited", name="Retention Unlimited", active=True)
+    db_session.add_all(
+        [
+            unconfigured,
+            bounded,
+            bounded_workspace,
+            unlimited,
+            Entitlement(
+                organization=bounded,
+                key="retention_days",
+                value="90",
+                source="plan",
+                active=True,
+            ),
+            Entitlement(
+                organization=unlimited,
+                key="retention_days",
+                value="unlimited",
+                source="plan",
+                active=True,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    require_organization_retention_limit(db_session, unconfigured, 365)
+    require_organization_retention_limit(db_session, bounded, 90)
+    require_organization_retention_limit(db_session, unlimited, 3650)
+    require_organization_retention_limit(db_session, bounded, 0)
 
 
 def test_require_organization_plan_limit_raises_structured_limit_error(

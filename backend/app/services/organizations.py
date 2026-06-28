@@ -77,7 +77,13 @@ ACCOUNT_ACTIVE_STATUSES = {"active", "trialing"}
 ACCOUNT_GRACE_STATUSES = {"past_due_provider_reported"}
 ACCOUNT_READ_ONLY_STATUSES = {"suspended", "canceled", "terminated"}
 ACCOUNT_CLOSED_STATUSES = {"canceled", "terminated"}
-ENFORCED_PLAN_LIMITS = {"api_tokens", "monitored_domains", "users", "webhooks"}
+ENFORCED_PLAN_LIMITS = {
+    "api_tokens",
+    "monitored_domains",
+    "retention_days",
+    "users",
+    "webhooks",
+}
 FEATURE_ENTITLEMENT_ALIASES: Dict[str, tuple[str, ...]] = {
     "api_tokens": ("api_tokens", "api_access"),
     "webhooks": ("webhooks",),
@@ -804,7 +810,16 @@ def _plan_limits_for_organization(
         )
     if "retention_days" in metric_filter:
         current_values["retention_days"] = max(
-            [workspace.report_retention_days or 0 for workspace in workspaces] or [0]
+            [
+                value or 0
+                for workspace in workspaces
+                for value in (
+                    workspace.report_retention_days,
+                    workspace.forensic_retention_days,
+                    workspace.tls_report_retention_days,
+                )
+            ]
+            or [0]
         )
 
     limits: Dict[str, Dict[str, Any]] = {}
@@ -876,6 +891,45 @@ def require_organization_plan_limit(
         limit=int(limit),
         attempted=attempted,
         unit=str(limit_payload.get("unit") or "count"),
+        entitlement_key=limit_payload.get("entitlement_key"),
+    )
+
+
+def require_organization_retention_limit(
+    db: Session,
+    organization: Organization,
+    requested_days: int,
+) -> None:
+    """Raise when a requested retention window exceeds the organization's plan."""
+    if requested_days <= 0:
+        return
+    locked_organization = (
+        db.query(Organization)
+        .filter(Organization.id == organization.id)
+        .with_for_update()
+        .one_or_none()
+    )
+    limit_payload = organization_plan_limit(
+        db,
+        locked_organization or organization,
+        "retention_days",
+    )
+    if not limit_payload:
+        return
+    limit = limit_payload.get("limit")
+    if limit is None:
+        return
+    requested = int(requested_days)
+    limit_value = int(limit)
+    if requested <= limit_value:
+        return
+    current = int(limit_payload.get("current") or 0)
+    raise OrganizationPlanLimitError(
+        metric="retention_days",
+        current=current,
+        limit=limit_value,
+        attempted=max(0, requested - current),
+        unit="days",
         entitlement_key=limit_payload.get("entitlement_key"),
     )
 
