@@ -420,7 +420,11 @@ def _primary_subscription(subscriptions: Iterable[Subscription]) -> Optional[Sub
     return subscription_list[0] if subscription_list else None
 
 
-def account_state_for_subscriptions(subscriptions: Iterable[Subscription]) -> Dict[str, Any]:
+def account_state_for_subscriptions(
+    subscriptions: Iterable[Subscription],
+    *,
+    include_plan_code: bool = True,
+) -> Dict[str, Any]:
     """Return the effective commercial state used by UI and write guards."""
     subscription = _primary_subscription(subscriptions)
     if subscription is None:
@@ -453,13 +457,20 @@ def account_state_for_subscriptions(subscriptions: Iterable[Subscription]) -> Di
             "state. Mutating actions still work, but operators should resolve "
             "billing before the account becomes read-only."
         )
-    else:
+    elif status_value in ACCOUNT_ACTIVE_STATUSES:
         reason = "This organization's subscription allows normal workspace changes."
+    else:
+        reason = (
+            "This organization's subscription status is not classified as "
+            "read-only. Workspace changes currently remain allowed."
+        )
 
     return {
         "status": status_value,
         "billing_mode": subscription.billing_mode,
-        "plan_code": subscription.plan.code if subscription.plan else None,
+        "plan_code": (
+            subscription.plan.code if include_plan_code and subscription.plan else None
+        ),
         "read_only": read_only,
         "can_mutate": not read_only,
         "can_export": True,

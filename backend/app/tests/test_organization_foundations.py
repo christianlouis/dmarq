@@ -156,6 +156,37 @@ def test_account_state_reports_provider_grace_without_blocking(db_session: Sessi
     assert state["can_mutate"] is True
 
 
+def test_account_state_reports_unclassified_status_without_active_reason(
+    db_session: Session,
+):
+    plan = get_or_create_starter_plan(db_session)
+    organization = Organization(slug="past-due", name="Past Due", active=True)
+    account = BillingAccount(
+        organization=organization,
+        billing_mode="stripe",
+        status="active",
+        invoice_delivery_mode="stripe_invoice",
+    )
+    subscription = Subscription(
+        organization=organization,
+        billing_account=account,
+        plan=plan,
+        billing_mode="stripe",
+        status="past_due",
+    )
+    db_session.add_all([organization, account, subscription])
+    db_session.commit()
+
+    state = account_state_for_subscriptions([subscription], include_plan_code=False)
+
+    assert state["status"] == "past_due"
+    assert state["plan_code"] is None
+    assert state["read_only"] is False
+    assert state["can_mutate"] is True
+    assert "not classified as read-only" in state["reason"]
+    assert "normal workspace changes" not in state["reason"]
+
+
 def test_account_state_reports_suspended_as_read_only(db_session: Session):
     plan = get_or_create_starter_plan(db_session)
     organization = Organization(slug="suspended", name="Suspended", active=True)
@@ -215,6 +246,51 @@ def test_workspace_write_permission_blocks_read_only_subscription(db_session: Se
     assert exc_info.value.detail["code"] == "account_read_only"
     assert exc_info.value.detail["subscription_status"] == "terminated"
     assert exc_info.value.detail["can_export"] is True
+
+
+def test_workspace_write_permission_uses_primary_subscription_priority(
+    db_session: Session,
+):
+    plan = get_or_create_starter_plan(db_session)
+    organization = Organization(slug="mixed", name="Mixed", active=True)
+    workspace = Workspace(slug="mixed-main", name="Mixed Main", organization=organization)
+    account = BillingAccount(
+        organization=organization,
+        billing_mode="provider_resale",
+        status="active",
+        invoice_delivery_mode="provider_invoice",
+    )
+    active_subscription = Subscription(
+        organization=organization,
+        billing_account=account,
+        plan=plan,
+        billing_mode="provider_resale",
+        status="active",
+    )
+    terminated_subscription = Subscription(
+        organization=organization,
+        billing_account=account,
+        plan=plan,
+        billing_mode="provider_resale",
+        status="terminated",
+    )
+    db_session.add_all(
+        [
+            organization,
+            workspace,
+            account,
+            active_subscription,
+            terminated_subscription,
+        ]
+    )
+    db_session.commit()
+
+    require_workspace_permission(
+        {"auth_type": "api_key"},
+        PERMISSION_DOMAINS_WRITE,
+        db_session,
+        workspace,
+    )
 
 
 def test_workspace_read_permission_allows_read_only_subscription(db_session: Session):
