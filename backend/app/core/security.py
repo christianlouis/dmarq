@@ -267,6 +267,63 @@ def require_api_token_scope(required_scope: str) -> Callable:
     return _require_api_token_scope
 
 
+def _api_token_context_for_scope(
+    db: Session,
+    *,
+    request: Request,
+    api_key: Optional[str],
+    required_scope: str,
+    auth_type: str,
+) -> Optional[dict]:
+    """Return a scoped persistent API-token auth context when the key matches."""
+    if not api_key:
+        return None
+
+    token = find_api_token(db, api_key)
+    if token is None:
+        return None
+
+    scopes = parse_scopes(token.scopes)
+    if required_scope not in scopes:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"API token requires scope: {required_scope}",
+        )
+
+    client_host = request.client.host if request.client else None
+    record_api_token_use(db, token, ip_address=client_host)
+    return {
+        "auth_type": auth_type,
+        "token_id": token.id,
+        "workspace_id": token.workspace_id,
+        "token_name": token.name,
+        "scopes": sorted(scopes),
+    }
+
+
+def require_provider_auth(required_scope: str) -> Callable:
+    """Build a dependency accepting provider API tokens or administrator auth."""
+
+    async def _require_provider_auth(
+        request: Request,
+        db: Session = Depends(get_db),
+        api_key: Optional[str] = Security(api_key_header),
+        bearer: Optional[HTTPAuthorizationCredentials] = Security(security_bearer),
+    ) -> dict:
+        token_context = _api_token_context_for_scope(
+            db,
+            request=request,
+            api_key=api_key,
+            required_scope=required_scope,
+            auth_type="provider_api_token",
+        )
+        if token_context is not None:
+            return token_context
+        return await require_admin_auth(request, api_key=api_key, bearer=bearer)
+
+    return _require_provider_auth
+
+
 def create_access_token(subject: Union[str, Any], expires_delta: timedelta = None) -> str:
     """
     Create a JWT access token for authentication

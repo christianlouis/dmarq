@@ -17,6 +17,8 @@ READ_REPORTS_SCOPE = "reports:read"
 READ_POSTURE_SCOPE = "posture:read"
 READ_TLS_SCOPE = "tls-reports:read"
 MCP_READ_SCOPE = "mcp:read"
+PROVIDER_READ_SCOPE = "provider:read"
+PROVIDER_WRITE_SCOPE = "provider:write"
 
 PUBLIC_READ_SCOPES = {
     READ_REPORTS_SCOPE,
@@ -24,6 +26,11 @@ PUBLIC_READ_SCOPES = {
     READ_TLS_SCOPE,
     MCP_READ_SCOPE,
 }
+PROVIDER_SCOPES = {
+    PROVIDER_READ_SCOPE,
+    PROVIDER_WRITE_SCOPE,
+}
+ALL_API_TOKEN_SCOPES = PUBLIC_READ_SCOPES | PROVIDER_SCOPES
 
 
 @dataclass
@@ -34,10 +41,15 @@ class CreatedAPIToken:
     secret: str
 
 
-def normalize_scopes(scopes: Iterable[str]) -> List[str]:
+def normalize_scopes(
+    scopes: Iterable[str],
+    *,
+    allowed_scopes: Optional[Set[str]] = None,
+) -> List[str]:
     """Normalize and validate requested API token scopes."""
+    allowed = allowed_scopes or PUBLIC_READ_SCOPES
     normalized = sorted({scope.strip().lower() for scope in scopes if scope and scope.strip()})
-    invalid = [scope for scope in normalized if scope not in PUBLIC_READ_SCOPES]
+    invalid = [scope for scope in normalized if scope not in allowed]
     if invalid:
         raise ValueError(f"Unsupported API token scope: {', '.join(invalid)}")
     if not normalized:
@@ -45,9 +57,13 @@ def normalize_scopes(scopes: Iterable[str]) -> List[str]:
     return normalized
 
 
-def scopes_to_string(scopes: Iterable[str]) -> str:
+def scopes_to_string(
+    scopes: Iterable[str],
+    *,
+    allowed_scopes: Optional[Set[str]] = None,
+) -> str:
     """Serialize scopes for storage."""
-    return ",".join(normalize_scopes(scopes))
+    return ",".join(normalize_scopes(scopes, allowed_scopes=allowed_scopes))
 
 
 def parse_scopes(value: str) -> Set[str]:
@@ -79,12 +95,14 @@ def create_api_token(
     name: str,
     scopes: Iterable[str],
     workspace_id: Optional[int] = None,
+    allowed_scopes: Optional[Set[str]] = None,
+    global_token: bool = False,
 ) -> CreatedAPIToken:
     """Create a persistent API token and return the raw secret once."""
     clean_name = name.strip()
     if not clean_name:
         raise ValueError("Token name is required")
-    if workspace_id is None:
+    if workspace_id is None and not global_token:
         workspace_id = get_or_create_default_workspace(db, commit=False).id
     secret = generate_public_api_key()
     token = APIToken(
@@ -92,7 +110,7 @@ def create_api_token(
         name=clean_name,
         key_hash=hash_api_key(secret),
         key_prefix=secret[:12],
-        scopes=scopes_to_string(scopes),
+        scopes=scopes_to_string(scopes, allowed_scopes=allowed_scopes),
         active=True,
     )
     db.add(token)

@@ -5,8 +5,10 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.api.api_v1.endpoints import provider as provider_endpoints
 from app.core.database import get_db
 from app.core.security import require_admin_auth
+from app.models.api_token import APIToken
 from app.models.domain import Domain
 from app.models.organization import (
     BillingAccount,
@@ -20,6 +22,13 @@ from app.models.report import DMARCReport, ForensicReport, ReportRecord
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceMembership
+from app.services.api_tokens import (
+    PROVIDER_READ_SCOPE,
+    PROVIDER_SCOPES,
+    PROVIDER_WRITE_SCOPE,
+    READ_REPORTS_SCOPE,
+    create_api_token,
+)
 from app.services.organizations import (
     BILLING_MODE_PROVIDER_RESALE,
     MAX_PROVIDER_PAYLOAD_SUMMARY_LENGTH,
@@ -45,6 +54,8 @@ def _client_as_user(test_app, db_session: Session, user: User):
     original_overrides = dict(test_app.dependency_overrides)
     test_app.dependency_overrides[get_db] = override_get_db
     test_app.dependency_overrides[require_admin_auth] = mock_admin_auth
+    test_app.dependency_overrides[provider_endpoints.require_provider_read_auth] = mock_admin_auth
+    test_app.dependency_overrides[provider_endpoints.require_provider_write_auth] = mock_admin_auth
     try:
         with TestClient(test_app) as client:
             yield client
@@ -91,6 +102,165 @@ def _add_provider_customer(
     db_session.add_all([workspace, account, subscription])
     db_session.flush()
     return organization, workspace, subscription
+
+
+def _create_provider_token(
+    db_session: Session,
+    *,
+    name: str = "provider automation",
+    scopes=None,
+):
+    return create_api_token(
+        db_session,
+        name=name,
+        scopes=scopes or sorted(PROVIDER_SCOPES),
+        allowed_scopes=PROVIDER_SCOPES,
+        global_token=True,
+    )
+
+
+def test_admin_can_create_list_and_revoke_provider_api_tokens(
+    authed_client: TestClient,
+    db_session: Session,
+):
+    created = authed_client.post(
+        "/api/v1/provider/api-tokens",
+        json={"name": "isp control panel", "scopes": [PROVIDER_READ_SCOPE, PROVIDER_WRITE_SCOPE]},
+    )
+
+    assert created.status_code == 201
+    body = created.json()
+    assert body["token"].startswith("dmarq_")
+    assert body["metadata"]["workspace_id"] is None
+    assert body["metadata"]["scopes"] == [PROVIDER_READ_SCOPE, PROVIDER_WRITE_SCOPE]
+    assert "key_hash" not in body["metadata"]
+
+    token = db_session.query(APIToken).filter(APIToken.id == body["metadata"]["id"]).one()
+    assert token.workspace_id is None
+
+    listed = authed_client.get("/api/v1/provider/api-tokens")
+    assert listed.status_code == 200
+    assert listed.json()["available_scopes"] == [PROVIDER_READ_SCOPE, PROVIDER_WRITE_SCOPE]
+    assert [row["name"] for row in listed.json()["tokens"]] == ["isp control panel"]
+
+    revoked = authed_client.delete(f"/api/v1/provider/api-tokens/{body['metadata']['id']}")
+    assert revoked.status_code == 200
+    db_session.refresh(token)
+    assert token.active is False
+
+
+def test_provider_api_token_management_rejects_public_scopes(
+    authed_client: TestClient,
+):
+    response = authed_client.post(
+        "/api/v1/provider/api-tokens",
+        json={"name": "wrong token", "scopes": [READ_REPORTS_SCOPE]},
+    )
+
+    assert response.status_code == 422
+    assert READ_REPORTS_SCOPE in response.json()["detail"]
+
+
+def test_provider_read_token_can_export_usage_without_workspace_membership(
+    client: TestClient,
+    db_session: Session,
+):
+    first_org, _, _ = _add_provider_customer(
+        db_session,
+        slug="provider-visible-a",
+        external_customer_id="cust-visible-a",
+        external_subscription_id="sub-visible-a",
+    )
+    second_org, _, _ = _add_provider_customer(
+        db_session,
+        slug="provider-visible-b",
+        external_customer_id="cust-visible-b",
+        external_subscription_id="sub-visible-b",
+    )
+    token = _create_provider_token(db_session, scopes=[PROVIDER_READ_SCOPE])
+    db_session.commit()
+
+    response = client.get(
+        "/api/v1/provider/billing/usage?period=2026-06",
+        headers={"X-API-Key": token.secret},
+    )
+
+    assert response.status_code == 200
+    organization_ids = {
+        item["organization"]["id"] for item in response.json()["usage"]["organizations"]
+    }
+    assert {first_org.id, second_org.id}.issubset(organization_ids)
+    db_session.refresh(token.token)
+    assert token.token.usage_count == 1
+    assert token.token.last_used_at is not None
+
+
+def test_provider_write_token_can_provision_and_update_subscription(
+    client: TestClient,
+    db_session: Session,
+):
+    token = _create_provider_token(
+        db_session,
+        scopes=[PROVIDER_READ_SCOPE, PROVIDER_WRITE_SCOPE],
+    )
+    db_session.commit()
+
+    provisioned = client.post(
+        "/api/v1/provider/customers",
+        headers={"X-API-Key": token.secret},
+        json={
+            "provider_id": "isp-token",
+            "external_customer_id": "cust-token",
+            "external_subscription_id": "sub-token",
+            "external_event_id": "evt-token-provision",
+            "organization_slug": "Token Provisioned",
+            "organization_name": "Token Provisioned",
+        },
+    )
+    assert provisioned.status_code == 200
+    assert provisioned.json()["result"]["organization"]["slug"] == "token-provisioned"
+
+    updated = client.post(
+        "/api/v1/provider/subscriptions/sub-token/state",
+        headers={"X-API-Key": token.secret},
+        json={
+            "status": "suspended",
+            "provider_id": "isp-token",
+            "external_event_id": "evt-token-suspended",
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.json()["result"]["new_status"] == "suspended"
+
+    subscription = (
+        db_session.query(Subscription)
+        .filter(Subscription.external_subscription_id == "sub-token")
+        .one()
+    )
+    assert subscription.status == "suspended"
+
+
+def test_provider_read_token_cannot_mutate_provider_lifecycle(
+    client: TestClient,
+    db_session: Session,
+):
+    token = _create_provider_token(db_session, scopes=[PROVIDER_READ_SCOPE])
+    db_session.commit()
+
+    response = client.post(
+        "/api/v1/provider/customers",
+        headers={"X-API-Key": token.secret},
+        json={
+            "provider_id": "isp-token",
+            "external_customer_id": "cust-read-only",
+            "external_subscription_id": "sub-read-only",
+            "organization_slug": "Read Only Provider",
+            "organization_name": "Read Only Provider",
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == f"API token requires scope: {PROVIDER_WRITE_SCOPE}"
 
 
 def test_provider_customer_provisioning_creates_provider_billed_tenant(
@@ -468,8 +638,17 @@ def test_provider_usage_export_accepts_empty_authorized_organization_scope(
     assert usage["organizations"] == []
 
 
-def test_provider_usage_endpoint_rejects_bad_period(authed_client: TestClient):
-    response = authed_client.get("/api/v1/provider/billing/usage?period=2026")
+def test_provider_usage_endpoint_rejects_bad_period(
+    client: TestClient,
+    db_session: Session,
+):
+    token = _create_provider_token(db_session, scopes=[PROVIDER_READ_SCOPE])
+    db_session.commit()
+
+    response = client.get(
+        "/api/v1/provider/billing/usage?period=2026",
+        headers={"X-API-Key": token.secret},
+    )
 
     assert response.status_code == 400
     assert "YYYY-MM" in response.json()["detail"]
