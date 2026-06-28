@@ -1,5 +1,7 @@
 from contextlib import contextmanager
 
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -20,11 +22,18 @@ from app.services.organizations import (
     DEFAULT_ORGANIZATION_SLUG,
     SELF_HOSTED_PLAN_CODE,
     STARTER_PLAN_CODE,
+    account_state_for_subscriptions,
     bootstrap_default_commercial_foundation,
     get_or_create_starter_plan,
     list_organization_summaries,
+    organization_summary,
 )
-from app.services.workspace_access import ROLE_AUDITOR
+from app.services.workspace_access import (
+    PERMISSION_DOMAINS_WRITE,
+    PERMISSION_REPORTS_READ,
+    ROLE_AUDITOR,
+    require_workspace_permission,
+)
 
 
 @contextmanager
@@ -115,6 +124,125 @@ def test_list_organization_summaries_materializes_account_state(db_session: Sess
     assert summaries[0]["billing_accounts"][0]["billing_mode"] == BILLING_MODE_SELF_HOSTED
     assert summaries[0]["subscriptions"][0]["plan"]["code"] == SELF_HOSTED_PLAN_CODE
     assert summaries[0]["entitlements"]["aggregate_reports"]["value"] == "true"
+    assert summaries[0]["account_state"]["status"] == "active"
+    assert summaries[0]["account_state"]["can_mutate"] is True
+    assert summaries[0]["account_state"]["can_export"] is True
+
+
+def test_account_state_reports_provider_grace_without_blocking(db_session: Session):
+    plan = get_or_create_starter_plan(db_session)
+    organization = Organization(slug="grace", name="Grace", active=True)
+    account = BillingAccount(
+        organization=organization,
+        billing_mode="provider_resale",
+        status="active",
+        invoice_delivery_mode="provider_invoice",
+    )
+    subscription = Subscription(
+        organization=organization,
+        billing_account=account,
+        plan=plan,
+        billing_mode="provider_resale",
+        status="past_due_provider_reported",
+    )
+    db_session.add_all([organization, account, subscription])
+    db_session.commit()
+
+    state = account_state_for_subscriptions([subscription])
+
+    assert state["status"] == "past_due_provider_reported"
+    assert state["grace_period"] is True
+    assert state["read_only"] is False
+    assert state["can_mutate"] is True
+
+
+def test_account_state_reports_suspended_as_read_only(db_session: Session):
+    plan = get_or_create_starter_plan(db_session)
+    organization = Organization(slug="suspended", name="Suspended", active=True)
+    account = BillingAccount(
+        organization=organization,
+        billing_mode="provider_resale",
+        status="active",
+        invoice_delivery_mode="provider_invoice",
+    )
+    subscription = Subscription(
+        organization=organization,
+        billing_account=account,
+        plan=plan,
+        billing_mode="provider_resale",
+        status="suspended",
+    )
+    db_session.add_all([organization, account, subscription])
+    db_session.commit()
+
+    summary = organization_summary(db_session, organization)
+
+    assert summary["account_state"]["status"] == "suspended"
+    assert summary["account_state"]["read_only"] is True
+    assert summary["account_state"]["can_mutate"] is False
+    assert summary["account_state"]["can_export"] is True
+
+
+def test_workspace_write_permission_blocks_read_only_subscription(db_session: Session):
+    plan = get_or_create_starter_plan(db_session)
+    organization = Organization(slug="locked", name="Locked", active=True)
+    workspace = Workspace(slug="locked-main", name="Locked Main", organization=organization)
+    account = BillingAccount(
+        organization=organization,
+        billing_mode="provider_resale",
+        status="active",
+        invoice_delivery_mode="provider_invoice",
+    )
+    subscription = Subscription(
+        organization=organization,
+        billing_account=account,
+        plan=plan,
+        billing_mode="provider_resale",
+        status="terminated",
+    )
+    db_session.add_all([organization, workspace, account, subscription])
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as exc_info:
+        require_workspace_permission(
+            {"auth_type": "api_key"},
+            PERMISSION_DOMAINS_WRITE,
+            db_session,
+            workspace,
+        )
+
+    assert exc_info.value.status_code == 402
+    assert exc_info.value.detail["code"] == "account_read_only"
+    assert exc_info.value.detail["subscription_status"] == "terminated"
+    assert exc_info.value.detail["can_export"] is True
+
+
+def test_workspace_read_permission_allows_read_only_subscription(db_session: Session):
+    plan = get_or_create_starter_plan(db_session)
+    organization = Organization(slug="readable", name="Readable", active=True)
+    workspace = Workspace(slug="readable-main", name="Readable Main", organization=organization)
+    account = BillingAccount(
+        organization=organization,
+        billing_mode="provider_resale",
+        status="active",
+        invoice_delivery_mode="provider_invoice",
+    )
+    subscription = Subscription(
+        organization=organization,
+        billing_account=account,
+        plan=plan,
+        billing_mode="provider_resale",
+        status="suspended",
+    )
+    db_session.add_all([organization, workspace, account, subscription])
+    db_session.commit()
+
+    require_workspace_permission(
+        {"auth_type": "api_key"},
+        PERMISSION_REPORTS_READ,
+        db_session,
+        workspace,
+    )
 
 
 def test_organization_endpoints_are_scoped_to_accessible_tenants(test_app, db_session: Session):

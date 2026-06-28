@@ -68,6 +68,10 @@ PROVIDER_SUBSCRIPTION_STATUSES = {
     "terminated",
 }
 MAX_PROVIDER_PAYLOAD_SUMMARY_LENGTH = 500
+ACCOUNT_ACTIVE_STATUSES = {"active", "trialing"}
+ACCOUNT_GRACE_STATUSES = {"past_due_provider_reported"}
+ACCOUNT_READ_ONLY_STATUSES = {"suspended", "canceled", "terminated"}
+ACCOUNT_CLOSED_STATUSES = {"canceled", "terminated"}
 
 
 def _sanitize_payload_summary(payload_summary: Optional[str]) -> Optional[str]:
@@ -402,6 +406,70 @@ def _subscription_to_dict(subscription: Subscription) -> Dict[str, Any]:
     }
 
 
+def _primary_subscription(subscriptions: Iterable[Subscription]) -> Optional[Subscription]:
+    subscription_list = list(subscriptions)
+    for status_group in (
+        ACCOUNT_ACTIVE_STATUSES,
+        ACCOUNT_GRACE_STATUSES,
+        {"suspended"},
+        ACCOUNT_CLOSED_STATUSES,
+    ):
+        for subscription in subscription_list:
+            if subscription.status in status_group:
+                return subscription
+    return subscription_list[0] if subscription_list else None
+
+
+def account_state_for_subscriptions(subscriptions: Iterable[Subscription]) -> Dict[str, Any]:
+    """Return the effective commercial state used by UI and write guards."""
+    subscription = _primary_subscription(subscriptions)
+    if subscription is None:
+        return {
+            "status": "unconfigured",
+            "billing_mode": None,
+            "plan_code": None,
+            "read_only": False,
+            "can_mutate": True,
+            "can_export": True,
+            "grace_period": False,
+            "closed": False,
+            "reason": "No active subscription has been configured for this organization.",
+            "blocking_subscription_id": None,
+        }
+
+    status_value = subscription.status
+    read_only = status_value in ACCOUNT_READ_ONLY_STATUSES
+    grace_period = status_value in ACCOUNT_GRACE_STATUSES
+    closed = status_value in ACCOUNT_CLOSED_STATUSES
+    if read_only:
+        reason = (
+            "This organization's subscription is read-only. Users can view and "
+            "export existing data, but mutating actions are blocked until billing "
+            "or provider state is restored."
+        )
+    elif grace_period:
+        reason = (
+            "This organization's subscription is in a provider-reported grace "
+            "state. Mutating actions still work, but operators should resolve "
+            "billing before the account becomes read-only."
+        )
+    else:
+        reason = "This organization's subscription allows normal workspace changes."
+
+    return {
+        "status": status_value,
+        "billing_mode": subscription.billing_mode,
+        "plan_code": subscription.plan.code if subscription.plan else None,
+        "read_only": read_only,
+        "can_mutate": not read_only,
+        "can_export": True,
+        "grace_period": grace_period,
+        "closed": closed,
+        "reason": reason,
+        "blocking_subscription_id": subscription.id if read_only else None,
+    }
+
+
 def organization_summary(db: Session, organization: Organization) -> Dict[str, Any]:
     """Return an API-safe organization/account summary."""
     workspaces = (
@@ -442,6 +510,7 @@ def organization_summary(db: Session, organization: Organization) -> Dict[str, A
         "workspaces": [_workspace_to_dict(workspace) for workspace in workspaces],
         "billing_accounts": [_billing_account_to_dict(account) for account in billing_accounts],
         "subscriptions": [_subscription_to_dict(subscription) for subscription in subscriptions],
+        "account_state": account_state_for_subscriptions(subscriptions),
         "entitlements": {
             entitlement.key: {
                 "value": entitlement.value,

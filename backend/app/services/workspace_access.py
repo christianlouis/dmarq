@@ -7,10 +7,11 @@ from typing import Any, Dict, List, Optional, Set
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.models.organization import Organization, OrganizationMembership
+from app.models.organization import Organization, OrganizationMembership, Subscription
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceMembership
+from app.services.organizations import account_state_for_subscriptions
 from app.services.workspaces import assign_default_workspace_to_unscoped_rows
 
 ROLE_WORKSPACE_OWNER = "workspace_owner"
@@ -27,6 +28,14 @@ PERMISSION_INTEGRATIONS_WRITE = "integrations:write"
 PERMISSION_AUDIT_READ = "audit:read"
 PERMISSION_REPORTS_READ = "reports:read"
 PERMISSION_REPORTS_WRITE = "reports:write"
+TENANT_MUTATION_PERMISSIONS = {
+    PERMISSION_WORKSPACE_ADMIN,
+    PERMISSION_DOMAINS_WRITE,
+    PERMISSION_MAIL_SOURCES_WRITE,
+    PERMISSION_NOTIFICATIONS_WRITE,
+    PERMISSION_INTEGRATIONS_WRITE,
+    PERMISSION_REPORTS_WRITE,
+}
 
 ROLE_PERMISSIONS: Dict[str, Set[str]] = {
     ROLE_WORKSPACE_OWNER: {
@@ -223,10 +232,47 @@ def require_workspace_permission(
     else:
         role = role_for_auth_context(auth_context)
     if role_allows(role, permission):
+        require_workspace_account_mutation_allowed(permission, db, workspace)
         return
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail=f"Workspace permission required: {permission}",
+    )
+
+
+def require_workspace_account_mutation_allowed(
+    permission: str,
+    db: Optional[Session],
+    workspace: Optional[Workspace],
+) -> None:
+    """Block tenant mutations while the organization subscription is read-only."""
+    if permission not in TENANT_MUTATION_PERMISSIONS:
+        return
+    if db is None or workspace is None or workspace.organization_id is None:
+        return
+
+    subscriptions = (
+        db.query(Subscription)
+        .filter(
+            Subscription.organization_id == workspace.organization_id,
+        )
+        .order_by(Subscription.updated_at.desc(), Subscription.created_at.desc())
+        .all()
+    )
+    account_state = account_state_for_subscriptions(subscriptions)
+    if account_state["can_mutate"]:
+        return
+
+    raise HTTPException(
+        status_code=status.HTTP_402_PAYMENT_REQUIRED,
+        detail={
+            "code": "account_read_only",
+            "message": account_state["reason"],
+            "subscription_status": account_state["status"],
+            "subscription_id": account_state["blocking_subscription_id"],
+            "organization_id": workspace.organization_id,
+            "can_export": account_state["can_export"],
+        },
     )
 
 
