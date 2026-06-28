@@ -1,0 +1,350 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}DMARQ - Workspace Onboarding{% endblock %}
+
+{% block content %}
+<div class="mx-auto max-w-7xl space-y-6" x-data="workspaceOnboarding()" x-init="init()" x-cloak>
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+            <p class="text-sm font-semibold uppercase tracking-wide text-[#2f9da6]">Guided setup</p>
+            <h1 class="mt-1 text-3xl font-semibold text-[#07071f]">Workspace onboarding</h1>
+            <p class="mt-2 max-w-3xl text-sm leading-6 text-[#07071f]/70">
+                Create the customer boundary, monitored domain, safe starter entitlement,
+                and the next DNS/reporting tasks from one browser flow.
+            </p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+            <button type="button" class="btn btn-outline" @click="previewPlan" :disabled="saving">
+                <span x-show="previewing" class="loading loading-spinner loading-xs"></span>
+                Preview tasks
+            </button>
+            <button type="button" class="btn btn-primary" @click="applyPlan" :disabled="saving">
+                <span x-show="applying" class="loading loading-spinner loading-xs"></span>
+                Create workspace
+            </button>
+        </div>
+    </div>
+
+    <div x-show="error" role="alert" class="alert alert-error">
+        <span x-text="error"></span>
+    </div>
+
+    <div x-show="success" role="alert" class="alert alert-success">
+        <div>
+            <p class="font-semibold" x-text="success"></p>
+            <p class="text-sm" x-show="result?.workspace">
+                The active browser workspace has been switched to
+                <span class="font-medium" x-text="result?.workspace?.name"></span>.
+            </p>
+        </div>
+    </div>
+
+    <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
+        <section class="space-y-6">
+            <div class="grid gap-6 xl:grid-cols-2">
+                <div class="rounded-lg bg-white p-6 shadow-sm">
+                    <div class="flex items-start justify-between gap-4">
+                        <div>
+                            <h2 class="text-xl font-semibold">Account boundary</h2>
+                            <p class="mt-1 text-sm leading-6 text-[#07071f]/65">
+                                Name the customer or internal team that owns this workspace.
+                            </p>
+                        </div>
+                        <span class="rounded-full bg-[#2f9da6]/10 px-3 py-1 text-xs font-semibold text-[#1f747b]">
+                            Owner ready
+                        </span>
+                    </div>
+                    <div class="mt-5 grid gap-4 sm:grid-cols-2">
+                        <label class="form-control">
+                            <span class="label-text font-medium">Organization</span>
+                            <input x-model.trim="form.organizationName" type="text" required
+                                   class="input input-bordered" placeholder="Acme Mail Team">
+                        </label>
+                        <label class="form-control">
+                            <span class="label-text font-medium">Workspace</span>
+                            <input x-model.trim="form.workspaceName" type="text" required
+                                   class="input input-bordered" placeholder="Acme Production">
+                        </label>
+                    </div>
+                    <label class="form-control mt-4">
+                        <span class="label-text font-medium">Workspace note</span>
+                        <textarea x-model.trim="form.workspaceDescription" rows="3"
+                                  class="textarea textarea-bordered"
+                                  placeholder="Primary domains and DMARC aggregate reports for Acme."></textarea>
+                    </label>
+                </div>
+
+                <div class="rounded-lg bg-white p-6 shadow-sm">
+                    <div class="flex items-start justify-between gap-4">
+                        <div>
+                            <h2 class="text-xl font-semibold">Domain and DNS</h2>
+                            <p class="mt-1 text-sm leading-6 text-[#07071f]/65">
+                                The domain starts unverified, so production fetching stays blocked
+                                until DNS ownership is confirmed.
+                            </p>
+                        </div>
+                        <span class="rounded-full bg-[#ff6b35]/10 px-3 py-1 text-xs font-semibold text-[#c94c21]">
+                            Verification gate
+                        </span>
+                    </div>
+                    <div class="mt-5 grid gap-4 sm:grid-cols-2">
+                        <label class="form-control">
+                            <span class="label-text font-medium">Domain</span>
+                            <input x-model.trim="form.domain" type="text" required
+                                   class="input input-bordered" placeholder="example.com">
+                        </label>
+                        <label class="form-control">
+                            <span class="label-text font-medium">DNS provider</span>
+                            <select x-model="form.dnsProvider" class="select select-bordered">
+                                <option>Cloudflare</option>
+                                <option>Route 53</option>
+                                <option>Google Cloud DNS</option>
+                                <option>Microsoft DNS</option>
+                                <option>Other DNS provider</option>
+                            </select>
+                        </label>
+                    </div>
+                    <label class="form-control mt-4">
+                        <span class="label-text font-medium">DMARC report mailbox</span>
+                        <input x-model.trim="form.reportMailbox" type="email"
+                               class="input input-bordered" placeholder="dmarc@example.com">
+                    </label>
+                </div>
+            </div>
+
+            <div class="rounded-lg bg-white p-6 shadow-sm">
+                <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                        <h2 class="text-xl font-semibold">Report ingestion path</h2>
+                        <p class="mt-1 max-w-2xl text-sm leading-6 text-[#07071f]/65">
+                            Choose whether this workspace should stage a disabled IMAP source now
+                            or start as a DNS-only assessment.
+                        </p>
+                    </div>
+                    <div class="join">
+                        <button type="button" class="btn join-item btn-sm"
+                                :class="form.mailSourcePath === 'imap' ? 'btn-primary' : 'btn-outline'"
+                                @click="form.mailSourcePath = 'imap'">IMAP</button>
+                        <button type="button" class="btn join-item btn-sm"
+                                :class="form.mailSourcePath === 'dns_only' ? 'btn-primary' : 'btn-outline'"
+                                @click="form.mailSourcePath = 'dns_only'">DNS only</button>
+                    </div>
+                </div>
+
+                <div x-show="form.mailSourcePath === 'imap'" class="mt-5 grid gap-4 md:grid-cols-3">
+                    <label class="form-control">
+                        <span class="label-text font-medium">IMAP server</span>
+                        <input x-model.trim="form.imapServer" type="text"
+                               class="input input-bordered" placeholder="imap.example.com">
+                    </label>
+                    <label class="form-control">
+                        <span class="label-text font-medium">Username</span>
+                        <input x-model.trim="form.imapUsername" type="text"
+                               class="input input-bordered" placeholder="dmarc@example.com">
+                    </label>
+                    <label class="form-control">
+                        <span class="label-text font-medium">Password</span>
+                        <input x-model="form.imapPassword" type="password"
+                               class="input input-bordered" autocomplete="new-password">
+                    </label>
+                </div>
+
+                <div x-show="form.mailSourcePath === 'dns_only'" class="mt-5 rounded-lg border border-[#2f9da6]/25 bg-[#2f9da6]/10 p-4 text-sm leading-6 text-[#07071f]/75">
+                    DMARQ will create the workspace and DNS checklist without storing mailbox
+                    credentials. A report source can be connected later from Mail Sources.
+                </div>
+            </div>
+        </section>
+
+        <aside class="space-y-6">
+            <div class="rounded-lg bg-white p-6 shadow-sm">
+                <h2 class="text-lg font-semibold">What will be created</h2>
+                <ul class="mt-4 space-y-3 text-sm text-[#07071f]/70">
+                    <li class="flex gap-3">
+                        <span class="mt-2 h-2 w-2 rounded-full bg-[#272a5f]"></span>
+                        <span>Organization and workspace, with the signed-in user as owner when a local user exists.</span>
+                    </li>
+                    <li class="flex gap-3">
+                        <span class="mt-2 h-2 w-2 rounded-full bg-[#2f9da6]"></span>
+                        <span>Starter plan entitlement records for the new organization.</span>
+                    </li>
+                    <li class="flex gap-3">
+                        <span class="mt-2 h-2 w-2 rounded-full bg-[#ff6b35]"></span>
+                        <span>One monitored domain that must be verified before production fetching.</span>
+                    </li>
+                    <li class="flex gap-3">
+                        <span class="mt-2 h-2 w-2 rounded-full bg-[#62678f]"></span>
+                        <span>Actionable DNS, mail-source, import, and alerting follow-up tasks.</span>
+                    </li>
+                </ul>
+            </div>
+
+            <div class="rounded-lg bg-white p-6 shadow-sm">
+                <div class="flex items-center justify-between gap-4">
+                    <h2 class="text-lg font-semibold">Task preview</h2>
+                    <span class="text-xs font-semibold uppercase tracking-wide text-[#07071f]/50"
+                          x-text="tasks.length ? `${tasks.length} tasks` : 'No preview yet'"></span>
+                </div>
+                <div class="mt-4 space-y-3">
+                    <template x-if="!tasks.length">
+                        <p class="rounded-lg border border-dashed border-[#07071f]/20 p-4 text-sm text-[#07071f]/60">Preview or create the workspace to see the exact follow-up list.</p>
+                    </template>
+                    <template x-for="task in tasks" :key="task.id">
+                        <a :href="task.href || '#'"
+                           class="block rounded-lg border border-[#07071f]/10 p-4 transition hover:border-[#2f9da6]/60 hover:bg-[#2f9da6]/5">
+                            <div class="flex items-start justify-between gap-3">
+                                <div>
+                                    <p class="font-semibold text-[#07071f]" x-text="task.title"></p>
+                                    <p class="mt-1 text-sm leading-5 text-[#07071f]/65" x-text="task.description"></p>
+                                </div>
+                                <span class="rounded-full bg-[#f4f3f2] px-2 py-1 text-xs font-semibold text-[#272a5f]" x-text="task.category"></span>
+                            </div>
+                        </a>
+                    </template>
+                </div>
+            </div>
+        </aside>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function workspaceOnboarding() {
+    return {
+        previewing: false,
+        applying: false,
+        error: '',
+        success: '',
+        plan: null,
+        result: null,
+        tasks: [],
+        form: {
+            organizationName: '',
+            workspaceName: '',
+            workspaceDescription: '',
+            domain: '',
+            dnsProvider: 'Cloudflare',
+            reportMailbox: '',
+            mailSourcePath: 'imap',
+            imapServer: '',
+            imapUsername: '',
+            imapPassword: '',
+        },
+        get saving() {
+            return this.previewing || this.applying;
+        },
+        init() {
+            this.form.organizationName = localStorage.getItem('dmarq.onboarding.organizationName') || '';
+            this.form.workspaceName = localStorage.getItem('dmarq.onboarding.workspaceName') || '';
+            this.form.domain = localStorage.getItem('dmarq.onboarding.domain') || '';
+        },
+        payload() {
+            const domain = this.form.domain.trim().toLowerCase();
+            const workspaceName = this.form.workspaceName.trim() || this.form.organizationName.trim() || domain;
+            const organizationName = this.form.organizationName.trim() || workspaceName;
+            const reportMailbox = this.form.reportMailbox.trim() || (domain ? `dmarc@${domain}` : '');
+            const templateId = this.form.mailSourcePath === 'dns_only' ? 'dns_only_assessment' : 'standard_monitoring';
+            const variables = {
+                domain,
+                workspace_name: workspaceName,
+                dns_provider: this.form.dnsProvider,
+                report_mailbox: reportMailbox,
+            };
+            if (templateId === 'standard_monitoring') {
+                variables.imap_server = this.form.imapServer.trim();
+                variables.imap_username = this.form.imapUsername.trim() || reportMailbox;
+                variables.imap_password = this.form.imapPassword;
+            }
+            return {
+                template_id: templateId,
+                organization: { name: organizationName },
+                workspace: {
+                    name: workspaceName,
+                    description: this.form.workspaceDescription.trim() || null,
+                },
+                variables,
+            };
+        },
+        validate() {
+            if (!this.form.domain.trim()) {
+                throw new Error('Domain is required.');
+            }
+            if (!this.form.workspaceName.trim() && !this.form.organizationName.trim()) {
+                throw new Error('Organization or workspace name is required.');
+            }
+        },
+        async previewPlan() {
+            await this.submit('/api/v1/onboarding/preview', 'preview');
+        },
+        async applyPlan() {
+            await this.submit('/api/v1/onboarding/apply', 'apply');
+        },
+        async submit(url, mode) {
+            this.error = '';
+            this.success = '';
+            this.result = null;
+            try {
+                this.validate();
+            } catch (err) {
+                this.error = err.message;
+                return;
+            }
+            this.previewing = mode === 'preview';
+            this.applying = mode === 'apply';
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(this.payload()),
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    throw new Error(this.errorMessage(data.detail) || 'Onboarding request failed.');
+                }
+                if (mode === 'preview') {
+                    this.plan = data.plan;
+                    this.tasks = data.plan?.tasks || [];
+                    this.success = 'Preview is ready. Review the task list before creating the workspace.';
+                } else {
+                    this.result = data.result;
+                    this.tasks = data.result?.tasks || [];
+                    this.success = 'Workspace onboarding was applied.';
+                    this.persistAppliedWorkspace(data.result);
+                }
+                this.persistDraft();
+            } catch (err) {
+                this.error = err.message || 'Onboarding request failed.';
+            } finally {
+                this.previewing = false;
+                this.applying = false;
+            }
+        },
+        errorMessage(detail) {
+            if (Array.isArray(detail)) {
+                return detail.join(', ');
+            }
+            if (detail && typeof detail === 'object') {
+                if (detail.errors) return this.errorMessage(detail.errors);
+                if (detail.message) return detail.message;
+                return JSON.stringify(detail);
+            }
+            return detail || '';
+        },
+        persistAppliedWorkspace(result) {
+            const workspaceId = result?.workspace?.id;
+            if (!workspaceId) return;
+            localStorage.setItem('dmarq.selectedWorkspaceId', String(workspaceId));
+            window.dispatchEvent(new CustomEvent('dmarq:workspace-changed', {
+                detail: { workspaceId: String(workspaceId) },
+            }));
+        },
+        persistDraft() {
+            localStorage.setItem('dmarq.onboarding.organizationName', this.form.organizationName);
+            localStorage.setItem('dmarq.onboarding.workspaceName', this.form.workspaceName);
+            localStorage.setItem('dmarq.onboarding.domain', this.form.domain);
+        },
+    };
+}
+</script>
+{% endblock %}
