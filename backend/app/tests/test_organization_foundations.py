@@ -23,6 +23,7 @@ from app.models.workspace_access import WorkspaceMembership
 from app.services.organizations import (
     BILLING_MODE_SELF_HOSTED,
     DEFAULT_ORGANIZATION_SLUG,
+    OrganizationPlanLimitError,
     SELF_HOSTED_PLAN_CODE,
     STARTER_PLAN_CODE,
     OrganizationPlanLimitError,
@@ -32,6 +33,7 @@ from app.services.organizations import (
     list_organization_summaries,
     organization_plan_limit,
     organization_summary,
+    require_organization_plan_limit,
     require_organization_feature,
     require_organization_plan_limit,
 )
@@ -204,6 +206,115 @@ def test_organization_summary_exposes_plan_limit_usage(db_session: Session):
     assert limits["webhooks"]["current"] == 1
     assert limits["webhooks"]["limit"] == 0
     assert limits["webhooks"]["enforced"] is True
+
+
+def test_organization_plan_limit_returns_configured_metric(db_session: Session):
+    organization = Organization(slug="single-limit", name="Single Limit", active=True)
+    workspace = Workspace(
+        slug="single-limit-main",
+        name="Single Limit Main",
+        organization=organization,
+    )
+    db_session.add_all(
+        [
+            organization,
+            workspace,
+            Domain(workspace=workspace, name="one.example", active=True),
+            Entitlement(
+                organization=organization,
+                key="monitored_domains",
+                value="2",
+                source="plan",
+                active=True,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    limit = organization_plan_limit(db_session, organization, "monitored_domains")
+
+    assert limit is not None
+    assert limit["current"] == 1
+    assert limit["limit"] == 2
+    assert limit["remaining"] == 1
+    assert limit["entitlement_key"] == "monitored_domains"
+
+
+def test_require_organization_plan_limit_allows_unmetered_and_available_capacity(
+    db_session: Session,
+):
+    organization = Organization(slug="limit-allowed", name="Limit Allowed", active=True)
+    workspace = Workspace(
+        slug="limit-allowed-main",
+        name="Limit Allowed Main",
+        organization=organization,
+    )
+    db_session.add_all(
+        [
+            organization,
+            workspace,
+            Entitlement(
+                organization=organization,
+                key="monitored_domains",
+                value="2",
+                source="plan",
+                active=True,
+            ),
+            Entitlement(
+                organization=organization,
+                key="retention_days",
+                value="unlimited",
+                source="plan",
+                active=True,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    require_organization_plan_limit(db_session, organization, "monitored_domains")
+    require_organization_plan_limit(db_session, organization, "retention_days")
+    require_organization_plan_limit(db_session, organization, "missing_metric")
+    require_organization_plan_limit(db_session, organization, "monitored_domains", increment=0)
+
+
+def test_require_organization_plan_limit_raises_with_api_safe_detail(db_session: Session):
+    organization = Organization(slug="limit-blocked", name="Limit Blocked", active=True)
+    workspace = Workspace(
+        slug="limit-blocked-main",
+        name="Limit Blocked Main",
+        organization=organization,
+    )
+    db_session.add_all(
+        [
+            organization,
+            workspace,
+            Domain(workspace=workspace, name="one.example", active=True),
+            Entitlement(
+                organization=organization,
+                key="monitored_domains",
+                value="1",
+                source="plan",
+                active=True,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    with pytest.raises(OrganizationPlanLimitError) as exc_info:
+        require_organization_plan_limit(db_session, organization, "monitored_domains")
+
+    assert exc_info.value.to_detail() == {
+        "code": "plan_limit_exceeded",
+        "metric": "monitored_domains",
+        "current": 1,
+        "limit": 1,
+        "attempted": 1,
+        "unit": "count",
+        "entitlement_key": "monitored_domains",
+        "can_export": True,
+        "message": "Plan limit for monitored_domains would be exceeded "
+        "(1 current + 1 requested > 1 count)",
+    }
 
 
 def test_organization_summary_handles_unbounded_and_missing_entitlements(
