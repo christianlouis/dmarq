@@ -1,5 +1,6 @@
 """Provider and ISP integration endpoints."""
 
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -14,7 +15,6 @@ from app.services.api_tokens import (
     PROVIDER_SCOPES,
     PROVIDER_WRITE_SCOPE,
     create_api_token,
-    revoke_api_token,
     token_to_dict,
 )
 from app.services.organizations import (
@@ -214,11 +214,14 @@ async def revoke_provider_api_token(
         )
         .first()
     )
-    if token is None or not revoke_api_token(db, token_id, workspace_id=None):
+    if token is None or not token.active:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Provider API token not found",
         )
+    token.active = False
+    token.revoked_at = datetime.utcnow()
+    db.commit()
     return {"revoked": True}
 
 

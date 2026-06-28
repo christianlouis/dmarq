@@ -274,6 +274,7 @@ def _api_token_context_for_scope(
     api_key: Optional[str],
     required_scope: str,
     auth_type: str,
+    require_global_token: bool = False,
 ) -> Optional[dict]:
     """Return a scoped persistent API-token auth context when the key matches."""
     if not api_key:
@@ -282,6 +283,12 @@ def _api_token_context_for_scope(
     token = find_api_token(db, api_key)
     if token is None:
         return None
+
+    if require_global_token and token.workspace_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Provider API token must be global",
+        )
 
     scopes = parse_scopes(token.scopes)
     if required_scope not in scopes:
@@ -316,6 +323,7 @@ def require_provider_auth(required_scope: str) -> Callable:
             api_key=api_key,
             required_scope=required_scope,
             auth_type="provider_api_token",
+            require_global_token=True,
         )
         if token_context is not None:
             return token_context

@@ -161,6 +161,26 @@ def test_provider_api_token_management_rejects_public_scopes(
     assert READ_REPORTS_SCOPE in response.json()["detail"]
 
 
+def test_provider_api_token_management_does_not_revoke_workspace_scoped_tokens(
+    authed_client: TestClient,
+    db_session: Session,
+):
+    created = create_api_token(
+        db_session,
+        name="workspace provider token",
+        scopes=[PROVIDER_READ_SCOPE],
+        allowed_scopes=PROVIDER_SCOPES,
+    )
+    db_session.commit()
+
+    response = authed_client.delete(f"/api/v1/provider/api-tokens/{created.token.id}")
+
+    assert response.status_code == 404
+    db_session.refresh(created.token)
+    assert created.token.active is True
+    assert created.token.revoked_at is None
+
+
 def test_provider_read_token_can_export_usage_without_workspace_membership(
     client: TestClient,
     db_session: Session,
@@ -193,6 +213,36 @@ def test_provider_read_token_can_export_usage_without_workspace_membership(
     db_session.refresh(token.token)
     assert token.token.usage_count == 1
     assert token.token.last_used_at is not None
+
+
+def test_workspace_scoped_provider_scope_token_cannot_bypass_provider_scoping(
+    client: TestClient,
+    db_session: Session,
+):
+    _add_provider_customer(
+        db_session,
+        slug="provider-hidden",
+        external_customer_id="cust-hidden",
+        external_subscription_id="sub-hidden",
+    )
+    token = create_api_token(
+        db_session,
+        name="workspace scoped provider token",
+        scopes=[PROVIDER_READ_SCOPE],
+        allowed_scopes=PROVIDER_SCOPES,
+    )
+    db_session.commit()
+
+    response = client.get(
+        "/api/v1/provider/billing/usage?period=2026-06",
+        headers={"X-API-Key": token.secret},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Provider API token must be global"
+    db_session.refresh(token.token)
+    assert token.token.usage_count == 0
+    assert token.token.last_used_at is None
 
 
 def test_provider_write_token_can_provision_and_update_subscription(
