@@ -75,6 +75,7 @@ ACCOUNT_ACTIVE_STATUSES = {"active", "trialing"}
 ACCOUNT_GRACE_STATUSES = {"past_due_provider_reported"}
 ACCOUNT_READ_ONLY_STATUSES = {"suspended", "canceled", "terminated"}
 ACCOUNT_CLOSED_STATUSES = {"canceled", "terminated"}
+ENFORCED_PLAN_LIMITS = {"api_tokens", "monitored_domains", "webhooks"}
 FEATURE_ENTITLEMENT_ALIASES: Dict[str, tuple[str, ...]] = {
     "api_tokens": ("api_tokens", "api_access"),
     "webhooks": ("webhooks",),
@@ -87,6 +88,45 @@ PLAN_LIMIT_ENTITLEMENT_ALIASES: Dict[str, tuple[str, ...]] = {
     "webhooks": FEATURE_ENTITLEMENT_ALIASES["webhooks"],
     "retention_days": ("retention_days",),
 }
+
+
+class OrganizationPlanLimitError(ValueError):
+    """Raised when a plan limit would be exceeded by a mutation."""
+
+    def __init__(
+        self,
+        *,
+        metric: str,
+        current: int,
+        limit: int,
+        attempted: int,
+        unit: str,
+        entitlement_key: Optional[str],
+    ):
+        self.metric = metric
+        self.current = current
+        self.limit = limit
+        self.attempted = attempted
+        self.unit = unit
+        self.entitlement_key = entitlement_key
+        super().__init__(
+            f"Plan limit for {metric} would be exceeded "
+            f"({current} current + {attempted} requested > {limit} {unit})"
+        )
+
+    def to_detail(self) -> Dict[str, Any]:
+        """Return an API-safe detail payload."""
+        return {
+            "code": "plan_limit_exceeded",
+            "metric": self.metric,
+            "current": self.current,
+            "limit": self.limit,
+            "attempted": self.attempted,
+            "unit": self.unit,
+            "entitlement_key": self.entitlement_key,
+            "can_export": True,
+            "message": str(self),
+        }
 
 
 def _sanitize_payload_summary(payload_summary: Optional[str]) -> Optional[str]:
@@ -671,11 +711,57 @@ def _plan_limits_for_organization(
             current=current_values.get(metric, 0),
             limit=_entitlement_limit(entitlement.value),
             unit="days" if metric == "retention_days" else "count",
-            enforced=metric in {"api_tokens", "webhooks"},
+            enforced=metric in ENFORCED_PLAN_LIMITS,
         )
         limits[metric]["source"] = entitlement.source
         limits[metric]["entitlement_key"] = entitlement.key
     return limits
+
+
+def organization_plan_limit(
+    db: Session,
+    organization: Organization,
+    metric: str,
+) -> Optional[Dict[str, Any]]:
+    """Return the current plan-limit payload for one metric, if configured."""
+    entitlements = _active_entitlements_query(db, organization).all()
+    workspaces = (
+        db.query(Workspace)
+        .filter(Workspace.organization_id == organization.id)
+        .order_by(Workspace.slug.asc())
+        .all()
+    )
+    return _plan_limits_for_organization(db, organization, workspaces, entitlements).get(metric)
+
+
+def require_organization_plan_limit(
+    db: Session,
+    organization: Organization,
+    metric: str,
+    *,
+    increment: int = 1,
+) -> None:
+    """Raise when a mutation would exceed a configured organization plan limit."""
+    if increment <= 0:
+        return
+    limit_payload = organization_plan_limit(db, organization, metric)
+    if not limit_payload:
+        return
+    limit = limit_payload.get("limit")
+    if limit is None:
+        return
+    current = int(limit_payload.get("current") or 0)
+    attempted = int(increment)
+    if current + attempted <= int(limit):
+        return
+    raise OrganizationPlanLimitError(
+        metric=metric,
+        current=current,
+        limit=int(limit),
+        attempted=attempted,
+        unit=str(limit_payload.get("unit") or "count"),
+        entitlement_key=limit_payload.get("entitlement_key"),
+    )
 
 
 def organization_summary(

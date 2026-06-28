@@ -19,6 +19,7 @@ from app.api.api_v1.endpoints import domains as domains_endpoint
 from app.api.api_v1.endpoints.domains import _domain_names_for_summary, _spf_fix_hint
 from app.models.dns_cache import DNSCache, DNSRecordChange
 from app.models.domain import Domain
+from app.models.organization import Entitlement, Organization
 from app.models.report import DMARCReport, ReportRecord
 from app.models.workspace import Workspace
 from app.services.bimi import BIMIResult
@@ -775,6 +776,45 @@ def test_domain_detail_data_endpoints_support_manually_configured_domain(
     assert sources.json()["sources"] == []
     assert selectors.status_code == 200
     assert selectors.json() == {"selectors": [], "report_selectors": []}
+
+
+def test_create_domain_respects_monitored_domain_plan_limit(
+    authed_client: TestClient,
+    db_session,
+):
+    organization = Organization(slug="default", name="Default Organization", active=True)
+    workspace = Workspace(
+        slug="default",
+        name="Default Workspace",
+        organization=organization,
+        active=True,
+    )
+    db_session.add_all(
+        [
+            organization,
+            workspace,
+            Domain(name="first.example", workspace=workspace, active=True),
+            Entitlement(
+                organization=organization,
+                key="monitored_domains",
+                value="1",
+                source="plan",
+                active=True,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    second = authed_client.post("/api/v1/domains/domains", json={"name": "second.example"})
+
+    assert second.status_code == 402
+    detail = second.json()["detail"]
+    assert detail["code"] == "plan_limit_exceeded"
+    assert detail["metric"] == "monitored_domains"
+    assert detail["current"] == 1
+    assert detail["limit"] == 1
+    assert detail["attempted"] == 1
+    assert detail["can_export"] is True
 
 
 @pytest.mark.parametrize(

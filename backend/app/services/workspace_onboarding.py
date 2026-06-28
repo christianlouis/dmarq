@@ -21,6 +21,7 @@ from app.services.organizations import (
     ensure_entitlements,
     ensure_subscription,
     get_or_create_starter_plan,
+    require_organization_plan_limit,
 )
 from app.services.workspace_access import ROLE_WORKSPACE_OWNER, user_for_auth_context
 from app.services.workspace_audit import record_workspace_audit_log, sanitize_audit_details
@@ -575,7 +576,9 @@ def build_onboarding_plan(  # pylint: disable=too-many-locals
     return plan
 
 
-def _ensure_organization(db: Session, organization_plan: Dict[str, Any]) -> Tuple[Organization, str]:
+def _ensure_organization(
+    db: Session, organization_plan: Dict[str, Any]
+) -> Tuple[Organization, str]:
     organization = (
         db.query(Organization).filter(Organization.slug == organization_plan["slug"]).first()
     )
@@ -644,6 +647,12 @@ def _apply_domains(
                 }
             )
             continue
+        if workspace.organization:
+            require_organization_plan_limit(
+                db,
+                workspace.organization,
+                "monitored_domains",
+            )
         domain = Domain(
             workspace_id=workspace.id,
             name=item["name"],

@@ -12,11 +12,13 @@ from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.dns_cache import DNSRecordChange, DNSRecordSnapshot
 from app.models.domain import Domain
+from app.models.organization import Entitlement, Organization
 from app.models.setting import Setting
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services import cloudflare_dns
 from app.services.cloudflare_dns import analyze_dns_records, sync_dns_record_changes
+from app.services.organizations import OrganizationPlanLimitError
 from app.services.workspaces import get_or_create_default_workspace
 
 DOMAIN = "example.com"
@@ -300,6 +302,46 @@ def test_import_cloudflare_domains_imports_requested_and_skips_others(db_session
     assert result["existing"] == []
     assert sorted(result["skipped"]) == [DOMAIN, "skip.example"]
     assert db_session.query(Domain).filter(Domain.name == "new.example").first() is not None
+
+
+def test_import_cloudflare_domains_respects_monitored_domain_plan_limit(db_session):
+    organization = Organization(slug="cf-quota", name="CF Quota", active=True)
+    workspace = Workspace(slug="cf-quota", name="CF Quota", organization=organization, active=True)
+    db_session.add_all(
+        [
+            organization,
+            workspace,
+            Entitlement(
+                organization=organization,
+                key="monitored_domains",
+                value="1",
+                source="plan",
+                active=True,
+            ),
+        ]
+    )
+    db_session.flush()
+    db_session.add(Domain(name="existing.example", workspace_id=workspace.id, active=True))
+    db_session.commit()
+
+    async def fake_discover(_db, workspace_id=None):
+        return [{"id": "zone-1", "name": "new.example", "imported": False}]
+
+    with patch("app.services.cloudflare_dns.discover_cloudflare_zones", new=fake_discover):
+        try:
+            asyncio.run(
+                cloudflare_dns.import_cloudflare_domains(
+                    db_session,
+                    requested_domains=["new.example"],
+                    workspace_id=workspace.id,
+                )
+            )
+        except OrganizationPlanLimitError as exc:
+            assert exc.to_detail()["metric"] == "monitored_domains"
+            assert exc.to_detail()["current"] == 1
+            assert exc.to_detail()["limit"] == 1
+        else:
+            raise AssertionError("Expected monitored domain plan limit")
 
 
 def test_get_zone_for_domain_uses_configured_zone_id_even_if_zone_lookup_fails(db_session):

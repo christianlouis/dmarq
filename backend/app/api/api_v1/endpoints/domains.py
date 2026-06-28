@@ -33,6 +33,10 @@ from app.services.dns_resolver import (
     get_default_provider,
 )
 from app.services.mta_sts import MTAStsResult, check_mta_sts_cached
+from app.services.organizations import (
+    OrganizationPlanLimitError,
+    require_organization_plan_limit,
+)
 from app.services.report_persistence import (
     hydrate_report_store_from_db,
 )
@@ -82,6 +86,10 @@ def _authorized_domain_read_workspace(
         PERMISSION_REPORTS_READ,
         selected_workspace_id=selected_workspace_id,
     )
+
+
+def _raise_plan_limit_error(exc: OrganizationPlanLimitError) -> None:
+    raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=exc.to_detail())
 
 
 def _normalize_reported_policy(policy_value: Any) -> Optional[str]:
@@ -1312,6 +1320,15 @@ async def create_domain(
             status_code=status.HTTP_409_CONFLICT,
             detail="Domain is already monitored",
         )
+    if workspace.organization:
+        try:
+            require_organization_plan_limit(
+                db,
+                workspace.organization,
+                "monitored_domains",
+            )
+        except OrganizationPlanLimitError as exc:
+            _raise_plan_limit_error(exc)
 
     selectors = ",".join(
         selector.strip()
@@ -1730,6 +1747,8 @@ async def import_cloudflare_domain_zones(
             requested_domains=payload.domains,
             workspace_id=workspace.id,
         )
+    except OrganizationPlanLimitError as exc:
+        _raise_plan_limit_error(exc)
     except LookupError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

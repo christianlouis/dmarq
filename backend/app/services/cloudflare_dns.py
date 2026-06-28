@@ -15,11 +15,13 @@ from app.core.credential_encryption import decrypt_secret
 from app.models.dns_cache import DNSRecordChange, DNSRecordSnapshot
 from app.models.domain import Domain
 from app.models.setting import Setting
+from app.models.workspace import Workspace
 from app.services.dns_resolver import (
     CloudflareDNSProvider,
     extract_dmarc_policy,
     parse_dmarc_record_tags,
 )
+from app.services.organizations import require_organization_plan_limit
 from app.services.workspaces import assign_default_workspace_to_unscoped_rows
 
 PROVIDER_NAME = "cloudflare"
@@ -105,6 +107,8 @@ async def import_cloudflare_domains(
     if workspace_id is None:
         workspace = assign_default_workspace_to_unscoped_rows(db)
         workspace_id = workspace.id
+    else:
+        workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
     zones = await discover_cloudflare_zones(db, workspace_id=workspace_id)
     requested = {domain.strip().lower() for domain in requested_domains or [] if domain.strip()}
     imported: List[str] = []
@@ -122,7 +126,14 @@ async def import_cloudflare_domains(
             .first()
         )
         if domain is None:
+            if workspace and workspace.organization:
+                require_organization_plan_limit(
+                    db,
+                    workspace.organization,
+                    "monitored_domains",
+                )
             db.add(Domain(name=name, active=True, verified=True, workspace_id=workspace_id))
+            db.flush()
             imported.append(name)
         else:
             existing.append(name)

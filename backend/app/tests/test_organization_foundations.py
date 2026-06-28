@@ -25,12 +25,15 @@ from app.services.organizations import (
     DEFAULT_ORGANIZATION_SLUG,
     SELF_HOSTED_PLAN_CODE,
     STARTER_PLAN_CODE,
+    OrganizationPlanLimitError,
     account_state_for_subscriptions,
     bootstrap_default_commercial_foundation,
     get_or_create_starter_plan,
     list_organization_summaries,
+    organization_plan_limit,
     organization_summary,
     require_organization_feature,
+    require_organization_plan_limit,
 )
 from app.services.workspace_access import (
     PERMISSION_DOMAINS_WRITE,
@@ -193,6 +196,7 @@ def test_organization_summary_exposes_plan_limit_usage(db_session: Session):
     assert limits["monitored_domains"]["current"] == 1
     assert limits["monitored_domains"]["limit"] == 1
     assert limits["monitored_domains"]["status"] == "warning"
+    assert limits["monitored_domains"]["enforced"] is True
     assert limits["api_tokens"]["current"] == 1
     assert limits["api_tokens"]["limit"] == 0
     assert limits["api_tokens"]["status"] == "exceeded"
@@ -242,6 +246,131 @@ def test_organization_summary_handles_unbounded_and_missing_entitlements(
     assert limits["retention_days"]["status"] == "ok"
     assert limits["mail_sources"]["limit"] is None
     assert limits["mail_sources"]["source"] == "override"
+
+
+def test_require_organization_plan_limit_allows_unconfigured_and_unlimited_limits(
+    db_session: Session,
+):
+    organization = Organization(slug="quota-open", name="Quota Open", active=True)
+    workspace = Workspace(slug="quota-open-main", name="Quota Open Main", organization=organization)
+    db_session.add_all(
+        [
+            organization,
+            workspace,
+            Entitlement(
+                organization=organization,
+                key="mail_sources",
+                value="unlimited",
+                source="plan",
+                active=True,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    assert organization_plan_limit(db_session, organization, "monitored_domains") is None
+    require_organization_plan_limit(
+        db_session,
+        organization,
+        "monitored_domains",
+    )
+    require_organization_plan_limit(
+        db_session,
+        organization,
+        "mail_sources",
+        increment=100,
+    )
+    require_organization_plan_limit(
+        db_session,
+        organization,
+        "mail_sources",
+        increment=0,
+    )
+
+
+def test_require_organization_plan_limit_raises_structured_limit_error(
+    db_session: Session,
+):
+    organization = Organization(slug="quota-blocked", name="Quota Blocked", active=True)
+    workspace = Workspace(
+        slug="quota-blocked-main",
+        name="Quota Blocked Main",
+        organization=organization,
+    )
+    db_session.add_all(
+        [
+            organization,
+            workspace,
+            Entitlement(
+                organization=organization,
+                key="monitored_domains",
+                value="2",
+                source="plan",
+                active=True,
+            ),
+            Domain(workspace=workspace, name="one.example", active=True),
+            Domain(workspace=workspace, name="two.example", active=True),
+        ]
+    )
+    db_session.commit()
+
+    with pytest.raises(OrganizationPlanLimitError) as exc_info:
+        require_organization_plan_limit(
+            db_session,
+            organization,
+            "monitored_domains",
+        )
+
+    assert str(exc_info.value) == (
+        "Plan limit for monitored_domains would be exceeded " "(2 current + 1 requested > 2 count)"
+    )
+    assert exc_info.value.to_detail() == {
+        "code": "plan_limit_exceeded",
+        "metric": "monitored_domains",
+        "current": 2,
+        "limit": 2,
+        "attempted": 1,
+        "unit": "count",
+        "entitlement_key": "monitored_domains",
+        "can_export": True,
+        "message": (
+            "Plan limit for monitored_domains would be exceeded "
+            "(2 current + 1 requested > 2 count)"
+        ),
+    }
+
+
+def test_require_organization_plan_limit_allows_within_limit_increment(
+    db_session: Session,
+):
+    organization = Organization(slug="quota-room", name="Quota Room", active=True)
+    workspace = Workspace(slug="quota-room-main", name="Quota Room Main", organization=organization)
+    db_session.add_all(
+        [
+            organization,
+            workspace,
+            Entitlement(
+                organization=organization,
+                key="monitored_domains",
+                value="2",
+                source="plan",
+                active=True,
+            ),
+            Domain(workspace=workspace, name="one.example", active=True),
+        ]
+    )
+    db_session.commit()
+
+    limit = organization_plan_limit(db_session, organization, "monitored_domains")
+
+    assert limit is not None
+    assert limit["current"] == 1
+    assert limit["remaining"] == 1
+    require_organization_plan_limit(
+        db_session,
+        organization,
+        "monitored_domains",
+    )
 
 
 def test_duplicate_active_entitlements_use_latest_row(db_session: Session):
