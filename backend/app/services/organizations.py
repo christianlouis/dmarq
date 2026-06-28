@@ -9,7 +9,9 @@ from typing import Any, Dict, Iterable, List, Optional
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.models.api_token import APIToken
 from app.models.domain import Domain
+from app.models.mail_source import MailSource
 from app.models.organization import (
     BillingAccount,
     BillingEvent,
@@ -21,6 +23,7 @@ from app.models.organization import (
 )
 from app.models.report import DMARCReport, ForensicReport, ReportRecord
 from app.models.user import User
+from app.models.webhook import WebhookEndpoint
 from app.models.workspace import Workspace
 from app.services.workspaces import normalize_workspace_slug
 
@@ -72,6 +75,18 @@ ACCOUNT_ACTIVE_STATUSES = {"active", "trialing"}
 ACCOUNT_GRACE_STATUSES = {"past_due_provider_reported"}
 ACCOUNT_READ_ONLY_STATUSES = {"suspended", "canceled", "terminated"}
 ACCOUNT_CLOSED_STATUSES = {"canceled", "terminated"}
+FEATURE_ENTITLEMENT_ALIASES: Dict[str, tuple[str, ...]] = {
+    "api_tokens": ("api_tokens", "api_access"),
+    "webhooks": ("webhooks",),
+}
+PLAN_LIMIT_ENTITLEMENT_ALIASES: Dict[str, tuple[str, ...]] = {
+    "monitored_domains": ("monitored_domains", "sending_domains"),
+    "mail_sources": ("mail_sources",),
+    "users": ("users",),
+    "api_tokens": FEATURE_ENTITLEMENT_ALIASES["api_tokens"],
+    "webhooks": FEATURE_ENTITLEMENT_ALIASES["webhooks"],
+    "retention_days": ("retention_days",),
+}
 
 
 def _sanitize_payload_summary(payload_summary: Optional[str]) -> Optional[str]:
@@ -468,9 +483,7 @@ def account_state_for_subscriptions(
     return {
         "status": status_value,
         "billing_mode": subscription.billing_mode,
-        "plan_code": (
-            subscription.plan.code if include_plan_code and subscription.plan else None
-        ),
+        "plan_code": (subscription.plan.code if include_plan_code and subscription.plan else None),
         "read_only": read_only,
         "can_mutate": not read_only,
         "can_export": True,
@@ -479,6 +492,177 @@ def account_state_for_subscriptions(
         "reason": reason,
         "blocking_subscription_id": subscription.id if read_only else None,
     }
+
+
+def _entitlements_by_key(entitlements: Iterable[Entitlement]) -> Dict[str, Entitlement]:
+    return {entitlement.key: entitlement for entitlement in entitlements}
+
+
+def _entitlement_for_feature(
+    entitlements: Dict[str, Entitlement],
+    feature_key: str,
+) -> Optional[Entitlement]:
+    for key in FEATURE_ENTITLEMENT_ALIASES.get(feature_key, (feature_key,)):
+        entitlement = entitlements.get(key)
+        if entitlement is not None:
+            return entitlement
+    return None
+
+
+def _normalized_entitlement_value(value: Any) -> str:
+    return str(value if value is not None else "").strip().lower()
+
+
+def _entitlement_allows(value: Any) -> bool:
+    normalized = _normalized_entitlement_value(value)
+    return normalized in {"true", "1", "yes", "y", "on", "enabled", "unlimited"}
+
+
+def _entitlement_limit(value: Any) -> Optional[int]:
+    normalized = _normalized_entitlement_value(value)
+    if normalized in {"", "false", "no", "off", "disabled"}:
+        return 0
+    if normalized in {"true", "yes", "on", "enabled", "unlimited"}:
+        return None
+    try:
+        limit = int(normalized)
+    except (TypeError, ValueError):
+        return None
+    return max(0, limit)
+
+
+def _limit_status(current: int, limit: Optional[int]) -> str:
+    if limit is None:
+        return "ok"
+    if current > limit:
+        return "exceeded"
+    if limit > 0 and current >= max(1, int(limit * 0.8)):
+        return "warning"
+    return "ok"
+
+
+def _limit_payload(
+    *,
+    metric: str,
+    current: int,
+    limit: Optional[int],
+    unit: str = "count",
+    enforced: bool = True,
+) -> Dict[str, Any]:
+    return {
+        "metric": metric,
+        "current": int(current or 0),
+        "limit": limit,
+        "remaining": None if limit is None else max(0, limit - int(current or 0)),
+        "unit": unit,
+        "status": _limit_status(int(current or 0), limit),
+        "enforced": enforced,
+    }
+
+
+def organization_feature_allowed(
+    entitlements: Iterable[Entitlement],
+    feature_key: str,
+) -> bool:
+    """Return whether an organization entitlement allows an optional feature."""
+    entitlement = _entitlement_for_feature(_entitlements_by_key(entitlements), feature_key)
+    if entitlement is None:
+        return True
+    return _entitlement_allows(entitlement.value)
+
+
+def require_organization_feature(
+    db: Session,
+    organization: Organization,
+    feature_key: str,
+) -> None:
+    """Raise ValueError when an optional feature is not included in the plan."""
+    entitlements = (
+        db.query(Entitlement)
+        .filter(
+            Entitlement.organization_id == organization.id,
+            Entitlement.active.is_(True),
+        )
+        .all()
+    )
+    if organization_feature_allowed(entitlements, feature_key):
+        return
+
+    entitlement = _entitlement_for_feature(_entitlements_by_key(entitlements), feature_key)
+    raise ValueError(
+        f"Feature '{feature_key}' is not included in this organization's current plan"
+        + (f" ({entitlement.key}={entitlement.value})" if entitlement else "")
+    )
+
+
+def _plan_limits_for_organization(
+    db: Session,
+    organization: Organization,
+    workspaces: List[Workspace],
+    entitlements: List[Entitlement],
+) -> Dict[str, Dict[str, Any]]:
+    entitlement_map = _entitlements_by_key(entitlements)
+    workspace_ids = [workspace.id for workspace in workspaces]
+    workspace_filter = workspace_ids or [-1]
+    active_workspace_count = sum(1 for workspace in workspaces if workspace.active)
+
+    current_values = {
+        "monitored_domains": (
+            db.query(func.count(Domain.id))
+            .filter(Domain.workspace_id.in_(workspace_filter), Domain.active.is_(True))
+            .scalar()
+            or 0
+        ),
+        "mail_sources": (
+            db.query(func.count(MailSource.id))
+            .filter(MailSource.workspace_id.in_(workspace_filter), MailSource.enabled.is_(True))
+            .scalar()
+            or 0
+        ),
+        "users": (
+            db.query(func.count(User.id))
+            .filter(User.workspace_id.in_(workspace_filter), User.is_active.is_(True))
+            .scalar()
+            or 0
+        ),
+        "api_tokens": (
+            db.query(func.count(APIToken.id))
+            .filter(APIToken.workspace_id.in_(workspace_filter), APIToken.active.is_(True))
+            .scalar()
+            or 0
+        ),
+        "webhooks": (
+            db.query(func.count(WebhookEndpoint.id))
+            .filter(
+                WebhookEndpoint.workspace_id.in_(workspace_filter),
+                WebhookEndpoint.enabled.is_(True),
+            )
+            .scalar()
+            or 0
+        ),
+        "retention_days": max(
+            [workspace.report_retention_days or 0 for workspace in workspaces] or [0]
+        ),
+    }
+    current_values["workspaces"] = active_workspace_count
+
+    limits: Dict[str, Dict[str, Any]] = {}
+    for metric, aliases in PLAN_LIMIT_ENTITLEMENT_ALIASES.items():
+        entitlement = next(
+            (entitlement_map.get(alias) for alias in aliases if alias in entitlement_map), None
+        )
+        if entitlement is None:
+            continue
+        limits[metric] = _limit_payload(
+            metric=metric,
+            current=current_values.get(metric, 0),
+            limit=_entitlement_limit(entitlement.value),
+            unit="days" if metric == "retention_days" else "count",
+            enforced=metric in {"api_tokens", "webhooks"},
+        )
+        limits[metric]["source"] = entitlement.source
+        limits[metric]["entitlement_key"] = entitlement.key
+    return limits
 
 
 def organization_summary(db: Session, organization: Organization) -> Dict[str, Any]:
@@ -530,6 +714,7 @@ def organization_summary(db: Session, organization: Organization) -> Dict[str, A
             }
             for entitlement in entitlements
         },
+        "plan_limits": _plan_limits_for_organization(db, organization, workspaces, entitlements),
         "metrics": {
             "workspace_count": len(workspaces),
             "active_workspace_count": sum(1 for workspace in workspaces if workspace.active),

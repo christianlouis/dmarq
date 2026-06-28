@@ -15,6 +15,7 @@ from app.services.api_tokens import (
     revoke_api_token,
     token_to_dict,
 )
+from app.services.organizations import require_organization_feature
 from app.services.workspace_access import (
     PERMISSION_WORKSPACE_ADMIN,
     parse_selected_workspace_id,
@@ -37,6 +38,23 @@ def _authorized_api_token_workspace(
         PERMISSION_WORKSPACE_ADMIN,
         selected_workspace_id=selected_workspace_id,
     )
+
+
+def _require_api_token_entitlement(db: Session, workspace) -> None:
+    if workspace.organization is None:
+        return
+    try:
+        require_organization_feature(db, workspace.organization, "api_tokens")
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "code": "feature_not_included",
+                "feature": "api_tokens",
+                "message": str(exc),
+                "can_export": True,
+            },
+        ) from exc
 
 
 class APITokenCreateRequest(BaseModel):
@@ -114,6 +132,7 @@ async def create_public_api_token(
         db,
         parse_selected_workspace_id(selected_workspace),
     )
+    _require_api_token_entitlement(db, workspace)
     try:
         created = create_api_token(
             db,

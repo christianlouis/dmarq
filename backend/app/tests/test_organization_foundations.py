@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import require_admin_auth
+from app.models.api_token import APIToken
+from app.models.domain import Domain
 from app.models.organization import (
     BillingAccount,
     Entitlement,
@@ -15,6 +17,7 @@ from app.models.organization import (
     Subscription,
 )
 from app.models.user import User
+from app.models.webhook import WebhookEndpoint
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceMembership
 from app.services.organizations import (
@@ -27,6 +30,7 @@ from app.services.organizations import (
     get_or_create_starter_plan,
     list_organization_summaries,
     organization_summary,
+    require_organization_feature,
 )
 from app.services.workspace_access import (
     PERMISSION_DOMAINS_WRITE,
@@ -127,6 +131,116 @@ def test_list_organization_summaries_materializes_account_state(db_session: Sess
     assert summaries[0]["account_state"]["status"] == "active"
     assert summaries[0]["account_state"]["can_mutate"] is True
     assert summaries[0]["account_state"]["can_export"] is True
+
+
+def test_organization_summary_exposes_plan_limit_usage(db_session: Session):
+    organization = Organization(slug="limits", name="Limits", active=True)
+    workspace = Workspace(slug="limits-main", name="Limits Main", organization=organization)
+    db_session.add_all(
+        [
+            organization,
+            workspace,
+            Entitlement(
+                organization=organization,
+                key="monitored_domains",
+                value="1",
+                source="plan",
+                active=True,
+            ),
+            Entitlement(
+                organization=organization,
+                key="api_tokens",
+                value="false",
+                source="plan",
+                active=True,
+            ),
+            Entitlement(
+                organization=organization,
+                key="webhooks",
+                value="false",
+                source="plan",
+                active=True,
+            ),
+        ]
+    )
+    db_session.flush()
+    db_session.add_all(
+        [
+            Domain(workspace_id=workspace.id, name="example.com", active=True),
+            APIToken(
+                workspace_id=workspace.id,
+                name="existing",
+                key_hash="hash",
+                key_prefix="dmarq_existing",
+                scopes="reports:read",
+                active=True,
+            ),
+            WebhookEndpoint(
+                workspace_id=workspace.id,
+                name="hook",
+                url="https://hooks.example/dmarq",
+                secret="stored",
+                event_types="*",
+                enabled=True,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    limits = organization_summary(db_session, organization)["plan_limits"]
+
+    assert limits["monitored_domains"]["current"] == 1
+    assert limits["monitored_domains"]["limit"] == 1
+    assert limits["monitored_domains"]["status"] == "warning"
+    assert limits["api_tokens"]["current"] == 1
+    assert limits["api_tokens"]["limit"] == 0
+    assert limits["api_tokens"]["status"] == "exceeded"
+    assert limits["api_tokens"]["enforced"] is True
+    assert limits["webhooks"]["current"] == 1
+    assert limits["webhooks"]["limit"] == 0
+    assert limits["webhooks"]["enforced"] is True
+
+
+def test_organization_summary_handles_unbounded_and_missing_entitlements(
+    db_session: Session,
+):
+    organization = Organization(slug="unbounded", name="Unbounded", active=True)
+    workspace = Workspace(
+        slug="unbounded-main",
+        name="Unbounded Main",
+        organization=organization,
+        report_retention_days=365,
+    )
+    db_session.add_all(
+        [
+            organization,
+            workspace,
+            Entitlement(
+                organization=organization,
+                key="retention_days",
+                value="unlimited",
+                source="plan",
+                active=True,
+            ),
+            Entitlement(
+                organization=organization,
+                key="mail_sources",
+                value="not-metered",
+                source="override",
+                active=True,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    require_organization_feature(db_session, organization, "api_tokens")
+    limits = organization_summary(db_session, organization)["plan_limits"]
+
+    assert limits["retention_days"]["limit"] is None
+    assert limits["retention_days"]["remaining"] is None
+    assert limits["retention_days"]["status"] == "ok"
+    assert limits["mail_sources"]["limit"] is None
+    assert limits["mail_sources"]["source"] == "override"
 
 
 def test_account_state_reports_provider_grace_without_blocking(db_session: Session):

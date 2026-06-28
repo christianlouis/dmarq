@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.webhook import WebhookDelivery, WebhookEndpoint
+from app.services.organizations import require_organization_feature
 from app.services.webhook_events import (
     SUPPORTED_EVENT_TYPES,
     create_webhook_endpoint,
@@ -126,6 +127,23 @@ def _authorized_webhook_workspace(
     )
 
 
+def _require_webhook_entitlement(db: Session, workspace) -> None:
+    if workspace.organization is None:
+        return
+    try:
+        require_organization_feature(db, workspace.organization, "webhooks")
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "code": "feature_not_included",
+                "feature": "webhooks",
+                "message": str(exc),
+                "can_export": True,
+            },
+        ) from exc
+
+
 @router.get("", response_model=WebhookEndpointListResponse)
 async def list_webhook_endpoints(
     db: Session = Depends(get_db),
@@ -164,6 +182,7 @@ async def create_webhook(
         db,
         parse_selected_workspace_id(selected_workspace),
     )
+    _require_webhook_entitlement(db, workspace)
     try:
         endpoint, raw_secret = create_webhook_endpoint(
             db,
@@ -325,6 +344,7 @@ async def test_webhook(
         db,
         parse_selected_workspace_id(selected_workspace),
     )
+    _require_webhook_entitlement(db, workspace)
     endpoint = (
         db.query(WebhookEndpoint)
         .filter(WebhookEndpoint.id == endpoint_id, WebhookEndpoint.workspace_id == workspace.id)
@@ -371,6 +391,7 @@ async def process_due_webhooks(
         db,
         parse_selected_workspace_id(selected_workspace),
     )
+    _require_webhook_entitlement(db, workspace)
     deliveries = deliver_due_webhooks(
         db,
         workspace_id=workspace.id,
