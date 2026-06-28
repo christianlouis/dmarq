@@ -79,8 +79,13 @@ class TestSetupStatus:
 class TestSetupPage:
     """Tests for the rendered setup page."""
 
-    def test_setup_page_renders_guided_wizard(self):
+    def test_setup_page_renders_guided_wizard(self, monkeypatch):
         from app.main import app as main_app
+        from app.main import settings as main_settings
+
+        monkeypatch.setattr(main_settings, "LOGTO_ENDPOINT", None)
+        monkeypatch.setattr(main_settings, "LOGTO_APP_ID", None)
+        monkeypatch.setattr(main_settings, "LOGTO_APP_SECRET", None)
 
         with TestClient(main_app) as test_client:
             response = test_client.get("/setup")
