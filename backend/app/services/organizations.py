@@ -22,6 +22,7 @@ from app.models.organization import (
 from app.models.report import DMARCReport, ForensicReport, ReportRecord
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.services.workspaces import normalize_workspace_slug
 
 DEFAULT_ORGANIZATION_SLUG = "default"
 DEFAULT_ORGANIZATION_NAME = "Default Organization"
@@ -78,6 +79,20 @@ def _sanitize_payload_summary(payload_summary: Optional[str]) -> Optional[str]:
         return None
     escaped = escape(normalized, quote=True)
     return escaped[:MAX_PROVIDER_PAYLOAD_SUMMARY_LENGTH]
+
+
+def _normalize_required_slug(value: str, *, field_name: str) -> str:
+    slug = normalize_workspace_slug(value)
+    if not slug:
+        raise ValueError(f"{field_name} is required")
+    return slug
+
+
+def _clean_required(value: str, *, field_name: str) -> str:
+    clean = (value or "").strip()
+    if not clean:
+        raise ValueError(f"{field_name} is required")
+    return clean
 
 
 def get_or_create_default_organization(db: Session, *, commit: bool = True) -> Organization:
@@ -445,6 +460,314 @@ def organization_summary(db: Session, organization: Organization) -> Dict[str, A
                 or 0
             ),
         },
+    }
+
+
+def _billing_event_to_dict(event: BillingEvent) -> Dict[str, Any]:
+    return {
+        "id": event.id,
+        "event_type": event.event_type,
+        "provider_id": event.provider_id,
+        "external_event_id": event.external_event_id,
+        "status": event.status,
+    }
+
+
+def _find_provider_event(
+    db: Session,
+    *,
+    provider_id: Optional[str],
+    external_event_id: Optional[str],
+) -> Optional[BillingEvent]:
+    if not external_event_id:
+        return None
+    event_query = db.query(BillingEvent).filter(
+        BillingEvent.event_type == "provider.customer_provisioned",
+        BillingEvent.external_event_id == external_event_id,
+    )
+    if provider_id:
+        event_query = event_query.filter(BillingEvent.provider_id == provider_id)
+    return event_query.order_by(BillingEvent.id.asc()).first()
+
+
+def _find_provider_account(
+    db: Session,
+    *,
+    provider_id: Optional[str],
+    external_customer_id: str,
+) -> Optional[BillingAccount]:
+    account_query = db.query(BillingAccount).filter(
+        BillingAccount.external_customer_id == external_customer_id
+    )
+    if provider_id:
+        account_query = account_query.filter(BillingAccount.provider_id == provider_id)
+    return account_query.order_by(BillingAccount.id.asc()).first()
+
+
+def _provider_replay_response(
+    db: Session,
+    *,
+    event: BillingEvent,
+    provider_id: Optional[str],
+    external_customer_id: str,
+) -> Dict[str, Any]:
+    organization = None
+    if event.organization_id:
+        organization = (
+            db.query(Organization).filter(Organization.id == event.organization_id).first()
+        )
+    if organization is None:
+        account = _find_provider_account(
+            db,
+            provider_id=provider_id,
+            external_customer_id=external_customer_id,
+        )
+        organization = account.organization if account else None
+    return {
+        "created": False,
+        "idempotent_replay": True,
+        "organization": organization_summary(db, organization) if organization else None,
+        "billing_event": _billing_event_to_dict(event),
+    }
+
+
+def _resolve_provider_organization_and_account(
+    db: Session,
+    *,
+    provider_id: Optional[str],
+    external_customer_id: str,
+    organization_slug: str,
+    organization_name: str,
+) -> tuple[Organization, BillingAccount, bool]:
+    account = _find_provider_account(
+        db,
+        provider_id=provider_id,
+        external_customer_id=external_customer_id,
+    )
+    if account:
+        organization = account.organization
+        created = False
+    else:
+        organization = db.query(Organization).filter(Organization.slug == organization_slug).first()
+        created = organization is None
+        if organization is None:
+            organization = Organization(slug=organization_slug, name=organization_name, active=True)
+            db.add(organization)
+            db.flush()
+        else:
+            conflicting_account = (
+                db.query(BillingAccount)
+                .filter(
+                    BillingAccount.organization_id == organization.id,
+                    BillingAccount.external_customer_id.isnot(None),
+                    BillingAccount.external_customer_id != external_customer_id,
+                )
+                .first()
+            )
+            if conflicting_account:
+                raise ValueError("organization_slug is already linked to another provider customer")
+        account = BillingAccount(
+            organization_id=organization.id,
+            billing_mode=BILLING_MODE_PROVIDER_RESALE,
+            status="active",
+            provider_id=provider_id,
+            external_customer_id=external_customer_id,
+            invoice_delivery_mode="provider_invoice",
+        )
+        db.add(account)
+        db.flush()
+        created = True
+
+    organization.name = organization_name
+    organization.active = True
+    account.status = "active"
+    account.billing_mode = BILLING_MODE_PROVIDER_RESALE
+    account.provider_id = provider_id
+    account.external_customer_id = external_customer_id
+    account.invoice_delivery_mode = "provider_invoice"
+    return organization, account, created
+
+
+def _resolve_provider_workspace(
+    db: Session,
+    *,
+    organization: Organization,
+    workspace_slug: str,
+    workspace_name: str,
+) -> tuple[Workspace, bool]:
+    workspace = db.query(Workspace).filter(Workspace.slug == workspace_slug).first()
+    if workspace and workspace.organization_id != organization.id:
+        raise ValueError("workspace_slug is already linked to another organization")
+    if workspace is None:
+        workspace = Workspace(
+            slug=workspace_slug,
+            name=workspace_name,
+            organization_id=organization.id,
+            active=True,
+        )
+        db.add(workspace)
+        return workspace, True
+    workspace.name = workspace_name
+    workspace.organization_id = organization.id
+    workspace.active = True
+    return workspace, False
+
+
+def _resolve_provider_plan(db: Session, *, plan_code: str) -> Plan:
+    plan = db.query(Plan).filter(Plan.code == plan_code, Plan.active.is_(True)).first()
+    if plan:
+        return plan
+    if plan_code == STARTER_PLAN_CODE:
+        return get_or_create_starter_plan(db, commit=False)
+    raise ValueError("plan_code does not exist or is inactive")
+
+
+def _resolve_provider_subscription(
+    db: Session,
+    *,
+    organization: Organization,
+    account: BillingAccount,
+    plan: Plan,
+    external_subscription_id: str,
+    plan_code: str = STARTER_PLAN_CODE,
+    external_product_code: Optional[str] = None,
+) -> tuple[Subscription, bool]:
+    subscription = (
+        db.query(Subscription)
+        .filter(Subscription.external_subscription_id == external_subscription_id)
+        .first()
+    )
+    if subscription and subscription.organization_id != organization.id:
+        raise ValueError("external_subscription_id is already linked to another organization")
+    if subscription is None:
+        subscription = Subscription(
+            organization_id=organization.id,
+            plan_id=plan.id,
+            billing_account_id=account.id,
+            billing_mode=BILLING_MODE_PROVIDER_RESALE,
+            status="active",
+            current_period_start=datetime.utcnow(),
+            external_subscription_id=external_subscription_id,
+            external_product_code=(external_product_code or plan_code).strip() or plan_code,
+        )
+        db.add(subscription)
+        return subscription, True
+    subscription.plan_id = plan.id
+    subscription.billing_account_id = account.id
+    subscription.billing_mode = BILLING_MODE_PROVIDER_RESALE
+    subscription.status = "active"
+    subscription.external_product_code = (
+        external_product_code or subscription.external_product_code or plan_code
+    ).strip() or plan_code
+    subscription.canceled_at = None
+    return subscription, False
+
+
+def provision_provider_customer(
+    db: Session,
+    *,
+    external_customer_id: str,
+    external_subscription_id: str,
+    organization_slug: str,
+    organization_name: str,
+    workspace_slug: Optional[str] = None,
+    workspace_name: Optional[str] = None,
+    provider_id: Optional[str] = None,
+    plan_code: str = STARTER_PLAN_CODE,
+    external_product_code: Optional[str] = None,
+    external_event_id: Optional[str] = None,
+    payload_summary: Optional[str] = None,
+    commit: bool = True,
+) -> Dict[str, Any]:
+    """Provision or update a provider-billed customer tenant idempotently."""
+    provider = (provider_id or "").strip() or None
+    external_customer = _clean_required(
+        external_customer_id,
+        field_name="external_customer_id",
+    )
+    external_subscription = _clean_required(
+        external_subscription_id,
+        field_name="external_subscription_id",
+    )
+    org_slug = _normalize_required_slug(organization_slug, field_name="organization_slug")
+    org_name = _clean_required(organization_name, field_name="organization_name")
+    ws_slug = _normalize_required_slug(
+        workspace_slug or f"{org_slug}-workspace",
+        field_name="workspace_slug",
+    )
+    ws_name = (workspace_name or f"{org_name} Workspace").strip()
+    plan_key = (plan_code or STARTER_PLAN_CODE).strip()
+
+    replay_event = _find_provider_event(
+        db,
+        provider_id=provider,
+        external_event_id=external_event_id,
+    )
+    if replay_event:
+        return _provider_replay_response(
+            db,
+            event=replay_event,
+            provider_id=provider,
+            external_customer_id=external_customer,
+        )
+
+    organization, account, created_account = _resolve_provider_organization_and_account(
+        db,
+        provider_id=provider,
+        external_customer_id=external_customer,
+        organization_slug=org_slug,
+        organization_name=org_name,
+    )
+    _, created_workspace = _resolve_provider_workspace(
+        db,
+        organization=organization,
+        workspace_slug=ws_slug,
+        workspace_name=ws_name,
+    )
+    db.flush()
+
+    plan = _resolve_provider_plan(db, plan_code=plan_key)
+    subscription, created_subscription = _resolve_provider_subscription(
+        db,
+        organization=organization,
+        account=account,
+        plan=plan,
+        external_subscription_id=external_subscription,
+        plan_code=plan_key,
+        external_product_code=external_product_code,
+    )
+    db.flush()
+
+    ensure_entitlements(
+        db,
+        organization,
+        subscription,
+        STARTER_PLAN_ENTITLEMENTS,
+        commit=False,
+    )
+    event = BillingEvent(
+        organization_id=organization.id,
+        subscription_id=subscription.id,
+        billing_mode=BILLING_MODE_PROVIDER_RESALE,
+        event_type="provider.customer_provisioned",
+        provider_id=provider,
+        external_event_id=external_event_id,
+        status="applied",
+        payload_summary=_sanitize_payload_summary(payload_summary),
+    )
+    db.add(event)
+    if commit:
+        db.commit()
+        db.refresh(organization)
+        db.refresh(event)
+    else:
+        db.flush()
+
+    return {
+        "created": created_account or created_workspace or created_subscription,
+        "idempotent_replay": False,
+        "organization": organization_summary(db, organization),
+        "billing_event": _billing_event_to_dict(event),
     }
 
 

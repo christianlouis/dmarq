@@ -10,6 +10,7 @@ from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.services.organizations import (
     build_usage_export,
+    provision_provider_customer,
     update_external_subscription_state,
     usage_period_for_current_month,
 )
@@ -39,6 +40,28 @@ class ProviderSubscriptionStateUpdate(BaseModel):
 
 class ProviderSubscriptionStateResponse(BaseModel):
     """Provider subscription lifecycle update response."""
+
+    result: Dict[str, Any]
+
+
+class ProviderCustomerProvisionRequest(BaseModel):
+    """Provider request to provision or refresh a billed customer tenant."""
+
+    external_customer_id: str
+    external_subscription_id: str
+    organization_slug: str
+    organization_name: str
+    workspace_slug: Optional[str] = None
+    workspace_name: Optional[str] = None
+    provider_id: Optional[str] = None
+    plan_code: str = "starter"
+    external_product_code: Optional[str] = None
+    external_event_id: Optional[str] = None
+    payload_summary: Optional[str] = None
+
+
+class ProviderCustomerProvisionResponse(BaseModel):
+    """Provider customer provisioning response."""
 
     result: Dict[str, Any]
 
@@ -101,6 +124,36 @@ async def get_provider_account_billing_usage(
             organization_ids=organization_ids,
         )
     }
+
+
+@router.post("/customers", response_model=ProviderCustomerProvisionResponse)
+async def provision_provider_customer_endpoint(
+    payload: ProviderCustomerProvisionRequest,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+) -> ProviderCustomerProvisionResponse:
+    """Provision a provider-billed organization and default workspace."""
+    try:
+        result = provision_provider_customer(
+            db,
+            external_customer_id=payload.external_customer_id,
+            external_subscription_id=payload.external_subscription_id,
+            organization_slug=payload.organization_slug,
+            organization_name=payload.organization_name,
+            workspace_slug=payload.workspace_slug,
+            workspace_name=payload.workspace_name,
+            provider_id=payload.provider_id,
+            plan_code=payload.plan_code,
+            external_product_code=payload.external_product_code,
+            external_event_id=payload.external_event_id,
+            payload_summary=payload.payload_summary,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    return {"result": result}
 
 
 @router.post(

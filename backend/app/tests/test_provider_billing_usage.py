@@ -8,7 +8,14 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.domain import Domain
-from app.models.organization import BillingAccount, BillingEvent, Organization, Plan, Subscription
+from app.models.organization import (
+    BillingAccount,
+    BillingEvent,
+    Entitlement,
+    Organization,
+    Plan,
+    Subscription,
+)
 from app.models.report import DMARCReport, ForensicReport, ReportRecord
 from app.models.user import User
 from app.models.workspace import Workspace
@@ -18,6 +25,7 @@ from app.services.organizations import (
     MAX_PROVIDER_PAYLOAD_SUMMARY_LENGTH,
     bootstrap_default_commercial_foundation,
     build_usage_export,
+    provision_provider_customer,
     update_external_subscription_state,
 )
 from app.services.workspace_access import ROLE_AUDITOR, ROLE_WORKSPACE_OWNER
@@ -83,6 +91,180 @@ def _add_provider_customer(
     db_session.add_all([workspace, account, subscription])
     db_session.flush()
     return organization, workspace, subscription
+
+
+def test_provider_customer_provisioning_creates_provider_billed_tenant(
+    db_session: Session,
+):
+    result = provision_provider_customer(
+        db_session,
+        provider_id="isp-demo",
+        external_customer_id="cust-new-123",
+        external_subscription_id="sub-new-123",
+        external_event_id="evt-provision-1",
+        organization_slug="New Customer LLC",
+        organization_name="New Customer LLC",
+        workspace_slug="New Customer Primary",
+        workspace_name="New Customer Primary",
+        payload_summary="created from hosting control panel",
+    )
+
+    organization = (
+        db_session.query(Organization).filter(Organization.slug == "new-customer-llc").one()
+    )
+    workspace = db_session.query(Workspace).filter(Workspace.slug == "new-customer-primary").one()
+    account = (
+        db_session.query(BillingAccount)
+        .filter(BillingAccount.external_customer_id == "cust-new-123")
+        .one()
+    )
+    subscription = (
+        db_session.query(Subscription)
+        .filter(Subscription.external_subscription_id == "sub-new-123")
+        .one()
+    )
+    entitlements = {
+        entitlement.key: entitlement.value
+        for entitlement in db_session.query(Entitlement)
+        .filter(Entitlement.organization_id == organization.id)
+        .all()
+    }
+    event = db_session.query(BillingEvent).filter_by(external_event_id="evt-provision-1").one()
+
+    assert result["created"] is True
+    assert result["organization"]["slug"] == "new-customer-llc"
+    assert organization.active is True
+    assert workspace.organization_id == organization.id
+    assert account.billing_mode == BILLING_MODE_PROVIDER_RESALE
+    assert account.provider_id == "isp-demo"
+    assert account.invoice_delivery_mode == "provider_invoice"
+    assert subscription.billing_mode == BILLING_MODE_PROVIDER_RESALE
+    assert subscription.stripe_subscription_id is None
+    assert entitlements["forensic_reports"] == "true"
+    assert entitlements["retention_days"] == "90"
+    assert event.event_type == "provider.customer_provisioned"
+    assert event.payload_summary == "created from hosting control panel"
+
+    usage = build_usage_export(
+        db_session,
+        period="2026-06",
+        external_customer_id="cust-new-123",
+    )
+    assert usage["organizations"][0]["organization"]["slug"] == "new-customer-llc"
+
+
+def test_provider_customer_provisioning_replays_provider_event_without_duplicates(
+    db_session: Session,
+):
+    first = provision_provider_customer(
+        db_session,
+        provider_id="isp-demo",
+        external_customer_id="cust-replay",
+        external_subscription_id="sub-replay",
+        external_event_id="evt-replay",
+        organization_slug="Replay Customer",
+        organization_name="Replay Customer",
+    )
+
+    replay = provision_provider_customer(
+        db_session,
+        provider_id="isp-demo",
+        external_customer_id="cust-replay",
+        external_subscription_id="sub-replay",
+        external_event_id="evt-replay",
+        organization_slug="Replay Customer Renamed",
+        organization_name="Replay Customer Renamed",
+    )
+
+    assert first["idempotent_replay"] is False
+    assert replay["idempotent_replay"] is True
+    assert replay["billing_event"]["external_event_id"] == "evt-replay"
+    assert (
+        db_session.query(Organization).filter(Organization.slug.like("replay-customer%")).count()
+        == 1
+    )
+    assert (
+        db_session.query(BillingEvent)
+        .filter(BillingEvent.external_event_id == "evt-replay")
+        .count()
+        == 1
+    )
+
+
+def test_provider_customer_provisioning_rejects_conflicting_identifiers(
+    db_session: Session,
+):
+    provision_provider_customer(
+        db_session,
+        provider_id="isp-demo",
+        external_customer_id="cust-conflict",
+        external_subscription_id="sub-conflict",
+        organization_slug="conflict-customer",
+        organization_name="Conflict Customer",
+        workspace_slug="conflict-workspace",
+    )
+
+    with pytest.raises(ValueError, match="organization_slug"):
+        provision_provider_customer(
+            db_session,
+            provider_id="isp-demo",
+            external_customer_id="cust-other",
+            external_subscription_id="sub-other",
+            organization_slug="conflict-customer",
+            organization_name="Conflict Customer",
+        )
+
+    with pytest.raises(ValueError, match="external_subscription_id"):
+        provision_provider_customer(
+            db_session,
+            provider_id="isp-demo",
+            external_customer_id="cust-third",
+            external_subscription_id="sub-conflict",
+            organization_slug="third-customer",
+            organization_name="Third Customer",
+        )
+
+
+def test_provider_customer_provisioning_endpoint_creates_customer(
+    test_app,
+    db_session: Session,
+):
+    user = User(email="provider-provisioner@example.com", is_active=True, is_verified=True)
+    db_session.add(user)
+    db_session.commit()
+
+    with _client_as_user(test_app, db_session, user) as client:
+        response = client.post(
+            "/api/v1/provider/customers",
+            json={
+                "provider_id": "isp-demo",
+                "external_customer_id": "cust-endpoint",
+                "external_subscription_id": "sub-endpoint",
+                "external_event_id": "evt-endpoint",
+                "organization_slug": "Endpoint Customer",
+                "organization_name": "Endpoint Customer",
+                "workspace_slug": "Endpoint Customer Workspace",
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()["result"]
+        assert body["organization"]["billing_accounts"][0]["external_customer_id"] == (
+            "cust-endpoint"
+        )
+
+        replay = client.post(
+            "/api/v1/provider/customers",
+            json={
+                "provider_id": "isp-demo",
+                "external_customer_id": "cust-endpoint",
+                "external_subscription_id": "sub-endpoint",
+                "external_event_id": "evt-endpoint",
+                "organization_slug": "Endpoint Customer",
+                "organization_name": "Endpoint Customer",
+            },
+        )
+        assert replay.status_code == 200
+        assert replay.json()["result"]["idempotent_replay"] is True
 
 
 def test_provider_usage_export_computes_monthly_metrics(db_session: Session):

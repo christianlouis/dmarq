@@ -35,3 +35,6 @@ Opt-in AI summaries and read-only MCP automation are covered in [AI and MCP Auto
 
 The current product direction across self-hosted, hosted SaaS, ISP/OEM,
 billing, and multi-tenant work is captured in the [Product Roadmap](development/roadmap.md).
+
+ISP, MSP, and hosting-control-panel lifecycle integrations are documented in
+[Provider Integrations](reference/provider-integrations.md).

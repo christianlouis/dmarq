@@ -40,6 +40,7 @@ nav:
     - Configuration: deployment/configuration.md
   - Technical Reference:
     - API Reference: reference/api.md
+    - Provider Integrations: reference/provider-integrations.md
     - SIEM Integrations: reference/siem-integrations.md
     - Ticketing and Chatops: reference/ticketing-chatops-integrations.md
     - Microsoft 365 Graph Connector: reference/microsoft365-graph-connector.md
