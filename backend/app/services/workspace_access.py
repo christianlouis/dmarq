@@ -5,13 +5,19 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Set
 
 from fastapi import HTTPException, status
+from sqlalchemy import case
 from sqlalchemy.orm import Session
 
 from app.models.organization import Organization, OrganizationMembership, Subscription
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceMembership
-from app.services.organizations import account_state_for_subscriptions
+from app.services.organizations import (
+    ACCOUNT_ACTIVE_STATUSES,
+    ACCOUNT_CLOSED_STATUSES,
+    ACCOUNT_GRACE_STATUSES,
+    account_state_for_subscriptions,
+)
 from app.services.workspaces import assign_default_workspace_to_unscoped_rows
 
 ROLE_WORKSPACE_OWNER = "workspace_owner"
@@ -226,7 +232,7 @@ def require_workspace_permission(
     db: Optional[Session] = None,
     workspace: Optional[Workspace] = None,
 ) -> None:
-    """Raise HTTP 403 when the current role does not grant a permission."""
+    """Raise HTTP 403 for missing access or HTTP 402 for read-only accounts."""
     if db is not None and workspace is not None:
         role = role_for_workspace(db, auth_context, workspace)
     else:
@@ -251,15 +257,29 @@ def require_workspace_account_mutation_allowed(
     if db is None or workspace is None or workspace.organization_id is None:
         return
 
-    subscriptions = (
+    status_priority = case(
+        (Subscription.status.in_(ACCOUNT_ACTIVE_STATUSES), 0),
+        (Subscription.status.in_(ACCOUNT_GRACE_STATUSES), 1),
+        (Subscription.status == "suspended", 2),
+        (Subscription.status.in_(ACCOUNT_CLOSED_STATUSES), 3),
+        else_=4,
+    )
+    subscription = (
         db.query(Subscription)
         .filter(
             Subscription.organization_id == workspace.organization_id,
         )
-        .order_by(Subscription.updated_at.desc(), Subscription.created_at.desc())
-        .all()
+        .order_by(
+            status_priority.asc(),
+            Subscription.updated_at.desc().nullslast(),
+            Subscription.created_at.desc().nullslast(),
+        )
+        .first()
     )
-    account_state = account_state_for_subscriptions(subscriptions)
+    account_state = account_state_for_subscriptions(
+        [subscription] if subscription is not None else [],
+        include_plan_code=False,
+    )
     if account_state["can_mutate"]:
         return
 
