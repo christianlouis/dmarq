@@ -1,6 +1,7 @@
 import io
 import zipfile
 from contextlib import contextmanager
+from datetime import date, datetime
 
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
@@ -10,10 +11,12 @@ from app.api.api_v1.endpoints import reports as reports_endpoint
 from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.domain import Domain
+from app.models.organization import Entitlement, Organization
 from app.models.report import DMARCReport, ReportRecord
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceMembership
+from app.services.organizations import OrganizationPlanLimitError
 from app.services.report_persistence import persisted_report_to_dict, save_parsed_report
 from app.services.report_store import ReportStore
 from app.services.workspace_access import ROLE_ANALYST
@@ -121,6 +124,71 @@ def test_upload_report_success(authed_client: TestClient):
     data = response.json()
     assert data["success"] is True
     assert data["domain"] == "example.com"
+
+
+def test_upload_report_returns_plan_limit_detail_for_message_volume(
+    authed_client: TestClient,
+    db_session,
+):
+    """Uploading a report over the monthly message-volume limit returns a structured 402."""
+    organization = Organization(slug="upload-volume-limit", name="Upload Volume Limit")
+    workspace = get_or_create_default_workspace(db_session)
+    workspace.organization = organization
+    domain = Domain(workspace=workspace, name="example.com", active=True)
+    db_session.add_all(
+        [
+            organization,
+            workspace,
+            domain,
+            Entitlement(
+                organization=organization,
+                key="aggregate_messages",
+                value="81",
+                source="plan",
+                active=True,
+            ),
+        ]
+    )
+    db_session.flush()
+    today = date.today()
+    report = DMARCReport(
+        domain_id=domain.id,
+        report_id="existing-upload-volume",
+        org_name="Reporter",
+        begin_date=1,
+        end_date=2,
+        processed_at=datetime(today.year, today.month, 1, 12, 0, 0),
+    )
+    db_session.add(report)
+    db_session.flush()
+    db_session.add(
+        ReportRecord(
+            report_id=report.id,
+            source_ip="203.0.113.10",
+            count=80,
+            disposition="none",
+            dkim="pass",
+            spf="pass",
+            header_from="example.com",
+        )
+    )
+    db_session.commit()
+
+    response = authed_client.post(
+        "/api/v1/reports/upload",
+        files={"file": ("report.zip", _make_zip(SAMPLE_XML), "application/zip")},
+    )
+
+    assert response.status_code == 402
+    detail = response.json()["detail"]
+    assert detail["code"] == "plan_limit_exceeded"
+    assert detail["metric"] == "aggregate_messages"
+    assert detail["current"] == 80
+    assert detail["limit"] == 81
+    assert detail["attempted"] == 2
+    assert detail["unit"] == "messages"
+    assert detail["can_export"] is True
+    assert db_session.query(DMARCReport).filter_by(report_id="123456789").count() == 0
 
 
 def test_report_routes_enforce_workspace_read_and_write_roles(test_app, db_session):
@@ -336,6 +404,45 @@ def test_upload_report_recovers_from_same_workspace_domain_race(
     assert response.json()["domain"] == "example.com"
     assert db_session.query(Domain).filter(Domain.name == "example.com").count() == 1
     assert db_session.query(DMARCReport).filter_by(report_id="123456789").count() == 1
+
+
+def test_upload_report_translates_retry_plan_limit_error(
+    authed_client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    """A retried upload still returns structured quota detail when the retry is over limit."""
+    get_or_create_default_workspace(db_session)
+    db_session.commit()
+    call_count = 0
+
+    def raced_save(db, report, *, workspace_id=None):  # pylint: disable=unused-argument
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise IntegrityError("insert", {}, Exception("UNIQUE constraint failed: domains.name"))
+        raise OrganizationPlanLimitError(
+            metric="aggregate_messages",
+            current=80,
+            limit=81,
+            attempted=2,
+            unit="messages",
+            entitlement_key="aggregate_messages",
+        )
+
+    monkeypatch.setattr(reports_endpoint, "save_parsed_report", raced_save)
+
+    response = authed_client.post(
+        "/api/v1/reports/upload",
+        files={"file": ("report.zip", _make_zip(SAMPLE_XML), "application/zip")},
+    )
+
+    assert response.status_code == 402
+    detail = response.json()["detail"]
+    assert detail["code"] == "plan_limit_exceeded"
+    assert detail["metric"] == "aggregate_messages"
+    assert detail["can_export"] is True
+    assert call_count == 2
 
 
 def test_upload_persists_rfc9990_optional_fields(authed_client: TestClient, db_session):

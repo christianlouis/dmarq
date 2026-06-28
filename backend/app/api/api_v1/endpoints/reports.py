@@ -10,6 +10,7 @@ from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.domain import Domain
 from app.services.dmarc_parser import DMARCParser
+from app.services.organizations import OrganizationPlanLimitError
 from app.services.report_persistence import (
     delete_persisted_report,
     hydrate_report_store_from_db,
@@ -94,14 +95,27 @@ def _save_uploaded_report(
     try:
         save_parsed_report(db, report, workspace_id=workspace_id)
         db.commit()
+    except OrganizationPlanLimitError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=exc.to_detail(),
+        ) from exc
     except IntegrityError as exc:
         db.rollback()
         try:
             _raise_if_domain_owned_by_other_workspace(db, domain, workspace_id)
         except HTTPException as conflict:
             raise conflict from exc
-        save_parsed_report(db, report, workspace_id=workspace_id)
-        db.commit()
+        try:
+            save_parsed_report(db, report, workspace_id=workspace_id)
+            db.commit()
+        except OrganizationPlanLimitError as plan_exc:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail=plan_exc.to_detail(),
+            ) from plan_exc
 
 
 def _hydrated_report_store(db: Session, workspace) -> ReportStore:
