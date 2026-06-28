@@ -262,6 +262,15 @@ def test_organization_summary_exposes_plan_limit_usage(db_session: Session):
                 header_from="example.com",
             ),
             ReportRecord(
+                report_id=current_report.id,
+                source_ip="203.0.113.12",
+                count=-500,
+                disposition="none",
+                dkim="fail",
+                spf="fail",
+                header_from="example.com",
+            ),
+            ReportRecord(
                 report_id=prior_report.id,
                 source_ip="203.0.113.11",
                 count=50,
@@ -920,21 +929,13 @@ def test_save_parsed_report_enforces_aggregate_message_volume_limit(
                 "policy": {"p": "none", "pct": "100"},
                 "records": [
                     {
-                        "source_ip": "203.0.113.19",
-                        "count": "not-a-number",
-                        "disposition": "none",
-                        "dkim_result": "fail",
-                        "spf_result": "fail",
-                        "header_from": "volume.example",
-                    },
-                    {
                         "source_ip": "203.0.113.20",
                         "count": 25,
                         "disposition": "none",
                         "dkim_result": "pass",
                         "spf_result": "pass",
                         "header_from": "volume.example",
-                    },
+                    }
                 ],
             },
             workspace_id=workspace.id,
@@ -956,6 +957,58 @@ def test_save_parsed_report_enforces_aggregate_message_volume_limit(
     }
     assert (
         db_session.query(DMARCReport).filter(DMARCReport.report_id == "new-volume").first() is None
+    )
+
+
+@pytest.mark.parametrize(
+    ("count", "message"),
+    [
+        (-1, "DMARC record count cannot be negative"),
+        ("not-a-number", "DMARC record count must be an integer"),
+    ],
+)
+def test_save_parsed_report_rejects_invalid_aggregate_message_counts(
+    db_session: Session,
+    count,
+    message,
+):
+    organization = Organization(slug="negative-volume", name="Negative Volume", active=True)
+    workspace = Workspace(
+        slug="negative-volume-main",
+        name="Negative Volume Main",
+        organization=organization,
+    )
+    domain = Domain(workspace=workspace, name="negative.example", active=True)
+    db_session.add_all([organization, workspace, domain])
+    db_session.flush()
+
+    with pytest.raises(ValueError, match=message):
+        save_parsed_report(
+            db_session,
+            {
+                "domain": "negative.example",
+                "report_id": "negative-volume",
+                "org_name": "Reporter",
+                "policy": {"p": "none", "pct": "100"},
+                "records": [
+                    {
+                        "source_ip": "203.0.113.30",
+                        "count": count,
+                        "disposition": "none",
+                        "dkim_result": "fail",
+                        "spf_result": "fail",
+                        "header_from": "negative.example",
+                    }
+                ],
+            },
+            workspace_id=workspace.id,
+        )
+
+    assert (
+        db_session.query(DMARCReport)
+        .filter(DMARCReport.report_id == "negative-volume")
+        .first()
+        is None
     )
 
 

@@ -81,22 +81,28 @@ def _policy_parts(report: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _record_message_count(record: Dict[str, Any]) -> int:
+    try:
+        count = int(record.get("count") or 0)
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ValueError("DMARC record count must be an integer") from exc
+    if count < 0:
+        raise ValueError("DMARC record count cannot be negative")
+    return count
+
+
 def _aggregate_message_count(report: Dict[str, Any]) -> int:
-    total = 0
-    for record in report.get("records") or []:
-        try:
-            total += int(record.get("count") or 0)
-        except (AttributeError, TypeError, ValueError):
-            continue
-    return total
+    return sum(_record_message_count(record) for record in report.get("records") or [])
 
 
 def _require_message_volume_limit(
     db: Session,
     *,
-    workspace_id: int,
+    workspace_id: Optional[int],
     report: Dict[str, Any],
 ) -> None:
+    if workspace_id is None:
+        return
     increment = _aggregate_message_count(report)
     if increment <= 0:
         return
@@ -207,7 +213,7 @@ def save_parsed_report(
             ReportRecord(
                 report_id=db_report.id,
                 source_ip=record.get("source_ip") or "unknown",
-                count=int(record.get("count") or 0),
+                count=_record_message_count(record),
                 disposition=record.get("disposition") or "none",
                 dkim=record.get("dkim_result") or record.get("dkim") or "unknown",
                 spf=record.get("spf_result") or record.get("spf") or "unknown",

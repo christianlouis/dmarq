@@ -89,6 +89,14 @@ def _raise_if_domain_owned_by_other_workspace(db: Session, domain: str, workspac
         raise _domain_workspace_conflict(domain)
 
 
+def _raise_plan_limit_payment_required(db: Session, exc: OrganizationPlanLimitError) -> None:
+    db.rollback()
+    raise HTTPException(
+        status_code=status.HTTP_402_PAYMENT_REQUIRED,
+        detail=exc.to_detail(),
+    ) from exc
+
+
 def _save_uploaded_report(
     db: Session, report: Dict[str, Any], domain: str, workspace_id: int
 ) -> None:
@@ -96,11 +104,7 @@ def _save_uploaded_report(
         save_parsed_report(db, report, workspace_id=workspace_id)
         db.commit()
     except OrganizationPlanLimitError as exc:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail=exc.to_detail(),
-        ) from exc
+        _raise_plan_limit_payment_required(db, exc)
     except IntegrityError as exc:
         db.rollback()
         try:
@@ -111,11 +115,7 @@ def _save_uploaded_report(
             save_parsed_report(db, report, workspace_id=workspace_id)
             db.commit()
         except OrganizationPlanLimitError as plan_exc:
-            db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                detail=plan_exc.to_detail(),
-            ) from plan_exc
+            _raise_plan_limit_payment_required(db, plan_exc)
 
 
 def _hydrated_report_store(db: Session, workspace) -> ReportStore:

@@ -782,6 +782,7 @@ def _aggregate_messages_for_period(
             Domain.workspace_id.in_(workspace_ids),
             DMARCReport.processed_at >= period_start,
             DMARCReport.processed_at < period_end,
+            ReportRecord.count > 0,
         )
         .scalar()
         or 0
@@ -792,8 +793,13 @@ def _period_plan_limit_usage(
     db: Session,
     workspace_ids: List[int],
     metric_filter: set[str],
+    entitlement_map: Dict[str, Entitlement],
 ) -> tuple[Dict[str, int], Dict[str, Dict[str, str]]]:
     if "aggregate_messages" not in metric_filter:
+        return {}, {}
+    if not any(
+        alias in entitlement_map for alias in PLAN_LIMIT_ENTITLEMENT_ALIASES["aggregate_messages"]
+    ):
         return {}, {}
     usage_period = usage_period_for_current_month()
     usage_period_start, usage_period_end = parse_usage_period(usage_period)
@@ -829,7 +835,12 @@ def _plan_limits_for_organization(
     metric_filter = set(metrics) if metrics is not None else set(PLAN_LIMIT_ENTITLEMENT_ALIASES)
 
     current_values: Dict[str, int] = {}
-    period_values, period_contexts = _period_plan_limit_usage(db, workspace_ids, metric_filter)
+    period_values, period_contexts = _period_plan_limit_usage(
+        db,
+        workspace_ids,
+        metric_filter,
+        entitlement_map,
+    )
     current_values.update(period_values)
     if "monitored_domains" in metric_filter:
         current_values["monitored_domains"] = (
