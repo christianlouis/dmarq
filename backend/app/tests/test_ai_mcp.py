@@ -1,7 +1,9 @@
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.models.organization import Entitlement, Organization
 from app.models.setting import Setting
+from app.models.workspace import Workspace
 from app.services.api_tokens import MCP_READ_SCOPE, create_api_token
 from app.services.report_store import ReportStore
 
@@ -167,3 +169,46 @@ def test_mcp_requires_enabled_scoped_token(client: TestClient, db_session: Sessi
     assert called.status_code == 200
     result = called.json()["result"]["content"][0]["json"]
     assert result["summary"]["domain"] == DOMAIN
+
+
+def test_mcp_requires_advanced_integrations_entitlement(client: TestClient, db_session: Session):
+    organization = Organization(slug="mcp-disabled", name="MCP Disabled", active=True)
+    workspace = Workspace(
+        slug="mcp-disabled-main",
+        name="MCP Disabled Main",
+        organization=organization,
+        active=True,
+    )
+    db_session.add_all(
+        [
+            organization,
+            workspace,
+            Entitlement(
+                organization=organization,
+                key="advanced_integrations",
+                value="false",
+                source="plan",
+                active=True,
+            ),
+        ]
+    )
+    db_session.flush()
+    token = create_api_token(
+        db_session,
+        name="mcp disabled client",
+        scopes=[MCP_READ_SCOPE],
+        workspace_id=workspace.id,
+    )
+    _set_setting(db_session, "mcp.enabled", "true", "mcp")
+
+    response = client.post(
+        "/api/v1/mcp",
+        headers={"X-API-Key": token.secret},
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+    )
+
+    assert response.status_code == 402
+    detail = response.json()["detail"]
+    assert detail["code"] == "feature_not_included"
+    assert detail["feature"] == "advanced_integrations"
+    assert detail["can_export"] is True

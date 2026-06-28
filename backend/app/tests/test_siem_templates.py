@@ -1,7 +1,10 @@
 import json
 
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
+from app.models.organization import Entitlement, Organization
+from app.models.workspace import Workspace
 from app.services.siem_templates import (
     SIEM_EVENT_TYPES,
     SIEM_SCHEMA_VERSION,
@@ -72,9 +75,7 @@ def test_siem_alert_schema_requires_metadata_when_alert_is_present():
     assert "alert.status is not supported" not in errors
 
     assert (
-        validate_siem_event(
-            {**event, "alert": {"title": "", "detail": "", "status": "active"}}
-        )
+        validate_siem_event({**event, "alert": {"title": "", "detail": "", "status": "active"}})
         == []
     )
 
@@ -90,9 +91,9 @@ def test_splunk_template_requires_relay_to_add_hec_authorization():
     splunk_template = templates["config_templates"]["splunk_hec"]
 
     assert splunk_template["delivery_model"] == "relay_required"
-    assert "splunk.example:8088/services/collector/event" not in splunk_template[
-        "webhook_url_pattern"
-    ]
+    assert (
+        "splunk.example:8088/services/collector/event" not in splunk_template["webhook_url_pattern"]
+    )
     assert splunk_template["headers"] == {}
     assert "Authorization" not in splunk_template.get("headers", {})
     assert splunk_template["headers_added_by_relay"]["Authorization"].startswith("Splunk ")
@@ -116,6 +117,45 @@ def test_siem_templates_endpoint_returns_common_configs(authed_client: TestClien
     }
     assert body["event_examples"]["compliance_drop"]["redaction"]["pii_redacted"] is True
     assert "raw report" in " ".join(body["redaction_guidance"]).lower()
+
+
+def test_siem_templates_endpoint_requires_advanced_integrations_entitlement(
+    authed_client: TestClient,
+    db_session: Session,
+):
+    """Tenant-scoped SIEM templates are gated as advanced integrations."""
+    organization = Organization(slug="siem-disabled", name="SIEM Disabled", active=True)
+    workspace = Workspace(
+        slug="siem-disabled-main",
+        name="SIEM Disabled Main",
+        organization=organization,
+        active=True,
+    )
+    db_session.add_all(
+        [
+            organization,
+            workspace,
+            Entitlement(
+                organization=organization,
+                key="advanced_integrations",
+                value="false",
+                source="plan",
+                active=True,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    response = authed_client.get(
+        "/api/v1/integrations/siem/templates",
+        headers={"X-DMARQ-Workspace-ID": str(workspace.id)},
+    )
+
+    assert response.status_code == 402
+    detail = response.json()["detail"]
+    assert detail["code"] == "feature_not_included"
+    assert detail["feature"] == "advanced_integrations"
+    assert detail["can_export"] is True
 
 
 def test_siem_templates_endpoint_requires_admin_auth(client: TestClient):

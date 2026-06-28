@@ -16,6 +16,7 @@ from app.services.ai_assistance import (
     get_assistance_config,
 )
 from app.services.api_tokens import MCP_READ_SCOPE
+from app.services.organizations import require_organization_feature
 from app.services.report_persistence import hydrate_report_store_from_db
 from app.services.report_store import ReportStore
 from app.services.workspace_access import PERMISSION_REPORTS_READ, resolve_authorized_workspace
@@ -80,6 +81,23 @@ def _require_mcp_enabled(db: Session) -> None:
         )
 
 
+def _require_advanced_integrations(db: Session, workspace) -> None:
+    if workspace.organization is None:
+        return
+    try:
+        require_organization_feature(db, workspace.organization, "advanced_integrations")
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "code": "feature_not_included",
+                "feature": "advanced_integrations",
+                "message": str(exc),
+                "can_export": True,
+            },
+        ) from exc
+
+
 def _list_domains(db: Session, *, workspace_id: Optional[int] = None) -> Dict[str, Any]:
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store, workspace_id=workspace_id)
@@ -107,6 +125,12 @@ async def mcp_jsonrpc(
 ) -> Dict[str, Any]:
     """Handle a small read-only MCP tool surface over JSON-RPC."""
     _require_mcp_enabled(db)
+    workspace = resolve_authorized_workspace(
+        db,
+        _auth,
+        PERMISSION_REPORTS_READ,
+    )
+    _require_advanced_integrations(db, workspace)
     if payload.method == "initialize":
         return _jsonrpc_response(
             payload.id,
@@ -126,11 +150,6 @@ async def mcp_jsonrpc(
 
     name = payload.params.get("name")
     arguments = payload.params.get("arguments") or {}
-    workspace = resolve_authorized_workspace(
-        db,
-        _auth,
-        PERMISSION_REPORTS_READ,
-    )
     try:
         if name == "list_domains":
             result = _list_domains(db, workspace_id=workspace.id)
