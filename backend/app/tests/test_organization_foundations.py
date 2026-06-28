@@ -131,6 +131,7 @@ def test_list_organization_summaries_materializes_account_state(db_session: Sess
     assert summaries[0]["account_state"]["status"] == "active"
     assert summaries[0]["account_state"]["can_mutate"] is True
     assert summaries[0]["account_state"]["can_export"] is True
+    assert "plan_limits" not in summaries[0]
 
 
 def test_organization_summary_exposes_plan_limit_usage(db_session: Session):
@@ -241,6 +242,36 @@ def test_organization_summary_handles_unbounded_and_missing_entitlements(
     assert limits["retention_days"]["status"] == "ok"
     assert limits["mail_sources"]["limit"] is None
     assert limits["mail_sources"]["source"] == "override"
+
+
+def test_duplicate_active_entitlements_use_latest_row(db_session: Session):
+    organization = Organization(slug="duplicate-entitlements", name="Duplicate Entitlements")
+    db_session.add(organization)
+    db_session.flush()
+    db_session.add_all(
+        [
+            Entitlement(
+                organization_id=organization.id,
+                key="webhooks",
+                value="false",
+                source="plan",
+                active=True,
+            ),
+            Entitlement(
+                organization_id=organization.id,
+                key="webhooks",
+                value="true",
+                source="plan",
+                active=True,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    require_organization_feature(db_session, organization, "webhooks")
+
+    summary = organization_summary(db_session, organization)
+    assert summary["entitlements"]["webhooks"]["value"] == "true"
 
 
 def test_account_state_reports_provider_grace_without_blocking(db_session: Session):

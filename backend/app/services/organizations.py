@@ -495,7 +495,27 @@ def account_state_for_subscriptions(
 
 
 def _entitlements_by_key(entitlements: Iterable[Entitlement]) -> Dict[str, Entitlement]:
-    return {entitlement.key: entitlement for entitlement in entitlements}
+    mapped: Dict[str, Entitlement] = {}
+    for entitlement in entitlements:
+        mapped.setdefault(entitlement.key, entitlement)
+    return mapped
+
+
+def _active_entitlements_query(db: Session, organization: Organization):
+    return (
+        db.query(Entitlement)
+        .filter(
+            Entitlement.organization_id == organization.id,
+            Entitlement.active.is_(True),
+        )
+        .order_by(
+            Entitlement.key.asc(),
+            Entitlement.updated_at.desc().nullslast(),
+            Entitlement.effective_from.desc().nullslast(),
+            Entitlement.created_at.desc().nullslast(),
+            Entitlement.id.desc(),
+        )
+    )
 
 
 def _entitlement_for_feature(
@@ -577,14 +597,7 @@ def require_organization_feature(
     feature_key: str,
 ) -> None:
     """Raise ValueError when an optional feature is not included in the plan."""
-    entitlements = (
-        db.query(Entitlement)
-        .filter(
-            Entitlement.organization_id == organization.id,
-            Entitlement.active.is_(True),
-        )
-        .all()
-    )
+    entitlements = _active_entitlements_query(db, organization).all()
     if organization_feature_allowed(entitlements, feature_key):
         return
 
@@ -665,7 +678,12 @@ def _plan_limits_for_organization(
     return limits
 
 
-def organization_summary(db: Session, organization: Organization) -> Dict[str, Any]:
+def organization_summary(
+    db: Session,
+    organization: Organization,
+    *,
+    include_plan_limits: bool = True,
+) -> Dict[str, Any]:
     """Return an API-safe organization/account summary."""
     workspaces = (
         db.query(Workspace)
@@ -685,16 +703,8 @@ def organization_summary(db: Session, organization: Organization) -> Dict[str, A
         .order_by(Subscription.created_at.desc())
         .all()
     )
-    entitlements = (
-        db.query(Entitlement)
-        .filter(
-            Entitlement.organization_id == organization.id,
-            Entitlement.active.is_(True),
-        )
-        .order_by(Entitlement.key.asc())
-        .all()
-    )
-    return {
+    entitlements = _active_entitlements_query(db, organization).all()
+    summary = {
         "id": organization.id,
         "slug": organization.slug,
         "name": organization.name,
@@ -714,7 +724,6 @@ def organization_summary(db: Session, organization: Organization) -> Dict[str, A
             }
             for entitlement in entitlements
         },
-        "plan_limits": _plan_limits_for_organization(db, organization, workspaces, entitlements),
         "metrics": {
             "workspace_count": len(workspaces),
             "active_workspace_count": sum(1 for workspace in workspaces if workspace.active),
@@ -726,6 +735,14 @@ def organization_summary(db: Session, organization: Organization) -> Dict[str, A
             ),
         },
     }
+    if include_plan_limits:
+        summary["plan_limits"] = _plan_limits_for_organization(
+            db,
+            organization,
+            workspaces,
+            entitlements,
+        )
+    return summary
 
 
 def _billing_event_to_dict(event: BillingEvent) -> Dict[str, Any]:
@@ -1050,7 +1067,10 @@ def list_organization_summaries(db: Session) -> List[Dict[str, Any]]:
     """Return all organizations with local commercial state materialized."""
     bootstrap_default_commercial_foundation(db)
     organizations = db.query(Organization).order_by(Organization.slug.asc()).all()
-    return [organization_summary(db, organization) for organization in organizations]
+    return [
+        organization_summary(db, organization, include_plan_limits=False)
+        for organization in organizations
+    ]
 
 
 def list_scoped_organization_summaries(
@@ -1064,7 +1084,10 @@ def list_scoped_organization_summaries(
         if not organization_ids:
             return []
         query = query.filter(Organization.id.in_(organization_ids))
-    return [organization_summary(db, organization) for organization in query.all()]
+    return [
+        organization_summary(db, organization, include_plan_limits=False)
+        for organization in query.all()
+    ]
 
 
 def parse_usage_period(period: str) -> tuple[datetime, datetime]:

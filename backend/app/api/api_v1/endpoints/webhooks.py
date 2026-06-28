@@ -232,6 +232,7 @@ async def update_webhook(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Webhook endpoint not found"
         )
+    _require_webhook_entitlement(db, workspace)
     try:
         endpoint, raw_secret = update_webhook_endpoint(
             db,

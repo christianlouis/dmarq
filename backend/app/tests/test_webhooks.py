@@ -313,6 +313,14 @@ def test_admin_webhook_creation_respects_plan_entitlement(
     )
     db_session.commit()
 
+    updated = authed_client.put(
+        f"/api/v1/webhooks/{endpoint.id}",
+        json={"name": "blocked"},
+    )
+    assert updated.status_code == 402
+    assert updated.json()["detail"]["code"] == "feature_not_included"
+    assert updated.json()["detail"]["feature"] == "webhooks"
+
     disabled = authed_client.delete(f"/api/v1/webhooks/{endpoint.id}")
     assert disabled.status_code == 200
     assert disabled.json()["enabled"] is False
