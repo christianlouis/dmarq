@@ -43,6 +43,21 @@ DEFAULT_SELF_HOSTED_ENTITLEMENTS: Dict[str, str] = {
     "retention_days": "400",
 }
 
+STARTER_PLAN_CODE = "starter"
+STARTER_PLAN_ENTITLEMENTS: Dict[str, str] = {
+    "aggregate_reports": "true",
+    "forensic_reports": "true",
+    "dns_linting": "true",
+    "alerts": "true",
+    "monitored_domains": "1",
+    "mail_sources": "1",
+    "users": "1",
+    "retention_days": "90",
+    "api_tokens": "false",
+    "webhooks": "false",
+    "sso": "false",
+}
+
 PROVIDER_SUBSCRIPTION_STATUSES = {
     "trialing",
     "active",
@@ -104,6 +119,37 @@ def get_or_create_self_hosted_plan(db: Session, *, commit: bool = True) -> Plan:
         currency="EUR",
         retention_days=400,
         features="aggregate_reports,forensic_reports,dns_linting,alerts,multi_workspace",
+    )
+    db.add(plan)
+    if commit:
+        db.commit()
+        db.refresh(plan)
+    else:
+        db.flush()
+    return plan
+
+
+def get_or_create_starter_plan(db: Session, *, commit: bool = True) -> Plan:
+    """Return the built-in starter plan used by SaaS/customer onboarding."""
+    plan = db.query(Plan).filter(Plan.code == STARTER_PLAN_CODE).first()
+    if plan:
+        return plan
+
+    plan = Plan(
+        code=STARTER_PLAN_CODE,
+        name="Starter",
+        description=(
+            "Default first workspace plan for guided DMARC onboarding without "
+            "external billing activation."
+        ),
+        billing_mode=BILLING_MODE_MANUAL_CONTRACT,
+        public=True,
+        active=True,
+        currency="EUR",
+        included_sending_domains=1,
+        included_users=1,
+        retention_days=90,
+        features="aggregate_reports,forensic_reports,dns_linting,alerts",
     )
     db.add(plan)
     if commit:

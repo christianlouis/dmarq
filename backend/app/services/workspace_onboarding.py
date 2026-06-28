@@ -10,8 +10,19 @@ from sqlalchemy.orm import Session
 
 from app.models.domain import Domain
 from app.models.mail_source import MailSource
+from app.models.organization import Organization, OrganizationMembership
 from app.models.setting import Setting
 from app.models.workspace import Workspace
+from app.models.workspace_access import WorkspaceMembership
+from app.services.organizations import (
+    BILLING_MODE_MANUAL_CONTRACT,
+    STARTER_PLAN_ENTITLEMENTS,
+    ensure_billing_account,
+    ensure_entitlements,
+    ensure_subscription,
+    get_or_create_starter_plan,
+)
+from app.services.workspace_access import ROLE_WORKSPACE_OWNER, user_for_auth_context
 from app.services.workspace_audit import record_workspace_audit_log, sanitize_audit_details
 from app.services.workspaces import normalize_workspace_slug, workspace_domain_query
 from app.utils.domain_validator import validate_domain_config
@@ -63,6 +74,7 @@ WORKSPACE_ONBOARDING_TEMPLATES: List[Dict[str, Any]] = [
         "variables": [
             {"name": "domain", "required": True, "example": "example.com"},
             {"name": "workspace_name", "required": False, "example": "Example Client"},
+            {"name": "dns_provider", "required": False, "example": "Cloudflare"},
             {"name": "report_mailbox", "required": False, "example": "dmarc@example.com"},
             {"name": "imap_server", "required": False, "example": "imap.example.com"},
             {"name": "imap_username", "required": False, "example": "dmarc@example.com"},
@@ -150,6 +162,7 @@ WORKSPACE_ONBOARDING_TEMPLATES: List[Dict[str, Any]] = [
         "variables": [
             {"name": "domain", "required": True, "example": "example.com"},
             {"name": "workspace_name", "required": False, "example": "Example Client"},
+            {"name": "dns_provider", "required": False, "example": "Cloudflare"},
         ],
         "domains": [
             {
@@ -241,11 +254,26 @@ def _workspace_context(
     slug = normalize_workspace_slug(str(workspace.get("slug") or workspace_name))
     context.setdefault("workspace_name", workspace_name or slug)
     context.setdefault("domain", "")
+    context.setdefault("dns_provider", "")
     context.setdefault("report_mailbox", "")
     context.setdefault("imap_server", "")
     context.setdefault("imap_username", context.get("report_mailbox", ""))
     context.setdefault("imap_password", "")
     return slug, workspace_name, context
+
+
+def _organization_context(
+    organization: Optional[Dict[str, Any]],
+    workspace_plan: Dict[str, Any],
+) -> Dict[str, Any]:
+    organization = organization or {}
+    name = str(organization.get("name") or workspace_plan["name"]).strip()
+    slug_source = organization.get("slug") or name or workspace_plan["slug"]
+    return {
+        "slug": normalize_workspace_slug(str(slug_source)),
+        "name": name or workspace_plan["name"],
+        "description": organization.get("description"),
+    }
 
 
 def _required_variable_errors(template: Dict[str, Any], variables: Dict[str, Any]) -> List[str]:
@@ -377,9 +405,121 @@ def _validated_sections(
     return domains, sources, notifications, domain_errors + source_errors + notification_errors
 
 
+def _actionable_tasks(
+    plan: Dict[str, Any],
+    *,
+    domain_results: Optional[Iterable[Dict[str, Any]]] = None,
+    source_results: Optional[Iterable[Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
+    domain_by_name = {item["name"]: item for item in domain_results or []}
+    source_by_name = {item["name"]: item for item in source_results or []}
+    domains = plan.get("domains") or []
+    sources = plan.get("mail_sources") or []
+    dns_provider = (plan.get("variables") or {}).get("dns_provider") or "your DNS provider"
+    tasks: List[Dict[str, Any]] = []
+
+    for domain in domains:
+        name = domain["name"]
+        result = domain_by_name.get(name, {})
+        tasks.append(
+            {
+                "id": f"verify-domain-dns:{name}",
+                "category": "domains",
+                "status": "pending",
+                "title": f"Verify DNS records for {name}",
+                "description": (
+                    f"Review DMARC, SPF, and DKIM in {dns_provider}; keep production "
+                    "monitoring pending until ownership is verified."
+                ),
+                "href": f"/domains/{name}",
+                "api_hint": f"/api/v1/domains/{result.get('id', ':domain_id')}/dns",
+                "target": {
+                    "type": "domain",
+                    "name": name,
+                    "id": result.get("id"),
+                    "requires_verification": True,
+                },
+            }
+        )
+
+    for source in sources:
+        name = source["name"]
+        result = source_by_name.get(name, {})
+        tasks.append(
+            {
+                "id": f"connect-mail-source:{name}",
+                "category": "mail_sources",
+                "status": "pending",
+                "title": f"Connect {name}",
+                "description": (
+                    "Add the report inbox credentials, run a connection test, and enable "
+                    "polling after the first successful import."
+                ),
+                "href": "/mail-sources",
+                "api_hint": f"/api/v1/mail-sources/{result.get('id', ':source_id')}/test",
+                "target": {
+                    "type": "mail_source",
+                    "name": name,
+                    "id": result.get("id"),
+                },
+            }
+        )
+        tasks.append(
+            {
+                "id": f"run-initial-import:{name}",
+                "category": "mail_sources",
+                "status": "pending",
+                "title": f"Run the first import for {name}",
+                "description": "Import the latest aggregate reports and confirm DMARQ parsed them.",
+                "href": "/reports",
+                "api_hint": f"/api/v1/mail-sources/{result.get('id', ':source_id')}/import",
+                "target": {
+                    "type": "mail_source",
+                    "name": name,
+                    "id": result.get("id"),
+                },
+            }
+        )
+
+    if plan.get("notification_defaults"):
+        tasks.append(
+            {
+                "id": "configure-notification-target",
+                "category": "notifications",
+                "status": "pending",
+                "title": "Configure alert delivery",
+                "description": (
+                    "Add Apprise targets and send a test notification before relying on alerts."
+                ),
+                "href": "/settings/notifications",
+                "api_hint": "/api/v1/settings/notifications/test",
+                "target": {"type": "notification_settings"},
+            }
+        )
+
+    if not sources:
+        tasks.append(
+            {
+                "id": "document-report-inbox",
+                "category": "mail_sources",
+                "status": "pending",
+                "title": "Document the future report inbox",
+                "description": (
+                    "Capture the RUA/RUF destination before enabling automated report ingestion."
+                ),
+                "href": "/mail-sources",
+                "api_hint": "/api/v1/mail-sources",
+                "target": {"type": "mail_source"},
+            }
+        )
+
+    return tasks
+
+
 def build_onboarding_plan(  # pylint: disable=too-many-locals
     *,
     template_id: str,
+    organization: Optional[Dict[str, Any]] = None,
     workspace: Dict[str, Any],
     variables: Optional[Dict[str, Any]] = None,
     domains: Optional[List[Dict[str, Any]]] = None,
@@ -395,6 +535,14 @@ def build_onboarding_plan(  # pylint: disable=too-many-locals
         errors.append("workspace.slug or workspace.name is required")
     if not workspace_name:
         errors.append("workspace.name is required")
+    workspace_plan = {
+        "slug": slug,
+        "name": workspace_name,
+        "description": workspace.get("description"),
+    }
+    organization_plan = _organization_context(organization, workspace_plan)
+    if not organization_plan["slug"]:
+        errors.append("organization.slug or organization.name is required")
     errors.extend(_required_variable_errors(template, variables))
     rendered_domains, rendered_sources, rendered_notifications = _render_sections(
         template,
@@ -408,29 +556,58 @@ def build_onboarding_plan(  # pylint: disable=too-many-locals
     )
     errors.extend(section_errors)
 
-    return {
+    plan = {
         "schema_version": ONBOARDING_SCHEMA_VERSION,
         "template_id": template_id,
         "template_name": template["name"],
-        "workspace": {
-            "slug": slug,
-            "name": workspace_name,
-            "description": workspace.get("description"),
-        },
+        "organization": organization_plan,
+        "workspace": workspace_plan,
+        "variables": variables,
         "domains": validated_domains,
         "mail_sources": validated_sources,
         "notification_defaults": safe_notifications,
         "checklist": copy.deepcopy(template.get("checklist", [])),
+        "tasks": [],
         "overwrite_existing": overwrite_existing,
         "errors": errors,
     }
+    plan["tasks"] = _actionable_tasks(plan)
+    return plan
 
 
-def _ensure_workspace(db: Session, workspace_plan: Dict[str, Any]) -> Tuple[Workspace, str]:
+def _ensure_organization(db: Session, organization_plan: Dict[str, Any]) -> Tuple[Organization, str]:
+    organization = (
+        db.query(Organization).filter(Organization.slug == organization_plan["slug"]).first()
+    )
+    if organization:
+        return organization, "existing"
+    organization = Organization(
+        slug=organization_plan["slug"],
+        name=organization_plan["name"],
+        description=organization_plan.get("description"),
+        active=True,
+    )
+    db.add(organization)
+    db.flush()
+    return organization, "created"
+
+
+def _ensure_workspace(
+    db: Session,
+    workspace_plan: Dict[str, Any],
+    organization: Organization,
+) -> Tuple[Workspace, str]:
     workspace = db.query(Workspace).filter(Workspace.slug == workspace_plan["slug"]).first()
     if workspace:
+        if workspace.organization_id is None:
+            workspace.organization_id = organization.id
+            db.flush()
+            return workspace, "linked_existing"
+        if workspace.organization_id != organization.id:
+            raise ValueError("Workspace is already attached to another organization")
         return workspace, "existing"
     workspace = Workspace(
+        organization_id=organization.id,
         slug=workspace_plan["slug"],
         name=workspace_plan["name"],
         description=workspace_plan.get("description"),
@@ -555,6 +732,128 @@ def _apply_notification_defaults(
     return results
 
 
+def _ensure_owner_memberships(
+    db: Session,
+    *,
+    organization: Organization,
+    workspace: Workspace,
+    auth_context: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    owner = user_for_auth_context(db, auth_context or {})
+    if owner is None:
+        return {"status": "skipped", "reason": "no authenticated local user"}
+
+    organization_membership = (
+        db.query(OrganizationMembership)
+        .filter(
+            OrganizationMembership.organization_id == organization.id,
+            OrganizationMembership.user_id == owner.id,
+        )
+        .first()
+    )
+    organization_status = "existing"
+    if organization_membership is None:
+        organization_membership = OrganizationMembership(
+            organization_id=organization.id,
+            user_id=owner.id,
+            role="organization_owner",
+            active=True,
+        )
+        db.add(organization_membership)
+        organization_status = "created"
+    else:
+        if organization_membership.role != "organization_owner":
+            organization_membership.role = "organization_owner"
+            organization_status = "updated"
+        if not organization_membership.active:
+            organization_membership.active = True
+            organization_status = "reactivated"
+
+    workspace_membership = (
+        db.query(WorkspaceMembership)
+        .filter(
+            WorkspaceMembership.workspace_id == workspace.id,
+            WorkspaceMembership.user_id == owner.id,
+        )
+        .first()
+    )
+    workspace_status = "existing"
+    if workspace_membership is None:
+        workspace_membership = WorkspaceMembership(
+            workspace_id=workspace.id,
+            user_id=owner.id,
+            role=ROLE_WORKSPACE_OWNER,
+            active=True,
+        )
+        db.add(workspace_membership)
+        workspace_status = "created"
+    else:
+        if workspace_membership.role != ROLE_WORKSPACE_OWNER:
+            workspace_membership.role = ROLE_WORKSPACE_OWNER
+            workspace_status = "updated"
+        if not workspace_membership.active:
+            workspace_membership.active = True
+            workspace_status = "reactivated"
+
+    if owner.workspace_id is None:
+        owner.workspace_id = workspace.id
+    db.flush()
+    return {
+        "status": "ready",
+        "user_id": owner.id,
+        "email": owner.email,
+        "organization_membership": organization_status,
+        "workspace_membership": workspace_status,
+    }
+
+
+def _ensure_starter_subscription(
+    db: Session,
+    *,
+    organization: Organization,
+) -> Dict[str, Any]:
+    plan = get_or_create_starter_plan(db, commit=False)
+    account = ensure_billing_account(
+        db,
+        organization,
+        billing_mode=BILLING_MODE_MANUAL_CONTRACT,
+        commit=False,
+    )
+    subscription = ensure_subscription(
+        db,
+        organization,
+        plan,
+        account,
+        commit=False,
+    )
+    entitlements = ensure_entitlements(
+        db,
+        organization,
+        subscription,
+        STARTER_PLAN_ENTITLEMENTS,
+        commit=False,
+    )
+    db.flush()
+    return {
+        "billing_account": {
+            "id": account.id,
+            "billing_mode": account.billing_mode,
+            "status": account.status,
+            "invoice_delivery_mode": account.invoice_delivery_mode,
+        },
+        "subscription": {
+            "id": subscription.id,
+            "status": subscription.status,
+            "plan_code": plan.code,
+            "billing_mode": subscription.billing_mode,
+        },
+        "entitlements": {
+            entitlement.key: entitlement.value
+            for entitlement in sorted(entitlements, key=lambda item: item.key)
+        },
+    }
+
+
 def apply_onboarding_plan(
     db: Session,
     *,
@@ -566,7 +865,15 @@ def apply_onboarding_plan(
     if plan.get("errors"):
         raise ValueError("Cannot apply an invalid onboarding plan")
     try:
-        workspace, workspace_status = _ensure_workspace(db, plan["workspace"])
+        organization, organization_status = _ensure_organization(db, plan["organization"])
+        workspace, workspace_status = _ensure_workspace(db, plan["workspace"], organization)
+        owner_result = _ensure_owner_memberships(
+            db,
+            organization=organization,
+            workspace=workspace,
+            auth_context=auth_context,
+        )
+        commercial_result = _ensure_starter_subscription(db, organization=organization)
         domain_results = _apply_domains(db, workspace=workspace, domain_plans=plan["domains"])
         source_results = _apply_mail_sources(
             db,
@@ -584,9 +891,15 @@ def apply_onboarding_plan(
             return {
                 "applied": False,
                 "workspace": plan["workspace"],
+                "organization": plan["organization"],
                 "errors": [item["message"] for item in conflicts],
                 "results": {"domains": domain_results},
             }
+        tasks = _actionable_tasks(
+            plan,
+            domain_results=domain_results,
+            source_results=source_results,
+        )
         record_workspace_audit_log(
             db,
             workspace=workspace,
@@ -596,11 +909,15 @@ def apply_onboarding_plan(
             entity_name=workspace.slug,
             details={
                 "template_id": plan["template_id"],
+                "organization_status": organization_status,
                 "workspace_status": workspace_status,
+                "owner": owner_result,
+                "subscription": commercial_result["subscription"],
                 "domains": domain_results,
                 "mail_sources": source_results,
                 "notification_defaults": notification_results,
                 "checklist_ids": [item["id"] for item in plan.get("checklist", [])],
+                "task_ids": [item["id"] for item in tasks],
             },
             auth_context=auth_context,
             request=request,
@@ -616,17 +933,28 @@ def apply_onboarding_plan(
             "applied": True,
             "schema_version": plan["schema_version"],
             "template_id": plan["template_id"],
+            "organization": {
+                "id": organization.id,
+                "slug": organization.slug,
+                "name": organization.name,
+                "status": organization_status,
+            },
             "workspace": {
                 "id": workspace.id,
                 "slug": workspace.slug,
                 "name": workspace.name,
                 "status": workspace_status,
             },
+            "owner": owner_result,
+            "billing_account": commercial_result["billing_account"],
+            "subscription": commercial_result["subscription"],
+            "entitlements": commercial_result["entitlements"],
             "results": {
                 "domains": domain_results,
                 "mail_sources": source_results,
                 "notification_defaults": notification_results,
             },
             "checklist": plan.get("checklist", []),
+            "tasks": tasks,
         }
     )
