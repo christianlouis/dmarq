@@ -240,8 +240,8 @@ function workspaceOnboarding() {
                 if (storedValue !== null) {
                     this.form[field] = storedValue;
                 }
+                this.$watch(`form.${field}`, () => this.persistDraft());
             });
-            this.$watch('form', () => this.persistDraft());
         },
         draftFields() {
             return [
