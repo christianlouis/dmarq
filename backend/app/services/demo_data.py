@@ -62,6 +62,46 @@ def build_demo_multi_user_deployment() -> Dict[str, Any]:
             "retention_days": 90,
         },
         "roles": list(DEMO_MULTI_USER_ROLES),
+        "default_viewer": "single-user-multiple-domains",
+        "zoom_levels": [
+            {
+                "level": "workspace",
+                "label": "Single user, multiple domains",
+                "description": (
+                    "Default demo view: one administrator tracks dmarq.org and "
+                    "dmarq.com before zooming out to accounts and billing."
+                ),
+            },
+            {
+                "level": "account",
+                "label": "Account and team view",
+                "description": "Organizations, users, workspaces, roles, and billing ownership.",
+            },
+            {
+                "level": "provider",
+                "label": "ISP / managed provider view",
+                "description": (
+                    "Provider operators see many customer workspaces and export usage "
+                    "to external monthly billing."
+                ),
+            },
+        ],
+        "domain_showcase": [
+            {
+                "domain": "dmarq.org",
+                "workspace_slug": "dmarq-org",
+                "organization_slug": "dmarq-foundation",
+                "posture": "quarantine with strict subdomain policy",
+                "story": "Mostly healthy production mail with newsletter DKIM drift.",
+            },
+            {
+                "domain": "dmarq.com",
+                "workspace_slug": "dmarq-com",
+                "organization_slug": "dmarq-foundation",
+                "posture": "monitoring before enforcement",
+                "story": "Commercial mail is still in p=none while senders are aligned.",
+            },
+        ],
         "billing_modes": [
             {
                 "mode": "direct_stripe",
@@ -100,6 +140,11 @@ def build_demo_multi_user_deployment() -> Dict[str, Any]:
                 "name": "DMARQ Foundation",
                 "deployment_model": "dmarq_cloud",
                 "billing_mode": "direct_stripe",
+                "demo_story": (
+                    "The default demo account: one admin, two domains, normal SaaS billing, "
+                    "and enough report history to inspect trends before enforcement."
+                ),
+                "default_persona": "single-user-multiple-domains",
                 "plan": {
                     "code": "business",
                     "name": "Business",
@@ -144,26 +189,42 @@ def build_demo_multi_user_deployment() -> Dict[str, Any]:
                             "newsletter DKIM selector intermittently fails",
                             "legacy CRM source should be retired or isolated",
                         ],
-                    }
+                    },
+                    {
+                        "slug": "dmarq-com",
+                        "name": "dmarq.com Commercial Mail",
+                        "domains": ["dmarq.com"],
+                        "health": "monitoring",
+                        "primary_findings": [
+                            "policy is still p=none while marketing sources are being aligned",
+                            "unknown forwarder appears on low-volume days",
+                        ],
+                    },
                 ],
                 "users": [
                     {
                         "name": "Alex Morgan",
                         "email": "alex@dmarq.example",
                         "roles": ["organization_owner", "workspace_admin"],
-                        "workspaces": ["dmarq-org"],
+                        "workspaces": ["dmarq-org", "dmarq-com"],
+                        "demo_persona": "single-user-multiple-domains",
+                        "can_impersonate": True,
                     },
                     {
                         "name": "Mira Chen",
                         "email": "mira@dmarq.example",
                         "roles": ["analyst"],
-                        "workspaces": ["dmarq-org"],
+                        "workspaces": ["dmarq-org", "dmarq-com"],
+                        "demo_persona": "domain-analyst",
+                        "can_impersonate": True,
                     },
                     {
                         "name": "Sam Rivera",
                         "email": "sam.audit@dmarq.example",
                         "roles": ["auditor"],
-                        "workspaces": ["dmarq-org"],
+                        "workspaces": ["dmarq-org", "dmarq-com"],
+                        "demo_persona": "read-only-auditor",
+                        "can_impersonate": True,
                     },
                 ],
                 "usage": [
@@ -188,6 +249,11 @@ def build_demo_multi_user_deployment() -> Dict[str, Any]:
                 "name": "DMARQ Commercial",
                 "deployment_model": "managed_service",
                 "billing_mode": "manual_contract",
+                "demo_story": (
+                    "A managed-service customer where DMARQ operations and customer staff "
+                    "share visibility while invoicing remains contract based."
+                ),
+                "default_persona": "managed-service-analyst",
                 "plan": {
                     "code": "enterprise",
                     "name": "Enterprise",
@@ -270,6 +336,11 @@ def build_demo_multi_user_deployment() -> Dict[str, Any]:
                 "name": "Northstar ISP Demo",
                 "deployment_model": "isp_resale",
                 "billing_mode": "provider_resale",
+                "demo_story": (
+                    "An ISP operator can zoom across many customer workspaces, then open "
+                    "one subaccount to experience what that customer sees."
+                ),
+                "default_persona": "isp-operator",
                 "plan": {
                     "code": "provider-growth",
                     "name": "Provider Growth",
@@ -382,18 +453,24 @@ def build_demo_multi_user_deployment() -> Dict[str, Any]:
                         "email": "nora.ops@northstar.example",
                         "roles": ["provider_operator"],
                         "workspaces": ["bakery-example", "lawfirm-example"],
+                        "demo_persona": "isp-operator",
+                        "can_impersonate": True,
                     },
                     {
                         "name": "Chris Becker",
                         "email": "chris.billing@northstar.example",
                         "roles": ["billing_admin"],
                         "workspaces": [],
+                        "demo_persona": "provider-billing",
+                        "can_impersonate": True,
                     },
                     {
                         "name": "Taylor Brooks",
                         "email": "taylor@bakery.example",
                         "roles": ["workspace_admin"],
                         "workspaces": ["bakery-example"],
+                        "demo_persona": "customer-admin",
+                        "can_impersonate": True,
                     },
                 ],
                 "usage": [
@@ -420,25 +497,158 @@ def build_demo_multi_user_deployment() -> Dict[str, Any]:
                     },
                 ],
             },
+            {
+                "slug": "studio-self-hosted",
+                "name": "Studio Self-Hosted",
+                "deployment_model": "self_hosted",
+                "billing_mode": "self_hosted_license",
+                "demo_story": (
+                    "A single-company installation with local users, no provider billing, "
+                    "and multiple internal domains managed from one dashboard."
+                ),
+                "default_persona": "self-hosted-admin",
+                "plan": {
+                    "code": "community-self-hosted",
+                    "name": "Self-hosted",
+                    "price": {"monthly": 0, "annual": 0, "currency": "EUR"},
+                    "included": {
+                        "domains": 10,
+                        "users": 10,
+                        "aggregate_messages": 500_000,
+                        "retention_days": 180,
+                    },
+                },
+                "billing": {
+                    "status": "local",
+                    "next_invoice_date": None,
+                    "current_period_total_cents": 0,
+                    "invoice_delivery_mode": "not_applicable",
+                    "external_customer_id": None,
+                },
+                "billing_profile": {
+                    "profile_id": "bp-demo-self-hosted",
+                    "display_name": "Self-hosted local deployment",
+                    "invoice_owner": "Customer",
+                    "billing_contact": "ops@studio.example",
+                    "collection_model": "none",
+                    "payment_rail": "not_applicable",
+                    "invoice_reference": "local-demo",
+                    "next_invoice_action": "renew_local_license_if_enabled",
+                },
+                "entitlements": {
+                    "domains": {"used": 4, "included": 10},
+                    "users": {"used": 4, "included": 10},
+                    "aggregate_messages": {"used": 88_410, "included": 500_000},
+                    "retention_days": {"used": 90, "included": 180},
+                },
+                "workspaces": [
+                    {
+                        "slug": "studio-main",
+                        "name": "Studio Production Mail",
+                        "domains": ["studio.example", "mail.studio.example"],
+                        "health": "healthy",
+                        "primary_findings": ["ready for reject after one more monitoring week"],
+                    },
+                    {
+                        "slug": "studio-lab",
+                        "name": "Studio Lab and Test Mail",
+                        "domains": ["lab.studio.example", "alerts.studio.example"],
+                        "health": "warning",
+                        "primary_findings": [
+                            "test sender has SPF alignment only",
+                            "DKIM selector should be rotated before enforcement",
+                        ],
+                    },
+                ],
+                "users": [
+                    {
+                        "name": "Elena Weiss",
+                        "email": "elena@studio.example",
+                        "roles": ["organization_owner", "workspace_admin"],
+                        "workspaces": ["studio-main", "studio-lab"],
+                        "demo_persona": "self-hosted-admin",
+                        "can_impersonate": True,
+                    },
+                    {
+                        "name": "Mateo Klein",
+                        "email": "mateo@studio.example",
+                        "roles": ["analyst"],
+                        "workspaces": ["studio-main"],
+                        "demo_persona": "self-hosted-analyst",
+                        "can_impersonate": True,
+                    },
+                    {
+                        "name": "Iris Novak",
+                        "email": "iris.audit@studio.example",
+                        "roles": ["auditor"],
+                        "workspaces": ["studio-main", "studio-lab"],
+                        "demo_persona": "self-hosted-auditor",
+                        "can_impersonate": True,
+                    },
+                ],
+                "usage": [
+                    {
+                        "metric": "aggregate_messages",
+                        "period_start": period_start.isoformat(),
+                        "period_end": today.isoformat(),
+                        "quantity": 88_410,
+                        "unit": "messages",
+                    },
+                    {
+                        "metric": "dns_snapshots",
+                        "period_start": period_start.isoformat(),
+                        "period_end": today.isoformat(),
+                        "quantity": 96,
+                        "unit": "snapshots",
+                    },
+                ],
+            },
         ],
         "viewer_scenarios": [
             {
-                "label": "DMARQaaS account owner",
+                "id": "single-user-multiple-domains",
+                "label": "Single user, multiple domains",
                 "email": "alex@dmarq.example",
                 "visible_organizations": ["dmarq-foundation"],
                 "default_workspace": "dmarq-org",
+                "default_domain": "dmarq.org",
+                "zoom_level": "workspace",
             },
             {
+                "id": "managed-service-analyst",
                 "label": "Managed-service analyst",
                 "email": "priya@dmarq.example",
                 "visible_organizations": ["dmarq-commercial"],
                 "default_workspace": "dmarq-com",
+                "default_domain": "dmarq.com",
+                "zoom_level": "account",
             },
             {
+                "id": "isp-operator",
                 "label": "ISP operator",
                 "email": "nora.ops@northstar.example",
                 "visible_organizations": ["northstar-isp"],
                 "default_workspace": "lawfirm-example",
+                "default_domain": "lawfirm.example",
+                "zoom_level": "provider",
+            },
+            {
+                "id": "customer-admin",
+                "label": "ISP customer admin",
+                "email": "taylor@bakery.example",
+                "visible_organizations": ["northstar-isp"],
+                "default_workspace": "bakery-example",
+                "default_domain": "bakery.example",
+                "zoom_level": "workspace",
+            },
+            {
+                "id": "self-hosted-admin",
+                "label": "Self-hosted admin",
+                "email": "elena@studio.example",
+                "visible_organizations": ["studio-self-hosted"],
+                "default_workspace": "studio-main",
+                "default_domain": "studio.example",
+                "zoom_level": "workspace",
             },
         ],
     }

@@ -51,7 +51,10 @@ def test_base_template_propagates_selected_workspace_context():
 def test_dashboard_renders_demo_billing_profiles_without_html_injection():
     template = (Path(__file__).resolve().parents[1] / "templates" / "index.html").read_text()
 
-    assert "Multi-User Deployment" in template
+    assert "Deployment Zoom" in template
+    assert "Demo experience" in template
+    assert "Start tour" in template
+    assert "selectedDemoUserEmail" in template
     assert "Provider billing samples" in template
     assert "billing_profile.display_name" in template
     assert "formatDemoUsage(organization, usage)" in template

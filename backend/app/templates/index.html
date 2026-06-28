@@ -10,7 +10,7 @@
 
 {% block content %}
 <div class="dashboard-page space-y-6" x-data="dashboardApp()">
-    <div class="rounded-lg bg-white p-4 shadow-sm" x-show="hasDomainData" x-cloak>
+    <div class="rounded-lg bg-white p-4 shadow-sm" x-show="hasDomainData" x-cloak data-tour="date-filter">
         <div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div class="grid gap-1">
                 <label class="text-sm font-semibold text-[#120d36]" for="dashboard-date-interval">
@@ -22,7 +22,9 @@
                             x-model="dateInterval"
                             @change="handleDateIntervalChange()">
                         <template x-for="option in dateIntervalOptions" :key="option.value">
-                            <option :value="option.value" x-text="option.label"></option>
+                            <option :value="option.value"
+                                    :selected="option.value === dateInterval"
+                                    x-text="option.label"></option>
                         </template>
                     </select>
                     <template x-if="dateInterval === 'custom'">
@@ -48,8 +50,67 @@
         </div>
     </div>
 
+    <div class="rounded-lg bg-white p-5 shadow-sm" x-show="demoDeployment" x-cloak data-tour="demo-orientation">
+        <div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div class="max-w-3xl">
+                <p class="text-xs font-semibold uppercase tracking-wide text-[#2f9da5]">Demo experience</p>
+                <h2 class="mt-1 text-2xl font-semibold tracking-normal text-[#07071f]">
+                    <span x-text="selectedDemoScenario()?.label || 'Single user, multiple domains'"></span>
+                </h2>
+                <p class="mt-2 text-sm text-[#5f5c78]"
+                   x-text="selectedDemoScenarioDescription()"></p>
+            </div>
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-end" data-tour="demo-persona">
+                <div class="grid gap-1">
+                    <label class="text-sm font-semibold text-[#120d36]" for="demo-persona">
+                        View as
+                    </label>
+                    <select id="demo-persona"
+                            class="min-w-64 rounded-md border border-[#dfdfdf] bg-white px-3 py-2 text-sm font-semibold text-[#120d36]"
+                            x-model="selectedDemoScenarioId"
+                            @change="applyDemoScenario()">
+                        <template x-for="scenario in demoScenarios()" :key="scenario.id || scenario.label">
+                            <option :value="scenario.id || scenario.label" x-text="`${scenario.label} · ${scenario.email}`"></option>
+                        </template>
+                    </select>
+                </div>
+                <button type="button"
+                        class="whitespace-nowrap rounded-md bg-[#272a5f] px-4 py-2 text-sm font-semibold text-white hover:bg-[#171346]"
+                        @click="startDemoTour()">
+                    Start tour
+                </button>
+            </div>
+        </div>
+        <div class="mt-5 grid gap-3 lg:grid-cols-3" data-tour="demo-zoom">
+            <template x-for="level in demoZoomLevels()" :key="level.level">
+                <button type="button"
+                        class="rounded-md border p-4 text-left transition hover:border-[#2f9da5] hover:shadow-sm"
+                        :class="selectedDemoZoomLevel === level.level ? 'border-[#2f9da5] bg-[#edf7f7]' : 'border-[#dfdfdf] bg-white'"
+                        @click="selectDemoZoomLevel(level.level)">
+                    <p class="text-sm font-semibold text-[#120d36]" x-text="level.label"></p>
+                    <p class="mt-1 text-sm text-[#5f5c78]" x-text="level.description"></p>
+                </button>
+            </template>
+        </div>
+        <div class="mt-5 grid gap-3 md:grid-cols-2" data-tour="demo-domains">
+            <template x-for="domain in demoDomainShowcase()" :key="domain.domain">
+                <a class="rounded-md border border-[#dfdfdf] p-4 transition hover:border-[#2f9da5] hover:shadow-sm"
+                   :href="`/domains/${encodeURIComponent(domain.domain)}`">
+                    <div class="flex items-start justify-between gap-3">
+                        <div>
+                            <p class="text-lg font-semibold text-[#120d36]" x-text="domain.domain"></p>
+                            <p class="mt-1 text-sm text-[#5f5c78]" x-text="domain.story"></p>
+                        </div>
+                        <span class="rounded-full bg-[#f4f3f2] px-3 py-1 text-xs font-semibold text-[#5f5c78]"
+                              x-text="domain.posture"></span>
+                    </div>
+                </a>
+            </template>
+        </div>
+    </div>
+
     <div class="grid grid-cols-1 gap-6 xl:grid-cols-12" x-show="hasDomainData" x-cloak>
-        <section class="rounded-lg bg-white p-6 shadow-sm xl:col-span-6">
+        <section class="rounded-lg bg-white p-6 shadow-sm xl:col-span-6" data-tour="compliance-chart">
             <div class="mb-3 grid gap-2 sm:flex sm:items-start sm:justify-between sm:gap-4">
                 <h2 class="min-w-0 text-2xl font-semibold tracking-normal text-[#07071f]">
                     DMARC Compliance Rate
@@ -78,7 +139,7 @@
             </div>
         </section>
 
-        <section class="rounded-lg bg-white p-6 shadow-sm xl:col-span-3">
+        <section class="rounded-lg bg-white p-6 shadow-sm xl:col-span-3" data-tour="enforcement">
             <div class="flex items-start justify-between gap-3">
                 <h2 class="text-2xl font-semibold tracking-normal text-[#07071f]">Enforcement Rate</h2>
                 <a href="/domains" class="mt-1 text-sm font-semibold text-[#2f9da5] hover:text-[#272a5f]">Review</a>
@@ -96,7 +157,7 @@
             </div>
         </section>
 
-        <section class="rounded-lg bg-white p-6 shadow-sm xl:col-span-3">
+        <section class="rounded-lg bg-white p-6 shadow-sm xl:col-span-3" data-tour="dns-health">
             <div class="flex flex-col gap-3">
                 <h2 class="text-2xl font-semibold tracking-normal text-[#07071f]">DNS Record Health</h2>
                 <div class="flex flex-wrap items-center gap-2">
@@ -137,7 +198,7 @@
             </div>
         </section>
 
-        <section class="rounded-lg bg-white p-6 shadow-sm xl:col-span-6">
+        <section class="rounded-lg bg-white p-6 shadow-sm xl:col-span-6" data-tour="volume-trends">
             <div class="flex items-start justify-between gap-3">
                 <h2 class="text-2xl font-semibold tracking-normal text-[#07071f]">Volume &amp; Trends</h2>
                 <a href="/reports" class="mt-1 text-sm font-semibold text-[#2f9da5] hover:text-[#272a5f]">Open reports</a>
@@ -155,7 +216,7 @@
             </div>
         </section>
 
-        <section class="rounded-lg bg-white p-6 shadow-sm xl:col-span-3">
+        <section class="rounded-lg bg-white p-6 shadow-sm xl:col-span-3" data-tour="top-sources">
             <div class="flex items-start justify-between gap-3">
                 <h2 class="text-2xl font-semibold tracking-normal text-[#07071f]">Top Sending Sources</h2>
                 <a href="/reports" class="mt-1 text-sm font-semibold text-[#2f9da5] hover:text-[#272a5f]">Investigate</a>
@@ -185,12 +246,12 @@
         <div id="change-summary-list" class="grid gap-3 md:grid-cols-3"></div>
     </div>
 
-    <div class="rounded-lg bg-white p-6 shadow-sm" x-show="demoDeployment" x-cloak>
+    <div class="rounded-lg bg-white p-6 shadow-sm" x-show="demoDeployment" x-cloak data-tour="tenant-zoom">
         <div class="mb-5 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
             <div>
-                <h2 class="text-2xl font-semibold tracking-normal text-[#07071f]">Multi-User Deployment</h2>
+                <h2 class="text-2xl font-semibold tracking-normal text-[#07071f]">Deployment Zoom</h2>
                 <p class="text-sm text-[#5f5c78]">
-                    SaaS, managed-service, and ISP billing views using generated demo data
+                    Click into SaaS, ISP, and self-hosted accounts, then view the product as one of their users.
                 </p>
             </div>
             <a href="/api/v1/operator/demo/multi-user"
@@ -201,7 +262,7 @@
         <div class="mb-5 grid gap-3 md:grid-cols-4">
             <div class="rounded-md bg-[#f4f3f2] p-3">
                 <p class="text-xs uppercase tracking-wide text-[#5f5c78]">Organizations</p>
-                <p class="mt-1 text-2xl font-semibold text-[#120d36]" x-text="demoOrganizations().length"></p>
+                <p class="mt-1 text-2xl font-semibold text-[#120d36]" x-text="visibleDemoOrganizations().length"></p>
             </div>
             <div class="rounded-md bg-[#f4f3f2] p-3">
                 <p class="text-xs uppercase tracking-wide text-[#5f5c78]">Workspaces</p>
@@ -217,8 +278,9 @@
             </div>
         </div>
         <div class="grid gap-4 xl:grid-cols-3">
-            <template x-for="organization in demoOrganizations()" :key="organization.slug">
-                <article class="rounded-md border border-[#dfdfdf] p-4 transition hover:border-[#2f9da5] hover:shadow-sm">
+            <template x-for="organization in visibleDemoOrganizations()" :key="organization.slug">
+                <article class="rounded-md border p-4 transition hover:border-[#2f9da5] hover:shadow-sm"
+                         :class="selectedDemoOrganizationSlug === organization.slug ? 'border-[#2f9da5] shadow-sm' : 'border-[#dfdfdf]'">
                     <div class="mb-4 flex items-start justify-between gap-3">
                         <div class="min-w-0">
                             <h3 class="truncate text-lg font-semibold text-[#120d36]" x-text="organization.name"></h3>
@@ -228,6 +290,7 @@
                         <span class="rounded-full bg-[#edf7f7] px-3 py-1 text-xs font-semibold text-[#247982]"
                               x-text="formatDemoLabel(organization.billing_mode)"></span>
                     </div>
+                    <p class="mb-4 text-sm text-[#5f5c78]" x-text="organization.demo_story"></p>
                     <div class="grid grid-cols-2 gap-3 text-sm">
                         <div class="rounded-md bg-[#f4f3f2] p-3">
                             <p class="text-[#5f5c78]">Plan</p>
@@ -294,6 +357,18 @@
                             </div>
                         </template>
                     </div>
+                    <div class="mt-4 flex flex-wrap gap-2">
+                        <button type="button"
+                                class="rounded-md bg-[#272a5f] px-3 py-2 text-sm font-semibold text-white hover:bg-[#171346]"
+                                @click="selectDemoOrganization(organization.slug)">
+                            Open account
+                        </button>
+                        <button type="button"
+                                class="rounded-md border border-[#dfdfdf] px-3 py-2 text-sm font-semibold text-[#2f9da5] hover:border-[#2f9da5]"
+                                @click="impersonateFirstDemoUser(organization.slug)">
+                            View as user
+                        </button>
+                    </div>
                     <div class="mt-4 space-y-2" x-show="organization.provider_customers?.length">
                         <p class="text-xs uppercase tracking-wide text-[#5f5c78]">Provider billing samples</p>
                         <template x-for="customer in organization.provider_customers" :key="customer.external_customer_id">
@@ -313,10 +388,76 @@
                 </article>
             </template>
         </div>
+        <div class="mt-5 rounded-lg border border-[#dfdfdf] bg-[#fbfbfb] p-5" x-show="selectedDemoOrganization()" x-cloak data-tour="tenant-detail">
+            <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-[#2f9da5]">Account detail</p>
+                    <h3 class="mt-1 text-2xl font-semibold text-[#120d36]" x-text="selectedDemoOrganization()?.name"></h3>
+                    <p class="mt-2 max-w-3xl text-sm text-[#5f5c78]" x-text="selectedDemoOrganization()?.demo_story"></p>
+                </div>
+                <div class="grid gap-1">
+                    <label class="text-sm font-semibold text-[#120d36]" for="demo-user-switcher">Impersonate</label>
+                    <select id="demo-user-switcher"
+                            class="min-w-64 rounded-md border border-[#dfdfdf] bg-white px-3 py-2 text-sm font-semibold text-[#120d36]"
+                            x-model="selectedDemoUserEmail"
+                            @change="applyDemoUserSelection()">
+                        <template x-for="user in selectedDemoOrganizationUsers()" :key="user.email">
+                            <option :value="user.email" x-text="`${user.name} · ${formatDemoLabel((user.roles || [])[0])}`"></option>
+                        </template>
+                    </select>
+                </div>
+            </div>
+            <div class="mt-5 grid gap-4 lg:grid-cols-3">
+                <div class="rounded-md bg-white p-4">
+                    <p class="text-xs uppercase tracking-wide text-[#5f5c78]">Current user</p>
+                    <p class="mt-2 text-lg font-semibold text-[#120d36]" x-text="selectedDemoUser()?.name || 'Select a user'"></p>
+                    <p class="mt-1 text-sm text-[#5f5c78]" x-text="selectedDemoUser()?.email || ''"></p>
+                    <div class="mt-3 flex flex-wrap gap-2">
+                        <template x-for="role in selectedDemoUser()?.roles || []" :key="role">
+                            <span class="rounded-full bg-[#f4f3f2] px-3 py-1 text-xs font-semibold text-[#120d36]"
+                                  x-text="formatDemoLabel(role)"></span>
+                        </template>
+                    </div>
+                </div>
+                <div class="rounded-md bg-white p-4">
+                    <p class="text-xs uppercase tracking-wide text-[#5f5c78]">Billing profile</p>
+                    <p class="mt-2 text-lg font-semibold text-[#120d36]" x-text="selectedDemoOrganization()?.billing_profile?.display_name"></p>
+                    <p class="mt-1 text-sm text-[#5f5c78]" x-text="selectedDemoOrganization()?.billing_profile?.invoice_reference"></p>
+                    <p class="mt-3 text-sm font-semibold text-[#2f9da5]"
+                       x-text="`${selectedDemoOrganization()?.billing_profile?.invoice_owner || 'Owner'} · ${formatDemoLabel(selectedDemoOrganization()?.billing_profile?.collection_model)}`"></p>
+                </div>
+                <div class="rounded-md bg-white p-4">
+                    <p class="text-xs uppercase tracking-wide text-[#5f5c78]">Visible workspaces</p>
+                    <div class="mt-3 space-y-2">
+                        <template x-for="workspace in selectedDemoVisibleWorkspaces()" :key="workspace.slug">
+                            <div class="rounded-md border border-[#e6e3e1] p-3">
+                                <p class="font-semibold text-[#120d36]" x-text="workspace.name"></p>
+                                <p class="mt-1 text-sm text-[#5f5c78]" x-text="(workspace.domains || []).join(', ')"></p>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </div>
+            <div class="mt-5 grid gap-3 md:grid-cols-2" x-show="selectedDemoOrganization()?.provider_customers?.length">
+                <template x-for="customer in selectedDemoOrganization()?.provider_customers || []" :key="customer.external_customer_id">
+                    <button type="button"
+                            class="rounded-md border border-[#dfdfdf] bg-white p-4 text-left transition hover:border-[#2f9da5] hover:shadow-sm"
+                            @click="selectDemoProviderCustomer(customer)">
+                        <div class="flex items-start justify-between gap-3">
+                            <div>
+                                <p class="font-semibold text-[#120d36]" x-text="customer.name"></p>
+                                <p class="mt-1 text-sm text-[#5f5c78]" x-text="`${customer.subscription_tier} · ${formatDemoLabel(customer.billing_status)}`"></p>
+                            </div>
+                            <span class="font-semibold text-[#120d36]" x-text="formatMoney(customer.monthly_charge_cents, selectedDemoOrganization()?.plan?.price?.currency)"></span>
+                        </div>
+                    </button>
+                </template>
+            </div>
+        </div>
     </div>
     
     <!-- Domain Compliance Table -->
-    <div x-show="hasDomainData" x-cloak>
+    <div x-show="hasDomainData" x-cloak data-tour="domain-table">
         {% call card() %}
             {% call card_header() %}
                 <div class="flex items-center justify-between">
@@ -410,6 +551,37 @@
             {% endcall %}
         {% endcall %}
     </div>
+
+    <div x-show="demoTourActive"
+         x-cloak
+         class="fixed inset-0 z-50 pointer-events-none"
+         @keydown.escape.window="closeDemoTour()">
+        <div class="absolute inset-0 bg-[#07071f]/45"></div>
+        <div class="absolute left-1/2 top-28 w-[min(92vw,30rem)] -translate-x-1/2 rounded-lg bg-white p-5 shadow-xl pointer-events-auto md:left-auto md:right-8 md:translate-x-0">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-[#2f9da5]"
+                       x-text="`Step ${demoTourStepIndex + 1} of ${demoTourSteps.length}`"></p>
+                    <h3 class="mt-1 text-xl font-semibold text-[#120d36]" x-text="currentDemoTourStep()?.title"></h3>
+                </div>
+                <button type="button"
+                        class="rounded-md px-2 py-1 text-lg text-[#5f5c78] hover:bg-[#f4f3f2]"
+                        aria-label="Close guided demo"
+                        @click="closeDemoTour()">×</button>
+            </div>
+            <p class="mt-3 text-sm text-[#5f5c78]" x-text="currentDemoTourStep()?.body"></p>
+            <div class="mt-5 flex items-center justify-between gap-3">
+                <button type="button"
+                        class="rounded-md border border-[#dfdfdf] px-3 py-2 text-sm font-semibold text-[#120d36] disabled:opacity-40"
+                        :disabled="demoTourStepIndex === 0"
+                        @click="previousDemoTourStep()">Back</button>
+                <button type="button"
+                        class="rounded-md bg-[#272a5f] px-4 py-2 text-sm font-semibold text-white hover:bg-[#171346]"
+                        @click="nextDemoTourStep()"
+                        x-text="demoTourStepIndex + 1 >= demoTourSteps.length ? 'Finish' : 'Next'"></button>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
@@ -424,6 +596,49 @@ function dashboardApp() {
         domains: [],
         selectedDnsDomain: '',
         demoDeployment: null,
+        selectedDemoScenarioId: 'single-user-multiple-domains',
+        selectedDemoZoomLevel: 'workspace',
+        selectedDemoOrganizationSlug: '',
+        selectedDemoUserEmail: '',
+        demoTourActive: false,
+        demoTourStepIndex: 0,
+        demoTourSteps: [
+            {
+                selector: '[data-tour="demo-orientation"]',
+                title: 'Start with the normal customer view',
+                body: 'The default demo is one user managing multiple domains, so dmarq.org and dmarq.com stay front and center.'
+            },
+            {
+                selector: '[data-tour="date-filter"]',
+                title: 'Change the evidence window',
+                body: 'Use sensible ranges or custom dates to inspect current incidents, week-to-date activity, or the full rolling demo history.'
+            },
+            {
+                selector: '[data-tour="compliance-chart"]',
+                title: 'Read the DMARC posture first',
+                body: 'Compliance, message volume, reports, and trends show whether the domain is ready for stronger enforcement.'
+            },
+            {
+                selector: '[data-tour="dns-health"]',
+                title: 'Check DNS health by domain',
+                body: 'Pick a domain and jump to its detail page to inspect SPF, DKIM, DMARC policy, and lint findings.'
+            },
+            {
+                selector: '[data-tour="top-sources"]',
+                title: 'Investigate senders',
+                body: 'Top sources surface the systems sending mail on behalf of the selected account and where authentication breaks.'
+            },
+            {
+                selector: '[data-tour="tenant-zoom"]',
+                title: 'Zoom out to accounts',
+                body: 'Switch from the daily operator view to SaaS, ISP, managed-service, and self-hosted deployment models.'
+            },
+            {
+                selector: '[data-tour="tenant-detail"]',
+                title: 'Impersonate demo users',
+                body: 'Open an account and view it as an owner, analyst, auditor, ISP operator, or customer admin.'
+            }
+        ],
         dateInterval: 'last_30_days',
         customStartDate: '',
         customEndDate: '',
@@ -587,6 +802,7 @@ function dashboardApp() {
                 if (!response.ok) return;
                 const data = await response.json();
                 this.demoDeployment = data.deployment || null;
+                this.applyDemoScenario();
             } catch (error) {
                 this.demoDeployment = null;
             }
@@ -889,22 +1105,169 @@ function dashboardApp() {
             return this.demoDeployment?.organizations || [];
         },
 
+        visibleDemoOrganizations() {
+            const scenario = this.selectedDemoScenario();
+            const visible = scenario?.visible_organizations || [];
+            if (!visible.length) return this.demoOrganizations();
+            return this.demoOrganizations().filter(organization => visible.includes(organization.slug));
+        },
+
+        demoScenarios() {
+            return this.demoDeployment?.viewer_scenarios || [];
+        },
+
+        demoZoomLevels() {
+            return this.demoDeployment?.zoom_levels || [];
+        },
+
+        demoDomainShowcase() {
+            return this.demoDeployment?.domain_showcase || [];
+        },
+
+        selectedDemoScenario() {
+            const scenarios = this.demoScenarios();
+            return scenarios.find(scenario => (scenario.id || scenario.label) === this.selectedDemoScenarioId)
+                || scenarios[0]
+                || null;
+        },
+
+        selectedDemoScenarioDescription() {
+            const scenario = this.selectedDemoScenario();
+            const level = this.demoZoomLevels().find(item => item.level === this.selectedDemoZoomLevel);
+            if (!scenario && !level) return 'Explore generated DMARQ demo data.';
+            const scope = level?.description || '';
+            const workspace = scenario?.default_workspace
+                ? ` Default workspace: ${this.formatDemoLabel(scenario.default_workspace)}.`
+                : '';
+            return `${scope}${workspace}`.trim();
+        },
+
+        selectDemoZoomLevel(level) {
+            this.selectedDemoZoomLevel = level || 'workspace';
+            if (level === 'provider') {
+                const providerScenario = this.demoScenarios().find(scenario => scenario.zoom_level === 'provider');
+                if (providerScenario) {
+                    this.selectedDemoScenarioId = providerScenario.id || providerScenario.label;
+                    this.applyDemoScenario();
+                }
+            }
+        },
+
+        applyDemoScenario() {
+            const scenario = this.selectedDemoScenario();
+            if (!scenario) {
+                this.selectedDemoOrganizationSlug = this.demoOrganizations()[0]?.slug || '';
+                this.selectedDemoUserEmail = '';
+                return;
+            }
+            this.selectedDemoZoomLevel = scenario.zoom_level || this.selectedDemoZoomLevel || 'workspace';
+            const organizationSlug = scenario.visible_organizations?.[0] || this.demoOrganizations()[0]?.slug || '';
+            this.selectDemoOrganization(organizationSlug, { preserveUser: true });
+            const user = this.selectedDemoOrganizationUsers()
+                .find(candidate => candidate.email === scenario.email)
+                || this.selectedDemoOrganizationUsers()[0];
+            this.selectedDemoUserEmail = user?.email || '';
+            if (scenario.default_domain && this.domains.some(domain => domain.domain_name === scenario.default_domain)) {
+                this.selectedDnsDomain = scenario.default_domain;
+                this.updateDnsHealth();
+            }
+        },
+
+        selectDemoOrganization(slug, options = {}) {
+            this.selectedDemoOrganizationSlug = slug || this.visibleDemoOrganizations()[0]?.slug || '';
+            const users = this.selectedDemoOrganizationUsers();
+            if (!options.preserveUser || !users.some(user => user.email === this.selectedDemoUserEmail)) {
+                this.selectedDemoUserEmail = users[0]?.email || '';
+            }
+            this.$nextTick(() => this.ensureTourTargetVisible('[data-tour="tenant-detail"]'));
+        },
+
+        selectedDemoOrganization() {
+            return this.demoOrganizations().find(
+                organization => organization.slug === this.selectedDemoOrganizationSlug
+            ) || this.visibleDemoOrganizations()[0] || null;
+        },
+
+        selectedDemoOrganizationUsers() {
+            return this.selectedDemoOrganization()?.users || [];
+        },
+
+        selectedDemoUser() {
+            return this.selectedDemoOrganizationUsers().find(user => user.email === this.selectedDemoUserEmail)
+                || this.selectedDemoOrganizationUsers()[0]
+                || null;
+        },
+
+        selectedDemoVisibleWorkspaces() {
+            const organization = this.selectedDemoOrganization();
+            const user = this.selectedDemoUser();
+            if (!organization) return [];
+            const workspaces = organization.workspaces || [];
+            const userWorkspaces = user?.workspaces || [];
+            if (!user || !userWorkspaces.length) return workspaces;
+            return workspaces.filter(workspace => userWorkspaces.includes(workspace.slug));
+        },
+
+        applyDemoUserSelection() {
+            const user = this.selectedDemoUser();
+            const firstWorkspace = this.selectedDemoVisibleWorkspaces()[0];
+            const firstDomain = firstWorkspace?.domains?.[0];
+            if (firstDomain && this.domains.some(domain => domain.domain_name === firstDomain)) {
+                this.selectedDnsDomain = firstDomain;
+                this.updateDnsHealth();
+            }
+            if (user?.demo_persona) {
+                const matchingScenario = this.demoScenarios().find(
+                    scenario => scenario.email === user.email || scenario.id === user.demo_persona
+                );
+                if (matchingScenario) {
+                    this.selectedDemoScenarioId = matchingScenario.id || matchingScenario.label;
+                    this.selectedDemoZoomLevel = matchingScenario.zoom_level || this.selectedDemoZoomLevel;
+                }
+            }
+        },
+
+        impersonateFirstDemoUser(slug) {
+            this.selectDemoOrganization(slug);
+            this.selectedDemoUserEmail = this.selectedDemoOrganizationUsers()[0]?.email || '';
+            this.applyDemoUserSelection();
+        },
+
+        selectDemoProviderCustomer(customer) {
+            const organization = this.selectedDemoOrganization();
+            if (!organization || !customer) return;
+            const workspace = (organization.workspaces || []).find(
+                item => item.slug === customer.workspace_slug
+            );
+            const customerUser = (organization.users || []).find(user =>
+                (user.workspaces || []).includes(customer.workspace_slug)
+            );
+            if (customerUser) {
+                this.selectedDemoUserEmail = customerUser.email;
+            }
+            const firstDomain = workspace?.domains?.[0];
+            if (firstDomain && this.domains.some(domain => domain.domain_name === firstDomain)) {
+                this.selectedDnsDomain = firstDomain;
+                this.updateDnsHealth();
+            }
+        },
+
         demoWorkspaceTotal() {
-            return this.demoOrganizations().reduce(
+            return this.visibleDemoOrganizations().reduce(
                 (total, organization) => total + (organization.workspaces?.length || 0),
                 0
             );
         },
 
         demoUserTotal() {
-            return this.demoOrganizations().reduce(
+            return this.visibleDemoOrganizations().reduce(
                 (total, organization) => total + (organization.users?.length || 0),
                 0
             );
         },
 
         demoMonthlyTotal() {
-            return this.demoOrganizations().reduce(
+            return this.visibleDemoOrganizations().reduce(
                 (total, organization) => total + (organization.billing?.current_period_total_cents || 0),
                 0
             );
@@ -925,6 +1288,67 @@ function dashboardApp() {
                 ? ` / ${this.formatLargeNumber(entitlement.included)}`
                 : '';
             return `${this.formatDemoLabel(usage.metric)} ${used}${limit} ${usage.unit || ''}`.trim();
+        },
+
+        startDemoTour() {
+            this.demoTourActive = true;
+            this.demoTourStepIndex = 0;
+            this.activateDemoTourStep();
+        },
+
+        closeDemoTour() {
+            this.demoTourActive = false;
+            this.clearDemoTourTarget();
+        },
+
+        currentDemoTourStep() {
+            return this.demoTourSteps[this.demoTourStepIndex] || this.demoTourSteps[0] || null;
+        },
+
+        nextDemoTourStep() {
+            if (this.demoTourStepIndex + 1 >= this.demoTourSteps.length) {
+                this.closeDemoTour();
+                return;
+            }
+            this.demoTourStepIndex += 1;
+            this.activateDemoTourStep();
+        },
+
+        previousDemoTourStep() {
+            if (this.demoTourStepIndex === 0) return;
+            this.demoTourStepIndex -= 1;
+            this.activateDemoTourStep();
+        },
+
+        activateDemoTourStep() {
+            this.clearDemoTourTarget();
+            const step = this.currentDemoTourStep();
+            if (!step?.selector) return;
+            this.ensureTourTargetVisible(step.selector);
+            this.$nextTick(() => {
+                const target = document.querySelector(step.selector);
+                if (!target) return;
+                target.classList.add('dmarq-tour-target');
+                target.style.position = target.style.position || 'relative';
+                target.style.zIndex = '60';
+                target.style.boxShadow = '0 0 0 4px rgba(47, 157, 165, 0.35)';
+            });
+        },
+
+        clearDemoTourTarget() {
+            document.querySelectorAll('.dmarq-tour-target').forEach(target => {
+                target.classList.remove('dmarq-tour-target');
+                target.style.zIndex = '';
+                target.style.boxShadow = '';
+            });
+        },
+
+        ensureTourTargetVisible(selector) {
+            this.$nextTick(() => {
+                const target = document.querySelector(selector);
+                if (!target) return;
+                target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            });
         },
 
         domainHref(domain) {
