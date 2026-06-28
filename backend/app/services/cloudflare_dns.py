@@ -114,29 +114,40 @@ async def import_cloudflare_domains(
     imported: List[str] = []
     existing: List[str] = []
     skipped: List[str] = []
+    candidate_names: List[str] = []
 
     for zone in zones:
         name = str(zone["name"]).lower()
         if requested and name not in requested:
             skipped.append(name)
             continue
-        domain = (
-            db.query(Domain)
-            .filter(Domain.name == name, Domain.workspace_id == workspace_id)
-            .first()
+        candidate_names.append(name)
+
+    existing_names = set()
+    if candidate_names:
+        existing_names = {
+            row[0]
+            for row in (
+                db.query(Domain.name)
+                .filter(Domain.name.in_(candidate_names), Domain.workspace_id == workspace_id)
+                .all()
+            )
+        }
+    new_names = [name for name in candidate_names if name not in existing_names]
+    if workspace and workspace.organization and new_names:
+        require_organization_plan_limit(
+            db,
+            workspace.organization,
+            "monitored_domains",
+            increment=len(new_names),
         )
-        if domain is None:
-            if workspace and workspace.organization:
-                require_organization_plan_limit(
-                    db,
-                    workspace.organization,
-                    "monitored_domains",
-                )
-            db.add(Domain(name=name, active=True, verified=True, workspace_id=workspace_id))
-            db.flush()
-            imported.append(name)
-        else:
+
+    for name in candidate_names:
+        if name in existing_names:
             existing.append(name)
+        else:
+            db.add(Domain(name=name, active=True, verified=True, workspace_id=workspace_id))
+            imported.append(name)
 
     db.commit()
     return {

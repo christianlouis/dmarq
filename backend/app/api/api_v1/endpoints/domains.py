@@ -89,7 +89,10 @@ def _authorized_domain_read_workspace(
 
 
 def _raise_plan_limit_error(exc: OrganizationPlanLimitError) -> None:
-    raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=exc.to_detail())
+    raise HTTPException(
+        status_code=status.HTTP_402_PAYMENT_REQUIRED,
+        detail=exc.to_detail(),
+    ) from exc
 
 
 def _normalize_reported_policy(policy_value: Any) -> Optional[str]:
