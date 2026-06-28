@@ -247,13 +247,20 @@ def test_organization_summary_exposes_plan_limit_usage(db_session: Session):
     assert limits["monitored_domains"]["limit"] == 1
     assert limits["monitored_domains"]["status"] == "warning"
     assert limits["monitored_domains"]["enforced"] is True
+    assert limits["monitored_domains"]["near_limit"] is True
+    assert limits["monitored_domains"]["usage_percent"] == 100.0
+    assert limits["monitored_domains"]["warning_threshold"] == 1
+    assert "at the plan limit" in limits["monitored_domains"]["message"]
     assert limits["api_tokens"]["current"] == 1
     assert limits["api_tokens"]["limit"] == 0
     assert limits["api_tokens"]["status"] == "exceeded"
     assert limits["api_tokens"]["enforced"] is True
+    assert limits["api_tokens"]["near_limit"] is True
+    assert "over the plan limit" in limits["api_tokens"]["message"]
     assert limits["users"]["current"] == 3
     assert limits["users"]["limit"] == 3
     assert limits["users"]["enforced"] is True
+    assert limits["users"]["message"] == "users are at the plan limit (3/3)."
     assert limits["webhooks"]["current"] == 1
     assert limits["webhooks"]["limit"] == 0
     assert limits["webhooks"]["enforced"] is True
@@ -290,6 +297,50 @@ def test_organization_user_has_active_seat_requires_active_user(db_session: Sess
 
     assert organization_user_has_active_seat(db_session, organization, active_user) is True
     assert organization_user_has_active_seat(db_session, organization, inactive_user) is False
+
+
+def test_organization_plan_limit_warning_payload_is_actionable(db_session: Session):
+    organization = Organization(slug="limit-warning", name="Limit Warning", active=True)
+    workspace = Workspace(
+        slug="limit-warning-main",
+        name="Limit Warning Main",
+        organization=organization,
+    )
+    db_session.add_all(
+        [
+            organization,
+            workspace,
+            Entitlement(
+                organization=organization,
+                key="monitored_domains",
+                value="5",
+                source="plan",
+                active=True,
+            ),
+        ]
+    )
+    db_session.flush()
+    for index in range(4):
+        db_session.add(
+            Domain(
+                workspace_id=workspace.id,
+                name=f"warning-{index}.example",
+                active=True,
+            )
+        )
+    db_session.commit()
+
+    limit = organization_plan_limit(db_session, organization, "monitored_domains")
+
+    assert limit is not None
+    assert limit["status"] == "warning"
+    assert limit["near_limit"] is True
+    assert limit["remaining"] == 1
+    assert limit["usage_percent"] == 80.0
+    assert limit["warning_threshold"] == 4
+    assert limit["message"] == (
+        "monitored domains are approaching the plan limit (4/5); 1 remaining."
+    )
 
 
 def test_organization_plan_limit_returns_configured_metric(db_session: Session):
