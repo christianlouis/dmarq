@@ -87,6 +87,7 @@ ENFORCED_PLAN_LIMITS = {
 }
 FEATURE_ENTITLEMENT_ALIASES: Dict[str, tuple[str, ...]] = {
     "api_tokens": ("api_tokens", "api_access"),
+    "sso": ("sso", "single_sign_on", "oidc", "logto"),
     "webhooks": ("webhooks",),
 }
 PLAN_LIMIT_ENTITLEMENT_ALIASES: Dict[str, tuple[str, ...]] = {
