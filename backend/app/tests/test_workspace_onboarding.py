@@ -198,6 +198,7 @@ def test_apply_onboarding_creates_workspace_assets_and_audit(
 
 def test_apply_onboarding_respects_monitored_domain_plan_limit(
     authed_client: TestClient,
+    db_session: Session,
 ):
     """Starter onboarding cannot create more monitored domains than the plan allows."""
     response = authed_client.post(
@@ -218,6 +219,14 @@ def test_apply_onboarding_respects_monitored_domain_plan_limit(
     assert detail["limit"] == 1
     assert detail["attempted"] == 1
     assert detail["can_export"] is True
+    assert db_session.query(Organization).filter(Organization.slug == "client-one").count() == 0
+    assert db_session.query(Workspace).filter(Workspace.slug == "client-one").count() == 0
+    assert (
+        db_session.query(Domain)
+        .filter(Domain.name.in_(["one.example", "two.example"]))
+        .count()
+        == 0
+    )
 
 
 def test_apply_onboarding_is_idempotent_for_existing_assets(

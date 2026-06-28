@@ -744,7 +744,13 @@ def require_organization_plan_limit(
     """Raise when a mutation would exceed a configured organization plan limit."""
     if increment <= 0:
         return
-    limit_payload = organization_plan_limit(db, organization, metric)
+    locked_organization = (
+        db.query(Organization)
+        .filter(Organization.id == organization.id)
+        .with_for_update()
+        .one_or_none()
+    )
+    limit_payload = organization_plan_limit(db, locked_organization or organization, metric)
     if not limit_payload:
         return
     limit = limit_payload.get("limit")

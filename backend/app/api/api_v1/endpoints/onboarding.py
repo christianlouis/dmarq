@@ -125,6 +125,7 @@ async def apply_workspace_onboarding(
     try:
         result = apply_onboarding_plan(db, plan=plan, auth_context=_auth, request=request)
     except OrganizationPlanLimitError as exc:
+        db.rollback()
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail=exc.to_detail(),
