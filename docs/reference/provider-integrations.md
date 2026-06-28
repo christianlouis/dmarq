@@ -125,8 +125,8 @@ Recommended WHMCS module mapping:
 | SuspendAccount | `POST /api/v1/provider/subscriptions/{external_subscription_id}/state` | `provider:write` | `status=suspended`, `external_event_id` |
 | UnsuspendAccount | `POST /api/v1/provider/subscriptions/{external_subscription_id}/state` | `provider:write` | `status=active`, `external_event_id` |
 | TerminateAccount | `POST /api/v1/provider/subscriptions/{external_subscription_id}/state` | `provider:write` | `status=terminated`, `external_event_id` |
-| Usage billing cron | `GET /api/v1/provider/billing/accounts/{external_customer_id}/usage?period=YYYY-MM` | `provider:read` | `period`, `provider_id` |
-| Provider-wide reconciliation | `GET /api/v1/provider/billing/usage?period=YYYY-MM` | `provider:read` | `period`, `provider_id` |
+| Usage billing cron | `GET /api/v1/provider/billing/accounts/{external_customer_id}/usage?period=YYYY-MM` | `provider:read` | `period` |
+| Provider-wide reconciliation | `GET /api/v1/provider/billing/usage?period=YYYY-MM` | `provider:read` | `period` |
 
 Use the WHMCS service id or subscription id as `external_subscription_id`, and
 the WHMCS client id as `external_customer_id`. Use a stable WHMCS hook or module
