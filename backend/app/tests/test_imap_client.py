@@ -96,13 +96,14 @@ def _make_email_with_attachment(
     content_type: str = "application/xml",
     subject: str = "DMARC Report",
     from_addr: str = "noreply@example.com",
+    disposition_type: str = "attachment"
 ) -> bytes:
     msg = MIMEMultipart()
     msg["Subject"] = subject
     msg["From"] = from_addr
     msg.attach(MIMEText("DMARC report attached."))
     part = MIMEApplication(content, Name=filename)
-    part["Content-Disposition"] = f'attachment; filename="{filename}"'
+    part["Content-Disposition"] = f'{disposition_type}; filename="{filename}"'
     part.set_type(content_type)
     msg.attach(part)
     return msg.as_bytes()
@@ -510,6 +511,15 @@ class TestProcessAttachments:
         gzip_content = _make_gzip_content(MINIMAL_DMARC_XML, "report.xml")
         msg = email.message_from_bytes(
             _make_email_with_attachment("report.gz", gzip_content, "application/gzip")
+        )
+        count = client._process_attachments(msg)
+        assert count == 1
+
+    def test_processes_gzip_inline(self):
+        client = self._make_client()
+        gzip_content = _make_gzip_content(MINIMAL_DMARC_XML, "report.xml")
+        msg = email.message_from_bytes(
+            _make_email_with_attachment("report.gz", gzip_content, "application/gzip", disposition_type="inline")
         )
         count = client._process_attachments(msg)
         assert count == 1

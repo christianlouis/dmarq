@@ -628,7 +628,7 @@ class IMAPClient:
         reports_found = 0
 
         for part in msg.walk():
-            if part.get_content_disposition() != "attachment":
+            if part.get_content_disposition() not in ["attachment", "inline"]:
                 continue
 
             filename = part.get_filename()
