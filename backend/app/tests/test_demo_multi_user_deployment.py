@@ -82,6 +82,10 @@ def test_demo_multi_user_deployment_has_opinionated_default_and_impersonation():
     assert deployment["impersonation_policy"]["audit_label"] == (
         "support impersonation audit event"
     )
+    assert deployment["impersonation_policy"]["allowed_roles"] == [
+        "organization_owner",
+        "provider_operator",
+    ]
     assert "operator" in deployment["impersonation_policy"]["scope"]
     assert "target user" in deployment["impersonation_policy"]["scope"]
     assert [step["scenario_id"] for step in deployment["journey_steps"]] == [
