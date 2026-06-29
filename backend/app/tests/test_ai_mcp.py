@@ -1,5 +1,8 @@
+import sys
+import time
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -8,6 +11,7 @@ from app.models.setting import Setting
 from app.models.workspace import Workspace
 from app.services import ai_assistance
 from app.services.api_tokens import MCP_READ_SCOPE, create_api_token
+from app.services.ai_assistance import AssistanceConfig
 from app.services.bimi import BIMIResult
 from app.services.dns_resolver import DomainDNSResult
 from app.services.mta_sts import MTAStsResult
@@ -177,6 +181,101 @@ def test_ai_remediation_cache_is_bounded():
     assert len(ai_assistance._REMEDIATION_CACHE) == ai_assistance.REMEDIATION_CACHE_MAX_ENTRIES
     assert "key-0" not in ai_assistance._REMEDIATION_CACHE
     ai_assistance._REMEDIATION_CACHE.clear()
+
+
+def test_remediation_cache_prunes_expired_entries_and_oldest_entries():
+    ai_assistance._REMEDIATION_CACHE.clear()
+    ai_assistance._REMEDIATION_CACHE["expired"] = (time.time() - 120, {"stale": True})
+    ai_assistance._cache_set("fresh", {"stale": False})
+
+    assert ai_assistance._cache_get("expired", ttl_seconds=1) is None
+    assert ai_assistance._cache_get("fresh", ttl_seconds=1)["stale"] is False
+
+    ai_assistance._REMEDIATION_CACHE.clear()
+    for index in range(ai_assistance.REMEDIATION_CACHE_MAX_ENTRIES + 3):
+        ai_assistance._cache_set(f"key-{index}", {"index": index})
+
+    assert len(ai_assistance._REMEDIATION_CACHE) <= ai_assistance.REMEDIATION_CACHE_MAX_ENTRIES
+    assert "key-0" not in ai_assistance._REMEDIATION_CACHE
+    ai_assistance._REMEDIATION_CACHE.clear()
+
+
+@pytest.mark.asyncio
+async def test_litellm_remediation_plan_returns_valid_actions(monkeypatch):
+    class FakeLiteLLM:
+        drop_params = False
+
+        @staticmethod
+        async def acompletion(**_kwargs):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                '{"summary": "Review DNS posture.", "actions": '
+                                '[{"finding_code": "dkim_selector_missing", '
+                                '"title": "Publish selector", "priority": "high", '
+                                '"summary": "Publish the missing selector.", '
+                                '"steps": ["Create the TXT record."], '
+                                '"evidence": [], "target_record": null, '
+                                '"requires_human_change": true}]}'
+                            )
+                        }
+                    }
+                ]
+            }
+
+    monkeypatch.setitem(sys.modules, "litellm", FakeLiteLLM)
+    config = AssistanceConfig(
+        ai_enabled=True,
+        provider="litellm",
+        model="test-model",
+        remote_base_url="https://litellm.example.test",
+        redaction_mode="strict",
+        action_tools_enabled=False,
+        mcp_enabled=False,
+        remediation_cache_seconds=60,
+    )
+
+    plan = await ai_assistance._litellm_remediation_plan(
+        config,
+        {"domain": DOMAIN, "dns_guidance": {"findings": []}},
+    )
+
+    assert plan is not None
+    assert plan["provider"] == "litellm"
+    assert plan["model"] == "test-model"
+    assert plan["actions"][0]["finding_code"] == "dkim_selector_missing"
+    assert FakeLiteLLM.drop_params is True
+
+
+@pytest.mark.asyncio
+async def test_litellm_remediation_plan_rejects_malformed_actions(monkeypatch):
+    class FakeLiteLLM:
+        drop_params = False
+
+        @staticmethod
+        async def acompletion(**_kwargs):
+            return {"choices": [{"message": {"content": '{"summary": "No actions"}'}}]}
+
+    monkeypatch.setitem(sys.modules, "litellm", FakeLiteLLM)
+    config = AssistanceConfig(
+        ai_enabled=True,
+        provider="litellm",
+        model="",
+        remote_base_url="",
+        redaction_mode="strict",
+        action_tools_enabled=False,
+        mcp_enabled=False,
+        remediation_cache_seconds=60,
+    )
+
+    plan = await ai_assistance._litellm_remediation_plan(
+        config,
+        {"domain": DOMAIN, "dns_guidance": {"findings": []}},
+    )
+
+    assert plan is None
 
 
 def test_action_proposals_are_reviewable_and_not_mutating(

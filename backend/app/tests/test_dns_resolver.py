@@ -14,6 +14,7 @@ from app.models.setting import Setting
 from app.services.dns_resolver import (
     BaseDNSProvider,
     CloudflareDNSProvider,
+    DemoDNSProvider,
     DomainDNSResult,
     SystemDNSProvider,
     extract_dmarc_policy,
@@ -810,3 +811,12 @@ async def test_cloudflare_provider_lookup_ptr_returns_none_for_invalid_ip():
     provider = CloudflareDNSProvider()
     result = await provider.lookup_ptr("not-an-ip")
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_demo_provider_lookup_cname_returns_configured_target():
+    provider = DemoDNSProvider()
+
+    target = await provider.lookup_cname("mailchimp._domainkey.dmarq.com")
+
+    assert target == "missing-mcsv._domainkey.mcsv.net"
