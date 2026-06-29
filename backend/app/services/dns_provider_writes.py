@@ -388,12 +388,16 @@ class LexiconDNSWriteProvider:
                 provider_result={"status": "unchanged"},
             )
         provider_result = await asyncio.to_thread(self._apply_record, domain, mutation)
+        if not provider_result:
+            raise DNSProviderWriteError(
+                f"Lexicon provider '{self.provider_id}' did not apply the DNS mutation"
+            )
         return DNSWriteResult(
             provider=self.provider_id,
             dry_run=False,
             applied=True,
             mutation=mutation,
-            provider_result={"ok": bool(provider_result)},
+            provider_result={"ok": True},
         )
 
     def _client_config(self, domain: str):
@@ -431,6 +435,7 @@ class LexiconDNSWriteProvider:
                         mutation.record_type,
                         mutation.name,
                         mutation.content,
+                        ttl=mutation.ttl,
                     )
                 )
             if mutation.operation == "update":
@@ -440,6 +445,7 @@ class LexiconDNSWriteProvider:
                         mutation.record_type,
                         mutation.name,
                         mutation.content,
+                        ttl=mutation.ttl,
                     )
                 )
         raise DNSProviderWriteError(f"Unsupported Lexicon operation: {mutation.operation}")
@@ -494,6 +500,8 @@ async def apply_dns_write(
     """Apply one provider-backed DNS mutation after validation."""
     if get_settings().DEMO_MODE:
         raise DNSProviderWriteError("Provider DNS writes are disabled in demo mode")
+    if workspace.id is None:
+        raise DNSProviderWriteError("Workspace must be persisted before applying DNS changes")
     provider = build_dns_write_provider(provider_id)
     mutation = await provider.prepare_mutation(
         db,
@@ -504,6 +512,4 @@ async def apply_dns_write(
     )
     result = await provider.apply_mutation(db, domain=domain, mutation=mutation)
     db.flush()
-    if workspace.id is None:
-        raise DNSProviderWriteError("Workspace must be persisted before applying DNS changes")
     return result
