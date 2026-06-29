@@ -21,7 +21,7 @@ import pytest
 
 from app.models.report import DMARCReport, ForensicReport
 from app.models.setting import Setting
-from app.services.gmail_client import GmailClient, RETRYABLE_MESSAGE_FAILURE
+from app.services.gmail_client import RETRYABLE_MESSAGE_FAILURE, GmailClient
 from app.services.report_store import ReportStore
 from app.tests.test_data import SAMPLE_XML
 from app.tests.test_forensic_parser import SAMPLE_FORENSIC_EMAIL
@@ -731,7 +731,8 @@ class TestFetchReports:
             result = client.fetch_reports()
 
         assert result["success"] is False
-        assert "auth error" in result.get("error", "")
+        assert result.get("error") == "Failed to initialize Gmail API."
+        assert "auth error" not in str(result)
 
     def test_returns_failure_when_list_messages_raises(self):
         client = _make_client()
@@ -831,6 +832,38 @@ class TestFetchReports:
             result = client.fetch_reports()
 
         assert "newdomain.example" in result["new_domains"]
+
+    def test_fetch_reports_hides_raw_service_build_error(self):
+        client = _make_client()
+
+        with patch.object(
+            client,
+            "_build_service",
+            side_effect=RuntimeError("access_token=ya29.raw-secret"),
+        ):
+            result = client.fetch_reports()
+
+        assert result["success"] is False
+        assert result["errors"] == ["Failed to initialize Gmail API."]
+        assert "raw-secret" not in str(result)
+
+    def test_fetch_reports_hides_raw_message_list_error(self):
+        client = _make_client()
+        mock_service = MagicMock()
+
+        with (
+            patch.object(client, "_build_service", return_value=mock_service),
+            patch.object(
+                client,
+                "_list_dmarc_message_ids",
+                side_effect=RuntimeError("refresh_token=1//raw-refresh"),
+            ),
+        ):
+            result = client.fetch_reports()
+
+        assert result["success"] is False
+        assert result["errors"] == ["Failed to list Gmail messages."]
+        assert "raw-refresh" not in str(result)
 
 
 # ===========================================================================

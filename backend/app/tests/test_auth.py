@@ -20,6 +20,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi.testclient import TestClient
 
+from app.api.api_v1.endpoints.auth import _create_next_cookie
+from app.core.config import get_settings
 from app.core.logto import (
     SESSION_COOKIE,
     CookieStorage,
@@ -280,6 +282,25 @@ class TestCallbackEndpoint:
         """After a successful callback the user is redirected to the stored next URL."""
         claims = self._make_mock_claims()
         mock_client = self._mock_client(claims=claims)
+        next_cookie = _create_next_cookie("/dashboard")
+        with patch("app.api.api_v1.endpoints.auth.settings") as mock_settings:
+            real_settings = get_settings()
+            mock_settings.logto_configured = True
+            mock_settings.SECRET_KEY = real_settings.SECRET_KEY
+            mock_settings.ALGORITHM = real_settings.ALGORITHM
+            with patch("app.api.api_v1.endpoints.auth.make_logto_client", return_value=mock_client):
+                res = client.get(
+                    "/api/v1/auth/callback?code=good",
+                    cookies={"logto_next": next_cookie},
+                    follow_redirects=False,
+                )
+        assert res.status_code == 302
+        assert res.headers["location"] == "/dashboard"
+
+    def test_callback_ignores_tampered_logto_next_cookie(self, client: TestClient):
+        """Unsigned or tampered next cookies must not control the post-login redirect."""
+        claims = self._make_mock_claims()
+        mock_client = self._mock_client(claims=claims)
         with patch("app.api.api_v1.endpoints.auth.settings") as mock_settings:
             mock_settings.logto_configured = True
             with patch("app.api.api_v1.endpoints.auth.make_logto_client", return_value=mock_client):
@@ -289,7 +310,7 @@ class TestCallbackEndpoint:
                     follow_redirects=False,
                 )
         assert res.status_code == 302
-        assert res.headers["location"] == "/dashboard"
+        assert res.headers["location"] == "/"
 
 
 # ── /api/v1/auth/sign-in ─────────────────────────────────────────────────────
@@ -361,9 +382,7 @@ class TestAuthDisabled:
             mock_settings.AUTH_DISABLED = True
             mock_req = MagicMock()
             mock_req.cookies = {}
-            result = asyncio.run(
-                require_admin_auth(request=mock_req, api_key=None, bearer=None)
-            )
+            result = asyncio.run(require_admin_auth(request=mock_req, api_key=None, bearer=None))
         assert result["auth_type"] == "disabled"
 
     def test_middleware_passes_all_requests_when_auth_disabled(self, client: TestClient):
