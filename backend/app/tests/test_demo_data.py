@@ -8,6 +8,8 @@ from app.services.demo_data import (
     analyze_demo_forensic_reports,
     build_demo_dashboard_statistics,
     build_demo_forensic_reports,
+    build_demo_mail_source_backfills,
+    build_demo_mail_sources,
     build_demo_reports,
     list_demo_forensic_reports,
     list_demo_tls_reports,
@@ -129,6 +131,23 @@ def test_demo_forensic_reports_fill_list_and_analysis_views():
     assert analysis["groups"]
     assert analysis["samples"]
     assert "redacted headers and metadata only" in analysis["samples"][0]["privacy_note"]
+
+
+def test_demo_mail_sources_include_backfill_lifecycle_examples():
+    sources = build_demo_mail_sources(today=date(2026, 6, 25))
+    source_ids = {source["id"] for source in sources}
+
+    assert {9001, 9002, 9003}.issubset(source_ids)
+    assert all(source["password"] is None for source in sources)
+    assert any(source["method"] == "GMAIL_API" and source["gmail_connected"] for source in sources)
+    assert any(source["method"] == "M365_GRAPH" and source["m365_connected"] for source in sources)
+
+    statuses = {
+        job["status"]
+        for source_id in source_ids
+        for job in build_demo_mail_source_backfills(source_id, today=date(2026, 6, 25))
+    }
+    assert {"completed", "running", "backoff", "queued"}.issubset(statuses)
 
 
 @pytest.mark.asyncio

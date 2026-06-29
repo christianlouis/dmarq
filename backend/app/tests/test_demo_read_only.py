@@ -20,6 +20,14 @@ def _build_demo_guard_client(demo_mode: bool = True) -> TestClient:
     async def resource():
         return {"ok": True}
 
+    @app.post("/api/v1/mail-sources/{source_id}/backfills")
+    async def simulated_backfill(source_id: int):
+        return {"source_id": source_id, "ok": True}
+
+    @app.post("/api/v1/mail-sources/{source_id}/backfills/{job_id}/retry")
+    async def simulated_retry(source_id: int, job_id: int):
+        return {"source_id": source_id, "job_id": job_id, "ok": True}
+
     return TestClient(app)
 
 
@@ -36,6 +44,17 @@ def test_demo_mode_blocks_mutating_methods():
             response = method("/resource")
             assert response.status_code == 403
             assert response.json()["detail"].startswith("This public demo is read-only.")
+
+
+def test_demo_mode_allows_synthetic_backfill_simulation_only():
+    with _build_demo_guard_client() as client:
+        allowed_queue = client.post("/api/v1/mail-sources/9001/backfills")
+        allowed_retry = client.post("/api/v1/mail-sources/9002/backfills/9201/retry")
+        blocked_real_source = client.post("/api/v1/mail-sources/123/backfills")
+
+        assert allowed_queue.status_code == 200
+        assert allowed_retry.status_code == 200
+        assert blocked_real_source.status_code == 403
 
 
 def test_normal_mode_allows_mutating_methods():

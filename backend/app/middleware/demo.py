@@ -11,6 +11,19 @@ from starlette.responses import JSONResponse, Response
 from app.core.config import get_settings
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+DEMO_BACKFILL_SOURCE_IDS = frozenset({"9001", "9002", "9003"})
+
+
+def _is_demo_backfill_simulation(request: Request) -> bool:
+    if request.method.upper() != "POST":
+        return False
+    parts = request.url.path.strip("/").split("/")
+    return (
+        len(parts) >= 5
+        and parts[:3] == ["api", "v1", "mail-sources"]
+        and parts[3] in DEMO_BACKFILL_SOURCE_IDS
+        and parts[4] == "backfills"
+    )
 
 
 class DemoReadOnlyMiddleware(BaseHTTPMiddleware):
@@ -26,7 +39,11 @@ class DemoReadOnlyMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         settings = self._settings_provider()
-        if settings.DEMO_MODE and request.method.upper() not in SAFE_METHODS:
+        if (
+            settings.DEMO_MODE
+            and request.method.upper() not in SAFE_METHODS
+            and not _is_demo_backfill_simulation(request)
+        ):
             return JSONResponse(
                 status_code=status.HTTP_403_FORBIDDEN,
                 content={

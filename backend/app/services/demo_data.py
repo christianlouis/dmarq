@@ -46,6 +46,207 @@ DEMO_TLS_REPORT_PRIVACY_CONTROLS = {
 }
 
 
+def build_demo_mail_sources(today: Optional[date] = None) -> List[Dict[str, Any]]:
+    """Return deterministic demo mail-source rows without real credentials."""
+    anchor = _demo_today(today)
+    checked = datetime.combine(anchor, time(7, 45), tzinfo=timezone.utc)
+    return [
+        {
+            "id": 9001,
+            "name": "dmarq.org aggregate reports",
+            "method": "IMAP",
+            "server": "imap.demo.dmarq.org",
+            "port": 993,
+            "username": "reports@dmarq.org",
+            "password": None,
+            "use_ssl": True,
+            "folder": "INBOX/DMARC",
+            "polling_interval": 60,
+            "enabled": True,
+            "last_checked": checked - timedelta(minutes=18),
+            "created_at": checked - timedelta(days=88),
+            "updated_at": checked - timedelta(minutes=18),
+            "gmail_client_id": None,
+            "gmail_client_secret": None,
+            "gmail_email": None,
+            "gmail_connected": False,
+            "m365_tenant_id": "common",
+            "m365_client_id": None,
+            "m365_client_secret": None,
+            "m365_mailbox": None,
+            "m365_folder_id": None,
+            "m365_email": None,
+            "m365_connected": False,
+        },
+        {
+            "id": 9002,
+            "name": "dmarq.com Google reports",
+            "method": "GMAIL_API",
+            "server": None,
+            "port": 993,
+            "username": None,
+            "password": None,
+            "use_ssl": True,
+            "folder": "DMARC Reports",
+            "polling_interval": 30,
+            "enabled": True,
+            "last_checked": checked - timedelta(hours=2, minutes=7),
+            "created_at": checked - timedelta(days=61),
+            "updated_at": checked - timedelta(hours=2, minutes=7),
+            "gmail_client_id": "demo-google-oauth-client",
+            "gmail_client_secret": None,
+            "gmail_email": "dmarc-reports@dmarq.com",
+            "gmail_connected": True,
+            "m365_tenant_id": "common",
+            "m365_client_id": None,
+            "m365_client_secret": None,
+            "m365_mailbox": None,
+            "m365_folder_id": None,
+            "m365_email": None,
+            "m365_connected": False,
+        },
+        {
+            "id": 9003,
+            "name": "ISP customer shared mailbox",
+            "method": "M365_GRAPH",
+            "server": None,
+            "port": 993,
+            "username": None,
+            "password": None,
+            "use_ssl": True,
+            "folder": "DMARC / Customer Imports",
+            "polling_interval": 120,
+            "enabled": True,
+            "last_checked": checked - timedelta(hours=5, minutes=41),
+            "created_at": checked - timedelta(days=37),
+            "updated_at": checked - timedelta(hours=5, minutes=41),
+            "gmail_client_id": None,
+            "gmail_client_secret": None,
+            "gmail_email": None,
+            "gmail_connected": False,
+            "m365_tenant_id": "northstar-demo",
+            "m365_client_id": "demo-m365-client",
+            "m365_client_secret": None,
+            "m365_mailbox": "dmarc-imports@northstar.example",
+            "m365_folder_id": "demo-folder-dmarc",
+            "m365_email": "dmarc-imports@northstar.example",
+            "m365_connected": True,
+        },
+    ]
+
+
+def build_demo_mail_source_backfills(
+    source_id: int, today: Optional[date] = None
+) -> List[Dict[str, Any]]:
+    """Return rolling demo backfill progress rows for one demo mail source."""
+    anchor = _demo_today(today)
+    now = datetime.combine(anchor, time(8, 15), tzinfo=timezone.utc)
+    common = {
+        "workspace_id": 1,
+        "trigger": "manual",
+        "requested_by": "demo-operator@dmarq.org",
+        "max_attempts": 3,
+        "errors": [],
+    }
+    jobs = {
+        9001: [
+            {
+                **common,
+                "id": 9101,
+                "mail_source_id": 9001,
+                "status": "completed",
+                "requested_start": now - timedelta(days=90),
+                "requested_end": now - timedelta(days=30),
+                "processed": 384,
+                "reports_found": 171,
+                "duplicate_reports": 42,
+                "error_count": 0,
+                "attempt_count": 1,
+                "cursor": "uid:384",
+                "details": [
+                    {"status": "imported", "domain": "dmarq.org"},
+                    {"status": "duplicate", "domain": "dmarq.com"},
+                ],
+                "started_at": now - timedelta(days=1, hours=2),
+                "finished_at": now - timedelta(days=1, hours=1, minutes=34),
+                "cancelled_at": None,
+                "next_retry_at": None,
+                "created_at": now - timedelta(days=1, hours=2, minutes=2),
+                "updated_at": now - timedelta(days=1, hours=1, minutes=34),
+            },
+            {
+                **common,
+                "id": 9102,
+                "mail_source_id": 9001,
+                "status": "running",
+                "requested_start": now - timedelta(days=30),
+                "requested_end": now,
+                "processed": 96,
+                "reports_found": 44,
+                "duplicate_reports": 7,
+                "error_count": 0,
+                "attempt_count": 1,
+                "cursor": "uid:96",
+                "details": [{"status": "imported", "domain": "dmarq.org"}],
+                "started_at": now - timedelta(minutes=22),
+                "finished_at": None,
+                "cancelled_at": None,
+                "next_retry_at": None,
+                "created_at": now - timedelta(minutes=23),
+                "updated_at": now - timedelta(minutes=2),
+            },
+        ],
+        9002: [
+            {
+                **common,
+                "id": 9201,
+                "mail_source_id": 9002,
+                "status": "backoff",
+                "requested_start": now - timedelta(days=60),
+                "requested_end": now - timedelta(days=1),
+                "processed": 58,
+                "reports_found": 25,
+                "duplicate_reports": 11,
+                "error_count": 1,
+                "attempt_count": 2,
+                "cursor": "page:2",
+                "errors": ["Google API rate limit; retry scheduled."],
+                "details": [{"status": "retry_scheduled", "reason": "rate_limit"}],
+                "started_at": now - timedelta(hours=3),
+                "finished_at": None,
+                "cancelled_at": None,
+                "next_retry_at": now + timedelta(minutes=19),
+                "created_at": now - timedelta(hours=3, minutes=4),
+                "updated_at": now - timedelta(minutes=11),
+            }
+        ],
+        9003: [
+            {
+                **common,
+                "id": 9301,
+                "mail_source_id": 9003,
+                "status": "queued",
+                "requested_start": now - timedelta(days=14),
+                "requested_end": now,
+                "processed": 0,
+                "reports_found": 0,
+                "duplicate_reports": 0,
+                "error_count": 0,
+                "attempt_count": 0,
+                "cursor": None,
+                "details": [],
+                "started_at": None,
+                "finished_at": None,
+                "cancelled_at": None,
+                "next_retry_at": None,
+                "created_at": now - timedelta(minutes=6),
+                "updated_at": now - timedelta(minutes=6),
+            }
+        ],
+    }
+    return list(jobs.get(source_id, []))
+
+
 def build_demo_multi_user_deployment() -> Dict[str, Any]:
     """Return a rolling SaaS/ISP demo deployment model without real customers."""
     today = date.today()
