@@ -81,9 +81,17 @@ class MailSource(Base):
         back_populates="mail_source",
         cascade="all, delete-orphan",
     )
+    backfill_jobs = relationship(
+        "MailSourceBackfillJob",
+        back_populates="mail_source",
+        cascade="all, delete-orphan",
+    )
     workspace = relationship("Workspace", back_populates="mail_sources")
 
-    __table_args__ = (Index("ix_mail_sources_workspace_enabled", "workspace_id", "enabled"),)
+    __table_args__ = (
+        Index("ix_mail_sources_workspace_enabled", "workspace_id", "enabled"),
+        Index("ix_mail_sources_id_workspace_id_unique", "id", "workspace_id", unique=True),
+    )
 
     def __repr__(self):
         return f"<MailSource id={self.id} name={self.name!r} method={self.method!r}>"

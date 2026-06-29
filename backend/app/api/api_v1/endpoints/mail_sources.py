@@ -23,6 +23,7 @@ from app.core.redaction import sanitize_for_log
 from app.core.security import require_admin_auth
 from app.models.domain import Domain
 from app.models.mail_source import MailSource
+from app.models.mail_source_backfill import MailSourceBackfillJob
 from app.models.mail_source_import import MailSourceImport
 from app.services.gmail_client import GmailClient
 from app.services.imap_client import IMAPClient
@@ -50,6 +51,9 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 _OAUTH_STATE_ALGORITHM = "HS256"
 _OAUTH_STATE_TTL = timedelta(minutes=10)
+BACKFILL_RETRYABLE_STATUSES = {"failed", "cancelled", "backoff"}
+BACKFILL_CANCELABLE_STATUSES = {"queued", "running", "backoff"}
+BACKFILL_SUPPORTED_METHODS = {"IMAP", "GMAIL_API", "M365_GRAPH"}
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +174,42 @@ class MailSourceImportResponse(BaseModel):
     started_at: datetime
     finished_at: datetime
     created_at: datetime
+
+
+class MailSourceBackfillCreate(BaseModel):
+    """Request body for creating a resumable mailbox backfill job."""
+
+    requested_start: Optional[datetime] = None
+    requested_end: Optional[datetime] = None
+    max_attempts: int = 3
+
+
+class MailSourceBackfillResponse(BaseModel):
+    """Persisted progress state for one mailbox backfill job."""
+
+    id: int
+    workspace_id: int
+    mail_source_id: int
+    status: str
+    trigger: str
+    requested_start: Optional[datetime] = None
+    requested_end: Optional[datetime] = None
+    requested_by: Optional[str] = None
+    processed: int
+    reports_found: int
+    duplicate_reports: int
+    error_count: int
+    attempt_count: int
+    max_attempts: int
+    cursor: Optional[str] = None
+    errors: List[str]
+    details: List[Dict[str, str]]
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    cancelled_at: Optional[datetime] = None
+    next_retry_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
 
 
 # ---------------------------------------------------------------------------
@@ -482,6 +522,89 @@ def _import_to_response(row: MailSourceImport) -> MailSourceImportResponse:
     )
 
 
+def _auth_actor(auth_context: Dict[str, Any]) -> Optional[str]:
+    """Return a compact operator identifier for audit-friendly job metadata."""
+    for key in ("user_id", "sub", "email", "auth_type"):
+        value = auth_context.get(key)
+        if value not in (None, ""):
+            return str(value)[:120]
+    return None
+
+
+def _backfill_to_response(row: MailSourceBackfillJob) -> MailSourceBackfillResponse:
+    """Convert a backfill job ORM row to an API response."""
+    return MailSourceBackfillResponse(
+        id=row.id,
+        workspace_id=row.workspace_id,
+        mail_source_id=row.mail_source_id,
+        status=row.status,
+        trigger=row.trigger,
+        requested_start=row.requested_start,
+        requested_end=row.requested_end,
+        requested_by=row.requested_by,
+        processed=row.processed,
+        reports_found=row.reports_found,
+        duplicate_reports=row.duplicate_reports,
+        error_count=row.error_count,
+        attempt_count=row.attempt_count,
+        max_attempts=row.max_attempts,
+        cursor=row.cursor,
+        errors=_decode_json_list(row.errors),
+        details=_decode_json_details(row.details),
+        started_at=row.started_at,
+        finished_at=row.finished_at,
+        cancelled_at=row.cancelled_at,
+        next_retry_at=row.next_retry_at,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _validate_backfill_request(payload: MailSourceBackfillCreate) -> None:
+    if payload.max_attempts < 1 or payload.max_attempts > 10:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="max_attempts must be between 1 and 10.",
+        )
+    if payload.requested_start and payload.requested_end:
+        if payload.requested_start > payload.requested_end:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="requested_start must be before requested_end.",
+            )
+
+
+def _ensure_backfill_supported(source: MailSource) -> None:
+    if source.method not in BACKFILL_SUPPORTED_METHODS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Backfill jobs are not available for method '{source.method}'.",
+        )
+
+
+def _get_backfill_or_404(
+    job_id: int,
+    source: MailSource,
+    workspace,
+    db: Session,
+) -> MailSourceBackfillJob:
+    row = (
+        db.query(MailSourceBackfillJob)
+        .filter(
+            MailSourceBackfillJob.id == job_id,
+            MailSourceBackfillJob.mail_source_id == source.id,
+            MailSourceBackfillJob.workspace_id == workspace.id,
+        )
+        .first()
+    )
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Backfill job {job_id} not found",
+        )
+    return row
+
+
 def _fetch_response(source: MailSource, results: Dict[str, Any]) -> Dict[str, Any]:
     """Build the common response payload for a manual source fetch."""
     diagnostic = import_result_diagnostic(results)
@@ -733,6 +856,225 @@ async def list_mail_source_imports(
         .all()
     )
     return [_import_to_response(row) for row in rows]
+
+
+@router.get("/{source_id}/backfills", response_model=List[MailSourceBackfillResponse])
+async def list_mail_source_backfills(
+    source_id: int,
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+) -> List[MailSourceBackfillResponse]:
+    """Return recent resumable mailbox backfill jobs for one mail source."""
+    workspace = _authorized_mail_source_workspace(
+        _auth,
+        db,
+        _selected_workspace_id(selected_workspace),
+    )
+    _get_source_or_404(source_id, db, workspace)
+    rows = (
+        db.query(MailSourceBackfillJob)
+        .filter(
+            MailSourceBackfillJob.mail_source_id == source_id,
+            MailSourceBackfillJob.workspace_id == workspace.id,
+        )
+        .order_by(MailSourceBackfillJob.created_at.desc(), MailSourceBackfillJob.id.desc())
+        .limit(limit)
+        .all()
+    )
+    return [_backfill_to_response(row) for row in rows]
+
+
+@router.post(
+    "/{source_id}/backfills",
+    response_model=MailSourceBackfillResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_mail_source_backfill(
+    source_id: int,
+    payload: MailSourceBackfillCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+) -> MailSourceBackfillResponse:
+    """Queue a resumable mailbox backfill job without running the connector inline."""
+    _validate_backfill_request(payload)
+    workspace = _authorized_mail_source_workspace(
+        _auth,
+        db,
+        _selected_workspace_id(selected_workspace),
+    )
+    source = _get_source_or_404(source_id, db, workspace)
+    _ensure_backfill_supported(source)
+    _raise_if_workspace_domains_unverified(db, workspace, action="mail_source.backfill.create")
+
+    now = datetime.utcnow()
+    row = MailSourceBackfillJob(
+        workspace_id=workspace.id,
+        mail_source_id=source.id,
+        status="queued",
+        trigger="manual",
+        requested_start=payload.requested_start,
+        requested_end=payload.requested_end,
+        requested_by=_auth_actor(_auth),
+        max_attempts=payload.max_attempts,
+        errors="[]",
+        details="[]",
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(row)
+    db.flush()
+    record_workspace_audit_log(
+        db,
+        workspace=workspace,
+        action="mail_source.backfill_queued",
+        entity_type="mail_source_backfill",
+        entity_id=row.id,
+        entity_name=source.name,
+        details={
+            "mail_source_id": source.id,
+            "requested_start": (
+                payload.requested_start.isoformat() if payload.requested_start else None
+            ),
+            "requested_end": payload.requested_end.isoformat() if payload.requested_end else None,
+        },
+        auth_context=_auth,
+        request=request,
+        commit=False,
+    )
+    db.commit()
+    db.refresh(row)
+    return _backfill_to_response(row)
+
+
+@router.get(
+    "/{source_id}/backfills/{job_id}",
+    response_model=MailSourceBackfillResponse,
+)
+async def get_mail_source_backfill(
+    source_id: int,
+    job_id: int,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+) -> MailSourceBackfillResponse:
+    """Return one mailbox backfill job for a workspace-scoped mail source."""
+    workspace = _authorized_mail_source_workspace(
+        _auth,
+        db,
+        _selected_workspace_id(selected_workspace),
+    )
+    source = _get_source_or_404(source_id, db, workspace)
+    row = _get_backfill_or_404(job_id, source, workspace, db)
+    return _backfill_to_response(row)
+
+
+@router.post(
+    "/{source_id}/backfills/{job_id}/cancel",
+    response_model=MailSourceBackfillResponse,
+)
+async def cancel_mail_source_backfill(
+    source_id: int,
+    job_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+) -> MailSourceBackfillResponse:
+    """Mark a queued/running/backoff mailbox backfill job as cancelled."""
+    workspace = _authorized_mail_source_workspace(
+        _auth,
+        db,
+        _selected_workspace_id(selected_workspace),
+    )
+    source = _get_source_or_404(source_id, db, workspace)
+    row = _get_backfill_or_404(job_id, source, workspace, db)
+    if row.status not in BACKFILL_CANCELABLE_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Backfill job in status '{row.status}' cannot be cancelled.",
+        )
+
+    now = datetime.utcnow()
+    row.status = "cancelled"
+    row.cancelled_at = now
+    row.finished_at = row.finished_at or now
+    row.next_retry_at = None
+    row.updated_at = now
+    record_workspace_audit_log(
+        db,
+        workspace=workspace,
+        action="mail_source.backfill_cancelled",
+        entity_type="mail_source_backfill",
+        entity_id=row.id,
+        entity_name=source.name,
+        details={"mail_source_id": source.id},
+        auth_context=_auth,
+        request=request,
+        commit=False,
+    )
+    db.commit()
+    db.refresh(row)
+    return _backfill_to_response(row)
+
+
+@router.post(
+    "/{source_id}/backfills/{job_id}/retry",
+    response_model=MailSourceBackfillResponse,
+)
+async def retry_mail_source_backfill(
+    source_id: int,
+    job_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+) -> MailSourceBackfillResponse:
+    """Re-queue a failed, cancelled, or backoff mailbox backfill job."""
+    workspace = _authorized_mail_source_workspace(
+        _auth,
+        db,
+        _selected_workspace_id(selected_workspace),
+    )
+    source = _get_source_or_404(source_id, db, workspace)
+    row = _get_backfill_or_404(job_id, source, workspace, db)
+    if row.status not in BACKFILL_RETRYABLE_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Backfill job in status '{row.status}' cannot be retried.",
+        )
+    if row.attempt_count >= row.max_attempts:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Backfill job has reached max_attempts.",
+        )
+
+    now = datetime.utcnow()
+    row.status = "queued"
+    row.attempt_count += 1
+    row.started_at = None
+    row.cancelled_at = None
+    row.finished_at = None
+    row.next_retry_at = None
+    row.updated_at = now
+    record_workspace_audit_log(
+        db,
+        workspace=workspace,
+        action="mail_source.backfill_retried",
+        entity_type="mail_source_backfill",
+        entity_id=row.id,
+        entity_name=source.name,
+        details={"mail_source_id": source.id, "attempt_count": row.attempt_count},
+        auth_context=_auth,
+        request=request,
+        commit=False,
+    )
+    db.commit()
+    db.refresh(row)
+    return _backfill_to_response(row)
 
 
 @router.post("/{source_id}/fetch", response_model=Dict[str, Any])

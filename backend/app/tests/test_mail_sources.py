@@ -23,6 +23,7 @@ from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.domain import Domain
 from app.models.mail_source import MailSource
+from app.models.mail_source_backfill import MailSourceBackfillJob
 from app.models.mail_source_import import MailSourceImport
 from app.models.user import User
 from app.models.workspace import Workspace
@@ -476,6 +477,41 @@ class TestMailSourceImportModel:
         assert "**redacted**" in attempt.details
 
 
+class TestMailSourceBackfillModel:
+    """Unit tests for persisted mail source backfill progress rows."""
+
+    def test_create_backfill_job_row(self, db_session: Session):
+        workspace = get_or_create_default_workspace(db_session)
+        source = MailSource(
+            workspace_id=workspace.id,
+            name="Backfill Source",
+            method="IMAP",
+        )
+        db_session.add(source)
+        db_session.flush()
+
+        row = MailSourceBackfillJob(
+            workspace_id=workspace.id,
+            mail_source_id=source.id,
+            status="queued",
+            requested_by="operator@example.com",
+            processed=10,
+            reports_found=2,
+            duplicate_reports=1,
+            errors='["temporary failure"]',
+            details='[{"status": "queued"}]',
+        )
+        db_session.add(row)
+        db_session.commit()
+        db_session.refresh(row)
+
+        assert row.id is not None
+        assert row.workspace_id == workspace.id
+        assert row.mail_source_id == source.id
+        assert row.mail_source.name == "Backfill Source"
+        assert row.status == "queued"
+
+
 def test_mail_source_folder_input_has_no_pattern_validation():
     """The UI should not reject valid IMAP folder names containing spaces."""
     template = (Path(__file__).resolve().parents[1] / "templates" / "mail_sources.html").read_text()
@@ -869,6 +905,176 @@ class TestMailSourcesAPIAuthed:
     def test_list_import_history_unknown_source_returns_404(self, authed_client: TestClient):
         resp = authed_client.get("/api/v1/mail-sources/99999/imports")
         assert resp.status_code == 404
+
+    def test_create_and_list_backfill_job(self, authed_client: TestClient):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "Backfill API", "method": "IMAP"},
+        )
+        source_id = create_resp.json()["id"]
+
+        response = authed_client.post(
+            f"/api/v1/mail-sources/{source_id}/backfills",
+            json={
+                "requested_start": "2026-05-01T00:00:00",
+                "requested_end": "2026-05-31T23:59:59",
+                "max_attempts": 4,
+            },
+        )
+
+        assert response.status_code == 201
+        job = response.json()
+        assert job["mail_source_id"] == source_id
+        assert job["status"] == "queued"
+        assert job["trigger"] == "manual"
+        assert job["requested_start"] == "2026-05-01T00:00:00"
+        assert job["requested_end"] == "2026-05-31T23:59:59"
+        assert job["max_attempts"] == 4
+        assert job["errors"] == []
+        assert job["details"] == []
+
+        list_response = authed_client.get(f"/api/v1/mail-sources/{source_id}/backfills")
+        get_response = authed_client.get(f"/api/v1/mail-sources/{source_id}/backfills/{job['id']}")
+
+        assert list_response.status_code == 200
+        assert [item["id"] for item in list_response.json()] == [job["id"]]
+        assert get_response.status_code == 200
+        assert get_response.json()["id"] == job["id"]
+
+    def test_backfill_jobs_respect_selected_workspace_header(
+        self,
+        authed_client: TestClient,
+        db_session: Session,
+    ):
+        get_or_create_default_workspace(db_session)
+        selected_workspace = Workspace(
+            slug="selected-backfill",
+            name="Selected Backfill",
+        )
+        db_session.add(selected_workspace)
+        db_session.commit()
+        selected_header = {"X-DMARQ-Workspace-ID": str(selected_workspace.id)}
+
+        create_response = authed_client.post(
+            "/api/v1/mail-sources",
+            headers=selected_header,
+            json={"name": "Selected Backfill IMAP", "method": "IMAP"},
+        )
+        source_id = create_response.json()["id"]
+        job_response = authed_client.post(
+            f"/api/v1/mail-sources/{source_id}/backfills",
+            headers=selected_header,
+            json={},
+        )
+        job_id = job_response.json()["id"]
+
+        default_list = authed_client.get(f"/api/v1/mail-sources/{source_id}/backfills")
+        selected_list = authed_client.get(
+            f"/api/v1/mail-sources/{source_id}/backfills",
+            headers=selected_header,
+        )
+        default_get = authed_client.get(f"/api/v1/mail-sources/{source_id}/backfills/{job_id}")
+
+        assert default_list.status_code == 404
+        assert selected_list.status_code == 200
+        assert [item["id"] for item in selected_list.json()] == [job_id]
+        assert default_get.status_code == 404
+
+    def test_cancel_and_retry_backfill_job(
+        self,
+        authed_client: TestClient,
+        db_session: Session,
+    ):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "Backfill Lifecycle", "method": "IMAP"},
+        )
+        source_id = create_resp.json()["id"]
+        job_id = authed_client.post(
+            f"/api/v1/mail-sources/{source_id}/backfills",
+            json={"max_attempts": 2},
+        ).json()["id"]
+
+        cancel_response = authed_client.post(
+            f"/api/v1/mail-sources/{source_id}/backfills/{job_id}/cancel"
+        )
+        row = db_session.get(MailSourceBackfillJob, job_id)
+        row.started_at = datetime.utcnow()
+        db_session.commit()
+        retry_response = authed_client.post(
+            f"/api/v1/mail-sources/{source_id}/backfills/{job_id}/retry"
+        )
+
+        db_session.refresh(row)
+        assert cancel_response.status_code == 200
+        assert cancel_response.json()["status"] == "cancelled"
+        assert cancel_response.json()["cancelled_at"] is not None
+        assert retry_response.status_code == 200
+        assert retry_response.json()["status"] == "queued"
+        assert retry_response.json()["attempt_count"] == 1
+        assert retry_response.json()["started_at"] is None
+        assert row.status == "queued"
+        assert row.started_at is None
+
+    def test_backfill_rejects_invalid_window_and_unsupported_method(
+        self,
+        authed_client: TestClient,
+    ):
+        imap_id = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "Bad Backfill Window", "method": "IMAP"},
+        ).json()["id"]
+        pop_id = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "POP3 Backfill", "method": "POP3"},
+        ).json()["id"]
+
+        bad_window = authed_client.post(
+            f"/api/v1/mail-sources/{imap_id}/backfills",
+            json={
+                "requested_start": "2026-06-01T00:00:00",
+                "requested_end": "2026-05-01T00:00:00",
+            },
+        )
+        unsupported = authed_client.post(
+            f"/api/v1/mail-sources/{pop_id}/backfills",
+            json={},
+        )
+
+        assert bad_window.status_code == 422
+        assert unsupported.status_code == 400
+        assert "POP3" in unsupported.json()["detail"]
+
+    def test_retry_backfill_rejects_active_or_exhausted_jobs(
+        self,
+        authed_client: TestClient,
+        db_session: Session,
+    ):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={"name": "Backfill Retry Guard", "method": "IMAP"},
+        )
+        source_id = create_resp.json()["id"]
+        queued_job = authed_client.post(
+            f"/api/v1/mail-sources/{source_id}/backfills",
+            json={},
+        ).json()
+
+        queued_retry = authed_client.post(
+            f"/api/v1/mail-sources/{source_id}/backfills/{queued_job['id']}/retry"
+        )
+
+        row = db_session.get(MailSourceBackfillJob, queued_job["id"])
+        row.status = "failed"
+        row.attempt_count = row.max_attempts
+        db_session.commit()
+        exhausted_retry = authed_client.post(
+            f"/api/v1/mail-sources/{source_id}/backfills/{queued_job['id']}/retry"
+        )
+
+        assert queued_retry.status_code == 409
+        assert exhausted_retry.status_code == 409
+        assert "max_attempts" in exhausted_retry.json()["detail"]
 
     def test_get_nonexistent_source_returns_404(self, authed_client: TestClient):
         resp = authed_client.get("/api/v1/mail-sources/99999")
