@@ -619,6 +619,49 @@ async def test_cloudflare_provider_lists_dns_records_from_rest_api():
 
 
 @pytest.mark.asyncio
+async def test_cloudflare_provider_creates_updates_and_deletes_dns_records():
+    from unittest.mock import MagicMock
+
+    responses = [
+        {"success": True, "result": {"id": "created", "type": "TXT"}},
+        {"success": True, "result": {"id": "record-1", "type": "TXT"}},
+        {"success": True, "result": {"id": "record-1"}},
+    ]
+
+    mock_response = AsyncMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json = lambda: responses.pop(0)
+
+    with patch(
+        "httpx.AsyncClient.request", new=AsyncMock(return_value=mock_response)
+    ) as mock_request:
+        provider = CloudflareDNSProvider(api_token="token")
+        created = await provider.create_dns_record(
+            zone_id="zone-1",
+            record_type="TXT",
+            name="_dmarc.example.com",
+            content="v=DMARC1; p=none",
+            ttl=120,
+        )
+        updated = await provider.update_dns_record(
+            zone_id="zone-1",
+            record_id="record-1",
+            record_type="TXT",
+            name="_dmarc.example.com",
+            content="v=DMARC1; p=reject",
+            ttl=300,
+        )
+        deleted = await provider.delete_dns_record(zone_id="zone-1", record_id="record-1")
+
+    assert created["id"] == "created"
+    assert updated["id"] == "record-1"
+    assert deleted["id"] == "record-1"
+    assert [call.args[0] for call in mock_request.await_args_list] == ["POST", "PATCH", "DELETE"]
+    assert mock_request.await_args_list[0].kwargs["json"]["ttl"] == 120
+    assert mock_request.await_args_list[1].kwargs["json"]["content"] == "v=DMARC1; p=reject"
+
+
+@pytest.mark.asyncio
 async def test_cloudflare_provider_raises_when_rest_api_reports_error():
     from unittest.mock import MagicMock
 
