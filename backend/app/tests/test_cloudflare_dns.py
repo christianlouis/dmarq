@@ -3,6 +3,7 @@
 import asyncio
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -16,8 +17,15 @@ from app.models.organization import Entitlement, Organization
 from app.models.setting import Setting
 from app.models.user import User
 from app.models.workspace import Workspace
-from app.services import cloudflare_dns
+from app.models.workspace_access import WorkspaceAuditLog
+from app.services import cloudflare_dns, dns_provider_writes
 from app.services.cloudflare_dns import analyze_dns_records, sync_dns_record_changes
+from app.services.dns_provider_writes import (
+    CloudflareDNSWriteProvider,
+    DNSProviderWriteError,
+    DNSWriteMutation,
+    LexiconDNSWriteProvider,
+)
 from app.services.organizations import OrganizationPlanLimitError
 from app.services.workspaces import get_or_create_default_workspace
 
@@ -56,6 +64,37 @@ class FakeCloudflareProvider:
             if domain == zone_name or domain.endswith(f".{zone_name}"):
                 return zone
         return None
+
+
+class FakeWriteCloudflareProvider(FakeCloudflareProvider):
+    def __init__(self, *, zones=None, records=None, fail_zone_lookup=False):
+        super().__init__(zones=zones, records=records, fail_zone_lookup=fail_zone_lookup)
+        self.created = []
+        self.updated = []
+
+    async def create_dns_record(self, *, zone_id, record_type, name, content, ttl=1):
+        record = _record(f"created-{len(self.created) + 1}", record_type, name, content, ttl)
+        self.created.append({"zone_id": zone_id, **record})
+        self.records.append(record)
+        return record
+
+    async def update_dns_record(
+        self,
+        *,
+        zone_id,
+        record_id,
+        record_type,
+        name,
+        content,
+        ttl=1,
+    ):
+        updated = _record(record_id, record_type, name, content, ttl)
+        self.updated.append({"zone_id": zone_id, **updated})
+        for index, record in enumerate(self.records):
+            if record.get("id") == record_id:
+                self.records[index] = updated
+                break
+        return updated
 
 
 def test_analyze_dns_records_reports_healthy_auth_records():
@@ -511,6 +550,501 @@ def test_cloudflare_dns_analysis_endpoint_returns_configuration_errors(authed_cl
 
     assert response.status_code == 400
     assert "Cloudflare API token" in response.json()["detail"]
+
+
+def _dns_plan(plan_id="dmarc-missing-example-com-txt", operation="create", proposed_value=None):
+    return {
+        "plan_id": plan_id,
+        "finding_code": "dmarc_missing",
+        "severity": "error",
+        "operation": operation,
+        "record_type": "TXT",
+        "name": f"_dmarc.{DOMAIN}",
+        "proposed_value": proposed_value or f"v=DMARC1; p=none; rua=mailto:dmarc@{DOMAIN}",
+        "current_values": [],
+        "rationale": "Publish a DMARC TXT record in monitoring mode before tightening policy.",
+        "risk": "Low delivery risk when starting with p=none.",
+        "rollback": f"Delete the newly created TXT record at _dmarc.{DOMAIN}.",
+        "expected_health_impact": "Expected to remove a critical DNS-health finding.",
+        "manual_steps": ["Publish the planned TXT record."],
+        "requires_approval": True,
+        "applies_automatically": False,
+        "provider_write_available": False,
+        "provider_value_required": False,
+    }
+
+
+def _dns_guidance_with_plan(plan):
+    return {
+        "domain": DOMAIN,
+        "status": "critical",
+        "findings": [],
+        "target_records": [],
+        "change_plans": [plan],
+    }
+
+
+def test_dns_provider_capabilities_include_cloudflare_and_lexicon(authed_client: TestClient):
+    response = authed_client.get("/api/v1/domains/dns/providers")
+
+    assert response.status_code == 200
+    providers = {provider["id"]: provider for provider in response.json()["providers"]}
+    assert providers["cloudflare"]["mode"] == "native"
+    assert "route53" in providers
+    assert "googleclouddns" in providers
+
+
+def test_dns_provider_capabilities_report_available_lexicon_runtime():
+    with patch("app.services.dns_provider_writes.lexicon_runtime_available", return_value=True):
+        providers = {
+            provider["id"]: provider for provider in dns_provider_writes.provider_capabilities()
+        }
+
+    assert providers["cloudflare"]["status"] == "ready"
+    assert providers["route53"]["status"] == "ready"
+    assert providers["route53"]["mode"] == "lexicon"
+
+
+def test_dns_write_provider_registry_normalizes_supported_provider_ids():
+    cloudflare_provider = dns_provider_writes.build_dns_write_provider(" CloudFlare ")
+    route53_provider = dns_provider_writes.build_dns_write_provider("ROUTE53")
+
+    assert cloudflare_provider.provider_id == "cloudflare"
+    assert route53_provider.provider_id == "route53"
+
+
+def test_dns_write_provider_registry_rejects_unknown_provider():
+    try:
+        dns_provider_writes.build_dns_write_provider("unknown-dns")
+    except DNSProviderWriteError as exc:
+        assert "Unsupported DNS provider" in str(exc)
+    else:
+        raise AssertionError("Expected unsupported DNS provider error")
+
+
+def test_dns_change_plan_marks_apply_ready_records(authed_client: TestClient, db_session):
+    db_session.add(Domain(name=DOMAIN))
+    db_session.commit()
+    plan = _dns_plan()
+
+    with patch(
+        "app.api.api_v1.endpoints.domains._build_domain_dns_guidance",
+        new=AsyncMock(return_value=_dns_guidance_with_plan(plan)),
+    ):
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns/change-plan")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["read_only"] is False
+    assert data["provider_write_available"] is True
+    assert data["apply_endpoint"].endswith("/dns/change-plan/apply")
+    assert data["plans"][0]["provider_write_available"] is True
+
+
+def test_dns_change_plan_apply_dry_run_returns_cloudflare_mutation(
+    authed_client: TestClient,
+    db_session,
+):
+    db_session.add(Domain(name=DOMAIN))
+    db_session.commit()
+    plan = _dns_plan()
+    records = [_record("spf", "TXT", DOMAIN, "v=spf1 -all")]
+
+    with (
+        patch(
+            "app.api.api_v1.endpoints.domains._build_domain_dns_guidance",
+            new=AsyncMock(return_value=_dns_guidance_with_plan(plan)),
+        ),
+        patch(
+            "app.services.dns_provider_writes.get_zone_for_domain",
+            new=AsyncMock(return_value={"id": "zone-1", "name": DOMAIN, "records": records}),
+        ),
+    ):
+        response = authed_client.post(
+            f"/api/v1/domains/{DOMAIN}/dns/change-plan/apply",
+            json={"plan_id": plan["plan_id"], "provider": "cloudflare"},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["dry_run"] is True
+    assert data["applied"] is False
+    assert data["mutation"]["operation"] == "create"
+    assert data["mutation"]["name"] == f"_dmarc.{DOMAIN}"
+    assert data["mutation"]["content"] == plan["proposed_value"]
+
+
+def test_dns_change_plan_apply_dry_run_returns_noop_for_unchanged_cloudflare_record(
+    authed_client: TestClient,
+    db_session,
+):
+    db_session.add(Domain(name=DOMAIN))
+    db_session.commit()
+    plan = _dns_plan()
+    records = [_record("dmarc", "TXT", f"_dmarc.{DOMAIN}", plan["proposed_value"])]
+
+    with (
+        patch(
+            "app.api.api_v1.endpoints.domains._build_domain_dns_guidance",
+            new=AsyncMock(return_value=_dns_guidance_with_plan(plan)),
+        ),
+        patch(
+            "app.services.dns_provider_writes.get_zone_for_domain",
+            new=AsyncMock(return_value={"id": "zone-1", "name": DOMAIN, "records": records}),
+        ),
+    ):
+        response = authed_client.post(
+            f"/api/v1/domains/{DOMAIN}/dns/change-plan/apply",
+            json={"plan_id": plan["plan_id"], "provider": "cloudflare"},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["dry_run"] is True
+    assert data["mutation"]["operation"] == "noop"
+    assert data["mutation"]["current_values"] == [plan["proposed_value"]]
+
+
+def test_dns_change_plan_apply_blocks_multiple_matching_cloudflare_records(
+    authed_client: TestClient,
+    db_session,
+):
+    db_session.add(Domain(name=DOMAIN))
+    db_session.commit()
+    plan = _dns_plan()
+    records = [
+        _record("dmarc-1", "TXT", f"_dmarc.{DOMAIN}", "v=DMARC1; p=none"),
+        _record("dmarc-2", "TXT", f"_dmarc.{DOMAIN}", "v=DMARC1; p=reject"),
+    ]
+
+    with (
+        patch(
+            "app.api.api_v1.endpoints.domains._build_domain_dns_guidance",
+            new=AsyncMock(return_value=_dns_guidance_with_plan(plan)),
+        ),
+        patch(
+            "app.services.dns_provider_writes.get_zone_for_domain",
+            new=AsyncMock(return_value={"id": "zone-1", "name": DOMAIN, "records": records}),
+        ),
+    ):
+        response = authed_client.post(
+            f"/api/v1/domains/{DOMAIN}/dns/change-plan/apply",
+            json={"plan_id": plan["plan_id"], "provider": "cloudflare"},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["mutation"]["applicable"] is False
+    assert "Multiple provider records" in data["mutation"]["blocked_reason"]
+
+
+def test_dns_change_plan_apply_rejects_unconfirmed_real_write(
+    authed_client: TestClient,
+    db_session,
+):
+    db_session.add(Domain(name=DOMAIN))
+    db_session.commit()
+    plan = _dns_plan()
+
+    with (
+        patch(
+            "app.api.api_v1.endpoints.domains._build_domain_dns_guidance",
+            new=AsyncMock(return_value=_dns_guidance_with_plan(plan)),
+        ),
+        patch(
+            "app.services.dns_provider_writes.get_zone_for_domain",
+            new=AsyncMock(return_value={"id": "zone-1", "name": DOMAIN, "records": []}),
+        ),
+    ):
+        response = authed_client.post(
+            f"/api/v1/domains/{DOMAIN}/dns/change-plan/apply",
+            json={"plan_id": plan["plan_id"], "provider": "cloudflare", "dry_run": False},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["dry_run"] is True
+    assert db_session.query(WorkspaceAuditLog).count() == 0
+
+
+def test_dns_change_plan_apply_updates_cloudflare_and_audits(
+    authed_client: TestClient,
+    db_session,
+):
+    db_session.add(Domain(name=DOMAIN))
+    db_session.commit()
+    plan = _dns_plan(operation="update")
+    provider = FakeWriteCloudflareProvider(
+        zones=[{"id": "zone-1", "name": DOMAIN}],
+        records=[_record("dmarc", "TXT", f"_dmarc.{DOMAIN}", "v=DMARC1; p=none")],
+    )
+
+    with (
+        patch(
+            "app.api.api_v1.endpoints.domains._build_domain_dns_guidance",
+            new=AsyncMock(return_value=_dns_guidance_with_plan(plan)),
+        ),
+        patch(
+            "app.services.dns_provider_writes.get_zone_for_domain",
+            new=AsyncMock(
+                return_value={"id": "zone-1", "name": DOMAIN, "records": list(provider.records)}
+            ),
+        ),
+        patch(
+            "app.services.dns_provider_writes.build_cloudflare_provider",
+            return_value=provider,
+        ),
+    ):
+        response = authed_client.post(
+            f"/api/v1/domains/{DOMAIN}/dns/change-plan/apply",
+            json={
+                "plan_id": plan["plan_id"],
+                "provider": "cloudflare",
+                "dry_run": False,
+                "confirm": True,
+            },
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["applied"] is True
+    assert provider.updated[0]["content"] == plan["proposed_value"]
+    assert db_session.query(DNSRecordChange).count() == 1
+    audit = db_session.query(WorkspaceAuditLog).one()
+    assert audit.action == "domain.dns_change_applied"
+    assert "cloudflare" in audit.details
+
+
+def test_dns_change_plan_apply_blocks_provider_value_placeholders(
+    authed_client: TestClient,
+    db_session,
+):
+    db_session.add(Domain(name=DOMAIN))
+    db_session.commit()
+    plan = _dns_plan(proposed_value="v=DKIM1; p=<provider-public-key>")
+
+    with patch(
+        "app.api.api_v1.endpoints.domains._build_domain_dns_guidance",
+        new=AsyncMock(return_value=_dns_guidance_with_plan(plan)),
+    ):
+        response = authed_client.post(
+            f"/api/v1/domains/{DOMAIN}/dns/change-plan/apply",
+            json={"plan_id": plan["plan_id"], "provider": "cloudflare"},
+        )
+
+    assert response.status_code == 422
+    assert "provider-specific value" in response.json()["detail"]
+
+
+def test_apply_dns_write_rejects_demo_mode(db_session):
+    workspace = get_or_create_default_workspace(db_session)
+    plan = _dns_plan()
+
+    class DemoSettings:
+        DEMO_MODE = True
+
+    with patch("app.services.dns_provider_writes.get_settings", return_value=DemoSettings()):
+        try:
+            asyncio.run(
+                dns_provider_writes.apply_dns_write(
+                    db_session,
+                    workspace=workspace,
+                    domain=DOMAIN,
+                    plan=plan,
+                    provider_id="cloudflare",
+                )
+            )
+        except DNSProviderWriteError as exc:
+            assert "disabled in demo mode" in str(exc)
+        else:
+            raise AssertionError("Expected demo mode DNS write block")
+
+
+def test_cloudflare_write_provider_requires_zone_id_for_apply(db_session):
+    provider = CloudflareDNSWriteProvider()
+    mutation = DNSWriteMutation(
+        operation="create",
+        record_type="TXT",
+        name=f"_dmarc.{DOMAIN}",
+        content=f"v=DMARC1; p=none; rua=mailto:dmarc@{DOMAIN}",
+        ttl=1,
+        provider="cloudflare",
+    )
+
+    with patch(
+        "app.services.dns_provider_writes.build_cloudflare_provider",
+        return_value=FakeWriteCloudflareProvider(),
+    ):
+        try:
+            asyncio.run(provider.apply_mutation(db_session, domain=DOMAIN, mutation=mutation))
+        except DNSProviderWriteError as exc:
+            assert "zone ID" in str(exc)
+        else:
+            raise AssertionError("Expected missing Cloudflare zone ID error")
+
+
+def test_cloudflare_write_provider_creates_record_and_syncs_history(db_session):
+    provider = CloudflareDNSWriteProvider()
+    cloudflare_provider = FakeWriteCloudflareProvider(
+        zones=[{"id": "zone-1", "name": DOMAIN}],
+        records=[],
+    )
+    mutation = DNSWriteMutation(
+        operation="create",
+        record_type="TXT",
+        name=f"_dmarc.{DOMAIN}",
+        content=f"v=DMARC1; p=none; rua=mailto:dmarc@{DOMAIN}",
+        ttl=3600,
+        provider="cloudflare",
+        zone_id="zone-1",
+    )
+
+    with patch(
+        "app.services.dns_provider_writes.build_cloudflare_provider",
+        return_value=cloudflare_provider,
+    ):
+        result = asyncio.run(provider.apply_mutation(db_session, domain=DOMAIN, mutation=mutation))
+
+    assert result.applied is True
+    assert cloudflare_provider.created[0]["ttl"] == 3600
+    assert result.provider_result["id"] == "created-1"
+    assert result.changes[0]["change_type"] == "added"
+    assert db_session.query(DNSRecordChange).count() == 1
+
+
+def test_cloudflare_write_provider_blocks_inapplicable_mutation(db_session):
+    provider = CloudflareDNSWriteProvider()
+    mutation = DNSWriteMutation(
+        operation="update",
+        record_type="TXT",
+        name=f"_dmarc.{DOMAIN}",
+        content=f"v=DMARC1; p=none; rua=mailto:dmarc@{DOMAIN}",
+        ttl=1,
+        provider="cloudflare",
+        blocked_reason="manual merge required",
+    )
+
+    with pytest.raises(DNSProviderWriteError, match="manual merge required"):
+        asyncio.run(provider.apply_mutation(db_session, domain=DOMAIN, mutation=mutation))
+
+
+def test_cloudflare_write_provider_rejects_unsupported_apply_operation(db_session):
+    provider = CloudflareDNSWriteProvider()
+    mutation = DNSWriteMutation(
+        operation="delete",
+        record_type="TXT",
+        name=f"_dmarc.{DOMAIN}",
+        content=f"v=DMARC1; p=none; rua=mailto:dmarc@{DOMAIN}",
+        ttl=1,
+        provider="cloudflare",
+        zone_id="zone-1",
+    )
+
+    with patch(
+        "app.services.dns_provider_writes.build_cloudflare_provider",
+        return_value=FakeWriteCloudflareProvider(),
+    ):
+        with pytest.raises(DNSProviderWriteError, match="Unsupported Cloudflare operation"):
+            asyncio.run(provider.apply_mutation(db_session, domain=DOMAIN, mutation=mutation))
+
+
+def test_lexicon_write_provider_reports_missing_runtime(db_session):
+    provider = LexiconDNSWriteProvider("route53")
+
+    with patch("app.services.dns_provider_writes.lexicon_runtime_available", return_value=False):
+        try:
+            asyncio.run(
+                provider.prepare_mutation(
+                    db_session,
+                    domain=DOMAIN,
+                    plan=_dns_plan(),
+                    value_override=None,
+                    ttl=1,
+                )
+            )
+        except DNSProviderWriteError as exc:
+            assert "dns-lexicon is not installed" in str(exc)
+        else:
+            raise AssertionError("Expected missing Lexicon runtime error")
+
+
+def test_lexicon_write_provider_prepares_update_and_applies_record(db_session):
+    provider = LexiconDNSWriteProvider("route53")
+    provider._list_records = lambda domain, record_type, record_name: [  # pylint: disable=protected-access
+        {
+            "id": "record-1",
+            "type": record_type,
+            "name": record_name,
+            "content": "v=DMARC1; p=none",
+        }
+    ]
+    provider._apply_record = (
+        lambda domain, mutation: mutation.record_id == "record-1"
+    )  # pylint: disable=protected-access
+
+    with patch("app.services.dns_provider_writes.lexicon_runtime_available", return_value=True):
+        mutation = asyncio.run(
+            provider.prepare_mutation(
+                db_session,
+                domain=DOMAIN,
+                plan=_dns_plan(operation="update"),
+                value_override="v=DMARC1; p=reject",
+                ttl=300,
+            )
+        )
+        result = asyncio.run(provider.apply_mutation(db_session, domain=DOMAIN, mutation=mutation))
+
+    assert mutation.operation == "update"
+    assert mutation.record_id == "record-1"
+    assert mutation.current_values == ["v=DMARC1; p=none"]
+    assert result.applied is True
+    assert result.provider_result == {"ok": True}
+
+
+def test_lexicon_write_provider_prepares_noop_for_matching_record(db_session):
+    provider = LexiconDNSWriteProvider("route53")
+    expected_value = "v=DMARC1; p=none"
+    provider._list_records = lambda domain, record_type, record_name: [  # pylint: disable=protected-access
+        {"id": "record-1", "content": expected_value}
+    ]
+
+    with patch("app.services.dns_provider_writes.lexicon_runtime_available", return_value=True):
+        mutation = asyncio.run(
+            provider.prepare_mutation(
+                db_session,
+                domain=DOMAIN,
+                plan=_dns_plan(proposed_value=expected_value),
+                value_override=None,
+                ttl=1,
+            )
+        )
+        result = asyncio.run(provider.apply_mutation(db_session, domain=DOMAIN, mutation=mutation))
+
+    assert mutation.operation == "noop"
+    assert result.applied is False
+    assert result.provider_result == {"status": "unchanged"}
+
+
+def test_lexicon_write_provider_blocks_duplicate_records(db_session):
+    provider = LexiconDNSWriteProvider("route53")
+    provider._list_records = lambda domain, record_type, record_name: [  # pylint: disable=protected-access
+        {"id": "record-1", "content": "v=DMARC1; p=none"},
+        {"id": "record-2", "content": "v=DMARC1; p=reject"},
+    ]
+
+    with patch("app.services.dns_provider_writes.lexicon_runtime_available", return_value=True):
+        mutation = asyncio.run(
+            provider.prepare_mutation(
+                db_session,
+                domain=DOMAIN,
+                plan=_dns_plan(),
+                value_override=None,
+                ttl=1,
+            )
+        )
+
+    assert mutation.applicable is False
+    assert mutation.current_values == ["v=DMARC1; p=none", "v=DMARC1; p=reject"]
+    assert "Multiple provider records" in mutation.blocked_reason
 
 
 def test_cloudflare_discover_denies_user_without_workspace_membership(

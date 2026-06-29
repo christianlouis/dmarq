@@ -22,6 +22,7 @@ python-dotenv>=1.0.0
 tenacity>=8.2.2
 apprise>=1.4.5
 dnspython>=2.3.0
+dns-lexicon>=3.25.2
 email-validator>=2.0.0
 lxml>=4.9.2
 zipfile36>=0.1.3

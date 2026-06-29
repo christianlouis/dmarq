@@ -29,6 +29,12 @@ from app.services.cloudflare_dns import (
 from app.services.demo_data import DEMO_DAYS, build_demo_health_score_history
 from app.services.dns_cache import resolve_domain_dns_cached
 from app.services.dns_guidance import build_dns_guidance
+from app.services.dns_provider_writes import (
+    DNSProviderWriteError,
+    apply_dns_write,
+    preview_dns_write,
+    provider_capabilities,
+)
 from app.services.dns_resolver import (
     DomainDNSResult,
     extract_dmarc_policy,
@@ -217,6 +223,63 @@ class DNSChangePlanResponse(BaseModel):
     provider_write_available: bool = False
     apply_endpoint: Optional[str] = None
     plans: List[DNSChangePlanItemResponse]
+
+
+class DNSProviderCapabilityResponse(BaseModel):
+    """DNS provider write capability metadata."""
+
+    id: str
+    name: str
+    mode: str
+    record_types: List[str]
+    operations: List[str]
+    credentials: str
+    status: str
+
+
+class DNSProviderCapabilitiesResponse(BaseModel):
+    """Supported DNS provider write capabilities."""
+
+    providers: List[DNSProviderCapabilityResponse]
+
+
+class DNSWriteApplyRequest(BaseModel):
+    """Request to preview or apply one DNS change plan."""
+
+    plan_id: str
+    provider: str = "cloudflare"
+    confirm: bool = False
+    dry_run: bool = True
+    value: Optional[str] = None
+    ttl: int = Field(default=1, ge=1, le=86400)
+
+
+class DNSWriteMutationResponse(BaseModel):
+    """Concrete provider mutation derived from a DNS change plan."""
+
+    operation: str
+    record_type: str
+    name: str
+    content: str
+    ttl: int
+    provider: str
+    zone_id: Optional[str] = None
+    zone_name: Optional[str] = None
+    record_id: Optional[str] = None
+    current_values: List[str] = Field(default_factory=list)
+    applicable: bool
+    blocked_reason: Optional[str] = None
+
+
+class DNSWriteResultResponse(BaseModel):
+    """DNS write preview/apply response."""
+
+    provider: str
+    dry_run: bool
+    applied: bool
+    mutation: DNSWriteMutationResponse
+    provider_result: Optional[Dict[str, Any]] = None
+    changes: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class DNSGuidanceResponse(BaseModel):
@@ -1776,6 +1839,14 @@ async def export_all_domain_dns_lint(
     )
 
 
+@router.get("/dns/providers", response_model=DNSProviderCapabilitiesResponse)
+async def get_dns_provider_capabilities(
+    _auth: dict = Depends(require_admin_auth),
+):
+    """Return provider-backed DNS write capabilities."""
+    return DNSProviderCapabilitiesResponse(providers=provider_capabilities())
+
+
 # New endpoints for domain details page
 
 
@@ -1908,8 +1979,110 @@ async def get_domain_dns_change_plan(
     return DNSChangePlanResponse(
         domain=guidance["domain"],
         status=guidance["status"],
-        plans=guidance["change_plans"],
+        read_only=False,
+        provider_write_available=True,
+        apply_endpoint=f"/api/v1/domains/{domain_id}/dns/change-plan/apply",
+        plans=[
+            {
+                **plan,
+                "provider_write_available": (
+                    plan.get("operation") in {"create", "update"}
+                    and plan.get("record_type") in {"TXT", "CNAME"}
+                    and not plan.get("provider_value_required")
+                ),
+            }
+            for plan in guidance["change_plans"]
+        ],
     )
+
+
+def _find_dns_change_plan(guidance: Dict[str, Any], plan_id: str) -> Dict[str, Any]:
+    """Return one DNS change plan by ID or raise a 404."""
+    for plan in guidance.get("change_plans") or []:
+        if plan.get("plan_id") == plan_id:
+            return plan
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=f"DNS change plan '{plan_id}' was not found",
+    )
+
+
+@router.post("/{domain_id}/dns/change-plan/apply", response_model=DNSWriteResultResponse)
+async def apply_domain_dns_change_plan(
+    request: Request,
+    payload: DNSWriteApplyRequest,
+    domain_id: str = Path(..., title="The domain ID or name"),
+    refresh: bool = Query(False, title="Refresh cached DNS result before planning"),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
+    """Preview or explicitly apply one provider-backed DNS change plan."""
+    workspace = _authorized_domain_workspace(
+        _auth,
+        db,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
+    )
+    store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
+
+    if not _domain_exists(db, store, domain_id, workspace):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Domain not found",
+        )
+
+    guidance = await _build_domain_dns_guidance(db, store, domain_id, refresh=refresh)
+    plan = _find_dns_change_plan(guidance, payload.plan_id)
+    try:
+        if payload.dry_run or not payload.confirm:
+            result = await preview_dns_write(
+                db,
+                domain=domain_id,
+                plan=plan,
+                provider_id=payload.provider,
+                value_override=payload.value,
+                ttl=payload.ttl,
+            )
+            return result.to_dict()
+
+        result = await apply_dns_write(
+            db,
+            workspace=workspace,
+            domain=domain_id,
+            plan=plan,
+            provider_id=payload.provider,
+            value_override=payload.value,
+            ttl=payload.ttl,
+        )
+    except DNSProviderWriteError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    record_workspace_audit_log(
+        db,
+        workspace=workspace,
+        action="domain.dns_change_applied",
+        entity_type="domain",
+        entity_name=domain_id,
+        details={
+            "provider": payload.provider,
+            "plan_id": payload.plan_id,
+            "mutation": result.mutation.to_dict(),
+            "applied": result.applied,
+        },
+        auth_context=_auth,
+        request=request,
+        commit=True,
+    )
+    return result.to_dict()
 
 
 @router.get("/{domain_id}/dns/health", response_model=DNSHealthResponse)

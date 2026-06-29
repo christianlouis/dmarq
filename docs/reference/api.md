@@ -415,6 +415,8 @@ queried DNS name, record text, logo URL, certificate URL, warnings, and errors.
 ```
 GET /domains/{domain_id}/dns/lint
 GET /domains/{domain_id}/dns/change-plan
+POST /domains/{domain_id}/dns/change-plan/apply
+GET /domains/dns/providers
 GET /domains/dns/lint
 GET /domains/dns/lint/export
 ```
@@ -426,12 +428,19 @@ broken CNAME targets, short RSA keys, and stale selectors. The bulk endpoint
 returns the same payload shape per monitored domain, and the export endpoint
 returns the finding list as CSV for managed-domain reviews.
 
-The single-domain lint payload also includes read-only `change_plans`. The
-dedicated `/dns/change-plan` endpoint returns the same operator-facing plans
-with proposed DNS records, captured current values, risk notes, rollback notes,
-expected health impact, and manual approval flags. DMARQ does not expose an
-apply endpoint in the default product path; provider write automation is a
-separate opt-in integration concern.
+The single-domain lint payload also includes `change_plans`. The dedicated
+`/dns/change-plan` endpoint returns the same operator-facing plans with
+proposed DNS records, captured current values, risk notes, rollback notes,
+expected health impact, and manual approval flags.
+
+`GET /domains/dns/providers` returns native and Lexicon-backed provider
+capabilities. `POST /domains/{domain_id}/dns/change-plan/apply` accepts
+`plan_id`, `provider`, `dry_run`, `confirm`, optional `value`, and `ttl`. Calls
+default to dry-run. Real writes require `dry_run=false` and `confirm=true`, are
+blocked in demo mode, and are limited to safe TXT/CNAME create/update plans
+that already have a concrete value. Applied changes are written to the
+workspace audit log and refresh provider-backed DNS change history where the
+provider supports it.
 
 #### Get Posture Dashboard
 

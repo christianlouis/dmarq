@@ -580,12 +580,15 @@ async def test_cloudflare_provider_lists_zones_from_rest_api():
     mock_response.raise_for_status = MagicMock()
     mock_response.json = lambda: responses.pop(0)
 
-    with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=mock_response)) as mock_get:
+    with patch(
+        "httpx.AsyncClient.request", new=AsyncMock(return_value=mock_response)
+    ) as mock_request:
         provider = CloudflareDNSProvider(api_token="token")
         zones = await provider.list_zones()
 
     assert [zone["name"] for zone in zones] == ["example.com", "example.net"]
-    assert mock_get.await_count == 2
+    assert mock_request.await_count == 2
+    assert mock_request.await_args_list[0].args[0] == "GET"
 
 
 @pytest.mark.asyncio
@@ -602,14 +605,60 @@ async def test_cloudflare_provider_lists_dns_records_from_rest_api():
     mock_response.raise_for_status = MagicMock()
     mock_response.json = lambda: fake_response_data
 
-    with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=mock_response)) as mock_get:
+    with patch(
+        "httpx.AsyncClient.request", new=AsyncMock(return_value=mock_response)
+    ) as mock_request:
         provider = CloudflareDNSProvider(api_token="token", zone_id="zone-1")
         records = await provider.list_dns_records(record_type="TXT")
 
     assert records == fake_response_data["result"]
-    _, kwargs = mock_get.await_args
-    assert "/zones/zone-1/dns_records" in str(mock_get.await_args.args[0])
+    _, url = mock_request.await_args.args
+    _, kwargs = mock_request.await_args
+    assert "/zones/zone-1/dns_records" in str(url)
     assert kwargs["params"]["type"] == "TXT"
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_provider_creates_updates_and_deletes_dns_records():
+    from unittest.mock import MagicMock
+
+    responses = [
+        {"success": True, "result": {"id": "created", "type": "TXT"}},
+        {"success": True, "result": {"id": "record-1", "type": "TXT"}},
+        {"success": True, "result": {"id": "record-1"}},
+    ]
+
+    mock_response = AsyncMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json = lambda: responses.pop(0)
+
+    with patch(
+        "httpx.AsyncClient.request", new=AsyncMock(return_value=mock_response)
+    ) as mock_request:
+        provider = CloudflareDNSProvider(api_token="token")
+        created = await provider.create_dns_record(
+            zone_id="zone-1",
+            record_type="TXT",
+            name="_dmarc.example.com",
+            content="v=DMARC1; p=none",
+            ttl=120,
+        )
+        updated = await provider.update_dns_record(
+            zone_id="zone-1",
+            record_id="record-1",
+            record_type="TXT",
+            name="_dmarc.example.com",
+            content="v=DMARC1; p=reject",
+            ttl=300,
+        )
+        deleted = await provider.delete_dns_record(zone_id="zone-1", record_id="record-1")
+
+    assert created["id"] == "created"
+    assert updated["id"] == "record-1"
+    assert deleted["id"] == "record-1"
+    assert [call.args[0] for call in mock_request.await_args_list] == ["POST", "PATCH", "DELETE"]
+    assert mock_request.await_args_list[0].kwargs["json"]["ttl"] == 120
+    assert mock_request.await_args_list[1].kwargs["json"]["content"] == "v=DMARC1; p=reject"
 
 
 @pytest.mark.asyncio
@@ -625,7 +674,7 @@ async def test_cloudflare_provider_raises_when_rest_api_reports_error():
     mock_response.raise_for_status = MagicMock()
     mock_response.json = lambda: fake_response_data
 
-    with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=mock_response)):
+    with patch("httpx.AsyncClient.request", new=AsyncMock(return_value=mock_response)):
         provider = CloudflareDNSProvider(api_token="token")
         with pytest.raises(LookupError, match="invalid token"):
             await provider.list_zones()

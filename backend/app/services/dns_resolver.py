@@ -585,15 +585,28 @@ class CloudflareDNSProvider(BaseDNSProvider):
         *,
         params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        """Call Cloudflare's REST API with GET and return the decoded response."""
+        return await self._api_request("GET", path, params=params)
+
+    async def _api_request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: Optional[Dict[str, Any]] = None,
+        json_payload: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         """Call Cloudflare's REST API and return the decoded response."""
         import httpx  # type: ignore[import]
 
         url = f"{self.CLOUDFLARE_API_BASE}{path}"
         try:
             async with httpx.AsyncClient() as client:
-                response = await client.get(
+                response = await client.request(
+                    method,
                     url,
                     params=params,
+                    json=json_payload,
                     headers=self._auth_headers(),
                     timeout=DNS_TIMEOUT,
                 )
@@ -607,6 +620,59 @@ class CloudflareDNSProvider(BaseDNSProvider):
             message = "; ".join(str(error.get("message", error)) for error in errors[:3])
             raise LookupError(message or f"Cloudflare API request failed for {path}")
         return data
+
+    async def create_dns_record(
+        self,
+        *,
+        zone_id: str,
+        record_type: str,
+        name: str,
+        content: str,
+        ttl: int = 1,
+    ) -> Dict[str, Any]:
+        """Create a DNS record through the Cloudflare REST API."""
+        data = await self._api_request(
+            "POST",
+            f"/zones/{zone_id}/dns_records",
+            json_payload={
+                "type": record_type,
+                "name": name,
+                "content": content,
+                "ttl": ttl,
+            },
+        )
+        return data.get("result") or {}
+
+    async def update_dns_record(
+        self,
+        *,
+        zone_id: str,
+        record_id: str,
+        record_type: str,
+        name: str,
+        content: str,
+        ttl: int = 1,
+    ) -> Dict[str, Any]:
+        """Patch a DNS record through the Cloudflare REST API."""
+        data = await self._api_request(
+            "PATCH",
+            f"/zones/{zone_id}/dns_records/{record_id}",
+            json_payload={
+                "type": record_type,
+                "name": name,
+                "content": content,
+                "ttl": ttl,
+            },
+        )
+        return data.get("result") or {}
+
+    async def delete_dns_record(self, *, zone_id: str, record_id: str) -> Dict[str, Any]:
+        """Delete a DNS record through the Cloudflare REST API."""
+        data = await self._api_request(
+            "DELETE",
+            f"/zones/{zone_id}/dns_records/{record_id}",
+        )
+        return data.get("result") or {}
 
     async def list_zones(self) -> List[Dict[str, Any]]:
         """Return all zones visible to the configured Cloudflare API token."""

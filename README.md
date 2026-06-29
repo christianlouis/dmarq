@@ -4,7 +4,7 @@
 
 - 🌐 [Live Demo](https://demo.dmarq.org)
 - 🔒 Self-hosted. Secure. Beautifully visual.
-- 🛠️ Docker-deployable. DNS posture checks with optional Cloudflare inspection.
+- 🛠️ Docker-deployable. DNS posture checks with optional, approved DNS remediation.
 - 📬 Aggregate, forensic/failure, and SMTP TLS report support.
 
 ---
@@ -33,7 +33,7 @@ Included:
 - ✅ Import history + backfills for mail sources
 - ✅ Alerts & notifications via Apprise (test send, alert rules, daily/weekly summaries)
 - ✅ DNS checks (DMARC/SPF/DKIM) with DKIM selector discovery from report data
-- ✅ Cloudflare read-only domain discovery, DNS inspection, recommendations, and change tracking
+- ✅ DNS linting, change plans, approved Cloudflare writes, and modular provider write adapters
 - ✅ Forensic/failure report ingestion with redacted metadata and grouped analysis
 - ✅ SMTP TLS report ingestion, trends, and top failure summaries
 - ✅ Public demo mode with rolling synthetic `dmarq.org` and `dmarq.com` data
@@ -55,10 +55,13 @@ Included:
 - Inspect **SPF**, **DKIM**, and **DMARC** records
 - Discover likely **DKIM selectors** from report data
 - Show which records are missing, broken, or invalid
-- 🔒 No automatic changes — all DNS updates require explicit confirmation (when remediation workflows are added)
+- Generate risk-reviewed change plans with rollback notes
+- Apply safe TXT/CNAME remediation through Cloudflare after explicit confirmation
+- Use the modular DNS provider layer for API-backed providers via Lexicon-backed adapters
+- 🔒 No background changes — all DNS updates require explicit operator confirmation
 
 ### 🌐 Cloudflare Integration
-- Optional read-only domain discovery and DNS inspection
+- Optional domain discovery, DNS inspection, and approved DNS record updates
 - Import Cloudflare zones as monitored domains from Settings
 - Suggestions for missing or malformed entries
 - Track configuration changes over time
@@ -67,12 +70,11 @@ Included:
 - `DEMO_MODE=true` seeds deterministic, rolling demo data for `dmarq.org` and `dmarq.com`
 - Demo data fills the dashboard, domain details, DNS posture, aggregate reports,
   forensic reports, TLS reports, exports, and linting views
-- The dashboard starts in a single-user, multi-domain view and can zoom out into
-  SaaS, managed-service, ISP/reseller, and self-hosted deployment examples
-- Demo visitors can switch generated personas to see which accounts, workspaces,
-  billing profiles, and domains different users would experience
+- The public demo presents the self-hosted, single-user, multi-domain experience
+- Account-management, ISP, and multi-tenant demos are intended for a separate
+  admin/provider demo surface
 - A guided dashboard tour walks through the opinionated product flow from domain
-  posture to sender evidence and account drill-down
+  posture to sender evidence and DNS remediation
 - The public demo is read-only so visitors can explore without modifying data
 
 ### ⚙️ Web-Based Setup Wizard

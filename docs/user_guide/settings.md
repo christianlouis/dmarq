@@ -135,10 +135,16 @@ If you use Cloudflare for DNS management:
 3. Use **Discover** to list zones visible to the token.
 4. Use **Import New** to create monitored domain rows for discovered zones that are not already tracked.
 
-The token only needs read access for zone and DNS record inspection. DMARQ uses
-it to fetch managed DNS records, detect missing or malformed DMARC/SPF/DKIM
-entries, and record DNS additions, modifications, or removals over time. DMARQ
-does not automatically change Cloudflare DNS records.
+For inspection only, the token needs zone and DNS read access. To apply DNS
+change plans from a domain detail page, the token also needs Cloudflare DNS
+write permission for the affected zone. DMARQ uses the token to fetch managed
+DNS records, detect missing or malformed DMARC/SPF/DKIM entries, record DNS
+additions, modifications, or removals over time, and apply explicitly approved
+TXT/CNAME remediation plans.
+
+DMARQ never performs background DNS edits. A write-capable token only enables
+operator-approved actions from the DNS change plan UI, and each applied change
+is recorded in the workspace audit log.
 
 ### Other Integrations
 

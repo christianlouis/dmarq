@@ -146,7 +146,7 @@ operational policy if long-term storage size matters.
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
-| `CLOUDFLARE_API_TOKEN` | Cloudflare API token for read-only zone discovery and DNS inspection | - | `your_cloudflare_api_token` |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API token for zone discovery, DNS inspection, and optional approved DNS writes | - | `your_cloudflare_api_token` |
 | `CLOUDFLARE_ZONE_ID` | Optional default Cloudflare Zone ID | - | `your_cloudflare_zone_id` |
 | `WEBHOOK_SECRET` | Required secret for inbound email worker webhooks | - | `openssl rand -hex 32` |
 
@@ -154,12 +154,23 @@ Cloudflare credentials can also be stored from **Settings**. The API token is
 encrypted in the settings table and redacted when settings are read back. Leave
 the Zone ID blank to discover every active zone visible to the token.
 
-The read-only integration exposes:
+The integration exposes:
 
 - `GET /api/v1/domains/cloudflare/discover` to list available zones.
 - `POST /api/v1/domains/cloudflare/import` to create monitored domain rows from zones.
 - `GET /api/v1/domains/{domain}/dns/cloudflare` to inspect managed DNS records, return DMARC/SPF/DKIM suggestions, and record detected DNS changes.
 - `GET /api/v1/domains/{domain}/dns/history` to review DNS record additions, modifications, and removals.
+- `GET /api/v1/domains/dns/providers` to list native and Lexicon-backed DNS write providers.
+- `POST /api/v1/domains/{domain}/dns/change-plan/apply` to dry-run or explicitly apply one safe DNS change plan.
+
+Provider writes are opt-in at action time. Requests default to dry-run, and real
+writes require `confirm=true` plus `dry_run=false`. Public demo mode rejects
+provider writes even if credentials are configured.
+
+Cloudflare is implemented natively. Additional API-backed providers use
+DNS-Lexicon where the provider is available in the runtime and its credentials
+are supplied through Lexicon-compatible environment/configuration. Some
+providers require provider-specific Python extras in a custom image.
 
 ### DNS Result Cache
 
