@@ -926,7 +926,11 @@ class TestMailSourcesAPIAuthed:
         resp = authed_client.get("/api/v1/mail-sources/99999/imports")
         assert resp.status_code == 404
 
-    def test_create_and_list_backfill_job(self, authed_client: TestClient):
+    def test_create_and_list_backfill_job(
+        self,
+        authed_client: TestClient,
+        db_session: Session,
+    ):
         create_resp = authed_client.post(
             "/api/v1/mail-sources",
             json={"name": "Backfill API", "method": "IMAP"},
@@ -950,6 +954,7 @@ class TestMailSourcesAPIAuthed:
         assert job["requested_start"] == "2026-05-01T00:00:00"
         assert job["requested_end"] == "2026-05-31T23:59:59"
         assert job["max_attempts"] == 4
+        assert job["cursor_checkpoint"] is None
         assert job["errors"] == []
         assert job["details"] == []
         assert job["requested_window_days"] == 31
@@ -968,6 +973,28 @@ class TestMailSourcesAPIAuthed:
         assert get_response.status_code == 200
         assert get_response.json()["id"] == job["id"]
         assert get_response.json()["can_cancel"] is True
+
+        row = db_session.get(MailSourceBackfillJob, job["id"])
+        row.cursor = json.dumps(
+            {
+                "version": 1,
+                "connector": "gmail",
+                "state": "running",
+                "window_days": 31,
+                "processed": 25,
+                "reports_found": 7,
+                "page_cursor": "next-page-token",
+            }
+        )
+        db_session.commit()
+
+        checkpoint_response = authed_client.get(
+            f"/api/v1/mail-sources/{source_id}/backfills/{job['id']}"
+        )
+
+        assert checkpoint_response.status_code == 200
+        assert checkpoint_response.json()["cursor_checkpoint"]["connector"] == "gmail"
+        assert checkpoint_response.json()["cursor_checkpoint"]["page_cursor"] == "next-page-token"
 
     def test_demo_mode_returns_mail_source_backfill_examples(
         self,
