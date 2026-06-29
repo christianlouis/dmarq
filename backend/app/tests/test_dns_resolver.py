@@ -113,9 +113,7 @@ def test_parse_dmarc_record_tags_tracks_active_dmarcbis_tags_only():
 async def test_check_domain_lints_external_report_destination_without_authorization():
     provider = FakeDNSProvider(
         {
-            "_dmarc.example.com": [
-                "v=DMARC1; p=none; rua=mailto:dmarc@reports.example.net!50m"
-            ],
+            "_dmarc.example.com": ["v=DMARC1; p=none; rua=mailto:dmarc@reports.example.net!50m"],
             "example.com": ["v=spf1 include:_spf.example.com -all"],
         }
     )
@@ -132,9 +130,7 @@ async def test_check_domain_lints_external_report_destination_without_authorizat
 async def test_check_domain_accepts_authorized_external_report_destination():
     provider = FakeDNSProvider(
         {
-            "_dmarc.example.com": [
-                "v=DMARC1; p=none; rua=mailto:dmarc@reports.example.net"
-            ],
+            "_dmarc.example.com": ["v=DMARC1; p=none; rua=mailto:dmarc@reports.example.net"],
             "example.com": ["v=spf1 include:_spf.example.com -all"],
             "example.com._report._dmarc.reports.example.net": ["v=DMARC1"],
         }
@@ -452,6 +448,38 @@ async def test_system_provider_raises_lookup_error_on_dns_exception():
             await provider.lookup_txt("nonexistent.example.com")
 
 
+@pytest.mark.asyncio
+async def test_system_provider_lookup_cname_returns_target():
+    """SystemDNSProvider.lookup_cname should strip the trailing target dot."""
+
+    class FakeCnameRdata:
+        target = "selector.provider.example."
+
+    class FakeCnameAnswers:
+        def __iter__(self):
+            return iter([FakeCnameRdata()])
+
+    with patch("dns.asyncresolver.resolve", new=AsyncMock(return_value=FakeCnameAnswers())):
+        provider = SystemDNSProvider()
+        target = await provider.lookup_cname("selector._domainkey.example.com")
+
+    assert target == "selector.provider.example"
+
+
+@pytest.mark.asyncio
+async def test_system_provider_lookup_cname_returns_none_on_dns_exception():
+    import dns.exception  # type: ignore[import]
+
+    with patch(
+        "dns.asyncresolver.resolve",
+        new=AsyncMock(side_effect=dns.exception.DNSException("NXDOMAIN")),
+    ):
+        provider = SystemDNSProvider()
+        target = await provider.lookup_cname("selector._domainkey.example.com")
+
+    assert target is None
+
+
 # ---------------------------------------------------------------------------
 # CloudflareDNSProvider
 # ---------------------------------------------------------------------------
@@ -491,6 +519,43 @@ async def test_cloudflare_provider_raises_on_http_error():
         provider = CloudflareDNSProvider()
         with pytest.raises(LookupError):
             await provider.lookup_txt("_dmarc.example.com")
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_provider_lookup_cname_returns_target():
+    """CloudflareDNSProvider.lookup_cname should parse CNAME answers."""
+    from unittest.mock import MagicMock
+
+    fake_response_data = {
+        "Answer": [
+            {"type": 5, "data": "selector.provider.example."},
+            {"type": 16, "data": '"v=DKIM1; p=ABC"'},
+        ]
+    }
+
+    mock_response = AsyncMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json = lambda: fake_response_data
+
+    with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=mock_response)):
+        provider = CloudflareDNSProvider()
+        target = await provider.lookup_cname("selector._domainkey.example.com")
+
+    assert target == "selector.provider.example"
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_provider_lookup_cname_returns_none_on_http_error():
+    import httpx
+
+    with patch(
+        "httpx.AsyncClient.get",
+        new=AsyncMock(side_effect=httpx.RequestError("connection refused")),
+    ):
+        provider = CloudflareDNSProvider()
+        target = await provider.lookup_cname("selector._domainkey.example.com")
+
+    assert target is None
 
 
 @pytest.mark.asyncio
@@ -638,6 +703,13 @@ async def test_base_provider_lookup_ptr_returns_none():
     """FakeDNSProvider only implements lookup_txt; lookup_ptr must return None."""
     provider = FakeDNSProvider({})
     result = await provider.lookup_ptr("1.2.3.4")
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_base_provider_lookup_cname_returns_none():
+    provider = FakeDNSProvider({})
+    result = await provider.lookup_cname("selector._domainkey.example.com")
     assert result is None
 
 

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.models.organization import Entitlement, Organization
 from app.models.setting import Setting
 from app.models.workspace import Workspace
+from app.services import ai_assistance
 from app.services.api_tokens import MCP_READ_SCOPE, create_api_token
 from app.services.bimi import BIMIResult
 from app.services.dns_resolver import DomainDNSResult
@@ -66,6 +67,15 @@ def test_ai_settings_are_seeded(authed_client: TestClient):
 def test_ai_summary_requires_explicit_opt_in(authed_client: TestClient):
     _seed_report_store()
     response = authed_client.get(f"/api/v1/ai/domains/{DOMAIN}/summary")
+    assert response.status_code == 403
+    assert "AI assistance is disabled" in response.json()["detail"]
+
+
+def test_ai_remediation_plan_requires_explicit_opt_in(authed_client: TestClient):
+    _seed_report_store()
+
+    response = authed_client.get(f"/api/v1/ai/domains/{DOMAIN}/remediation-plan")
+
     assert response.status_code == 403
     assert "AI assistance is disabled" in response.json()["detail"]
 
@@ -133,6 +143,40 @@ def test_ai_remediation_plan_uses_template_and_cache(
     assert first_plan["actions"][0]["steps"]
     assert first_plan["safe_context"]["constraints"]["automatic_dns_changes"] is False
     assert second_plan["cached"] is True
+    focused = first_plan["actions"][0]["finding_code"]
+
+    with (
+        patch("app.services.ai_assistance.get_default_provider", return_value=provider),
+        patch(
+            "app.services.ai_assistance.check_mta_sts_cached",
+            new=AsyncMock(return_value=(MTAStsResult(status="pass"), False, None)),
+        ),
+        patch(
+            "app.services.ai_assistance.check_bimi_cached",
+            new=AsyncMock(return_value=(BIMIResult(status="pass"), False, None)),
+        ),
+    ):
+        filtered = authed_client.get(
+            f"/api/v1/ai/domains/{DOMAIN}/remediation-plan?finding_code={focused}"
+        )
+
+    assert filtered.status_code == 200
+    filtered_actions = filtered.json()["plan"]["actions"]
+    assert filtered_actions
+    assert {action["finding_code"] for action in filtered_actions} == {focused}
+
+
+def test_ai_remediation_cache_is_bounded():
+    ai_assistance._REMEDIATION_CACHE.clear()
+    for index in range(ai_assistance.REMEDIATION_CACHE_MAX_ENTRIES + 5):
+        ai_assistance._cache_set(
+            f"key-{index}",
+            {"domain": f"example-{index}.test", "actions": []},
+        )
+
+    assert len(ai_assistance._REMEDIATION_CACHE) == ai_assistance.REMEDIATION_CACHE_MAX_ENTRIES
+    assert "key-0" not in ai_assistance._REMEDIATION_CACHE
+    ai_assistance._REMEDIATION_CACHE.clear()
 
 
 def test_action_proposals_are_reviewable_and_not_mutating(
