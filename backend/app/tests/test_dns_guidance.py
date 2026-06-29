@@ -52,6 +52,15 @@ async def test_build_dns_guidance_returns_typed_findings_and_targets():
         "target_tls_rpt",
         "target_bimi",
     }
+    plan = next(plan for plan in guidance.change_plans if plan.finding_code == "dmarc_missing")
+    assert plan.operation == "create"
+    assert plan.record_type == "TXT"
+    assert plan.name == "_dmarc.example.com"
+    assert plan.proposed_value.startswith("v=DMARC1")
+    assert plan.requires_approval is True
+    assert plan.applies_automatically is False
+    assert plan.provider_write_available is False
+    assert plan.rollback.startswith("Delete the newly created")
 
 
 @pytest.mark.asyncio
@@ -228,6 +237,82 @@ async def test_build_dns_guidance_lints_dkim_selector_health():
     assert findings["dkim_selector_missing"].record_name == "old._domainkey.example.com"
     assert findings["dkim_selector_cname_broken"].record_type == "CNAME"
     assert findings["dkim_selector_key_too_short"].remediation_steps
+
+
+@pytest.mark.asyncio
+async def test_build_dns_guidance_creates_operator_plans_for_dkim_review_paths():
+    provider = FakeDNSProvider(
+        {
+            "example.com": ["v=spf1 -all"],
+            "_smtp._tls.example.com": ["v=TLSRPTv1; rua=mailto:tls@example.com"],
+            "stale._domainkey.example.com": [
+                "v=DKIM1; k=rsa; p="
+                "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAstaleselector"
+                "keymaterialthatislongenoughtolooklikeanormalrsa1024or2048key"
+                "forlintpurposesonly1234567890abcdef"
+            ],
+        }
+    )
+    provider._cnames["mailchimp._domainkey.example.com"] = "missing._domainkey.mcsv.net"
+    dns = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=reject; rua=mailto:dmarc@example.com",
+        spf=True,
+        spf_record="v=spf1 -all",
+        dkim=True,
+        dkim_selectors=["stale"],
+        selectors_checked=["stale", "mailchimp"],
+    )
+
+    guidance = await build_dns_guidance(
+        "example.com",
+        provider,
+        dns,
+        MTAStsResult(status="pass"),
+        BIMIResult(status="pass"),
+        monitored_selectors=["stale", "mailchimp"],
+        observed_selectors=["google"],
+    )
+
+    plans = {plan.finding_code: plan for plan in guidance.change_plans}
+    assert plans["dkim_selector_stale"].operation == "review-remove"
+    assert plans["dkim_selector_stale"].proposed_value is None
+    assert plans["dkim_selector_stale"].provider_value_required is False
+    assert any("recent report cycle" in step for step in plans["dkim_selector_stale"].manual_steps)
+    assert plans["dkim_selector_cname_broken"].operation == "update"
+    assert plans["dkim_selector_cname_broken"].proposed_value == (
+        "<provider-current-dkim-cname-target>"
+    )
+    assert plans["dkim_selector_cname_broken"].provider_value_required is True
+
+
+@pytest.mark.asyncio
+async def test_build_dns_guidance_defers_bimi_until_dmarc_enforcement():
+    provider = FakeDNSProvider(
+        {
+            "example.com": ["v=spf1 -all"],
+            "_smtp._tls.example.com": ["v=TLSRPTv1; rua=mailto:tls@example.com"],
+        }
+    )
+    dns = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=none; rua=mailto:dmarc@example.com",
+        spf=True,
+        spf_record="v=spf1 -all",
+        dkim=True,
+        dkim_selectors=["selector1"],
+    )
+
+    guidance = await build_dns_guidance(
+        "example.com",
+        provider,
+        dns,
+        MTAStsResult(status="pass"),
+        BIMIResult(status="pass"),
+    )
+
+    assert "bimi_dmarc_not_enforced" in {finding.code for finding in guidance.findings}
+    assert "bimi_dmarc_not_enforced" not in {plan.finding_code for plan in guidance.change_plans}
 
 
 @pytest.mark.asyncio

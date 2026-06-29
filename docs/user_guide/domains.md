@@ -93,6 +93,12 @@ Optional AI remediation plans can turn the same redacted DNS/report context
 into a longer step-by-step plan through LiteLLM/OpenAI-compatible providers;
 demo mode keeps these plans template-backed and heavily cached.
 
+The same section also shows a read-only proposed DNS change plan when findings
+are actionable. These plans include the record name, type, proposed value,
+captured current values when available, risk notes, rollback guidance, and
+expected health impact. They are copy/paste aids for an operator; DMARQ does
+not apply DNS changes automatically.
+
 ### MTA-STS Posture
 
 The domain detail page checks `_mta-sts.<domain>` and fetches the policy from `https://mta-sts.<domain>/.well-known/mta-sts.txt`.

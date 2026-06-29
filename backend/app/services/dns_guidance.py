@@ -41,6 +41,29 @@ class DNSLintFinding:
 
 
 @dataclass
+class DNSChangePlan:
+    """Read-only DNS change plan derived from a lint finding."""
+
+    plan_id: str
+    finding_code: str
+    severity: str
+    operation: str
+    record_type: str
+    name: str
+    proposed_value: Optional[str]
+    current_values: List[str]
+    rationale: str
+    risk: str
+    rollback: str
+    expected_health_impact: str
+    manual_steps: List[str]
+    requires_approval: bool = True
+    applies_automatically: bool = False
+    provider_write_available: bool = False
+    provider_value_required: bool = False
+
+
+@dataclass
 class DNSGuidanceResult:
     """Complete DNS lint and setup guidance payload for one domain."""
 
@@ -48,6 +71,7 @@ class DNSGuidanceResult:
     status: str
     findings: List[DNSLintFinding]
     target_records: List[DNSGuidanceRecord]
+    change_plans: List[DNSChangePlan] = field(default_factory=list)
 
 
 def _today_id() -> str:
@@ -913,6 +937,156 @@ def _status(findings: List[DNSLintFinding]) -> str:
     return "ready"
 
 
+def _plan_id(finding: DNSLintFinding) -> str:
+    raw = f"{finding.code}-{finding.record_name}-{finding.record_type}".lower()
+    return "".join(character if character.isalnum() else "-" for character in raw).strip("-")
+
+
+def _operation_for_finding(finding: DNSLintFinding) -> str:
+    code = finding.code
+    if code.endswith("_missing") or code in {"dmarc_missing", "spf_missing"}:
+        return "create"
+    if code in {"dkim_selector_stale"}:
+        return "review-remove"
+    if code in {"dkim_selector_key_too_short"}:
+        return "rotate"
+    if code in {"tls_rpt_multiple_records", "spf_multiple_records"}:
+        return "consolidate"
+    if code in {"bimi_dmarc_not_enforced"}:
+        return "defer"
+    return "update"
+
+
+def _provider_value_required(finding: DNSLintFinding) -> bool:
+    if finding.code == "dkim_selector_stale":
+        return False
+    proposed = (finding.target_record.value if finding.target_record else "") or ""
+    return "<" in proposed or finding.code in {
+        "dkim_selector_missing",
+        "dkim_selector_cname_broken",
+        "dkim_selector_key_too_short",
+    }
+
+
+def _proposed_value(finding: DNSLintFinding) -> Optional[str]:
+    if finding.code == "dkim_selector_cname_broken":
+        return "<provider-current-dkim-cname-target>"
+    if finding.code == "dkim_selector_stale":
+        return None
+    if finding.target_record:
+        return finding.target_record.value
+    return None
+
+
+def _risk_for_finding(finding: DNSLintFinding) -> str:
+    risks = {
+        "dmarc_missing": (
+            "Low delivery risk when starting with p=none; incorrect rua values can prevent "
+            "DMARQ from receiving reports."
+        ),
+        "dmarc_monitoring_policy": (
+            "Enforcement changes can reject legitimate mail if sender alignment is not ready."
+        ),
+        "spf_missing": "Medium risk if legitimate senders are omitted from the SPF record.",
+        "spf_multiple_records": (
+            "Medium risk: merging records incorrectly can remove an active sender."
+        ),
+        "spf_all_too_permissive": (
+            "Low immediate delivery risk, but tightening to -all before sender coverage is "
+            "complete can break forwarding or third-party senders."
+        ),
+        "dkim_selector_missing": (
+            "Low DNS risk, but the value must come from the sending provider that owns the selector."
+        ),
+        "dkim_selector_cname_broken": (
+            "Medium risk: replacing a CNAME with the wrong provider target keeps DKIM failing."
+        ),
+        "dkim_selector_key_too_short": (
+            "Medium risk: rotate with a new selector before retiring the old one."
+        ),
+        "dkim_selector_stale": (
+            "Medium risk: removing a selector still used by a sender breaks DKIM for that sender."
+        ),
+        "mta_sts_missing": (
+            "Low risk in testing mode; enforce only after confirming all MX hosts support TLS."
+        ),
+        "tls_rpt_missing": "Low risk: TLS-RPT only controls report delivery.",
+        "bimi_missing": "Low mail-flow risk; BIMI is a brand/readiness feature.",
+    }
+    return risks.get(
+        finding.code,
+        "Review current evidence before changing DNS; publish during a controlled change window.",
+    )
+
+
+def _rollback_for_plan(finding: DNSLintFinding, operation: str) -> str:
+    if operation == "create":
+        return f"Delete the newly created {finding.record_type} record at {finding.record_name}."
+    if operation == "review-remove":
+        return (
+            "Restore the removed record value from DNS provider history if later reports show "
+            "the selector is still active."
+        )
+    if finding.evidence:
+        return "Restore the previous value captured in evidence if authentication regresses."
+    return "Revert to the previous DNS-provider version or zone-file backup."
+
+
+def _expected_health_impact(finding: DNSLintFinding) -> str:
+    if finding.severity == "error":
+        return "Expected to remove a critical DNS-health finding after propagation."
+    if finding.severity == "warning":
+        return "Expected to reduce DNS-health warnings after propagation."
+    return "Expected to improve hygiene and reduce future action-plan noise."
+
+
+def _manual_steps_for_plan(finding: DNSLintFinding, operation: str) -> List[str]:
+    steps = [
+        "Open the authoritative DNS provider for this domain.",
+        f"Find or create the {finding.record_type} record named {finding.record_name}.",
+    ]
+    proposed = _proposed_value(finding)
+    if operation == "review-remove":
+        steps.append("Confirm at least one recent report cycle shows no traffic for this selector.")
+        steps.append("Remove the stale selector only after sender ownership is confirmed.")
+    elif proposed:
+        steps.append(f"Set the record value to: {proposed}")
+    else:
+        steps.append("Follow the finding remediation steps to choose the final DNS value.")
+    steps.extend(finding.remediation_steps)
+    steps.append("Refresh DMARQ DNS lint after DNS propagation.")
+    return list(dict.fromkeys(steps))
+
+
+def build_dns_change_plans(findings: List[DNSLintFinding]) -> List[DNSChangePlan]:
+    """Create read-only operator change plans from DNS lint findings."""
+    plans: List[DNSChangePlan] = []
+    for finding in findings:
+        operation = _operation_for_finding(finding)
+        proposed_value = _proposed_value(finding)
+        if operation == "defer":
+            continue
+        plans.append(
+            DNSChangePlan(
+                plan_id=_plan_id(finding),
+                finding_code=finding.code,
+                severity=finding.severity,
+                operation=operation,
+                record_type=finding.record_type,
+                name=finding.record_name,
+                proposed_value=proposed_value,
+                current_values=list(finding.evidence),
+                rationale=finding.action,
+                risk=_risk_for_finding(finding),
+                rollback=_rollback_for_plan(finding, operation),
+                expected_health_impact=_expected_health_impact(finding),
+                manual_steps=_manual_steps_for_plan(finding, operation),
+                provider_value_required=_provider_value_required(finding),
+            )
+        )
+    return plans
+
+
 async def build_dns_guidance(
     domain: str,
     provider: BaseDNSProvider,
@@ -947,4 +1121,5 @@ async def build_dns_guidance(
         status=_status(findings),
         findings=findings,
         target_records=targets,
+        change_plans=build_dns_change_plans(findings),
     )
