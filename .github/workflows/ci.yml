@@ -328,10 +328,13 @@ jobs:
 
       - name: Commit and push manifest update
         if: steps.pat-check.outputs.available == 'true'
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
         run: |
           cd k8s-cluster-state
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${GH_PAT}@github.com/${{ env.K8S_STATE_REPO }}.git"
           git add \
             apps/dmarq/preprod/dmarq-stack.yaml \
             apps/dmarq/greenfield-demo/dmarq-stack.yaml
