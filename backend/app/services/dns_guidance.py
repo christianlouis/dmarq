@@ -481,13 +481,27 @@ def _mta_sts_findings(
     target = _target_by_code(targets, "target_mta_sts")
     severity = "warning" if result.status == "pass" else "info"
     detail = "; ".join(result.warnings or result.errors or ["MTA-STS is not configured."])
+    if result.status == "pass":
+        recommendation = "Move the policy to mode: enforce once MX coverage is confirmed."
+    elif result.dns_record and result.policy_text is None:
+        recommendation = (
+            f"Make {result.policy_url} reachable over HTTPS with a valid policy file, "
+            "then rotate the _mta-sts TXT id when the policy changes."
+        )
+    elif result.dns_record:
+        recommendation = (
+            "Fix the MTA-STS policy file so it includes version: STSv1, mode, "
+            "max_age, and at least one mx entry."
+        )
+    else:
+        recommendation = "Publish _mta-sts TXT and validate the HTTPS policy before enforcing."
     return [
         _finding(
             "mta_sts_review" if result.status == "pass" else "mta_sts_missing",
             severity,
             "MTA-STS setup needs review" if result.status == "pass" else "MTA-STS is not ready",
             detail,
-            "Publish _mta-sts TXT and validate the HTTPS policy before enforcing.",
+            recommendation,
             "TXT",
             target.name,
             target_record=target,

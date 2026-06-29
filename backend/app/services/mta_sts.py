@@ -18,6 +18,12 @@ from app.services.dns_resolver import BaseDNSProvider
 _CACHE_KEY = "mta-sts-v1"
 _POLICY_TIMEOUT_SECONDS = 5.0
 _VALID_MODES = {"enforce", "testing", "none"}
+_DNS_RESOLUTION_ERROR_MARKERS = (
+    "name or service not known",
+    "temporary failure in name resolution",
+    "nodename nor servname",
+    "name does not resolve",
+)
 
 
 @dataclass
@@ -118,6 +124,26 @@ def parse_mta_sts_policy(  # noqa: C901
     return data, warnings, errors
 
 
+def _policy_fetch_error_message(domain: str, exc: Exception) -> str:
+    host = f"mta-sts.{domain}"
+    policy_url = f"https://{host}/.well-known/mta-sts.txt"
+    message = str(exc)
+    normalized = message.lower()
+    if any(marker in normalized for marker in _DNS_RESOLUTION_ERROR_MARKERS):
+        return (
+            f"MTA-STS policy host {host} could not be resolved. "
+            f"Publish DNS for {host} and serve {policy_url} over HTTPS."
+        )
+    if isinstance(exc, httpx.HTTPStatusError):
+        return (
+            "MTA-STS policy fetch failed: "
+            f"{policy_url} returned HTTP {exc.response.status_code}."
+        )
+    if isinstance(exc, httpx.TimeoutException):
+        return f"MTA-STS policy fetch timed out while requesting {policy_url}."
+    return f"MTA-STS policy fetch failed: {message}"
+
+
 async def check_mta_sts(domain: str, provider: BaseDNSProvider) -> MTAStsResult:
     """Resolve the MTA-STS TXT record and validate the HTTPS policy file."""
     result = MTAStsResult(policy_url=f"https://mta-sts.{domain}/.well-known/mta-sts.txt")
@@ -142,7 +168,7 @@ async def check_mta_sts(domain: str, provider: BaseDNSProvider) -> MTAStsResult:
             response.raise_for_status()
             result.policy_text = response.text
     except (httpx.RequestError, httpx.HTTPStatusError, httpx.TimeoutException) as exc:
-        result.errors.append(f"MTA-STS policy fetch failed: {exc}")
+        result.errors.append(_policy_fetch_error_message(domain, exc))
         return result
 
     policy, policy_warnings, policy_errors = parse_mta_sts_policy(result.policy_text or "")
