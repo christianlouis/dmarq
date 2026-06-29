@@ -19,8 +19,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.models.domain import Domain
 from app.models.report import DMARCReport, ForensicReport
 from app.models.setting import Setting
+from app.models.workspace import Workspace
 from app.services.gmail_client import DMARC_GMAIL_QUERY, RETRYABLE_MESSAGE_FAILURE, GmailClient
 from app.services.report_store import ReportStore
 from app.tests.test_data import SAMPLE_XML
@@ -36,6 +38,7 @@ def _make_client(
     refresh_token: str = "ref",
     already_ingested: Optional[list] = None,
     db=None,
+    workspace_id: Optional[int] = None,
 ) -> GmailClient:
     """Instantiate a GmailClient with real Credentials mocked out."""
     with patch("app.services.gmail_client.Credentials") as mock_creds_class:
@@ -51,6 +54,7 @@ def _make_client(
             refresh_token=refresh_token,
             already_ingested_ids=already_ingested or [],
             db=db,
+            workspace_id=workspace_id,
         )
         # Expose the mock so tests can manipulate it
         client._mock_creds = mock_creds  # type: ignore[attr-defined]
@@ -647,6 +651,30 @@ class TestProcessAttachments:
 
         assert count == 1
         assert db_session.query(DMARCReport).filter_by(report_id="123456789").count() == 1
+
+    def test_google_style_zip_attachment_auto_creates_domain_in_workspace(self, db_session):
+        workspace = Workspace(name="Gmail Auto Domain", slug="gmail-auto-domain")
+        db_session.add(workspace)
+        db_session.commit()
+        client = _make_client(db=db_session, workspace_id=workspace.id)
+        raw = _make_raw_email(
+            [
+                {
+                    "filename": "google.com!example.com!1597449600!1597535999.zip",
+                    "content": _zip_xml(),
+                }
+            ]
+        )
+        msg = email_mod.message_from_bytes(raw)
+        stats = {"reports_found": 0, "errors": []}
+
+        count = client._process_attachments(msg, stats)
+
+        domain = db_session.query(Domain).filter_by(name="example.com").one()
+        assert count == 1
+        assert domain.workspace_id == workspace.id
+        assert domain.dmarc_policy == "none"
+        assert stats["details"][0]["status"] == "imported"
 
     def test_duplicate_report_is_skipped(self):
         """Repeated imports of the same domain/report ID should not inflate totals."""

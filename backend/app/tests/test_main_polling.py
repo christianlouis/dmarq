@@ -81,6 +81,7 @@ def test_poll_single_imap_source_passes_configured_folder():
         password="p",
         folder="Junk Mail",
         db=db,
+        workspace_id=None,
     )
     db.commit.assert_called_once()
     db.close.assert_called_once()

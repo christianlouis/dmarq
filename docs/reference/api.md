@@ -199,9 +199,9 @@ without blocking the UI.
 
 The Mail Sources UI shows the latest backfill status, processed message counts,
 reports found, duplicates, retry timing, and operator controls. The background
-scheduler currently executes due IMAP and Gmail backfill jobs in bounded
-batches and records results in import history with trigger `backfill`;
-Microsoft 365 worker execution remains connector-specific follow-up work. In demo mode,
+scheduler currently executes due IMAP, Gmail, and Microsoft 365 backfill jobs in
+bounded batches and records results in import history with trigger `backfill`.
+In demo mode,
 DMARQ exposes credential-free synthetic mail sources and backfill jobs so the
 workflow is visible without connecting a real mailbox.
 

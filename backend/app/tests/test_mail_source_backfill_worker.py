@@ -11,6 +11,7 @@ from app.services.mail_source_backfill_worker import (
     run_due_mail_source_backfill_jobs,
     run_gmail_backfill_job,
     run_imap_backfill_job,
+    run_m365_backfill_job,
     run_mail_source_backfill_job,
 )
 from app.services.workspaces import get_or_create_default_workspace
@@ -33,6 +34,13 @@ def _source(db_session, *, method="IMAP", enabled=True):
         gmail_access_token="gmail-token" if method == "GMAIL_API" else None,
         gmail_refresh_token="gmail-refresh" if method == "GMAIL_API" else None,
         gmail_ingested_ids='["old-id"]' if method == "GMAIL_API" else None,
+        m365_tenant_id="organizations",
+        m365_client_id="m365-client",
+        m365_client_secret="m365-secret",
+        m365_access_token="m365-token" if method == "M365_GRAPH" else None,
+        m365_refresh_token="m365-refresh" if method == "M365_GRAPH" else None,
+        m365_mailbox="shared@example.com",
+        m365_ingested_ids='["old-m365-id"]' if method == "M365_GRAPH" else None,
     )
     db_session.add(source)
     db_session.commit()
@@ -191,6 +199,7 @@ def test_run_due_mail_source_backfill_executes_gmail_job(db_session, monkeypatch
     class FakeGmailClient:
         def __init__(self, **kwargs):
             assert kwargs["already_ingested_ids"] == ["old-id"]
+            assert kwargs["workspace_id"] == workspace.id
 
         def fetch_reports(self, days):
             assert days == 10
@@ -289,6 +298,124 @@ def test_run_gmail_backfill_provider_failure_moves_to_backoff(db_session, monkey
     assert row.next_retry_at is not None
 
 
+def test_run_due_mail_source_backfill_executes_m365_job(db_session, monkeypatch):
+    workspace, source = _source(db_session, method="M365_GRAPH")
+    row = _job(db_session, workspace, source)
+    results = {
+        "success": True,
+        "processed": 4,
+        "reports_found": 2,
+        "duplicate_reports": 1,
+        "new_domains": ["example.net"],
+        "new_ingested_ids": ["new-m365-id", "old-m365-id"],
+        "errors": [],
+        "details": [{"status": "imported", "domain": "example.net"}],
+        "search_window_days": 10,
+    }
+
+    class FakeMicrosoftGraphClient:
+        def __init__(self, **kwargs):
+            assert kwargs["already_ingested_ids"] == ["old-m365-id"]
+            assert kwargs["workspace_id"] == workspace.id
+            assert kwargs["folder"] == "INBOX/DMARC"
+
+        def fetch_reports(self, days):
+            assert days == 10
+            return results
+
+        def get_refreshed_tokens(self):
+            return {"access_token": "new-m365-access", "refresh_token": "new-m365-refresh"}
+
+    monkeypatch.setattr(
+        "app.services.mail_source_backfill_worker.MicrosoftGraphClient",
+        FakeMicrosoftGraphClient,
+    )
+    monkeypatch.setattr(
+        "app.services.mail_source_backfill_worker.MicrosoftGraphClient.load_ingested_ids",
+        lambda value: ["old-m365-id"],
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "app.services.mail_source_backfill_worker.MicrosoftGraphClient.dump_ingested_ids",
+        lambda values: ",".join(values),
+        raising=False,
+    )
+
+    assert run_due_mail_source_backfill_jobs(db_session, limit=1) == 1
+
+    db_session.refresh(row)
+    db_session.refresh(source)
+    attempt = db_session.query(MailSourceImport).filter_by(mail_source_id=source.id).one()
+
+    assert row.status == "completed"
+    assert row.cursor == "m365:days=10;processed=4"
+    assert row.processed == 4
+    assert row.reports_found == 2
+    assert source.m365_ingested_ids == "old-m365-id,new-m365-id"
+    assert source.m365_access_token == "new-m365-access"
+    assert source.m365_refresh_token == "new-m365-refresh"
+    assert source.last_checked is not None
+    assert attempt.trigger == "backfill"
+    assert attempt.status == "success"
+
+
+def test_run_m365_backfill_without_token_moves_to_backoff(db_session):
+    workspace, source = _source(db_session, method="M365_GRAPH")
+    source.m365_access_token = None
+    db_session.commit()
+    row = _job(db_session, workspace, source, max_attempts=3)
+
+    assert run_m365_backfill_job(db_session, row) is True
+
+    db_session.refresh(row)
+    attempt = db_session.query(MailSourceImport).filter_by(mail_source_id=source.id).one()
+
+    assert row.status == "backoff"
+    assert row.attempt_count == 1
+    assert row.next_retry_at is not None
+    assert "not yet authorised" in row.errors
+    assert attempt.trigger == "backfill"
+    assert attempt.status == "failed"
+
+
+def test_run_m365_backfill_provider_failure_moves_to_backoff(db_session, monkeypatch):
+    workspace, source = _source(db_session, method="M365_GRAPH")
+    row = _job(db_session, workspace, source, max_attempts=3)
+
+    class FakeMicrosoftGraphClient:
+        load_ingested_ids = staticmethod(lambda _value: [])
+        dump_ingested_ids = staticmethod(lambda values: ",".join(values))
+
+        def __init__(self, **_kwargs):
+            pass
+
+        def fetch_reports(self, days):
+            return {
+                "success": False,
+                "processed": 2,
+                "reports_found": 0,
+                "duplicate_reports": 0,
+                "new_domains": [],
+                "errors": ["temporary Microsoft Graph failure"],
+            }
+
+        def get_refreshed_tokens(self):
+            return None
+
+    monkeypatch.setattr(
+        "app.services.mail_source_backfill_worker.MicrosoftGraphClient",
+        FakeMicrosoftGraphClient,
+    )
+
+    assert run_m365_backfill_job(db_session, row) is True
+
+    db_session.refresh(row)
+    assert row.status == "backoff"
+    assert row.processed == 2
+    assert row.error_count == 1
+    assert row.next_retry_at is not None
+
+
 def test_run_mail_source_backfill_dispatches_or_skips(db_session, monkeypatch):
     workspace, imap_source = _source(db_session)
     imap_job = _job(db_session, workspace, imap_source)
@@ -305,10 +432,14 @@ def test_run_mail_source_backfill_dispatches_or_skips(db_session, monkeypatch):
         "app.services.mail_source_backfill_worker.run_gmail_backfill_job",
         lambda _db, job: job.id == gmail_job.id,
     )
+    monkeypatch.setattr(
+        "app.services.mail_source_backfill_worker.run_m365_backfill_job",
+        lambda _db, job: job.id == m365_job.id,
+    )
 
     assert run_mail_source_backfill_job(db_session, imap_job) is True
     assert run_mail_source_backfill_job(db_session, gmail_job) is True
-    assert run_mail_source_backfill_job(db_session, m365_job) is False
+    assert run_mail_source_backfill_job(db_session, m365_job) is True
 
 
 def test_run_imap_backfill_skips_unsupported_status_or_future_retry(db_session):

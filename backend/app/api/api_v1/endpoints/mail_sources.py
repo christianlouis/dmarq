@@ -671,6 +671,7 @@ def _fetch_gmail_source(source: MailSource, db: Session) -> Dict[str, Any]:
         refresh_token=source.gmail_refresh_token or "",
         already_ingested_ids=already,
         db=db,
+        workspace_id=source.workspace_id,
     )
 
     started_at = datetime.utcnow()
@@ -712,6 +713,7 @@ def _fetch_m365_source(source: MailSource, db: Session, days: int = 7) -> Dict[s
         folder_id=_safe_attr(source, "m365_folder_id"),
         already_ingested_ids=already,
         db=db,
+        workspace_id=source.workspace_id,
     )
 
     started_at = datetime.utcnow()
@@ -742,6 +744,7 @@ def _fetch_imap_source(source: MailSource, db: Session, days: int) -> Dict[str, 
         password=source.password,
         folder=source.folder,
         db=db,
+        workspace_id=source.workspace_id,
     )
     started_at = datetime.utcnow()
     results = client.fetch_reports(days=days)
@@ -2090,6 +2093,7 @@ async def gmail_fetch_reports(
         refresh_token=source.gmail_refresh_token or "",
         already_ingested_ids=already,
         db=db,
+        workspace_id=source.workspace_id,
     )
 
     started_at = datetime.utcnow()

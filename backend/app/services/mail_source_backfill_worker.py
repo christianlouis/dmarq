@@ -17,11 +17,12 @@ from app.models.mail_source_backfill import MailSourceBackfillJob
 from app.services.gmail_client import GmailClient
 from app.services.imap_client import IMAPClient
 from app.services.import_history import record_import_attempt
+from app.services.microsoft_graph_client import MicrosoftGraphClient
 
 logger = logging.getLogger(__name__)
 
 RUNNABLE_BACKFILL_STATUSES = ("queued", "backoff")
-SUPPORTED_WORKER_METHODS = ("IMAP", "GMAIL_API")
+SUPPORTED_WORKER_METHODS = ("IMAP", "GMAIL_API", "M365_GRAPH")
 MAX_BACKFILL_DAYS = 365
 
 
@@ -149,6 +150,7 @@ def run_imap_backfill_job(db: Session, job: MailSourceBackfillJob) -> bool:
             password=source.password,
             folder=source.folder,
             db=db,
+            workspace_id=source.workspace_id,
         )
         results = client.fetch_reports(days=days)
         source.last_checked = datetime.utcnow()
@@ -232,6 +234,7 @@ def _fetch_gmail_backfill_results(
         refresh_token=source.gmail_refresh_token or "",
         already_ingested_ids=already,
         db=db,
+        workspace_id=source.workspace_id,
     )
     results = client.fetch_reports(days=days)
     _sync_gmail_backfill_state(source, client, already, results)
@@ -262,6 +265,61 @@ def _sync_gmail_backfill_state(
         source.gmail_access_token = refreshed["access_token"]
         if "refresh_token" in refreshed:
             source.gmail_refresh_token = refreshed["refresh_token"]
+
+
+def _fetch_m365_backfill_results(
+    db: Session,
+    source: MailSource,
+    *,
+    started_at: datetime,
+    days: int,
+) -> tuple[Dict[str, Any], Any]:
+    if not source.m365_access_token:
+        raise ValueError("Microsoft 365 account not yet authorised. Complete OAuth2 flow first.")
+
+    already = MicrosoftGraphClient.load_ingested_ids(source.m365_ingested_ids)
+    client = MicrosoftGraphClient(
+        tenant_id=source.m365_tenant_id or "common",
+        client_id=source.m365_client_id or "",
+        client_secret=source.m365_client_secret or "",
+        access_token=source.m365_access_token,
+        refresh_token=source.m365_refresh_token or "",
+        mailbox=source.m365_mailbox,
+        folder=source.folder or "INBOX",
+        folder_id=getattr(source, "m365_folder_id", None),
+        already_ingested_ids=already,
+        db=db,
+        workspace_id=source.workspace_id,
+    )
+    results = client.fetch_reports(days=days)
+    _sync_m365_backfill_state(source, client, already, results)
+    source.last_checked = datetime.utcnow()
+    attempt = record_import_attempt(
+        db,
+        source,
+        results,
+        started_at=started_at,
+        trigger="backfill",
+    )
+    db.flush()
+    return results, attempt
+
+
+def _sync_m365_backfill_state(
+    source: MailSource,
+    client: MicrosoftGraphClient,
+    already_ingested: List[str],
+    results: Dict[str, Any],
+) -> None:
+    if results.get("new_ingested_ids"):
+        all_ids = list(dict.fromkeys(already_ingested + results["new_ingested_ids"]))
+        source.m365_ingested_ids = MicrosoftGraphClient.dump_ingested_ids(all_ids)
+
+    refreshed = client.get_refreshed_tokens()
+    if refreshed:
+        source.m365_access_token = refreshed["access_token"]
+        if "refresh_token" in refreshed:
+            source.m365_refresh_token = refreshed["refresh_token"]
 
 
 def _finish_backfill_from_results(
@@ -358,6 +416,57 @@ def run_gmail_backfill_job(db: Session, job: MailSourceBackfillJob) -> bool:
         return True
 
 
+def run_m365_backfill_job(db: Session, job: MailSourceBackfillJob) -> bool:
+    """Execute one Microsoft 365 Graph backfill job and update persisted state."""
+    source = job.mail_source
+    if not _job_is_runnable(job, "M365_GRAPH"):
+        return False
+
+    started_at = datetime.utcnow()
+    days = _backfill_window_days(job, started_at)
+    _claim_job(job, started_at)
+    db.commit()
+
+    try:
+        results, attempt = _fetch_m365_backfill_results(
+            db,
+            source,
+            started_at=started_at,
+            days=days,
+        )
+        _finish_backfill_from_results(
+            job,
+            results,
+            days=days,
+            cursor_prefix="m365",
+            errors=attempt.errors,
+            details=attempt.details,
+        )
+        db.commit()
+        return True
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.exception("Microsoft 365 backfill job id=%s failed", job.id)
+        results = _backfill_exception_results(exc)
+        attempt = record_import_attempt(
+            db,
+            source,
+            results,
+            started_at=started_at,
+            trigger="backfill",
+        )
+        db.flush()
+        _mark_failure(
+            job,
+            exc,
+            now=datetime.utcnow(),
+            results=results,
+            errors=attempt.errors,
+            details=attempt.details,
+        )
+        db.commit()
+        return True
+
+
 def due_mail_source_backfill_jobs(
     db: Session,
     limit: int = 1,
@@ -401,6 +510,8 @@ def run_mail_source_backfill_job(db: Session, job: MailSourceBackfillJob) -> boo
         return run_imap_backfill_job(db, job)
     if source.method == "GMAIL_API":
         return run_gmail_backfill_job(db, job)
+    if source.method == "M365_GRAPH":
+        return run_m365_backfill_job(db, job)
     return False
 
 
