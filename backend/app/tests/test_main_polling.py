@@ -155,13 +155,13 @@ def test_run_due_mail_source_backfills_logs_processed_count():
     db = MagicMock()
     with (
         patch("app.main.SessionLocal", return_value=db),
-        patch("app.main.run_due_imap_backfill_jobs", return_value=2) as run_due,
+        patch("app.main.run_due_mail_source_backfill_jobs", return_value=2) as run_due,
         patch("app.main.logger") as logger,
     ):
         assert _run_due_mail_source_backfills() == 2
 
     run_due.assert_called_once_with(db)
-    logger.info.assert_called_once_with("Processed %d queued IMAP backfill job(s)", 2)
+    logger.info.assert_called_once_with("Processed %d queued mail-source backfill job(s)", 2)
     db.close.assert_called_once()
 
 

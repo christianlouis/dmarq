@@ -204,7 +204,7 @@ class GmailClient:
     # Core fetching logic
     # ------------------------------------------------------------------
 
-    def fetch_reports(self) -> Dict[str, Any]:
+    def fetch_reports(self, days: Optional[int] = None) -> Dict[str, Any]:
         """
         Search Gmail for DMARC report emails and ingest any new ones.
 
@@ -218,6 +218,8 @@ class GmailClient:
             added in this run so the caller can persist them).
         """
         stats = initial_import_stats()
+        if days is not None:
+            stats["search_window_days"] = int(days)
 
         try:
             service = self._build_service()
@@ -226,7 +228,7 @@ class GmailClient:
             return connector_failure_stats(stats, "Failed to initialize Gmail API.", error=exc)
 
         try:
-            message_ids = self._list_dmarc_message_ids(service)
+            message_ids = self._list_dmarc_message_ids(service, days=days)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error("Gmail API: failed to list messages: %s", exc)
             return connector_failure_stats(stats, "Failed to list Gmail messages.", error=exc)
@@ -270,7 +272,15 @@ class GmailClient:
 
         return build("gmail", "v1", credentials=self.credentials, cache_discovery=False)
 
-    def _list_dmarc_message_ids(self, service) -> List[str]:
+    @staticmethod
+    def _search_query(days: Optional[int] = None) -> str:
+        """Return the Gmail search query, optionally constrained by age."""
+        if days is None:
+            return DMARC_GMAIL_QUERY
+        safe_days = max(1, int(days))
+        return f"newer_than:{safe_days}d {DMARC_GMAIL_QUERY}"
+
+    def _list_dmarc_message_ids(self, service, days: Optional[int] = None) -> List[str]:
         """Return all Gmail message IDs matching the DMARC search query."""
         ids: List[str] = []
         page_token: Optional[str] = None
@@ -278,7 +288,7 @@ class GmailClient:
         while True:
             kwargs: Dict[str, Any] = {
                 "userId": "me",
-                "q": DMARC_GMAIL_QUERY,
+                "q": self._search_query(days),
                 "maxResults": _PAGE_SIZE,
             }
             if page_token:
