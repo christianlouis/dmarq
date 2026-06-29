@@ -167,7 +167,7 @@ async def check_mta_sts(domain: str, provider: BaseDNSProvider) -> MTAStsResult:
             response = await client.get(result.policy_url)
             response.raise_for_status()
             result.policy_text = response.text
-    except (httpx.RequestError, httpx.HTTPStatusError, httpx.TimeoutException) as exc:
+    except (httpx.RequestError, httpx.HTTPStatusError) as exc:
         result.errors.append(_policy_fetch_error_message(domain, exc))
         return result
 
