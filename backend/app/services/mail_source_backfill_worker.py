@@ -14,13 +14,14 @@ from sqlalchemy.orm import Session
 from app.core.redaction import redact_sensitive_text
 from app.models.mail_source import MailSource
 from app.models.mail_source_backfill import MailSourceBackfillJob
+from app.services.gmail_client import GmailClient
 from app.services.imap_client import IMAPClient
 from app.services.import_history import record_import_attempt
 
 logger = logging.getLogger(__name__)
 
 RUNNABLE_BACKFILL_STATUSES = ("queued", "backoff")
-SUPPORTED_WORKER_METHODS = ("IMAP",)
+SUPPORTED_WORKER_METHODS = ("IMAP", "GMAIL_API")
 MAX_BACKFILL_DAYS = 365
 
 
@@ -76,13 +77,14 @@ def _mark_success(
     results: Dict[str, Any],
     *,
     days: int,
+    cursor_prefix: str,
     now: datetime,
     errors: str,
     details: str,
 ) -> None:
     _copy_result_counts(job, results)
     job.status = "completed"
-    job.cursor = f"imap:days={days};processed={job.processed}"
+    job.cursor = f"{cursor_prefix}:days={days};processed={job.processed}"
     job.errors = errors
     job.details = details
     job.finished_at = now
@@ -158,6 +160,7 @@ def run_imap_backfill_job(db: Session, job: MailSourceBackfillJob) -> bool:
                 job,
                 results,
                 days=days,
+                cursor_prefix="imap",
                 now=finished_at,
                 errors=attempt.errors,
                 details=attempt.details,
@@ -204,10 +207,164 @@ def run_imap_backfill_job(db: Session, job: MailSourceBackfillJob) -> bool:
         return True
 
 
-def due_imap_backfill_jobs(db: Session, limit: int = 1) -> List[MailSourceBackfillJob]:
-    """Return due queued/backoff IMAP jobs, oldest first."""
+def _fetch_gmail_backfill_results(
+    db: Session,
+    source: MailSource,
+    *,
+    started_at: datetime,
+    days: int,
+) -> tuple[Dict[str, Any], Any]:
+    if not source.gmail_access_token:
+        raise ValueError("Gmail account not yet authorised. Complete OAuth2 flow first.")
+
+    already = GmailClient.load_ingested_ids(source.gmail_ingested_ids)
+    client = GmailClient(
+        client_id=source.gmail_client_id or "",
+        client_secret=source.gmail_client_secret or "",
+        access_token=source.gmail_access_token,
+        refresh_token=source.gmail_refresh_token or "",
+        already_ingested_ids=already,
+        db=db,
+    )
+    results = client.fetch_reports(days=days)
+    _sync_gmail_backfill_state(source, client, already, results)
+    source.last_checked = datetime.utcnow()
+    attempt = record_import_attempt(
+        db,
+        source,
+        results,
+        started_at=started_at,
+        trigger="backfill",
+    )
+    db.flush()
+    return results, attempt
+
+
+def _sync_gmail_backfill_state(
+    source: MailSource,
+    client: GmailClient,
+    already_ingested: List[str],
+    results: Dict[str, Any],
+) -> None:
+    if results.get("new_ingested_ids"):
+        all_ids = list(dict.fromkeys(already_ingested + results["new_ingested_ids"]))
+        source.gmail_ingested_ids = GmailClient.dump_ingested_ids(all_ids)
+
+    refreshed = client.get_refreshed_tokens()
+    if refreshed:
+        source.gmail_access_token = refreshed["access_token"]
+        if "refresh_token" in refreshed:
+            source.gmail_refresh_token = refreshed["refresh_token"]
+
+
+def _finish_backfill_from_results(
+    job: MailSourceBackfillJob,
+    results: Dict[str, Any],
+    *,
+    days: int,
+    cursor_prefix: str,
+    errors: str,
+    details: str,
+) -> None:
+    finished_at = datetime.utcnow()
+    if results.get("success"):
+        _mark_success(
+            job,
+            results,
+            days=days,
+            cursor_prefix=cursor_prefix,
+            now=finished_at,
+            errors=errors,
+            details=details,
+        )
+    else:
+        _mark_failure(
+            job,
+            results.get("error") or "Backfill failed",
+            now=finished_at,
+            results=results,
+            errors=errors,
+            details=details,
+        )
+
+
+def _backfill_exception_results(exc: Exception) -> Dict[str, Any]:
+    return {
+        "success": False,
+        "processed": 0,
+        "reports_found": 0,
+        "duplicate_reports": 0,
+        "new_domains": [],
+        "errors": [redact_sensitive_text(exc)],
+        "details": [],
+    }
+
+
+def run_gmail_backfill_job(db: Session, job: MailSourceBackfillJob) -> bool:
+    """Execute one Gmail API backfill job and update its persisted lifecycle state."""
+    source = job.mail_source
+    if source is None or source.method != "GMAIL_API":
+        return False
+    if job.status not in RUNNABLE_BACKFILL_STATUSES:
+        return False
+    if job.next_retry_at and job.next_retry_at > datetime.utcnow():
+        return False
+
+    started_at = datetime.utcnow()
+    days = _backfill_window_days(job, started_at)
+    _claim_job(job, started_at)
+    db.commit()
+
+    try:
+        results, attempt = _fetch_gmail_backfill_results(
+            db,
+            source,
+            started_at=started_at,
+            days=days,
+        )
+        _finish_backfill_from_results(
+            job,
+            results,
+            days=days,
+            cursor_prefix="gmail",
+            errors=attempt.errors,
+            details=attempt.details,
+        )
+        db.commit()
+        return True
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.exception("Gmail backfill job id=%s failed", job.id)
+        results = _backfill_exception_results(exc)
+        attempt = record_import_attempt(
+            db,
+            source,
+            results,
+            started_at=started_at,
+            trigger="backfill",
+        )
+        db.flush()
+        _mark_failure(
+            job,
+            exc,
+            now=datetime.utcnow(),
+            results=results,
+            errors=attempt.errors,
+            details=attempt.details,
+        )
+        db.commit()
+        return True
+
+
+def due_mail_source_backfill_jobs(
+    db: Session,
+    limit: int = 1,
+    *,
+    methods: Iterable[str] = SUPPORTED_WORKER_METHODS,
+) -> List[MailSourceBackfillJob]:
+    """Return due queued/backoff mail-source jobs for supported methods, oldest first."""
     now = datetime.utcnow()
     safe_limit = max(1, min(limit, 20))
+    method_list = tuple(methods)
     return (
         db.query(MailSourceBackfillJob)
         .join(MailSource, MailSource.id == MailSourceBackfillJob.mail_source_id)
@@ -217,7 +374,7 @@ def due_imap_backfill_jobs(db: Session, limit: int = 1) -> List[MailSourceBackfi
                 MailSourceBackfillJob.next_retry_at.is_(None),
                 MailSourceBackfillJob.next_retry_at <= now,
             ),
-            MailSource.method.in_(SUPPORTED_WORKER_METHODS),
+            MailSource.method.in_(method_list),
             MailSource.enabled.is_(True),
         )
         .order_by(MailSourceBackfillJob.created_at.asc(), MailSourceBackfillJob.id.asc())
@@ -227,10 +384,36 @@ def due_imap_backfill_jobs(db: Session, limit: int = 1) -> List[MailSourceBackfi
     )
 
 
+def due_imap_backfill_jobs(db: Session, limit: int = 1) -> List[MailSourceBackfillJob]:
+    """Return due queued/backoff IMAP jobs, oldest first."""
+    return due_mail_source_backfill_jobs(db, limit=limit, methods=("IMAP",))
+
+
+def run_mail_source_backfill_job(db: Session, job: MailSourceBackfillJob) -> bool:
+    """Execute one supported mail-source backfill job."""
+    source = job.mail_source
+    if source is None:
+        return False
+    if source.method == "IMAP":
+        return run_imap_backfill_job(db, job)
+    if source.method == "GMAIL_API":
+        return run_gmail_backfill_job(db, job)
+    return False
+
+
 def run_due_imap_backfill_jobs(db: Session, limit: int = 1) -> int:
     """Execute a bounded batch of due IMAP backfill jobs."""
     count = 0
     for job in due_imap_backfill_jobs(db, limit=limit):
         if run_imap_backfill_job(db, job):
+            count += 1
+    return count
+
+
+def run_due_mail_source_backfill_jobs(db: Session, limit: int = 1) -> int:
+    """Execute a bounded batch of due supported mail-source backfill jobs."""
+    count = 0
+    for job in due_mail_source_backfill_jobs(db, limit=limit):
+        if run_mail_source_backfill_job(db, job):
             count += 1
     return count

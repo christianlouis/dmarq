@@ -8,7 +8,10 @@ from app.services.mail_source_backfill_worker import (
     _mark_failure,
     _retry_delay,
     run_due_imap_backfill_jobs,
+    run_due_mail_source_backfill_jobs,
+    run_gmail_backfill_job,
     run_imap_backfill_job,
+    run_mail_source_backfill_job,
 )
 from app.services.workspaces import get_or_create_default_workspace
 
@@ -25,6 +28,11 @@ def _source(db_session, *, method="IMAP", enabled=True):
         password="secret",
         folder="INBOX/DMARC",
         enabled=enabled,
+        gmail_client_id="gmail-client",
+        gmail_client_secret="gmail-secret",
+        gmail_access_token="gmail-token" if method == "GMAIL_API" else None,
+        gmail_refresh_token="gmail-refresh" if method == "GMAIL_API" else None,
+        gmail_ingested_ids='["old-id"]' if method == "GMAIL_API" else None,
     )
     db_session.add(source)
     db_session.commit()
@@ -163,6 +171,144 @@ def test_run_due_imap_backfill_skips_unsupported_or_disabled_sources(db_session)
     _job(db_session, disabled_workspace, disabled_source)
 
     assert run_due_imap_backfill_jobs(db_session) == 0
+
+
+def test_run_due_mail_source_backfill_executes_gmail_job(db_session, monkeypatch):
+    workspace, source = _source(db_session, method="GMAIL_API")
+    row = _job(db_session, workspace, source)
+    results = {
+        "success": True,
+        "processed": 5,
+        "reports_found": 3,
+        "duplicate_reports": 1,
+        "new_domains": ["example.com"],
+        "new_ingested_ids": ["new-id", "old-id"],
+        "errors": [],
+        "details": [{"status": "imported", "domain": "example.com"}],
+        "search_window_days": 10,
+    }
+
+    class FakeGmailClient:
+        def __init__(self, **kwargs):
+            assert kwargs["already_ingested_ids"] == ["old-id"]
+
+        def fetch_reports(self, days):
+            assert days == 10
+            return results
+
+        def get_refreshed_tokens(self):
+            return {"access_token": "new-access", "refresh_token": "new-refresh"}
+
+    monkeypatch.setattr(
+        "app.services.mail_source_backfill_worker.GmailClient",
+        FakeGmailClient,
+    )
+    monkeypatch.setattr(
+        "app.services.mail_source_backfill_worker.GmailClient.load_ingested_ids",
+        lambda value: ["old-id"],
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "app.services.mail_source_backfill_worker.GmailClient.dump_ingested_ids",
+        lambda values: ",".join(values),
+        raising=False,
+    )
+
+    assert run_due_mail_source_backfill_jobs(db_session, limit=1) == 1
+
+    db_session.refresh(row)
+    db_session.refresh(source)
+    attempt = db_session.query(MailSourceImport).filter_by(mail_source_id=source.id).one()
+
+    assert row.status == "completed"
+    assert row.cursor == "gmail:days=10;processed=5"
+    assert row.processed == 5
+    assert row.reports_found == 3
+    assert source.gmail_ingested_ids == "old-id,new-id"
+    assert source.gmail_access_token == "new-access"
+    assert source.gmail_refresh_token == "new-refresh"
+    assert source.last_checked is not None
+    assert attempt.trigger == "backfill"
+    assert attempt.status == "success"
+
+
+def test_run_gmail_backfill_without_token_moves_to_backoff(db_session):
+    workspace, source = _source(db_session, method="GMAIL_API")
+    source.gmail_access_token = None
+    db_session.commit()
+    row = _job(db_session, workspace, source, max_attempts=3)
+
+    assert run_gmail_backfill_job(db_session, row) is True
+
+    db_session.refresh(row)
+    attempt = db_session.query(MailSourceImport).filter_by(mail_source_id=source.id).one()
+
+    assert row.status == "backoff"
+    assert row.attempt_count == 1
+    assert row.next_retry_at is not None
+    assert "not yet authorised" in row.errors
+    assert attempt.trigger == "backfill"
+    assert attempt.status == "failed"
+
+
+def test_run_gmail_backfill_provider_failure_moves_to_backoff(db_session, monkeypatch):
+    workspace, source = _source(db_session, method="GMAIL_API")
+    row = _job(db_session, workspace, source, max_attempts=3)
+
+    class FakeGmailClient:
+        load_ingested_ids = staticmethod(lambda _value: [])
+        dump_ingested_ids = staticmethod(lambda values: ",".join(values))
+
+        def __init__(self, **_kwargs):
+            pass
+
+        def fetch_reports(self, days):
+            return {
+                "success": False,
+                "processed": 2,
+                "reports_found": 0,
+                "duplicate_reports": 0,
+                "new_domains": [],
+                "errors": ["temporary Gmail API failure"],
+            }
+
+        def get_refreshed_tokens(self):
+            return None
+
+    monkeypatch.setattr(
+        "app.services.mail_source_backfill_worker.GmailClient",
+        FakeGmailClient,
+    )
+
+    assert run_gmail_backfill_job(db_session, row) is True
+
+    db_session.refresh(row)
+    assert row.status == "backoff"
+    assert row.processed == 2
+    assert row.error_count == 1
+    assert row.next_retry_at is not None
+
+
+def test_run_mail_source_backfill_dispatches_or_skips(db_session, monkeypatch):
+    workspace, imap_source = _source(db_session)
+    imap_job = _job(db_session, workspace, imap_source)
+    workspace, gmail_source = _source(db_session, method="GMAIL_API")
+    gmail_job = _job(db_session, workspace, gmail_source)
+    workspace, m365_source = _source(db_session, method="M365_GRAPH")
+    m365_job = _job(db_session, workspace, m365_source)
+
+    monkeypatch.setattr(
+        "app.services.mail_source_backfill_worker.run_imap_backfill_job",
+        lambda _db, job: job.id == imap_job.id,
+    )
+    monkeypatch.setattr(
+        "app.services.mail_source_backfill_worker.run_gmail_backfill_job",
+        lambda _db, job: job.id == gmail_job.id,
+    )
+
+    assert run_mail_source_backfill_job(db_session, imap_job) is True
+    assert run_mail_source_backfill_job(db_session, gmail_job) is True
+    assert run_mail_source_backfill_job(db_session, m365_job) is False
 
 
 def test_run_imap_backfill_skips_unsupported_status_or_future_retry(db_session):

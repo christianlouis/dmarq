@@ -21,7 +21,7 @@ import pytest
 
 from app.models.report import DMARCReport, ForensicReport
 from app.models.setting import Setting
-from app.services.gmail_client import RETRYABLE_MESSAGE_FAILURE, GmailClient
+from app.services.gmail_client import DMARC_GMAIL_QUERY, RETRYABLE_MESSAGE_FAILURE, GmailClient
 from app.services.report_store import ReportStore
 from app.tests.test_data import SAMPLE_XML
 from app.tests.test_forensic_parser import SAMPLE_FORENSIC_EMAIL
@@ -756,6 +756,24 @@ class TestFetchReports:
 
         assert result["success"] is True
         assert result["processed"] == 0
+
+    def test_fetch_reports_passes_optional_search_window(self):
+        client = _make_client()
+        mock_service = MagicMock()
+        with (
+            patch.object(client, "_build_service", return_value=mock_service),
+            patch.object(client, "_list_dmarc_message_ids", return_value=[]) as list_messages,
+        ):
+            result = client.fetch_reports(days=30)
+
+        list_messages.assert_called_once_with(mock_service, days=30)
+        assert result["search_window_days"] == 30
+
+    def test_search_query_includes_gmail_newer_than_filter(self):
+        query = GmailClient._search_query(days=30)
+
+        assert query.startswith("newer_than:30d ")
+        assert DMARC_GMAIL_QUERY in query
 
     def test_skips_already_ingested_messages(self):
         client = _make_client(already_ingested=["id1"])
