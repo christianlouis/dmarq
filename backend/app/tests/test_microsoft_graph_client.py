@@ -554,7 +554,7 @@ class TestMicrosoftGraphFetchReports:
             "refresh_token": "new-refresh",
         }
 
-    def test_fetch_reports_surfaces_throttling_error(self, monkeypatch):
+    def test_fetch_reports_uses_generic_list_error(self, monkeypatch):
         def fake_request(method, url, headers=None, params=None, timeout=None):
             return httpx.Response(
                 429,
@@ -567,4 +567,5 @@ class TestMicrosoftGraphFetchReports:
         result = client.fetch_reports()
 
         assert result["success"] is False
-        assert "TooManyRequests" in result["error"]
+        assert result["error"] == "Failed to list Microsoft Graph messages."
+        assert "TooManyRequests" not in str(result)

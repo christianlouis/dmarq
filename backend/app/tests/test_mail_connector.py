@@ -47,7 +47,7 @@ def test_append_import_detail_redacts_secret_like_values():
     ]
 
 
-def test_connector_failure_stats_uses_redacted_error():
+def test_connector_failure_stats_uses_public_message_not_provider_error():
     stats = initial_import_stats()
     fake_token = "".join(["not", "-a-real", "-token"])
 
@@ -58,8 +58,9 @@ def test_connector_failure_stats_uses_redacted_error():
     )
 
     assert result["success"] is False
-    assert result["error"] == "Authorization: Bearer **redacted**"
-    assert result["errors"] == ["Authorization: Bearer **redacted**"]
+    assert result["error"] == "Provider failed."
+    assert result["errors"] == ["Provider failed."]
+    assert fake_token not in str(result)
 
 
 def test_ingested_id_helpers_normalize_values():
