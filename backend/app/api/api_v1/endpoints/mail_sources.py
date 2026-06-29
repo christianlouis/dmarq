@@ -605,6 +605,9 @@ def _backfill_cursor_checkpoint(cursor: Optional[str]) -> Optional[Dict[str, Any
         return parts
     if not isinstance(payload, dict):
         return None
+    if isinstance(payload.get("page_cursor"), str) and payload["page_cursor"]:
+        payload = dict(payload)
+        payload["page_cursor"] = "**redacted**"
     return payload
 
 

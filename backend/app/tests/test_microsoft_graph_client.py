@@ -281,6 +281,46 @@ class TestMicrosoftGraphFetchReports:
         assert result["search_window_days"] == 30
         assert result["processed"] == 0
 
+    def test_fetch_reports_resumes_from_graph_next_link_and_returns_next_cursor(self, monkeypatch):
+        seen = []
+
+        def fake_request(method, url, headers=None, params=None, timeout=None):
+            seen.append((url, params))
+            assert method == "GET"
+            assert url == "https://graph.microsoft.com/v1.0/me/messages?$skiptoken=page1"
+            assert params is None
+            return httpx.Response(
+                200,
+                json={
+                    "value": [
+                        {
+                            "id": "message-1",
+                            "subject": "DMARC aggregate report",
+                            "from": {"emailAddress": {"address": "reports@example.net"}},
+                            "hasAttachments": True,
+                        }
+                    ],
+                    "@odata.nextLink": "https://graph.microsoft.com/v1.0/me/messages?$skiptoken=page2",
+                },
+            )
+
+        monkeypatch.setattr("app.services.microsoft_graph_client.httpx.request", fake_request)
+        client = _make_client()
+        monkeypatch.setattr(client, "_list_attachments", lambda _message_id: [])
+
+        result = client.fetch_reports(
+            days=30,
+            page_cursor="https://graph.microsoft.com/v1.0/me/messages?$skiptoken=page1",
+            max_pages=1,
+        )
+
+        assert result["success"] is True
+        assert result["processed"] == 1
+        assert (
+            result["page_cursor"] == "https://graph.microsoft.com/v1.0/me/messages?$skiptoken=page2"
+        )
+        assert len(seen) == 1
+
     def test_request_retries_graph_throttling(self, monkeypatch):
         responses = [
             httpx.Response(

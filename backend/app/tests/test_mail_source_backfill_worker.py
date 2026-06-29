@@ -121,7 +121,7 @@ def test_run_imap_backfill_moves_failed_attempt_to_backoff(db_session, monkeypat
         def __init__(self, **_kwargs):
             pass
 
-        def fetch_reports(self, days):
+        def fetch_reports(self, days, **_kwargs):
             return {
                 "success": False,
                 "processed": 2,
@@ -207,8 +207,10 @@ def test_run_due_mail_source_backfill_executes_gmail_job(db_session, monkeypatch
             assert kwargs["already_ingested_ids"] == ["old-id"]
             assert kwargs["workspace_id"] == workspace.id
 
-        def fetch_reports(self, days):
+        def fetch_reports(self, days, **kwargs):
             assert days == 10
+            assert kwargs["page_cursor"] is None
+            assert kwargs["max_pages"] == 5
             return results
 
         def get_refreshed_tokens(self):
@@ -282,7 +284,7 @@ def test_run_gmail_backfill_provider_failure_moves_to_backoff(db_session, monkey
         def __init__(self, **_kwargs):
             pass
 
-        def fetch_reports(self, days):
+        def fetch_reports(self, days, **_kwargs):
             return {
                 "success": False,
                 "processed": 2,
@@ -331,8 +333,10 @@ def test_run_due_mail_source_backfill_executes_m365_job(db_session, monkeypatch)
             assert kwargs["workspace_id"] == workspace.id
             assert kwargs["folder"] == "INBOX/DMARC"
 
-        def fetch_reports(self, days):
+        def fetch_reports(self, days, **kwargs):
             assert days == 10
+            assert kwargs["page_cursor"] is None
+            assert kwargs["max_pages"] == 5
             return results
 
         def get_refreshed_tokens(self):
@@ -405,7 +409,7 @@ def test_run_m365_backfill_provider_failure_moves_to_backoff(db_session, monkeyp
         def __init__(self, **_kwargs):
             pass
 
-        def fetch_reports(self, days):
+        def fetch_reports(self, days, **_kwargs):
             return {
                 "success": False,
                 "processed": 2,
@@ -431,6 +435,159 @@ def test_run_m365_backfill_provider_failure_moves_to_backoff(db_session, monkeyp
     assert row.error_count == 1
     assert json.loads(row.cursor)["connector"] == "m365"
     assert row.next_retry_at is not None
+
+
+def test_gmail_backfill_queues_next_page_cursor(db_session, monkeypatch):
+    workspace, source = _source(db_session, method="GMAIL_API")
+    row = _job(db_session, workspace, source)
+
+    class FakeGmailClient:
+        load_ingested_ids = staticmethod(lambda _value: ["old-id"])
+        dump_ingested_ids = staticmethod(lambda values: ",".join(values))
+
+        def __init__(self, **_kwargs):
+            pass
+
+        def fetch_reports(self, days, **kwargs):
+            assert days == 10
+            assert kwargs["page_cursor"] is None
+            assert kwargs["max_pages"] == 5
+            return {
+                "success": True,
+                "processed": 2,
+                "reports_found": 1,
+                "duplicate_reports": 0,
+                "new_domains": [],
+                "new_ingested_ids": ["gmail-id-1"],
+                "errors": [],
+                "page_cursor": "gmail-next-page",
+            }
+
+        def get_refreshed_tokens(self):
+            return None
+
+    monkeypatch.setattr(
+        "app.services.mail_source_backfill_worker.GmailClient",
+        FakeGmailClient,
+    )
+
+    assert run_gmail_backfill_job(db_session, row) is True
+
+    db_session.refresh(row)
+    db_session.refresh(source)
+    cursor = json.loads(row.cursor)
+    assert row.status == "queued"
+    assert row.finished_at is None
+    assert row.next_retry_at is None
+    assert row.processed == 2
+    assert cursor["state"] == "queued"
+    assert cursor["page_cursor"] == "gmail-next-page"
+    assert source.gmail_ingested_ids == "old-id,gmail-id-1"
+
+
+def test_gmail_backfill_resumes_from_stored_page_cursor(db_session, monkeypatch):
+    workspace, source = _source(db_session, method="GMAIL_API")
+    row = _job(db_session, workspace, source)
+    row.processed = 2
+    row.reports_found = 1
+    row.cursor = json.dumps(
+        {
+            "version": 1,
+            "connector": "gmail",
+            "state": "queued",
+            "window_days": 10,
+            "processed": 2,
+            "reports_found": 1,
+            "duplicate_reports": 0,
+            "error_count": 0,
+            "page_cursor": "gmail-next-page",
+        }
+    )
+    db_session.commit()
+
+    class FakeGmailClient:
+        load_ingested_ids = staticmethod(lambda _value: ["old-id"])
+        dump_ingested_ids = staticmethod(lambda values: ",".join(values))
+
+        def __init__(self, **_kwargs):
+            pass
+
+        def fetch_reports(self, days, **kwargs):
+            assert days == 10
+            assert kwargs["page_cursor"] == "gmail-next-page"
+            assert kwargs["max_pages"] == 5
+            return {
+                "success": True,
+                "processed": 1,
+                "reports_found": 1,
+                "duplicate_reports": 0,
+                "new_domains": [],
+                "new_ingested_ids": ["gmail-id-2"],
+                "errors": [],
+            }
+
+        def get_refreshed_tokens(self):
+            return None
+
+    monkeypatch.setattr(
+        "app.services.mail_source_backfill_worker.GmailClient",
+        FakeGmailClient,
+    )
+
+    assert run_gmail_backfill_job(db_session, row) is True
+
+    db_session.refresh(row)
+    cursor = json.loads(row.cursor)
+    assert row.status == "completed"
+    assert row.processed == 3
+    assert row.reports_found == 2
+    assert cursor["state"] == "completed"
+    assert "page_cursor" not in cursor
+
+
+def test_m365_backfill_queues_next_link_cursor(db_session, monkeypatch):
+    workspace, source = _source(db_session, method="M365_GRAPH")
+    row = _job(db_session, workspace, source)
+
+    class FakeMicrosoftGraphClient:
+        load_ingested_ids = staticmethod(lambda _value: ["old-m365-id"])
+        dump_ingested_ids = staticmethod(lambda values: ",".join(values))
+
+        def __init__(self, **_kwargs):
+            pass
+
+        def fetch_reports(self, days, **kwargs):
+            assert days == 10
+            assert kwargs["page_cursor"] is None
+            assert kwargs["max_pages"] == 5
+            return {
+                "success": True,
+                "processed": 3,
+                "reports_found": 2,
+                "duplicate_reports": 0,
+                "new_domains": [],
+                "new_ingested_ids": ["m365-id-1"],
+                "errors": [],
+                "page_cursor": "https://graph.microsoft.com/v1.0/me/messages?$skiptoken=abc",
+            }
+
+        def get_refreshed_tokens(self):
+            return None
+
+    monkeypatch.setattr(
+        "app.services.mail_source_backfill_worker.MicrosoftGraphClient",
+        FakeMicrosoftGraphClient,
+    )
+
+    assert run_m365_backfill_job(db_session, row) is True
+
+    db_session.refresh(row)
+    cursor = json.loads(row.cursor)
+    assert row.status == "queued"
+    assert row.processed == 3
+    assert cursor["connector"] == "m365"
+    assert cursor["state"] == "queued"
+    assert cursor["page_cursor"].startswith("https://graph.microsoft.com/")
 
 
 def test_run_mail_source_backfill_dispatches_or_skips(db_session, monkeypatch):

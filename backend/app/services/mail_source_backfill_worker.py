@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 RUNNABLE_BACKFILL_STATUSES = ("queued", "backoff")
 SUPPORTED_WORKER_METHODS = ("IMAP", "GMAIL_API", "M365_GRAPH")
 MAX_BACKFILL_DAYS = 365
+PROVIDER_BACKFILL_PAGE_BATCH_LIMIT = 5
 
 
 def _json_error_list(values: Iterable[object]) -> str:
@@ -60,7 +61,38 @@ def _copy_result_counts(job: MailSourceBackfillJob, results: Dict[str, Any]) -> 
     job.processed = int(results.get("processed", 0) or 0)
     job.reports_found = int(results.get("reports_found", 0) or 0)
     job.duplicate_reports = int(results.get("duplicate_reports", 0) or 0)
-    job.error_count = len(results.get("errors") or [])
+    job.error_count = int(results.get("error_count", len(results.get("errors") or [])) or 0)
+
+
+def _combined_result_counts(
+    job: MailSourceBackfillJob,
+    results: Dict[str, Any],
+) -> Dict[str, Any]:
+    combined = dict(results)
+    combined["processed"] = int(job.processed or 0) + int(results.get("processed", 0) or 0)
+    combined["reports_found"] = int(job.reports_found or 0) + int(
+        results.get("reports_found", 0) or 0
+    )
+    combined["duplicate_reports"] = int(job.duplicate_reports or 0) + int(
+        results.get("duplicate_reports", 0) or 0
+    )
+    combined["error_count"] = int(job.error_count or 0) + len(results.get("errors") or [])
+    return combined
+
+
+def _stored_page_cursor(job: MailSourceBackfillJob, connector: str) -> Optional[str]:
+    if not job.cursor:
+        return None
+    try:
+        payload = json.loads(job.cursor)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("version") != 1 or payload.get("connector") != connector:
+        return None
+    cursor = payload.get("page_cursor")
+    return cursor if isinstance(cursor, str) and cursor else None
 
 
 def _cursor_checkpoint(
@@ -81,13 +113,13 @@ def _cursor_checkpoint(
         "processed": int(stats.get("processed", 0) or 0),
         "reports_found": int(stats.get("reports_found", 0) or 0),
         "duplicate_reports": int(stats.get("duplicate_reports", 0) or 0),
-        "error_count": len(stats.get("errors") or []),
+        "error_count": int(stats.get("error_count", len(stats.get("errors") or [])) or 0),
     }
     search_window_days = stats.get("search_window_days")
     if search_window_days is not None:
         checkpoint["search_window_days"] = int(search_window_days)
     if page_cursor:
-        checkpoint["page_cursor"] = redact_sensitive_text(page_cursor)
+        checkpoint["page_cursor"] = page_cursor
     return json.dumps(checkpoint, sort_keys=True, separators=(",", ":"))
 
 
@@ -129,6 +161,7 @@ def _mark_success(
         state="completed",
         days=days,
         results=results,
+        page_cursor=results.get("page_cursor"),
     )
     job.errors = errors
     job.details = details
@@ -169,7 +202,35 @@ def _mark_failure(
             state=job.status,
             days=days,
             results=results,
+            page_cursor=results.get("page_cursor") if results else None,
         )
+    job.updated_at = now
+
+
+def _mark_queued_for_next_page(
+    job: MailSourceBackfillJob,
+    results: Dict[str, Any],
+    *,
+    days: int,
+    cursor_prefix: str,
+    now: datetime,
+    errors: str,
+    details: str,
+    page_cursor: str,
+) -> None:
+    _copy_result_counts(job, results)
+    job.status = "queued"
+    job.cursor = _cursor_checkpoint(
+        connector=cursor_prefix,
+        state="queued",
+        days=days,
+        results=results,
+        page_cursor=page_cursor,
+    )
+    job.errors = errors
+    job.details = details
+    job.finished_at = None
+    job.next_retry_at = None
     job.updated_at = now
 
 
@@ -268,6 +329,7 @@ def _fetch_gmail_backfill_results(
     *,
     started_at: datetime,
     days: int,
+    page_cursor: Optional[str] = None,
 ) -> tuple[Dict[str, Any], Any]:
     if not source.gmail_access_token:
         raise ValueError("Gmail account not yet authorised. Complete OAuth2 flow first.")
@@ -282,7 +344,11 @@ def _fetch_gmail_backfill_results(
         db=db,
         workspace_id=source.workspace_id,
     )
-    results = client.fetch_reports(days=days)
+    results = client.fetch_reports(
+        days=days,
+        page_cursor=page_cursor,
+        max_pages=PROVIDER_BACKFILL_PAGE_BATCH_LIMIT,
+    )
     _sync_gmail_backfill_state(source, client, already, results)
     source.last_checked = datetime.utcnow()
     attempt = record_import_attempt(
@@ -319,6 +385,7 @@ def _fetch_m365_backfill_results(
     *,
     started_at: datetime,
     days: int,
+    page_cursor: Optional[str] = None,
 ) -> tuple[Dict[str, Any], Any]:
     if not source.m365_access_token:
         raise ValueError("Microsoft 365 account not yet authorised. Complete OAuth2 flow first.")
@@ -337,7 +404,11 @@ def _fetch_m365_backfill_results(
         db=db,
         workspace_id=source.workspace_id,
     )
-    results = client.fetch_reports(days=days)
+    results = client.fetch_reports(
+        days=days,
+        page_cursor=page_cursor,
+        max_pages=PROVIDER_BACKFILL_PAGE_BATCH_LIMIT,
+    )
     _sync_m365_backfill_state(source, client, already, results)
     source.last_checked = datetime.utcnow()
     attempt = record_import_attempt(
@@ -378,10 +449,24 @@ def _finish_backfill_from_results(
     details: str,
 ) -> None:
     finished_at = datetime.utcnow()
+    combined_results = _combined_result_counts(job, results)
     if results.get("success"):
+        page_cursor = results.get("page_cursor")
+        if isinstance(page_cursor, str) and page_cursor:
+            _mark_queued_for_next_page(
+                job,
+                combined_results,
+                days=days,
+                cursor_prefix=cursor_prefix,
+                now=finished_at,
+                errors=errors,
+                details=details,
+                page_cursor=page_cursor,
+            )
+            return
         _mark_success(
             job,
-            results,
+            combined_results,
             days=days,
             cursor_prefix=cursor_prefix,
             now=finished_at,
@@ -393,7 +478,7 @@ def _finish_backfill_from_results(
             job,
             results.get("error") or "Backfill failed",
             now=finished_at,
-            results=results,
+            results=combined_results,
             errors=errors,
             details=details,
             days=days,
@@ -425,11 +510,13 @@ def run_gmail_backfill_job(db: Session, job: MailSourceBackfillJob) -> bool:
     db.commit()
 
     try:
+        page_cursor = _stored_page_cursor(job, "gmail")
         results, attempt = _fetch_gmail_backfill_results(
             db,
             source,
             started_at=started_at,
             days=days,
+            page_cursor=page_cursor,
         )
         _finish_backfill_from_results(
             job,
@@ -478,11 +565,13 @@ def run_m365_backfill_job(db: Session, job: MailSourceBackfillJob) -> bool:
     db.commit()
 
     try:
+        page_cursor = _stored_page_cursor(job, "m365")
         results, attempt = _fetch_m365_backfill_results(
             db,
             source,
             started_at=started_at,
             days=days,
+            page_cursor=page_cursor,
         )
         _finish_backfill_from_results(
             job,

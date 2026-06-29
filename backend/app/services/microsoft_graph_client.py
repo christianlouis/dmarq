@@ -250,27 +250,49 @@ class MicrosoftGraphClient(MailSourceConnector):
             search_window_days=days,
         )
 
-    def search_messages(self, days: int) -> Iterable[Dict[str, Any]]:
+    def search_messages(
+        self,
+        days: int,
+        *,
+        page_cursor: Optional[str] = None,
+        max_pages: Optional[int] = None,
+    ) -> tuple[List[Dict[str, Any]], Optional[str]]:
         """Return Microsoft Graph messages that look like DMARC reports."""
-        return self._list_dmarc_messages(days=days)
+        return self._list_dmarc_messages(
+            days=days,
+            page_cursor=page_cursor,
+            max_pages=max_pages,
+        )
 
     def iter_attachments(self, message: Dict[str, Any]) -> Iterable[Dict[str, Any]]:
         """Yield Microsoft Graph attachments for one message."""
         message_id = str(message.get("id") or "")
         return self._list_attachments(message_id)
 
-    def fetch_reports(self, days: int = 7) -> Dict[str, Any]:
+    def fetch_reports(
+        self,
+        days: int = 7,
+        *,
+        page_cursor: Optional[str] = None,
+        max_pages: Optional[int] = None,
+    ) -> Dict[str, Any]:
         """Fetch and ingest DMARC report attachments from Microsoft Graph."""
         safe_days = clamp_search_window(days)
         stats = initial_import_stats(self.import_context(days=safe_days))
 
         try:
-            messages = self.search_messages(days=safe_days)
+            messages, next_page_cursor = self.search_messages(
+                days=safe_days,
+                page_cursor=page_cursor,
+                max_pages=max_pages,
+            )
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error("Microsoft Graph: failed to list messages: %s", exc)
             return connector_failure_stats(
                 stats, "Failed to list Microsoft Graph messages.", error=exc
             )
+        if next_page_cursor:
+            stats["page_cursor"] = next_page_cursor
 
         domains_before = set(self.report_store.get_domains())
 
@@ -437,16 +459,26 @@ class MicrosoftGraphClient(MailSourceConnector):
             or lower.endswith(".gzip")
         )
 
-    def _list_dmarc_messages(self, days: int) -> List[Dict[str, Any]]:
+    def _list_dmarc_messages(
+        self,
+        days: int,
+        *,
+        page_cursor: Optional[str] = None,
+        max_pages: Optional[int] = None,
+    ) -> tuple[List[Dict[str, Any]], Optional[str]]:
         messages: List[Dict[str, Any]] = []
-        url = self._messages_path()
+        url = page_cursor or self._messages_path()
         cutoff = datetime.utcnow() - timedelta(days=days)
-        params: Optional[Dict[str, Any]] = {
-            "$top": _PAGE_SIZE,
-            "$select": "id,subject,from,hasAttachments,receivedDateTime",
-            "$orderby": "receivedDateTime desc",
-            "$filter": f"receivedDateTime ge {cutoff.strftime('%Y-%m-%dT%H:%M:%SZ')}",
-        }
+        params: Optional[Dict[str, Any]] = None
+        if not page_cursor:
+            params = {
+                "$top": _PAGE_SIZE,
+                "$select": "id,subject,from,hasAttachments,receivedDateTime",
+                "$orderby": "receivedDateTime desc",
+                "$filter": f"receivedDateTime ge {cutoff.strftime('%Y-%m-%dT%H:%M:%SZ')}",
+            }
+        pages_read = 0
+        page_limit = max(1, int(max_pages)) if max_pages is not None else None
 
         while url:
             data = self._request("GET", url, params=params)
@@ -455,8 +487,11 @@ class MicrosoftGraphClient(MailSourceConnector):
                     messages.append(message)
             url = data.get("@odata.nextLink")
             params = None
+            pages_read += 1
+            if page_limit is not None and pages_read >= page_limit:
+                return messages, url
 
-        return messages
+        return messages, None
 
     def _process_message(self, message: Dict[str, Any], stats: Dict[str, Any]) -> int:
         message_id = str(message.get("id") or "")
