@@ -389,6 +389,7 @@ queried DNS name, record text, logo URL, certificate URL, warnings, and errors.
 
 ```
 GET /domains/{domain_id}/dns/lint
+GET /domains/{domain_id}/dns/change-plan
 GET /domains/dns/lint
 GET /domains/dns/lint/export
 ```
@@ -399,6 +400,13 @@ TLS-RPT, and BIMI readiness. DKIM findings distinguish missing selectors,
 broken CNAME targets, short RSA keys, and stale selectors. The bulk endpoint
 returns the same payload shape per monitored domain, and the export endpoint
 returns the finding list as CSV for managed-domain reviews.
+
+The single-domain lint payload also includes read-only `change_plans`. The
+dedicated `/dns/change-plan` endpoint returns the same operator-facing plans
+with proposed DNS records, captured current values, risk notes, rollback notes,
+expected health impact, and manual approval flags. DMARQ does not expose an
+apply endpoint in the default product path; provider write automation is a
+separate opt-in integration concern.
 
 #### Get Posture Dashboard
 

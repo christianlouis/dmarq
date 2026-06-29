@@ -179,6 +179,39 @@ class DNSLintFindingResponse(BaseModel):
     remediation_steps: List[str] = Field(default_factory=list)
 
 
+class DNSChangePlanItemResponse(BaseModel):
+    """Read-only DNS change plan for operator review."""
+
+    plan_id: str
+    finding_code: str
+    severity: str
+    operation: str
+    record_type: str
+    name: str
+    proposed_value: Optional[str] = None
+    current_values: List[str] = Field(default_factory=list)
+    rationale: str
+    risk: str
+    rollback: str
+    expected_health_impact: str
+    manual_steps: List[str] = Field(default_factory=list)
+    requires_approval: bool = True
+    applies_automatically: bool = False
+    provider_write_available: bool = False
+    provider_value_required: bool = False
+
+
+class DNSChangePlanResponse(BaseModel):
+    """Read-only DNS change plan response for one domain."""
+
+    domain: str
+    status: str
+    read_only: bool = True
+    provider_write_available: bool = False
+    apply_endpoint: Optional[str] = None
+    plans: List[DNSChangePlanItemResponse]
+
+
 class DNSGuidanceResponse(BaseModel):
     """Typed DNS lint and setup guidance for one domain."""
 
@@ -186,6 +219,7 @@ class DNSGuidanceResponse(BaseModel):
     status: str
     findings: List[DNSLintFindingResponse]
     target_records: List[DNSGuidanceRecordResponse]
+    change_plans: List[DNSChangePlanItemResponse] = Field(default_factory=list)
 
 
 class DNSBulkGuidanceItem(BaseModel):
@@ -1697,6 +1731,32 @@ async def get_domain_dns_lint(
         )
 
     return await _build_domain_dns_guidance(db, store, domain_id, refresh=refresh)
+
+
+@router.get("/{domain_id}/dns/change-plan", response_model=DNSChangePlanResponse)
+async def get_domain_dns_change_plan(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    refresh: bool = Query(False, title="Refresh cached DNS result"),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
+    """Return read-only DNS change plans for one monitored domain."""
+    workspace = _authorized_domain_read_workspace(_auth, db)
+    store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
+
+    if not _domain_exists(db, store, domain_id, workspace):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Domain not found",
+        )
+
+    guidance = await _build_domain_dns_guidance(db, store, domain_id, refresh=refresh)
+    return DNSChangePlanResponse(
+        domain=guidance["domain"],
+        status=guidance["status"],
+        plans=guidance["change_plans"],
+    )
 
 
 @router.get("/{domain_id}/dns/health", response_model=DNSHealthResponse)

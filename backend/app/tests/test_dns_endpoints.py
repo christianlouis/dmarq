@@ -348,6 +348,52 @@ def test_dns_lint_endpoint_returns_typed_findings_and_targets(authed_client: Tes
     )
     assert dkim_finding["remediation_steps"]
     assert "Publish" in " ".join(dkim_finding["remediation_steps"])
+    change_plan = next(
+        plan for plan in data["change_plans"] if plan["finding_code"] == "dkim_selector_missing"
+    )
+    assert change_plan["operation"] == "create"
+    assert change_plan["record_type"] == "TXT"
+    assert change_plan["requires_approval"] is True
+    assert change_plan["applies_automatically"] is False
+    assert change_plan["provider_write_available"] is False
+    assert change_plan["provider_value_required"] is True
+    assert change_plan["manual_steps"]
+
+
+def test_dns_change_plan_endpoint_returns_read_only_plans(authed_client: TestClient):
+    result = DomainDNSResult(
+        dmarc=False,
+        spf=False,
+        dkim=False,
+        selectors_checked=["selector1"],
+    )
+    mta_sts = MTAStsResult(errors=["No _mta-sts TXT record was found."])
+    bimi = BIMIResult(errors=["No BIMI TXT record was found at the selector."])
+
+    with (
+        _mock_dns(result),
+        patch(
+            "app.api.api_v1.endpoints.domains.check_mta_sts_cached",
+            new=AsyncMock(return_value=(mta_sts, False, None)),
+        ),
+        patch(
+            "app.api.api_v1.endpoints.domains.check_bimi_cached",
+            new=AsyncMock(return_value=(bimi, False, None)),
+        ),
+    ):
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns/change-plan")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["domain"] == DOMAIN
+    assert data["read_only"] is True
+    assert data["provider_write_available"] is False
+    assert data["apply_endpoint"] is None
+    plan = next(plan for plan in data["plans"] if plan["finding_code"] == "dmarc_missing")
+    assert plan["operation"] == "create"
+    assert plan["proposed_value"].startswith("v=DMARC1")
+    assert plan["rollback"]
+    assert plan["expected_health_impact"]
 
 
 def test_dns_lint_endpoint_flags_advanced_spf_lookup_findings(
