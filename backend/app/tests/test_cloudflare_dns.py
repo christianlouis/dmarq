@@ -3,6 +3,7 @@
 import asyncio
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -593,6 +594,17 @@ def test_dns_provider_capabilities_include_cloudflare_and_lexicon(authed_client:
     assert "googleclouddns" in providers
 
 
+def test_dns_provider_capabilities_report_available_lexicon_runtime():
+    with patch("app.services.dns_provider_writes.lexicon_runtime_available", return_value=True):
+        providers = {
+            provider["id"]: provider for provider in dns_provider_writes.provider_capabilities()
+        }
+
+    assert providers["cloudflare"]["status"] == "ready"
+    assert providers["route53"]["status"] == "ready"
+    assert providers["route53"]["mode"] == "lexicon"
+
+
 def test_dns_write_provider_registry_normalizes_supported_provider_ids():
     cloudflare_provider = dns_provider_writes.build_dns_write_provider(" CloudFlare ")
     route53_provider = dns_provider_writes.build_dns_write_provider("ROUTE53")
@@ -870,6 +882,71 @@ def test_cloudflare_write_provider_requires_zone_id_for_apply(db_session):
             raise AssertionError("Expected missing Cloudflare zone ID error")
 
 
+def test_cloudflare_write_provider_creates_record_and_syncs_history(db_session):
+    provider = CloudflareDNSWriteProvider()
+    cloudflare_provider = FakeWriteCloudflareProvider(
+        zones=[{"id": "zone-1", "name": DOMAIN}],
+        records=[],
+    )
+    mutation = DNSWriteMutation(
+        operation="create",
+        record_type="TXT",
+        name=f"_dmarc.{DOMAIN}",
+        content=f"v=DMARC1; p=none; rua=mailto:dmarc@{DOMAIN}",
+        ttl=3600,
+        provider="cloudflare",
+        zone_id="zone-1",
+    )
+
+    with patch(
+        "app.services.dns_provider_writes.build_cloudflare_provider",
+        return_value=cloudflare_provider,
+    ):
+        result = asyncio.run(provider.apply_mutation(db_session, domain=DOMAIN, mutation=mutation))
+
+    assert result.applied is True
+    assert cloudflare_provider.created[0]["ttl"] == 3600
+    assert result.provider_result["id"] == "created-1"
+    assert result.changes[0]["change_type"] == "added"
+    assert db_session.query(DNSRecordChange).count() == 1
+
+
+def test_cloudflare_write_provider_blocks_inapplicable_mutation(db_session):
+    provider = CloudflareDNSWriteProvider()
+    mutation = DNSWriteMutation(
+        operation="update",
+        record_type="TXT",
+        name=f"_dmarc.{DOMAIN}",
+        content=f"v=DMARC1; p=none; rua=mailto:dmarc@{DOMAIN}",
+        ttl=1,
+        provider="cloudflare",
+        blocked_reason="manual merge required",
+    )
+
+    with pytest.raises(DNSProviderWriteError, match="manual merge required"):
+        asyncio.run(provider.apply_mutation(db_session, domain=DOMAIN, mutation=mutation))
+
+
+def test_cloudflare_write_provider_rejects_unsupported_apply_operation(db_session):
+    provider = CloudflareDNSWriteProvider()
+    mutation = DNSWriteMutation(
+        operation="delete",
+        record_type="TXT",
+        name=f"_dmarc.{DOMAIN}",
+        content=f"v=DMARC1; p=none; rua=mailto:dmarc@{DOMAIN}",
+        ttl=1,
+        provider="cloudflare",
+        zone_id="zone-1",
+    )
+
+    with patch(
+        "app.services.dns_provider_writes.build_cloudflare_provider",
+        return_value=FakeWriteCloudflareProvider(),
+    ):
+        with pytest.raises(DNSProviderWriteError, match="Unsupported Cloudflare operation"):
+            asyncio.run(provider.apply_mutation(db_session, domain=DOMAIN, mutation=mutation))
+
+
 def test_lexicon_write_provider_reports_missing_runtime(db_session):
     provider = LexiconDNSWriteProvider("route53")
 
@@ -888,6 +965,86 @@ def test_lexicon_write_provider_reports_missing_runtime(db_session):
             assert "dns-lexicon is not installed" in str(exc)
         else:
             raise AssertionError("Expected missing Lexicon runtime error")
+
+
+def test_lexicon_write_provider_prepares_update_and_applies_record(db_session):
+    provider = LexiconDNSWriteProvider("route53")
+    provider._list_records = lambda domain, record_type, record_name: [  # pylint: disable=protected-access
+        {
+            "id": "record-1",
+            "type": record_type,
+            "name": record_name,
+            "content": "v=DMARC1; p=none",
+        }
+    ]
+    provider._apply_record = (
+        lambda domain, mutation: mutation.record_id == "record-1"
+    )  # pylint: disable=protected-access
+
+    with patch("app.services.dns_provider_writes.lexicon_runtime_available", return_value=True):
+        mutation = asyncio.run(
+            provider.prepare_mutation(
+                db_session,
+                domain=DOMAIN,
+                plan=_dns_plan(operation="update"),
+                value_override="v=DMARC1; p=reject",
+                ttl=300,
+            )
+        )
+        result = asyncio.run(provider.apply_mutation(db_session, domain=DOMAIN, mutation=mutation))
+
+    assert mutation.operation == "update"
+    assert mutation.record_id == "record-1"
+    assert mutation.current_values == ["v=DMARC1; p=none"]
+    assert result.applied is True
+    assert result.provider_result == {"ok": True}
+
+
+def test_lexicon_write_provider_prepares_noop_for_matching_record(db_session):
+    provider = LexiconDNSWriteProvider("route53")
+    expected_value = "v=DMARC1; p=none"
+    provider._list_records = lambda domain, record_type, record_name: [  # pylint: disable=protected-access
+        {"id": "record-1", "content": expected_value}
+    ]
+
+    with patch("app.services.dns_provider_writes.lexicon_runtime_available", return_value=True):
+        mutation = asyncio.run(
+            provider.prepare_mutation(
+                db_session,
+                domain=DOMAIN,
+                plan=_dns_plan(proposed_value=expected_value),
+                value_override=None,
+                ttl=1,
+            )
+        )
+        result = asyncio.run(provider.apply_mutation(db_session, domain=DOMAIN, mutation=mutation))
+
+    assert mutation.operation == "noop"
+    assert result.applied is False
+    assert result.provider_result == {"status": "unchanged"}
+
+
+def test_lexicon_write_provider_blocks_duplicate_records(db_session):
+    provider = LexiconDNSWriteProvider("route53")
+    provider._list_records = lambda domain, record_type, record_name: [  # pylint: disable=protected-access
+        {"id": "record-1", "content": "v=DMARC1; p=none"},
+        {"id": "record-2", "content": "v=DMARC1; p=reject"},
+    ]
+
+    with patch("app.services.dns_provider_writes.lexicon_runtime_available", return_value=True):
+        mutation = asyncio.run(
+            provider.prepare_mutation(
+                db_session,
+                domain=DOMAIN,
+                plan=_dns_plan(),
+                value_override=None,
+                ttl=1,
+            )
+        )
+
+    assert mutation.applicable is False
+    assert mutation.current_values == ["v=DMARC1; p=none", "v=DMARC1; p=reject"]
+    assert "Multiple provider records" in mutation.blocked_reason
 
 
 def test_cloudflare_discover_denies_user_without_workspace_membership(
