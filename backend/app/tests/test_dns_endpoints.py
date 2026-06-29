@@ -757,6 +757,37 @@ def test_posture_dashboard_links_recommendations_changes_and_playbooks(
     assert any(playbook["key"] == "missing_spf" for playbook in data["playbooks"])
 
 
+def test_posture_dashboard_refreshes_health_grade_dns(
+    authed_client: TestClient,
+):
+    """refresh=true must refresh both posture checks and the domain health grade."""
+    checked_at = datetime(2026, 5, 23, 12, 0, 0)
+    resolver = AsyncMock(return_value=(MOCK_DNS_RESULT, False, checked_at))
+    mta_sts = MTAStsResult(status="missing")
+    bimi = BIMIResult(status="missing")
+
+    with (
+        patch(
+            "app.api.api_v1.endpoints.domains.resolve_domain_dns_cached",
+            new=resolver,
+        ),
+        patch(
+            "app.api.api_v1.endpoints.domains.check_mta_sts_cached",
+            new=AsyncMock(return_value=(mta_sts, False, None)),
+        ),
+        patch(
+            "app.api.api_v1.endpoints.domains.check_bimi_cached",
+            new=AsyncMock(return_value=(bimi, False, None)),
+        ),
+    ):
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/posture?refresh=true")
+
+    assert response.status_code == 200
+    assert response.json()["health"]["domain"] == DOMAIN
+    assert resolver.await_count == 2
+    assert all(call.kwargs["refresh"] is True for call in resolver.await_args_list)
+
+
 def test_posture_dashboard_returns_404_for_unknown_domain(authed_client: TestClient):
     response = authed_client.get("/api/v1/domains/unknown.example.com/posture")
 
