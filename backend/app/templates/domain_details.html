@@ -272,6 +272,112 @@
         {% endcall %}
         </section>
 
+        <!-- Health Score Trend -->
+        <section id="health-score-history">
+        {% call card() %}
+            {% call card_header() %}
+                <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div>
+                        {% call card_title() %}Health Score Trend{% endcall %}
+                        {% call card_description() %}
+                            Score movement, top drivers, and audit-ready evidence for this domain
+                        {% endcall %}
+                    </div>
+                    <a :href="healthEvidenceExportUrl"
+                       class="btn btn-sm border-0 bg-[#272a5f] text-white hover:bg-[#2f9da5]"
+                       download>
+                        Export evidence
+                    </a>
+                </div>
+            {% endcall %}
+            {% call card_content() %}
+                <div class="grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
+                    <div class="rounded-lg bg-[#f4f3f2] p-4">
+                        <div class="flex items-center justify-between">
+                            <p class="text-sm font-semibold text-[#5f5c78]">Current health score</p>
+                            <span class="rounded bg-white px-2 py-1 text-xs font-semibold text-[#272a5f]"
+                                  x-text="healthHistory.current_grade || '-'"></span>
+                        </div>
+                        <div class="mt-3 flex items-end gap-2">
+                            <span class="text-5xl font-bold text-[#120d36]"
+                                  x-text="healthHistory.current_score ?? '-'"></span>
+                            <span class="pb-2 text-sm text-[#5f5c78]">/100</span>
+                        </div>
+                        <div class="mt-3 flex flex-wrap gap-2 text-xs">
+                            <span class="rounded px-2 py-1 font-semibold"
+                                  :class="healthScoreDeltaClass"
+                                  x-text="formatScoreDelta(healthHistory.score_delta)"></span>
+                            <span class="rounded bg-white px-2 py-1 font-semibold text-[#272a5f]"
+                                  x-text="latestHealthPointLabel"></span>
+                        </div>
+                        <template x-if="healthHistory.error">
+                            <p class="mt-3 text-sm text-red-700" x-text="healthHistory.error"></p>
+                        </template>
+                        <template x-if="!healthHistory.error && !healthHistory.points.length && !healthHistory.loading">
+                            <p class="mt-3 text-sm text-[#5f5c78]">No health history has been captured yet.</p>
+                        </template>
+                    </div>
+
+                    <div class="min-w-0 space-y-4">
+                        <div class="h-56 rounded-lg border border-[#e6e3e1] p-3">
+                            <canvas id="health-score-chart"></canvas>
+                        </div>
+                        <div class="grid gap-3 md:grid-cols-2">
+                            <div class="rounded-lg border border-[#e6e3e1] p-4">
+                                <h3 class="font-semibold text-[#07071f]">Top drivers</h3>
+                                <template x-if="healthHistory.top_drivers.length === 0">
+                                    <p class="mt-2 text-sm text-[#5f5c78]">No active score drivers in the latest snapshot.</p>
+                                </template>
+                                <div class="mt-3 space-y-2">
+                                    <template x-for="driver in healthHistory.top_drivers" :key="driver.type + driver.title">
+                                        <div class="flex items-start gap-3 rounded bg-[#f8f7f6] p-3">
+                                            <span class="mt-1 h-2.5 w-2.5 rounded-full"
+                                                  :class="recommendationSeverityClass(driver.severity)"></span>
+                                            <div class="min-w-0">
+                                                <p class="font-semibold text-[#120d36]" x-text="driver.title"></p>
+                                                <p class="mt-1 text-xs text-[#5f5c78]">
+                                                    <span>Potential impact </span>
+                                                    <span x-text="driver.score_impact || 0"></span>
+                                                    <span> points</span>
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                            <div class="rounded-lg border border-[#e6e3e1] p-4">
+                                <h3 class="font-semibold text-[#07071f]">Evidence window</h3>
+                                <dl class="mt-3 grid grid-cols-2 gap-3 text-sm">
+                                    <div>
+                                        <dt class="text-[#5f5c78]">Snapshots</dt>
+                                        <dd class="mt-1 font-semibold text-[#120d36]" x-text="healthHistory.points.length"></dd>
+                                    </div>
+                                    <div>
+                                        <dt class="text-[#5f5c78]">Policy</dt>
+                                        <dd class="mt-1 font-semibold text-[#120d36]" x-text="latestHealthPoint.policy || '-'"></dd>
+                                    </div>
+                                    <div>
+                                        <dt class="text-[#5f5c78]">Compliance</dt>
+                                        <dd class="mt-1 font-semibold text-[#120d36]">
+                                            <span x-text="latestHealthPoint.compliance_rate ?? '-'"></span><span x-show="latestHealthPoint.compliance_rate !== undefined">%</span>
+                                        </dd>
+                                    </div>
+                                    <div>
+                                        <dt class="text-[#5f5c78]">Messages</dt>
+                                        <dd class="mt-1 font-semibold text-[#120d36]" x-text="latestHealthPoint.total_emails ?? '-'"></dd>
+                                    </div>
+                                </dl>
+                                <p class="mt-3 text-xs text-[#5f5c78]">
+                                    Export includes aggregate score evidence only; forensic message bodies are not included.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% endcall %}
+        {% endcall %}
+        </section>
+
         <!-- DNS Records -->
         <section id="dns-records">
         {% call card() %}
@@ -911,6 +1017,18 @@ function domainDetailsApp(domainId) {
         reports: [],
         sources: [],
         complianceChart: null,
+        healthScoreChart: null,
+        healthHistory: {
+            loading: true,
+            error: '',
+            points: [],
+            current_score: null,
+            previous_score: null,
+            score_delta: null,
+            current_grade: '',
+            previous_grade: '',
+            top_drivers: []
+        },
         filters: {
             dateRange: '30',
             sourceFilter: '',
@@ -924,6 +1042,7 @@ function domainDetailsApp(domainId) {
             this.fetchDNSHealth();
             this.fetchDNSGuidance();
             this.fetchPosture();
+            this.fetchHealthHistory();
             this.fetchMtaSts();
             this.fetchBimi();
             this.fetchSelectors();
@@ -958,6 +1077,26 @@ function domainDetailsApp(domainId) {
             const query = params.toString();
             const baseUrl = `/api/v1/domains/${encodeURIComponent(this.domainId)}/reports/export`;
             return query ? `${baseUrl}?${query}` : baseUrl;
+        },
+
+        get healthEvidenceExportUrl() {
+            return `/api/v1/domains/${encodeURIComponent(this.domainId)}/posture/evidence/export?capture_current=false`;
+        },
+
+        get latestHealthPoint() {
+            if (!this.healthHistory.points || !this.healthHistory.points.length) return {};
+            return this.healthHistory.points[this.healthHistory.points.length - 1] || {};
+        },
+
+        get latestHealthPointLabel() {
+            if (!this.latestHealthPoint.date) return 'No snapshot';
+            return this.formatShortDate(this.latestHealthPoint.date);
+        },
+
+        get healthScoreDeltaClass() {
+            if (this.healthHistory.score_delta > 0) return 'bg-green-100 text-green-700';
+            if (this.healthHistory.score_delta < 0) return 'bg-red-100 text-red-700';
+            return 'bg-white text-[#272a5f]';
         },
 
         get dkimLiveText() {
@@ -1056,6 +1195,30 @@ function domainDetailsApp(domainId) {
                 }
             } catch (error) {
                 console.error('Error fetching posture dashboard:', error);
+            }
+        },
+
+        async fetchHealthHistory() {
+            this.healthHistory.loading = true;
+            this.healthHistory.error = '';
+            try {
+                const response = await fetch(`/api/v1/domains/${encodeURIComponent(this.domainId)}/posture/history?capture_current=false&limit=30`);
+                if (!response.ok) {
+                    throw new Error('Health score history could not be loaded.');
+                }
+                this.healthHistory = {
+                    loading: false,
+                    error: '',
+                    ...(await response.json())
+                };
+                this.renderHealthScoreChart();
+            } catch (error) {
+                this.healthHistory = {
+                    ...this.healthHistory,
+                    loading: false,
+                    error: error.message || 'Health score history could not be loaded.'
+                };
+                console.error('Error fetching health score history:', error);
             }
         },
 
@@ -1347,16 +1510,109 @@ function domainDetailsApp(domainId) {
                 }
             });
         },
+
+        renderHealthScoreChart() {
+            const canvas = document.getElementById('health-score-chart');
+            if (!canvas || !this.healthHistory.points || !this.healthHistory.points.length) return;
+            const labels = this.healthHistory.points.map(point => this.formatShortDate(point.date));
+            const scores = this.healthHistory.points.map(point => point.score);
+            const compliance = this.healthHistory.points.map(point => point.compliance_rate || 0);
+
+            if (this.healthScoreChart) {
+                this.healthScoreChart.destroy();
+            }
+
+            this.healthScoreChart = new Chart(canvas.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [
+                        {
+                            label: 'Health Score',
+                            data: scores,
+                            borderColor: '#272a5f',
+                            backgroundColor: 'rgba(47, 157, 165, 0.14)',
+                            fill: true,
+                            tension: 0.35,
+                            pointRadius: 2,
+                            pointHoverRadius: 5
+                        },
+                        {
+                            label: 'DMARC Compliance',
+                            data: compliance,
+                            borderColor: '#2f9da5',
+                            backgroundColor: 'rgba(47, 157, 165, 0.05)',
+                            borderDash: [4, 4],
+                            fill: false,
+                            tension: 0.35,
+                            pointRadius: 0
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            min: 0,
+                            max: 100,
+                            ticks: {
+                                callback: value => value + '%'
+                            },
+                            grid: {
+                                color: 'rgba(7, 7, 31, 0.06)'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                display: false
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: {
+                                usePointStyle: true,
+                                padding: 12
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: context => {
+                                    const suffix = context.dataset.label === 'DMARC Compliance' ? '%' : '/100';
+                                    return `${context.dataset.label}: ${context.parsed.y}${suffix}`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        },
         
         formatDate(timestamp) {
             const date = new Date(timestamp * 1000);
             return date.toLocaleDateString();
         },
 
+        formatShortDate(value) {
+            const date = new Date(`${value}T00:00:00`);
+            if (Number.isNaN(date.getTime())) return value;
+            return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+        },
+
         formatIsoDate(value) {
             const date = new Date(value);
             if (Number.isNaN(date.getTime())) return value;
             return date.toLocaleString();
+        },
+
+        formatScoreDelta(value) {
+            if (value === null || value === undefined) return 'No previous score';
+            if (value > 0) return `+${value} since previous`;
+            if (value < 0) return `${value} since previous`;
+            return 'No score change';
         },
         
         getPassRateClass(rate) {
