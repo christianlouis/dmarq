@@ -37,7 +37,7 @@ class MailSourceBackfillJob(Base):
     attempt_count = Column(Integer, nullable=False, default=0)
     max_attempts = Column(Integer, nullable=False, default=3)
 
-    cursor = Column(String(length=255), nullable=True)
+    cursor = Column(Text, nullable=True)
     errors = Column(Text, nullable=True)
     details = Column(Text, nullable=True)
 

@@ -63,6 +63,34 @@ def _copy_result_counts(job: MailSourceBackfillJob, results: Dict[str, Any]) -> 
     job.error_count = len(results.get("errors") or [])
 
 
+def _cursor_checkpoint(
+    *,
+    connector: str,
+    state: str,
+    days: int,
+    results: Optional[Dict[str, Any]] = None,
+    page_cursor: Optional[str] = None,
+) -> str:
+    """Return a stable, provider-agnostic cursor checkpoint for one backfill job."""
+    stats = results or {}
+    checkpoint: Dict[str, Any] = {
+        "version": 1,
+        "connector": connector,
+        "state": state,
+        "window_days": days,
+        "processed": int(stats.get("processed", 0) or 0),
+        "reports_found": int(stats.get("reports_found", 0) or 0),
+        "duplicate_reports": int(stats.get("duplicate_reports", 0) or 0),
+        "error_count": len(stats.get("errors") or []),
+    }
+    search_window_days = stats.get("search_window_days")
+    if search_window_days is not None:
+        checkpoint["search_window_days"] = int(search_window_days)
+    if page_cursor:
+        checkpoint["page_cursor"] = redact_sensitive_text(page_cursor)
+    return json.dumps(checkpoint, sort_keys=True, separators=(",", ":"))
+
+
 def _claim_job(job: MailSourceBackfillJob, now: datetime) -> None:
     job.status = "running"
     job.started_at = now
@@ -96,7 +124,12 @@ def _mark_success(
 ) -> None:
     _copy_result_counts(job, results)
     job.status = "completed"
-    job.cursor = f"{cursor_prefix}:days={days};processed={job.processed}"
+    job.cursor = _cursor_checkpoint(
+        connector=cursor_prefix,
+        state="completed",
+        days=days,
+        results=results,
+    )
     job.errors = errors
     job.details = details
     job.finished_at = now
@@ -112,6 +145,8 @@ def _mark_failure(
     results: Optional[Dict[str, Any]] = None,
     errors: Optional[str] = None,
     details: Optional[str] = None,
+    days: Optional[int] = None,
+    cursor_prefix: Optional[str] = None,
 ) -> None:
     if results:
         _copy_result_counts(job, results)
@@ -128,6 +163,13 @@ def _mark_failure(
         job.status = "backoff"
         job.finished_at = None
         job.next_retry_at = now + _retry_delay(int(job.attempt_count or 1))
+    if cursor_prefix and days is not None:
+        job.cursor = _cursor_checkpoint(
+            connector=cursor_prefix,
+            state=job.status,
+            days=days,
+            results=results,
+        )
     job.updated_at = now
 
 
@@ -182,6 +224,8 @@ def run_imap_backfill_job(db: Session, job: MailSourceBackfillJob) -> bool:
                 results=results,
                 errors=attempt.errors,
                 details=attempt.details,
+                days=days,
+                cursor_prefix="imap",
             )
         db.commit()
         return True
@@ -211,6 +255,8 @@ def run_imap_backfill_job(db: Session, job: MailSourceBackfillJob) -> bool:
             results=results,
             errors=attempt.errors,
             details=attempt.details,
+            days=days,
+            cursor_prefix="imap",
         )
         db.commit()
         return True
@@ -350,6 +396,8 @@ def _finish_backfill_from_results(
             results=results,
             errors=errors,
             details=details,
+            days=days,
+            cursor_prefix=cursor_prefix,
         )
 
 
@@ -411,6 +459,8 @@ def run_gmail_backfill_job(db: Session, job: MailSourceBackfillJob) -> bool:
             results=results,
             errors=attempt.errors,
             details=attempt.details,
+            days=days,
+            cursor_prefix="gmail",
         )
         db.commit()
         return True
@@ -462,6 +512,8 @@ def run_m365_backfill_job(db: Session, job: MailSourceBackfillJob) -> bool:
             results=results,
             errors=attempt.errors,
             details=attempt.details,
+            days=days,
+            cursor_prefix="m365",
         )
         db.commit()
         return True

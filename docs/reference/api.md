@@ -201,8 +201,12 @@ The Mail Sources UI shows the latest backfill status, processed message counts,
 reports found, duplicates, retry timing, progress percentage, and operator
 controls. Backfill responses also include computed fields for
 `requested_window_days`, `elapsed_seconds`, `status_summary`, `can_cancel`, and
-`can_retry` so clients can show actionable progress without parsing cursors. The
-background scheduler currently executes due IMAP, Gmail, and Microsoft 365
+`can_retry` so clients can show actionable progress without parsing cursors.
+Workers persist structured provider checkpoints in `cursor_checkpoint`; clients
+can inspect that decoded object for connector, window, processed counts, error
+counts, and future provider page cursors while treating the raw `cursor` as
+diagnostic text. The background scheduler currently executes due IMAP, Gmail,
+and Microsoft 365
 backfill jobs in bounded batches and records results in import history with
 trigger `backfill`. In demo mode, DMARQ exposes credential-free synthetic mail
 sources and backfill jobs so the workflow is visible without connecting a real

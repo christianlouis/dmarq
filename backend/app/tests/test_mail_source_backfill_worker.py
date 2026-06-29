@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timedelta, timezone
 
 from app.models.mail_source import MailSource
@@ -100,7 +101,11 @@ def test_run_due_imap_backfill_completes_job_and_records_import(db_session, monk
     assert row.processed == 12
     assert row.reports_found == 4
     assert row.duplicate_reports == 1
-    assert row.cursor == "imap:days=10;processed=12"
+    cursor = json.loads(row.cursor)
+    assert cursor["connector"] == "imap"
+    assert cursor["state"] == "completed"
+    assert cursor["window_days"] == 10
+    assert cursor["processed"] == 12
     assert row.finished_at is not None
     assert row.next_retry_at is None
     assert source.last_checked is not None
@@ -137,6 +142,7 @@ def test_run_imap_backfill_moves_failed_attempt_to_backoff(db_session, monkeypat
     assert row.status == "backoff"
     assert row.attempt_count == 1
     assert row.error_count == 1
+    assert json.loads(row.cursor)["state"] == "backoff"
     assert row.next_retry_at is not None
     assert row.finished_at is None
 
@@ -230,7 +236,11 @@ def test_run_due_mail_source_backfill_executes_gmail_job(db_session, monkeypatch
     attempt = db_session.query(MailSourceImport).filter_by(mail_source_id=source.id).one()
 
     assert row.status == "completed"
-    assert row.cursor == "gmail:days=10;processed=5"
+    cursor = json.loads(row.cursor)
+    assert cursor["connector"] == "gmail"
+    assert cursor["state"] == "completed"
+    assert cursor["window_days"] == 10
+    assert cursor["processed"] == 5
     assert row.processed == 5
     assert row.reports_found == 3
     assert source.gmail_ingested_ids == "old-id,new-id"
@@ -295,6 +305,7 @@ def test_run_gmail_backfill_provider_failure_moves_to_backoff(db_session, monkey
     assert row.status == "backoff"
     assert row.processed == 2
     assert row.error_count == 1
+    assert json.loads(row.cursor)["connector"] == "gmail"
     assert row.next_retry_at is not None
 
 
@@ -348,7 +359,11 @@ def test_run_due_mail_source_backfill_executes_m365_job(db_session, monkeypatch)
     attempt = db_session.query(MailSourceImport).filter_by(mail_source_id=source.id).one()
 
     assert row.status == "completed"
-    assert row.cursor == "m365:days=10;processed=4"
+    cursor = json.loads(row.cursor)
+    assert cursor["connector"] == "m365"
+    assert cursor["state"] == "completed"
+    assert cursor["window_days"] == 10
+    assert cursor["processed"] == 4
     assert row.processed == 4
     assert row.reports_found == 2
     assert source.m365_ingested_ids == "old-m365-id,new-m365-id"
@@ -413,6 +428,7 @@ def test_run_m365_backfill_provider_failure_moves_to_backoff(db_session, monkeyp
     assert row.status == "backoff"
     assert row.processed == 2
     assert row.error_count == 1
+    assert json.loads(row.cursor)["connector"] == "m365"
     assert row.next_retry_at is not None
 
 

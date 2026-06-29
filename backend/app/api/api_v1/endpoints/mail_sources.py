@@ -207,6 +207,7 @@ class MailSourceBackfillResponse(BaseModel):
     attempt_count: int
     max_attempts: int
     cursor: Optional[str] = None
+    cursor_checkpoint: Optional[Dict[str, Any]] = None
     requested_window_days: Optional[int] = None
     elapsed_seconds: Optional[int] = None
     progress_percent: int
@@ -585,6 +586,28 @@ def _backfill_elapsed_seconds(
     return max(0, int((end - start).total_seconds()))
 
 
+def _backfill_cursor_checkpoint(cursor: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Decode a structured backfill cursor while preserving legacy cursor visibility."""
+    if not cursor:
+        return None
+    try:
+        payload = json.loads(cursor)
+    except (TypeError, ValueError):
+        parts: Dict[str, Any] = {"version": 0, "raw": cursor}
+        if ":" in cursor:
+            connector, rest = cursor.split(":", 1)
+            parts["connector"] = connector
+            for segment in rest.split(";"):
+                if "=" not in segment:
+                    continue
+                key, value = segment.split("=", 1)
+                parts[key] = int(value) if value.isdigit() else value
+        return parts
+    if not isinstance(payload, dict):
+        return None
+    return payload
+
+
 def _backfill_progress_percent(status_value: str, processed: int) -> int:
     if status_value == "completed":
         return 100
@@ -686,6 +709,7 @@ def _backfill_to_response(row: MailSourceBackfillJob) -> MailSourceBackfillRespo
         attempt_count=row.attempt_count,
         max_attempts=row.max_attempts,
     )
+    cursor_checkpoint = _backfill_cursor_checkpoint(row.cursor)
     return MailSourceBackfillResponse(
         id=row.id,
         workspace_id=row.workspace_id,
@@ -702,6 +726,7 @@ def _backfill_to_response(row: MailSourceBackfillJob) -> MailSourceBackfillRespo
         attempt_count=row.attempt_count,
         max_attempts=row.max_attempts,
         cursor=row.cursor,
+        cursor_checkpoint=cursor_checkpoint,
         **metadata,
         errors=_decode_json_list(row.errors),
         details=_decode_json_details(row.details),
