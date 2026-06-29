@@ -113,6 +113,8 @@
                                                 <progress class="progress progress-primary h-1.5 w-full"
                                                     :value="backfillProgress(latestBackfill(source))"
                                                     max="100"></progress>
+                                                <p class="text-[11px] text-muted-foreground"
+                                                    x-text="latestBackfill(source).status_summary || ''"></p>
                                                 <div class="grid grid-cols-3 gap-2 text-[11px] text-muted-foreground">
                                                     <span><strong class="text-foreground" x-text="latestBackfill(source).processed"></strong> messages</span>
                                                     <span><strong class="text-foreground" x-text="latestBackfill(source).reports_found"></strong> reports</span>
@@ -1059,6 +1061,9 @@ function mailSourcesApp() {
 
         backfillProgress(job) {
             if (!job) return 0;
+            if (Number.isFinite(Number(job.progress_percent))) {
+                return Math.max(0, Math.min(100, Number(job.progress_percent)));
+            }
             const processed = Number(job.processed || 0);
             if (job.status === 'completed') return 100;
             if (job.status === 'queued') return 5;
@@ -1068,6 +1073,7 @@ function mailSourcesApp() {
         },
 
         backfillWindowLabel(job) {
+            if (job && job.requested_window_days) return `${job.requested_window_days} days`;
             if (!job || !job.requested_start || !job.requested_end) return 'Default search window';
             const start = new Date(job.requested_start).toLocaleDateString();
             const end = new Date(job.requested_end).toLocaleDateString();
@@ -1075,10 +1081,12 @@ function mailSourcesApp() {
         },
 
         canCancelBackfill(job) {
+            if (job && typeof job.can_cancel === 'boolean') return job.can_cancel;
             return Boolean(job && ['queued', 'running', 'backoff'].includes(job.status));
         },
 
         canRetryBackfill(job) {
+            if (job && typeof job.can_retry === 'boolean') return job.can_retry;
             return Boolean(job && ['failed', 'cancelled', 'backoff'].includes(job.status));
         },
 

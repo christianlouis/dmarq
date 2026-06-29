@@ -43,7 +43,7 @@ DMARQ reads messages in the configured search window, filters for messages that 
 
 Imported Graph message IDs are stored on the mail source so scheduled polling does not reprocess the same message. Import history records processed messages, imported reports, duplicates, parse failures, attachment-level details, and the mailbox/folder target used for the attempt.
 
-Manual imports use the **days** value from the Mail Sources UI or trigger-poll endpoint. DMARQ passes that selected window to Microsoft Graph as a `receivedDateTime` filter, so large mailboxes can be searched without scanning unrelated older mail. Backfills are queued as resumable jobs from the **Backfill** action and show progress, reports found, duplicates, retry timing, cancel, and retry controls in the Mail Sources table; Microsoft 365 worker execution is tracked as connector-specific follow-up after the IMAP worker path.
+Manual imports use the **days** value from the Mail Sources UI or trigger-poll endpoint. DMARQ passes that selected window to Microsoft Graph as a `receivedDateTime` filter, so large mailboxes can be searched without scanning unrelated older mail. Backfills are queued as resumable jobs from the **Backfill** action and show progress, reports found, duplicates, retry timing, cancel, and retry controls in the Mail Sources table. The background worker processes due Microsoft 365 backfill jobs alongside IMAP and Gmail jobs.
 
 ## Troubleshooting
 

@@ -529,6 +529,10 @@ def test_mail_sources_template_exposes_backfill_progress_controls():
     template = (Path(__file__).resolve().parents[1] / "templates" / "mail_sources.html").read_text()
 
     assert "data-backfill-progress" in template
+    assert "progress_percent" in template
+    assert "status_summary" in template
+    assert "can_cancel" in template
+    assert "can_retry" in template
     assert "/backfills?limit=5" in template
     assert "/backfills/${job.id}/cancel" in template
     assert "/backfills/${job.id}/retry" in template
@@ -948,14 +952,22 @@ class TestMailSourcesAPIAuthed:
         assert job["max_attempts"] == 4
         assert job["errors"] == []
         assert job["details"] == []
+        assert job["requested_window_days"] == 31
+        assert job["elapsed_seconds"] is None
+        assert job["progress_percent"] == 0
+        assert job["can_cancel"] is True
+        assert job["can_retry"] is False
+        assert job["status_summary"] == "Queued to scan a 31-day mailbox window."
 
         list_response = authed_client.get(f"/api/v1/mail-sources/{source_id}/backfills")
         get_response = authed_client.get(f"/api/v1/mail-sources/{source_id}/backfills/{job['id']}")
 
         assert list_response.status_code == 200
         assert [item["id"] for item in list_response.json()] == [job["id"]]
+        assert list_response.json()[0]["requested_window_days"] == 31
         assert get_response.status_code == 200
         assert get_response.json()["id"] == job["id"]
+        assert get_response.json()["can_cancel"] is True
 
     def test_demo_mode_returns_mail_source_backfill_examples(
         self,
@@ -975,7 +987,13 @@ class TestMailSourcesAPIAuthed:
 
         backfills_response = authed_client.get("/api/v1/mail-sources/9001/backfills?limit=5")
         assert backfills_response.status_code == 200
-        assert {job["status"] for job in backfills_response.json()} >= {"completed", "running"}
+        backfills = backfills_response.json()
+        assert {job["status"] for job in backfills} >= {"completed", "running"}
+        running = next(job for job in backfills if job["status"] == "running")
+        assert running["requested_window_days"] == 30
+        assert running["progress_percent"] > 0
+        assert running["can_cancel"] is True
+        assert "Scanning a 30-day mailbox window" in running["status_summary"]
 
         queue_response = authed_client.post(
             "/api/v1/mail-sources/9001/backfills",
@@ -984,6 +1002,8 @@ class TestMailSourcesAPIAuthed:
         assert queue_response.status_code == 201
         assert queue_response.json()["status"] == "queued"
         assert queue_response.json()["details"][0]["source"] == "dmarq.org aggregate reports"
+        assert queue_response.json()["requested_window_days"] == 30
+        assert queue_response.json()["progress_percent"] == 0
 
         cancel_response = authed_client.post("/api/v1/mail-sources/9001/backfills/9102/cancel")
         assert cancel_response.status_code == 200

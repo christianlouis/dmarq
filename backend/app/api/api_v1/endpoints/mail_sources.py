@@ -9,6 +9,7 @@ OAuth2 helper endpoints (authorize-url, callback, fetch).
 
 import json
 import logging
+import math
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -206,6 +207,12 @@ class MailSourceBackfillResponse(BaseModel):
     attempt_count: int
     max_attempts: int
     cursor: Optional[str] = None
+    requested_window_days: Optional[int] = None
+    elapsed_seconds: Optional[int] = None
+    progress_percent: int
+    status_summary: str
+    can_cancel: bool
+    can_retry: bool
     errors: List[str]
     details: List[Dict[str, str]]
     started_at: Optional[datetime] = None
@@ -535,8 +542,150 @@ def _auth_actor(auth_context: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def _utc_naive(value: Optional[datetime]) -> Optional[datetime]:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _backfill_window_days(
+    requested_start: Optional[datetime],
+    requested_end: Optional[datetime],
+    *,
+    now: Optional[datetime] = None,
+) -> Optional[int]:
+    if not requested_start:
+        return 30
+
+    anchor = _utc_naive(now or datetime.utcnow()) or datetime.utcnow()
+    start = _utc_naive(requested_start)
+    end = _utc_naive(requested_end) if requested_end else anchor
+    if start is None or end is None:
+        return None
+    if end > anchor:
+        end = anchor
+    seconds = max((end - start).total_seconds(), 1)
+    return min(365, max(1, int(math.ceil(seconds / 86400))))
+
+
+def _backfill_elapsed_seconds(
+    started_at: Optional[datetime],
+    finished_at: Optional[datetime],
+    *,
+    now: Optional[datetime] = None,
+) -> Optional[int]:
+    start = _utc_naive(started_at)
+    if not start:
+        return None
+    end = _utc_naive(finished_at) or _utc_naive(now or datetime.utcnow())
+    if not end:
+        return None
+    return max(0, int((end - start).total_seconds()))
+
+
+def _backfill_progress_percent(status_value: str, processed: int) -> int:
+    if status_value == "completed":
+        return 100
+    if status_value == "queued":
+        return 0
+    if status_value == "running":
+        return min(95, max(15, 15 + int(processed / 2)))
+    if status_value == "backoff":
+        return min(85, max(20, 20 + int(processed / 2)))
+    if status_value in {"failed", "cancelled"}:
+        return min(100, max(10, int(processed / 2) if processed else 10))
+    return 0
+
+
+def _backfill_status_summary(
+    *,
+    status_value: str,
+    requested_window_days: Optional[int],
+    processed: int,
+    reports_found: int,
+    duplicate_reports: int,
+    error_count: int,
+    attempt_count: int,
+    max_attempts: int,
+) -> str:
+    window = (
+        f"{requested_window_days}-day mailbox window" if requested_window_days else "mailbox window"
+    )
+    if status_value == "queued":
+        return f"Queued to scan a {window}."
+    if status_value == "running":
+        return (
+            f"Scanning a {window}; {processed} messages checked and {reports_found} reports found."
+        )
+    if status_value == "backoff":
+        return (
+            f"Retry scheduled after {error_count or 1} error(s); "
+            f"attempt {attempt_count} of {max_attempts}."
+        )
+    if status_value == "completed":
+        return (
+            f"Completed a {window}; {reports_found} reports imported or confirmed "
+            f"and {duplicate_reports} duplicates skipped."
+        )
+    if status_value == "failed":
+        return f"Failed after attempt {attempt_count} of {max_attempts}."
+    if status_value == "cancelled":
+        return f"Cancelled after checking {processed} messages."
+    return "Backfill status is available."
+
+
+def _backfill_metadata(
+    *,
+    status_value: str,
+    requested_start: Optional[datetime],
+    requested_end: Optional[datetime],
+    started_at: Optional[datetime],
+    finished_at: Optional[datetime],
+    processed: int,
+    reports_found: int,
+    duplicate_reports: int,
+    error_count: int,
+    attempt_count: int,
+    max_attempts: int,
+    now: Optional[datetime] = None,
+) -> Dict[str, Any]:
+    requested_window_days = _backfill_window_days(requested_start, requested_end, now=now)
+    return {
+        "requested_window_days": requested_window_days,
+        "elapsed_seconds": _backfill_elapsed_seconds(started_at, finished_at, now=now),
+        "progress_percent": _backfill_progress_percent(status_value, processed),
+        "status_summary": _backfill_status_summary(
+            status_value=status_value,
+            requested_window_days=requested_window_days,
+            processed=processed,
+            reports_found=reports_found,
+            duplicate_reports=duplicate_reports,
+            error_count=error_count,
+            attempt_count=attempt_count,
+            max_attempts=max_attempts,
+        ),
+        "can_cancel": status_value in BACKFILL_CANCELABLE_STATUSES,
+        "can_retry": status_value in BACKFILL_RETRYABLE_STATUSES and attempt_count < max_attempts,
+    }
+
+
 def _backfill_to_response(row: MailSourceBackfillJob) -> MailSourceBackfillResponse:
     """Convert a backfill job ORM row to an API response."""
+    metadata = _backfill_metadata(
+        status_value=row.status,
+        requested_start=row.requested_start,
+        requested_end=row.requested_end,
+        started_at=row.started_at,
+        finished_at=row.finished_at,
+        processed=row.processed,
+        reports_found=row.reports_found,
+        duplicate_reports=row.duplicate_reports,
+        error_count=row.error_count,
+        attempt_count=row.attempt_count,
+        max_attempts=row.max_attempts,
+    )
     return MailSourceBackfillResponse(
         id=row.id,
         workspace_id=row.workspace_id,
@@ -553,6 +702,7 @@ def _backfill_to_response(row: MailSourceBackfillJob) -> MailSourceBackfillRespo
         attempt_count=row.attempt_count,
         max_attempts=row.max_attempts,
         cursor=row.cursor,
+        **metadata,
         errors=_decode_json_list(row.errors),
         details=_decode_json_details(row.details),
         started_at=row.started_at,
@@ -575,7 +725,20 @@ def _demo_mail_source_by_id(source_id: int) -> Optional[Dict[str, Any]]:
 
 
 def _demo_backfill_response(row: Dict[str, Any]) -> MailSourceBackfillResponse:
-    return MailSourceBackfillResponse(**row)
+    metadata = _backfill_metadata(
+        status_value=str(row["status"]),
+        requested_start=row.get("requested_start"),
+        requested_end=row.get("requested_end"),
+        started_at=row.get("started_at"),
+        finished_at=row.get("finished_at"),
+        processed=int(row.get("processed") or 0),
+        reports_found=int(row.get("reports_found") or 0),
+        duplicate_reports=int(row.get("duplicate_reports") or 0),
+        error_count=int(row.get("error_count") or 0),
+        attempt_count=int(row.get("attempt_count") or 0),
+        max_attempts=int(row.get("max_attempts") or 1),
+    )
+    return MailSourceBackfillResponse(**{**row, **metadata})
 
 
 def _demo_backfill_job(source_id: int, job_id: int) -> Optional[Dict[str, Any]]:
@@ -939,30 +1102,32 @@ async def create_mail_source_backfill(
     demo_source = _demo_mail_source_by_id(source_id)
     if demo_source:
         now = datetime.now(timezone.utc)
-        return MailSourceBackfillResponse(
-            id=9900 + source_id,
-            workspace_id=1,
-            mail_source_id=source_id,
-            status="queued",
-            trigger="manual",
-            requested_start=payload.requested_start or now - timedelta(days=30),
-            requested_end=payload.requested_end or now,
-            requested_by="demo-operator@dmarq.org",
-            processed=0,
-            reports_found=0,
-            duplicate_reports=0,
-            error_count=0,
-            attempt_count=0,
-            max_attempts=payload.max_attempts,
-            cursor=None,
-            errors=[],
-            details=[{"status": "queued", "source": str(demo_source["name"])}],
-            started_at=None,
-            finished_at=None,
-            cancelled_at=None,
-            next_retry_at=None,
-            created_at=now,
-            updated_at=now,
+        return _demo_backfill_response(
+            {
+                "id": 9900 + source_id,
+                "workspace_id": 1,
+                "mail_source_id": source_id,
+                "status": "queued",
+                "trigger": "manual",
+                "requested_start": payload.requested_start or now - timedelta(days=30),
+                "requested_end": payload.requested_end or now,
+                "requested_by": "demo-operator@dmarq.org",
+                "processed": 0,
+                "reports_found": 0,
+                "duplicate_reports": 0,
+                "error_count": 0,
+                "attempt_count": 0,
+                "max_attempts": payload.max_attempts,
+                "cursor": None,
+                "errors": [],
+                "details": [{"status": "queued", "source": str(demo_source["name"])}],
+                "started_at": None,
+                "finished_at": None,
+                "cancelled_at": None,
+                "next_retry_at": None,
+                "created_at": now,
+                "updated_at": now,
+            }
         )
     workspace = _authorized_mail_source_workspace(
         _auth,
