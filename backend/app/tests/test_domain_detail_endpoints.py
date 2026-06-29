@@ -349,8 +349,51 @@ def test_get_domain_sources_returns_recommendations(
     assert response.status_code == 200
     source = response.json()["sources"][0]
     recommendation_types = {item["type"] for item in source["recommendations"]}
-    assert recommendation_types == {"full_fail", "policy_not_enforced"}
+    assert recommendation_types == {"unknown_sender", "full_fail", "policy_not_enforced"}
+    assert source["sender"]["name"] == "Unknown sender"
+    assert source["sender"]["status"] == "unknown"
     assert source["spf_fix_hint"] == "ip4:192.0.2.10"
+
+
+def test_get_domain_sources_returns_sender_identity(
+    authed_client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Endpoint names recognized sending services with evidence and remediation."""
+
+    async def fake_ptr_lookup(_provider, _ip, timeout=3.0):  # pylint: disable=unused-argument
+        return "mail-qv1-f75.google.com"
+
+    monkeypatch.setattr(domains_endpoint, "_safe_ptr_lookup", fake_ptr_lookup)
+    report = {
+        **REPORT_DICT_POLICY,
+        "report_id": "rpt-google-source",
+        "records": [
+            {
+                "source_ip": "203.0.113.75",
+                "count": 12,
+                "disposition": "none",
+                "dkim_result": "pass",
+                "spf_result": "pass",
+                "header_from": DOMAIN,
+                "envelope_from": f"bounce.{DOMAIN}",
+                "dkim": [{"domain": DOMAIN, "selector": "google", "result": "pass"}],
+                "spf": [{"domain": "_spf.google.com", "scope": "mfrom", "result": "pass"}],
+            }
+        ],
+        "summary": {"total_count": 12, "passed_count": 12, "failed_count": 0},
+    }
+    ReportStore.get_instance().add_report(report)
+
+    response = authed_client.get(f"/api/v1/domains/{DOMAIN}/sources")
+
+    assert response.status_code == 200
+    source = response.json()["sources"][0]
+    assert source["sender"]["id"] == "google-workspace"
+    assert source["sender"]["name"] == "Google Workspace"
+    assert source["sender"]["status"] == "known"
+    assert source["sender"]["confidence"] >= 90
+    assert source["sender"]["evidence"]
+    assert "Google Workspace DKIM" in source["sender"]["remediation_hint"]
 
 
 def test_source_recommendations_cover_common_cases():

@@ -502,6 +502,7 @@
                     {% call thead() %}
                         {% call tr() %}
                             {% call th() %}Source IP / Hostname{% endcall %}
+                            {% call th() %}Sender{% endcall %}
                             {% call th() %}Total Emails{% endcall %}
                             {% call th() %}SPF{% endcall %}
                             {% call th() %}DKIM{% endcall %}
@@ -513,7 +514,7 @@
                     {% call tbody() %}
                         <template x-if="sources.length === 0">
                             <tr>
-                                <td colspan="7" class="text-center py-4">
+                                <td colspan="8" class="text-center py-4">
                                     <div class="text-muted-foreground">No data available for this time period</div>
                                 </td>
                             </tr>
@@ -525,6 +526,29 @@
                                         <span class="font-mono text-sm" x-text="source.ip"></span>
                                         <template x-if="source.hostname">
                                             <span class="text-xs text-muted-foreground" x-text="source.hostname"></span>
+                                        </template>
+                                    </div>
+                                {% endcall %}
+                                {% call td() %}
+                                    <div class="min-w-52 space-y-1">
+                                        <div class="flex items-center gap-2">
+                                            <span class="font-semibold text-sm" x-text="source.sender?.name || 'Unknown sender'"></span>
+                                            <span
+                                                class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
+                                                :class="senderStatusClass(source.sender?.status)"
+                                                x-text="source.sender?.status || 'unknown'"
+                                            ></span>
+                                        </div>
+                                        <div class="text-xs text-muted-foreground">
+                                            <span x-text="source.sender?.provider || source.sender?.category || 'Unclassified'"></span>
+                                            <span> · </span>
+                                            <span x-text="(source.sender?.confidence || 0) + '% confidence'"></span>
+                                        </div>
+                                        <template x-if="source.sender?.evidence?.length">
+                                            <p class="text-xs text-muted-foreground" x-text="source.sender.evidence[0]"></p>
+                                        </template>
+                                        <template x-if="source.sender?.remediation_hint">
+                                            <p class="text-xs" x-text="source.sender.remediation_hint"></p>
                                         </template>
                                     </div>
                                 {% endcall %}
@@ -841,7 +865,14 @@ function domainDetailsApp(domainId) {
 
             return this.sources.filter(source => {
                 if (!this.filters.sourceFilter) return true;
-                return source.ip.toLowerCase().includes(this.filters.sourceFilter.toLowerCase());
+                const needle = this.filters.sourceFilter.toLowerCase();
+                return [
+                    source.ip,
+                    source.hostname,
+                    source.sender?.name,
+                    source.sender?.provider,
+                    source.sender?.status,
+                ].some(value => String(value || '').toLowerCase().includes(needle));
             });
         },
 
@@ -887,6 +918,13 @@ function domainDetailsApp(domainId) {
             if (severity === 'error') return 'bg-red-500';
             if (severity === 'warning') return 'bg-yellow-500';
             return 'bg-blue-500';
+        },
+
+        senderStatusClass(status) {
+            if (status === 'known') return 'bg-green-100 text-green-800';
+            if (status === 'ambiguous') return 'bg-yellow-100 text-yellow-800';
+            if (status === 'suspicious') return 'bg-red-100 text-red-800';
+            return 'bg-gray-100 text-gray-700';
         },
 
         async fetchDomainStats() {

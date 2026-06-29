@@ -43,6 +43,7 @@ from app.services.report_persistence import (
     hydrate_report_store_from_db,
 )
 from app.services.report_store import ReportStore
+from app.services.sender_intelligence import identify_sender
 from app.services.workspace_access import (
     PERMISSION_DOMAINS_WRITE,
     PERMISSION_REPORTS_READ,
@@ -396,6 +397,21 @@ class SourceRecommendation(BaseModel):
     action: str
 
 
+class SenderIdentity(BaseModel):
+    """Recognized sender identity for a sending source."""
+
+    id: str
+    name: str
+    provider: Optional[str] = None
+    category: str
+    status: str
+    confidence: int
+    reason: str
+    evidence: List[str] = Field(default_factory=list)
+    remediation_hint: str
+    docs_url: Optional[str] = None
+
+
 class SourceEntry(BaseModel):
     """Summary of a sending source"""
 
@@ -413,6 +429,7 @@ class SourceEntry(BaseModel):
     dmarc_fail_count: int = 0
     disposition_counts: Dict[str, int] = Field(default_factory=dict)
     hostname: Optional[str] = None
+    sender: SenderIdentity
     spf_fix_hint: Optional[str] = None
     recommendations: List[SourceRecommendation] = Field(default_factory=list)
 
@@ -2076,6 +2093,7 @@ def _source_recommendations(
     source: Dict[str, Any],
     hostname: Optional[str],
     spf_fix_hint: Optional[str],
+    sender: Optional[Dict[str, Any]] = None,
 ) -> List[SourceRecommendation]:
     """Build clear next steps for common DMARC source patterns."""
     spf_result = source.get("spf_result", "unknown")
@@ -2089,8 +2107,56 @@ def _source_recommendations(
     dmarc_passed = source.get("dmarc_pass_count", 0) > 0 or dmarc_result == "pass"
 
     recommendations: List[SourceRecommendation] = []
+    recommendations.extend(_sender_identity_recommendations(sender, dmarc_failed, hostname))
+    provider_recommendation = _provider_remediation_recommendation(sender, dmarc_failed)
+    if provider_recommendation:
+        recommendations.append(provider_recommendation)
+    spf_recommendation = _spf_only_recommendation(spf_result, dkim_result, dmarc_passed)
+    if spf_recommendation:
+        recommendations.append(spf_recommendation)
+    dkim_recommendation = _dkim_only_recommendation(
+        spf_result, dkim_result, dmarc_passed, spf_fix_hint
+    )
+    if dkim_recommendation:
+        recommendations.append(dkim_recommendation)
+    full_fail_recommendation = _full_fail_recommendation(
+        spf_result, dkim_result, dmarc_failed, spf_fix_hint
+    )
+    if full_fail_recommendation:
+        recommendations.append(full_fail_recommendation)
+    if dmarc_failed and (disposition == "none" or disposition_counts.get("none", 0) > 0):
+        recommendations.append(_policy_not_enforced_recommendation())
 
-    if not hostname and dmarc_failed:
+    return recommendations
+
+
+def _sender_identity_recommendations(
+    sender: Optional[Dict[str, Any]],
+    dmarc_failed: bool,
+    hostname: Optional[str],
+) -> List[SourceRecommendation]:
+    recommendations: List[SourceRecommendation] = []
+    if sender and sender.get("status") == "ambiguous":
+        recommendations.append(
+            SourceRecommendation(
+                type="ambiguous_sender",
+                severity="warning",
+                title="Confirm sender ownership",
+                detail=sender["reason"],
+                action=sender["remediation_hint"],
+            )
+        )
+    if sender and sender.get("status") in {"unknown", "suspicious"} and dmarc_failed:
+        recommendations.append(
+            SourceRecommendation(
+                type="unknown_sender",
+                severity="error" if sender.get("status") == "suspicious" else "warning",
+                title="Identify unknown sender",
+                detail=sender["reason"],
+                action=sender["remediation_hint"],
+            )
+        )
+    if not sender and not hostname and dmarc_failed:
         recommendations.append(
             SourceRecommendation(
                 type="unknown_source",
@@ -2106,75 +2172,110 @@ def _source_recommendations(
                 ),
             )
         )
+    return recommendations
 
-    if (
+
+def _provider_remediation_recommendation(
+    sender: Optional[Dict[str, Any]],
+    dmarc_failed: bool,
+) -> Optional[SourceRecommendation]:
+    if not sender or sender.get("status") != "known" or not dmarc_failed:
+        return None
+    return SourceRecommendation(
+        type="provider_remediation",
+        severity="warning",
+        title=f"Fix {sender['name']} authentication",
+        detail=(
+            f"{sender['name']} is recognized, but some mail from this source is "
+            "not passing DMARC."
+        ),
+        action=sender["remediation_hint"],
+    )
+
+
+def _spf_only_recommendation(
+    spf_result: str,
+    dkim_result: str,
+    dmarc_passed: bool,
+) -> Optional[SourceRecommendation]:
+    if not (
         spf_result == "pass"
         and dkim_result in {"fail", "mixed", "unknown", "none"}
         and dmarc_passed
     ):
-        recommendations.append(
-            SourceRecommendation(
-                type="spf_only_pass",
-                severity="info",
-                title="SPF-only DMARC pass",
-                detail="DMARC is passing through SPF, but DKIM is not reliably passing for this source.",
-                action=(
-                    "Enable DKIM signing for this sending service so messages keep passing "
-                    "if SPF alignment changes."
-                ),
-            )
-        )
+        return None
+    return SourceRecommendation(
+        type="spf_only_pass",
+        severity="info",
+        title="SPF-only DMARC pass",
+        detail="DMARC is passing through SPF, but DKIM is not reliably passing for this source.",
+        action=(
+            "Enable DKIM signing for this sending service so messages keep passing "
+            "if SPF alignment changes."
+        ),
+    )
 
-    if (
+
+def _dkim_only_recommendation(
+    spf_result: str,
+    dkim_result: str,
+    dmarc_passed: bool,
+    spf_fix_hint: Optional[str],
+) -> Optional[SourceRecommendation]:
+    if not (
         dkim_result == "pass"
         and spf_result in {"fail", "mixed", "unknown", "none"}
         and dmarc_passed
     ):
-        action = "Authorize this service in SPF, or confirm SPF is intentionally handled elsewhere."
-        if spf_fix_hint:
-            action = f"Add {spf_fix_hint} to your SPF record if this service is legitimate."
-        recommendations.append(
-            SourceRecommendation(
-                type="dkim_only_pass",
-                severity="info",
-                title="DKIM-only DMARC pass",
-                detail="DMARC is passing through DKIM, but SPF is not reliably passing for this source.",
-                action=action,
-            )
-        )
+        return None
+    action = "Authorize this service in SPF, or confirm SPF is intentionally handled elsewhere."
+    if spf_fix_hint:
+        action = f"Add {spf_fix_hint} to your SPF record if this service is legitimate."
+    return SourceRecommendation(
+        type="dkim_only_pass",
+        severity="info",
+        title="DKIM-only DMARC pass",
+        detail="DMARC is passing through DKIM, but SPF is not reliably passing for this source.",
+        action=action,
+    )
 
-    if spf_result == "fail" and dkim_result == "fail" and dmarc_failed:
+
+def _full_fail_recommendation(
+    spf_result: str,
+    dkim_result: str,
+    dmarc_failed: bool,
+    spf_fix_hint: Optional[str],
+) -> Optional[SourceRecommendation]:
+    if not (spf_result == "fail" and dkim_result == "fail" and dmarc_failed):
+        return None
+    action = (
+        "Do not authorize this source until you confirm it is legitimate; then configure "
+        "both SPF authorization and DKIM signing."
+    )
+    if spf_fix_hint:
         action = (
-            "Do not authorize this source until you confirm it is legitimate; then configure "
-            "both SPF authorization and DKIM signing."
+            f"If legitimate, add {spf_fix_hint} to SPF and enable DKIM signing for this service."
         )
-        if spf_fix_hint:
-            action = f"If legitimate, add {spf_fix_hint} to SPF and enable DKIM signing for this service."
-        recommendations.append(
-            SourceRecommendation(
-                type="full_fail",
-                severity="error",
-                title="Full DMARC failure",
-                detail="Neither SPF nor DKIM is passing, so this mail fails DMARC.",
-                action=action,
-            )
-        )
+    return SourceRecommendation(
+        type="full_fail",
+        severity="error",
+        title="Full DMARC failure",
+        detail="Neither SPF nor DKIM is passing, so this mail fails DMARC.",
+        action=action,
+    )
 
-    if dmarc_failed and (disposition == "none" or disposition_counts.get("none", 0) > 0):
-        recommendations.append(
-            SourceRecommendation(
-                type="policy_not_enforced",
-                severity="warning",
-                title="Policy not enforced",
-                detail="Some failed mail was accepted because the applied DMARC disposition was none.",
-                action=(
-                    "After legitimate sources are passing consistently, move the domain policy "
-                    "toward quarantine or reject."
-                ),
-            )
-        )
 
-    return recommendations
+def _policy_not_enforced_recommendation() -> SourceRecommendation:
+    return SourceRecommendation(
+        type="policy_not_enforced",
+        severity="warning",
+        title="Policy not enforced",
+        detail="Some failed mail was accepted because the applied DMARC disposition was none.",
+        action=(
+            "After legitimate sources are passing consistently, move the domain policy "
+            "toward quarantine or reject."
+        ),
+    )
 
 
 async def _safe_ptr_lookup(provider: Any, ip: str, timeout: float = 3.0) -> Optional[str]:
@@ -2222,6 +2323,7 @@ async def get_domain_sources(
         spf_result = source.get("spf_result", "unknown")
         dkim_result = source.get("dkim_result", "unknown")
         spf_fix_hint = _spf_fix_hint(ip, spf_result, source.get("spf_fail_count", 0))
+        sender = identify_sender(ip, source, hostname=hostname, domain=domain_id)
         source_entries.append(
             SourceEntry(
                 ip=ip,
@@ -2239,8 +2341,9 @@ async def get_domain_sources(
                 dmarc_fail_count=source.get("dmarc_fail_count", 0),
                 disposition_counts=source.get("disposition_counts", {}),
                 hostname=hostname,
+                sender=SenderIdentity(**sender),
                 spf_fix_hint=spf_fix_hint,
-                recommendations=_source_recommendations(ip, source, hostname, spf_fix_hint),
+                recommendations=_source_recommendations(ip, source, hostname, spf_fix_hint, sender),
             )
         )
 
