@@ -70,7 +70,7 @@ Live DNS checks parse DMARC policy records according to RFC 9989:
 - Subdomain checks fall back to the bounded RFC 9989 DNS Tree Walk, including `psd=n` and `psd=y` stop conditions.
 - Records with a valid aggregate reporting URI but no valid `p` tag are treated as monitoring mode for policy extraction.
 - External `rua` and `ruf` destinations are linted for the required DNS authorization TXT record at `<policy-domain>._report._dmarc.<destination-domain>`.
-- Typed DNS guidance endpoints expose stable finding codes and target records for DMARC, SPF, DKIM, MTA-STS, TLS-RPT, and BIMI readiness without applying DNS changes automatically.
+- Typed DNS guidance endpoints expose stable finding codes and target records for DMARC, SPF, DKIM, MTA-STS, TLS-RPT, and BIMI readiness. Provider writes are never automatic; safe TXT/CNAME changes require an explicit apply request.
 
 ## Preserved Metadata
 

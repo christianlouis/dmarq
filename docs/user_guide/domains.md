@@ -93,11 +93,18 @@ Optional AI remediation plans can turn the same redacted DNS/report context
 into a longer step-by-step plan through LiteLLM/OpenAI-compatible providers;
 demo mode keeps these plans template-backed and heavily cached.
 
-The same section also shows a read-only proposed DNS change plan when findings
-are actionable. These plans include the record name, type, proposed value,
-captured current values when available, risk notes, rollback guidance, and
-expected health impact. They are copy/paste aids for an operator; DMARQ does
-not apply DNS changes automatically.
+The same section also shows a proposed DNS change plan when findings are
+actionable. These plans include the record name, type, proposed value, captured
+current values when available, risk notes, rollback guidance, and expected
+health impact. Operators can copy/paste the records manually, preview a
+provider mutation, or apply safe TXT/CNAME changes through a configured DNS
+provider after explicit browser confirmation.
+
+Automatic apply is intentionally limited. DMARQ only applies plans that already
+contain a concrete DNS value and a low-risk operation such as create or update.
+Plans that require provider-specific values, DKIM rotation, record
+consolidation, or stale-selector removal remain manual until an operator
+chooses the exact value and timing.
 
 ### MTA-STS Posture
 

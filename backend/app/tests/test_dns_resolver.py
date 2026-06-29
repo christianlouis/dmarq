@@ -580,12 +580,15 @@ async def test_cloudflare_provider_lists_zones_from_rest_api():
     mock_response.raise_for_status = MagicMock()
     mock_response.json = lambda: responses.pop(0)
 
-    with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=mock_response)) as mock_get:
+    with patch(
+        "httpx.AsyncClient.request", new=AsyncMock(return_value=mock_response)
+    ) as mock_request:
         provider = CloudflareDNSProvider(api_token="token")
         zones = await provider.list_zones()
 
     assert [zone["name"] for zone in zones] == ["example.com", "example.net"]
-    assert mock_get.await_count == 2
+    assert mock_request.await_count == 2
+    assert mock_request.await_args_list[0].args[0] == "GET"
 
 
 @pytest.mark.asyncio
@@ -602,13 +605,16 @@ async def test_cloudflare_provider_lists_dns_records_from_rest_api():
     mock_response.raise_for_status = MagicMock()
     mock_response.json = lambda: fake_response_data
 
-    with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=mock_response)) as mock_get:
+    with patch(
+        "httpx.AsyncClient.request", new=AsyncMock(return_value=mock_response)
+    ) as mock_request:
         provider = CloudflareDNSProvider(api_token="token", zone_id="zone-1")
         records = await provider.list_dns_records(record_type="TXT")
 
     assert records == fake_response_data["result"]
-    _, kwargs = mock_get.await_args
-    assert "/zones/zone-1/dns_records" in str(mock_get.await_args.args[0])
+    _, url = mock_request.await_args.args
+    _, kwargs = mock_request.await_args
+    assert "/zones/zone-1/dns_records" in str(url)
     assert kwargs["params"]["type"] == "TXT"
 
 
@@ -625,7 +631,7 @@ async def test_cloudflare_provider_raises_when_rest_api_reports_error():
     mock_response.raise_for_status = MagicMock()
     mock_response.json = lambda: fake_response_data
 
-    with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=mock_response)):
+    with patch("httpx.AsyncClient.request", new=AsyncMock(return_value=mock_response)):
         provider = CloudflareDNSProvider(api_token="token")
         with pytest.raises(LookupError, match="invalid token"):
             await provider.list_zones()

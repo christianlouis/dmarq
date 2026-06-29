@@ -360,7 +360,7 @@ def test_dns_lint_endpoint_returns_typed_findings_and_targets(authed_client: Tes
     assert change_plan["manual_steps"]
 
 
-def test_dns_change_plan_endpoint_returns_read_only_plans(authed_client: TestClient):
+def test_dns_change_plan_endpoint_returns_apply_gated_plans(authed_client: TestClient):
     result = DomainDNSResult(
         dmarc=False,
         spf=False,
@@ -386,9 +386,9 @@ def test_dns_change_plan_endpoint_returns_read_only_plans(authed_client: TestCli
     assert response.status_code == 200
     data = response.json()
     assert data["domain"] == DOMAIN
-    assert data["read_only"] is True
-    assert data["provider_write_available"] is False
-    assert data["apply_endpoint"] is None
+    assert data["read_only"] is False
+    assert data["provider_write_available"] is True
+    assert data["apply_endpoint"].endswith("/dns/change-plan/apply")
     plan = next(plan for plan in data["plans"] if plan["finding_code"] == "dmarc_missing")
     assert plan["operation"] == "create"
     assert plan["proposed_value"].startswith("v=DMARC1")

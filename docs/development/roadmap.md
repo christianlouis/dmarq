@@ -35,8 +35,8 @@ The roadmap must continue to honor the public DMARQ promise:
 - Keep self-hosted deployment first-class through Docker and documented
   production operation.
 - Keep Cloudflare and DNS integrations read-only by default: discover, analyze,
-  suggest, and track changes. Any future write automation must be opt-in,
-  previewed, permission-scoped, and audited.
+  suggest, and track changes. DNS write automation must be opt-in per action,
+  previewed, permission-scoped, explicitly confirmed, and audited.
 - Preserve privacy boundaries. Self-hosted deployments do not require a third
   party to see reports. Hosted and ISP modes must state clearly who operates the
   service and must enforce tenant isolation, audit logs, retention controls, and
