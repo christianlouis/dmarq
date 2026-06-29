@@ -173,6 +173,24 @@ Cloudflare-managed DNS record snapshots and change events are stored in
 `dns_record_snapshots` and `dns_record_changes`. They are updated whenever the
 Cloudflare DNS analysis endpoint is called.
 
+### AI Remediation Plans
+
+DMARQ can generate deterministic remediation plans without a model. To enable
+model-enhanced plans, set `ai.enabled=true`, choose `ai.provider=litellm`
+or another LiteLLM-backed provider mode in Settings, and configure
+`ai.model`. `ai.remote_base_url` can point at an OpenAI-compatible gateway when
+needed.
+
+Provider API keys are not stored in DMARQ settings. Inject `OPENAI_API_KEY`,
+`LITELLM_API_KEY`, or provider-specific environment variables into the backend
+process with your deployment secret manager. In hosted or GitOps deployments,
+prefer 1Password, Kubernetes Secrets, or an equivalent injector so raw keys are
+not copied into application settings.
+
+Remote remediation plans are cached with `ai.remediation_cache_seconds`
+(`86400` by default). Demo mode uses template-backed plans and a longer fixed
+cache window.
+
 ### Advanced Configuration
 
 | Variable | Description | Default | Example |

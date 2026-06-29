@@ -81,6 +81,7 @@ def _mock_dns(result: DomainDNSResult = MOCK_DNS_RESULT):
     provider = AsyncMock()
     provider.check_domain = AsyncMock(return_value=result)
     provider.lookup_txt = AsyncMock(side_effect=LookupError("MTA-STS not configured"))
+    provider.lookup_cname = AsyncMock(return_value=None)
     return patch(
         "app.api.api_v1.endpoints.domains.get_default_provider",
         return_value=provider,
@@ -342,6 +343,11 @@ def test_dns_lint_endpoint_returns_typed_findings_and_targets(authed_client: Tes
         "target_dkim",
         "target_tls_rpt",
     }
+    dkim_finding = next(
+        finding for finding in data["findings"] if finding["code"] == "dkim_selector_missing"
+    )
+    assert dkim_finding["remediation_steps"]
+    assert "Publish" in " ".join(dkim_finding["remediation_steps"])
 
 
 def test_dns_lint_endpoint_flags_advanced_spf_lookup_findings(

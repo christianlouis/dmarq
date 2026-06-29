@@ -1,3 +1,5 @@
+from unittest.mock import AsyncMock, patch
+
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -5,6 +7,9 @@ from app.models.organization import Entitlement, Organization
 from app.models.setting import Setting
 from app.models.workspace import Workspace
 from app.services.api_tokens import MCP_READ_SCOPE, create_api_token
+from app.services.bimi import BIMIResult
+from app.services.dns_resolver import DomainDNSResult
+from app.services.mta_sts import MTAStsResult
 from app.services.report_store import ReportStore
 
 DOMAIN = "example.com"
@@ -82,6 +87,51 @@ def test_ai_summary_is_evidence_first_and_redacted(
     assert body["recommendations"]
     assert body["recommendations"][0]["evidence"]
     assert "**redacted**" not in body["safe_context"]["domain"]
+
+
+def test_ai_remediation_plan_uses_template_and_cache(
+    authed_client: TestClient,
+    db_session: Session,
+):
+    _seed_report_store()
+    _set_setting(db_session, "ai.remediation_cache_seconds", "86400", "ai")
+    provider = AsyncMock()
+    provider.check_domain = AsyncMock(
+        return_value=DomainDNSResult(
+            dmarc=True,
+            dmarc_record="v=DMARC1; p=none; rua=mailto:dmarc@example.com",
+            spf=True,
+            spf_record="v=spf1 -all",
+            dkim=False,
+            selectors_checked=["google"],
+        )
+    )
+    provider.lookup_txt = AsyncMock(side_effect=LookupError("not found"))
+    provider.lookup_cname = AsyncMock(return_value=None)
+
+    with (
+        patch("app.services.ai_assistance.get_default_provider", return_value=provider),
+        patch(
+            "app.services.ai_assistance.check_mta_sts_cached",
+            new=AsyncMock(return_value=(MTAStsResult(status="pass"), False, None)),
+        ),
+        patch(
+            "app.services.ai_assistance.check_bimi_cached",
+            new=AsyncMock(return_value=(BIMIResult(status="pass"), False, None)),
+        ),
+    ):
+        first = authed_client.get(f"/api/v1/ai/domains/{DOMAIN}/remediation-plan")
+        second = authed_client.get(f"/api/v1/ai/domains/{DOMAIN}/remediation-plan")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    first_plan = first.json()["plan"]
+    second_plan = second.json()["plan"]
+    assert first_plan["provider"] == "template"
+    assert first_plan["actions"]
+    assert first_plan["actions"][0]["steps"]
+    assert first_plan["safe_context"]["constraints"]["automatic_dns_changes"] is False
+    assert second_plan["cached"] is True
 
 
 def test_action_proposals_are_reviewable_and_not_mutating(

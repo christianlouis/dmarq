@@ -9,11 +9,15 @@ from app.services.mta_sts import MTAStsResult
 class FakeDNSProvider(BaseDNSProvider):
     def __init__(self, records: dict[str, list[str]]):
         self._records = records
+        self._cnames: dict[str, str] = {}
 
     async def lookup_txt(self, name: str) -> list[str]:
         if name in self._records:
             return self._records[name]
         raise LookupError(f"NXDOMAIN: {name}")
+
+    async def lookup_cname(self, name: str) -> str | None:
+        return self._cnames.get(name)
 
 
 @pytest.mark.asyncio
@@ -171,3 +175,48 @@ async def test_build_dns_guidance_lints_more_spf_tls_mta_and_bimi_states():
     assert "tls_rpt_multiple_records" in codes
     assert "mta_sts_review" in codes
     assert "bimi_review" in codes
+
+
+@pytest.mark.asyncio
+async def test_build_dns_guidance_lints_dkim_selector_health():
+    provider = FakeDNSProvider(
+        {
+            "example.com": ["v=spf1 -all"],
+            "_smtp._tls.example.com": ["v=TLSRPTv1; rua=mailto:tls@example.com"],
+            "google._domainkey.example.com": [
+                "v=DKIM1; k=rsa; p="
+                "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAgoodselector"
+                "keymaterialthatislongenoughtolooklikeanormalrsa1024or2048key"
+                "forlintpurposesonly1234567890abcdef"
+            ],
+            "short._domainkey.example.com": ["v=DKIM1; k=rsa; p=SHORT"],
+        }
+    )
+    provider._cnames["mailchimp._domainkey.example.com"] = "missing._domainkey.mcsv.net"
+    dns = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=reject; rua=mailto:dmarc@example.com",
+        spf=True,
+        spf_record="v=spf1 -all",
+        dkim=True,
+        dkim_selectors=["google", "short"],
+        selectors_checked=["google", "short", "mailchimp", "old"],
+    )
+
+    guidance = await build_dns_guidance(
+        "example.com",
+        provider,
+        dns,
+        MTAStsResult(status="pass"),
+        BIMIResult(status="pass"),
+        monitored_selectors=["google", "short", "mailchimp", "old"],
+        observed_selectors=["google", "mailchimp"],
+    )
+
+    findings = {finding.code: finding for finding in guidance.findings}
+    assert "dkim_selector_key_too_short" in findings
+    assert "dkim_selector_cname_broken" in findings
+    assert "dkim_selector_missing" in findings
+    assert findings["dkim_selector_missing"].record_name == "old._domainkey.example.com"
+    assert findings["dkim_selector_cname_broken"].record_type == "CNAME"
+    assert findings["dkim_selector_key_too_short"].remediation_steps

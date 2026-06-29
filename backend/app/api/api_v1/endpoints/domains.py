@@ -176,6 +176,7 @@ class DNSLintFindingResponse(BaseModel):
     record_name: str
     target_record: Optional[DNSGuidanceRecordResponse] = None
     evidence: List[str] = Field(default_factory=list)
+    remediation_steps: List[str] = Field(default_factory=list)
 
 
 class DNSGuidanceResponse(BaseModel):
@@ -995,6 +996,8 @@ async def _build_domain_dns_guidance(
         dns_result,
         mta_sts_result,
         bimi_result,
+        monitored_selectors=combined_selectors,
+        observed_selectors=report_selectors,
     )
     return asdict(guidance)
 

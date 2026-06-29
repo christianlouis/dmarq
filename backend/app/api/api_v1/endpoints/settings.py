@@ -137,7 +137,9 @@ SETTING_DEFAULTS: List[Dict[str, Any]] = [
     {
         "key": "forensics.redaction_mode",
         "value": "balanced",
-        "description": "Forensic report email-address redaction mode: balanced, domain_only, or strict",
+        "description": (
+            "Forensic report email-address redaction mode: balanced, domain_only, or strict"
+        ),
         "value_type": "string",
         "category": "forensics",
     },
@@ -286,7 +288,7 @@ SETTING_DEFAULTS: List[Dict[str, Any]] = [
     {
         "key": "ai.provider",
         "value": "template",
-        "description": "AI provider: template, local, or remote",
+        "description": "AI provider: template, local, remote, or litellm",
         "value_type": "string",
         "category": "ai",
     },
@@ -300,7 +302,9 @@ SETTING_DEFAULTS: List[Dict[str, Any]] = [
     {
         "key": "ai.remote_base_url",
         "value": "",
-        "description": "Optional remote provider base URL; credentials should be injected by environment",
+        "description": (
+            "Optional remote provider base URL; credentials should be injected by environment"
+        ),
         "value_type": "string",
         "category": "ai",
     },
@@ -316,6 +320,13 @@ SETTING_DEFAULTS: List[Dict[str, Any]] = [
         "value": "false",
         "description": "Allow human-confirmed action proposals to be recorded",
         "value_type": "boolean",
+        "category": "ai",
+    },
+    {
+        "key": "ai.remediation_cache_seconds",
+        "value": "86400",
+        "description": "Cache TTL for AI remediation plans; demo mode uses a longer fixed cache",
+        "value_type": "integer",
         "category": "ai",
     },
     {

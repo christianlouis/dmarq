@@ -257,6 +257,20 @@ GET /ai/domains/{domain}/summary
 Returns a deterministic evidence-first summary and remediation plan. Each
 recommendation includes evidence links back to the underlying DMARC data.
 
+#### Build Remediation Plan
+
+```text
+GET /ai/domains/{domain}/remediation-plan
+GET /ai/domains/{domain}/remediation-plan?finding_code=dkim_selector_missing
+```
+
+Returns a cached, step-by-step remediation plan built from redacted report,
+DNS, selector, mail-source, and provider context. Template mode is deterministic
+and never calls a remote model. When `ai.enabled=true` and `ai.provider` is
+`local`, `remote`, or `litellm`, DMARQ can ask LiteLLM for an
+OpenAI-compatible JSON plan. Demo mode always uses the template plan and a long
+cache window.
+
 #### Build Action Proposals
 
 ```text
@@ -379,10 +393,12 @@ GET /domains/dns/lint
 GET /domains/dns/lint/export
 ```
 
-Returns typed DNS lint findings with stable `code` values and suggested target
-records for DMARC, SPF, DKIM, MTA-STS, TLS-RPT, and BIMI readiness. The bulk
-endpoint returns the same payload shape per monitored domain, and the export
-endpoint returns the finding list as CSV for managed-domain reviews.
+Returns typed DNS lint findings with stable `code` values, suggested target
+records, and deterministic `remediation_steps` for DMARC, SPF, DKIM, MTA-STS,
+TLS-RPT, and BIMI readiness. DKIM findings distinguish missing selectors,
+broken CNAME targets, short RSA keys, and stale selectors. The bulk endpoint
+returns the same payload shape per monitored domain, and the export endpoint
+returns the finding list as CSV for managed-domain reviews.
 
 #### Get Posture Dashboard
 

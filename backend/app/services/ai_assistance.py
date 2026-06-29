@@ -5,15 +5,23 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import dataclass
+import time
+from dataclasses import asdict, dataclass
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.redaction import SENSITIVE_VALUE, redact_sensitive_text
 from app.models.domain import Domain
+from app.models.mail_source import MailSource
 from app.models.setting import Setting
+from app.services.bimi import check_bimi_cached
+from app.services.dns_cache import resolve_domain_dns_cached
+from app.services.dns_guidance import build_dns_guidance
+from app.services.dns_resolver import get_default_provider
+from app.services.mta_sts import check_mta_sts_cached
 from app.services.report_persistence import hydrate_report_store_from_db
 from app.services.report_store import ReportStore
 
@@ -24,11 +32,13 @@ AI_DEFAULTS = {
     "ai.remote_base_url": "",
     "ai.redaction_mode": "strict",
     "ai.action_tools_enabled": "false",
+    "ai.remediation_cache_seconds": "86400",
     "mcp.enabled": "false",
 }
 
 EMAIL_PATTERN = re.compile(r"\b[A-Z0-9._%+-]+@([A-Z0-9.-]+\.[A-Z]{2,})\b", re.IGNORECASE)
 LONG_TOKEN_PATTERN = re.compile(r"\b[A-Za-z0-9._~+/=-]{24,}\b")
+_REMEDIATION_CACHE: Dict[str, tuple[float, Dict[str, Any]]] = {}
 
 
 @dataclass(frozen=True)
@@ -42,6 +52,7 @@ class AssistanceConfig:
     redaction_mode: str
     action_tools_enabled: bool
     mcp_enabled: bool
+    remediation_cache_seconds: int
 
     def to_dict(self) -> Dict[str, Any]:
         """Return a UI/API-safe provider configuration."""
@@ -53,6 +64,7 @@ class AssistanceConfig:
             "redaction_mode": self.redaction_mode,
             "action_tools_enabled": self.action_tools_enabled,
             "mcp_enabled": self.mcp_enabled,
+            "remediation_cache_seconds": self.remediation_cache_seconds,
             "data_handling": {
                 "default_provider": "template",
                 "secrets_in_prompts": "never",
@@ -73,10 +85,17 @@ def _setting_bool(db: Session, key: str) -> bool:
     return _setting_value(db, key).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _setting_int(db: Session, key: str, default: int) -> int:
+    try:
+        return max(0, int(_setting_value(db, key) or default))
+    except (TypeError, ValueError):
+        return default
+
+
 def get_assistance_config(db: Session) -> AssistanceConfig:
     """Load AI/MCP settings with safe defaults."""
     provider = (_setting_value(db, "ai.provider") or "template").strip().lower()
-    if provider not in {"template", "local", "remote"}:
+    if provider not in {"template", "local", "remote", "litellm"}:
         provider = "template"
     redaction_mode = (_setting_value(db, "ai.redaction_mode") or "strict").strip().lower()
     if redaction_mode not in {"strict", "balanced"}:
@@ -89,6 +108,7 @@ def get_assistance_config(db: Session) -> AssistanceConfig:
         redaction_mode=redaction_mode,
         action_tools_enabled=_setting_bool(db, "ai.action_tools_enabled"),
         mcp_enabled=_setting_bool(db, "mcp.enabled"),
+        remediation_cache_seconds=_setting_int(db, "ai.remediation_cache_seconds", 86400),
     )
 
 
@@ -122,6 +142,256 @@ def _evidence(label: str, value: Any, href: str) -> Dict[str, str]:
         "value": str(value),
         "href": href,
     }
+
+
+def _domain_selectors_from_db(db: Session, domain: str) -> List[str]:
+    row = db.query(Domain.dkim_selectors).filter(Domain.name == domain).first()
+    if row is None:
+        return []
+    return [selector.strip() for selector in (row[0] or "").split(",") if selector.strip()]
+
+
+def _selectors_from_reports(store: ReportStore, domain: str) -> List[str]:
+    selectors: List[str] = []
+    for report in store.get_domain_reports(domain):
+        for record in report.get("records", []):
+            for dkim_entry in record.get("dkim") or []:
+                if not isinstance(dkim_entry, dict):
+                    continue
+                selector = str(dkim_entry.get("selector") or "").strip()
+                if selector and selector not in selectors:
+                    selectors.append(selector)
+    return selectors
+
+
+def _mail_source_context(db: Session) -> List[Dict[str, Any]]:
+    rows = db.query(MailSource).filter(MailSource.enabled.is_(True)).order_by(MailSource.name).all()
+    return [
+        {
+            "name": source.name,
+            "method": source.method,
+            "server": source.server or None,
+            "folder": source.folder,
+            "polling_interval_minutes": source.polling_interval,
+            "last_checked": source.last_checked.isoformat() if source.last_checked else None,
+        }
+        for source in rows[:10]
+    ]
+
+
+def _remediation_cache_key(context: Dict[str, Any]) -> str:
+    serialized = json.dumps(context, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _stable_cache_context(context: Dict[str, Any]) -> Dict[str, Any]:
+    stable = dict(context)
+    stable["generated_at"] = "<generated>"
+    return stable
+
+
+def _cache_get(key: str, ttl_seconds: int) -> Optional[Dict[str, Any]]:
+    cached = _REMEDIATION_CACHE.get(key)
+    if cached is None:
+        return None
+    created_at, payload = cached
+    if ttl_seconds and time.time() - created_at <= ttl_seconds:
+        return payload
+    _REMEDIATION_CACHE.pop(key, None)
+    return None
+
+
+def _cache_set(key: str, payload: Dict[str, Any]) -> None:
+    _REMEDIATION_CACHE[key] = (time.time(), payload)
+
+
+def _template_remediation_plan(context: Dict[str, Any]) -> Dict[str, Any]:
+    findings = context["dns_guidance"]["findings"]
+    actions = []
+    for index, finding in enumerate(findings, start=1):
+        actions.append(
+            {
+                "id": f"remediate-{index}",
+                "finding_code": finding["code"],
+                "title": finding["title"],
+                "priority": finding["severity"],
+                "summary": finding["action"],
+                "steps": finding.get("remediation_steps")
+                or [
+                    "Review the linked evidence.",
+                    "Apply the smallest DNS or provider configuration change.",
+                    "Refresh DMARQ after propagation.",
+                ],
+                "evidence": finding.get("evidence", []),
+                "target_record": finding.get("target_record"),
+                "requires_human_change": True,
+            }
+        )
+    return {
+        "domain": context["domain"],
+        "provider": "template",
+        "cached": False,
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "summary": (
+            "DMARQ built this remediation plan from local DNS, report, and infrastructure "
+            "context. No remote model was used."
+        ),
+        "actions": actions,
+        "safe_context": context,
+    }
+
+
+async def _litellm_remediation_plan(
+    config: AssistanceConfig,
+    context: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    try:
+        import litellm  # pylint: disable=import-outside-toplevel  # type: ignore[import]
+    except ImportError:
+        return None
+
+    model = config.model or "gpt-4o-mini"
+    litellm.drop_params = True
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You generate concise, operational remediation plans for DMARC, SPF, "
+                "DKIM, MTA-STS, TLS-RPT, and BIMI findings. Never suggest automatic "
+                "DNS changes. Return only valid JSON with keys summary and actions. "
+                "Each action must include finding_code, title, priority, summary, "
+                "steps, evidence, target_record, and requires_human_change."
+            ),
+        },
+        {
+            "role": "user",
+            "content": json.dumps(context, sort_keys=True),
+        },
+    ]
+    kwargs: Dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "temperature": 0.2,
+        "response_format": {"type": "json_object"},
+        "timeout": 20,
+    }
+    if config.remote_base_url:
+        kwargs["api_base"] = config.remote_base_url
+    try:
+        response = await litellm.acompletion(**kwargs)
+        content = response["choices"][0]["message"]["content"]
+        parsed = json.loads(content)
+    except Exception:  # pylint: disable=broad-exception-caught
+        return None
+
+    actions = parsed.get("actions")
+    if not isinstance(actions, list):
+        return None
+    return {
+        "domain": context["domain"],
+        "provider": "litellm",
+        "model": model,
+        "cached": False,
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "summary": str(parsed.get("summary") or "AI-generated remediation plan."),
+        "actions": actions,
+        "safe_context": context,
+    }
+
+
+async def build_remediation_plan(  # pylint: disable=too-many-locals
+    db: Session,
+    domain: str,
+    *,
+    finding_code: Optional[str] = None,
+    refresh: bool = False,
+) -> Dict[str, Any]:
+    """Build a step-by-step remediation plan, optionally enhanced through LiteLLM."""
+    store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
+    if not _domain_exists(db, store, domain):
+        raise ValueError("Domain not found")
+
+    config = get_assistance_config(db)
+    manual_selectors = _domain_selectors_from_db(db, domain)
+    report_selectors = _selectors_from_reports(store, domain)
+    combined_selectors = list(dict.fromkeys(manual_selectors + report_selectors))
+    provider = get_default_provider(db)
+    dns_result, _, _ = await resolve_domain_dns_cached(
+        db,
+        provider,
+        domain,
+        selectors=combined_selectors,
+        refresh=refresh,
+    )
+    mta_sts_result, _, _ = await check_mta_sts_cached(db, provider, domain, refresh=refresh)
+    bimi_result, _, _ = await check_bimi_cached(db, provider, domain, refresh=refresh)
+    guidance = await build_dns_guidance(
+        domain,
+        provider,
+        dns_result,
+        mta_sts_result,
+        bimi_result,
+        monitored_selectors=combined_selectors,
+        observed_selectors=report_selectors,
+    )
+    finding_dicts = [asdict(finding) for finding in guidance.findings]
+    if finding_code:
+        finding_dicts = [finding for finding in finding_dicts if finding["code"] == finding_code]
+
+    context = redact_safe_value(
+        {
+            "domain": domain,
+            "generated_at": datetime.utcnow().isoformat() + "Z",
+            "demo_mode": get_settings().DEMO_MODE,
+            "dns_provider": provider.__class__.__name__,
+            "mail_sources": _mail_source_context(db),
+            "dkim_selectors": {
+                "manual": manual_selectors,
+                "observed_from_reports": report_selectors,
+                "checked": dns_result.selectors_checked,
+                "resolved": dns_result.dkim_selectors,
+            },
+            "safe_summary": build_safe_context(db, domain)["summary"],
+            "dns_guidance": {
+                "status": guidance.status,
+                "findings": finding_dicts,
+                "target_records": [asdict(record) for record in guidance.target_records],
+            },
+            "constraints": {
+                "read_only_product_default": True,
+                "automatic_dns_changes": False,
+                "secrets_in_prompts": "never",
+                "raw_message_content": "never",
+            },
+        },
+        mode=config.redaction_mode,
+    )
+    cache_ttl = 30 * 24 * 60 * 60 if get_settings().DEMO_MODE else config.remediation_cache_seconds
+    cache_key = _remediation_cache_key(
+        {
+            "provider": config.provider,
+            "model": config.model,
+            "base_url_configured": bool(config.remote_base_url),
+            "context": _stable_cache_context(context),
+        }
+    )
+    cached = _cache_get(cache_key, cache_ttl)
+    if cached:
+        return {**cached, "cached": True}
+
+    plan = _template_remediation_plan(context)
+    if (
+        config.ai_enabled
+        and config.provider in {"remote", "local", "litellm"}
+        and not get_settings().DEMO_MODE
+    ):
+        llm_plan = await _litellm_remediation_plan(config, context)
+        if llm_plan is not None:
+            plan = llm_plan
+
+    _cache_set(cache_key, plan)
+    return plan
 
 
 def build_safe_context(db: Session, domain: str) -> Dict[str, Any]:
