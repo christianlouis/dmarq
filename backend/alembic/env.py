@@ -25,6 +25,7 @@ import app.models.alert  # noqa: E402, F401
 import app.models.api_token  # noqa: E402, F401
 import app.models.dns_cache  # noqa: E402, F401
 import app.models.domain  # noqa: E402, F401
+import app.models.health_score_snapshot  # noqa: E402, F401
 import app.models.mail_source  # noqa: E402, F401
 import app.models.mail_source_import  # noqa: E402, F401
 

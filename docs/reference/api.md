@@ -445,6 +445,30 @@ actionable recommendations, recent provider-backed DNS drift summaries, and
 short operator playbooks. Recommendation and playbook evidence links point back
 to the page section that triggered the finding.
 
+#### Get Health Score History
+
+```
+GET /domains/{domain_id}/posture/history
+```
+
+Returns persisted daily health score snapshots for one domain, including score,
+grade, policy, aggregate report counts, factor scores, top action drivers,
+previous score, and score delta. Use `start_date`, `end_date`, and `limit` to
+shape audit or dashboard windows. By default the endpoint captures the current
+posture as today's snapshot before reading history; pass `capture_current=false`
+when reading already persisted evidence only.
+
+#### Export Health Evidence
+
+```
+GET /domains/{domain_id}/posture/evidence/export
+```
+
+Exports sanitized score history evidence as CSV. The export includes aggregate
+posture metadata only: score, grade, policy, aggregate message/report counts,
+factor scores, and top action titles. It does not include forensic message
+content, subjects, recipients, or raw uploaded report bodies.
+
 #### Add Domain
 
 ```

@@ -8,6 +8,7 @@ from app.services.demo_data import (
     analyze_demo_forensic_reports,
     build_demo_dashboard_statistics,
     build_demo_forensic_reports,
+    build_demo_health_score_history,
     build_demo_mail_source_backfills,
     build_demo_mail_sources,
     build_demo_reports,
@@ -148,6 +149,20 @@ def test_demo_mail_sources_include_backfill_lifecycle_examples():
         for job in build_demo_mail_source_backfills(source_id, today=date(2026, 6, 25))
     }
     assert {"completed", "running", "backoff", "queued"}.issubset(statuses)
+
+
+def test_demo_health_score_history_covers_core_personas():
+    org = build_demo_health_score_history("dmarq.org", today=date(2026, 6, 25), days=90)
+    com = build_demo_health_score_history("dmarq.com", today=date(2026, 6, 25), days=90)
+    tenant = build_demo_health_score_history("lawfirm.example", today=date(2026, 6, 25), days=10)
+
+    assert org[0]["date"] == "2026-03-28"
+    assert org[-1]["policy"] == "reject"
+    assert org[-1]["score"] > org[0]["score"]
+    assert com[-1]["policy"] == "none"
+    assert com[-1]["grade"] in {"C", "D"}
+    assert tenant[-1]["policy"] == "quarantine"
+    assert tenant[-1]["top_actions"][0]["title"] == "Review managed customer sender alignment"
 
 
 @pytest.mark.asyncio

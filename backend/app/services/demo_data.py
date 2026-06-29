@@ -247,6 +247,68 @@ def build_demo_mail_source_backfills(
     return list(jobs.get(source_id, []))
 
 
+def build_demo_health_score_history(
+    domain: str,
+    today: Optional[date] = None,
+    days: int = DEMO_DAYS,
+) -> List[Dict[str, Any]]:
+    """Return rolling health score history for demo posture trend views."""
+    anchor = _demo_today(today)
+    normalized_domain = (domain or "").lower()
+    points: List[Dict[str, Any]] = []
+    for day_index in range(days):
+        snapshot_date = anchor - timedelta(days=days - day_index - 1)
+        if normalized_domain == "dmarq.com":
+            score = min(76, 58 + round(day_index * 0.18))
+            if day_index % 17 == 0:
+                score -= 4
+            grade = "C" if score >= 70 else "D"
+            status = "attention"
+            policy = "none"
+            action = "Move out of monitoring mode"
+        elif normalized_domain == "dmarq.org":
+            score = min(94, 82 + round(day_index * 0.14))
+            if day_index % 23 == 0:
+                score -= 3
+            grade = "A" if score >= 93 else "B+" if score >= 87 else "B"
+            status = "healthy" if score >= 90 else "attention"
+            policy = "quarantine" if day_index < days - 12 else "reject"
+            action = "Resolve newsletter DKIM drift"
+        else:
+            score = min(88, 68 + round(day_index * 0.12))
+            grade = "B" if score >= 83 else "C" if score >= 70 else "D"
+            status = "attention"
+            policy = "quarantine"
+            action = "Review managed customer sender alignment"
+        points.append(
+            {
+                "date": snapshot_date.isoformat(),
+                "score": score,
+                "grade": grade,
+                "status": status,
+                "policy": policy,
+                "compliance_rate": min(99, score + 5),
+                "total_emails": 1800 + (day_index * 31),
+                "failed_emails": max(2, 210 - day_index * 2),
+                "report_count": day_index + 1,
+                "dns_posture_score": min(100, score + 8),
+                "policy_strength_score": (
+                    100 if policy == "reject" else 88 if policy == "quarantine" else 55
+                ),
+                "report_confidence_score": 100 if day_index > 14 else 78,
+                "top_actions": [
+                    {
+                        "type": "demo_action",
+                        "severity": "medium",
+                        "title": action,
+                        "score_impact": 8,
+                    }
+                ],
+            }
+        )
+    return points
+
+
 def build_demo_multi_user_deployment() -> Dict[str, Any]:
     """Return a rolling SaaS/ISP demo deployment model without real customers."""
     today = date.today()
