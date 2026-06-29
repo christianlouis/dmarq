@@ -996,6 +996,24 @@ class TestMailSourcesAPIAuthed:
         assert checkpoint_response.json()["cursor_checkpoint"]["connector"] == "gmail"
         assert checkpoint_response.json()["cursor_checkpoint"]["page_cursor"] == "next-page-token"
 
+    def test_backfill_cursor_checkpoint_preserves_legacy_formats(self):
+        legacy = mail_sources_endpoint._backfill_cursor_checkpoint(
+            "imap:days=10;processed=42;state=backoff;ignored"
+        )
+        plain = mail_sources_endpoint._backfill_cursor_checkpoint("legacy-cursor")
+        list_payload = mail_sources_endpoint._backfill_cursor_checkpoint("[1, 2, 3]")
+
+        assert legacy == {
+            "version": 0,
+            "raw": "imap:days=10;processed=42;state=backoff;ignored",
+            "connector": "imap",
+            "days": 10,
+            "processed": 42,
+            "state": "backoff",
+        }
+        assert plain == {"version": 0, "raw": "legacy-cursor"}
+        assert list_payload is None
+
     def test_demo_mode_returns_mail_source_backfill_examples(
         self,
         authed_client: TestClient,
