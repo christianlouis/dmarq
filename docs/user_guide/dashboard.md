@@ -87,6 +87,12 @@ All demo users, customer IDs, provider IDs, invoices, and domains outside
 demo is explicit UI state; production impersonation should be audited and
 permission-gated.
 
+The account detail panel keeps the active organization, workspace, and viewed
+user visible while you move through the demo path. Workspaces can be selected
+directly; `dmarq.org` and `dmarq.com` link to report-backed domain detail pages,
+while ISP and self-hosted sample domains are marked as demo-only tenant context
+until the demo includes full report stores for those generated tenants.
+
 ## Customizing the Dashboard
 
 You can customize various aspects of the dashboard:

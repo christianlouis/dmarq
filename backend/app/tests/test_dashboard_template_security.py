@@ -55,6 +55,12 @@ def test_dashboard_renders_demo_billing_profiles_without_html_injection():
     assert "Demo experience" in template
     assert "Start tour" in template
     assert "selectedDemoUserEmail" in template
+    assert "selectedDemoWorkspaceSlug" in template
+    assert "Workspace drill-down" in template
+    assert "tenant-workspace-drilldown" in template
+    assert "hasLiveDomain(domainName)" in template
+    assert "Demo-only" in template
+    assert "demoImpersonationNotice()" in template
     assert "Provider billing samples" in template
     assert "billing_profile.display_name" in template
     assert "formatDemoUsage(organization, usage)" in template

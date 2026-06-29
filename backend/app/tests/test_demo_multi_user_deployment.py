@@ -78,6 +78,12 @@ def test_demo_multi_user_deployment_has_opinionated_default_and_impersonation():
     deployment = build_demo_multi_user_deployment()
 
     assert deployment["default_viewer"] == "single-user-multiple-domains"
+    assert deployment["impersonation_policy"]["mode"] == "demo_only"
+    assert deployment["impersonation_policy"]["audit_label"] == (
+        "support impersonation audit event"
+    )
+    assert "operator" in deployment["impersonation_policy"]["scope"]
+    assert "target user" in deployment["impersonation_policy"]["scope"]
     assert [step["scenario_id"] for step in deployment["journey_steps"]] == [
         "single-user-multiple-domains",
         "managed-service-analyst",

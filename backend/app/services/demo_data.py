@@ -63,6 +63,17 @@ def build_demo_multi_user_deployment() -> Dict[str, Any]:
         },
         "roles": list(DEMO_MULTI_USER_ROLES),
         "default_viewer": "single-user-multiple-domains",
+        "impersonation_policy": {
+            "mode": "demo_only",
+            "audit_label": "support impersonation audit event",
+            "allowed_roles": ["organization_owner", "provider_operator"],
+            "scope": (
+                "Impersonation is shown as an explicit support workflow in the demo. "
+                "A production deployment must permission-gate the action, record the "
+                "operator, target user, organization, workspace, reason, and time, and "
+                "keep the customer-facing view read-only unless elevated separately."
+            ),
+        },
         "journey_steps": [
             {
                 "step": 1,
