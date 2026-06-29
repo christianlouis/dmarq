@@ -251,14 +251,25 @@ def build_health_summary(
     by_domain = {
         str(item.get("domain")): item for item in domain_health if item.get("domain") is not None
     }
+
+    def _domain_key(domain: Dict[str, Any]) -> str:
+        return str(domain.get("domain_name") or domain.get("id"))
+
+    missing_health = [
+        _domain_key(domain) for domain in domains if _domain_key(domain) not in by_domain
+    ]
+    if missing_health:
+        raise ValueError(
+            f"Missing health payloads for domains: {', '.join(missing_health)}"
+        )
+
     total_weight = sum(max(1, int(domain.get("total_emails") or 0)) for domain in domains)
     if total_weight:
         score = round(
             sum(
-                by_domain[str(domain.get("domain_name") or domain.get("id"))]["score"]
+                by_domain[_domain_key(domain)]["score"]
                 * max(1, int(domain.get("total_emails") or 0))
                 for domain in domains
-                if str(domain.get("domain_name") or domain.get("id")) in by_domain
             )
             / total_weight
         )

@@ -1,5 +1,7 @@
 from unittest.mock import patch
 
+import pytest
+
 from app.services.health_score import build_health_summary, health_grade, score_domain_health
 
 
@@ -144,6 +146,12 @@ def test_build_health_summary_reuses_precomputed_domain_health():
     mock_score.assert_not_called()
     assert summary["domains"] is precomputed
     assert summary["score"] == 42
+
+
+def test_build_health_summary_raises_on_missing_health_payload():
+    domains = [{"domain_name": "a.com", "total_emails": 100}]
+    with pytest.raises(ValueError):
+        build_health_summary(domains, [])  # no matching health payload
 
 
 def test_build_health_summary_a_plus_reachable_at_system_level():
