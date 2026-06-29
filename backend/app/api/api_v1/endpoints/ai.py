@@ -154,6 +154,7 @@ async def get_domain_remediation_plan(
     selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> RemediationPlanResponse:  # pylint: disable=too-many-positional-arguments
     """Return a cached step-by-step remediation plan for DNS/posture findings."""
+    _require_ai_enabled(db)
     try:
         plan = await build_remediation_plan(
             db,

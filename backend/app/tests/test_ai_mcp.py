@@ -94,6 +94,7 @@ def test_ai_remediation_plan_uses_template_and_cache(
     db_session: Session,
 ):
     _seed_report_store()
+    _set_setting(db_session, "ai.enabled", "true", "ai")
     _set_setting(db_session, "ai.remediation_cache_seconds", "86400", "ai")
     provider = AsyncMock()
     provider.check_domain = AsyncMock(

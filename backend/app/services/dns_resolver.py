@@ -536,8 +536,8 @@ class SystemDNSProvider(BaseDNSProvider):
             if answers:
                 for rdata in answers:
                     return str(rdata.target).rstrip(".")
-        except dns.exception.DNSException:
-            pass
+        except dns.exception.DNSException as exc:
+            logger.debug("CNAME lookup failed for %s: %s", _sanitize_for_log(name), exc)
         return None
 
 

@@ -434,7 +434,7 @@
                                             <p class="mt-1 text-sm" x-text="finding.action"></p>
                                             <template x-if="finding.remediation_steps && finding.remediation_steps.length">
                                                 <ol class="mt-2 list-decimal space-y-1 pl-5 text-sm text-base-content/75">
-                                                    <template x-for="step in finding.remediation_steps" :key="step">
+                                                    <template x-for="(step, stepIndex) in finding.remediation_steps" :key="finding.code + '-' + stepIndex">
                                                         <li x-text="step"></li>
                                                     </template>
                                                 </ol>

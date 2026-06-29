@@ -38,6 +38,7 @@ AI_DEFAULTS = {
 
 EMAIL_PATTERN = re.compile(r"\b[A-Z0-9._%+-]+@([A-Z0-9.-]+\.[A-Z]{2,})\b", re.IGNORECASE)
 LONG_TOKEN_PATTERN = re.compile(r"\b[A-Za-z0-9._~+/=-]{24,}\b")
+REMEDIATION_CACHE_MAX_ENTRIES = 256
 _REMEDIATION_CACHE: Dict[str, tuple[float, Dict[str, Any]]] = {}
 
 
@@ -191,6 +192,7 @@ def _stable_cache_context(context: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _cache_get(key: str, ttl_seconds: int) -> Optional[Dict[str, Any]]:
+    _cache_prune(ttl_seconds)
     cached = _REMEDIATION_CACHE.get(key)
     if cached is None:
         return None
@@ -201,7 +203,25 @@ def _cache_get(key: str, ttl_seconds: int) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _cache_prune(ttl_seconds: int) -> None:
+    if ttl_seconds:
+        now = time.time()
+        expired_keys = [
+            key
+            for key, (created_at, _payload) in _REMEDIATION_CACHE.items()
+            if now - created_at > ttl_seconds
+        ]
+        for key in expired_keys:
+            _REMEDIATION_CACHE.pop(key, None)
+    while len(_REMEDIATION_CACHE) > REMEDIATION_CACHE_MAX_ENTRIES:
+        oldest_key = min(_REMEDIATION_CACHE, key=lambda item: _REMEDIATION_CACHE[item][0])
+        _REMEDIATION_CACHE.pop(oldest_key, None)
+
+
 def _cache_set(key: str, payload: Dict[str, Any]) -> None:
+    if len(_REMEDIATION_CACHE) >= REMEDIATION_CACHE_MAX_ENTRIES:
+        oldest_key = min(_REMEDIATION_CACHE, key=lambda item: _REMEDIATION_CACHE[item][0])
+        _REMEDIATION_CACHE.pop(oldest_key, None)
     _REMEDIATION_CACHE[key] = (time.time(), payload)
 
 
