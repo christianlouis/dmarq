@@ -186,6 +186,14 @@ provider, customer-impersonation, and self-hosted examples. Each step points to
 an existing demo scenario, organization, workspace, and domain so the UI can
 switch context without inventing state client-side.
 
+The response also includes an `impersonation_policy` object for the public demo.
+It documents that impersonation is demo-only, names the production audit event
+that would be written, and describes the minimum production audit scope:
+operator, target user, organization, workspace, reason, and timestamp.
+Generated ISP and self-hosted tenant domains explain workspace scope and billing
+ownership; only domains backed by aggregate reports should link to live domain
+detail pages.
+
 Provider billing integrations can read monthly usage with
 `GET /api/v1/provider/billing/usage?period=YYYY-MM`. A single external customer
 can be filtered with
