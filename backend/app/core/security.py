@@ -117,8 +117,7 @@ async def get_api_key(api_key_value: Optional[str] = Security(api_key_header)) -
         )
 
     if not verify_api_key(api_key_value):
-        suffix = api_key_value[-8:] if len(api_key_value) >= 8 else "invalid"
-        logger.warning("Invalid API key attempt: ...%s", suffix)
+        logger.warning("Invalid API key attempt.")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid API key",

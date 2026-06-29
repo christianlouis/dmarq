@@ -235,15 +235,19 @@ class IMAPClient:
 
                 stats["processed"] += 1
         except Exception as e:  # pylint: disable=broad-exception-caught
-            error_msg = f"Error processing email ID {email_id}: {str(e)}"
-            logger.error(error_msg)
-            stats["errors"].append(error_msg)
+            safe_email_id = sanitize_connector_error(email_id)
+            logger.error(
+                "Error processing IMAP email ID %s: %s",
+                safe_email_id,
+                sanitize_connector_error(e),
+            )
+            stats["errors"].append("Error processing one mailbox message.")
             self._append_detail(
                 stats,
                 status="error",
                 reason="message_processing_failed",
                 message_id=message_id,
-                error=str(e),
+                error="Message processing failed. Check server logs for details.",
             )
 
     def fetch_reports(self, days: int = 7) -> Dict[str, Any]:

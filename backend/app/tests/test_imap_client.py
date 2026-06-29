@@ -10,11 +10,11 @@ import imaplib
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from gzip import GzipFile
 from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from zipfile import ZipFile
-from gzip import GzipFile
 
 import pytest
 
@@ -96,7 +96,7 @@ def _make_email_with_attachment(
     content_type: str = "application/xml",
     subject: str = "DMARC Report",
     from_addr: str = "noreply@example.com",
-    disposition_type: str = "attachment"
+    disposition_type: str = "attachment",
 ) -> bytes:
     msg = MIMEMultipart()
     msg["Subject"] = subject
@@ -519,7 +519,9 @@ class TestProcessAttachments:
         client = self._make_client()
         gzip_content = _make_gzip_content(MINIMAL_DMARC_XML, "report.xml")
         msg = email.message_from_bytes(
-            _make_email_with_attachment("report.gz", gzip_content, "application/gzip", disposition_type="inline")
+            _make_email_with_attachment(
+                "report.gz", gzip_content, "application/gzip", disposition_type="inline"
+            )
         )
         count = client._process_attachments(msg)
         assert count == 1
@@ -946,3 +948,20 @@ class TestFetchReports:
         mock_mail.expunge.assert_not_called()
         assert result["success"] is True
         assert result["deleted"] == 0
+
+    def test_single_message_exception_uses_generic_result_error(self):
+        client = self._make_client()
+        mock_mail = MagicMock()
+        mock_mail.fetch.side_effect = RuntimeError("password=super-secret")
+        stats = {
+            "processed": 0,
+            "reports_found": 0,
+            "errors": [],
+            "details": [],
+        }
+
+        client._process_single_email(mock_mail, b"1", stats)
+
+        assert stats["errors"] == ["Error processing one mailbox message."]
+        assert "super-secret" not in str(stats)
+        assert stats["details"][0]["reason"] == "message_processing_failed"

@@ -1,13 +1,14 @@
 import json
 import logging
 import os
-import re
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
+from app.core.redaction import sanitize_for_log
 from app.models.domain import Domain
 from app.models.report import DMARCReport, ReportRecord
 
@@ -95,7 +96,11 @@ class StatsSummarizer:
             with open(cache_file, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:  # pylint: disable=broad-exception-caught
-            logger.warning("Error reading cache file %s: %s", cache_file, str(e))
+            logger.warning(
+                "Error reading stats cache file %s: %s",
+                sanitize_for_log(os.path.basename(cache_file)),
+                sanitize_for_log(e),
+            )
             return None
 
     def save_summary(
@@ -134,7 +139,11 @@ class StatsSummarizer:
 
             return True
         except Exception as e:  # pylint: disable=broad-exception-caught
-            logger.error("Error writing cache file %s: %s", cache_file, str(e))
+            logger.error(
+                "Error writing stats cache file %s: %s",
+                sanitize_for_log(os.path.basename(cache_file)),
+                sanitize_for_log(e),
+            )
             return False
 
     def invalidate_cache(
@@ -149,18 +158,33 @@ class StatsSummarizer:
             domain_id: Optional domain ID to invalidate specific domain cache
                        If None, invalidates global summary cache
         """
-        workspace_prefix = f"workspace_{workspace_id}_" if workspace_id is not None else ""
-        if domain_id is None:
-            self._remove_cache_files(f"{workspace_prefix}global_summary")
-        else:
-            safe_domain = domain_id.replace(".", "_").replace("/", "_")
-            self._remove_cache_files(f"{workspace_prefix}domain_{safe_domain}")
+        self._remove_cache_files(self._cache_scope_prefix(domain_id, workspace_id))
 
     def _remove_cache_files(self, prefix: str) -> None:
         """Remove cached summary files that begin with the provided prefix."""
         for filename in os.listdir(self.cache_dir):
             if filename.startswith(prefix) and filename.endswith(".json"):
                 os.remove(os.path.join(self.cache_dir, filename))
+
+    @staticmethod
+    def _hash_cache_part(value: object) -> str:
+        """Return a short deterministic cache identifier for user-controlled input."""
+        return sha256(str(value).encode("utf-8")).hexdigest()[:16]
+
+    def _cache_scope_prefix(
+        self,
+        domain_id: Optional[str] = None,
+        workspace_id: Optional[int] = None,
+    ) -> str:
+        """Return the stable filename prefix for a workspace/domain cache scope."""
+        workspace_part = (
+            f"workspace_{self._hash_cache_part(workspace_id)}"
+            if workspace_id is not None
+            else "workspace_all"
+        )
+        if domain_id is None:
+            return f"{workspace_part}_global_summary"
+        return f"{workspace_part}_domain_{self._hash_cache_part(domain_id)}"
 
     def _get_cache_filename(
         self,
@@ -182,15 +206,9 @@ class StatsSummarizer:
         period_days = max(1, int(period_days or 30))
         suffix = f"{period_days}d"
         if cache_key:
-            safe_key = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(cache_key)).strip("_")
-            if safe_key:
-                suffix = f"{suffix}_{safe_key}"
-        workspace_prefix = f"workspace_{workspace_id}_" if workspace_id is not None else ""
-        if domain_id is None:
-            return os.path.join(self.cache_dir, f"{workspace_prefix}global_summary_{suffix}.json")
-        # Sanitize domain_id to use as filename
-        safe_domain = domain_id.replace(".", "_").replace("/", "_")
-        return os.path.join(self.cache_dir, f"{workspace_prefix}domain_{safe_domain}_{suffix}.json")
+            suffix = f"{suffix}_key_{self._hash_cache_part(cache_key)}"
+        prefix = self._cache_scope_prefix(domain_id, workspace_id)
+        return os.path.join(self.cache_dir, f"{prefix}_{suffix}.json")
 
     def calculate_summary_statistics(
         self,

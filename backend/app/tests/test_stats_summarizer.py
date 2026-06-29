@@ -639,16 +639,18 @@ class TestStatsSummarizerCaching:
         thirty_day_cache = summarizer._get_cache_filename(period_days=30, cache_key="shared_window")
 
         assert seven_day_cache != thirty_day_cache
-        assert "7d_shared_window" in seven_day_cache
-        assert "30d_shared_window" in thirty_day_cache
+        assert "7d_key_" in os.path.basename(seven_day_cache)
+        assert "30d_key_" in os.path.basename(thirty_day_cache)
+        assert "shared_window" not in seven_day_cache
 
     def test_workspace_cache_keys_are_partitioned_and_invalidated(self, summarizer):
         summarizer.save_summary({"total_domains": 1, "change_summary": {}}, workspace_id=101)
         summarizer.save_summary({"total_domains": 2, "change_summary": {}}, workspace_id=202)
 
-        assert os.path.basename(summarizer._get_cache_filename(workspace_id=101)).startswith(
-            "workspace_101_global_summary"
-        )
+        cache_name = os.path.basename(summarizer._get_cache_filename(workspace_id=101))
+        assert cache_name.startswith("workspace_")
+        assert "_global_summary_" in cache_name
+        assert "101" not in cache_name
         assert summarizer.get_cached_summary(workspace_id=101)["total_domains"] == 1
         assert summarizer.get_cached_summary(workspace_id=202)["total_domains"] == 2
 
@@ -656,6 +658,23 @@ class TestStatsSummarizerCaching:
 
         assert summarizer.get_cached_summary(workspace_id=101) is None
         assert summarizer.get_cached_summary(workspace_id=202)["total_domains"] == 2
+
+    def test_cache_filename_hashes_domain_and_cache_key(self, summarizer):
+        filename = os.path.basename(
+            summarizer._get_cache_filename(
+                domain_id="../evil.example.com\nx",
+                period_days=14,
+                cache_key="custom_2026-06-01_2026-06-07",
+                workspace_id=123,
+            )
+        )
+
+        assert filename.endswith(".json")
+        assert ".." not in filename
+        assert "\n" not in filename
+        assert "evil.example.com" not in filename
+        assert "custom_2026" not in filename
+        assert "123" not in filename
 
     def test_old_cache_without_change_summary_is_refreshed(self, db_session, summarizer):
         _seed_new_source_records(db_session)

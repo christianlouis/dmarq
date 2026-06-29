@@ -139,7 +139,8 @@ def connector_failure_stats(
     error: Optional[object] = None,
 ) -> Dict[str, Any]:
     """Return a standardized failed import payload for provider errors."""
-    safe_message = sanitize_connector_error(error if error is not None else message)
+    _ = error
+    safe_message = sanitize_connector_error(message)
     return {
         **stats,
         "success": False,

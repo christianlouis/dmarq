@@ -9,6 +9,7 @@ from starlette.concurrency import run_in_threadpool
 from app.core.database import SessionLocal
 from app.core.security import require_admin_auth
 from app.services.imap_client import IMAPClient
+from app.services.mail_connector import sanitize_connector_error
 from app.services.mailbox_recovery import connection_test_response, import_result_diagnostic
 
 router = APIRouter()
@@ -43,6 +44,15 @@ def _fetch_imap_reports_sync(days: int, delete_emails: Optional[bool]) -> Dict[s
 def _fetch_imap_reports_background(days: int, delete_emails: Optional[bool]) -> None:
     """Fetch IMAP reports from a FastAPI background task."""
     _fetch_imap_reports_sync(days, delete_emails)
+
+
+def _public_import_errors(results: Dict[str, Any]) -> Optional[list[str]]:
+    """Return compact, non-sensitive connector diagnostics for API clients."""
+    errors = results.get("errors") or []
+    if not errors:
+        return None
+    diagnostic = import_result_diagnostic(results)
+    return [sanitize_connector_error(diagnostic["summary"])]
 
 
 @router.post("/test-connection")
@@ -108,7 +118,7 @@ async def fetch_imap_reports(
             "forensic_reports_found": int(results.get("forensic_reports_found", 0)),
             "duplicate_forensic_reports": int(results.get("duplicate_forensic_reports", 0)),
             "new_domains": results["new_domains"],
-            "errors": results["errors"] if "errors" in results and results["errors"] else None,
+            "errors": _public_import_errors(results),
             "diagnostic": diagnostic,
             "diagnostic_category": diagnostic["category"],
             "diagnostic_summary": diagnostic["summary"],

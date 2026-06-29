@@ -129,7 +129,7 @@ class TestImapFetchReports:
             "processed": 1,
             "reports_found": 0,
             "new_domains": [],
-            "errors": ["Could not parse email 1"],
+            "errors": ["Could not parse email 1 with password=super-secret"],
         }
 
         with (
@@ -141,6 +141,8 @@ class TestImapFetchReports:
         assert response.status_code == 200
         data = response.json()
         assert data["errors"] is not None
+        assert "super-secret" not in str(data["errors"])
+        assert "password" not in str(data["errors"]).lower()
         assert data["diagnostic_category"] == "parsing"
         assert data["recovery_steps"]
 
