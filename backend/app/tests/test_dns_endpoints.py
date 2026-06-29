@@ -744,6 +744,9 @@ def test_posture_dashboard_links_recommendations_changes_and_playbooks(
     data = response.json()
     assert data["status"] == "degraded"
     assert data["score"] == 80
+    assert data["health"]["domain"] == DOMAIN
+    assert data["health"]["grade"] in {"A+", "A", "A-", "B+", "B", "B-", "C", "D", "F"}
+    assert isinstance(data["health"]["score"], int)
     assert any(item["key"] == "spf" and item["href"] == "#dns-records" for item in data["coverage"])
     missing_spf_recommendation = next(
         item for item in data["recommendations"] if item["type"] == "missing_spf"
