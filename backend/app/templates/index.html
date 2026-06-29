@@ -273,6 +273,7 @@
                             class="min-w-0 rounded-md border border-[#dfdfdf] bg-white px-3 py-2 text-sm font-semibold text-[#120d36]"
                             x-model="selectedDnsDomain"
                             @change="updateDnsHealth()">
+                        <option value="">No report-backed domain selected</option>
                         <template x-for="domain in domains" :key="domain.domain_name || domain.id">
                             <option :value="domain.domain_name" x-text="domain.domain_name"></option>
                         </template>
@@ -830,7 +831,8 @@ function dashboardApp() {
         ],
 
         get selectedDnsDomainRecord() {
-            return this.domains.find(domain => domain.domain_name === this.selectedDnsDomain) || this.domains[0] || null;
+            if (!this.selectedDnsDomain) return null;
+            return this.domains.find(domain => domain.domain_name === this.selectedDnsDomain) || null;
         },
 
         get selectedDomainHref() {
