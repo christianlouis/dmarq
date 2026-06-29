@@ -20,6 +20,19 @@ def test_dashboard_domain_details_links_are_encoded():
     assert "encodeURIComponent(domainId)" in template
 
 
+def test_domain_details_exposes_health_history_without_html_injection():
+    template = (
+        Path(__file__).resolve().parents[1] / "templates" / "domain_details.html"
+    ).read_text()
+
+    assert "Health Score Trend" in template
+    assert "/posture/history?capture_current=false" in template
+    assert "/posture/evidence/export?capture_current=false" in template
+    assert "encodeURIComponent(this.domainId)" in template
+    assert "health-score-chart" in template
+    assert "x-html" not in template
+
+
 def test_members_template_uses_membership_api_without_html_injection():
     template = (Path(__file__).resolve().parents[1] / "templates" / "members.html").read_text()
 
