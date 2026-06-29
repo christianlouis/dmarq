@@ -154,14 +154,16 @@ Cloudflare credentials can also be stored from **Settings**. The API token is
 encrypted in the settings table and redacted when settings are read back. Leave
 the Zone ID blank to discover every active zone visible to the token.
 
-The integration exposes:
+The integration exposes these operational routes:
 
-- `GET /api/v1/domains/cloudflare/discover` to list available zones.
-- `POST /api/v1/domains/cloudflare/import` to create monitored domain rows from zones.
-- `GET /api/v1/domains/{domain}/dns/cloudflare` to inspect managed DNS records, return DMARC/SPF/DKIM suggestions, and record detected DNS changes.
-- `GET /api/v1/domains/{domain}/dns/history` to review DNS record additions, modifications, and removals.
-- `GET /api/v1/domains/dns/providers` to list native and Lexicon-backed DNS write providers.
-- `POST /api/v1/domains/{domain}/dns/change-plan/apply` to dry-run or explicitly apply one safe DNS change plan.
+| Route | Purpose |
+| --- | --- |
+| `GET /api/v1/domains/cloudflare/discover` | List available zones. |
+| `POST /api/v1/domains/cloudflare/import` | Create monitored domain rows from zones. |
+| `GET /api/v1/domains/{domain}/dns/cloudflare` | Inspect managed DNS records, return DMARC/SPF/DKIM suggestions, and record detected DNS changes. |
+| `GET /api/v1/domains/{domain}/dns/history` | Review DNS record additions, modifications, and removals. |
+| `GET /api/v1/domains/dns/providers` | List native and Lexicon-backed DNS write providers. |
+| `POST /api/v1/domains/{domain}/dns/change-plan/apply` | Dry-run or explicitly apply one safe DNS change plan. |
 
 Provider writes are opt-in at action time. Requests default to dry-run, and real
 writes require `confirm=true` plus `dry_run=false`. Public demo mode rejects

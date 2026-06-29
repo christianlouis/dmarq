@@ -2034,11 +2034,12 @@ async def apply_domain_dns_change_plan(
 
     guidance = await _build_domain_dns_guidance(db, store, domain_id, refresh=refresh)
     plan = _find_dns_change_plan(guidance, payload.plan_id)
+    resolved_domain = guidance["domain"]
     try:
         if payload.dry_run or not payload.confirm:
             result = await preview_dns_write(
                 db,
-                domain=domain_id,
+                domain=resolved_domain,
                 plan=plan,
                 provider_id=payload.provider,
                 value_override=payload.value,
@@ -2049,7 +2050,7 @@ async def apply_domain_dns_change_plan(
         result = await apply_dns_write(
             db,
             workspace=workspace,
-            domain=domain_id,
+            domain=resolved_domain,
             plan=plan,
             provider_id=payload.provider,
             value_override=payload.value,

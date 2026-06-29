@@ -674,6 +674,31 @@ def test_dns_change_plan_apply_dry_run_returns_cloudflare_mutation(
     assert data["mutation"]["content"] == plan["proposed_value"]
 
 
+def test_dns_change_plan_apply_uses_resolved_domain_for_provider_calls(
+    authed_client: TestClient,
+    db_session,
+):
+    plan = _dns_plan()
+    records = [_record("spf", "TXT", DOMAIN, "v=spf1 -all")]
+    zone_lookup = AsyncMock(return_value={"id": "zone-1", "name": DOMAIN, "records": records})
+
+    with (
+        patch("app.api.api_v1.endpoints.domains._domain_exists", return_value=True),
+        patch(
+            "app.api.api_v1.endpoints.domains._build_domain_dns_guidance",
+            new=AsyncMock(return_value=_dns_guidance_with_plan(plan)),
+        ),
+        patch("app.services.dns_provider_writes.get_zone_for_domain", new=zone_lookup),
+    ):
+        response = authed_client.post(
+            "/api/v1/domains/domain-row-id/dns/change-plan/apply",
+            json={"plan_id": plan["plan_id"], "provider": "cloudflare"},
+        )
+
+    assert response.status_code == 200
+    zone_lookup.assert_awaited_once_with(db_session, DOMAIN)
+
+
 def test_dns_change_plan_apply_dry_run_returns_noop_for_unchanged_cloudflare_record(
     authed_client: TestClient,
     db_session,
@@ -811,7 +836,7 @@ def test_dns_change_plan_apply_updates_cloudflare_and_audits(
     assert db_session.query(DNSRecordChange).count() == 1
     audit = db_session.query(WorkspaceAuditLog).one()
     assert audit.action == "domain.dns_change_applied"
-    assert "cloudflare" in audit.details
+    assert audit.details["provider"] == "cloudflare"
 
 
 def test_dns_change_plan_apply_blocks_provider_value_placeholders(
@@ -857,6 +882,31 @@ def test_apply_dns_write_rejects_demo_mode(db_session):
             assert "disabled in demo mode" in str(exc)
         else:
             raise AssertionError("Expected demo mode DNS write block")
+
+
+def test_apply_dns_write_rejects_unpersisted_workspace_before_provider_call(db_session):
+    workspace = Workspace(slug="pending", name="Pending")
+    plan = _dns_plan()
+
+    class NonDemoSettings:
+        DEMO_MODE = False
+
+    with (
+        patch("app.services.dns_provider_writes.get_settings", return_value=NonDemoSettings()),
+        patch("app.services.dns_provider_writes.build_dns_write_provider") as build_provider,
+    ):
+        with pytest.raises(DNSProviderWriteError, match="Workspace must be persisted"):
+            asyncio.run(
+                dns_provider_writes.apply_dns_write(
+                    db_session,
+                    workspace=workspace,
+                    domain=DOMAIN,
+                    plan=plan,
+                    provider_id="cloudflare",
+                )
+            )
+
+    build_provider.assert_not_called()
 
 
 def test_cloudflare_write_provider_requires_zone_id_for_apply(db_session):
@@ -998,6 +1048,27 @@ def test_lexicon_write_provider_prepares_update_and_applies_record(db_session):
     assert mutation.current_values == ["v=DMARC1; p=none"]
     assert result.applied is True
     assert result.provider_result == {"ok": True}
+
+
+def test_lexicon_write_provider_rejects_failed_apply(db_session):
+    provider = LexiconDNSWriteProvider("route53")
+    provider._list_records = (
+        lambda domain, record_type, record_name: []
+    )  # pylint: disable=protected-access
+    provider._apply_record = lambda domain, mutation: False  # pylint: disable=protected-access
+
+    with patch("app.services.dns_provider_writes.lexicon_runtime_available", return_value=True):
+        mutation = asyncio.run(
+            provider.prepare_mutation(
+                db_session,
+                domain=DOMAIN,
+                plan=_dns_plan(),
+                value_override=None,
+                ttl=300,
+            )
+        )
+        with pytest.raises(DNSProviderWriteError, match="did not apply"):
+            asyncio.run(provider.apply_mutation(db_session, domain=DOMAIN, mutation=mutation))
 
 
 def test_lexicon_write_provider_prepares_noop_for_matching_record(db_session):
