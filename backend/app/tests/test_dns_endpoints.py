@@ -818,6 +818,47 @@ def test_posture_dashboard_links_recommendations_changes_and_playbooks(
     assert any(playbook["key"] == "missing_spf" for playbook in data["playbooks"])
 
 
+def test_posture_dashboard_distinguishes_mta_sts_policy_hosting_failure(
+    authed_client: TestClient,
+):
+    """A published _mta-sts TXT with an unreachable policy needs hosting guidance."""
+    mta_sts = MTAStsResult(
+        status="fail",
+        dns_record="v=STSv1; id=20260523",
+        policy_url=f"https://mta-sts.{DOMAIN}/.well-known/mta-sts.txt",
+        errors=[
+            f"MTA-STS policy host mta-sts.{DOMAIN} could not be resolved. "
+            f"Publish DNS for mta-sts.{DOMAIN} and serve "
+            f"https://mta-sts.{DOMAIN}/.well-known/mta-sts.txt over HTTPS."
+        ],
+    )
+    bimi = BIMIResult(status="pass", dns_record=f"v=BIMI1; l=https://{DOMAIN}/logo.svg; a=")
+
+    with (
+        _mock_dns(),
+        patch(
+            "app.api.api_v1.endpoints.domains.check_mta_sts_cached",
+            new=AsyncMock(return_value=(mta_sts, False, None)),
+        ),
+        patch(
+            "app.api.api_v1.endpoints.domains.check_bimi_cached",
+            new=AsyncMock(return_value=(bimi, False, None)),
+        ),
+    ):
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/posture")
+
+    assert response.status_code == 200
+    data = response.json()
+    recommendation = next(
+        item for item in data["recommendations"] if item["type"] == "mta_sts_policy_unreachable"
+    )
+    assert recommendation["title"] == "Host the MTA-STS policy"
+    assert "existing _mta-sts TXT record" in recommendation["action"]
+    assert f"https://mta-sts.{DOMAIN}/.well-known/mta-sts.txt" in recommendation["action"]
+    assert any(playbook["key"] == "mta_sts_policy_unreachable" for playbook in data["playbooks"])
+    assert all(item["type"] != "missing_mta_sts" for item in data["recommendations"])
+
+
 def test_posture_dashboard_refreshes_health_grade_dns(
     authed_client: TestClient,
 ):

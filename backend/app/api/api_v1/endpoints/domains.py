@@ -805,19 +805,34 @@ def _mta_sts_recommendation(result: MTAStsResult) -> Optional[DNSHealthRecommend
     if result.status == "pass" and not result.warnings:
         return None
     severity = "warning" if result.status == "pass" else "error"
-    title = "MTA-STS policy needs review" if result.status == "pass" else "Publish MTA-STS"
-    detail = (
-        "; ".join(result.warnings)
-        if result.status == "pass"
-        else "; ".join(result.errors or ["MTA-STS is not configured or is not valid."])
-    )
-    action = (
-        "Move the policy to mode: enforce once MX coverage is confirmed."
-        if result.status == "pass"
-        else "Publish _mta-sts TXT and a valid HTTPS policy at the well-known URL."
-    )
+    if result.status == "pass":
+        title = "MTA-STS policy needs review"
+        detail = "; ".join(result.warnings)
+        action = "Move the policy to mode: enforce once MX coverage is confirmed."
+        recommendation_type = "mta_sts_review"
+    elif not result.dns_record:
+        title = "Publish MTA-STS"
+        detail = "; ".join(result.errors or ["MTA-STS is not configured."])
+        action = "Publish _mta-sts TXT and a valid HTTPS policy at the well-known URL."
+        recommendation_type = "missing_mta_sts"
+    elif result.policy_text is None:
+        title = "Host the MTA-STS policy"
+        detail = "; ".join(result.errors or ["The MTA-STS policy URL is not reachable."])
+        action = (
+            "Keep the existing _mta-sts TXT record if its id is current, then make "
+            f"{result.policy_url} reachable over HTTPS with a valid policy file."
+        )
+        recommendation_type = "mta_sts_policy_unreachable"
+    else:
+        title = "Fix the MTA-STS policy file"
+        detail = "; ".join(result.errors or ["The MTA-STS policy file is not valid."])
+        action = (
+            "Update the policy file so it includes version: STSv1, mode, max_age, "
+            "and at least one mx entry."
+        )
+        recommendation_type = "mta_sts_policy_invalid"
     return DNSHealthRecommendation(
-        type="mta_sts_review" if result.status == "pass" else "missing_mta_sts",
+        type=recommendation_type,
         severity=severity,
         title=title,
         detail=detail,
@@ -1096,6 +1111,16 @@ def _playbook_steps(recommendation: DNSHealthRecommendation) -> List[str]:
             "Publish _mta-sts TXT with a stable id value.",
             "Host a valid policy file at the linked well-known HTTPS URL.",
             "Start in testing mode, then move to enforce after MX coverage is verified.",
+        ],
+        "mta_sts_policy_unreachable": [
+            "Keep the existing _mta-sts TXT record unless the id needs rotation.",
+            "Create DNS for the mta-sts host and make the linked HTTPS policy URL reachable.",
+            "Serve a valid policy file, then rotate the TXT id to force receivers to refetch it.",
+        ],
+        "mta_sts_policy_invalid": [
+            "Open the linked policy file and correct invalid or missing fields.",
+            "Include version: STSv1, mode, max_age, and all expected MX patterns.",
+            "Rotate the _mta-sts TXT id after publishing the corrected policy.",
         ],
         "mta_sts_review": [
             "Open the linked policy evidence and confirm all MX hosts are covered.",

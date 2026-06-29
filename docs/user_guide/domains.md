@@ -92,6 +92,8 @@ The domain detail page checks `_mta-sts.<domain>` and fetches the policy from `h
 
 DMARQ marks the check healthy when the TXT record contains `v=STSv1` with an `id`, the HTTPS policy is reachable, and the policy includes `version`, `mode`, `mx`, and `max_age`. Findings include the DNS record, policy URL, mode, MX patterns, and actionable guidance for missing records, fetch failures, invalid policies, or non-enforcing `testing`/`none` modes.
 
+When `_mta-sts.<domain>` exists but `mta-sts.<domain>` does not resolve or the HTTPS policy cannot be fetched, DMARQ treats this as a policy-hosting problem rather than a missing TXT record. Keep the TXT record if its `id` is current, publish DNS for `mta-sts.<domain>`, serve the policy at `/.well-known/mta-sts.txt`, and rotate the TXT `id` after changing the policy so receivers refetch it.
+
 MTA-STS posture uses the same cached DNS refresh behavior as the existing DNS health checks. Use the DNS refresh action when you publish or update a policy and need DMARQ to re-check immediately.
 
 ### BIMI Readiness

@@ -92,6 +92,20 @@ class _FakeAsyncClient:
         return self.response
 
 
+class _RaisingAsyncClient:
+    def __init__(self, exc):
+        self.exc = exc
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return False
+
+    async def get(self, _url):
+        raise self.exc
+
+
 @pytest.mark.asyncio
 async def test_check_mta_sts_validates_dns_and_policy(monkeypatch):
     provider = AsyncMock()
@@ -191,6 +205,29 @@ async def test_check_mta_sts_reports_policy_fetch_error(monkeypatch):
     assert result.status == "fail"
     assert result.policy_text is None
     assert result.errors[0].startswith("MTA-STS policy fetch failed:")
+
+
+@pytest.mark.asyncio
+async def test_check_mta_sts_reports_policy_host_resolution_error(monkeypatch):
+    provider = AsyncMock()
+    provider.lookup_txt = AsyncMock(return_value=["v=STSv1; id=20260523"])
+    request = httpx.Request("GET", "https://mta-sts.example.com/.well-known/mta-sts.txt")
+    error = httpx.ConnectError("[Errno -2] Name or service not known", request=request)
+    monkeypatch.setattr(
+        "app.services.mta_sts.httpx.AsyncClient",
+        lambda **_: _RaisingAsyncClient(error),
+    )
+
+    result = await check_mta_sts("example.com", provider)
+
+    assert result.status == "fail"
+    assert result.dns_record == "v=STSv1; id=20260523"
+    assert result.policy_text is None
+    assert result.errors == [
+        "MTA-STS policy host mta-sts.example.com could not be resolved. "
+        "Publish DNS for mta-sts.example.com and serve "
+        "https://mta-sts.example.com/.well-known/mta-sts.txt over HTTPS."
+    ]
 
 
 @pytest.mark.asyncio
