@@ -198,7 +198,10 @@ without blocking the UI.
 | `POST /mail-sources/{source_id}/backfills/{job_id}/retry` | Re-queue a failed, cancelled, or backoff job |
 
 The Mail Sources UI shows the latest backfill status, processed message counts,
-reports found, duplicates, retry timing, and operator controls. In demo mode,
+reports found, duplicates, retry timing, and operator controls. The background
+scheduler currently executes due IMAP backfill jobs in bounded batches and
+records results in import history with trigger `backfill`; Gmail and Microsoft
+365 worker execution remain connector-specific follow-up work. In demo mode,
 DMARQ exposes credential-free synthetic mail sources and backfill jobs so the
 workflow is visible without connecting a real mailbox.
 
