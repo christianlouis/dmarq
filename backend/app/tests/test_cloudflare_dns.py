@@ -1,6 +1,7 @@
 """Tests for Cloudflare DNS discovery, analysis, and change tracking."""
 
 import asyncio
+import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -836,7 +837,7 @@ def test_dns_change_plan_apply_updates_cloudflare_and_audits(
     assert db_session.query(DNSRecordChange).count() == 1
     audit = db_session.query(WorkspaceAuditLog).one()
     assert audit.action == "domain.dns_change_applied"
-    assert audit.details["provider"] == "cloudflare"
+    assert json.loads(audit.details)["provider"] == "cloudflare"
 
 
 def test_dns_change_plan_apply_blocks_provider_value_placeholders(
