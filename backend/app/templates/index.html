@@ -119,8 +119,8 @@
             <div class="grid gap-3 lg:grid-cols-5">
                 <template x-for="step in demoJourneySteps()" :key="step.step">
                     <button type="button"
-                            class="rounded-md border border-[#dfdfdf] bg-white p-4 text-left transition hover:border-[#2f9da5] hover:shadow-sm"
-                            :class="selectedDemoScenarioId === step.scenario_id && selectedDemoWorkspaceSlug === step.workspace_slug ? 'border-[#2f9da5] bg-[#edf7f7]' : ''"
+                            class="rounded-md border p-4 text-left transition hover:border-[#2f9da5] hover:shadow-sm"
+                            :class="selectedDemoScenarioId === step.scenario_id && selectedDemoWorkspaceSlug === step.workspace_slug ? 'border-[#2f9da5] bg-[#edf7f7]' : 'border-[#dfdfdf] bg-white'"
                             @click="selectDemoJourneyStep(step)">
                         <div class="mb-3 inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#272a5f] text-xs font-bold text-white"
                              x-text="step.step"></div>
@@ -273,6 +273,7 @@
                             class="min-w-0 rounded-md border border-[#dfdfdf] bg-white px-3 py-2 text-sm font-semibold text-[#120d36]"
                             x-model="selectedDnsDomain"
                             @change="updateDnsHealth()">
+                        <option value="">No report-backed domain selected</option>
                         <template x-for="domain in domains" :key="domain.domain_name || domain.id">
                             <option :value="domain.domain_name" x-text="domain.domain_name"></option>
                         </template>
@@ -830,7 +831,8 @@ function dashboardApp() {
         ],
 
         get selectedDnsDomainRecord() {
-            return this.domains.find(domain => domain.domain_name === this.selectedDnsDomain) || this.domains[0] || null;
+            if (!this.selectedDnsDomain) return null;
+            return this.domains.find(domain => domain.domain_name === this.selectedDnsDomain) || null;
         },
 
         get selectedDomainHref() {
@@ -1442,7 +1444,9 @@ function dashboardApp() {
             if (firstDomain && this.hasLiveDomain(firstDomain)) {
                 this.selectedDnsDomain = firstDomain;
                 this.updateDnsHealth();
+                return;
             }
+            this.selectedDnsDomain = '';
         },
 
         selectedDemoOrganization() {
@@ -1502,12 +1506,7 @@ function dashboardApp() {
         applyDemoUserSelection() {
             const user = this.selectedDemoUser();
             const firstWorkspace = this.selectedDemoVisibleWorkspaces()[0];
-            const firstDomain = firstWorkspace?.domains?.[0];
-            this.selectedDemoWorkspaceSlug = firstWorkspace?.slug || '';
-            if (firstDomain && this.hasLiveDomain(firstDomain)) {
-                this.selectedDnsDomain = firstDomain;
-                this.updateDnsHealth();
-            }
+            this.selectDemoWorkspace(firstWorkspace?.slug);
             if (user?.demo_persona) {
                 const matchingScenario = this.demoScenarios().find(
                     scenario => scenario.email === user.email || scenario.id === user.demo_persona
@@ -1537,12 +1536,7 @@ function dashboardApp() {
             if (customerUser) {
                 this.selectedDemoUserEmail = customerUser.email;
             }
-            const firstDomain = workspace?.domains?.[0];
             this.selectDemoWorkspace(workspace?.slug);
-            if (firstDomain && this.hasLiveDomain(firstDomain)) {
-                this.selectedDnsDomain = firstDomain;
-                this.updateDnsHealth();
-            }
         },
 
         demoWorkspaceTotal() {
