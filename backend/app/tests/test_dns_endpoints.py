@@ -344,6 +344,67 @@ def test_dns_lint_endpoint_returns_typed_findings_and_targets(authed_client: Tes
     }
 
 
+def test_dns_lint_endpoint_flags_advanced_spf_lookup_findings(
+    authed_client: TestClient,
+):
+    spf_record = (
+        "v=spf1 "
+        "include:_spf.one.example include:_spf.one.example "
+        "include:_spf.two.example include:_spf.three.example "
+        "include:_spf.four.example include:_spf.five.example "
+        "include:_spf.six.example include:_spf.seven.example "
+        "include:_spf.eight.example include:_spf.nine.example "
+        "include:_spf.ten.example include:missing.example -all"
+    )
+    result = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com",
+        spf=True,
+        spf_record=spf_record,
+        dkim=True,
+        dkim_selectors=["selector1"],
+    )
+    provider = AsyncMock()
+    provider.check_domain = AsyncMock(return_value=result)
+
+    async def _lookup_txt(name):
+        if name == DOMAIN:
+            return [spf_record]
+        if name == "_smtp._tls.example.com":
+            return ["v=TLSRPTv1; rua=mailto:tlsrpt@example.com"]
+        if name == "missing.example":
+            raise LookupError("missing SPF include")
+        return ["v=spf1 -all"]
+
+    provider.lookup_txt = AsyncMock(side_effect=_lookup_txt)
+
+    with (
+        patch(
+            "app.api.api_v1.endpoints.domains.get_default_provider",
+            return_value=provider,
+        ),
+        patch(
+            "app.api.api_v1.endpoints.domains.check_mta_sts_cached",
+            new=AsyncMock(return_value=(MTAStsResult(status="pass"), False, None)),
+        ),
+        patch(
+            "app.api.api_v1.endpoints.domains.check_bimi_cached",
+            new=AsyncMock(return_value=(BIMIResult(status="pass"), False, None)),
+        ),
+    ):
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns/lint")
+
+    assert response.status_code == 200
+    data = response.json()
+    findings = {finding["code"]: finding for finding in data["findings"]}
+    assert data["status"] == "critical"
+    assert "spf_dns_lookup_limit_exceeded" in findings
+    assert "spf_duplicate_include" in findings
+    assert "spf_void_lookup" in findings
+    assert "_spf.one.example" in findings["spf_duplicate_include"]["evidence"]
+    assert "include:missing.example" in findings["spf_void_lookup"]["evidence"]
+
+
 def test_dns_lint_bulk_and_export(authed_client: TestClient):
     mta_sts = MTAStsResult(status="pass")
     bimi = BIMIResult(status="pass")

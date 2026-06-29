@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -226,6 +227,177 @@ def _spf_terms(record: Optional[str]) -> List[str]:
     return [part.strip() for part in record.split() if part.strip()]
 
 
+def _spf_dns_lookup_terms(terms: List[str]) -> List[str]:
+    return [
+        term
+        for term in terms
+        if term.startswith(("include:", "a", "mx", "ptr", "exists:", "redirect="))
+    ]
+
+
+def _spf_include_domain(term: str) -> Optional[str]:
+    if term.startswith("include:"):
+        return term.split(":", 1)[1].strip().strip(".").lower() or None
+    return None
+
+
+def _spf_lookup_domain(term: str) -> Optional[str]:
+    if term.startswith(("include:", "exists:")):
+        return term.split(":", 1)[1].strip().strip(".").lower() or None
+    if term.startswith("redirect="):
+        return term.split("=", 1)[1].strip().strip(".").lower() or None
+    return None
+
+
+def _spf_all_policy_findings(
+    terms: List[str], target: DNSGuidanceRecord, record: Optional[str]
+) -> List[DNSLintFinding]:
+    findings: List[DNSLintFinding] = []
+    all_terms = [term for term in terms if term.endswith("all")]
+    if not all_terms:
+        findings.append(
+            _finding(
+                "spf_all_missing",
+                "warning",
+                "SPF all mechanism is missing",
+                "The SPF record does not end with an explicit all policy.",
+                "Choose -all after authorizing all senders, or ~all while still validating.",
+                "TXT",
+                target.name,
+                target_record=target,
+                evidence=[record or ""],
+            )
+        )
+    elif all_terms[-1].startswith("+") or all_terms[-1] == "all":
+        findings.append(
+            _finding(
+                "spf_all_too_permissive",
+                "error",
+                "SPF all mechanism is too permissive",
+                f"The SPF record uses {all_terms[-1]}, which authorizes every sender.",
+                "Replace +all with ~all during rollout or -all once sender coverage is complete.",
+                "TXT",
+                target.name,
+                target_record=target,
+                evidence=[record or ""],
+            )
+        )
+    elif all_terms[-1].startswith("?"):
+        findings.append(
+            _finding(
+                "spf_all_neutral",
+                "warning",
+                "SPF all mechanism is neutral",
+                "The SPF record ends with ?all, which provides weak sender guidance.",
+                "Use ~all while validating or -all after all senders are authorized.",
+                "TXT",
+                target.name,
+                target_record=target,
+                evidence=[record or ""],
+            )
+        )
+    return findings
+
+
+def _spf_lookup_budget_findings(
+    dns_lookup_terms: List[str], target: DNSGuidanceRecord
+) -> List[DNSLintFinding]:
+    findings: List[DNSLintFinding] = []
+    if len(dns_lookup_terms) > 10:
+        findings.append(
+            _finding(
+                "spf_dns_lookup_limit_exceeded",
+                "error",
+                "SPF DNS lookup budget is exceeded",
+                (
+                    "The SPF record uses "
+                    f"{len(dns_lookup_terms)} DNS-lookup mechanisms; SPF evaluation "
+                    "fails after 10."
+                ),
+                "Flatten or remove unused mechanisms before publishing the final SPF record.",
+                "TXT",
+                target.name,
+                target_record=target,
+                evidence=dns_lookup_terms,
+            )
+        )
+    if len(dns_lookup_terms) >= 8:
+        findings.append(
+            _finding(
+                "spf_dns_lookup_limit_risk",
+                "warning",
+                "SPF DNS lookup budget is exhausted or nearly exhausted",
+                (
+                    "The SPF record uses "
+                    f"{len(dns_lookup_terms)} of 10 available DNS-lookup mechanisms."
+                ),
+                "Remove unused includes or flatten stable sender ranges before adding new senders.",
+                "TXT",
+                target.name,
+                target_record=target,
+                evidence=dns_lookup_terms,
+            )
+        )
+    return findings
+
+
+def _spf_duplicate_include_findings(
+    terms: List[str], target: DNSGuidanceRecord
+) -> List[DNSLintFinding]:
+    include_domains = [
+        include_domain for term in terms if (include_domain := _spf_include_domain(term))
+    ]
+    duplicate_includes = sorted(
+        include_domain for include_domain, count in Counter(include_domains).items() if count > 1
+    )
+    if not duplicate_includes:
+        return []
+    return [
+        _finding(
+            "spf_duplicate_include",
+            "warning",
+            "SPF record repeats include mechanisms",
+            "The same SPF include appears more than once and wastes lookup budget.",
+            "Remove duplicate include mechanisms before adding more senders.",
+            "TXT",
+            target.name,
+            target_record=target,
+            evidence=duplicate_includes,
+        )
+    ]
+
+
+async def _spf_void_lookup_findings(
+    provider: BaseDNSProvider,
+    dns_lookup_terms: List[str],
+    target: DNSGuidanceRecord,
+) -> List[DNSLintFinding]:
+    void_lookup_terms: List[str] = []
+    for term in dns_lookup_terms:
+        lookup_domain = _spf_lookup_domain(term)
+        if not lookup_domain:
+            continue
+        try:
+            await provider.lookup_txt(lookup_domain)
+        except LookupError:
+            void_lookup_terms.append(term)
+    if not void_lookup_terms:
+        return []
+    return [
+        _finding(
+            "spf_void_lookup",
+            "warning",
+            "SPF record references empty lookup targets",
+            "One or more SPF include, exists, or redirect targets did not return TXT records.",
+            "Remove stale SPF references or repair the referenced sender-domain SPF records.",
+            "TXT",
+            target.name,
+            target_record=target,
+            evidence=void_lookup_terms,
+        )
+    ]
+
+
 async def _spf_findings(
     domain: str,
     provider: BaseDNSProvider,
@@ -269,69 +441,11 @@ async def _spf_findings(
         )
 
     terms = _spf_terms(result.spf_record)
-    all_terms = [term for term in terms if term.endswith("all")]
-    if not all_terms:
-        findings.append(
-            _finding(
-                "spf_all_missing",
-                "warning",
-                "SPF all mechanism is missing",
-                "The SPF record does not end with an explicit all policy.",
-                "Choose -all after authorizing all senders, or ~all while still validating.",
-                "TXT",
-                target.name,
-                target_record=target,
-                evidence=[result.spf_record or ""],
-            )
-        )
-    elif all_terms[-1].startswith("+") or all_terms[-1] == "all":
-        findings.append(
-            _finding(
-                "spf_all_too_permissive",
-                "error",
-                "SPF all mechanism is too permissive",
-                f"The SPF record uses {all_terms[-1]}, which authorizes every sender.",
-                "Replace +all with ~all during rollout or -all once sender coverage is complete.",
-                "TXT",
-                target.name,
-                target_record=target,
-                evidence=[result.spf_record or ""],
-            )
-        )
-    elif all_terms[-1].startswith("?"):
-        findings.append(
-            _finding(
-                "spf_all_neutral",
-                "warning",
-                "SPF all mechanism is neutral",
-                "The SPF record ends with ?all, which provides weak sender guidance.",
-                "Use ~all while validating or -all after all senders are authorized.",
-                "TXT",
-                target.name,
-                target_record=target,
-                evidence=[result.spf_record or ""],
-            )
-        )
-
-    dns_lookup_terms = [
-        term
-        for term in terms
-        if term.startswith(("include:", "a", "mx", "ptr", "exists:", "redirect="))
-    ]
-    if len(dns_lookup_terms) > 10:
-        findings.append(
-            _finding(
-                "spf_dns_lookup_limit_risk",
-                "warning",
-                "SPF DNS lookup budget may be exceeded",
-                "The SPF record has more than 10 DNS-lookup mechanisms.",
-                "Flatten or remove unused mechanisms before publishing the final SPF record.",
-                "TXT",
-                target.name,
-                target_record=target,
-                evidence=[result.spf_record or ""],
-            )
-        )
+    findings.extend(_spf_all_policy_findings(terms, target, result.spf_record))
+    dns_lookup_terms = _spf_dns_lookup_terms(terms)
+    findings.extend(_spf_lookup_budget_findings(dns_lookup_terms, target))
+    findings.extend(_spf_duplicate_include_findings(terms, target))
+    findings.extend(await _spf_void_lookup_findings(provider, dns_lookup_terms, target))
     return findings
 
 
