@@ -74,6 +74,7 @@ def _poll_single_imap_source(source: MailSource) -> None:
             password=poll_source.password,
             folder=poll_source.folder,
             db=db,
+            workspace_id=getattr(poll_source, "workspace_id", None),
         )
         started_at = datetime.utcnow()
         results = imap_client.fetch_reports(days=9999)
@@ -128,6 +129,7 @@ def _poll_single_gmail_source(source: MailSource) -> None:
             refresh_token=poll_source.gmail_refresh_token or "",
             already_ingested_ids=already,
             db=db,
+            workspace_id=getattr(poll_source, "workspace_id", None),
         )
 
         started_at = datetime.utcnow()
@@ -197,6 +199,7 @@ def _poll_single_m365_source(source: MailSource) -> None:
             folder_id=getattr(poll_source, "m365_folder_id", None),
             already_ingested_ids=already,
             db=db,
+            workspace_id=getattr(poll_source, "workspace_id", None),
         )
 
         started_at = datetime.utcnow()
@@ -759,6 +762,7 @@ def _trigger_poll_imap_source(source: MailSource, db, days: int = 7) -> dict:
         password=source.password,
         folder=source.folder,
         db=db,
+        workspace_id=getattr(source, "workspace_id", None),
     )
     started_at = datetime.utcnow()
     results = imap_client.fetch_reports(days=days)
@@ -790,6 +794,7 @@ def _trigger_poll_gmail_source(source: MailSource, db) -> dict:
         refresh_token=source.gmail_refresh_token or "",
         already_ingested_ids=already,
         db=db,
+        workspace_id=getattr(source, "workspace_id", None),
     )
     started_at = datetime.utcnow()
     results = gmail_client.fetch_reports()
@@ -834,6 +839,7 @@ def _trigger_poll_m365_source(source: MailSource, db, days: int = 7) -> dict:
         folder_id=getattr(source, "m365_folder_id", None),
         already_ingested_ids=already,
         db=db,
+        workspace_id=getattr(source, "workspace_id", None),
     )
     started_at = datetime.utcnow()
     results = graph_client.fetch_reports(days=days)

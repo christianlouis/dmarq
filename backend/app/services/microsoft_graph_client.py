@@ -81,6 +81,7 @@ class MicrosoftGraphClient(MailSourceConnector):
         folder_id: Optional[str] = None,
         already_ingested_ids: Optional[List[str]] = None,
         db: Any = None,
+        workspace_id: Optional[int] = None,
         sleep: Optional[Callable[[float], None]] = None,
     ):
         self.tenant_id = tenant_id or "common"
@@ -94,6 +95,7 @@ class MicrosoftGraphClient(MailSourceConnector):
         self.already_ingested_ids: List[str] = list(already_ingested_ids or [])
         self.report_store = ReportStore.get_instance()
         self.db = db
+        self.workspace_id = workspace_id
         self._sleep = sleep or time.sleep
         self._refreshed_tokens: Optional[Dict[str, str]] = None
 
@@ -490,13 +492,16 @@ class MicrosoftGraphClient(MailSourceConnector):
         report_id = report.get("report_id", "")
         if report_id and (
             self.report_store.has_report(domain, report_id)
-            or (self.db is not None and report_exists(self.db, domain, report_id))
+            or (
+                self.db is not None
+                and report_exists(self.db, domain, report_id, workspace_id=self.workspace_id)
+            )
         ):
             logger.info("Skipping duplicate DMARC report %s for %s", report_id, domain)
             return False
 
         if self.db is not None:
-            save_parsed_report(self.db, report)
+            save_parsed_report(self.db, report, workspace_id=self.workspace_id)
         self.report_store.add_report(report)
         return True
 

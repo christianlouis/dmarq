@@ -36,6 +36,7 @@ class IMAPClient:
         delete_emails: Optional[bool] = None,
         folder: str = None,
         db: Any = None,
+        workspace_id: Optional[int] = None,
     ):
         """
         Initialize the IMAP client with credentials
@@ -49,6 +50,7 @@ class IMAPClient:
                 If omitted, uses DELETE_IMPORTED_EMAILS from settings.
             folder: IMAP mailbox folder to read (if None, uses settings or INBOX)
             db: Optional SQLAlchemy session used to persist imported reports
+            workspace_id: Optional workspace that should own imported domains/reports
         """
         settings = get_settings()
         settings_folder = getattr(settings, "IMAP_FOLDER", None)
@@ -65,6 +67,7 @@ class IMAPClient:
         self.delete_emails = configured_delete if delete_emails is None else delete_emails
         self.folder = folder or settings_folder or "INBOX"
         self.db = db
+        self.workspace_id = workspace_id
 
         self.report_store = ReportStore.get_instance()
 
@@ -459,7 +462,10 @@ class IMAPClient:
         report_id = report.get("report_id", "")
         if report_id and (
             self.report_store.has_report(domain, report_id)
-            or (self.db is not None and report_exists(self.db, domain, report_id))
+            or (
+                self.db is not None
+                and report_exists(self.db, domain, report_id, workspace_id=self.workspace_id)
+            )
         ):
             logger.info("Skipping duplicate DMARC report %s for %s", report_id, domain)
             if stats is not None:
@@ -475,7 +481,7 @@ class IMAPClient:
             return False
 
         if self.db is not None:
-            save_parsed_report(self.db, report)
+            save_parsed_report(self.db, report, workspace_id=self.workspace_id)
         self.report_store.add_report(report)
         self._append_detail(
             stats,
