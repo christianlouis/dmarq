@@ -72,6 +72,17 @@ def _claim_job(job: MailSourceBackfillJob, now: datetime) -> None:
     job.updated_at = now
 
 
+def _job_is_runnable(job: MailSourceBackfillJob, method: str) -> bool:
+    source = job.mail_source
+    if source is None or source.method != method:
+        return False
+    if job.status not in RUNNABLE_BACKFILL_STATUSES:
+        return False
+    if job.next_retry_at and job.next_retry_at > datetime.utcnow():
+        return False
+    return True
+
+
 def _mark_success(
     job: MailSourceBackfillJob,
     results: Dict[str, Any],
@@ -122,11 +133,7 @@ def _mark_failure(
 def run_imap_backfill_job(db: Session, job: MailSourceBackfillJob) -> bool:
     """Execute one IMAP backfill job and update its persisted lifecycle state."""
     source = job.mail_source
-    if source is None or source.method != "IMAP":
-        return False
-    if job.status not in RUNNABLE_BACKFILL_STATUSES:
-        return False
-    if job.next_retry_at and job.next_retry_at > datetime.utcnow():
+    if not _job_is_runnable(job, "IMAP"):
         return False
 
     started_at = datetime.utcnow()
@@ -303,11 +310,7 @@ def _backfill_exception_results(exc: Exception) -> Dict[str, Any]:
 def run_gmail_backfill_job(db: Session, job: MailSourceBackfillJob) -> bool:
     """Execute one Gmail API backfill job and update its persisted lifecycle state."""
     source = job.mail_source
-    if source is None or source.method != "GMAIL_API":
-        return False
-    if job.status not in RUNNABLE_BACKFILL_STATUSES:
-        return False
-    if job.next_retry_at and job.next_retry_at > datetime.utcnow():
+    if not _job_is_runnable(job, "GMAIL_API"):
         return False
 
     started_at = datetime.utcnow()
