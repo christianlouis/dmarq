@@ -72,6 +72,21 @@ forensic report summaries, SMTP TLS report summaries, DNS posture, and exports.
 It intentionally includes healthy senders, partially aligned senders, and a few
 misconfigurations so each dashboard panel has realistic content.
 
+The public demo is meant to start in the same place a normal self-service user
+would: one account with multiple domains. From there, the demo path on the
+dashboard walks through the larger deployment models:
+
+1. Start with `dmarq.org` and `dmarq.com` as a single-user, multi-domain account.
+2. Zoom out to an account view with users, roles, workspaces, plan limits, and billing ownership.
+3. Switch to an ISP/provider view with bundled customer workspaces and monthly billing export examples.
+4. Impersonate a demo customer user to see scoped workspace access.
+5. Compare the same DMARC workflows in a self-hosted deployment where billing remains local.
+
+All demo users, customer IDs, provider IDs, invoices, and domains outside
+`dmarq.org`/`dmarq.com` are generated examples. Support impersonation in the
+demo is explicit UI state; production impersonation should be audited and
+permission-gated.
+
 ## Customizing the Dashboard
 
 You can customize various aspects of the dashboard:

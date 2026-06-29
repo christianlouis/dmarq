@@ -179,6 +179,13 @@ invoice references. The dashboard uses it opportunistically to display a
 multi-user deployment showcase on demo instances, including account drill-down,
 provider customer samples, and generated user impersonation scenarios.
 
+The response also includes `journey_steps`, an ordered product-story path used by
+the dashboard. The default path starts in the single-user, multi-domain
+`dmarq.org`/`dmarq.com` account, then zooms out through managed-service,
+provider, customer-impersonation, and self-hosted examples. Each step points to
+an existing demo scenario, organization, workspace, and domain so the UI can
+switch context without inventing state client-side.
+
 Provider billing integrations can read monthly usage with
 `GET /api/v1/provider/billing/usage?period=YYYY-MM`. A single external customer
 can be filtered with

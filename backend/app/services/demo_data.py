@@ -63,6 +63,78 @@ def build_demo_multi_user_deployment() -> Dict[str, Any]:
         },
         "roles": list(DEMO_MULTI_USER_ROLES),
         "default_viewer": "single-user-multiple-domains",
+        "journey_steps": [
+            {
+                "step": 1,
+                "label": "Start in the daily domain view",
+                "zoom_level": "workspace",
+                "scenario_id": "single-user-multiple-domains",
+                "organization_slug": "dmarq-foundation",
+                "workspace_slug": "dmarq-org",
+                "domain": "dmarq.org",
+                "action": "Inspect dmarq.org and dmarq.com as one administrator.",
+                "expected_takeaway": (
+                    "DMARQ first explains normal domain posture, sender alignment, "
+                    "and DNS actions for the account you own."
+                ),
+            },
+            {
+                "step": 2,
+                "label": "Zoom out to the account",
+                "zoom_level": "account",
+                "scenario_id": "managed-service-analyst",
+                "organization_slug": "dmarq-commercial",
+                "workspace_slug": "dmarq-com",
+                "domain": "dmarq.com",
+                "action": "Compare account billing, users, workspaces, and plan limits.",
+                "expected_takeaway": (
+                    "Managed-service teams need account ownership, role boundaries, "
+                    "and contract billing context next to DMARC evidence."
+                ),
+            },
+            {
+                "step": 3,
+                "label": "Zoom out to provider operations",
+                "zoom_level": "provider",
+                "scenario_id": "isp-operator",
+                "organization_slug": "northstar-isp",
+                "workspace_slug": "lawfirm-example",
+                "domain": "lawfirm.example",
+                "action": "Review ISP customers, bundled billing, and usage export samples.",
+                "expected_takeaway": (
+                    "Providers can operate many customer workspaces while billing "
+                    "through their existing monthly invoice systems."
+                ),
+            },
+            {
+                "step": 4,
+                "label": "Impersonate a customer user",
+                "zoom_level": "workspace",
+                "scenario_id": "customer-admin",
+                "organization_slug": "northstar-isp",
+                "workspace_slug": "bakery-example",
+                "domain": "bakery.example",
+                "action": "Switch into a customer admin view and confirm visible workspaces.",
+                "expected_takeaway": (
+                    "Support impersonation is explicit demo state, scoped to visible "
+                    "customer workspaces, and designed to be audited in production."
+                ),
+            },
+            {
+                "step": 5,
+                "label": "Compare self-hosted operations",
+                "zoom_level": "workspace",
+                "scenario_id": "self-hosted-admin",
+                "organization_slug": "studio-self-hosted",
+                "workspace_slug": "studio-main",
+                "domain": "studio.example",
+                "action": "Open the self-hosted profile with local billing ownership.",
+                "expected_takeaway": (
+                    "The same report and DNS workflows work without provider billing "
+                    "or hosted subscription ownership."
+                ),
+            },
+        ],
         "zoom_levels": [
             {
                 "level": "workspace",

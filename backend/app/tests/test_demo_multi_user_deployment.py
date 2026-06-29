@@ -78,6 +78,13 @@ def test_demo_multi_user_deployment_has_opinionated_default_and_impersonation():
     deployment = build_demo_multi_user_deployment()
 
     assert deployment["default_viewer"] == "single-user-multiple-domains"
+    assert [step["scenario_id"] for step in deployment["journey_steps"]] == [
+        "single-user-multiple-domains",
+        "managed-service-analyst",
+        "isp-operator",
+        "customer-admin",
+        "self-hosted-admin",
+    ]
     assert [level["level"] for level in deployment["zoom_levels"]] == [
         "workspace",
         "account",
@@ -104,6 +111,27 @@ def test_demo_multi_user_deployment_has_opinionated_default_and_impersonation():
         "isp-operator",
         "self-hosted-admin",
     }
+
+
+def test_demo_multi_user_journey_steps_point_to_existing_demo_objects():
+    deployment = build_demo_multi_user_deployment()
+
+    organizations = {org["slug"]: org for org in deployment["organizations"]}
+    scenarios = {scenario["id"]: scenario for scenario in deployment["viewer_scenarios"]}
+    zoom_levels = {level["level"] for level in deployment["zoom_levels"]}
+
+    assert deployment["journey_steps"][0]["domain"] == "dmarq.org"
+    assert deployment["journey_steps"][0]["zoom_level"] == "workspace"
+    assert deployment["journey_steps"][-1]["organization_slug"] == "studio-self-hosted"
+    for step in deployment["journey_steps"]:
+        assert step["scenario_id"] in scenarios
+        assert step["zoom_level"] in zoom_levels
+        organization = organizations[step["organization_slug"]]
+        workspaces = {workspace["slug"]: workspace for workspace in organization["workspaces"]}
+        assert step["workspace_slug"] in workspaces
+        assert step["domain"] in workspaces[step["workspace_slug"]]["domains"]
+        assert step["action"]
+        assert step["expected_takeaway"]
 
 
 def test_operator_demo_multi_user_endpoint_returns_showcase(
