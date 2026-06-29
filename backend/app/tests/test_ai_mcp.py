@@ -1,6 +1,7 @@
 import builtins
 import sys
 import time
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -11,8 +12,8 @@ from app.models.organization import Entitlement, Organization
 from app.models.setting import Setting
 from app.models.workspace import Workspace
 from app.services import ai_assistance
-from app.services.api_tokens import MCP_READ_SCOPE, create_api_token
 from app.services.ai_assistance import AssistanceConfig
+from app.services.api_tokens import MCP_READ_SCOPE, create_api_token
 from app.services.bimi import BIMIResult
 from app.services.dns_resolver import DomainDNSResult
 from app.services.mta_sts import MTAStsResult
@@ -234,6 +235,17 @@ def test_remediation_cache_prunes_expired_entries_and_oldest_entries():
     ai_assistance._REMEDIATION_CACHE.clear()
 
 
+def test_ai_remediation_plan_returns_404_for_unknown_domain(
+    authed_client: TestClient,
+    db_session: Session,
+):
+    _set_setting(db_session, "ai.enabled", "true", "ai")
+
+    response = authed_client.get("/api/v1/ai/domains/unknown.example/remediation-plan")
+
+    assert response.status_code == 404
+
+
 @pytest.mark.asyncio
 async def test_litellm_remediation_plan_returns_valid_actions(monkeypatch):
     class FakeLiteLLM:
@@ -273,7 +285,11 @@ async def test_litellm_remediation_plan_returns_valid_actions(monkeypatch):
 
     plan = await ai_assistance._litellm_remediation_plan(
         config,
-        {"domain": DOMAIN, "dns_guidance": {"findings": []}},
+        {
+            "domain": DOMAIN,
+            "dns_guidance": {"findings": []},
+            "constraints": {"automatic_dns_changes": False},
+        },
     )
 
     assert plan is not None
@@ -281,6 +297,53 @@ async def test_litellm_remediation_plan_returns_valid_actions(monkeypatch):
     assert plan["model"] == "test-model"
     assert plan["actions"][0]["finding_code"] == "dkim_selector_missing"
     assert FakeLiteLLM.drop_params is True
+
+
+@pytest.mark.asyncio
+async def test_litellm_remediation_plan_parses_json_response(monkeypatch):
+    async def fake_acompletion(**_kwargs):
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            '{"summary":"Fix DKIM","actions":[{"finding_code":'
+                            '"dkim_selector_missing","title":"Publish DKIM",'
+                            '"priority":"warning","summary":"Publish selector",'
+                            '"steps":["Copy provider record"],"evidence":[],'
+                            '"target_record":null,"requires_human_change":true}]}'
+                        )
+                    }
+                }
+            ]
+        }
+
+    fake_litellm = SimpleNamespace(acompletion=fake_acompletion, drop_params=False)
+    monkeypatch.setitem(sys.modules, "litellm", fake_litellm)
+    config = AssistanceConfig(
+        ai_enabled=True,
+        provider="litellm",
+        model="gpt-test",
+        remote_base_url="https://llm.example.test/v1",
+        redaction_mode="strict",
+        action_tools_enabled=False,
+        mcp_enabled=False,
+        remediation_cache_seconds=86400,
+    )
+
+    plan = await ai_assistance._litellm_remediation_plan(
+        config,
+        {
+            "domain": DOMAIN,
+            "dns_guidance": {"findings": []},
+            "constraints": {"automatic_dns_changes": False},
+        },
+    )
+
+    assert plan is not None
+    assert plan["provider"] == "litellm"
+    assert plan["model"] == "gpt-test"
+    assert plan["actions"][0]["finding_code"] == "dkim_selector_missing"
 
 
 @pytest.mark.asyncio
@@ -306,7 +369,11 @@ async def test_litellm_remediation_plan_rejects_malformed_actions(monkeypatch):
 
     plan = await ai_assistance._litellm_remediation_plan(
         config,
-        {"domain": DOMAIN, "dns_guidance": {"findings": []}},
+        {
+            "domain": DOMAIN,
+            "dns_guidance": {"findings": []},
+            "constraints": {"automatic_dns_changes": False},
+        },
     )
 
     assert plan is None

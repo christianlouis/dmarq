@@ -99,15 +99,15 @@ async def test_build_dns_guidance_classifies_dmarc_warning_codes():
         spf_record="v=spf1 ?all",
         dkim=True,
         dkim_selectors=["selector1"],
-            dmarc_warnings=[
-                "External rua destination reports.example.net is missing authorization TXT.",
-                "External ruf destination forensics.example.net is missing authorization TXT.",
-                "Unsupported policy value p=monitor.",
-                "DMARC adkim tag should be r or s.",
-                "DMARC fo tag contains unsupported failure options.",
-                "Record contains neither a valid p tag nor a rua tag.",
-                "Unexpected DMARC lint warning.",
-            ],
+        dmarc_warnings=[
+            "External rua destination reports.example.net is missing authorization TXT.",
+            "External ruf destination forensics.example.net is missing authorization TXT.",
+            "Unsupported policy value p=monitor.",
+            "DMARC adkim tag should be r or s.",
+            "DMARC fo tag contains unsupported failure options.",
+            "Record contains neither a valid p tag nor a rua tag.",
+            "Unexpected DMARC lint warning.",
+        ],
         dmarc_suggestions=["Add rua=mailto:... so aggregate reports can reach DMARQ."],
     )
 
@@ -258,3 +258,36 @@ async def test_spf_lint_covers_redirect_void_and_duplicate_free_paths():
     codes = {finding.code for finding in guidance.findings}
     assert "spf_void_lookup" in codes
     assert "spf_duplicate_include" not in codes
+
+
+@pytest.mark.asyncio
+async def test_build_dns_guidance_accepts_valid_dkim_cname_target():
+    provider = FakeDNSProvider(
+        {
+            "example.com": ["v=spf1 -all"],
+            "_smtp._tls.example.com": ["v=TLSRPTv1; rua=mailto:tls@example.com"],
+            "provider._domainkey.vendor.example": ["v=DKIM1; k=rsa; p=VALIDKEY"],
+        }
+    )
+    provider._cnames["mailchimp._domainkey.example.com"] = "provider._domainkey.vendor.example"
+    dns = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=reject; rua=mailto:dmarc@example.com",
+        spf=True,
+        spf_record="v=spf1 -all",
+        dkim=True,
+        dkim_selectors=["mailchimp"],
+        selectors_checked=["mailchimp"],
+    )
+
+    guidance = await build_dns_guidance(
+        "example.com",
+        provider,
+        dns,
+        MTAStsResult(status="pass"),
+        BIMIResult(status="pass"),
+        monitored_selectors=["mailchimp"],
+        observed_selectors=["mailchimp"],
+    )
+
+    assert "dkim_selector_cname_broken" not in {finding.code for finding in guidance.findings}
