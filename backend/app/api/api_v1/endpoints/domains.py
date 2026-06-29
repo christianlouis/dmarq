@@ -1708,7 +1708,12 @@ async def get_domain_posture_dashboard(
         )
 
     health = await _build_domain_dns_health(db, store, domain_id, refresh=refresh)
-    domain_health = await _build_domain_health_grade(db, domain_id, store)
+    domain_health = await _build_domain_health_grade(
+        db,
+        domain_id,
+        store,
+        refresh=refresh,
+    )
     changes = list_dns_record_changes(db, domain_id, limit=10)
     return _build_posture_dashboard(domain_id, health, domain_health, changes)
 
