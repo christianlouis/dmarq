@@ -37,6 +37,13 @@ def _bounded(value: Any, *, lower: float = 0.0, upper: float = 100.0) -> float:
     return max(lower, min(upper, number))
 
 
+def _effective_dmarc_policy(domain: Dict[str, Any]) -> str:
+    """Return the DMARC policy used for scoring, distinct from endpoint fallbacks."""
+    if not domain.get("dmarc_status"):
+        return "missing"
+    return str(domain.get("dmarc_policy") or "none").lower()
+
+
 def _policy_factor(policy: Optional[str]) -> float:
     policy_name = (policy or "").lower()
     if policy_name == "reject":
@@ -73,8 +80,8 @@ def _confidence_factor(domain: Dict[str, Any]) -> float:
     return 30.0
 
 
-def _score_cap(domain: Dict[str, Any], confidence: float) -> int:
-    policy = str(domain.get("dmarc_policy") or "").lower()
+def _score_cap(domain: Dict[str, Any], confidence: float, *, policy: Optional[str] = None) -> int:
+    policy = policy or _effective_dmarc_policy(domain)
     cap = 100
     if policy == "quarantine":
         cap = min(cap, 92)
@@ -168,7 +175,7 @@ def _domain_actions(domain: Dict[str, Any]) -> List[Dict[str, Any]]:
                 ],
             )
         )
-    if policy == "none":
+    if policy == "none" and domain.get("dmarc_status"):
         actions.append(
             _action(
                 action_type="policy_none",
@@ -200,17 +207,26 @@ def _domain_actions(domain: Dict[str, Any]) -> List[Dict[str, Any]]:
     return sorted(actions, key=lambda item: item["score_impact"], reverse=True)
 
 
+def _system_policy(domains: List[Dict[str, Any]]) -> Optional[str]:
+    """Return reject when every domain enforces p=reject so A+ is reachable system-wide."""
+    if not domains:
+        return None
+    if all(_effective_dmarc_policy(domain) == "reject" for domain in domains):
+        return "reject"
+    return None
+
+
 def score_domain_health(domain: Dict[str, Any]) -> Dict[str, Any]:
     """Score a single domain summary row."""
     pass_rate = _bounded(domain.get("pass_rate"))
     dns = _dns_factor(domain)
-    policy = _policy_factor(domain.get("dmarc_policy"))
+    policy_name = _effective_dmarc_policy(domain)
+    policy = _policy_factor(policy_name)
     confidence = _confidence_factor(domain)
     raw_score = round((pass_rate * 0.45) + (dns * 0.20) + (policy * 0.25) + (confidence * 0.10))
-    score = min(raw_score, _score_cap(domain, confidence))
+    score = min(raw_score, _score_cap(domain, confidence, policy=policy_name))
     actions = _domain_actions(domain)
     critical_actions = sum(1 for action in actions if action["severity"] == "critical")
-    policy_name = str(domain.get("dmarc_policy") or "missing").lower()
 
     return {
         "domain": domain.get("domain_name") or domain.get("id"),
@@ -227,20 +243,33 @@ def score_domain_health(domain: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def build_health_summary(domains: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Build system-level health from domain summary rows."""
-    domain_health = [score_domain_health(domain) for domain in domains]
+def build_health_summary(
+    domains: List[Dict[str, Any]],
+    domain_health: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Build system-level health from pre-computed per-domain health payloads."""
     by_domain = {
         str(item.get("domain")): item for item in domain_health if item.get("domain") is not None
     }
+
+    def _domain_key(domain: Dict[str, Any]) -> str:
+        return str(domain.get("domain_name") or domain.get("id"))
+
+    missing_health = [
+        _domain_key(domain) for domain in domains if _domain_key(domain) not in by_domain
+    ]
+    if missing_health:
+        raise ValueError(
+            f"Missing health payloads for domains: {', '.join(missing_health)}"
+        )
+
     total_weight = sum(max(1, int(domain.get("total_emails") or 0)) for domain in domains)
     if total_weight:
         score = round(
             sum(
-                by_domain[str(domain.get("domain_name") or domain.get("id"))]["score"]
+                by_domain[_domain_key(domain)]["score"]
                 * max(1, int(domain.get("total_emails") or 0))
                 for domain in domains
-                if str(domain.get("domain_name") or domain.get("id")) in by_domain
             )
             / total_weight
         )
@@ -254,7 +283,11 @@ def build_health_summary(domains: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     return {
         "score": int(score),
-        "grade": health_grade(int(score), critical_actions=critical_actions),
+        "grade": health_grade(
+            int(score),
+            policy=_system_policy(domains),
+            critical_actions=critical_actions,
+        ),
         "status": "healthy" if score >= 90 else "attention" if score >= 70 else "critical",
         "attention_domains": attention_domains,
         "domain_count": len(domain_health),
