@@ -206,7 +206,13 @@ class GmailClient:
     # Core fetching logic
     # ------------------------------------------------------------------
 
-    def fetch_reports(self, days: Optional[int] = None) -> Dict[str, Any]:
+    def fetch_reports(
+        self,
+        days: Optional[int] = None,
+        *,
+        page_cursor: Optional[str] = None,
+        max_pages: Optional[int] = None,
+    ) -> Dict[str, Any]:
         """
         Search Gmail for DMARC report emails and ingest any new ones.
 
@@ -230,10 +236,17 @@ class GmailClient:
             return connector_failure_stats(stats, "Failed to initialize Gmail API.", error=exc)
 
         try:
-            message_ids = self._list_dmarc_message_ids(service, days=days)
+            message_ids, next_page_cursor = self._list_dmarc_message_id_page(
+                service,
+                days=days,
+                page_cursor=page_cursor,
+                max_pages=max_pages,
+            )
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error("Gmail API: failed to list messages: %s", exc)
             return connector_failure_stats(stats, "Failed to list Gmail messages.", error=exc)
+        if next_page_cursor:
+            stats["page_cursor"] = next_page_cursor
 
         domains_before = set(self.report_store.get_domains())
 
@@ -284,8 +297,22 @@ class GmailClient:
 
     def _list_dmarc_message_ids(self, service, days: Optional[int] = None) -> List[str]:
         """Return all Gmail message IDs matching the DMARC search query."""
+        ids, _next_page_cursor = self._list_dmarc_message_id_page(service, days=days)
+        return ids
+
+    def _list_dmarc_message_id_page(
+        self,
+        service,
+        days: Optional[int] = None,
+        *,
+        page_cursor: Optional[str] = None,
+        max_pages: Optional[int] = None,
+    ) -> tuple[List[str], Optional[str]]:
+        """Return Gmail message IDs and an optional next-page resume cursor."""
         ids: List[str] = []
-        page_token: Optional[str] = None
+        page_token: Optional[str] = page_cursor
+        pages_read = 0
+        page_limit = max(1, int(max_pages)) if max_pages is not None else None
 
         while True:
             kwargs: Dict[str, Any] = {
@@ -306,10 +333,13 @@ class GmailClient:
                 ids.append(msg["id"])
 
             page_token = result.get("nextPageToken")
+            pages_read += 1
+            if page_limit is not None and pages_read >= page_limit:
+                return ids, page_token
             if not page_token:
                 break
 
-        return ids
+        return ids, None
 
     @staticmethod
     def _append_detail(stats: dict, **detail: str) -> None:

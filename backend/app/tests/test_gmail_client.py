@@ -340,6 +340,42 @@ class TestListDmarcMessageIds:
         # list() should have been called twice
         assert service.users.return_value.messages.return_value.list.call_count == 2
 
+    def test_returns_resume_cursor_when_page_limit_is_reached(self):
+        client = _make_client()
+        service = MagicMock()
+        execute = service.users.return_value.messages.return_value.list.return_value.execute
+        execute.side_effect = [
+            {"messages": [{"id": "id1"}], "nextPageToken": "page2"},
+            {"messages": [{"id": "id2"}], "nextPageToken": "page3"},
+        ]
+
+        ids, cursor = client._list_dmarc_message_id_page(
+            service,
+            days=30,
+            page_cursor="page1",
+            max_pages=1,
+        )
+
+        assert ids == ["id1"]
+        assert cursor == "page2"
+        service.users.return_value.messages.return_value.list.assert_called_once()
+        kwargs = service.users.return_value.messages.return_value.list.call_args.kwargs
+        assert kwargs["pageToken"] == "page1"
+
+    def test_fetch_reports_exposes_next_page_cursor(self, monkeypatch):
+        client = _make_client()
+        service = MagicMock()
+        service.users.return_value.messages.return_value.list.return_value.execute.return_value = {
+            "messages": [],
+            "nextPageToken": "page2",
+        }
+        monkeypatch.setattr(client, "_build_service", lambda: service)
+
+        result = client.fetch_reports(days=30, page_cursor="page1", max_pages=1)
+
+        assert result["success"] is True
+        assert result["page_cursor"] == "page2"
+
     def test_raises_on_http_error(self):
         from googleapiclient.errors import HttpError
 
@@ -767,7 +803,11 @@ class TestFetchReports:
         mock_service = MagicMock()
         with (
             patch.object(client, "_build_service", return_value=mock_service),
-            patch.object(client, "_list_dmarc_message_ids", side_effect=Exception("list error")),
+            patch.object(
+                client,
+                "_list_dmarc_message_id_page",
+                side_effect=Exception("list error"),
+            ),
         ):
             result = client.fetch_reports()
 
@@ -778,7 +818,7 @@ class TestFetchReports:
         mock_service = MagicMock()
         with (
             patch.object(client, "_build_service", return_value=mock_service),
-            patch.object(client, "_list_dmarc_message_ids", return_value=[]),
+            patch.object(client, "_list_dmarc_message_id_page", return_value=([], None)),
         ):
             result = client.fetch_reports()
 
@@ -790,11 +830,20 @@ class TestFetchReports:
         mock_service = MagicMock()
         with (
             patch.object(client, "_build_service", return_value=mock_service),
-            patch.object(client, "_list_dmarc_message_ids", return_value=[]) as list_messages,
+            patch.object(
+                client,
+                "_list_dmarc_message_id_page",
+                return_value=([], None),
+            ) as list_messages,
         ):
             result = client.fetch_reports(days=30)
 
-        list_messages.assert_called_once_with(mock_service, days=30)
+        list_messages.assert_called_once_with(
+            mock_service,
+            days=30,
+            page_cursor=None,
+            max_pages=None,
+        )
         assert result["search_window_days"] == 30
 
     def test_search_query_includes_gmail_newer_than_filter(self):
@@ -808,7 +857,11 @@ class TestFetchReports:
         mock_service = MagicMock()
         with (
             patch.object(client, "_build_service", return_value=mock_service),
-            patch.object(client, "_list_dmarc_message_ids", return_value=["id1", "id2"]),
+            patch.object(
+                client,
+                "_list_dmarc_message_id_page",
+                return_value=(["id1", "id2"], None),
+            ),
             patch.object(client, "_process_message", return_value=0) as mock_proc,
         ):
             result = client.fetch_reports()
@@ -827,7 +880,11 @@ class TestFetchReports:
         mock_service = MagicMock()
         with (
             patch.object(client, "_build_service", return_value=mock_service),
-            patch.object(client, "_list_dmarc_message_ids", return_value=["id1", "id2"]),
+            patch.object(
+                client,
+                "_list_dmarc_message_id_page",
+                return_value=(["id1", "id2"], None),
+            ),
             patch.object(client, "_process_message", return_value=0),
         ):
             result = client.fetch_reports()
@@ -840,7 +897,11 @@ class TestFetchReports:
         mock_service = MagicMock()
         with (
             patch.object(client, "_build_service", return_value=mock_service),
-            patch.object(client, "_list_dmarc_message_ids", return_value=["id1"]),
+            patch.object(
+                client,
+                "_list_dmarc_message_id_page",
+                return_value=(["id1"], None),
+            ),
             patch.object(client, "_process_message", return_value=RETRYABLE_MESSAGE_FAILURE),
         ):
             result = client.fetch_reports()
@@ -872,7 +933,11 @@ class TestFetchReports:
 
         with (
             patch.object(client, "_build_service", return_value=mock_service),
-            patch.object(client, "_list_dmarc_message_ids", return_value=["id1"]),
+            patch.object(
+                client,
+                "_list_dmarc_message_id_page",
+                return_value=(["id1"], None),
+            ),
             patch.object(client, "_process_message", side_effect=_process_side_effect),
         ):
             result = client.fetch_reports()
@@ -901,7 +966,7 @@ class TestFetchReports:
             patch.object(client, "_build_service", return_value=mock_service),
             patch.object(
                 client,
-                "_list_dmarc_message_ids",
+                "_list_dmarc_message_id_page",
                 side_effect=RuntimeError("refresh_token=1//raw-refresh"),
             ),
         ):

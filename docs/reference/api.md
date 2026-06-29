@@ -204,9 +204,12 @@ controls. Backfill responses also include computed fields for
 `can_retry` so clients can show actionable progress without parsing cursors.
 Workers persist structured provider checkpoints in `cursor_checkpoint`; clients
 can inspect that decoded object for connector, window, processed counts, error
-counts, and future provider page cursors while treating the raw `cursor` as
-diagnostic text. The background scheduler currently executes due IMAP, Gmail,
-and Microsoft 365
+counts, and provider page-cursor state while treating the raw `cursor` as
+diagnostic text. Gmail API and Microsoft 365 Graph backfills process provider
+message pages in bounded batches and re-queue the same job with the next
+provider cursor when more pages remain. API responses mask `page_cursor` as
+`**redacted**`; only the worker uses the stored raw cursor to resume. The
+background scheduler currently executes due IMAP, Gmail, and Microsoft 365
 backfill jobs in bounded batches and records results in import history with
 trigger `backfill`. In demo mode, DMARQ exposes credential-free synthetic mail
 sources and backfill jobs so the workflow is visible without connecting a real

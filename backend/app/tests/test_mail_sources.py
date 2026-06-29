@@ -994,7 +994,7 @@ class TestMailSourcesAPIAuthed:
 
         assert checkpoint_response.status_code == 200
         assert checkpoint_response.json()["cursor_checkpoint"]["connector"] == "gmail"
-        assert checkpoint_response.json()["cursor_checkpoint"]["page_cursor"] == "next-page-token"
+        assert checkpoint_response.json()["cursor_checkpoint"]["page_cursor"] == "**redacted**"
 
     def test_backfill_cursor_checkpoint_preserves_legacy_formats(self):
         legacy = mail_sources_endpoint._backfill_cursor_checkpoint(
