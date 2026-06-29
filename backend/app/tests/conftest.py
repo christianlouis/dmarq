@@ -12,7 +12,6 @@ import app.models.alert  # noqa: F401  # pylint: disable=unused-import
 import app.models.api_token  # noqa: F401  # pylint: disable=unused-import
 import app.models.dns_cache  # noqa: F401  # pylint: disable=unused-import
 import app.models.domain  # noqa: F401  # pylint: disable=unused-import
-import app.models.health_score_snapshot  # noqa: F401  # pylint: disable=unused-import
 import app.models.mail_source as _mail_source_model  # noqa: F401  # pylint: disable=unused-import
 import app.models.mail_source_backfill as _mail_source_backfill_model  # noqa: F401  # pylint: disable=unused-import
 import app.models.mail_source_import  # noqa: F401  # pylint: disable=unused-import
@@ -28,6 +27,7 @@ from app.main import create_app
 from app.services.report_store import ReportStore
 
 import_module("app.models.organization")
+import_module("app.models.health_score_snapshot")
 
 
 @pytest.fixture()
