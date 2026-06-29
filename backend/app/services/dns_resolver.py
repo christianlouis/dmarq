@@ -746,13 +746,13 @@ class DemoDNSProvider(BaseDNSProvider):
 
     async def lookup_ptr(self, ip: str) -> Optional[str]:
         ptr_records = {
-            "203.0.113.10": "primary-saas.demo.dmarq.org",
-            "203.0.113.44": "newsletter.demo.dmarq.org",
-            "198.51.100.23": "ticketing.demo.dmarq.org",
+            "203.0.113.10": "primary-saas.mail.dmarq.org",
+            "203.0.113.44": "mail123.mcsv.net",
+            "198.51.100.23": "support-mail.zendesk.com",
             "192.0.2.66": "legacy-crm.demo.dmarq.org",
-            "203.0.113.75": "workspace-mail.demo.dmarq.com",
-            "198.51.100.88": "marketing.demo.dmarq.com",
-            "192.0.2.114": "billing.demo.dmarq.com",
+            "203.0.113.75": "mail-qv1-f75.google.com",
+            "198.51.100.88": "campaign.mcsv.net",
+            "192.0.2.114": "smtp.stripe.com",
             "198.51.100.199": "unknown-forwarder.demo.dmarq.com",
         }
         return ptr_records.get(ip)

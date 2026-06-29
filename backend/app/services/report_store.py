@@ -22,6 +22,103 @@ def _dominant_result(counts: Dict[str, int], default: str = "none") -> str:
     return max(counts.items(), key=lambda item: item[1])[0]
 
 
+def _add_unique(target: List[str], value: Any) -> None:
+    """Append a non-empty string value once, preserving first-seen order."""
+    if value is None:
+        return
+    text = str(value).strip()
+    if text and text not in target:
+        target.append(text)
+
+
+def _new_source_stats() -> Dict[str, Any]:
+    return {
+        "count": 0,
+        "spf_pass_count": 0,
+        "spf_fail_count": 0,
+        "spf_unknown_count": 0,
+        "dkim_pass_count": 0,
+        "dkim_fail_count": 0,
+        "dkim_unknown_count": 0,
+        "dmarc_pass_count": 0,
+        "dmarc_fail_count": 0,
+        "disposition_counts": {},
+        "spf_result": "none",
+        "dkim_result": "none",
+        "dmarc_result": "none",
+        "disposition": "none",
+        "spf_domains": [],
+        "dkim_domains": [],
+        "dkim_selectors": [],
+        "header_from_domains": [],
+        "envelope_from_domains": [],
+        "extensions": {},
+    }
+
+
+def _merge_source_metadata(source: Dict[str, Any], record: Dict[str, Any]) -> None:
+    _add_unique(source["header_from_domains"], record.get("header_from"))
+    _add_unique(source["envelope_from_domains"], record.get("envelope_from"))
+    for spf_auth in record.get("spf") or []:
+        if isinstance(spf_auth, dict):
+            _add_unique(source["spf_domains"], spf_auth.get("domain"))
+    for dkim_auth in record.get("dkim") or []:
+        if isinstance(dkim_auth, dict):
+            _add_unique(source["dkim_domains"], dkim_auth.get("domain"))
+            _add_unique(source["dkim_selectors"], dkim_auth.get("selector"))
+    for key, value in (record.get("extensions") or {}).items():
+        if key not in source["extensions"] and value is not None:
+            source["extensions"][str(key)] = str(value)
+
+
+def _update_source_from_record(source: Dict[str, Any], record: Dict[str, Any]) -> None:
+    count = int(record.get("count") or 0)
+    spf_result = record.get("spf_result", "unknown") or "unknown"
+    dkim_result = record.get("dkim_result", "unknown") or "unknown"
+    disposition = record.get("disposition", "none") or "none"
+
+    source["count"] += count
+
+    if spf_result == "pass":
+        source["spf_pass_count"] += count
+    elif spf_result == "fail":
+        source["spf_fail_count"] += count
+    else:
+        source["spf_unknown_count"] += count
+
+    if dkim_result == "pass":
+        source["dkim_pass_count"] += count
+    elif dkim_result == "fail":
+        source["dkim_fail_count"] += count
+    else:
+        source["dkim_unknown_count"] += count
+
+    if spf_result == "pass" or dkim_result == "pass":
+        source["dmarc_pass_count"] += count
+    else:
+        source["dmarc_fail_count"] += count
+
+    disposition_counts = source["disposition_counts"]
+    disposition_counts[disposition] = disposition_counts.get(disposition, 0) + count
+
+    source["spf_result"] = _auth_status_from_counts(
+        source["spf_pass_count"],
+        source["spf_fail_count"],
+        source["spf_unknown_count"],
+    )
+    source["dkim_result"] = _auth_status_from_counts(
+        source["dkim_pass_count"],
+        source["dkim_fail_count"],
+        source["dkim_unknown_count"],
+    )
+    source["dmarc_result"] = _auth_status_from_counts(
+        source["dmarc_pass_count"],
+        source["dmarc_fail_count"],
+    )
+    source["disposition"] = _dominant_result(disposition_counts)
+    _merge_source_metadata(source, record)
+
+
 class ReportStore:
     """
     In-memory store for DMARC reports
@@ -95,67 +192,8 @@ class ReportStore:
             for record in report.get("records", []):
                 source_ip = record.get("source_ip", "unknown")
                 if source_ip not in sources:
-                    sources[source_ip] = {
-                        "count": 0,
-                        "spf_pass_count": 0,
-                        "spf_fail_count": 0,
-                        "spf_unknown_count": 0,
-                        "dkim_pass_count": 0,
-                        "dkim_fail_count": 0,
-                        "dkim_unknown_count": 0,
-                        "dmarc_pass_count": 0,
-                        "dmarc_fail_count": 0,
-                        "disposition_counts": {},
-                        "spf_result": "none",
-                        "dkim_result": "none",
-                        "dmarc_result": "none",
-                        "disposition": "none",
-                    }
-                count = int(record.get("count") or 0)
-                spf_result = record.get("spf_result", "unknown") or "unknown"
-                dkim_result = record.get("dkim_result", "unknown") or "unknown"
-                disposition = record.get("disposition", "none") or "none"
-                source = sources[source_ip]
-
-                source["count"] += count
-
-                if spf_result == "pass":
-                    source["spf_pass_count"] += count
-                elif spf_result == "fail":
-                    source["spf_fail_count"] += count
-                else:
-                    source["spf_unknown_count"] += count
-
-                if dkim_result == "pass":
-                    source["dkim_pass_count"] += count
-                elif dkim_result == "fail":
-                    source["dkim_fail_count"] += count
-                else:
-                    source["dkim_unknown_count"] += count
-
-                if spf_result == "pass" or dkim_result == "pass":
-                    source["dmarc_pass_count"] += count
-                else:
-                    source["dmarc_fail_count"] += count
-
-                disposition_counts = source["disposition_counts"]
-                disposition_counts[disposition] = disposition_counts.get(disposition, 0) + count
-
-                source["spf_result"] = _auth_status_from_counts(
-                    source["spf_pass_count"],
-                    source["spf_fail_count"],
-                    source["spf_unknown_count"],
-                )
-                source["dkim_result"] = _auth_status_from_counts(
-                    source["dkim_pass_count"],
-                    source["dkim_fail_count"],
-                    source["dkim_unknown_count"],
-                )
-                source["dmarc_result"] = _auth_status_from_counts(
-                    source["dmarc_pass_count"],
-                    source["dmarc_fail_count"],
-                )
-                source["disposition"] = _dominant_result(disposition_counts)
+                    sources[source_ip] = _new_source_stats()
+                _update_source_from_record(sources[source_ip], record)
 
         total = summary["total_count"]
         summary["compliance_rate"] = (
