@@ -35,6 +35,7 @@ from app.models.mail_source import MailSource  # noqa: F401 – ensure table is 
 from app.services.gmail_client import GmailClient
 from app.services.imap_client import IMAPClient
 from app.services.import_history import record_import_attempt
+from app.services.mail_source_backfill_worker import run_due_imap_backfill_jobs
 from app.services.microsoft_graph_client import MicrosoftGraphClient
 from app.services.report_persistence import hydrate_report_store_from_db
 from app.services.report_store import ReportStore
@@ -309,6 +310,18 @@ def _deliver_due_webhook_events() -> None:
         db.close()
 
 
+def _run_due_mail_source_backfills() -> int:
+    """Execute a bounded batch of queued mail-source backfill jobs."""
+    db = SessionLocal()
+    try:
+        count = run_due_imap_backfill_jobs(db)
+        if count:
+            logger.info("Processed %d queued IMAP backfill job(s)", count)
+        return count
+    finally:
+        db.close()
+
+
 def _next_sleep_seconds(
     min_sleep: int = 60, enabled_sources: Optional[List[MailSource]] = None
 ) -> int:
@@ -336,6 +349,7 @@ async def scheduled_imap_polling():
             mark_scheduler_cycle_started()
             try:
                 enabled_sources = _poll_all_enabled_sources()
+                _run_due_mail_source_backfills()
                 _send_due_summary_notifications()
                 _deliver_due_webhook_events()
                 mark_scheduler_success()

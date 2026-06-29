@@ -149,12 +149,29 @@ def test_poll_single_m365_source_skips_without_token():
     mock_session.assert_not_called()
 
 
+def test_run_due_mail_source_backfills_logs_processed_count():
+    from app.main import _run_due_mail_source_backfills
+
+    db = MagicMock()
+    with (
+        patch("app.main.SessionLocal", return_value=db),
+        patch("app.main.run_due_imap_backfill_jobs", return_value=2) as run_due,
+        patch("app.main.logger") as logger,
+    ):
+        assert _run_due_mail_source_backfills() == 2
+
+    run_due.assert_called_once_with(db)
+    logger.info.assert_called_once_with("Processed %d queued IMAP backfill job(s)", 2)
+    db.close.assert_called_once()
+
+
 @pytest.mark.asyncio
 async def test_scheduled_imap_polling_sleep_exception_falls_back_then_cancels():
     from app.main import scheduled_imap_polling
 
     with (
         patch("app.main._poll_all_enabled_sources", return_value=[]),
+        patch("app.main._run_due_mail_source_backfills", return_value=0),
         patch("app.main._next_sleep_seconds", return_value=60),
         patch(
             "app.main.asyncio.sleep",
