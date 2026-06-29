@@ -241,6 +241,7 @@ def test_run_due_mail_source_backfill_executes_gmail_job(db_session, monkeypatch
     assert cursor["state"] == "completed"
     assert cursor["window_days"] == 10
     assert cursor["processed"] == 5
+    assert cursor["search_window_days"] == 10
     assert row.processed == 5
     assert row.reports_found == 3
     assert source.gmail_ingested_ids == "old-id,new-id"
