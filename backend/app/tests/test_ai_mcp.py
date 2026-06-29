@@ -1,3 +1,4 @@
+import builtins
 import sys
 import time
 from unittest.mock import AsyncMock, patch
@@ -75,6 +76,15 @@ def test_ai_summary_requires_explicit_opt_in(authed_client: TestClient):
     assert "AI assistance is disabled" in response.json()["detail"]
 
 
+def test_ai_context_requires_explicit_opt_in(authed_client: TestClient):
+    _seed_report_store()
+
+    response = authed_client.get(f"/api/v1/ai/domains/{DOMAIN}/context")
+
+    assert response.status_code == 403
+    assert "AI assistance is disabled" in response.json()["detail"]
+
+
 def test_ai_remediation_plan_requires_explicit_opt_in(authed_client: TestClient):
     _seed_report_store()
 
@@ -101,6 +111,18 @@ def test_ai_summary_is_evidence_first_and_redacted(
     assert body["recommendations"]
     assert body["recommendations"][0]["evidence"]
     assert "**redacted**" not in body["safe_context"]["domain"]
+
+
+def test_ai_summary_returns_not_found_for_unknown_domain(
+    authed_client: TestClient,
+    db_session: Session,
+):
+    _set_setting(db_session, "ai.enabled", "true", "ai")
+
+    response = authed_client.get("/api/v1/ai/domains/missing.example/summary")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Domain not found"
 
 
 def test_ai_remediation_plan_uses_template_and_cache(
@@ -197,6 +219,18 @@ def test_remediation_cache_prunes_expired_entries_and_oldest_entries():
 
     assert len(ai_assistance._REMEDIATION_CACHE) <= ai_assistance.REMEDIATION_CACHE_MAX_ENTRIES
     assert "key-0" not in ai_assistance._REMEDIATION_CACHE
+
+    ai_assistance._REMEDIATION_CACHE.clear()
+    for index in range(ai_assistance.REMEDIATION_CACHE_MAX_ENTRIES + 2):
+        ai_assistance._REMEDIATION_CACHE[f"raw-{index}"] = (index, {"index": index})
+
+    ai_assistance._cache_prune(ttl_seconds=0)
+
+    assert len(ai_assistance._REMEDIATION_CACHE) == ai_assistance.REMEDIATION_CACHE_MAX_ENTRIES
+    assert "raw-0" not in ai_assistance._REMEDIATION_CACHE
+
+    ai_assistance._REMEDIATION_CACHE["stale"] = (time.time() - 120, {"stale": True})
+    assert ai_assistance._cache_get("stale", ttl_seconds=0) is None
     ai_assistance._REMEDIATION_CACHE.clear()
 
 
@@ -276,6 +310,184 @@ async def test_litellm_remediation_plan_rejects_malformed_actions(monkeypatch):
     )
 
     assert plan is None
+
+
+@pytest.mark.asyncio
+async def test_litellm_remediation_plan_returns_none_when_litellm_is_missing(monkeypatch):
+    original_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "litellm":
+            raise ImportError("missing litellm")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    config = AssistanceConfig(
+        ai_enabled=True,
+        provider="litellm",
+        model="",
+        remote_base_url="",
+        redaction_mode="strict",
+        action_tools_enabled=False,
+        mcp_enabled=False,
+        remediation_cache_seconds=60,
+    )
+
+    plan = await ai_assistance._litellm_remediation_plan(
+        config,
+        {"domain": DOMAIN, "dns_guidance": {"findings": []}},
+    )
+
+    assert plan is None
+
+
+@pytest.mark.asyncio
+async def test_litellm_remediation_plan_returns_none_on_bad_json(monkeypatch):
+    class FakeLiteLLM:
+        drop_params = False
+
+        @staticmethod
+        async def acompletion(**_kwargs):
+            return {"choices": [{"message": {"content": "not-json"}}]}
+
+    monkeypatch.setitem(sys.modules, "litellm", FakeLiteLLM)
+    config = AssistanceConfig(
+        ai_enabled=True,
+        provider="litellm",
+        model="",
+        remote_base_url="",
+        redaction_mode="strict",
+        action_tools_enabled=False,
+        mcp_enabled=False,
+        remediation_cache_seconds=60,
+    )
+
+    plan = await ai_assistance._litellm_remediation_plan(
+        config,
+        {"domain": DOMAIN, "dns_guidance": {"findings": []}},
+    )
+
+    assert plan is None
+
+
+def test_ai_remediation_plan_returns_not_found_for_unknown_domain(
+    authed_client: TestClient,
+    db_session: Session,
+):
+    _set_setting(db_session, "ai.enabled", "true", "ai")
+
+    response = authed_client.get("/api/v1/ai/domains/missing.example/remediation-plan")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Domain not found"
+
+
+def test_ai_remediation_plan_can_use_litellm_provider(
+    authed_client: TestClient,
+    db_session: Session,
+):
+    _seed_report_store()
+    _set_setting(db_session, "ai.enabled", "true", "ai")
+    _set_setting(db_session, "ai.provider", "litellm", "ai")
+    provider = AsyncMock()
+    provider.check_domain = AsyncMock(
+        return_value=DomainDNSResult(
+            dmarc=True,
+            dmarc_record="v=DMARC1; p=none; rua=mailto:dmarc@example.com",
+            spf=True,
+            spf_record="v=spf1 -all",
+            dkim=True,
+            dkim_selectors=["google"],
+            selectors_checked=["google"],
+        )
+    )
+    provider.lookup_txt = AsyncMock(return_value=["v=spf1 -all"])
+    provider.lookup_cname = AsyncMock(return_value=None)
+    llm_plan = {
+        "domain": DOMAIN,
+        "provider": "litellm",
+        "cached": False,
+        "generated_at": "2026-06-29T10:00:00Z",
+        "summary": "AI-generated plan.",
+        "actions": [],
+        "safe_context": {"domain": DOMAIN},
+    }
+
+    with (
+        patch("app.services.ai_assistance.get_default_provider", return_value=provider),
+        patch(
+            "app.services.ai_assistance.check_mta_sts_cached",
+            new=AsyncMock(return_value=(MTAStsResult(status="pass"), False, None)),
+        ),
+        patch(
+            "app.services.ai_assistance.check_bimi_cached",
+            new=AsyncMock(return_value=(BIMIResult(status="pass"), False, None)),
+        ),
+        patch(
+            "app.services.ai_assistance._litellm_remediation_plan",
+            new=AsyncMock(return_value=llm_plan),
+        ) as litellm_plan,
+    ):
+        response = authed_client.get(f"/api/v1/ai/domains/{DOMAIN}/remediation-plan")
+
+    assert response.status_code == 200
+    assert response.json()["plan"]["provider"] == "litellm"
+    litellm_plan.assert_awaited_once()
+
+
+def test_action_proposals_return_not_found_for_unknown_domain(
+    authed_client: TestClient,
+    db_session: Session,
+):
+    _set_setting(db_session, "ai.enabled", "true", "ai")
+
+    response = authed_client.get("/api/v1/ai/domains/missing.example/action-proposals")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Domain not found"
+
+
+def test_assistance_config_normalizes_invalid_settings(db_session: Session):
+    _set_setting(db_session, "ai.provider", "surprise", "ai")
+    _set_setting(db_session, "ai.redaction_mode", "unsafe", "ai")
+    _set_setting(db_session, "ai.remediation_cache_seconds", "not-a-number", "ai")
+
+    config = ai_assistance.get_assistance_config(db_session)
+
+    assert config.provider == "template"
+    assert config.redaction_mode == "strict"
+    assert config.remediation_cache_seconds == 86400
+
+
+def test_report_selectors_ignore_malformed_entries():
+    store = ReportStore.get_instance()
+    store.add_report(
+        {
+            "domain": "selector.example",
+            "report_id": "selector-report",
+            "records": [
+                {
+                    "dkim": [
+                        "not-a-dict",
+                        {"selector": "alpha"},
+                        {"selector": "alpha"},
+                        {"selector": "beta"},
+                    ]
+                }
+            ],
+            "summary": {"total_count": 1, "passed_count": 0, "failed_count": 1},
+        }
+    )
+
+    assert ai_assistance._selectors_from_reports(store, "selector.example") == [
+        "alpha",
+        "beta",
+    ]
+
+
+def test_build_safe_context_returns_not_found_for_unknown_domain(db_session: Session):
+    with pytest.raises(ValueError, match="Domain not found"):
+        ai_assistance.build_safe_context(db_session, "missing.example")
 
 
 def test_action_proposals_are_reviewable_and_not_mutating(

@@ -99,11 +99,15 @@ async def test_build_dns_guidance_classifies_dmarc_warning_codes():
         spf_record="v=spf1 ?all",
         dkim=True,
         dkim_selectors=["selector1"],
-        dmarc_warnings=[
-            "External rua destination reports.example.net is missing authorization TXT.",
-            "DMARC adkim tag should be r or s.",
-            "DMARC fo tag contains unsupported failure options.",
-        ],
+            dmarc_warnings=[
+                "External rua destination reports.example.net is missing authorization TXT.",
+                "External ruf destination forensics.example.net is missing authorization TXT.",
+                "Unsupported policy value p=monitor.",
+                "DMARC adkim tag should be r or s.",
+                "DMARC fo tag contains unsupported failure options.",
+                "Record contains neither a valid p tag nor a rua tag.",
+                "Unexpected DMARC lint warning.",
+            ],
         dmarc_suggestions=["Add rua=mailto:... so aggregate reports can reach DMARQ."],
     )
 
@@ -117,8 +121,12 @@ async def test_build_dns_guidance_classifies_dmarc_warning_codes():
 
     codes = {finding.code for finding in guidance.findings}
     assert "dmarc_external_rua_unauthorized" in codes
+    assert "dmarc_external_ruf_unauthorized" in codes
+    assert "dmarc_policy_value_invalid" in codes
     assert "dmarc_alignment_value_invalid" in codes
     assert "dmarc_failure_option_invalid" in codes
+    assert "dmarc_policy_or_reporting_missing" in codes
+    assert "dmarc_lint_warning" in codes
     assert "dmarc_suggestion" in codes
     assert "dmarc_monitoring_policy" in codes
     assert "spf_all_neutral" in codes
@@ -220,3 +228,33 @@ async def test_build_dns_guidance_lints_dkim_selector_health():
     assert findings["dkim_selector_missing"].record_name == "old._domainkey.example.com"
     assert findings["dkim_selector_cname_broken"].record_type == "CNAME"
     assert findings["dkim_selector_key_too_short"].remediation_steps
+
+
+@pytest.mark.asyncio
+async def test_spf_lint_covers_redirect_void_and_duplicate_free_paths():
+    provider = FakeDNSProvider(
+        {
+            "example.com": ["v=spf1 redirect=missing.example -all"],
+            "_smtp._tls.example.com": ["v=TLSRPTv1; rua=mailto:tls@example.com"],
+        }
+    )
+    dns = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=reject; rua=mailto:dmarc@example.com",
+        spf=True,
+        spf_record="v=spf1 redirect=missing.example a -all",
+        dkim=True,
+        dkim_selectors=["selector1"],
+    )
+
+    guidance = await build_dns_guidance(
+        "example.com",
+        provider,
+        dns,
+        MTAStsResult(status="pass"),
+        BIMIResult(status="pass"),
+    )
+
+    codes = {finding.code for finding in guidance.findings}
+    assert "spf_void_lookup" in codes
+    assert "spf_duplicate_include" not in codes
