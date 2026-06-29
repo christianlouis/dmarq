@@ -276,12 +276,24 @@ class OperatorPlaybook(BaseModel):
     evidence: List[DNSHealthEvidence] = Field(default_factory=list)
 
 
+class DomainHealthGrade(BaseModel):
+    """Dashboard-consistent health grade for a single monitored domain."""
+
+    domain: str
+    score: int
+    grade: str
+    status: str
+    factors: Dict[str, float] = Field(default_factory=dict)
+    actions: List[Dict[str, Any]] = Field(default_factory=list)
+
+
 class PostureDashboardResponse(BaseModel):
     """Evidence-first posture dashboard response for a domain."""
 
     domain: str
     status: str
     score: int
+    health: DomainHealthGrade
     summary: str
     coverage: List[PostureCoverageItem]
     recommendations: List[DNSHealthRecommendation]
@@ -1133,9 +1145,50 @@ def _operator_playbooks(
     ][:6]
 
 
+async def _build_domain_health_grade(
+    db: Session,
+    domain_id: str,
+    store: ReportStore,
+    *,
+    refresh: bool = False,
+) -> Dict[str, Any]:
+    """Build the dashboard-grade health object for a domain detail page."""
+    manual_selectors = _get_domain_selectors_from_db(db, domain_id)
+    report_selectors = _get_selectors_from_reports(store, domain_id)
+    combined_selectors = list(dict.fromkeys(manual_selectors + report_selectors))
+    provider = get_default_provider(db)
+    dns, _, _ = await resolve_domain_dns_cached(
+        db,
+        provider,
+        domain_id,
+        selectors=combined_selectors,
+        refresh=refresh,
+    )
+    summary = store.get_domain_summary(domain_id)
+    live_policy = extract_dmarc_policy(dns.dmarc_record)
+    reported_policy = _normalize_reported_policy(summary.get("policy", {}))
+    domain_row = {
+        "id": domain_id,
+        "domain_name": domain_id,
+        "total_emails": summary.get("total_count", 0),
+        "passed_count": summary.get("passed_count", 0),
+        "failed_count": summary.get("failed_count", 0),
+        "pass_rate": summary.get("compliance_rate", 0),
+        "report_count": summary.get("reports_processed", 0),
+        "dmarc_status": dns.dmarc,
+        "dmarc_policy": live_policy or reported_policy or "none",
+        "spf_status": dns.spf,
+        "dkim_status": dns.dkim,
+        "dmarc_warnings": dns.dmarc_warnings,
+        "dmarc_suggestions": dns.dmarc_suggestions,
+    }
+    return score_domain_health(domain_row)
+
+
 def _build_posture_dashboard(
     domain_id: str,
     health: DNSHealthResponse,
+    domain_health: Dict[str, Any],
     changes: List[Dict[str, Any]],
 ) -> PostureDashboardResponse:
     passing = sum(1 for check in health.checks if check.status == "pass")
@@ -1155,6 +1208,7 @@ def _build_posture_dashboard(
         domain=domain_id,
         status=health.status,
         score=score,
+        health=domain_health,
         summary=_posture_summary(health),
         coverage=coverage,
         recommendations=health.recommendations,
@@ -1652,8 +1706,9 @@ async def get_domain_posture_dashboard(
         )
 
     health = await _build_domain_dns_health(db, store, domain_id, refresh=refresh)
+    domain_health = await _build_domain_health_grade(db, domain_id, store)
     changes = list_dns_record_changes(db, domain_id, limit=10)
-    return _build_posture_dashboard(domain_id, health, changes)
+    return _build_posture_dashboard(domain_id, health, domain_health, changes)
 
 
 @router.get("/{domain_id}/dns/mta-sts", response_model=MTAStsResponse)
