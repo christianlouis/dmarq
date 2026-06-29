@@ -9,13 +9,17 @@ the use of begin_timestamp/end_timestamp integers for date fields.
 """
 
 import csv
+from datetime import date
 from io import StringIO
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.api.api_v1.endpoints import domains as domains_endpoint
 from app.models.domain import Domain
+from app.services import report_persistence
+from app.services.health_score_snapshots import upsert_health_score_snapshot
 from app.services.report_store import ReportStore
 from app.services.workspaces import get_or_create_default_workspace
 
@@ -252,6 +256,292 @@ def test_export_domain_reports_unknown_domain_returns_404(authed_client: TestCli
     """Returns 404 when exporting a domain with no reports."""
     response = authed_client.get("/api/v1/domains/no-such-domain.example.com/reports/export")
     assert response.status_code == 404
+
+
+def test_domain_health_history_returns_persisted_trend(seeded_client: TestClient, db_session):
+    """Health history exposes persisted score movement for the requested domain."""
+    workspace = get_or_create_default_workspace(db_session)
+    upsert_health_score_snapshot(
+        db_session,
+        workspace_id=workspace.id,
+        domain_name=DOMAIN,
+        health={"score": 80, "grade": "B-", "status": "attention", "factors": {}, "actions": []},
+        policy="quarantine",
+        compliance_rate=91,
+        total_emails=100,
+        failed_emails=9,
+        report_count=1,
+        snapshot_date=date(2026, 6, 1),
+    )
+    upsert_health_score_snapshot(
+        db_session,
+        workspace_id=workspace.id,
+        domain_name=DOMAIN,
+        health={
+            "score": 88,
+            "grade": "B+",
+            "status": "attention",
+            "factors": {},
+            "actions": [{"title": "Fix SPF coverage", "severity": "high", "score_impact": 12}],
+        },
+        policy="quarantine",
+        compliance_rate=95,
+        total_emails=200,
+        failed_emails=10,
+        report_count=2,
+        snapshot_date=date(2026, 6, 2),
+    )
+
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/posture/history?capture_current=false")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["current_score"] == 88
+    assert data["previous_score"] == 80
+    assert data["score_delta"] == 8
+    assert data["points"][1]["top_actions"][0]["title"] == "Fix SPF coverage"
+
+
+def test_export_domain_health_evidence_returns_sanitized_csv(
+    seeded_client: TestClient,
+    db_session,
+):
+    """Health evidence export contains scores and actions without forensic content."""
+    workspace = get_or_create_default_workspace(db_session)
+    upsert_health_score_snapshot(
+        db_session,
+        workspace_id=workspace.id,
+        domain_name=DOMAIN,
+        health={
+            "score": 72,
+            "grade": "C",
+            "status": "attention",
+            "factors": {"dns_posture": 80, "policy_strength": 55, "report_confidence": 78},
+            "actions": [{"title": "Move out of monitoring mode", "severity": "medium"}],
+        },
+        policy="none",
+        compliance_rate=94,
+        total_emails=500,
+        failed_emails=30,
+        report_count=5,
+        snapshot_date=date(2026, 6, 3),
+    )
+
+    response = seeded_client.get(
+        f"/api/v1/domains/{DOMAIN}/posture/evidence/export?capture_current=false"
+    )
+
+    assert response.status_code == 200
+    rows = list(csv.DictReader(StringIO(response.text)))
+    assert rows[0]["domain"] == DOMAIN
+    assert rows[0]["score"] == "72"
+    assert rows[0]["policy"] == "none"
+    assert rows[0]["top_actions"] == "medium:Move out of monitoring mode"
+    assert "message" not in response.text.lower()
+
+
+def _stub_current_health(monkeypatch):
+    async def fake_dns_health(db, store, domain_id, refresh=False):
+        return domains_endpoint.DNSHealthResponse(
+            status="healthy",
+            policy="reject",
+            compliance_rate=98,
+            total_emails=1000,
+            failed_emails=20,
+            checks=[],
+            recommendations=[],
+        )
+
+    async def fake_domain_grade(db, domain_id, store, refresh=False):
+        return {
+            "domain": domain_id,
+            "score": 96,
+            "grade": "A",
+            "status": "healthy",
+            "factors": {
+                "dns_posture": 100,
+                "policy_strength": 100,
+                "report_confidence": 90,
+            },
+            "actions": [
+                {
+                    "type": "monitoring",
+                    "severity": "low",
+                    "title": "Keep monitoring",
+                    "score_impact": 1,
+                }
+            ],
+        }
+
+    monkeypatch.setattr(domains_endpoint, "_build_domain_dns_health", fake_dns_health)
+    monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_domain_grade)
+
+
+def test_domain_health_history_capture_current_snapshot(
+    seeded_client: TestClient,
+    monkeypatch,
+):
+    """Health history can capture today's computed posture before reading history."""
+    _stub_current_health(monkeypatch)
+
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/posture/history")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["current_score"] == 96
+    assert data["points"][-1]["policy"] == "reject"
+    assert data["top_drivers"][0]["title"] == "Keep monitoring"
+
+
+def test_domain_health_evidence_export_capture_current_snapshot(
+    seeded_client: TestClient,
+    monkeypatch,
+):
+    """Evidence export can capture the current score before writing CSV."""
+    _stub_current_health(monkeypatch)
+
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/posture/evidence/export")
+
+    assert response.status_code == 200
+    rows = list(csv.DictReader(StringIO(response.text)))
+    assert rows[0]["score"] == "96"
+    assert rows[0]["policy"] == "reject"
+    assert rows[0]["top_actions"] == "low:Keep monitoring"
+
+
+def test_domain_posture_dashboard_records_current_snapshot(
+    seeded_client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    """The posture dashboard records today's health score outside demo mode."""
+    _stub_current_health(monkeypatch)
+
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/posture")
+
+    assert response.status_code == 200
+    assert response.json()["health"]["score"] == 96
+    workspace = get_or_create_default_workspace(db_session)
+    snapshots = domains_endpoint.list_health_score_snapshots(
+        db_session,
+        workspace_id=workspace.id,
+        domain_name=DOMAIN,
+    )
+    assert snapshots[-1].score == 96
+
+
+def test_domain_health_history_rejects_invalid_date_order(seeded_client: TestClient):
+    """Health history validates that the start date is not after the end date."""
+    response = seeded_client.get(
+        f"/api/v1/domains/{DOMAIN}/posture/history"
+        "?start_date=2026-06-03&end_date=2026-06-02&capture_current=false"
+    )
+
+    assert response.status_code == 422
+
+
+def test_domain_health_evidence_export_rejects_invalid_date_order(
+    seeded_client: TestClient,
+):
+    """Health evidence export validates that the start date is not after the end date."""
+    response = seeded_client.get(
+        f"/api/v1/domains/{DOMAIN}/posture/evidence/export"
+        "?start_date=2026-06-03&end_date=2026-06-02&capture_current=false"
+    )
+
+    assert response.status_code == 422
+
+
+def test_domain_health_history_unknown_domain_returns_404(authed_client: TestClient):
+    """Health history returns 404 for domains outside the selected workspace."""
+    response = authed_client.get(
+        "/api/v1/domains/no-such.example/posture/history?capture_current=false"
+    )
+
+    assert response.status_code == 404
+
+
+def test_domain_health_evidence_export_unknown_domain_returns_404(
+    authed_client: TestClient,
+):
+    """Health evidence export returns 404 for domains outside the selected workspace."""
+    response = authed_client.get(
+        "/api/v1/domains/no-such.example/posture/evidence/export?capture_current=false"
+    )
+
+    assert response.status_code == 404
+
+
+def _enable_endpoint_demo_mode(monkeypatch):
+    settings = SimpleNamespace(DEMO_MODE=True)
+    monkeypatch.setattr(domains_endpoint, "get_settings", lambda: settings)
+    monkeypatch.setattr(report_persistence, "get_settings", lambda: settings)
+
+
+def test_domain_health_history_uses_demo_history_fallback(
+    authed_client: TestClient,
+    monkeypatch,
+):
+    """Demo mode serves rolling health history when no snapshots are stored."""
+    _enable_endpoint_demo_mode(monkeypatch)
+
+    response = authed_client.get(
+        "/api/v1/domains/dmarq.org/posture/history"
+        "?capture_current=false&start_date=2026-06-01&limit=3"
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["domain"] == "dmarq.org"
+    assert len(data["points"]) <= 3
+    assert data["current_score"] is not None
+
+
+def test_domain_health_evidence_export_uses_demo_history_fallback(
+    authed_client: TestClient,
+    monkeypatch,
+):
+    """Demo mode exports rolling health evidence without persisted snapshots."""
+    _enable_endpoint_demo_mode(monkeypatch)
+
+    response = authed_client.get(
+        "/api/v1/domains/dmarq.com/posture/evidence/export"
+        "?capture_current=false&start_date=2026-06-01&limit=2"
+    )
+
+    assert response.status_code == 200
+    rows = list(csv.DictReader(StringIO(response.text)))
+    assert 0 < len(rows) <= 2
+    assert rows[-1]["domain"] == "dmarq.com"
+    assert rows[-1]["policy"] == "none"
+
+
+def test_health_history_helpers_cover_demo_and_empty_paths():
+    empty = domains_endpoint._history_response_from_points(DOMAIN, [])
+    assert empty.current_score is None
+    assert empty.points == []
+
+    points = domains_endpoint._demo_history_points(
+        "dmarq.org",
+        start_date=date(2026, 6, 1),
+        end_date=date(2099, 12, 31),
+        limit=2,
+    )
+    response = domains_endpoint._history_response_from_points("dmarq.org", points)
+    assert len(response.points) <= 2
+    assert response.current_score is not None
+    assert response.top_drivers
+
+    export_rows = domains_endpoint._demo_evidence_export_rows("dmarq.org", points)
+    assert export_rows[0]["domain"] == "dmarq.org"
+    assert "medium:" in export_rows[0]["top_actions"]
+
+    csv_response = domains_endpoint._write_health_evidence_csv(
+        export_rows,
+        domain_id="dmarq.org",
+    )
+    assert csv_response.media_type == "text/csv"
+    assert "health-evidence.csv" in csv_response.headers["content-disposition"]
 
 
 # ---------------------------------------------------------------------------

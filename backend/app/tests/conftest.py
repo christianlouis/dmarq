@@ -27,6 +27,7 @@ from app.main import create_app
 from app.services.report_store import ReportStore
 
 import_module("app.models.organization")
+import_module("app.models.health_score_snapshot")
 
 
 @pytest.fixture()

@@ -26,6 +26,7 @@ from app.services.cloudflare_dns import (
     list_dns_record_changes,
     sync_dns_record_changes,
 )
+from app.services.demo_data import DEMO_DAYS, build_demo_health_score_history
 from app.services.dns_cache import resolve_domain_dns_cached
 from app.services.dns_guidance import build_dns_guidance
 from app.services.dns_resolver import (
@@ -34,6 +35,12 @@ from app.services.dns_resolver import (
     get_default_provider,
 )
 from app.services.health_score import build_health_summary, score_domain_health
+from app.services.health_score_snapshots import (
+    build_health_evidence_export_rows,
+    build_health_score_history,
+    list_health_score_snapshots,
+    upsert_health_score_snapshot,
+)
 from app.services.mta_sts import MTAStsResult, check_mta_sts_cached
 from app.services.organizations import (
     OrganizationPlanLimitError,
@@ -334,6 +341,37 @@ class PostureDashboardResponse(BaseModel):
     recommendations: List[DNSHealthRecommendation]
     changes: List[PostureChangeSummary]
     playbooks: List[OperatorPlaybook]
+
+
+class HealthScoreHistoryPoint(BaseModel):
+    """One persisted health score history point."""
+
+    date: str
+    score: int
+    grade: str
+    status: str
+    policy: Optional[str] = None
+    compliance_rate: int
+    total_emails: int
+    failed_emails: int
+    report_count: int
+    dns_posture_score: int
+    policy_strength_score: int
+    report_confidence_score: int
+    top_actions: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class HealthScoreHistoryResponse(BaseModel):
+    """Score history and trend metadata for one domain."""
+
+    domain: str
+    points: List[HealthScoreHistoryPoint]
+    current_score: Optional[int] = None
+    previous_score: Optional[int] = None
+    score_delta: Optional[int] = None
+    current_grade: Optional[str] = None
+    previous_grade: Optional[str] = None
+    top_drivers: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class MTAStsResponse(BaseModel):
@@ -1280,6 +1318,121 @@ def _build_posture_dashboard(
     )
 
 
+def _history_response_from_points(
+    domain_id: str,
+    points: List[Dict[str, Any]],
+) -> HealthScoreHistoryResponse:
+    """Build a health history response from serialized points."""
+    current = points[-1] if points else None
+    previous = points[-2] if len(points) > 1 else None
+    return HealthScoreHistoryResponse(
+        domain=domain_id,
+        points=points,
+        current_score=current["score"] if current else None,
+        previous_score=previous["score"] if previous else None,
+        score_delta=current["score"] - previous["score"] if current and previous else None,
+        current_grade=current["grade"] if current else None,
+        previous_grade=previous["grade"] if previous else None,
+        top_drivers=current.get("top_actions", []) if current else [],
+    )
+
+
+def _demo_history_points(
+    domain_id: str,
+    *,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    limit: int = 120,
+) -> List[Dict[str, Any]]:
+    points = build_demo_health_score_history(domain_id, days=min(max(limit, 1), DEMO_DAYS))
+    if start_date:
+        points = [point for point in points if date.fromisoformat(point["date"]) >= start_date]
+    if end_date:
+        points = [point for point in points if date.fromisoformat(point["date"]) <= end_date]
+    return points[-limit:]
+
+
+def _write_health_evidence_csv(rows: List[Dict[str, Any]], *, domain_id: str) -> Response:
+    output = io.StringIO()
+    fields = [
+        "domain",
+        "snapshot_date",
+        "score",
+        "grade",
+        "status",
+        "policy",
+        "compliance_rate",
+        "total_emails",
+        "failed_emails",
+        "report_count",
+        "dns_posture_score",
+        "policy_strength_score",
+        "report_confidence_score",
+        "top_actions",
+    ]
+    writer = csv.DictWriter(output, fieldnames=fields)
+    writer.writeheader()
+    writer.writerows(rows)
+    filename = f"{domain_id.replace('/', '_')}-health-evidence.csv"
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _demo_evidence_export_rows(
+    domain_id: str, points: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    rows = []
+    for point in points:
+        rows.append(
+            {
+                "domain": domain_id,
+                "snapshot_date": point["date"],
+                "score": point["score"],
+                "grade": point["grade"],
+                "status": point["status"],
+                "policy": point.get("policy") or "",
+                "compliance_rate": point["compliance_rate"],
+                "total_emails": point["total_emails"],
+                "failed_emails": point["failed_emails"],
+                "report_count": point["report_count"],
+                "dns_posture_score": point["dns_posture_score"],
+                "policy_strength_score": point["policy_strength_score"],
+                "report_confidence_score": point["report_confidence_score"],
+                "top_actions": "; ".join(
+                    f"{action.get('severity')}:{action.get('title')}"
+                    for action in point.get("top_actions", [])
+                    if action.get("title")
+                ),
+            }
+        )
+    return rows
+
+
+def _record_health_snapshot_from_posture(
+    db: Session,
+    *,
+    workspace_id: int,
+    domain_id: str,
+    dns_health: DNSHealthResponse,
+    domain_health: Dict[str, Any],
+    report_count: int,
+) -> None:
+    upsert_health_score_snapshot(
+        db,
+        workspace_id=workspace_id,
+        domain_name=domain_id,
+        health=domain_health,
+        policy=dns_health.policy,
+        compliance_rate=dns_health.compliance_rate,
+        total_emails=dns_health.total_emails,
+        failed_emails=dns_health.failed_emails,
+        report_count=report_count,
+    )
+
+
 @router.get("/summary", response_model=DomainSummaryResponse)
 async def get_domains_summary(
     db: Session = Depends(get_db),
@@ -1803,8 +1956,146 @@ async def get_domain_posture_dashboard(
         store,
         refresh=refresh,
     )
+    summary = store.get_domain_summary(domain_id)
+    if not get_settings().DEMO_MODE:
+        _record_health_snapshot_from_posture(
+            db,
+            workspace_id=workspace.id,
+            domain_id=domain_id,
+            dns_health=health,
+            domain_health=domain_health,
+            report_count=int(summary.get("reports_processed", 0) or 0),
+        )
     changes = list_dns_record_changes(db, domain_id, limit=10)
     return _build_posture_dashboard(domain_id, health, domain_health, changes)
+
+
+@router.get("/{domain_id}/posture/history", response_model=HealthScoreHistoryResponse)
+async def get_domain_health_score_history(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    start_date: Optional[date] = Query(None, title="Start date for score history"),
+    end_date: Optional[date] = Query(None, title="End date for score history"),
+    limit: int = Query(120, ge=1, le=400, title="Maximum history points"),
+    capture_current: bool = Query(True, title="Capture today's current posture first"),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
+    """Return persisted score history for one domain."""
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="start_date must be on or before end_date",
+        )
+    selected_workspace_id = parse_selected_workspace_id(selected_workspace)
+    workspace = _authorized_domain_read_workspace(_auth, db, selected_workspace_id)
+    store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
+    if not _domain_exists(db, store, domain_id, workspace):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Domain not found",
+        )
+
+    if capture_current and not get_settings().DEMO_MODE:
+        health = await _build_domain_dns_health(db, store, domain_id)
+        domain_health = await _build_domain_health_grade(db, domain_id, store)
+        summary = store.get_domain_summary(domain_id)
+        _record_health_snapshot_from_posture(
+            db,
+            workspace_id=workspace.id,
+            domain_id=domain_id,
+            dns_health=health,
+            domain_health=domain_health,
+            report_count=int(summary.get("reports_processed", 0) or 0),
+        )
+
+    snapshots = list_health_score_snapshots(
+        db,
+        workspace_id=workspace.id,
+        domain_name=domain_id,
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+    )
+    if not snapshots and get_settings().DEMO_MODE:
+        return _history_response_from_points(
+            domain_id,
+            _demo_history_points(
+                domain_id,
+                start_date=start_date,
+                end_date=end_date,
+                limit=limit,
+            ),
+        )
+    return HealthScoreHistoryResponse(
+        **build_health_score_history(domain_name=domain_id, snapshots=snapshots)
+    )
+
+
+@router.get("/{domain_id}/posture/evidence/export")
+async def export_domain_health_evidence(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    start_date: Optional[date] = Query(None, title="Start date for evidence export"),
+    end_date: Optional[date] = Query(None, title="End date for evidence export"),
+    limit: int = Query(400, ge=1, le=1000, title="Maximum exported snapshots"),
+    capture_current: bool = Query(True, title="Capture today's current posture first"),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
+    """Export sanitized health score evidence for one domain as CSV."""
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="start_date must be on or before end_date",
+        )
+    selected_workspace_id = parse_selected_workspace_id(selected_workspace)
+    workspace = _authorized_domain_read_workspace(_auth, db, selected_workspace_id)
+    store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
+    if not _domain_exists(db, store, domain_id, workspace):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Domain not found",
+        )
+
+    if capture_current and not get_settings().DEMO_MODE:
+        health = await _build_domain_dns_health(db, store, domain_id)
+        domain_health = await _build_domain_health_grade(db, domain_id, store)
+        summary = store.get_domain_summary(domain_id)
+        _record_health_snapshot_from_posture(
+            db,
+            workspace_id=workspace.id,
+            domain_id=domain_id,
+            dns_health=health,
+            domain_health=domain_health,
+            report_count=int(summary.get("reports_processed", 0) or 0),
+        )
+
+    snapshots = list_health_score_snapshots(
+        db,
+        workspace_id=workspace.id,
+        domain_name=domain_id,
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+    )
+    if not snapshots and get_settings().DEMO_MODE:
+        points = _demo_history_points(
+            domain_id,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+        )
+        return _write_health_evidence_csv(
+            _demo_evidence_export_rows(domain_id, points),
+            domain_id=domain_id,
+        )
+    return _write_health_evidence_csv(
+        build_health_evidence_export_rows(snapshots),
+        domain_id=domain_id,
+    )
 
 
 @router.get("/{domain_id}/dns/mta-sts", response_model=MTAStsResponse)
