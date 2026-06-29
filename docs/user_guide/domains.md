@@ -86,6 +86,13 @@ target records. DMARQ checks DMARC, SPF, DKIM, MTA-STS, TLS-RPT, and BIMI
 readiness, then exposes the same guidance through the single-domain lint API,
 bulk lint API, and CSV export for managed-domain reviews.
 
+Each lint finding includes a short remediation checklist. DKIM findings now
+distinguish missing observed selectors, broken selector CNAME targets, short
+RSA keys, and selectors that still resolve but have no recent report traffic.
+Optional AI remediation plans can turn the same redacted DNS/report context
+into a longer step-by-step plan through LiteLLM/OpenAI-compatible providers;
+demo mode keeps these plans template-backed and heavily cached.
+
 ### MTA-STS Posture
 
 The domain detail page checks `_mta-sts.<domain>` and fetches the policy from `https://mta-sts.<domain>/.well-known/mta-sts.txt`.

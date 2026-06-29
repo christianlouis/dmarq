@@ -382,6 +382,15 @@ class BaseDNSProvider(ABC):
         """
         return None
 
+    async def lookup_cname(self, name: str) -> Optional[str]:
+        """Return the CNAME target for *name*, or ``None`` if unavailable.
+
+        Provider test doubles that only support TXT lookups can keep using the
+        base implementation. DNS guidance treats ``None`` as "no visible CNAME"
+        instead of a lookup failure.
+        """
+        return None
+
     async def check_dkim(
         self, domain: str, selectors: List[str]
     ) -> Tuple[bool, List[str], Optional[str]]:
@@ -513,6 +522,22 @@ class SystemDNSProvider(BaseDNSProvider):
                     return str(rdata).rstrip(".")
         except (dns.exception.DNSException, ValueError):
             pass
+        return None
+
+    async def lookup_cname(self, name: str) -> Optional[str]:
+        """Resolve a CNAME record for *name* via the system resolver."""
+        import dns.asyncresolver  # type: ignore[import]
+        import dns.exception  # type: ignore[import]
+
+        try:
+            answers = await dns.asyncresolver.resolve(
+                name, "CNAME", lifetime=DNS_TIMEOUT, raise_on_no_answer=False
+            )
+            if answers:
+                for rdata in answers:
+                    return str(rdata.target).rstrip(".")
+        except dns.exception.DNSException as exc:
+            logger.debug("CNAME lookup failed for %s: %s", _sanitize_for_log(name), exc)
         return None
 
 
@@ -707,6 +732,29 @@ class CloudflareDNSProvider(BaseDNSProvider):
             pass
         return None
 
+    async def lookup_cname(self, name: str) -> Optional[str]:
+        """Resolve a CNAME record for *name* via Cloudflare's DoH endpoint."""
+        import httpx  # type: ignore[import]
+
+        params = {"name": name, "type": "CNAME"}
+        headers = {"Accept": "application/dns-json"}
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    self.CLOUDFLARE_DOH_URL,
+                    params=params,
+                    headers=headers,
+                    timeout=DNS_TIMEOUT,
+                )
+                response.raise_for_status()
+                data = response.json()
+                for answer in data.get("Answer", []):
+                    if answer.get("type") == 5:  # CNAME record type
+                        return answer.get("data", "").rstrip(".")
+        except (httpx.RequestError, httpx.HTTPStatusError, httpx.TimeoutException):
+            pass
+        return None
+
 
 class DemoDNSProvider(BaseDNSProvider):
     """Deterministic DNS provider for the opt-in public demo mode."""
@@ -721,9 +769,19 @@ class DemoDNSProvider(BaseDNSProvider):
                 )
             ],
             "dmarq.org._report._dmarc.reports.dmarq.net": ["v=DMARC1"],
-            "selector1._domainkey.dmarq.org": ["v=DKIM1; k=rsa; p=DEMOSELECTOR1"],
+            "selector1._domainkey.dmarq.org": [
+                "v=DKIM1; k=rsa; p="
+                "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtestselector1demo"
+                "keymaterialforshowcasingahealthyselectornotforproductionuseonly"
+                "andlongenoughtoavoidweakkeywarnings1234567890abcdef"
+            ],
             "news._domainkey.dmarq.org": ["v=DKIM1; k=rsa; p=DEMONEWS"],
-            "zendesk._domainkey.dmarq.org": ["v=DKIM1; k=rsa; p=DEMOZENDESK"],
+            "zendesk._domainkey.dmarq.org": [
+                "v=DKIM1; k=rsa; p="
+                "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzendesksupportdemo"
+                "keymaterialforshowcasingahealthyselectornotforproductionuseonly"
+                "andlongenoughtoavoidweakkeywarningsabcdef1234567890"
+            ],
             "_mta-sts.dmarq.org": ["v=STSv1; id=20260625"],
             "_smtp._tls.dmarq.org": ["v=TLSRPTv1; rua=mailto:tlsrpt@dmarq.org"],
             "default._bimi.dmarq.org": [
@@ -733,9 +791,22 @@ class DemoDNSProvider(BaseDNSProvider):
             "_dmarc.dmarq.com": [
                 "v=DMARC1; p=none; rua=mailto:dmarc@reports.dmarq.org!50m; adkim=r; aspf=r"
             ],
-            "google._domainkey.dmarq.com": ["v=DKIM1; k=rsa; p=DEMOGOOGLE"],
-            "stripe._domainkey.dmarq.com": ["v=DKIM1; k=rsa; p=DEMOSTRIPE"],
+            "google._domainkey.dmarq.com": [
+                "v=DKIM1; k=rsa; p="
+                "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAgoggledemo"
+                "keymaterialforshowcasingahealthyselectornotforproductionuseonly"
+                "andlongenoughtoavoidweakkeywarnings0987654321fedcba"
+            ],
+            "stripe._domainkey.dmarq.com": [
+                "v=DKIM1; k=rsa; p="
+                "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAstripedemo"
+                "keymaterialforshowcasingahealthyselectornotforproductionuseonly"
+                "andlongenoughtoavoidweakkeywarningsfedcba0987654321"
+            ],
             "_smtp._tls.dmarq.com": ["v=TLSRPTv1"],
+        }
+        self._cname_records = {
+            "mailchimp._domainkey.dmarq.com": "missing-mcsv._domainkey.mcsv.net",
         }
 
     async def lookup_txt(self, name: str) -> List[str]:
@@ -756,6 +827,10 @@ class DemoDNSProvider(BaseDNSProvider):
             "198.51.100.199": "unknown-forwarder.demo.dmarq.com",
         }
         return ptr_records.get(ip)
+
+    async def lookup_cname(self, name: str) -> Optional[str]:
+        normalized = _normalize_dns_name(name)
+        return self._cname_records.get(normalized)
 
 
 def _decrypt_setting_value(value: Optional[str]) -> Optional[str]:

@@ -13,6 +13,7 @@ from app.core.security import require_admin_auth
 from app.services.ai_assistance import (
     build_action_proposals,
     build_evidence_summary,
+    build_remediation_plan,
     build_safe_context,
     get_assistance_config,
 )
@@ -44,6 +45,12 @@ class ActionProposalResponse(BaseModel):
     domain: str
     action_tools_enabled: bool
     proposals: list[Dict[str, Any]]
+
+
+class RemediationPlanResponse(BaseModel):
+    """Step-by-step remediation plan response."""
+
+    plan: Dict[str, Any]
 
 
 class ProposalConfirmation(BaseModel):
@@ -134,6 +141,52 @@ async def get_domain_evidence_summary(
     )
     db.commit()
     return {"summary": summary}
+
+
+@router.get("/domains/{domain}/remediation-plan", response_model=RemediationPlanResponse)
+async def get_domain_remediation_plan(
+    domain: str,
+    request: Request,
+    finding_code: Optional[str] = None,
+    refresh: bool = False,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+) -> RemediationPlanResponse:  # pylint: disable=too-many-positional-arguments
+    """Return a cached step-by-step remediation plan for DNS/posture findings."""
+    _require_ai_enabled(db)
+    try:
+        plan = await build_remediation_plan(
+            db,
+            domain,
+            finding_code=finding_code,
+            refresh=refresh,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    workspace = _authorized_ai_workspace(
+        _auth,
+        db,
+        parse_selected_workspace_id(selected_workspace),
+    )
+    record_workspace_audit_log(
+        db,
+        workspace=workspace,
+        action="ai.remediation_plan_generated",
+        entity_type="domain",
+        entity_id=domain,
+        entity_name=domain,
+        details={
+            "provider": plan.get("provider"),
+            "cached": plan.get("cached", False),
+            "finding_code": finding_code,
+            "action_count": len(plan.get("actions") or []),
+        },
+        auth_context=_auth,
+        request=request,
+    )
+    db.commit()
+    return {"plan": plan}
 
 
 @router.get("/domains/{domain}/action-proposals", response_model=ActionProposalResponse)

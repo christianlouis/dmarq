@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from app.services.bimi import BIMIResult
 from app.services.dns_resolver import BaseDNSProvider, DomainDNSResult, extract_dmarc_policy
@@ -37,6 +37,7 @@ class DNSLintFinding:
     record_name: str
     target_record: Optional[DNSGuidanceRecord] = None
     evidence: List[str] = field(default_factory=list)
+    remediation_steps: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -127,6 +128,7 @@ def _finding(
     *,
     target_record: Optional[DNSGuidanceRecord] = None,
     evidence: Optional[List[str]] = None,
+    remediation_steps: Optional[List[str]] = None,
 ) -> DNSLintFinding:
     return DNSLintFinding(
         code=code,
@@ -138,6 +140,106 @@ def _finding(
         record_name=record_name,
         target_record=target_record,
         evidence=list(evidence or []),
+        remediation_steps=list(remediation_steps or _default_remediation_steps(code)),
+    )
+
+
+def _default_remediation_steps(code: str) -> List[str]:
+    """Return deterministic operator steps for a lint finding."""
+    steps = {
+        "dmarc_missing": [
+            "Open the DNS zone for the affected domain.",
+            "Create one TXT record at _dmarc with a monitoring policy and rua mailbox.",
+            "Wait for DNS propagation, then refresh DMARQ DNS lint.",
+        ],
+        "spf_missing": [
+            "List every platform currently allowed to send mail for this domain.",
+            "Publish exactly one root TXT record beginning with v=spf1.",
+            "Use ~all during rollout or -all after all senders are verified.",
+        ],
+        "spf_multiple_records": [
+            "Copy all current SPF mechanisms into one planned SPF record.",
+            "Remove duplicate or obsolete mechanisms while preserving active senders.",
+            "Publish one root SPF TXT record and remove the extra SPF TXT values.",
+        ],
+        "spf_all_too_permissive": [
+            "Confirm which senders are legitimate from DMARQ sending-source evidence.",
+            "Replace +all with ~all while validating, or -all after coverage is complete.",
+            "Refresh DNS lint and watch failure trends for at least one report cycle.",
+        ],
+        "spf_dns_lookup_limit_exceeded": [
+            "Count every include, a, mx, ptr, exists, and redirect mechanism.",
+            "Remove unused includes and flatten stable sender ranges with the provider.",
+            "Keep the final SPF path below 10 DNS lookups before enforcement.",
+        ],
+        "spf_dns_lookup_limit_risk": [
+            "Identify which SPF includes are still actively used.",
+            "Remove duplicate or retired sender includes before adding new senders.",
+            "Document the remaining lookup budget for future sender onboarding.",
+        ],
+        "spf_duplicate_include": [
+            "Find the repeated include values in the SPF TXT record.",
+            "Keep one copy of each include and remove the duplicates.",
+            "Refresh DNS lint to confirm the SPF lookup budget improved.",
+        ],
+        "spf_void_lookup": [
+            "Open each referenced include, exists, or redirect target.",
+            "Remove targets that no longer publish TXT records.",
+            "Ask the sender provider for the current SPF include when the sender is still active.",
+        ],
+        "dkim_selector_missing": [
+            "Identify the sending provider that owns the selector from report evidence.",
+            "Open that provider's domain authentication settings and copy the DKIM TXT or CNAME.",
+            "Publish the selector record, then refresh DNS lint and confirm it resolves.",
+        ],
+        "dkim_selector_cname_broken": [
+            "Open the DNS CNAME record shown in evidence.",
+            "Compare its target with the current value in the sending provider admin page.",
+            "Replace stale targets or complete provider-side domain authentication.",
+        ],
+        "dkim_selector_key_too_short": [
+            "Check whether the sending provider supports 2048-bit DKIM keys.",
+            "Generate a replacement selector instead of editing the existing key in place.",
+            "Publish and validate the new selector before retiring the old selector.",
+        ],
+        "dkim_selector_stale": [
+            "Confirm whether the selector belongs to a retired sender or old key rotation.",
+            "Keep it only if a valid provider still uses it for aligned mail.",
+            "Remove retired selector records after checking one or more report cycles.",
+        ],
+        "mta_sts_missing": [
+            "Publish _mta-sts TXT with a stable id value.",
+            "Host a valid HTTPS policy at the well-known mta-sts hostname.",
+            "Start in testing mode and rotate the TXT id whenever the policy changes.",
+        ],
+        "tls_rpt_missing": [
+            "Choose the TLS report mailbox or HTTPS collector endpoint.",
+            "Publish one TXT record at _smtp._tls with v=TLSRPTv1 and rua.",
+            "Confirm DMARQ imports TLS reports after receivers start sending them.",
+        ],
+        "tls_rpt_multiple_records": [
+            "Merge all TLS-RPT rua destinations into one TXT record.",
+            "Remove duplicate _smtp._tls TXT records.",
+            "Refresh DNS lint to confirm only one TLS-RPT record remains.",
+        ],
+        "tls_rpt_rua_missing": [
+            "Choose where SMTP TLS reports should be delivered.",
+            "Add rua=mailto:... or rua=https://... to the TLS-RPT TXT value.",
+            "Refresh DMARQ after DNS propagation.",
+        ],
+        "bimi_missing": [
+            "Complete DMARC enforcement first.",
+            "Publish a default._bimi TXT record with an HTTPS SVG logo URL.",
+            "Add a certificate URL if the mailbox providers you care about require it.",
+        ],
+    }
+    return steps.get(
+        code,
+        [
+            "Open the linked DNS or report evidence in DMARQ.",
+            "Make the smallest provider-side change that addresses the finding.",
+            "Refresh DNS lint and monitor the next aggregate report cycle.",
+        ],
     )
 
 
@@ -449,13 +551,215 @@ async def _spf_findings(
     return findings
 
 
-def _dkim_findings(
-    result: DomainDNSResult, targets: List[DNSGuidanceRecord]
+def _dkim_record_tags(record: str) -> Dict[str, str]:
+    return {
+        part.split("=", 1)[0].strip().lower(): part.split("=", 1)[1].strip()
+        for part in record.split(";")
+        if "=" in part
+    }
+
+
+def _dkim_public_key_value(record: str) -> str:
+    tags = _dkim_record_tags(record)
+    return "".join((tags.get("p") or "").split())
+
+
+def _dkim_record_is_too_short(record: str) -> bool:
+    tags = _dkim_record_tags(record)
+    key_type = (tags.get("k") or "rsa").lower()
+    public_key = _dkim_public_key_value(record)
+    return key_type == "rsa" and bool(public_key) and len(public_key) < 216
+
+
+async def _dkim_selector_record(
+    provider: BaseDNSProvider, selector: str, domain: str
+) -> Optional[str]:
+    try:
+        records = await provider.lookup_txt(f"{selector}._domainkey.{domain}")
+    except LookupError:
+        return None
+    for record in records:
+        lowered = record.lower()
+        if "v=dkim1" in lowered or "p=" in lowered:
+            return record
+    return None
+
+
+def _dkim_record_findings(
+    selector: str,
+    record_name: str,
+    record: str,
+    target: DNSGuidanceRecord,
+    *,
+    has_report_evidence: bool,
+    observed_selector_set: set[str],
 ) -> List[DNSLintFinding]:
+    findings: List[DNSLintFinding] = []
+    if _dkim_record_is_too_short(record):
+        findings.append(
+            _finding(
+                "dkim_selector_key_too_short",
+                "warning",
+                "DKIM selector key is short",
+                (
+                    f"Selector {selector} resolves, but its RSA public key looks "
+                    "shorter than a normal 1024-bit key."
+                ),
+                (
+                    "Rotate this selector to a provider-generated 2048-bit DKIM key "
+                    "where supported."
+                ),
+                "TXT",
+                record_name,
+                target_record=target,
+                evidence=[record],
+            )
+        )
+    if has_report_evidence and selector not in observed_selector_set:
+        findings.append(
+            _finding(
+                "dkim_selector_stale",
+                "info",
+                "DKIM selector has no recent report traffic",
+                (
+                    f"Selector {selector} resolves in DNS but was not seen in recent "
+                    "DMARC aggregate report data."
+                ),
+                (
+                    "Confirm whether this sender is still active before keeping the "
+                    "selector published."
+                ),
+                "TXT",
+                record_name,
+                target_record=target,
+                evidence=[record],
+            )
+        )
+    return findings
+
+
+async def _dkim_cname_target(provider: BaseDNSProvider, record_name: str) -> Optional[str]:
+    cname_lookup = getattr(provider, "lookup_cname", None)
+    cname_target = await cname_lookup(record_name) if callable(cname_lookup) else None
+    return cname_target if isinstance(cname_target, str) else None
+
+
+async def _dkim_cname_finding(
+    provider: BaseDNSProvider,
+    selector: str,
+    record_name: str,
+    target: DNSGuidanceRecord,
+) -> Optional[DNSLintFinding]:
+    cname_target = await _dkim_cname_target(provider, record_name)
+    if not cname_target:
+        return None
+    try:
+        cname_records = await provider.lookup_txt(cname_target)
+    except LookupError:
+        cname_records = []
+    if any(
+        "v=dkim1" in cname_record.lower() or "p=" in cname_record.lower()
+        for cname_record in cname_records
+    ):
+        return None
+    return _finding(
+        "dkim_selector_cname_broken",
+        "warning",
+        "DKIM selector CNAME target is broken",
+        (
+            f"Selector {selector} points to {cname_target}, but the target "
+            "does not expose a DKIM TXT record."
+        ),
+        (
+            "Re-copy the provider DKIM CNAME target or complete provider-side "
+            "domain authentication."
+        ),
+        "CNAME",
+        record_name,
+        target_record=target,
+        evidence=[f"{record_name} -> {cname_target}"],
+    )
+
+
+def _dkim_missing_finding(
+    selector: str, record_name: str, target: DNSGuidanceRecord
+) -> DNSLintFinding:
+    return _finding(
+        "dkim_selector_missing",
+        "warning",
+        "DKIM selector is missing",
+        f"Selector {selector} was observed or configured but did not resolve.",
+        "Publish the provider's DKIM TXT or CNAME record for this selector.",
+        "TXT",
+        record_name,
+        target_record=target,
+    )
+
+
+async def _dkim_selector_findings(
+    provider: BaseDNSProvider,
+    domain: str,
+    result: DomainDNSResult,
+    target: DNSGuidanceRecord,
+    monitored_selectors: List[str],
+    observed_selectors: List[str],
+) -> List[DNSLintFinding]:
+    findings: List[DNSLintFinding] = []
+    resolved_selectors = set(result.dkim_selectors or [])
+    observed_selector_set = set(observed_selectors or [])
+    has_report_evidence = bool(observed_selector_set)
+
+    for selector in monitored_selectors:
+        record_name = f"{selector}._domainkey.{domain}"
+        record = await _dkim_selector_record(provider, selector, domain)
+        if record:
+            findings.extend(
+                _dkim_record_findings(
+                    selector,
+                    record_name,
+                    record,
+                    target,
+                    has_report_evidence=has_report_evidence,
+                    observed_selector_set=observed_selector_set,
+                )
+            )
+            continue
+
+        cname_finding = await _dkim_cname_finding(provider, selector, record_name, target)
+        if cname_finding:
+            findings.append(cname_finding)
+            continue
+
+        if selector not in resolved_selectors:
+            findings.append(_dkim_missing_finding(selector, record_name, target))
+    return findings
+
+
+async def _dkim_findings(
+    provider: BaseDNSProvider,
+    domain: str,
+    result: DomainDNSResult,
+    targets: List[DNSGuidanceRecord],
+    *,
+    monitored_selectors: Optional[List[str]] = None,
+    observed_selectors: Optional[List[str]] = None,
+) -> List[DNSLintFinding]:
+    target = _target_by_code(targets, "target_dkim")
+    selectors_for_detail = list(
+        dict.fromkeys(monitored_selectors or result.selectors_checked or [])
+    )
+    if result.dkim and selectors_for_detail:
+        return await _dkim_selector_findings(
+            provider,
+            domain,
+            result,
+            target,
+            selectors_for_detail,
+            list(dict.fromkeys(observed_selectors or [])),
+        )
     if result.dkim:
         return []
-    target = _target_by_code(targets, "target_dkim")
-    checked = ", ".join(result.selectors_checked or [])
+    checked = ", ".join(selectors_for_detail)
     detail = "No DKIM selector resolved for configured, observed, or common selectors."
     if checked:
         detail = f"{detail} Checked selectors: {checked}."
@@ -615,6 +919,9 @@ async def build_dns_guidance(
     result: DomainDNSResult,
     mta_sts: MTAStsResult,
     bimi: BIMIResult,
+    *,
+    monitored_selectors: Optional[List[str]] = None,
+    observed_selectors: Optional[List[str]] = None,
 ) -> DNSGuidanceResult:
     """Build typed DNS lint findings and target records for a domain."""
     normalized_domain = domain.strip().strip(".").lower()
@@ -622,7 +929,16 @@ async def build_dns_guidance(
     findings: List[DNSLintFinding] = []
     findings.extend(_dmarc_findings(normalized_domain, result, targets))
     findings.extend(await _spf_findings(normalized_domain, provider, result, targets))
-    findings.extend(_dkim_findings(result, targets))
+    findings.extend(
+        await _dkim_findings(
+            provider,
+            normalized_domain,
+            result,
+            targets,
+            monitored_selectors=monitored_selectors,
+            observed_selectors=observed_selectors,
+        )
+    )
     findings.extend(_mta_sts_findings(mta_sts, targets))
     findings.extend(await _tls_rpt_findings(normalized_domain, provider, targets))
     findings.extend(_bimi_findings(bimi, extract_dmarc_policy(result.dmarc_record), targets))
