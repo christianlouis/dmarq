@@ -820,7 +820,8 @@ def _mta_sts_recommendation(result: MTAStsResult) -> Optional[DNSHealthRecommend
         detail = "; ".join(result.errors or ["The MTA-STS policy URL is not reachable."])
         action = (
             "Keep the existing _mta-sts TXT record if its id is current, then make "
-            f"{result.policy_url} reachable over HTTPS with a valid policy file."
+            f"{result.policy_url} reachable over HTTPS with a valid policy file. "
+            "Rotate the TXT id after publishing the policy so receivers refetch it."
         )
         recommendation_type = "mta_sts_policy_unreachable"
     else:

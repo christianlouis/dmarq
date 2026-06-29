@@ -855,6 +855,7 @@ def test_posture_dashboard_distinguishes_mta_sts_policy_hosting_failure(
     assert recommendation["title"] == "Host the MTA-STS policy"
     assert "existing _mta-sts TXT record" in recommendation["action"]
     assert f"https://mta-sts.{DOMAIN}/.well-known/mta-sts.txt" in recommendation["action"]
+    assert "Rotate the TXT id" in recommendation["action"]
     assert any(playbook["key"] == "mta_sts_policy_unreachable" for playbook in data["playbooks"])
     assert all(item["type"] != "missing_mta_sts" for item in data["recommendations"])
 
