@@ -25,6 +25,10 @@ from app.models.domain import Domain
 from app.models.mail_source import MailSource
 from app.models.mail_source_backfill import MailSourceBackfillJob
 from app.models.mail_source_import import MailSourceImport
+from app.services.demo_data import (
+    build_demo_mail_source_backfills,
+    build_demo_mail_sources,
+)
 from app.services.gmail_client import GmailClient
 from app.services.imap_client import IMAPClient
 from app.services.import_history import record_import_attempt
@@ -560,6 +564,27 @@ def _backfill_to_response(row: MailSourceBackfillJob) -> MailSourceBackfillRespo
     )
 
 
+def _demo_mail_source_response(row: Dict[str, Any]) -> MailSourceResponse:
+    return MailSourceResponse(**row)
+
+
+def _demo_mail_source_by_id(source_id: int) -> Optional[Dict[str, Any]]:
+    if not get_settings().DEMO_MODE:
+        return None
+    return next((row for row in build_demo_mail_sources() if row["id"] == source_id), None)
+
+
+def _demo_backfill_response(row: Dict[str, Any]) -> MailSourceBackfillResponse:
+    return MailSourceBackfillResponse(**row)
+
+
+def _demo_backfill_job(source_id: int, job_id: int) -> Optional[Dict[str, Any]]:
+    return next(
+        (row for row in build_demo_mail_source_backfills(source_id) if row["id"] == job_id),
+        None,
+    )
+
+
 def _validate_backfill_request(payload: MailSourceBackfillCreate) -> None:
     if payload.max_attempts < 1 or payload.max_attempts > 10:
         raise HTTPException(
@@ -758,6 +783,8 @@ async def list_mail_sources(
         _selected_workspace_id(selected_workspace),
     )
     sources = workspace_mail_source_query(db, workspace).order_by(MailSource.id).all()
+    if not sources and get_settings().DEMO_MODE:
+        return [_demo_mail_source_response(row) for row in build_demo_mail_sources()]
     return [_source_to_response(s) for s in sources]
 
 
@@ -867,6 +894,11 @@ async def list_mail_source_backfills(
     selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> List[MailSourceBackfillResponse]:
     """Return recent resumable mailbox backfill jobs for one mail source."""
+    if _demo_mail_source_by_id(source_id):
+        return [
+            _demo_backfill_response(row)
+            for row in build_demo_mail_source_backfills(source_id)[:limit]
+        ]
     workspace = _authorized_mail_source_workspace(
         _auth,
         db,
@@ -901,6 +933,34 @@ async def create_mail_source_backfill(
 ) -> MailSourceBackfillResponse:
     """Queue a resumable mailbox backfill job without running the connector inline."""
     _validate_backfill_request(payload)
+    demo_source = _demo_mail_source_by_id(source_id)
+    if demo_source:
+        now = datetime.now(timezone.utc)
+        return MailSourceBackfillResponse(
+            id=9900 + source_id,
+            workspace_id=1,
+            mail_source_id=source_id,
+            status="queued",
+            trigger="manual",
+            requested_start=payload.requested_start or now - timedelta(days=30),
+            requested_end=payload.requested_end or now,
+            requested_by="demo-operator@dmarq.org",
+            processed=0,
+            reports_found=0,
+            duplicate_reports=0,
+            error_count=0,
+            attempt_count=0,
+            max_attempts=payload.max_attempts,
+            cursor=None,
+            errors=[],
+            details=[{"status": "queued", "source": str(demo_source["name"])}],
+            started_at=None,
+            finished_at=None,
+            cancelled_at=None,
+            next_retry_at=None,
+            created_at=now,
+            updated_at=now,
+        )
     workspace = _authorized_mail_source_workspace(
         _auth,
         db,
@@ -962,6 +1022,9 @@ async def get_mail_source_backfill(
     selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> MailSourceBackfillResponse:
     """Return one mailbox backfill job for a workspace-scoped mail source."""
+    demo_job = _demo_backfill_job(source_id, job_id)
+    if demo_job:
+        return _demo_backfill_response(demo_job)
     workspace = _authorized_mail_source_workspace(
         _auth,
         db,
@@ -985,6 +1048,22 @@ async def cancel_mail_source_backfill(
     selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> MailSourceBackfillResponse:
     """Mark a queued/running/backoff mailbox backfill job as cancelled."""
+    demo_job = _demo_backfill_job(source_id, job_id)
+    if demo_job:
+        if demo_job["status"] not in BACKFILL_CANCELABLE_STATUSES:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Backfill job in status '{demo_job['status']}' cannot be cancelled.",
+            )
+        now = datetime.now(timezone.utc)
+        cancelled = {
+            **demo_job,
+            "status": "cancelled",
+            "cancelled_at": now,
+            "finished_at": now,
+            "updated_at": now,
+        }
+        return _demo_backfill_response(cancelled)
     workspace = _authorized_mail_source_workspace(
         _auth,
         db,
@@ -1034,6 +1113,25 @@ async def retry_mail_source_backfill(
     selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ) -> MailSourceBackfillResponse:
     """Re-queue a failed, cancelled, or backoff mailbox backfill job."""
+    demo_job = _demo_backfill_job(source_id, job_id)
+    if demo_job:
+        if demo_job["status"] not in BACKFILL_RETRYABLE_STATUSES:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Backfill job in status '{demo_job['status']}' cannot be retried.",
+            )
+        now = datetime.now(timezone.utc)
+        retried = {
+            **demo_job,
+            "status": "queued",
+            "attempt_count": demo_job["attempt_count"] + 1,
+            "started_at": None,
+            "finished_at": None,
+            "cancelled_at": None,
+            "next_retry_at": None,
+            "updated_at": now,
+        }
+        return _demo_backfill_response(retried)
     workspace = _authorized_mail_source_workspace(
         _auth,
         db,

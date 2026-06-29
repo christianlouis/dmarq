@@ -75,6 +75,7 @@
                                 <th>Server / Account</th>
                                 <th>User / Status</th>
                                 <th>Last Checked</th>
+                                <th>Backfill</th>
                                 <th>Enabled</th>
                                 <th>Actions</th>
                             </tr>
@@ -89,6 +90,63 @@
                                     <td x-text="sourceAccountLabel(source)"></td>
                                     <td x-text="sourceStatusLabel(source)"></td>
                                     <td x-text="source.last_checked ? new Date(source.last_checked).toLocaleString() : 'Never'"></td>
+                                    <td class="min-w-72">
+                                        <template x-if="backfillLoading[source.id]">
+                                            <p class="text-xs text-muted-foreground">Loading backfill status…</p>
+                                        </template>
+                                        <template x-if="!backfillLoading[source.id] && !latestBackfill(source)">
+                                            <div class="space-y-2">
+                                                <p class="text-xs text-muted-foreground">No queued backfills.</p>
+                                                <button class="btn btn-outline btn-xs" x-on:click.stop="openBackfill(source)">
+                                                    Queue backfill
+                                                </button>
+                                            </div>
+                                        </template>
+                                        <template x-if="!backfillLoading[source.id] && latestBackfill(source)">
+                                            <div class="space-y-2" data-backfill-progress>
+                                                <div class="flex items-center justify-between gap-2">
+                                                    <span class="badge badge-sm" :class="backfillBadgeClass(latestBackfill(source).status)"
+                                                        x-text="backfillStatusLabel(latestBackfill(source).status)"></span>
+                                                    <span class="text-[11px] text-muted-foreground"
+                                                        x-text="backfillWindowLabel(latestBackfill(source))"></span>
+                                                </div>
+                                                <progress class="progress progress-primary h-1.5 w-full"
+                                                    :value="backfillProgress(latestBackfill(source))"
+                                                    max="100"></progress>
+                                                <div class="grid grid-cols-3 gap-2 text-[11px] text-muted-foreground">
+                                                    <span><strong class="text-foreground" x-text="latestBackfill(source).processed"></strong> messages</span>
+                                                    <span><strong class="text-foreground" x-text="latestBackfill(source).reports_found"></strong> reports</span>
+                                                    <span><strong class="text-foreground" x-text="latestBackfill(source).duplicate_reports"></strong> duplicates</span>
+                                                </div>
+                                                <p class="text-[11px] text-warning" x-show="latestBackfill(source).next_retry_at"
+                                                    x-text="`Retry ${formatDate(latestBackfill(source).next_retry_at)}`"></p>
+                                                <p class="text-[11px] text-error" x-show="latestBackfill(source).errors && latestBackfill(source).errors.length"
+                                                    x-text="latestBackfill(source).errors[0]"></p>
+                                                <div class="flex flex-wrap gap-1">
+                                                    <button class="btn btn-outline btn-xs"
+                                                        x-on:click.stop="loadBackfills(source)"
+                                                        :disabled="backfillAction[source.id] === 'refresh'">
+                                                        Refresh
+                                                    </button>
+                                                    <button class="btn btn-outline btn-xs"
+                                                        x-show="canCancelBackfill(latestBackfill(source))"
+                                                        x-on:click.stop="cancelBackfill(source, latestBackfill(source))"
+                                                        :disabled="backfillAction[source.id] === 'cancel'">
+                                                        Cancel
+                                                    </button>
+                                                    <button class="btn btn-outline btn-xs"
+                                                        x-show="canRetryBackfill(latestBackfill(source))"
+                                                        x-on:click.stop="retryBackfill(source, latestBackfill(source))"
+                                                        :disabled="backfillAction[source.id] === 'retry'">
+                                                        Retry
+                                                    </button>
+                                                    <button class="btn btn-ghost btn-xs" x-on:click.stop="openBackfill(source)">
+                                                        New
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </template>
+                                    </td>
                                     <td>
                                         <input
                                             type="checkbox"
@@ -624,6 +682,9 @@
             </div>
             <div class="space-y-3">
                 <p class="text-sm text-muted-foreground" x-text="backfillSource ? backfillSource.name : ''"></p>
+                <p class="text-xs text-muted-foreground">
+                    Queues a resumable mailbox search. Progress appears in the Backfill column.
+                </p>
                 <div class="join w-full">
                     <button type="button" class="btn btn-sm join-item flex-1" x-on:click="backfillDays = 7">7 days</button>
                     <button type="button" class="btn btn-sm join-item flex-1" x-on:click="backfillDays = 30">30 days</button>
@@ -636,8 +697,9 @@
             </div>
             <div class="flex justify-end gap-2">
                 <button class="btn btn-ghost btn-sm" x-on:click="closeBackfill()">Cancel</button>
-                <button class="btn btn-primary btn-sm" x-on:click="runBackfill()" :disabled="!validBackfillDays() || Boolean(fetching[backfillSource && backfillSource.id])">
-                    Run Backfill
+                <button class="btn btn-primary btn-sm" x-on:click="runBackfill()"
+                    :disabled="!validBackfillDays() || Boolean(backfillAction[backfillSource && backfillSource.id])">
+                    Queue Backfill
                 </button>
             </div>
         </div>
@@ -675,6 +737,9 @@ function mailSourcesApp() {
         isSaving: false,
         testing: {},
         fetching: {},
+        backfillJobs: {},
+        backfillLoading: {},
+        backfillAction: {},
         backfillSource: null,
         backfillDays: 30,
         historySource: null,
@@ -719,6 +784,7 @@ function mailSourcesApp() {
                 const resp = await fetch('/api/v1/mail-sources');
                 if (resp.ok) {
                     this.sources = await resp.json();
+                    await this.loadBackfillsForSources();
                 }
             } catch (e) {
                 console.error('Failed to load mail sources', e);
@@ -746,6 +812,7 @@ function mailSourcesApp() {
                     const updated = this.sources.find(s => s.id === source.id) || source;
                     await this.loadImportHistory(updated);
                 }
+                await this.loadBackfills(source, true);
             } catch (e) {
                 this.feedback = { message: `Import error: ${e.message}`, type: 'error' };
             } finally {
@@ -774,7 +841,121 @@ function mailSourcesApp() {
             const source = this.backfillSource;
             const days = Number(this.backfillDays);
             this.closeBackfill();
-            await this.fetchSource(source, days);
+            await this.queueBackfill(source, days);
+        },
+
+        async loadBackfillsForSources() {
+            await Promise.all(this.sources.map(source => this.loadBackfills(source, true)));
+        },
+
+        async loadBackfills(source, silent = false) {
+            if (!source) return;
+            this.backfillLoading = { ...this.backfillLoading, [source.id]: true };
+            this.backfillAction = { ...this.backfillAction, [source.id]: 'refresh' };
+            if (!silent) {
+                this.feedback = this.emptyFeedback();
+            }
+            try {
+                const resp = await fetch(`/api/v1/mail-sources/${source.id}/backfills?limit=5`);
+                const data = await resp.json();
+                if (!resp.ok) {
+                    throw new Error(this.apiErrorMessage(data, 'Failed to load backfill jobs'));
+                }
+                this.backfillJobs = { ...this.backfillJobs, [source.id]: data };
+            } catch (e) {
+                if (!silent) {
+                    this.feedback = { message: `Backfill status error: ${e.message}`, type: 'error' };
+                }
+            } finally {
+                this.backfillLoading = { ...this.backfillLoading, [source.id]: false };
+                this.backfillAction = { ...this.backfillAction, [source.id]: '' };
+            }
+        },
+
+        async queueBackfill(source, days) {
+            if (!source) return;
+            const safeDays = Math.min(365, Math.max(1, Number(days) || 30));
+            const requestedEnd = new Date();
+            const requestedStart = new Date(requestedEnd.getTime() - safeDays * 24 * 60 * 60 * 1000);
+            this.backfillAction = { ...this.backfillAction, [source.id]: 'queue' };
+            this.feedback = this.emptyFeedback();
+            try {
+                const resp = await fetch(`/api/v1/mail-sources/${source.id}/backfills`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        requested_start: requestedStart.toISOString(),
+                        requested_end: requestedEnd.toISOString(),
+                        max_attempts: 3,
+                    }),
+                });
+                const data = await resp.json();
+                if (!resp.ok) {
+                    throw new Error(this.apiErrorMessage(data, 'Failed to queue backfill'));
+                }
+                this.feedback = {
+                    message: `Backfill queued for ${source.name} (${safeDays} day${safeDays === 1 ? '' : 's'}).`,
+                    type: 'success',
+                };
+                const existing = this.backfillJobs[source.id] || [];
+                this.backfillJobs = { ...this.backfillJobs, [source.id]: [data, ...existing].slice(0, 5) };
+                await this.loadBackfills(source, true);
+            } catch (e) {
+                this.feedback = { message: `Backfill error: ${e.message}`, type: 'error' };
+            } finally {
+                this.backfillAction = { ...this.backfillAction, [source.id]: '' };
+            }
+        },
+
+        async cancelBackfill(source, job) {
+            if (!source || !job) return;
+            this.backfillAction = { ...this.backfillAction, [source.id]: 'cancel' };
+            this.feedback = this.emptyFeedback();
+            try {
+                const resp = await fetch(`/api/v1/mail-sources/${source.id}/backfills/${job.id}/cancel`, {
+                    method: 'POST',
+                });
+                const data = await resp.json();
+                if (!resp.ok) {
+                    throw new Error(this.apiErrorMessage(data, 'Failed to cancel backfill'));
+                }
+                this.replaceBackfill(source, data);
+                this.feedback = { message: `Backfill cancelled for ${source.name}.`, type: 'success' };
+            } catch (e) {
+                this.feedback = { message: `Cancel error: ${e.message}`, type: 'error' };
+            } finally {
+                this.backfillAction = { ...this.backfillAction, [source.id]: '' };
+            }
+        },
+
+        async retryBackfill(source, job) {
+            if (!source || !job) return;
+            this.backfillAction = { ...this.backfillAction, [source.id]: 'retry' };
+            this.feedback = this.emptyFeedback();
+            try {
+                const resp = await fetch(`/api/v1/mail-sources/${source.id}/backfills/${job.id}/retry`, {
+                    method: 'POST',
+                });
+                const data = await resp.json();
+                if (!resp.ok) {
+                    throw new Error(this.apiErrorMessage(data, 'Failed to retry backfill'));
+                }
+                this.replaceBackfill(source, data);
+                this.feedback = { message: `Backfill retried for ${source.name}.`, type: 'success' };
+            } catch (e) {
+                this.feedback = { message: `Retry error: ${e.message}`, type: 'error' };
+            } finally {
+                this.backfillAction = { ...this.backfillAction, [source.id]: '' };
+            }
+        },
+
+        replaceBackfill(source, updated) {
+            const rows = this.backfillJobs[source.id] || [];
+            const nextRows = rows.map(row => row.id === updated.id ? updated : row);
+            if (!nextRows.some(row => row.id === updated.id)) {
+                nextRows.unshift(updated);
+            }
+            this.backfillJobs = { ...this.backfillJobs, [source.id]: nextRows.slice(0, 5) };
         },
 
         async loadImportHistory(source) {
@@ -837,6 +1018,68 @@ function mailSourcesApp() {
 
         formatList(value) {
             return value && value.length ? value.join(', ') : '—';
+        },
+
+        apiErrorMessage(data, fallback) {
+            const detail = data && data.detail;
+            if (!detail) return fallback;
+            if (typeof detail === 'string') return detail;
+            if (Array.isArray(detail)) {
+                return detail.map(item => item.msg || item.detail || JSON.stringify(item)).join('; ');
+            }
+            return detail.message || JSON.stringify(detail);
+        },
+
+        latestBackfill(source) {
+            const rows = source ? this.backfillJobs[source.id] || [] : [];
+            return rows.length ? rows[0] : null;
+        },
+
+        backfillStatusLabel(status) {
+            const labels = {
+                queued: 'Queued',
+                running: 'Running',
+                backoff: 'Backoff',
+                failed: 'Failed',
+                cancelled: 'Cancelled',
+                completed: 'Completed',
+            };
+            return labels[status] || status || 'Unknown';
+        },
+
+        backfillBadgeClass(status) {
+            if (status === 'completed') return 'badge-success';
+            if (status === 'running') return 'badge-info';
+            if (status === 'queued') return 'badge-outline';
+            if (status === 'backoff') return 'badge-warning';
+            if (status === 'failed') return 'badge-error';
+            if (status === 'cancelled') return 'badge-neutral';
+            return 'badge-outline';
+        },
+
+        backfillProgress(job) {
+            if (!job) return 0;
+            const processed = Number(job.processed || 0);
+            if (job.status === 'completed') return 100;
+            if (job.status === 'queued') return 5;
+            if (job.status === 'running') return Math.min(95, Math.max(20, 20 + processed / 2));
+            if (job.status === 'backoff') return Math.min(80, Math.max(25, 25 + processed / 2));
+            return Math.min(100, Math.max(10, processed || 10));
+        },
+
+        backfillWindowLabel(job) {
+            if (!job || !job.requested_start || !job.requested_end) return 'Default search window';
+            const start = new Date(job.requested_start).toLocaleDateString();
+            const end = new Date(job.requested_end).toLocaleDateString();
+            return `${start} – ${end}`;
+        },
+
+        canCancelBackfill(job) {
+            return Boolean(job && ['queued', 'running', 'backoff'].includes(job.status));
+        },
+
+        canRetryBackfill(job) {
+            return Boolean(job && ['failed', 'cancelled', 'backoff'].includes(job.status));
         },
 
         formatDetailsSummary(details) {

@@ -183,6 +183,25 @@ the operator checklist, and writing a sanitized workspace audit event.
 Existing domains and mail sources are not duplicated. Existing notification
 settings are preserved unless `overwrite_existing` is set to `true`.
 
+### Mail Source Backfills
+
+Mailbox backfills are admin endpoints for resumable historical imports. Creating
+a backfill queues a progress row; connector workers can then process the window
+without blocking the UI.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /mail-sources/{source_id}/backfills?limit=20` | List recent queued, running, completed, failed, cancelled, or backoff jobs |
+| `POST /mail-sources/{source_id}/backfills` | Queue a backfill window with optional `requested_start`, `requested_end`, and `max_attempts` |
+| `GET /mail-sources/{source_id}/backfills/{job_id}` | Inspect one progress row |
+| `POST /mail-sources/{source_id}/backfills/{job_id}/cancel` | Cancel a queued, running, or backoff job |
+| `POST /mail-sources/{source_id}/backfills/{job_id}/retry` | Re-queue a failed, cancelled, or backoff job |
+
+The Mail Sources UI shows the latest backfill status, processed message counts,
+reports found, duplicates, retry timing, and operator controls. In demo mode,
+DMARQ exposes credential-free synthetic mail sources and backfill jobs so the
+workflow is visible without connecting a real mailbox.
+
 ### MSP Operator Views
 
 #### List Workspace Operator Summaries

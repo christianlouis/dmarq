@@ -7,6 +7,7 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Optional
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, urlparse
@@ -523,6 +524,21 @@ def test_mail_source_folder_input_has_no_pattern_validation():
     assert "pattern=" not in folder_input
 
 
+def test_mail_sources_template_exposes_backfill_progress_controls():
+    """The UI should surface queued backfill progress, cancellation, and retry."""
+    template = (Path(__file__).resolve().parents[1] / "templates" / "mail_sources.html").read_text()
+
+    assert "data-backfill-progress" in template
+    assert "/backfills?limit=5" in template
+    assert "/backfills/${job.id}/cancel" in template
+    assert "/backfills/${job.id}/retry" in template
+    assert "Queue Backfill" in template
+    assert "canCancelBackfill" in template
+    assert "canRetryBackfill" in template
+    assert "latestBackfill(source)" in template
+    assert "x-html" not in template
+
+
 class TestImportHistoryDecoding:
     """Unit tests for import-history JSON decoding helpers."""
 
@@ -940,6 +956,42 @@ class TestMailSourcesAPIAuthed:
         assert [item["id"] for item in list_response.json()] == [job["id"]]
         assert get_response.status_code == 200
         assert get_response.json()["id"] == job["id"]
+
+    def test_demo_mode_returns_mail_source_backfill_examples(
+        self,
+        authed_client: TestClient,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(
+            mail_sources_endpoint,
+            "get_settings",
+            lambda: SimpleNamespace(DEMO_MODE=True),
+        )
+
+        sources_response = authed_client.get("/api/v1/mail-sources")
+        assert sources_response.status_code == 200
+        sources = sources_response.json()
+        assert {source["id"] for source in sources} >= {9001, 9002, 9003}
+
+        backfills_response = authed_client.get("/api/v1/mail-sources/9001/backfills?limit=5")
+        assert backfills_response.status_code == 200
+        assert {job["status"] for job in backfills_response.json()} >= {"completed", "running"}
+
+        queue_response = authed_client.post(
+            "/api/v1/mail-sources/9001/backfills",
+            json={"max_attempts": 2},
+        )
+        assert queue_response.status_code == 201
+        assert queue_response.json()["status"] == "queued"
+        assert queue_response.json()["details"][0]["source"] == "dmarq.org aggregate reports"
+
+        cancel_response = authed_client.post("/api/v1/mail-sources/9001/backfills/9102/cancel")
+        assert cancel_response.status_code == 200
+        assert cancel_response.json()["status"] == "cancelled"
+
+        retry_response = authed_client.post("/api/v1/mail-sources/9002/backfills/9201/retry")
+        assert retry_response.status_code == 200
+        assert retry_response.json()["status"] == "queued"
 
     def test_backfill_jobs_respect_selected_workspace_header(
         self,
