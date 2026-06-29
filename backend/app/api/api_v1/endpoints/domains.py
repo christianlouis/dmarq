@@ -1246,6 +1246,8 @@ async def get_domains_summary(
         domain_row["health"] = score_domain_health(domain_row)
         domains_list.append(domain_row)
 
+    domain_health = [domain["health"] for domain in domains_list]
+
     # Calculate overall pass rate
     overall_pass_rate = 0
     if total_emails > 0:
@@ -1257,7 +1259,7 @@ async def get_domains_summary(
         overall_pass_rate=overall_pass_rate,
         reports_processed=total_reports,
         domains=domains_list,
-        health_summary=build_health_summary(domains_list),
+        health_summary=build_health_summary(domains_list, domain_health),
     )
 
 
