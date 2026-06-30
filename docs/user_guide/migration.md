@@ -52,6 +52,19 @@ It is intentionally safe to run against vendor exports while planning a
 cutover. Review warnings for missing columns, rows from other domains, or
 truncated previews before using the suggested baseline values.
 
+Preview responses also include an import plan with stable identifiers:
+
+- `batch_fingerprint` identifies the normalized export sample.
+- `row_key` identifies each normalized row.
+- `report_import_key` identifies the aggregate report a row would belong to.
+- `import_status` shows whether a row is `planned`, already covered by an
+  `existing_report`, or blocked as `needs_report_id`.
+
+Use those values to verify that a vendor export can be handled idempotently.
+Rows marked `existing_report` are already present for the selected workspace,
+and rows marked `needs_report_id` should not be used for a confirmed import
+until the source export provides a stable report identifier.
+
 ## Platform-specific notes
 
 For Valimail, EasyDMARC, dmarcian, PowerDMARC, DMARCguard, and manual mailbox

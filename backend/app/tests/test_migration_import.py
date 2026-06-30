@@ -23,6 +23,12 @@ def test_preview_migration_import_auto_json_list_limits_and_warns():
     assert preview["ignored_count"] == 1
     assert preview["rejected_count"] == 0
     assert preview["truncated_count"] == 1
+    assert preview["planned_report_count"] == 0
+    assert preview["importable_row_count"] == 0
+    assert preview["needs_report_id_count"] == 1
+    assert preview["sample_rows"][0]["import_status"] == "needs_report_id"
+    assert preview["sample_rows"][0]["row_key"].startswith("mir_")
+    assert preview["batch_fingerprint"].startswith("mib_")
     assert preview["baseline"]["total_emails"] == 1200
     assert preview["sample_rows"][0]["source_ip"] == "192.0.2.1"
     assert "total" in preview["detected_columns"]
@@ -68,7 +74,36 @@ def test_preview_migration_import_splits_rejected_and_truncated_counts():
     assert preview["rejected_count"] == 1
     assert preview["truncated_count"] == 1
     assert preview["ignored_count"] == 2
+    assert preview["duplicate_row_count"] == 0
     assert preview["baseline"]["total_emails"] == 3
+
+
+def test_preview_migration_import_marks_existing_and_duplicate_reports():
+    """Import planning marks existing reports without removing them from parity baselines."""
+    preview = preview_migration_import(
+        domain="example.com",
+        content="\n".join(
+            [
+                "Domain,Report ID,Date,Source IP,Messages,DKIM,SPF,Policy",
+                "example.com,legacy-1,2026-06-01,192.0.2.10,3,pass,fail,reject",
+                "example.com,legacy-1,2026-06-01,192.0.2.10,3,pass,fail,reject",
+                "example.com,legacy-2,2026-06-01,192.0.2.11,7,fail,pass,reject",
+            ]
+        ),
+        source_format="csv",
+        existing_report_ids={"legacy-1"},
+    )
+
+    assert preview["baseline"]["total_emails"] == 13
+    assert preview["existing_report_count"] == 1
+    assert preview["planned_report_count"] == 1
+    assert preview["importable_row_count"] == 1
+    assert preview["duplicate_row_count"] == 1
+    assert preview["sample_rows"][0]["import_status"] == "existing_report"
+    assert preview["sample_rows"][1]["import_status"] == "existing_report"
+    assert preview["sample_rows"][2]["import_status"] == "planned"
+    assert preview["sample_rows"][2]["report_import_key"].startswith("mip_")
+    assert "Export contains reports that already exist in DMARQ." in preview["warnings"]
 
 
 def test_preview_migration_import_json_object_without_row_collection():
