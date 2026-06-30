@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import json
 from collections import Counter
@@ -51,6 +52,9 @@ class MigrationImportRow:
     disposition: Optional[str] = None
     policy: Optional[str] = None
     org_name: Optional[str] = None
+    row_key: Optional[str] = None
+    report_import_key: Optional[str] = None
+    import_status: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Return API-safe row data."""
@@ -66,6 +70,9 @@ class MigrationImportRow:
             "disposition": self.disposition,
             "policy": self.policy,
             "org_name": self.org_name,
+            "row_key": self.row_key,
+            "report_import_key": self.report_import_key,
+            "import_status": self.import_status,
         }
 
 
@@ -75,6 +82,7 @@ def preview_migration_import(
     content: str,
     source_format: str = "auto",
     max_rows: int = 50,
+    existing_report_ids: Optional[Iterable[str]] = None,
 ) -> Dict[str, Any]:
     """Parse a CSV/JSON vendor export into a read-only migration preview."""
     rows, detected_format = _load_rows(content, source_format)
@@ -84,6 +92,13 @@ def preview_migration_import(
     normalized_rows: List[MigrationImportRow] = []
     warnings: List[str] = []
     rejected_count = 0
+    duplicate_row_count = 0
+    seen_row_keys: set[str] = set()
+    existing_report_id_set = {
+        str(report_id).strip()
+        for report_id in (existing_report_ids or [])
+        if str(report_id).strip()
+    }
 
     for raw_row in preview_rows:
         normalized = _normalize_row(raw_row, aliases)
@@ -91,10 +106,34 @@ def preview_migration_import(
             rejected_count += 1
             warnings.append("Ignored a row without a sending source or message count.")
             continue
-        normalized_rows.append(normalized)
+        row_key = _row_import_key(domain, normalized)
+        if row_key in seen_row_keys:
+            duplicate_row_count += 1
+        seen_row_keys.add(row_key)
+        normalized_rows.append(
+            _annotate_row(
+                normalized,
+                row_key=row_key,
+                report_import_key=_report_import_key(domain, normalized),
+                import_status=_import_status(normalized, existing_report_id_set),
+            )
+        )
 
     truncated_count = max(0, len(rows) - len(preview_rows))
     ignored_count = rejected_count + truncated_count
+    planned_report_keys = {
+        row.report_import_key
+        for row in normalized_rows
+        if row.import_status == "planned" and row.report_import_key
+    }
+    existing_report_keys = {
+        row.report_import_key
+        for row in normalized_rows
+        if row.import_status == "existing_report" and row.report_import_key
+    }
+    needs_report_id_count = sum(
+        1 for row in normalized_rows if row.import_status == "needs_report_id"
+    )
     domain_mismatches = sorted(
         {
             row.domain
@@ -112,6 +151,10 @@ def preview_migration_import(
     missing_columns = _missing_recommended_columns(aliases)
     if missing_columns:
         warnings.append("Missing recommended columns: " + ", ".join(missing_columns))
+    if existing_report_keys:
+        warnings.append("Export contains reports that already exist in DMARQ.")
+    if needs_report_id_count:
+        warnings.append("Some rows need a report ID before they can be safely imported.")
 
     return {
         "format": detected_format,
@@ -120,6 +163,12 @@ def preview_migration_import(
         "ignored_count": ignored_count,
         "rejected_count": rejected_count,
         "truncated_count": truncated_count,
+        "importable_row_count": sum(1 for row in normalized_rows if row.import_status == "planned"),
+        "planned_report_count": len(planned_report_keys),
+        "existing_report_count": len(existing_report_keys),
+        "duplicate_row_count": duplicate_row_count,
+        "needs_report_id_count": needs_report_id_count,
+        "batch_fingerprint": _batch_fingerprint(domain, normalized_rows),
         "detected_columns": detected_columns,
         "mapped_columns": aliases,
         "warnings": warnings,
@@ -221,6 +270,31 @@ def _normalize_row(row: Dict[str, Any], aliases: Dict[str, str]) -> MigrationImp
     )
 
 
+def _annotate_row(
+    row: MigrationImportRow,
+    *,
+    row_key: str,
+    report_import_key: Optional[str],
+    import_status: str,
+) -> MigrationImportRow:
+    return MigrationImportRow(
+        domain=row.domain,
+        report_id=row.report_id,
+        begin_date=row.begin_date,
+        end_date=row.end_date,
+        source_ip=row.source_ip,
+        count=row.count,
+        dkim=row.dkim,
+        spf=row.spf,
+        disposition=row.disposition,
+        policy=row.policy,
+        org_name=row.org_name,
+        row_key=row_key,
+        report_import_key=report_import_key,
+        import_status=import_status,
+    )
+
+
 def _row_value(row: Dict[str, Any], aliases: Dict[str, str], key: str) -> Any:
     column = aliases.get(key)
     if column is None:
@@ -287,6 +361,53 @@ def _clean_policy(value: Any) -> Optional[str]:
 def _missing_recommended_columns(aliases: Dict[str, str]) -> List[str]:
     recommended = ["source_ip", "count", "dkim", "spf", "policy"]
     return [column for column in recommended if column not in aliases]
+
+
+def _stable_hash(payload: Dict[str, Any], prefix: str) -> str:
+    body = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return f"{prefix}_{hashlib.sha256(body.encode('utf-8')).hexdigest()[:24]}"
+
+
+def _row_import_key(domain: str, row: MigrationImportRow) -> str:
+    payload = {
+        "domain": (row.domain or domain).lower(),
+        "report_id": row.report_id,
+        "begin_date": row.begin_date,
+        "end_date": row.end_date,
+        "source_ip": row.source_ip,
+        "count": row.count,
+        "dkim": row.dkim,
+        "spf": row.spf,
+        "disposition": row.disposition,
+        "policy": row.policy,
+        "org_name": row.org_name,
+    }
+    return _stable_hash(payload, "mir")
+
+
+def _report_import_key(domain: str, row: MigrationImportRow) -> Optional[str]:
+    if not row.report_id:
+        return None
+    return _stable_hash(
+        {
+            "domain": (row.domain or domain).lower(),
+            "report_id": row.report_id,
+        },
+        "mip",
+    )
+
+
+def _import_status(row: MigrationImportRow, existing_report_ids: set[str]) -> str:
+    if not row.report_id:
+        return "needs_report_id"
+    if row.report_id in existing_report_ids:
+        return "existing_report"
+    return "planned"
+
+
+def _batch_fingerprint(domain: str, rows: List[MigrationImportRow]) -> str:
+    row_keys = sorted(row.row_key for row in rows if row.row_key)
+    return _stable_hash({"domain": domain.lower(), "row_keys": row_keys}, "mib")
 
 
 def _build_baseline(rows: List[MigrationImportRow]) -> Dict[str, Any]:

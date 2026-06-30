@@ -296,6 +296,24 @@ mapped DMARC fields, warnings, sample normalized rows, and suggested parity
 baseline values. It is read-only: it does not create domains, persist aggregate
 reports, or modify DNS.
 
+The response also includes import-planning metadata for a future confirmed
+write step:
+
+| Field | Purpose |
+| --- | --- |
+| `batch_fingerprint` | Stable fingerprint for the normalized preview batch |
+| `row_key` | Stable key for each normalized sample row |
+| `report_import_key` | Stable key for the report that row would belong to |
+| `import_status` | `planned`, `existing_report`, or `needs_report_id` |
+| `planned_report_count` | Distinct reports that could be imported later |
+| `existing_report_count` | Distinct reports already present in the workspace |
+| `duplicate_row_count` | Duplicate normalized rows inside the preview sample |
+| `needs_report_id_count` | Rows missing a safe report identifier |
+
+These fields are advisory and read-only. They exist so operators can verify
+idempotency and tenant-scoped duplicate detection before DMARQ adds a confirmed
+historical-import write path.
+
 ### MSP Operator Views
 
 #### List Workspace Operator Summaries

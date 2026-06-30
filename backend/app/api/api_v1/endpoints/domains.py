@@ -18,6 +18,7 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.domain import Domain
+from app.models.report import DMARCReport
 from app.services.bimi import BIMIResult, check_bimi_cached
 from app.services.cloudflare_dns import (
     analyze_dns_records,
@@ -248,6 +249,9 @@ class MigrationImportBaseline(BaseModel):
 class MigrationImportPreviewRow(BaseModel):
     """One normalized read-only export row."""
 
+    row_key: Optional[str] = None
+    report_import_key: Optional[str] = None
+    import_status: Optional[str] = None
     domain: Optional[str] = None
     report_id: Optional[str] = None
     begin_date: Optional[str] = None
@@ -274,6 +278,12 @@ class MigrationImportPreviewResponse(BaseModel):
     ignored_count: int
     rejected_count: int
     truncated_count: int
+    importable_row_count: int
+    planned_report_count: int
+    existing_report_count: int
+    duplicate_row_count: int
+    needs_report_id_count: int
+    batch_fingerprint: str
     detected_columns: List[str]
     mapped_columns: Dict[str, str]
     warnings: List[str] = Field(default_factory=list)
@@ -2490,6 +2500,16 @@ async def preview_domain_migration_import(
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
     domain_name = _resolve_domain_name_for_read(db, store, domain_id, workspace)
+    domain_row = workspace_domain_query(db, workspace).filter(Domain.name == domain_name).first()
+    existing_report_ids: List[str] = []
+    if domain_row is not None:
+        existing_report_ids = [
+            row[0]
+            for row in db.query(DMARCReport.report_id)
+            .filter(DMARCReport.domain_id == domain_row.id)
+            .all()
+            if row[0]
+        ]
 
     try:
         content = (
@@ -2500,6 +2520,7 @@ async def preview_domain_migration_import(
             content=content,
             source_format=payload.format,
             max_rows=payload.max_rows,
+            existing_report_ids=existing_report_ids,
         )
     except ValueError as exc:
         raise HTTPException(
@@ -2525,6 +2546,12 @@ async def preview_domain_migration_import(
         ignored_count=preview["ignored_count"],
         rejected_count=preview["rejected_count"],
         truncated_count=preview["truncated_count"],
+        importable_row_count=preview["importable_row_count"],
+        planned_report_count=preview["planned_report_count"],
+        existing_report_count=preview["existing_report_count"],
+        duplicate_row_count=preview["duplicate_row_count"],
+        needs_report_id_count=preview["needs_report_id_count"],
+        batch_fingerprint=preview["batch_fingerprint"],
         detected_columns=preview["detected_columns"],
         mapped_columns=preview["mapped_columns"],
         warnings=preview["warnings"],

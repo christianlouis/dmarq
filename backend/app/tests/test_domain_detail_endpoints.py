@@ -986,6 +986,12 @@ def test_preview_domain_migration_import_csv_baseline(seeded_client: TestClient)
     assert data["ignored_count"] == 0
     assert data["rejected_count"] == 0
     assert data["truncated_count"] == 0
+    assert data["importable_row_count"] == 2
+    assert data["planned_report_count"] == 1
+    assert data["existing_report_count"] == 0
+    assert data["duplicate_row_count"] == 0
+    assert data["needs_report_id_count"] == 0
+    assert data["batch_fingerprint"].startswith("mib_")
     assert data["baseline"] == {
         "report_count": 1,
         "total_emails": 10,
@@ -997,9 +1003,42 @@ def test_preview_domain_migration_import_csv_baseline(seeded_client: TestClient)
     }
     assert data["mapped_columns"]["source_ip"] == "Source IP"
     assert data["sample_rows"][0]["source_ip"] == "192.0.2.10"
+    assert data["sample_rows"][0]["row_key"].startswith("mir_")
+    assert data["sample_rows"][0]["report_import_key"].startswith("mip_")
+    assert data["sample_rows"][0]["import_status"] == "planned"
     assert data["next_steps"][-1] == (
         "Keep the old DMARC platform active until mismatches are explained."
     )
+
+
+def test_preview_domain_migration_import_marks_existing_workspace_reports(
+    seeded_client: TestClient,
+):
+    """Import planning checks existing reports only in the authorized workspace."""
+    content = "\n".join(
+        [
+            "Domain,Report ID,Date,Source IP,Messages,DKIM,SPF,Policy",
+            "example.com,rpt-dict-policy,2026-06-01,192.0.2.10,8,pass,fail,reject",
+            "example.com,legacy-new,2026-06-01,192.0.2.20,2,fail,pass,reject",
+        ]
+    )
+
+    response = seeded_client.post(
+        f"/api/v1/domains/{DOMAIN}/migration/import/preview",
+        json={
+            "format": "csv",
+            "content": content,
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["existing_report_count"] == 1
+    assert data["planned_report_count"] == 1
+    assert data["importable_row_count"] == 1
+    assert data["sample_rows"][0]["import_status"] == "existing_report"
+    assert data["sample_rows"][1]["import_status"] == "planned"
+    assert "Export contains reports that already exist in DMARQ." in data["warnings"]
 
 
 def test_preview_domain_migration_import_json_warns_on_domain_mismatch(
