@@ -19,6 +19,20 @@ The domain detail page includes a **Migration Readiness** panel. It tracks the
 parallel-reporting window, aggregate report count, observed sending sources,
 DNS lint status, and export availability for each domain.
 
+The same panel includes **Migration Parity**. Enter values from the same date
+window in the current DMARC platform to compare:
+
+- aggregate report count
+- message volume
+- observed sending sources
+- alignment or compliance rate
+- DMARC policy posture
+
+If no legacy baseline is entered, DMARQ marks the comparison as
+`baseline_needed` rather than claiming parity. Keep dual `rua` reporting active
+until the parity signals are either matched, explained, or intentionally
+accepted.
+
 ## Platform-specific notes
 
 For Valimail, EasyDMARC, dmarcian, PowerDMARC, DMARCguard, and manual mailbox
