@@ -854,6 +854,17 @@ async def test_mcp_alert_history_returns_sanitized_workspace_alerts(
                 observed_count=1,
                 is_active=False,
             ),
+            AlertHistory(
+                fingerprint="mcp-alert-malformed-payload",
+                rule="new_sender_source",
+                severity="warning",
+                domain=DOMAIN,
+                title="Malformed payload",
+                detail="Payload should be ignored.",
+                payload="{not-json",
+                observed_count=1,
+                is_active=True,
+            ),
         ]
     )
     db_session.commit()
@@ -865,12 +876,35 @@ async def test_mcp_alert_history_returns_sanitized_workspace_alerts(
         auth_context={"token_id": "test-token"},
         workspace_id=domain.workspace_id,
     )
+    resolved_result = await mcp_endpoint._call_read_only_tool(
+        "alert_history",
+        {"active": "off", "domain": DOMAIN, "limit": "10"},
+        db=db_session,
+        auth_context={"token_id": "test-token"},
+        workspace_id=domain.workspace_id,
+    )
+    empty_result = await mcp_endpoint._call_read_only_tool(
+        "alert_history",
+        {"domain": "missing.example", "limit": 1},
+        db=db_session,
+        auth_context={"token_id": "test-token"},
+        workspace_id=domain.workspace_id,
+    )
 
-    assert result["summary"]["active"] == 1
+    alerts_by_fingerprint = {alert["fingerprint"]: alert for alert in result["alerts"]}
+    assert result["summary"]["active"] == 2
     assert result["filters"]["active"] is True
-    assert result["alerts"][0]["rule"] == "dmarc_failures_above_threshold"
-    assert result["alerts"][0]["evidence"] == {"failed_messages": 42, "threshold": 10}
-    assert "payload" not in result["alerts"][0]
+    assert alerts_by_fingerprint["mcp-alert-active"]["rule"] == "dmarc_failures_above_threshold"
+    assert alerts_by_fingerprint["mcp-alert-active"]["evidence"] == {
+        "failed_messages": 42,
+        "threshold": 10,
+    }
+    assert "evidence" not in alerts_by_fingerprint["mcp-alert-malformed-payload"]
+    assert "payload" not in alerts_by_fingerprint["mcp-alert-active"]
+    assert resolved_result["summary"]["resolved"] == 1
+    assert resolved_result["filters"]["active"] is False
+    assert resolved_result["alerts"][0]["fingerprint"] == "mcp-alert-resolved"
+    assert empty_result["alerts"] == []
     assert "hidden" not in str(result)
 
 
