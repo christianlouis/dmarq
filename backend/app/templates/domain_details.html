@@ -925,6 +925,11 @@
                                     <div>
                                         <h4 class="font-semibold">Proposed DNS change plan</h4>
                                         <p class="text-xs text-base-content/60">Provider writes require explicit review and approval.</p>
+                                        <p x-show="dnsGuidance.recommended_provider"
+                                           class="mt-1 text-xs text-base-content/60">
+                                            Recommended provider:
+                                            <span class="font-semibold" x-text="providerName(dnsGuidance.recommended_provider)"></span>
+                                        </p>
                                     </div>
                                     <div class="flex flex-wrap items-center gap-2">
                                         <select
@@ -941,6 +946,13 @@
                                         </span>
                                     </div>
                                 </div>
+                                <template x-if="dnsGuidance.safety_notes && dnsGuidance.safety_notes.length">
+                                    <ul class="mt-2 list-disc space-y-1 pl-5 text-xs text-base-content/65">
+                                        <template x-for="note in dnsGuidance.safety_notes" :key="note">
+                                            <li x-text="note"></li>
+                                        </template>
+                                    </ul>
+                                </template>
                                 <p x-show="dnsWrite.message"
                                    class="mt-2 rounded bg-base-200 px-3 py-2 text-xs text-base-content/75"
                                    x-text="dnsWrite.message"></p>
@@ -982,6 +994,12 @@
                                                 <div class="text-xs text-base-content/60">
                                                     <span x-show="plan.provider_write_available">Can be previewed and applied with the selected provider.</span>
                                                     <span x-show="!plan.provider_write_available">Manual-only until the value or operation is safe to automate.</span>
+                                                    <ul x-show="plan.safety_notes && plan.safety_notes.length"
+                                                        class="mt-1 list-disc space-y-0.5 pl-4">
+                                                        <template x-for="note in plan.safety_notes" :key="note">
+                                                            <li x-text="note"></li>
+                                                        </template>
+                                                    </ul>
                                                 </div>
                                                 <div class="flex flex-wrap gap-2">
                                                     <button
@@ -1435,7 +1453,10 @@ function domainDetailsApp(domainId) {
             findings: [],
             target_records: [],
             dns_provider: null,
-            change_plans: []
+            change_plans: [],
+            recommended_provider: null,
+            available_write_providers: [],
+            safety_notes: []
         },
         dnsProviders: [
             { id: 'cloudflare', name: 'Cloudflare' }
@@ -1659,11 +1680,16 @@ function domainDetailsApp(domainId) {
         },
 
         syncDetectedDnsProvider() {
-            const providerId = this.detectedDnsProvider?.provider_id;
+            const providerId = this.dnsGuidance.recommended_provider || this.detectedDnsProvider?.provider_id;
             if (!providerId) return;
             if (this.dnsProviders.some(provider => provider.id === providerId)) {
                 this.dnsWrite.provider = providerId;
             }
+        },
+
+        providerName(providerId) {
+            const provider = this.dnsProviders.find(item => item.id === providerId);
+            return provider ? provider.name : providerId;
         },
 
         get dnsHealthStatusClass() {

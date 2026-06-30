@@ -173,7 +173,10 @@ The integration exposes these operational routes:
 
 Provider writes are opt-in at action time. Requests default to dry-run, and real
 writes require `confirm=true` plus `dry_run=false`. Public demo mode rejects
-provider writes even if credentials are configured.
+provider writes even if credentials are configured. DNS change-plan responses
+include the currently ready write providers, the provider DMARQ recommends from
+nameserver detection when possible, and safety notes for apply-ready versus
+manual-only changes.
 
 Postmark sender-domain discovery is read-only. DMARQ uses the Postmark account
 token to list domains and sender signatures, then stores imported domains as

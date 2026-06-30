@@ -111,6 +111,11 @@ health impact. Operators can copy/paste the records manually, preview a
 provider mutation, or apply safe TXT/CNAME changes through a configured DNS
 provider after explicit browser confirmation.
 
+When DMARQ can detect the authoritative DNS provider from nameservers and a
+matching connector is available, the change-plan section highlights the
+recommended provider. Each plan also includes safety notes that explain why the
+plan is apply-ready or why it remains manual-only.
+
 Automatic apply is intentionally limited. DMARQ only applies plans that already
 contain a concrete DNS value and a low-risk operation such as create or update.
 Plans that require provider-specific values, DKIM rotation, record
