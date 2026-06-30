@@ -231,6 +231,7 @@ def build_export_catalog(
     can_list_domains = not token_scopes.isdisjoint(
         {READ_REPORTS_SCOPE, READ_POSTURE_SCOPE, MCP_READ_SCOPE}
     )
+    domain_count = db.query(Domain).filter(Domain.workspace_id == workspace.id).count()
     domains = []
     if can_list_domains:
         domains = (
@@ -245,7 +246,7 @@ def build_export_catalog(
             "id": workspace.id,
             "slug": workspace.slug,
             "name": workspace.name,
-            "domain_count": len(domains),
+            "domain_count": domain_count,
         },
         "token": token,
         "public_endpoints": _public_endpoint_catalog(token_scopes),

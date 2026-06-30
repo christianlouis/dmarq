@@ -1,9 +1,11 @@
 from datetime import date
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api.api_v1.endpoints import domains as domains_endpoint
+from app.core.security import require_api_token_any_scope
 from app.models.alert import AlertHistory
 from app.models.api_token import APIToken
 from app.models.domain import Domain
@@ -182,10 +184,19 @@ def test_public_export_catalog_accepts_tls_or_mcp_scope_without_domain_leak(
     )
 
     assert tls_response.status_code == 200
-    assert tls_response.json()["workspace"]["domain_count"] == 0
-    assert tls_response.json()["domains"] == []
+    tls_body = tls_response.json()
+    assert tls_body["workspace"]["domain_count"] == 1
+    assert tls_body["domains"] == []
     assert mcp_response.status_code == 200
-    assert mcp_response.json()["workspace"]["domain_count"] == 1
+    mcp_body = mcp_response.json()
+    assert mcp_body["workspace"]["domain_count"] == 1
+    assert mcp_body["domains"][0]["exports"]["domain_reports"]["available"] is False
+    assert mcp_body["domains"][0]["exports"]["health_evidence_export"]["available"] is False
+
+
+def test_require_api_token_any_scope_rejects_bare_string_scope():
+    with pytest.raises(TypeError, match="not a string"):
+        require_api_token_any_scope(READ_REPORTS_SCOPE)
 
 
 def test_public_source_intelligence_endpoints_use_report_scope(client: TestClient, db_session):
