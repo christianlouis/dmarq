@@ -19,7 +19,7 @@ from app.models.setting import Setting
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog
-from app.services import cloudflare_dns, dns_provider_writes
+from app.services import cloudflare_dns, dns_provider_imports, dns_provider_writes
 from app.services.cloudflare_dns import analyze_dns_records, sync_dns_record_changes
 from app.services.dns_provider_writes import (
     CloudflareDNSWriteProvider,
@@ -341,7 +341,92 @@ def test_import_cloudflare_domains_imports_requested_and_skips_others(db_session
     assert result["imported"] == ["new.example"]
     assert result["existing"] == []
     assert sorted(result["skipped"]) == [DOMAIN, "skip.example"]
-    assert db_session.query(Domain).filter(Domain.name == "new.example").first() is not None
+    imported = db_session.query(Domain).filter(Domain.name == "new.example").first()
+    assert imported is not None
+    assert imported.description == "DNS-discovered from Cloudflare zone import"
+
+
+def test_dns_provider_import_preview_wraps_cloudflare_zones(db_session):
+    async def fake_discover(_db, workspace_id=None):
+        assert workspace_id == 123
+        return [
+            {
+                "id": "zone-1",
+                "name": DOMAIN,
+                "status": "active",
+                "account_name": "Example",
+                "imported": False,
+            },
+            {
+                "id": "zone-2",
+                "name": "existing.example",
+                "status": "active",
+                "account_name": "Example",
+                "imported": True,
+            },
+        ]
+
+    with patch("app.services.dns_provider_imports.discover_cloudflare_zones", new=fake_discover):
+        result = asyncio.run(
+            dns_provider_imports.preview_dns_provider_import(
+                db_session,
+                provider="cloudflare",
+                workspace_id=123,
+            )
+        )
+
+    assert result["provider"] == "cloudflare"
+    assert result["provider_name"] == "Cloudflare"
+    assert result["total_discovered"] == 2
+    assert result["importable_count"] == 1
+    assert result["zones"][0]["domain"] == DOMAIN
+    assert result["zones"][0]["importable"] is True
+    assert result["zones"][1]["next_action"] == "Already monitored in this workspace."
+
+
+def test_dns_provider_import_rejects_unsupported_provider(db_session):
+    with pytest.raises(LookupError, match="Unsupported DNS provider import"):
+        asyncio.run(
+            dns_provider_imports.preview_dns_provider_import(
+                db_session,
+                provider="unsupported",
+            )
+        )
+
+
+def test_dns_provider_import_apply_rejects_unsupported_provider(db_session):
+    with pytest.raises(LookupError, match="Unsupported DNS provider import"):
+        asyncio.run(
+            dns_provider_imports.import_dns_provider_domains(
+                db_session,
+                provider="unsupported",
+            )
+        )
+
+
+def test_dns_provider_import_creates_empty_report_domain_state(
+    authed_client: TestClient,
+    db_session,
+):
+    async def fake_discover(_db, workspace_id=None):
+        return [{"id": "zone-1", "name": "dns-only.example", "imported": False}]
+
+    with patch("app.services.cloudflare_dns.discover_cloudflare_zones", new=fake_discover):
+        result = asyncio.run(
+            dns_provider_imports.import_dns_provider_domains(
+                db_session,
+                provider="cloudflare",
+                requested_domains=["dns-only.example"],
+            )
+        )
+
+    assert result["imported"] == ["dns-only.example"]
+    response = authed_client.get("/api/v1/domains/domains")
+    assert response.status_code == 200
+    imported = next(item for item in response.json() if item["name"] == "dns-only.example")
+    assert imported["reports_count"] == 0
+    assert imported["emails_count"] == 0
+    assert imported["policy"] == "unknown"
 
 
 def test_import_cloudflare_domains_respects_monitored_domain_plan_limit(db_session):
@@ -490,6 +575,124 @@ def test_cloudflare_discover_endpoint_returns_zones(authed_client: TestClient):
 
     assert response.status_code == 200
     assert response.json()[0]["name"] == DOMAIN
+
+
+def test_dns_provider_import_preview_endpoint_returns_zones(authed_client: TestClient):
+    with patch(
+        "app.api.api_v1.endpoints.domains.preview_dns_provider_import",
+        new=AsyncMock(
+            return_value={
+                "provider": "cloudflare",
+                "provider_name": "Cloudflare",
+                "zones": [
+                    {
+                        "provider": "cloudflare",
+                        "provider_name": "Cloudflare",
+                        "zone_id": "zone-1",
+                        "domain": DOMAIN,
+                        "status": "active",
+                        "account_name": "Example",
+                        "imported": False,
+                        "importable": True,
+                        "source": "dns_zone",
+                        "next_action": "Import this Cloudflare zone.",
+                    }
+                ],
+                "total_discovered": 1,
+                "importable_count": 1,
+            }
+        ),
+    ):
+        response = authed_client.get("/api/v1/domains/dns/import/cloudflare/preview")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["provider"] == "cloudflare"
+    assert data["zones"][0]["domain"] == DOMAIN
+    assert data["zones"][0]["importable"] is True
+
+
+def test_dns_provider_import_endpoint_returns_import_summary(authed_client: TestClient):
+    with patch(
+        "app.api.api_v1.endpoints.domains.import_dns_provider_domains",
+        new=AsyncMock(
+            return_value={
+                "provider": "cloudflare",
+                "provider_name": "Cloudflare",
+                "imported": [DOMAIN],
+                "existing": [],
+                "skipped": [],
+                "total_discovered": 1,
+            }
+        ),
+    ):
+        response = authed_client.post(
+            "/api/v1/domains/dns/import/cloudflare",
+            json={"domains": [DOMAIN]},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["provider"] == "cloudflare"
+    assert data["imported"] == [DOMAIN]
+
+
+def test_dns_provider_import_endpoint_rejects_unknown_provider(authed_client: TestClient):
+    with patch(
+        "app.api.api_v1.endpoints.domains.preview_dns_provider_import",
+        new=AsyncMock(side_effect=LookupError("Unsupported DNS provider import: example")),
+    ):
+        response = authed_client.get("/api/v1/domains/dns/import/example/preview")
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Unsupported DNS provider import: example"
+
+
+def test_dns_provider_import_endpoint_rejects_unknown_provider_on_apply(
+    authed_client: TestClient,
+):
+    with patch(
+        "app.api.api_v1.endpoints.domains.import_dns_provider_domains",
+        new=AsyncMock(side_effect=LookupError("Unsupported DNS provider import: example")),
+    ):
+        response = authed_client.post("/api/v1/domains/dns/import/example", json={})
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Unsupported DNS provider import: example"
+
+
+def test_dns_provider_import_endpoint_surfaces_plan_limit(
+    authed_client: TestClient,
+):
+    plan_error = OrganizationPlanLimitError(
+        metric="monitored_domains",
+        current=1,
+        limit=1,
+        attempted=1,
+        unit="domains",
+        entitlement_key="monitored_domains",
+    )
+    with patch(
+        "app.api.api_v1.endpoints.domains.import_dns_provider_domains",
+        new=AsyncMock(side_effect=plan_error),
+    ):
+        response = authed_client.post(
+            "/api/v1/domains/dns/import/cloudflare",
+            json={"domains": [DOMAIN]},
+        )
+
+    assert response.status_code == 402
+    assert response.json()["detail"]["code"] == "plan_limit_exceeded"
+    assert response.json()["detail"]["metric"] == "monitored_domains"
+
+
+def test_dns_provider_capabilities_mark_cloudflare_import_available(authed_client: TestClient):
+    response = authed_client.get("/api/v1/domains/dns/providers")
+
+    assert response.status_code == 200
+    providers = {provider["id"]: provider for provider in response.json()["providers"]}
+    assert providers["cloudflare"]["import_available"] is True
+    assert providers["route53"]["import_available"] is False
 
 
 def test_cloudflare_import_endpoint_returns_import_summary(authed_client: TestClient):

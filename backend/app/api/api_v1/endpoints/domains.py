@@ -31,6 +31,11 @@ from app.services.cloudflare_dns import (
 from app.services.demo_data import DEMO_DAYS, build_demo_health_score_history
 from app.services.dns_cache import resolve_domain_dns_cached
 from app.services.dns_guidance import build_dns_guidance
+from app.services.dns_provider_imports import (
+    import_dns_provider_domains,
+    preview_dns_provider_import,
+    supported_import_providers,
+)
 from app.services.dns_provider_writes import (
     DNSProviderWriteError,
     apply_dns_write,
@@ -403,6 +408,7 @@ class DNSProviderCapabilityResponse(BaseModel):
     operations: List[str]
     credentials: str
     status: str
+    import_available: bool = False
 
 
 class DNSProviderCapabilitiesResponse(BaseModel):
@@ -676,6 +682,48 @@ class CloudflareImportRequest(BaseModel):
 class CloudflareImportResponse(BaseModel):
     """Cloudflare domain import summary."""
 
+    imported: List[str]
+    existing: List[str]
+    skipped: List[str]
+    total_discovered: int
+
+
+class DNSProviderImportZoneResponse(BaseModel):
+    """DNS provider zone that can be imported as a monitored domain."""
+
+    provider: str
+    provider_name: str
+    zone_id: str
+    domain: str
+    status: Optional[str] = None
+    account_name: Optional[str] = None
+    imported: bool = False
+    importable: bool = True
+    source: str = "dns_zone"
+    next_action: str
+
+
+class DNSProviderImportPreviewResponse(BaseModel):
+    """Read-only DNS provider domain import preview."""
+
+    provider: str
+    provider_name: str
+    zones: List[DNSProviderImportZoneResponse]
+    total_discovered: int
+    importable_count: int
+
+
+class DNSProviderImportRequest(BaseModel):
+    """Optional DNS provider domains to import after preview."""
+
+    domains: Optional[List[str]] = None
+
+
+class DNSProviderImportResponse(BaseModel):
+    """DNS provider domain import summary."""
+
+    provider: str
+    provider_name: str
     imported: List[str]
     existing: List[str]
     skipped: List[str]
@@ -2385,7 +2433,73 @@ async def get_dns_provider_capabilities(
     _auth: dict = Depends(require_admin_auth),
 ):
     """Return provider-backed DNS write capabilities."""
-    return DNSProviderCapabilitiesResponse(providers=provider_capabilities())
+    capabilities = provider_capabilities()
+    import_provider_ids = {provider["id"] for provider in supported_import_providers()}
+    return DNSProviderCapabilitiesResponse(
+        providers=[
+            {
+                **provider,
+                "import_available": provider["id"] in import_provider_ids,
+            }
+            for provider in capabilities
+        ]
+    )
+
+
+@router.get("/dns/import/{provider}/preview", response_model=DNSProviderImportPreviewResponse)
+async def preview_dns_provider_domain_import(
+    provider: str = Path(..., title="DNS provider ID"),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+):
+    """Preview DNS-provider zones that can be imported as monitored domains."""
+    workspace = _authorized_domain_workspace(
+        _auth,
+        db,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
+    )
+    try:
+        return await preview_dns_provider_import(
+            db,
+            provider=provider,
+            workspace_id=workspace.id,
+        )
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.post("/dns/import/{provider}", response_model=DNSProviderImportResponse)
+async def import_dns_provider_domain_zones(
+    payload: DNSProviderImportRequest,
+    provider: str = Path(..., title="DNS provider ID"),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+):
+    """Import selected, or all new, DNS-provider zones as monitored domains."""
+    workspace = _authorized_domain_workspace(
+        _auth,
+        db,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
+    )
+    try:
+        return await import_dns_provider_domains(
+            db,
+            provider=provider,
+            requested_domains=payload.domains,
+            workspace_id=workspace.id,
+        )
+    except OrganizationPlanLimitError as exc:
+        _raise_plan_limit_error(exc)
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
 
 
 # New endpoints for domain details page

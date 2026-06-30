@@ -571,6 +571,8 @@ GET /domains/{domain_id}/dns/lint
 GET /domains/{domain_id}/dns/change-plan
 POST /domains/{domain_id}/dns/change-plan/apply
 GET /domains/dns/providers
+GET /domains/dns/import/{provider}/preview
+POST /domains/dns/import/{provider}
 GET /domains/dns/lint
 GET /domains/dns/lint/export
 ```
@@ -594,7 +596,16 @@ access unless credentials are configured and the operator approves an apply
 request.
 
 `GET /domains/dns/providers` returns native and Lexicon-backed provider
-capabilities. `POST /domains/{domain_id}/dns/change-plan/apply` accepts
+capabilities plus whether a provider supports DNS-zone domain import. Use
+`GET /domains/dns/import/{provider}/preview` to list DNS zones visible to a
+connected provider without creating anything. Use
+`POST /domains/dns/import/{provider}` with an optional `domains` array to import
+selected zones as monitored DMARQ domains before reports have arrived.
+Cloudflare is the first supported provider; the legacy
+`/domains/cloudflare/discover` and `/domains/cloudflare/import` endpoints remain
+available for compatibility.
+
+`POST /domains/{domain_id}/dns/change-plan/apply` accepts
 `plan_id`, `provider`, `dry_run`, `confirm`, optional `value`, and `ttl`. Calls
 default to dry-run. Real writes require `dry_run=false` and `confirm=true`, are
 blocked in demo mode, and are limited to safe TXT/CNAME create/update plans

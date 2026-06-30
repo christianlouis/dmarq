@@ -146,7 +146,15 @@ async def import_cloudflare_domains(
         if name in existing_names:
             existing.append(name)
         else:
-            db.add(Domain(name=name, active=True, verified=True, workspace_id=workspace_id))
+            db.add(
+                Domain(
+                    name=name,
+                    description="DNS-discovered from Cloudflare zone import",
+                    active=True,
+                    verified=True,
+                    workspace_id=workspace_id,
+                )
+            )
             imported.append(name)
 
     db.commit()

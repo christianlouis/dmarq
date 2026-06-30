@@ -1183,14 +1183,20 @@ function settingsApp() {
             this.loadingCfZones = true;
             try {
                 await this.saveCategory('cloudflare');
-                const res = await fetch('/api/v1/domains/cloudflare/discover', {
+                const res = await fetch('/api/v1/domains/dns/import/cloudflare/preview', {
                     headers: this.apiHeaders(),
                 });
                 const data = await res.json().catch(() => ({}));
                 if (!res.ok) {
                     this.showFlash('Cloudflare discovery failed: ' + (data.detail || res.statusText), false);
                 } else {
-                    this.cfZones = data || [];
+                    this.cfZones = (data.zones || []).map(zone => ({
+                        id: zone.zone_id,
+                        name: zone.domain,
+                        status: zone.status,
+                        account_name: zone.account_name,
+                        imported: zone.imported,
+                    }));
                     this.showFlash(`${this.cfZones.length} Cloudflare zone${this.cfZones.length === 1 ? '' : 's'} found.`, true);
                 }
             } catch (err) {
@@ -1204,7 +1210,7 @@ function settingsApp() {
             this.importingCfZones = true;
             try {
                 const domains = this.cfZones.filter(z => !z.imported).map(z => z.name);
-                const res = await fetch('/api/v1/domains/cloudflare/import', {
+                const res = await fetch('/api/v1/domains/dns/import/cloudflare', {
                     method: 'POST',
                     headers: this.apiHeaders(),
                     body: JSON.stringify({ domains }),

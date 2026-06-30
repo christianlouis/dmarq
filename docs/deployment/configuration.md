@@ -158,6 +158,8 @@ The integration exposes these operational routes:
 
 | Route | Purpose |
 | --- | --- |
+| `GET /api/v1/domains/dns/import/cloudflare/preview` | Preview zones visible to the connected Cloudflare token without creating rows. |
+| `POST /api/v1/domains/dns/import/cloudflare` | Import selected Cloudflare zones as monitored domains before reports arrive. |
 | `GET /api/v1/domains/cloudflare/discover` | List available zones. |
 | `POST /api/v1/domains/cloudflare/import` | Create monitored domain rows from zones. |
 | `GET /api/v1/domains/{domain}/dns/cloudflare` | Inspect managed DNS records, return DMARC/SPF/DKIM suggestions, and record detected DNS changes. |
