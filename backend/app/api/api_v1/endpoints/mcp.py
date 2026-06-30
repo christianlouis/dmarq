@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -128,6 +129,21 @@ READ_ONLY_TOOLS = [
         },
         "readOnlyHint": True,
     },
+    {
+        "name": "health_evidence_export",
+        "description": "Return sanitized health score evidence rows for one domain.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string"},
+                "start_date": {"type": "string", "format": "date"},
+                "end_date": {"type": "string", "format": "date"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 400},
+            },
+            "required": ["domain"],
+        },
+        "readOnlyHint": True,
+    },
 ]
 
 
@@ -201,6 +217,27 @@ def _tool_days(arguments: Dict[str, Any]) -> int:
     return days
 
 
+def _tool_optional_date(arguments: Dict[str, Any], key: str) -> Optional[date]:
+    raw_value = arguments.get(key)
+    if raw_value in (None, ""):
+        return None
+    try:
+        return date.fromisoformat(str(raw_value))
+    except ValueError as exc:
+        raise ValueError(f"{key} must be an ISO date in YYYY-MM-DD format") from exc
+
+
+def _tool_limit(arguments: Dict[str, Any], *, default: int = 400, maximum: int = 1000) -> int:
+    raw_limit = arguments.get("limit", default)
+    try:
+        limit = int(raw_limit)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"limit must be an integer from 1 to {maximum}") from exc
+    if limit < 1 or limit > maximum:
+        raise ValueError(f"limit must be an integer from 1 to {maximum}")
+    return limit
+
+
 async def _call_read_only_tool(
     name: str,
     arguments: Dict[str, Any],
@@ -251,6 +288,19 @@ async def _call_read_only_tool(
         )
     if name == "action_proposals":
         return build_action_proposals(db, _tool_domain(arguments), workspace_id=workspace_id)
+    if name == "health_evidence_export":
+        domain = _tool_domain(arguments)
+        rows = await domains.build_domain_health_evidence_export_rows(
+            domain_id=domain,
+            start_date=_tool_optional_date(arguments, "start_date"),
+            end_date=_tool_optional_date(arguments, "end_date"),
+            limit=_tool_limit(arguments),
+            capture_current=False,
+            db=db,
+            auth_context=auth_context,
+            selected_workspace_id=workspace_id,
+        )
+        return {"scope": "domain", "domain": domain, "rows": rows}
     raise KeyError(name)
 
 

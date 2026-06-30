@@ -1766,6 +1766,80 @@ def _write_health_evidence_export(
     return _write_health_evidence_csv(rows, domain_id=export_id)
 
 
+def write_health_evidence_export(
+    rows: List[Dict[str, Any]],
+    *,
+    export_id: str,
+    scope: str,
+    export_format: str,
+) -> Response:
+    """Write sanitized health evidence rows as a stable API response."""
+    return _write_health_evidence_export(
+        rows,
+        export_id=export_id,
+        scope=scope,
+        export_format=export_format,
+    )
+
+
+async def build_domain_health_evidence_export_rows(
+    *,
+    domain_id: str,
+    start_date: Optional[date],
+    end_date: Optional[date],
+    limit: int,
+    capture_current: bool,
+    db: Session,
+    auth_context: Dict[str, Any],
+    selected_workspace_id: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """Build sanitized health evidence rows for one authorized workspace domain."""
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="start_date must be on or before end_date",
+        )
+    workspace = _authorized_domain_read_workspace(auth_context, db, selected_workspace_id)
+    store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
+    if not _domain_exists(db, store, domain_id, workspace):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Domain not found",
+        )
+
+    if capture_current and not get_settings().DEMO_MODE:
+        health = await _build_domain_dns_health(db, store, domain_id)
+        domain_health = await _build_domain_health_grade(db, domain_id, store)
+        summary = store.get_domain_summary(domain_id)
+        _record_health_snapshot_from_posture(
+            db,
+            workspace_id=workspace.id,
+            domain_id=domain_id,
+            dns_health=health,
+            domain_health=domain_health,
+            report_count=int(summary.get("reports_processed", 0) or 0),
+        )
+
+    snapshots = list_health_score_snapshots(
+        db,
+        workspace_id=workspace.id,
+        domain_name=domain_id,
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+    )
+    if not snapshots and get_settings().DEMO_MODE:
+        points = _demo_history_points(
+            domain_id,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+        )
+        return _demo_evidence_export_rows(domain_id, points)
+    return build_health_evidence_export_rows(snapshots)
+
+
 def _demo_evidence_export_rows(
     domain_id: str, points: List[Dict[str, Any]]
 ) -> List[Dict[str, Any]]:
@@ -2902,57 +2976,19 @@ async def export_domain_health_evidence(
     _auth: dict = Depends(require_admin_auth),
 ):
     """Export sanitized health score evidence for one domain as CSV or JSON."""
-    if start_date and end_date and start_date > end_date:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="start_date must be on or before end_date",
-        )
     selected_workspace_id = parse_selected_workspace_id(selected_workspace)
-    workspace = _authorized_domain_read_workspace(_auth, db, selected_workspace_id)
-    store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
-    if not _domain_exists(db, store, domain_id, workspace):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Domain not found",
-        )
-
-    if capture_current and not get_settings().DEMO_MODE:
-        health = await _build_domain_dns_health(db, store, domain_id)
-        domain_health = await _build_domain_health_grade(db, domain_id, store)
-        summary = store.get_domain_summary(domain_id)
-        _record_health_snapshot_from_posture(
-            db,
-            workspace_id=workspace.id,
-            domain_id=domain_id,
-            dns_health=health,
-            domain_health=domain_health,
-            report_count=int(summary.get("reports_processed", 0) or 0),
-        )
-
-    snapshots = list_health_score_snapshots(
-        db,
-        workspace_id=workspace.id,
-        domain_name=domain_id,
+    rows = await build_domain_health_evidence_export_rows(
+        domain_id=domain_id,
         start_date=start_date,
         end_date=end_date,
         limit=limit,
+        capture_current=capture_current,
+        db=db,
+        auth_context=_auth,
+        selected_workspace_id=selected_workspace_id,
     )
-    if not snapshots and get_settings().DEMO_MODE:
-        points = _demo_history_points(
-            domain_id,
-            start_date=start_date,
-            end_date=end_date,
-            limit=limit,
-        )
-        return _write_health_evidence_export(
-            _demo_evidence_export_rows(domain_id, points),
-            export_id=domain_id,
-            scope="domain",
-            export_format=export_format,
-        )
     return _write_health_evidence_export(
-        build_health_evidence_export_rows(snapshots),
+        rows,
         export_id=domain_id,
         scope="domain",
         export_format=export_format,

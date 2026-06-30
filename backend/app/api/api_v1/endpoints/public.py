@@ -1,5 +1,6 @@
 """Stable read-only public API endpoints."""
 
+from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
@@ -97,6 +98,39 @@ async def public_domain_action_proposals(
         return build_action_proposals(db, domain_id, workspace_id=workspace.id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get("/domains/{domain_id}/posture/evidence/export")
+async def public_domain_health_evidence_export(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    start_date: Optional[date] = Query(None, title="Start date for evidence export"),
+    end_date: Optional[date] = Query(None, title="End date for evidence export"),
+    limit: int = Query(400, ge=1, le=1000, title="Maximum exported snapshots"),
+    export_format: str = Query(
+        "json",
+        alias="format",
+        pattern="^(csv|json)$",
+        title="Evidence export format",
+    ),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_api_token_scope(READ_POSTURE_SCOPE)),
+):
+    """Return sanitized domain health evidence without capturing a new snapshot."""
+    rows = await domains.build_domain_health_evidence_export_rows(
+        domain_id=domain_id,
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+        capture_current=False,
+        db=db,
+        auth_context=_auth,
+    )
+    return domains.write_health_evidence_export(
+        rows,
+        export_id=domain_id,
+        scope="domain",
+        export_format=export_format,
+    )
 
 
 @router.get(

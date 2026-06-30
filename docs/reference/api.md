@@ -62,6 +62,7 @@ through the `/public` path and avoid UI-specific payloads.
 | `GET /public/domains/{domain_id}/sources` | `reports:read` | Enriched sending sources with sender, geo, anomaly, and fix hints |
 | `GET /public/domains/{domain_id}/source-intelligence` | `reports:read` | Regional source summaries and anomaly hints |
 | `GET /public/domains/{domain_id}/posture` | `posture:read` | Evidence-first posture dashboard payload |
+| `GET /public/domains/{domain_id}/posture/evidence/export` | `posture:read` | Sanitized health score evidence export |
 | `GET /public/domains/{domain_id}/dns/lint` | `posture:read` | DNS lint findings, target records, and evidence |
 | `GET /public/domains/{domain_id}/dns/change-plan` | `posture:read` | Read-only DNS change plans without apply links |
 | `GET /public/domains/{domain_id}/action-proposals` | `posture:read` | Reviewable read-only remediation proposals |
@@ -77,6 +78,11 @@ screen-scraping the dashboard. Source rows include DNS/PTR enrichment when
 available, sender classification, coarse geography, anomaly badges, SPF hints,
 and safe remediation recommendations.
 
+Public health evidence exports return sanitized posture score history in JSON
+by default, or CSV with `?format=csv`. Public API calls do not capture a fresh
+DNS snapshot; they return already persisted score evidence, or deterministic
+demo history when demo mode is active.
+
 The MCP endpoint currently exposes these read-only tools:
 
 | Tool | Purpose |
@@ -84,6 +90,7 @@ The MCP endpoint currently exposes these read-only tools:
 | `list_domains` | List monitored domains and aggregate counts |
 | `domain_summary` | Return an evidence-first DMARC summary |
 | `domain_posture` | Return posture score, grade, DNS health, and action guidance |
+| `health_evidence_export` | Return sanitized health score evidence rows |
 | `domain_sources` | Return enriched DMARC sending sources |
 | `dns_lint` | Return DNS lint findings, evidence, and target records |
 | `dns_change_plan` | Return read-only DNS change plans without apply links |
@@ -452,6 +459,7 @@ Available tools:
 | `list_domains` | List monitored domains and aggregate counts |
 | `domain_summary` | Return an evidence-first summary for one domain |
 | `domain_posture` | Return posture score, grade, DNS health, and action guidance |
+| `health_evidence_export` | Return sanitized health score evidence rows |
 | `domain_sources` | Return enriched DMARC sending sources |
 | `dns_lint` | Return DNS lint findings, evidence, and target records |
 | `dns_change_plan` | Return read-only DNS change plans without apply links |
@@ -639,6 +647,11 @@ Exports sanitized domain score history evidence as CSV by default. Pass
 metadata only: score, grade, policy, aggregate message/report counts, factor
 scores, and top action titles. It does not include forensic message content,
 subjects, recipients, or raw uploaded report bodies.
+
+The public automation endpoint is available at
+`GET /public/domains/{domain_id}/posture/evidence/export` with the same
+parameters and `posture:read` token scope. Public and MCP export calls are
+read-only and do not capture a new DNS snapshot before returning evidence.
 
 #### Get Migration Readiness
 
