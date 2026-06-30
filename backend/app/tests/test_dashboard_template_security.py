@@ -42,6 +42,19 @@ def test_domain_details_exposes_health_history_without_html_injection():
     assert "x-html" not in template
 
 
+def test_domain_details_exposes_migration_readiness_without_html_injection():
+    template = (
+        Path(__file__).resolve().parents[1] / "templates" / "domain_details.html"
+    ).read_text()
+
+    assert "Migration Readiness" in template
+    assert "/migration/readiness" in template
+    assert "parallel_reporting_days" in template
+    assert "migration.export_links" in template
+    assert "migration.checklist" in template
+    assert "x-html" not in template
+
+
 def test_members_template_uses_membership_api_without_html_injection():
     template = (Path(__file__).resolve().parents[1] / "templates" / "members.html").read_text()
 

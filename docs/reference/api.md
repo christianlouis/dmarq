@@ -558,6 +558,18 @@ metadata only: score, grade, policy, aggregate message/report counts, factor
 scores, and top action titles. It does not include forensic message content,
 subjects, recipients, or raw uploaded report bodies.
 
+#### Get Migration Readiness
+
+```
+GET /domains/{domain_id}/migration/readiness
+```
+
+Returns a safe migration and data-portability checklist for moving a domain
+from another DMARC platform to DMARQ. The response uses existing report,
+source, DNS lint, and export evidence to track parallel-reporting progress,
+sender parity, DNS readiness, and export/offboarding availability. It does not
+import third-party vendor files or apply DNS changes.
+
 #### Add Domain
 
 ```

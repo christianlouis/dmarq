@@ -1,0 +1,51 @@
+# Migrating from another DMARC platform
+
+DMARQ supports a safe parallel-reporting migration. Keep the current DMARC
+monitoring platform active, add DMARQ as an additional aggregate-report
+destination, compare the overlap window, and only then remove old routes or
+delegations.
+
+## Parallel-reporting checklist
+
+1. Add DMARQ as an additional `rua` destination in the existing DMARC record.
+2. Keep the current tool active for at least 14 distinct report days.
+3. Compare report volume, sending sources, alignment rates, and policy posture.
+4. Resolve or explicitly defer DNS lint findings before decommissioning the old
+   platform.
+5. Export DMARQ report CSV and health evidence before changing the old tool's
+   DNS routing.
+
+The domain detail page includes a **Migration Readiness** panel. It tracks the
+parallel-reporting window, aggregate report count, observed sending sources,
+DNS lint status, and export availability for each domain.
+
+## Platform-specific notes
+
+For Valimail, EasyDMARC, dmarcian, PowerDMARC, DMARCguard, and manual mailbox
+workflows, prefer adding DMARQ as a second `rua` receiver first. Avoid switching
+MX, mailbox, or delegated reporting DNS in one step unless you already have a
+separate rollback plan.
+
+When the previous platform used hosted reporting addresses or DNS delegation,
+document the old route before removal. Some platforms require removing a
+delegated `_dmarc` or reporting authorization record after the overlap period.
+
+## Data portability
+
+DMARQ currently provides these portable exports for migration and offboarding:
+
+- domain aggregate report CSV from the domain detail page
+- domain health evidence as CSV or JSON
+- workspace health evidence as CSV or JSON
+- DNS lint CSV for managed-domain reviews
+
+These exports intentionally avoid raw message bodies and forensic content.
+They are meant for parity checks, audit evidence, and rollback decisions.
+
+## Import limitations
+
+DMARQ can ingest standard DMARC aggregate reports through upload, IMAP, Gmail,
+and Microsoft 365 mail sources. Vendor-specific historical export imports are
+tracked as follow-up work. Until a vendor importer exists, use the previous
+platform's export as a comparison artifact and let DMARQ build its own evidence
+from newly received aggregate reports.

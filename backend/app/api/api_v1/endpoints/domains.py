@@ -158,6 +158,43 @@ class DomainStatsResponse(BaseModel):
     reportCount: int
 
 
+class MigrationReadinessItem(BaseModel):
+    """One safe migration readiness checklist item."""
+
+    key: str
+    status: str
+    title: str
+    detail: str
+    action: str
+    evidence: List[str] = Field(default_factory=list)
+    href: Optional[str] = None
+
+
+class MigrationExportLink(BaseModel):
+    """Portable export surface available during migration or offboarding."""
+
+    label: str
+    href: str
+    format: str
+    detail: str
+
+
+class MigrationReadinessResponse(BaseModel):
+    """Migration and data-portability readiness for one monitored domain."""
+
+    domain: str
+    status: str
+    readiness_score: int
+    summary: str
+    parallel_reporting_days: int
+    report_count: int
+    source_count: int
+    checklist: List[MigrationReadinessItem]
+    export_links: List[MigrationExportLink]
+    supported_sources: List[str] = Field(default_factory=list)
+    docs_url: str = "https://github.com/christianlouis/dmarq/blob/main/docs/user_guide/migration.md"
+
+
 class DNSRecordResponse(BaseModel):
     """DNS record information for a domain"""
 
@@ -2193,6 +2230,87 @@ async def get_domain_stats(
     )
 
 
+@router.get("/{domain_id}/migration/readiness", response_model=MigrationReadinessResponse)
+async def get_domain_migration_readiness(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    refresh: bool = Query(False, title="Refresh cached DNS result"),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
+    """Return safe migration and data-portability readiness for one monitored domain."""
+    workspace = _authorized_domain_read_workspace(_auth, db)
+    store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
+
+    if not _domain_exists(db, store, domain_id, workspace):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Domain not found",
+        )
+
+    summary = store.get_domain_summary(domain_id)
+    reports = store.get_domain_reports(domain_id, limit=10000)
+    sources = store.get_domain_sources(domain_id)
+    guidance_payload = await _build_domain_dns_guidance(db, store, domain_id, refresh=refresh)
+    guidance = DNSGuidanceResponse(**guidance_payload)
+    checklist, parallel_days = _build_migration_checklist(
+        domain_id,
+        summary,
+        reports,
+        sources,
+        guidance,
+    )
+    migration_status, readiness_score = _migration_readiness_status(checklist)
+    report_count = int(summary.get("reports_processed", 0) or len(reports))
+    source_count = len(sources)
+    summary_text = (
+        f"{domain_id} has {parallel_days} distinct report days, "
+        f"{report_count} aggregate reports, and {source_count} observed sending sources."
+    )
+
+    return MigrationReadinessResponse(
+        domain=domain_id,
+        status=migration_status,
+        readiness_score=readiness_score,
+        summary=summary_text,
+        parallel_reporting_days=parallel_days,
+        report_count=report_count,
+        source_count=source_count,
+        checklist=checklist,
+        export_links=[
+            MigrationExportLink(
+                label="Aggregate report CSV",
+                href=f"/api/v1/domains/{domain_id}/reports/export",
+                format="csv",
+                detail="Portable aggregate report summary for parity checks.",
+            ),
+            MigrationExportLink(
+                label="Health evidence CSV",
+                href=f"/api/v1/domains/{domain_id}/posture/evidence/export?capture_current=false",
+                format="csv",
+                detail="Score, policy, report, and DNS posture evidence.",
+            ),
+            MigrationExportLink(
+                label="Health evidence JSON",
+                href=(
+                    f"/api/v1/domains/{domain_id}/posture/evidence/export"
+                    "?capture_current=false&format=json"
+                ),
+                format="json",
+                detail="Machine-readable portability packet for automation.",
+            ),
+        ],
+        supported_sources=[
+            "Valimail",
+            "EasyDMARC",
+            "dmarcian",
+            "PowerDMARC",
+            "DMARCguard",
+            "Manual mailbox exports",
+        ],
+    )
+
+
 @router.get("/{domain_id}/dns", response_model=DNSRecordResponse)
 async def get_domain_dns_records(
     domain_id: str = Path(..., title="The domain ID or name"),
@@ -3005,6 +3123,121 @@ def _report_date(value: Any) -> Optional[date]:
 def _format_report_date(value: Any) -> str:
     report_date = _report_date(value)
     return report_date.isoformat() if report_date else ""
+
+
+def _migration_item(
+    key: str,
+    status_value: str,
+    title: str,
+    detail: str,
+    action: str,
+    evidence: Optional[List[str]] = None,
+    href: Optional[str] = None,
+) -> MigrationReadinessItem:
+    return MigrationReadinessItem(
+        key=key,
+        status=status_value,
+        title=title,
+        detail=detail,
+        action=action,
+        evidence=evidence or [],
+        href=href,
+    )
+
+
+def _migration_readiness_status(items: List[MigrationReadinessItem]) -> tuple[str, int]:
+    if not items:
+        return "blocked", 0
+    complete = sum(1 for item in items if item.status == "complete")
+    score = round((complete / len(items)) * 100)
+    if complete == len(items):
+        return "ready", score
+    if any(item.status == "complete" for item in items):
+        return "in_progress", score
+    return "blocked", score
+
+
+def _parallel_reporting_days(reports: List[Dict[str, Any]]) -> int:
+    dates = {
+        report_date
+        for report in reports
+        if (report_date := _report_date(report.get("begin_timestamp") or report.get("begin_date")))
+    }
+    return len(dates)
+
+
+def _build_migration_checklist(
+    domain_id: str,
+    summary: Dict[str, Any],
+    reports: List[Dict[str, Any]],
+    sources: List[Dict[str, Any]],
+    guidance: DNSGuidanceResponse,
+) -> tuple[List[MigrationReadinessItem], int]:
+    report_count = int(summary.get("reports_processed", 0) or len(reports))
+    total_emails = int(summary.get("total_count", 0) or 0)
+    source_count = len(sources)
+    parallel_days = _parallel_reporting_days(reports)
+    dns_finding_count = len(guidance.findings)
+
+    reporting_status = "complete" if report_count > 0 else "blocked"
+    volume_status = (
+        "complete" if parallel_days >= 14 else ("in_progress" if report_count else "blocked")
+    )
+    source_status = (
+        "complete" if source_count > 0 else ("in_progress" if report_count else "blocked")
+    )
+    dns_status = (
+        "complete" if dns_finding_count == 0 else ("in_progress" if report_count else "blocked")
+    )
+    export_status = "complete" if report_count > 0 else "blocked"
+
+    return [
+        _migration_item(
+            "parallel-reporting",
+            reporting_status,
+            "Run DMARQ alongside the current platform",
+            "Keep the existing DMARC tool in place and add DMARQ as an additional rua target.",
+            "Publish a DMARC record that sends aggregate reports to both systems.",
+            [f"{report_count} reports received", f"{total_emails} messages observed"],
+            "#dns-guidance",
+        ),
+        _migration_item(
+            "volume-parity",
+            volume_status,
+            "Validate 14-30 days of report parity",
+            "Use the overlap window to compare report volume, sender inventory, and policy results.",
+            "Wait for at least 14 distinct report days before removing the old tool.",
+            [f"{parallel_days} distinct report days", f"{report_count} reports processed"],
+            "#compliance-chart-section",
+        ),
+        _migration_item(
+            "sender-parity",
+            source_status,
+            "Review sending-source parity",
+            "Confirmed senders should match what the current platform reports before cutover.",
+            "Investigate unknown or failing sources before tightening policy or removing old routing.",
+            [f"{source_count} sending sources observed"],
+            "#sending-sources",
+        ),
+        _migration_item(
+            "dns-readiness",
+            dns_status,
+            "Clear DNS posture blockers",
+            "DMARC, SPF, DKIM, and reporting authorization findings should be understood before cutover.",
+            "Resolve critical DNS lint findings or document why they are intentionally deferred.",
+            [f"{dns_finding_count} DNS lint findings", f"DNS status: {guidance.status}"],
+            "#dns-guidance",
+        ),
+        _migration_item(
+            "portability-export",
+            export_status,
+            "Confirm export and rollback path",
+            "DMARQ keeps aggregate report and score evidence exportable for audit or offboarding.",
+            "Download report CSV and health evidence before decommissioning the previous platform.",
+            ["CSV reports export", "CSV or JSON health evidence export"],
+            "#recent-reports",
+        ),
+    ], parallel_days
 
 
 def _spf_fix_hint(ip: str, spf_result: str, failed_count: int = 0) -> Optional[str]:

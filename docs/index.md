@@ -29,6 +29,9 @@ For connector implementation boundaries, see the
 
 SMTP TLS reporting imports and privacy controls are covered in [TLS Reports](user_guide/tls_reports.md).
 
+Safe migration from another DMARC platform is covered in
+[Migrating from another DMARC platform](user_guide/migration.md).
+
 Aggregate-report parser support, known edge cases, and fixture guidance are documented in [DMARC Aggregate Format Compatibility](reference/dmarc-compatibility.md).
 
 Opt-in AI summaries and read-only MCP automation are covered in [AI and MCP Automation](reference/ai-mcp-automation.md).
