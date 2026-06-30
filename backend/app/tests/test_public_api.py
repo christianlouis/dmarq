@@ -1,3 +1,4 @@
+from datetime import date
 from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
@@ -7,6 +8,7 @@ from app.models.api_token import APIToken
 from app.models.organization import BillingAccount, Organization
 from app.models.workspace import Workspace
 from app.services.api_tokens import READ_POSTURE_SCOPE, READ_REPORTS_SCOPE, create_api_token
+from app.services.health_score_snapshots import upsert_health_score_snapshot
 from app.services.organizations import (
     BILLING_MODE_MANUAL_CONTRACT,
     STARTER_PLAN_ENTITLEMENTS,
@@ -235,6 +237,61 @@ def test_public_action_proposals_are_workspace_scoped(client: TestClient, db_ses
     assert denied.status_code == 404
     assert allowed.status_code == 200
     assert allowed.json()["domain"] == other_domain
+
+
+def test_public_health_evidence_export_uses_posture_scope_without_capture(
+    client: TestClient,
+    db_session,
+):
+    """Stable public health evidence export is posture-scoped and read-only."""
+    workspace = get_or_create_default_workspace(db_session)
+    upsert_health_score_snapshot(
+        db_session,
+        workspace_id=workspace.id,
+        domain_name=DOMAIN,
+        health={
+            "score": 72,
+            "grade": "C",
+            "status": "attention",
+            "factors": {"dns_posture": 80, "policy_strength": 55, "report_confidence": 78},
+            "actions": [{"title": "Move out of monitoring mode", "severity": "medium"}],
+        },
+        policy="none",
+        compliance_rate=94,
+        total_emails=500,
+        failed_emails=30,
+        report_count=5,
+        snapshot_date=date(2026, 6, 3),
+    )
+    _persist_report(db_session)
+    posture_token = create_api_token(
+        db_session,
+        name="health evidence bot",
+        scopes=[READ_POSTURE_SCOPE],
+    )
+    reports_token = create_api_token(
+        db_session,
+        name="reports bot",
+        scopes=[READ_REPORTS_SCOPE],
+    )
+
+    denied = client.get(
+        f"/api/v1/public/domains/{DOMAIN}/posture/evidence/export",
+        headers={"X-API-Key": reports_token.secret},
+    )
+    response = client.get(
+        f"/api/v1/public/domains/{DOMAIN}/posture/evidence/export?format=json",
+        headers={"X-API-Key": posture_token.secret},
+    )
+
+    assert denied.status_code == 403
+    assert response.status_code == 200
+    body = response.json()
+    assert body["scope"] == "domain"
+    assert body["rows"][0]["domain"] == DOMAIN
+    assert body["rows"][0]["score"] == 72
+    assert body["rows"][0]["top_actions"] == "medium:Move out of monitoring mode"
+    assert "message" not in response.text.lower()
 
 
 def test_public_dns_guidance_uses_posture_scope_and_read_only_plans(

@@ -76,6 +76,7 @@ The current tools are read-only:
 - `list_domains`
 - `domain_summary`
 - `domain_posture`
+- `health_evidence_export`
 - `domain_sources`
 - `dns_lint`
 - `dns_change_plan`

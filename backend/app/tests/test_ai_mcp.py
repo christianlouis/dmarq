@@ -741,6 +741,10 @@ async def test_mcp_read_only_tool_dispatch_covers_new_domain_tools(db_session: S
             "app.api.api_v1.endpoints.mcp.domains.get_domain_source_intelligence",
             new=AsyncMock(return_value={"domain": DOMAIN, "regions": []}),
         ) as intelligence,
+        patch(
+            "app.api.api_v1.endpoints.mcp.domains.build_domain_health_evidence_export_rows",
+            new=AsyncMock(return_value=[{"domain": DOMAIN, "score": 72, "grade": "C"}]),
+        ) as health_evidence,
     ):
         listed = await mcp_endpoint._call_read_only_tool(
             "list_domains",
@@ -791,6 +795,13 @@ async def test_mcp_read_only_tool_dispatch_covers_new_domain_tools(db_session: S
             auth_context=auth_context,
             workspace_id=None,
         )
+        health_evidence_result = await mcp_endpoint._call_read_only_tool(
+            "health_evidence_export",
+            {"domain": DOMAIN, "start_date": "2026-06-01", "limit": "25"},
+            db=db_session,
+            auth_context=auth_context,
+            workspace_id=None,
+        )
 
     assert listed["domains"][0]["domain"] == DOMAIN
     assert posture_result["grade"] == "A"
@@ -803,11 +814,14 @@ async def test_mcp_read_only_tool_dispatch_covers_new_domain_tools(db_session: S
     assert dns_plan_result.plans[0].applies_automatically is False
     assert intelligence_result["regions"] == []
     assert proposals["proposals"]
+    assert health_evidence_result["scope"] == "domain"
+    assert health_evidence_result["rows"][0]["score"] == 72
     posture.assert_awaited_once()
     sources.assert_awaited_once()
     dns_lint.assert_awaited_once()
     dns_change_plan.assert_awaited_once()
     intelligence.assert_awaited_once()
+    health_evidence.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -829,6 +843,33 @@ async def test_mcp_read_only_tool_dispatch_rejects_invalid_tool_arguments(
         await mcp_endpoint._call_read_only_tool(
             "domain_sources",
             {"domain": DOMAIN, "days": "soon"},
+            db=db_session,
+            auth_context=auth_context,
+            workspace_id=None,
+        )
+
+    with pytest.raises(ValueError, match="start_date must be an ISO date"):
+        await mcp_endpoint._call_read_only_tool(
+            "health_evidence_export",
+            {"domain": DOMAIN, "start_date": "next week"},
+            db=db_session,
+            auth_context=auth_context,
+            workspace_id=None,
+        )
+
+    with pytest.raises(ValueError, match="limit must be an integer"):
+        await mcp_endpoint._call_read_only_tool(
+            "health_evidence_export",
+            {"domain": DOMAIN, "limit": 0},
+            db=db_session,
+            auth_context=auth_context,
+            workspace_id=None,
+        )
+
+    with pytest.raises(ValueError, match="limit must be an integer"):
+        await mcp_endpoint._call_read_only_tool(
+            "health_evidence_export",
+            {"domain": DOMAIN, "limit": "many"},
             db=db_session,
             auth_context=auth_context,
             workspace_id=None,
@@ -871,6 +912,7 @@ def test_mcp_requires_enabled_scoped_token(client: TestClient, db_session: Sessi
         "domain_posture",
         "dns_lint",
         "dns_change_plan",
+        "health_evidence_export",
     }.issubset(tool_names)
 
     initialized = client.post(
