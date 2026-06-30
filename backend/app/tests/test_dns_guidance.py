@@ -376,3 +376,68 @@ async def test_build_dns_guidance_accepts_valid_dkim_cname_target():
     )
 
     assert "dkim_selector_cname_broken" not in {finding.code for finding in guidance.findings}
+
+
+@pytest.mark.asyncio
+async def test_build_dns_guidance_adds_postmark_dns_change_plans():
+    provider = FakeDNSProvider(
+        {
+            "example.com": ["v=spf1 -all"],
+            "_smtp._tls.example.com": ["v=TLSRPTv1; rua=mailto:tls@example.com"],
+            "pm._domainkey.example.com": ["old-dkim-value"],
+        }
+    )
+    dns = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=reject; rua=mailto:dmarc@example.com",
+        spf=True,
+        spf_record="v=spf1 -all",
+        dkim=True,
+        dkim_selectors=["selector1"],
+    )
+
+    guidance = await build_dns_guidance(
+        "example.com",
+        provider,
+        dns,
+        MTAStsResult(status="pass"),
+        BIMIResult(status="pass"),
+        mail_service_records=[
+            {
+                "provider": "postmark",
+                "provider_name": "Postmark",
+                "record_type": "TXT",
+                "name": "pm._domainkey.example.com",
+                "value": "new-dkim-value",
+                "purpose": "dkim",
+            },
+            {
+                "provider": "postmark",
+                "provider_name": "Postmark",
+                "record_type": "CNAME",
+                "name": "pm-bounces.example.com",
+                "value": "pm.mtasv.net",
+                "purpose": "return_path",
+            },
+        ],
+    )
+
+    finding_codes = {finding.code for finding in guidance.findings}
+    assert "mail_service_record_conflict" in finding_codes
+    assert "mail_service_record_missing" in finding_codes
+    conflict = next(
+        plan
+        for plan in guidance.change_plans
+        if plan.finding_code == "mail_service_record_conflict"
+    )
+    missing = next(
+        plan for plan in guidance.change_plans if plan.finding_code == "mail_service_record_missing"
+    )
+    assert conflict.operation == "update"
+    assert conflict.record_type == "TXT"
+    assert conflict.proposed_value == "new-dkim-value"
+    assert conflict.provider_value_required is False
+    assert conflict.current_values == ["old-dkim-value"]
+    assert missing.operation == "create"
+    assert missing.record_type == "CNAME"
+    assert missing.proposed_value == "pm.mtasv.net"

@@ -178,8 +178,11 @@ provider writes even if credentials are configured.
 Postmark sender-domain discovery is read-only. DMARQ uses the Postmark account
 token to list domains and sender signatures, then stores imported domains as
 monitored domains so DNS linting, report import, and remediation guidance can
-work before aggregate reports arrive. DMARQ does not modify Postmark or DNS
-records in this workflow.
+work before aggregate reports arrive. If Postmark exposes required DKIM or
+return-path DNS records, DMARQ maps missing or conflicting records into the
+normal DNS lint and change-plan responses. DMARQ does not modify Postmark or DNS
+records in this workflow; DNS writes still require an explicit confirmed action
+through a configured DNS provider connector.
 
 Cloudflare is implemented natively. Additional API-backed providers use
 DNS-Lexicon where the provider is available in the runtime and its credentials

@@ -61,6 +61,7 @@ from app.services.mail_service_imports import (
     MailServiceImportError,
     import_mail_service_domains,
     mail_service_context_from_domain,
+    mail_service_dns_records_for_domain,
     preview_mail_service_import,
     supported_mail_service_import_providers,
 )
@@ -1491,6 +1492,7 @@ async def _build_domain_dns_guidance(
         domain_id,
         refresh=refresh,
     )
+    mail_service_records = await mail_service_dns_records_for_domain(db, domain_id)
     guidance = await build_dns_guidance(
         domain_id,
         provider,
@@ -1499,6 +1501,7 @@ async def _build_domain_dns_guidance(
         bimi_result,
         monitored_selectors=combined_selectors,
         observed_selectors=report_selectors,
+        mail_service_records=mail_service_records,
     )
     return asdict(guidance)
 

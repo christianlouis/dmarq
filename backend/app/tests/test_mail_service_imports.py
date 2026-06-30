@@ -302,6 +302,64 @@ def test_mail_service_import_rejects_unsupported_provider(db_session):
         )
 
 
+def test_mail_service_dns_records_for_domain_filters_matching_records(db_session):
+    with patch(
+        "app.services.mail_service_imports.discover_postmark_sender_domains",
+        new=AsyncMock(
+            return_value=[
+                {
+                    "domain": "example.com",
+                    "required_dns_records": [
+                        {
+                            "record_type": "txt",
+                            "name": "pm._domainkey.example.com.",
+                            "value": "dkim-value.",
+                            "purpose": "dkim",
+                        },
+                        {"record_type": "", "name": "", "value": ""},
+                    ],
+                },
+                {
+                    "domain": "other.example",
+                    "required_dns_records": [
+                        {
+                            "record_type": "CNAME",
+                            "name": "pm-bounces.other.example",
+                            "value": "pm.mtasv.net",
+                        }
+                    ],
+                },
+            ]
+        ),
+    ):
+        records = asyncio.run(
+            mail_service_imports.mail_service_dns_records_for_domain(db_session, "example.com")
+        )
+
+    assert records == [
+        {
+            "provider": "postmark",
+            "provider_name": "Postmark",
+            "record_type": "TXT",
+            "name": "pm._domainkey.example.com",
+            "value": "dkim-value",
+            "purpose": "dkim",
+        }
+    ]
+
+
+def test_mail_service_dns_records_for_domain_is_optional(db_session):
+    with patch(
+        "app.services.mail_service_imports.discover_postmark_sender_domains",
+        new=AsyncMock(side_effect=LookupError("Postmark account token is not configured")),
+    ):
+        records = asyncio.run(
+            mail_service_imports.mail_service_dns_records_for_domain(db_session, "example.com")
+        )
+
+    assert records == []
+
+
 def test_mail_service_import_treats_existing_global_domain_as_existing(db_session):
     db_session.add(Domain(name="shared.example", active=True, verified=True))
     db_session.commit()
