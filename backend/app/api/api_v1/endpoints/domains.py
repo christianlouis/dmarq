@@ -39,6 +39,7 @@ from app.services.dns_provider_imports import (
 from app.services.dns_provider_writes import (
     DNSProviderWriteError,
     apply_dns_write,
+    normalize_provider_id,
     preview_dns_write,
     provider_capabilities,
 )
@@ -419,8 +420,20 @@ def read_only_dns_change_plan_response(payload: Any) -> DNSChangePlanResponse:
 DNS_AUTOMATION_OPERATIONS = {"create", "update"}
 DNS_AUTOMATION_RECORD_TYPES = {"TXT", "CNAME"}
 DNS_PROVIDER_ID_ALIASES = {
+    "azure-dns": "azure",
     "azure_dns": "azure",
 }
+
+
+def _canonical_dns_provider_id(provider: Optional[str]) -> str:
+    """Normalize detected and requested DNS provider IDs for comparisons."""
+    raw_provider = str(provider or "").strip().lower()
+    normalized_provider = normalize_provider_id(raw_provider)
+    return (
+        DNS_PROVIDER_ID_ALIASES.get(raw_provider)
+        or DNS_PROVIDER_ID_ALIASES.get(normalized_provider)
+        or normalized_provider
+    )
 
 
 def _ready_dns_write_provider_ids() -> List[str]:
@@ -436,11 +449,82 @@ def _recommended_dns_write_provider(
     """Map detected DNS provider metadata to an available writer implementation."""
     if not dns_provider:
         return available_providers[0] if available_providers else None
-    detected = str(dns_provider.get("provider_id") or "").strip().lower()
-    provider_id = DNS_PROVIDER_ID_ALIASES.get(detected, detected)
+    provider_id = _detected_dns_provider_id(dns_provider)
     if provider_id in available_providers:
         return provider_id
     return None
+
+
+def _detected_dns_provider_id(dns_provider: Optional[Dict[str, Any]]) -> Optional[str]:
+    """Return a known detected provider ID, ignoring custom/unknown detections."""
+    if not dns_provider:
+        return None
+    provider_id = _canonical_dns_provider_id(dns_provider.get("provider_id"))
+    if provider_id in {"", "custom", "unknown"}:
+        return None
+    return provider_id
+
+
+def _ensure_dns_provider_selection_is_safe(
+    *, requested_provider: str, provider_match_target: Optional[str], allow_mismatch: bool
+) -> None:
+    """Block accidental writes through a connector that does not match NS detection."""
+    if not provider_match_target:
+        return
+    selected_provider = _canonical_dns_provider_id(requested_provider)
+    if selected_provider == provider_match_target:
+        return
+    if allow_mismatch:
+        return
+    raise DNSProviderWriteError(
+        "Selected DNS provider does not match the detected provider for this domain. "
+        "Preview with the recommended provider or explicitly allow a provider mismatch."
+    )
+
+
+def _dns_provider_mismatch_audit_details(
+    *,
+    requested_provider: str,
+    recommended_provider: Optional[str],
+    detected_provider: Optional[str],
+    allow_mismatch: bool,
+) -> Dict[str, Any]:
+    """Return non-secret provider mismatch details for DNS write audit logs."""
+    selected_provider = _canonical_dns_provider_id(requested_provider)
+    provider_match_target = recommended_provider or detected_provider
+    return {
+        "detected_provider": detected_provider,
+        "recommended_provider": recommended_provider,
+        "provider_match_target": provider_match_target,
+        "selected_provider": selected_provider,
+        "provider_mismatch": bool(
+            provider_match_target and selected_provider != provider_match_target
+        ),
+        "provider_mismatch_override": bool(
+            provider_match_target and selected_provider != provider_match_target and allow_mismatch
+        ),
+    }
+
+
+def _provider_mismatch_safety_note(
+    *,
+    requested_provider: str,
+    recommended_provider: Optional[str],
+    detected_provider: Optional[str],
+    allow_mismatch: bool,
+) -> Optional[str]:
+    """Return a UI/API safety note for intentional provider mismatches."""
+    details = _dns_provider_mismatch_audit_details(
+        requested_provider=requested_provider,
+        recommended_provider=recommended_provider,
+        detected_provider=detected_provider,
+        allow_mismatch=allow_mismatch,
+    )
+    if not details["provider_mismatch"]:
+        return None
+    if allow_mismatch:
+        return "Provider mismatch override was explicitly requested for this DNS change."
+    return "Selected provider does not match the detected provider for this domain."
 
 
 def _dns_plan_provider_write_available(plan: Dict[str, Any]) -> bool:
@@ -522,6 +606,7 @@ class DNSWriteApplyRequest(BaseModel):
     provider: str = "cloudflare"
     confirm: bool = False
     dry_run: bool = True
+    allow_provider_mismatch: bool = False
     value: Optional[str] = None
     ttl: int = Field(default=1, ge=1, le=86400)
 
@@ -3156,7 +3241,25 @@ async def apply_domain_dns_change_plan(
     guidance = await _build_domain_dns_guidance(db, store, domain_id, refresh=refresh)
     plan = _find_dns_change_plan(guidance, payload.plan_id)
     resolved_domain = guidance["domain"]
+    available_providers = _ready_dns_write_provider_ids()
+    detected_provider = _detected_dns_provider_id(guidance.get("dns_provider"))
+    recommended_provider = _recommended_dns_write_provider(
+        guidance.get("dns_provider"),
+        available_providers,
+    )
+    provider_match_target = recommended_provider or detected_provider
+    provider_mismatch_details = _dns_provider_mismatch_audit_details(
+        requested_provider=payload.provider,
+        recommended_provider=recommended_provider,
+        detected_provider=detected_provider,
+        allow_mismatch=payload.allow_provider_mismatch,
+    )
     try:
+        _ensure_dns_provider_selection_is_safe(
+            requested_provider=payload.provider,
+            provider_match_target=provider_match_target,
+            allow_mismatch=payload.allow_provider_mismatch,
+        )
         if payload.dry_run or not payload.confirm:
             result = await preview_dns_write(
                 db,
@@ -3166,7 +3269,21 @@ async def apply_domain_dns_change_plan(
                 value_override=payload.value,
                 ttl=payload.ttl,
             )
-            return result.to_dict()
+            result_payload = result.to_dict()
+            safety_note = _provider_mismatch_safety_note(
+                requested_provider=payload.provider,
+                recommended_provider=recommended_provider,
+                detected_provider=detected_provider,
+                allow_mismatch=payload.allow_provider_mismatch,
+            )
+            if safety_note:
+                result_payload["changes"].append(
+                    {
+                        "type": "safety_note",
+                        "message": safety_note,
+                    }
+                )
+            return result_payload
 
         result = await apply_dns_write(
             db,
@@ -3199,6 +3316,7 @@ async def apply_domain_dns_change_plan(
             "plan_id": payload.plan_id,
             "mutation": result.mutation.to_dict(),
             "applied": result.applied,
+            **provider_mismatch_details,
         },
         auth_context=_auth,
         request=request,

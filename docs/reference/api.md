@@ -621,12 +621,15 @@ surface missing or conflicting Postmark DNS records as normal DNS findings and
 change plans. This flow does not modify Postmark or DNS records.
 
 `POST /domains/{domain_id}/dns/change-plan/apply` accepts
-`plan_id`, `provider`, `dry_run`, `confirm`, optional `value`, and `ttl`. Calls
-default to dry-run. Real writes require `dry_run=false` and `confirm=true`, are
-blocked in demo mode, and are limited to safe TXT/CNAME create/update plans
-that already have a concrete value. Applied changes are written to the
-workspace audit log and refresh provider-backed DNS change history where the
-provider supports it.
+`plan_id`, `provider`, `dry_run`, `confirm`, optional `value`, `ttl`, and
+`allow_provider_mismatch`. Calls default to dry-run. Real writes require
+`dry_run=false` and `confirm=true`, are blocked in demo mode, and are limited to
+safe TXT/CNAME create/update plans that already have a concrete value. If
+nameserver detection recommends a different provider than the selected provider,
+the request is rejected unless `allow_provider_mismatch=true` is supplied.
+Applied changes are written to the workspace audit log, including provider
+mismatch override details when present, and refresh provider-backed DNS change
+history where the provider supports it.
 
 `GET /domains/{domain_id}/dns/change-plan` also returns
 `available_write_providers`, `recommended_provider`, and response-level
