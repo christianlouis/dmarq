@@ -302,6 +302,10 @@ def test_public_dns_guidance_uses_posture_scope_and_read_only_plans(
             f"/api/v1/public/domains/{DOMAIN}/dns/lint",
             headers={"X-API-Key": reports_token.secret},
         )
+        denied_plan = client.get(
+            f"/api/v1/public/domains/{DOMAIN}/dns/change-plan",
+            headers={"X-API-Key": reports_token.secret},
+        )
         lint_response = client.get(
             f"/api/v1/public/domains/{DOMAIN}/dns/lint?refresh=true",
             headers={"X-API-Key": posture_token.secret},
@@ -312,6 +316,7 @@ def test_public_dns_guidance_uses_posture_scope_and_read_only_plans(
         )
 
     assert denied.status_code == 403
+    assert denied_plan.status_code == 403
     assert lint_response.status_code == 200
     assert lint_response.json()["domain"] == DOMAIN
     assert plan_response.status_code == 200
