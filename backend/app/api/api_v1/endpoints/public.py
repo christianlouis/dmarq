@@ -10,6 +10,7 @@ from app.api.api_v1.endpoints import ai, domains, tls_reports
 from app.core.database import get_db
 from app.core.security import require_api_token_scope
 from app.services.ai_assistance import build_action_proposals
+from app.services.alert_history import alert_history_summary, list_workspace_alert_history
 from app.services.api_tokens import READ_POSTURE_SCOPE, READ_REPORTS_SCOPE, READ_TLS_SCOPE
 from app.services.workspace_access import PERMISSION_REPORTS_READ, resolve_authorized_workspace
 
@@ -98,6 +99,30 @@ async def public_domain_action_proposals(
         return build_action_proposals(db, domain_id, workspace_id=workspace.id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get("/alerts")
+async def public_alert_history(
+    active: Optional[bool] = Query(None, title="Filter active or resolved alerts"),
+    domain: Optional[str] = Query(None, title="Limit alerts to one monitored domain"),
+    limit: int = Query(50, ge=1, le=200, title="Maximum alert history rows"),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_api_token_scope(READ_POSTURE_SCOPE)),
+):
+    """Return sanitized alert history for the API token workspace."""
+    workspace = resolve_authorized_workspace(db, _auth, PERMISSION_REPORTS_READ)
+    alerts = list_workspace_alert_history(
+        db,
+        workspace_id=workspace.id,
+        active=active,
+        domain=domain,
+        limit=limit,
+    )
+    return {
+        "alerts": alerts,
+        "summary": alert_history_summary(alerts),
+        "filters": {"active": active, "domain": domain, "limit": limit},
+    }
 
 
 @router.get("/domains/{domain_id}/posture/evidence/export")

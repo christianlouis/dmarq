@@ -66,6 +66,7 @@ through the `/public` path and avoid UI-specific payloads.
 | `GET /public/domains/{domain_id}/dns/lint` | `posture:read` | DNS lint findings, target records, and evidence |
 | `GET /public/domains/{domain_id}/dns/change-plan` | `posture:read` | Read-only DNS change plans without apply links |
 | `GET /public/domains/{domain_id}/action-proposals` | `posture:read` | Reviewable read-only remediation proposals |
+| `GET /public/alerts` | `posture:read` | Sanitized alert history for monitored workspace domains |
 | `GET /public/tls-reports/summary` | `tls-reports:read` | SMTP TLS report trends and failure groups |
 | `POST /mcp` | `mcp:read` | Read-only MCP-style JSON-RPC tool endpoint |
 
@@ -83,6 +84,12 @@ by default, or CSV with `?format=csv`. Public API calls do not capture a fresh
 DNS snapshot; they return already persisted score evidence, or deterministic
 demo history when demo mode is active.
 
+Public alert history returns already persisted alert lifecycle rows for domains
+in the API token workspace. Use `active=true|false`, `domain=example.com`, and
+`limit=...` to shape the result. The response excludes raw alert payloads and
+only returns allow-listed evidence fields such as sender IP, message counts,
+thresholds, and compliance-drop values.
+
 The MCP endpoint currently exposes these read-only tools:
 
 | Tool | Purpose |
@@ -91,6 +98,7 @@ The MCP endpoint currently exposes these read-only tools:
 | `domain_summary` | Return an evidence-first DMARC summary |
 | `domain_posture` | Return posture score, grade, DNS health, and action guidance |
 | `health_evidence_export` | Return sanitized health score evidence rows |
+| `alert_history` | Return sanitized alert history rows |
 | `domain_sources` | Return enriched DMARC sending sources |
 | `dns_lint` | Return DNS lint findings, evidence, and target records |
 | `dns_change_plan` | Return read-only DNS change plans without apply links |
@@ -460,6 +468,7 @@ Available tools:
 | `domain_summary` | Return an evidence-first summary for one domain |
 | `domain_posture` | Return posture score, grade, DNS health, and action guidance |
 | `health_evidence_export` | Return sanitized health score evidence rows |
+| `alert_history` | Return sanitized alert history rows |
 | `domain_sources` | Return enriched DMARC sending sources |
 | `dns_lint` | Return DNS lint findings, evidence, and target records |
 | `dns_change_plan` | Return read-only DNS change plans without apply links |

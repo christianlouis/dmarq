@@ -18,6 +18,7 @@ from app.services.ai_assistance import (
     build_evidence_summary,
     get_assistance_config,
 )
+from app.services.alert_history import alert_history_summary, list_workspace_alert_history
 from app.services.api_tokens import MCP_READ_SCOPE
 from app.services.organizations import require_organization_feature
 from app.services.report_persistence import hydrate_report_store_from_db
@@ -144,6 +145,19 @@ READ_ONLY_TOOLS = [
         },
         "readOnlyHint": True,
     },
+    {
+        "name": "alert_history",
+        "description": "Return sanitized alert history for monitored workspace domains.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string"},
+                "active": {"type": "boolean"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50},
+            },
+        },
+        "readOnlyHint": True,
+    },
 ]
 
 
@@ -238,6 +252,67 @@ def _tool_limit(arguments: Dict[str, Any], *, default: int = 400, maximum: int =
     return limit
 
 
+def _tool_optional_bool(arguments: Dict[str, Any], key: str) -> Optional[bool]:
+    raw_value = arguments.get(key)
+    if raw_value in (None, ""):
+        return None
+    if isinstance(raw_value, bool):
+        return raw_value
+    normalized = str(raw_value).strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{key} must be a boolean")
+
+
+def _tool_optional_domain(arguments: Dict[str, Any]) -> Optional[str]:
+    domain = str(arguments.get("domain", "")).strip()
+    return domain or None
+
+
+def _call_action_proposals_tool(
+    arguments: Dict[str, Any],
+    *,
+    db: Session,
+    workspace_id: Optional[int],
+) -> Any:
+    return build_action_proposals(db, _tool_domain(arguments), workspace_id=workspace_id)
+
+
+def _call_alert_history_tool(
+    arguments: Dict[str, Any],
+    *,
+    db: Session,
+    workspace_id: Optional[int],
+) -> Dict[str, Any]:
+    active_filter = _tool_optional_bool(arguments, "active")
+    domain_filter = _tool_optional_domain(arguments)
+    limit = _tool_limit(arguments, default=50, maximum=200)
+    alerts = list_workspace_alert_history(
+        db,
+        workspace_id=workspace_id or 0,
+        active=active_filter,
+        domain=domain_filter,
+        limit=limit,
+    )
+    return {
+        "alerts": alerts,
+        "summary": alert_history_summary(alerts),
+        "filters": {
+            "active": active_filter,
+            "domain": domain_filter,
+            "limit": limit,
+        },
+    }
+
+
+READ_ONLY_SYNC_HANDLERS = {
+    "action_proposals": _call_action_proposals_tool,
+    "alert_history": _call_alert_history_tool,
+}
+
+
 async def _call_read_only_tool(
     name: str,
     arguments: Dict[str, Any],
@@ -286,8 +361,9 @@ async def _call_read_only_tool(
             db=db,
             _auth=auth_context,
         )
-    if name == "action_proposals":
-        return build_action_proposals(db, _tool_domain(arguments), workspace_id=workspace_id)
+    sync_handler = READ_ONLY_SYNC_HANDLERS.get(name)
+    if sync_handler is not None:
+        return sync_handler(arguments, db=db, workspace_id=workspace_id)
     if name == "health_evidence_export":
         domain = _tool_domain(arguments)
         rows = await domains.build_domain_health_evidence_export_rows(

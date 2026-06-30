@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
 
 from app.models.alert import AlertConfigurationAudit, AlertHistory
+from app.models.domain import Domain
 
 
 def _json_dumps(value: Dict[str, Any]) -> str:
@@ -48,6 +49,89 @@ def _row_to_dict(row: AlertHistory) -> Dict[str, Any]:
         "first_seen_at": row.first_seen_at.isoformat() if row.first_seen_at else None,
         "last_seen_at": row.last_seen_at.isoformat() if row.last_seen_at else None,
         "resolved_at": row.resolved_at.isoformat() if row.resolved_at else None,
+    }
+
+
+PUBLIC_ALERT_EVIDENCE_KEYS = {
+    "source_ip",
+    "message_count",
+    "failed_messages",
+    "threshold",
+    "missing_days",
+    "last_report_at",
+    "previous_rate",
+    "current_rate",
+    "drop",
+}
+
+
+def _public_alert_row_to_dict(row: AlertHistory) -> Dict[str, Any]:
+    base = _row_to_dict(row)
+    payload = base.pop("payload", {}) or {}
+    evidence = {
+        key: payload[key]
+        for key in sorted(PUBLIC_ALERT_EVIDENCE_KEYS)
+        if key in payload and payload[key] not in (None, "")
+    }
+    if evidence:
+        base["evidence"] = evidence
+    return base
+
+
+def _workspace_domain_names(
+    db: Session,
+    *,
+    workspace_id: int,
+    domain: Optional[str] = None,
+) -> List[str]:
+    query = db.query(Domain.name).filter(Domain.workspace_id == workspace_id)
+    if domain:
+        query = query.filter(Domain.name == domain)
+    return [row[0] for row in query.order_by(Domain.name).all()]
+
+
+def list_workspace_alert_history(
+    db: Session,
+    *,
+    workspace_id: int,
+    active: Optional[bool] = None,
+    domain: Optional[str] = None,
+    limit: int = 50,
+) -> List[Dict[str, Any]]:
+    """Return sanitized alert history for domains in one workspace."""
+    domain_names = _workspace_domain_names(db, workspace_id=workspace_id, domain=domain)
+    if not domain_names:
+        return []
+
+    query = db.query(AlertHistory).filter(AlertHistory.domain.in_(domain_names))
+    if active is not None:
+        query = query.filter(AlertHistory.is_active == active)  # noqa: E712
+    rows = (
+        query.order_by(AlertHistory.last_seen_at.desc(), AlertHistory.id.desc())
+        .limit(max(1, min(limit, 200)))
+        .all()
+    )
+    return [_public_alert_row_to_dict(row) for row in rows]
+
+
+def alert_history_summary(alerts: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Summarize an already-filtered alert history result."""
+    by_severity: Dict[str, int] = {}
+    by_rule: Dict[str, int] = {}
+    active_count = 0
+    for alert in alerts:
+        severity = str(alert.get("severity") or "unknown")
+        rule = str(alert.get("rule") or "unknown")
+        by_severity[severity] = by_severity.get(severity, 0) + 1
+        by_rule[rule] = by_rule.get(rule, 0) + 1
+        if alert.get("is_active"):
+            active_count += 1
+    return {
+        "total": len(alerts),
+        "active": active_count,
+        "resolved": len(alerts) - active_count,
+        "by_severity": by_severity,
+        "by_rule": by_rule,
     }
 
 
