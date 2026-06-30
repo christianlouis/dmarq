@@ -4,7 +4,9 @@ from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 
 from app.api.api_v1.endpoints import domains as domains_endpoint
+from app.models.alert import AlertHistory
 from app.models.api_token import APIToken
+from app.models.domain import Domain
 from app.models.organization import BillingAccount, Organization
 from app.models.workspace import Workspace
 from app.services.api_tokens import READ_POSTURE_SCOPE, READ_REPORTS_SCOPE, create_api_token
@@ -237,6 +239,98 @@ def test_public_action_proposals_are_workspace_scoped(client: TestClient, db_ses
     assert denied.status_code == 404
     assert allowed.status_code == 200
     assert allowed.json()["domain"] == other_domain
+
+
+def test_public_alert_history_is_posture_scoped_and_sanitized(
+    client: TestClient,
+    db_session,
+):
+    """Public alert history is workspace-scoped and excludes raw alert payloads."""
+    _persist_report(db_session)
+    workspace = get_or_create_default_workspace(db_session)
+    other_workspace = Workspace(slug="public-alerts-other", name="Public Alerts Other")
+    db_session.add(other_workspace)
+    db_session.flush()
+    db_session.add(
+        Domain(
+            workspace_id=other_workspace.id,
+            name="other-alerts.example",
+            active=True,
+            verified=True,
+        )
+    )
+    db_session.add_all(
+        [
+            AlertHistory(
+                fingerprint="public-alert-active",
+                rule="new_sender_source",
+                severity="warning",
+                domain=DOMAIN,
+                title="New sender",
+                detail="192.0.2.1 first appeared.",
+                payload=(
+                    '{"source_ip":"192.0.2.1","message_count":12,' '"secret":"do-not-return"}'
+                ),
+                observed_count=2,
+                is_active=True,
+            ),
+            AlertHistory(
+                fingerprint="public-alert-resolved",
+                rule="missing_reports",
+                severity="warning",
+                domain=DOMAIN,
+                title="Resolved reports",
+                detail="Already fixed.",
+                observed_count=1,
+                is_active=False,
+            ),
+            AlertHistory(
+                fingerprint="public-alert-other-workspace",
+                rule="missing_reports",
+                severity="error",
+                domain="other-alerts.example",
+                title="Other alert",
+                detail="Should not leak.",
+                observed_count=1,
+                is_active=True,
+            ),
+        ]
+    )
+    db_session.commit()
+    posture_token = create_api_token(
+        db_session,
+        name="alert posture bot",
+        scopes=[READ_POSTURE_SCOPE],
+        workspace_id=workspace.id,
+    )
+    reports_token = create_api_token(
+        db_session,
+        name="alert reports bot",
+        scopes=[READ_REPORTS_SCOPE],
+        workspace_id=workspace.id,
+    )
+
+    denied = client.get(
+        "/api/v1/public/alerts?active=true",
+        headers={"X-API-Key": reports_token.secret},
+    )
+    response = client.get(
+        "/api/v1/public/alerts?active=true&limit=10",
+        headers={"X-API-Key": posture_token.secret},
+    )
+
+    assert denied.status_code == 403
+    assert response.status_code == 200
+    body = response.json()
+    assert body["summary"]["active"] == 1
+    assert body["summary"]["by_rule"] == {"new_sender_source": 1}
+    assert [alert["domain"] for alert in body["alerts"]] == [DOMAIN]
+    assert body["alerts"][0]["evidence"] == {
+        "message_count": 12,
+        "source_ip": "192.0.2.1",
+    }
+    assert "payload" not in body["alerts"][0]
+    assert "do-not-return" not in response.text
 
 
 def test_public_health_evidence_export_uses_posture_scope_without_capture(

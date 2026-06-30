@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.api.api_v1.endpoints import ai as ai_endpoint
 from app.api.api_v1.endpoints import mcp as mcp_endpoint
+from app.models.alert import AlertHistory
 from app.models.domain import Domain
 from app.models.organization import Entitlement, Organization
 from app.models.setting import Setting
@@ -825,6 +826,55 @@ async def test_mcp_read_only_tool_dispatch_covers_new_domain_tools(db_session: S
 
 
 @pytest.mark.asyncio
+async def test_mcp_alert_history_returns_sanitized_workspace_alerts(
+    db_session: Session,
+):
+    _persist_report(db_session)
+    domain = db_session.query(Domain).filter(Domain.name == DOMAIN).one()
+    db_session.add_all(
+        [
+            AlertHistory(
+                fingerprint="mcp-alert-active",
+                rule="dmarc_failures_above_threshold",
+                severity="error",
+                domain=DOMAIN,
+                title="DMARC failures",
+                detail="Failures exceeded threshold.",
+                payload='{"failed_messages":42,"threshold":10,"secret":"hidden"}',
+                observed_count=3,
+                is_active=True,
+            ),
+            AlertHistory(
+                fingerprint="mcp-alert-resolved",
+                rule="missing_reports",
+                severity="warning",
+                domain=DOMAIN,
+                title="Missing reports",
+                detail="Resolved.",
+                observed_count=1,
+                is_active=False,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    result = await mcp_endpoint._call_read_only_tool(
+        "alert_history",
+        {"active": "true", "limit": "5"},
+        db=db_session,
+        auth_context={"token_id": "test-token"},
+        workspace_id=domain.workspace_id,
+    )
+
+    assert result["summary"]["active"] == 1
+    assert result["filters"]["active"] is True
+    assert result["alerts"][0]["rule"] == "dmarc_failures_above_threshold"
+    assert result["alerts"][0]["evidence"] == {"failed_messages": 42, "threshold": 10}
+    assert "payload" not in result["alerts"][0]
+    assert "hidden" not in str(result)
+
+
+@pytest.mark.asyncio
 async def test_mcp_read_only_tool_dispatch_rejects_invalid_tool_arguments(
     db_session: Session,
 ):
@@ -875,6 +925,15 @@ async def test_mcp_read_only_tool_dispatch_rejects_invalid_tool_arguments(
             workspace_id=None,
         )
 
+    with pytest.raises(ValueError, match="active must be a boolean"):
+        await mcp_endpoint._call_read_only_tool(
+            "alert_history",
+            {"active": "sometimes"},
+            db=db_session,
+            auth_context=auth_context,
+            workspace_id=None,
+        )
+
     with pytest.raises(KeyError):
         await mcp_endpoint._call_read_only_tool(
             "unknown_tool",
@@ -913,6 +972,7 @@ def test_mcp_requires_enabled_scoped_token(client: TestClient, db_session: Sessi
         "dns_lint",
         "dns_change_plan",
         "health_evidence_export",
+        "alert_history",
     }.issubset(tool_names)
 
     initialized = client.post(
