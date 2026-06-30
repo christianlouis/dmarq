@@ -4,12 +4,13 @@ Settings API endpoints.
 Provides endpoints to read and write application-level settings persisted
 in the ``settings`` database table.  Settings are organised into categories:
 
-- ``general``    – App name, base URL, reports-per-page, etc.
-- ``dmarc``      – Default DMARC policy, percentage, etc.
-- ``dns``        – Default DNS resolver, Cloudflare DoH toggle.
-- ``cloudflare`` – Cloudflare API token and Zone ID.
-- ``forensics`` – Forensic report privacy and retention controls.
-- ``notifications`` – Future alerting/notification settings.
+- ``general``    - App name, base URL, reports-per-page, etc.
+- ``dmarc``      - Default DMARC policy, percentage, etc.
+- ``dns``        - Default DNS resolver, Cloudflare DoH toggle.
+- ``cloudflare`` - Cloudflare API token and Zone ID.
+- ``postmark``  - Postmark account token for read-only sender-domain discovery.
+- ``forensics`` - Forensic report privacy and retention controls.
+- ``notifications`` - Future alerting/notification settings.
 """
 
 import logging
@@ -132,6 +133,14 @@ SETTING_DEFAULTS: List[Dict[str, Any]] = [
         "description": "Cloudflare Zone ID for DNS record management",
         "value_type": "string",
         "category": "cloudflare",
+    },
+    # ── Mail service integrations ───────────────────────────────────────────
+    {
+        "key": "postmark.account_token",
+        "value": "",
+        "description": "Postmark account token for read-only sender-domain discovery",
+        "value_type": "string",
+        "category": "postmark",
     },
     # ── Forensics ────────────────────────────────────────────────────────────
     {
@@ -341,6 +350,7 @@ SETTING_DEFAULTS: List[Dict[str, Any]] = [
 # Keys whose values should be redacted in GET responses (treated as secrets)
 _SECRET_KEYS = {
     "cloudflare.api_token",
+    "postmark.account_token",
     "notifications.apprise_urls",
     "notifications.smtp_password",
 }

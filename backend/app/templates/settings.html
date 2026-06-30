@@ -262,6 +262,124 @@
         {% endcall %}
     {% endcall %}
 
+    <!-- ── Mail Service Imports ───────────────────────────────────────────── -->
+    {% call card() %}
+        {% call card_header() %}
+            {% call card_title() %}Mail Service Imports{% endcall %}
+            {% call card_description() %}
+                Discover verified sender domains from mail delivery services before DMARC reports arrive. Postmark uses an account token with read-only sender-domain discovery in DMARQ.
+            {% endcall %}
+        {% endcall %}
+        {% call card_content() %}
+            <form @submit.prevent="saveCategory('postmark')" class="space-y-4">
+                <div class="form-control w-full">
+                    <label class="label"><span class="label-text font-medium">Postmark Account Token</span></label>
+                    <div class="relative">
+                        <input :type="showPostmarkToken ? 'text' : 'password'"
+                            x-model="s['postmark.account_token']"
+                            class="input input-bordered w-full pr-10"
+                            placeholder="Postmark account token" />
+                        <button type="button"
+                            class="absolute right-2 top-3 text-muted-foreground hover:text-foreground"
+                            @click="showPostmarkToken = !showPostmarkToken">
+                            <svg x-show="!showPostmarkToken" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                            <svg x-show="showPostmarkToken" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+                        </button>
+                    </div>
+                    <label class="label"><span class="label-text-alt text-muted-foreground">Stored securely; leave as-is to keep an existing token</span></label>
+                </div>
+
+                <div class="border-t border-border pt-4 space-y-4">
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                            <h3 class="text-sm font-semibold">Verified Sender Domains</h3>
+                            <p class="text-sm text-muted-foreground">Preview Postmark domains and import them into DMARQ for DNS linting and monitoring.</p>
+                        </div>
+                        <div class="flex flex-col gap-2 sm:flex-row">
+                            <button type="button" class="btn btn-outline btn-sm" :disabled="saving || loadingMailServiceDomains" @click="discoverMailServiceDomains()">
+                                <template x-if="!loadingMailServiceDomains">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
+                                        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                                        <path d="M3 3v5h5"></path>
+                                    </svg>
+                                </template>
+                                <template x-if="loadingMailServiceDomains"><span class="loading loading-spinner loading-xs mr-2"></span></template>
+                                Discover
+                            </button>
+                            <button type="button" class="btn btn-default btn-sm" :disabled="saving || importingMailServiceDomains || mailServiceDomains.length === 0" @click="importMailServiceDomains()">
+                                <template x-if="!importingMailServiceDomains">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
+                                        <path d="M12 5v14"></path>
+                                        <path d="m19 12-7 7-7-7"></path>
+                                    </svg>
+                                </template>
+                                <template x-if="importingMailServiceDomains"><span class="loading loading-spinner loading-xs mr-2"></span></template>
+                                Import New
+                            </button>
+                        </div>
+                    </div>
+                    <template x-if="mailServiceDomains.length > 0">
+                        <div class="overflow-x-auto rounded-md border border-border">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Domain</th>
+                                        <th>Provider</th>
+                                        <th>Verification</th>
+                                        <th>DNS Records</th>
+                                        <th>Imported</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="domain in mailServiceDomains" :key="domain.provider + ':' + domain.external_id">
+                                        <tr>
+                                            <td class="font-medium" x-text="domain.domain"></td>
+                                            <td x-text="domain.provider_name"></td>
+                                            <td x-text="domain.verification_state"></td>
+                                            <td>
+                                                <template x-if="domain.required_dns_records.length === 0">
+                                                    <span class="text-muted-foreground">None</span>
+                                                </template>
+                                                <div class="space-y-1" x-show="domain.required_dns_records.length > 0">
+                                                    <template x-for="record in domain.required_dns_records" :key="record.record_type + ':' + record.name + ':' + record.value">
+                                                        <div class="rounded border border-border bg-muted/30 px-2 py-1">
+                                                            <div class="flex flex-wrap items-center gap-2 text-xs">
+                                                                <span class="badge badge-outline badge-sm" x-text="record.record_type"></span>
+                                                                <span class="font-medium" x-text="record.name"></span>
+                                                            </div>
+                                                            <code class="mt-1 block max-w-md truncate text-xs text-muted-foreground" x-text="record.value"></code>
+                                                        </div>
+                                                    </template>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <span class="badge" :class="domain.imported ? 'badge-success' : 'badge-outline'" x-text="domain.imported ? 'Yes' : 'No'"></span>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </template>
+                </div>
+                <div class="flex justify-end">
+                    <button type="submit" class="btn btn-default btn-md" :disabled="saving">
+                        <template x-if="!saving">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                        </template>
+                        <template x-if="saving"><span class="loading loading-spinner loading-xs mr-2"></span></template>
+                        Save Postmark Settings
+                    </button>
+                </div>
+            </form>
+        {% endcall %}
+    {% endcall %}
+
     <!-- ── Forensics ──────────────────────────────────────────────────────── -->
     {% call card() %}
         {% call card_header() %}
@@ -910,6 +1028,10 @@ function settingsApp() {
         importingCfZones: false,
         cfZones: [],
         showCfToken: false,
+        loadingMailServiceDomains: false,
+        importingMailServiceDomains: false,
+        mailServiceDomains: [],
+        showPostmarkToken: false,
         loadingWebhooks: false,
         savingWebhook: false,
         testingWebhookId: null,
@@ -931,6 +1053,15 @@ function settingsApp() {
         // No manual auth header needed for API calls from the UI.
         apiHeaders() {
             return { 'Content-Type': 'application/json' };
+        },
+
+        workspaceHeaders() {
+            const headers = this.apiHeaders();
+            const workspaceId = localStorage.getItem('dmarq.selectedWorkspaceId');
+            if (workspaceId) {
+                headers['X-DMARQ-Workspace-ID'] = workspaceId;
+            }
+            return headers;
         },
 
         async loadSettings() {
@@ -1226,6 +1357,50 @@ function settingsApp() {
                 this.showFlash('Error importing Cloudflare zones: ' + err.message, false);
             } finally {
                 this.importingCfZones = false;
+            }
+        },
+
+        async discoverMailServiceDomains() {
+            this.loadingMailServiceDomains = true;
+            try {
+                await this.saveCategory('postmark');
+                const res = await fetch('/api/v1/domains/mail-services/import/postmark/preview', {
+                    headers: this.workspaceHeaders(),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    this.showFlash('Postmark discovery failed: ' + (data.detail || res.statusText), false);
+                } else {
+                    this.mailServiceDomains = data.domains || [];
+                    this.showFlash(`${this.mailServiceDomains.length} sender domain${this.mailServiceDomains.length === 1 ? '' : 's'} found.`, true);
+                }
+            } catch (err) {
+                this.showFlash('Error discovering sender domains: ' + err.message, false);
+            } finally {
+                this.loadingMailServiceDomains = false;
+            }
+        },
+
+        async importMailServiceDomains() {
+            this.importingMailServiceDomains = true;
+            try {
+                const domains = this.mailServiceDomains.filter(d => !d.imported).map(d => d.domain);
+                const res = await fetch('/api/v1/domains/mail-services/import/postmark', {
+                    method: 'POST',
+                    headers: this.workspaceHeaders(),
+                    body: JSON.stringify({ domains }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    this.showFlash('Postmark import failed: ' + (data.detail || res.statusText), false);
+                } else {
+                    await this.discoverMailServiceDomains();
+                    this.showFlash(`${data.imported.length} domain${data.imported.length === 1 ? '' : 's'} imported.`, true);
+                }
+            } catch (err) {
+                this.showFlash('Error importing sender domains: ' + err.message, false);
+            } finally {
+                this.importingMailServiceDomains = false;
             }
         },
 

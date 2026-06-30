@@ -573,6 +573,9 @@ POST /domains/{domain_id}/dns/change-plan/apply
 GET /domains/dns/providers
 GET /domains/dns/import/{provider}/preview
 POST /domains/dns/import/{provider}
+GET /domains/mail-services/import/providers
+GET /domains/mail-services/import/{provider}/preview
+POST /domains/mail-services/import/{provider}
 GET /domains/dns/lint
 GET /domains/dns/lint/export
 ```
@@ -604,6 +607,15 @@ selected zones as monitored DMARQ domains before reports have arrived.
 Cloudflare is the first supported provider; the legacy
 `/domains/cloudflare/discover` and `/domains/cloudflare/import` endpoints remain
 available for compatibility.
+
+`GET /domains/mail-services/import/providers` returns mail delivery services
+that support read-only sender-domain discovery. Postmark is the first supported
+provider. Use `GET /domains/mail-services/import/postmark/preview` to list
+Postmark domains and sender signatures, including verification state and DNS
+records that Postmark exposes. Use
+`POST /domains/mail-services/import/postmark` with an optional `domains` array
+to import selected sender domains as monitored DMARQ domains. This flow does
+not modify Postmark or DNS records.
 
 `POST /domains/{domain_id}/dns/change-plan/apply` accepts
 `plan_id`, `provider`, `dry_run`, `confirm`, optional `value`, and `ttl`. Calls

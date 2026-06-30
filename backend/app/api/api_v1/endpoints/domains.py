@@ -57,6 +57,13 @@ from app.services.health_score_snapshots import (
     list_workspace_health_score_snapshots,
     upsert_health_score_snapshot,
 )
+from app.services.mail_service_imports import (
+    MailServiceImportError,
+    import_mail_service_domains,
+    mail_service_context_from_domain,
+    preview_mail_service_import,
+    supported_mail_service_import_providers,
+)
 from app.services.migration_import import preview_migration_import
 from app.services.mta_sts import MTAStsResult, check_mta_sts_cached
 from app.services.organizations import (
@@ -147,6 +154,7 @@ class DomainResponse(DomainBase):
     reports_count: int = 0
     emails_count: int = 0
     compliance_rate: float = 0.0
+    mail_service_context: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class DomainCreate(BaseModel):
@@ -721,6 +729,57 @@ class DNSProviderImportRequest(BaseModel):
 
 class DNSProviderImportResponse(BaseModel):
     """DNS provider domain import summary."""
+
+    provider: str
+    provider_name: str
+    imported: List[str]
+    existing: List[str]
+    skipped: List[str]
+    total_discovered: int
+
+
+class RequiredDNSRecordResponse(BaseModel):
+    """DNS record requested by an external service."""
+
+    record_type: str
+    name: str
+    value: str
+    purpose: str
+
+
+class MailServiceImportDomainResponse(BaseModel):
+    """Mail service sender domain that can be imported as a monitored domain."""
+
+    provider: str
+    provider_name: str
+    external_id: str
+    domain: str
+    verification_state: str
+    imported: bool = False
+    importable: bool = True
+    required_dns_records: List[RequiredDNSRecordResponse] = Field(default_factory=list)
+    source: str = "mail_service_sender"
+    next_action: str
+
+
+class MailServiceImportPreviewResponse(BaseModel):
+    """Read-only mail service sender-domain import preview."""
+
+    provider: str
+    provider_name: str
+    domains: List[MailServiceImportDomainResponse]
+    total_discovered: int
+    importable_count: int
+
+
+class MailServiceImportRequest(BaseModel):
+    """Optional sender domains to import after preview."""
+
+    domains: Optional[List[str]] = None
+
+
+class MailServiceImportResponse(BaseModel):
+    """Mail service sender-domain import summary."""
 
     provider: str
     provider_name: str
@@ -2242,6 +2301,7 @@ async def read_domains(
             reports_count=summary.get("reports_processed", 0),
             emails_count=summary.get("total_count", 0),
             compliance_rate=summary.get("compliance_rate", 0.0),
+            mail_service_context=mail_service_context_from_domain(stored_domain),
         )
         result.append(domain_response)
 
@@ -2306,6 +2366,7 @@ async def create_domain(
         name=domain.name,
         description=domain.description,
         policy=domain.dmarc_policy or "unknown",
+        mail_service_context=mail_service_context_from_domain(domain),
     )
 
 
@@ -2340,6 +2401,7 @@ async def read_domain(
         reports_count=summary.get("reports_processed", 0),
         emails_count=summary.get("total_count", 0),
         compliance_rate=summary.get("compliance_rate", 0.0),
+        mail_service_context=mail_service_context_from_domain(stored_domain),
     )
 
 
@@ -2498,6 +2560,86 @@ async def import_dns_provider_domain_zones(
     except LookupError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.get("/mail-services/import/providers")
+async def get_mail_service_import_providers(
+    _auth: dict = Depends(require_admin_auth),
+):
+    """Return mail service providers that support sender-domain import."""
+    return {"providers": supported_mail_service_import_providers()}
+
+
+@router.get(
+    "/mail-services/import/{provider}/preview",
+    response_model=MailServiceImportPreviewResponse,
+)
+async def preview_mail_service_domain_import(
+    provider: str = Path(..., title="Mail service provider ID"),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+):
+    """Preview verified sender domains that can be imported as monitored domains."""
+    workspace = _authorized_domain_workspace(
+        _auth,
+        db,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
+    )
+    try:
+        return await preview_mail_service_import(
+            db,
+            provider=provider,
+            workspace_id=workspace.id,
+        )
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except MailServiceImportError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
+
+
+@router.post(
+    "/mail-services/import/{provider}",
+    response_model=MailServiceImportResponse,
+)
+async def import_mail_service_domain_senders(
+    payload: MailServiceImportRequest,
+    provider: str = Path(..., title="Mail service provider ID"),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+):
+    """Import selected, or all new, mail service sender domains as monitored domains."""
+    workspace = _authorized_domain_workspace(
+        _auth,
+        db,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
+    )
+    try:
+        return await import_mail_service_domains(
+            db,
+            provider=provider,
+            requested_domains=payload.domains,
+            workspace_id=workspace.id,
+        )
+    except OrganizationPlanLimitError as exc:
+        _raise_plan_limit_error(exc)
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except MailServiceImportError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(exc),
         ) from exc
 

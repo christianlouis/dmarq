@@ -35,6 +35,7 @@ from app.models.mail_source import MailSource  # noqa: F401 – ensure table is 
 from app.services.gmail_client import GmailClient
 from app.services.imap_client import IMAPClient
 from app.services.import_history import record_import_attempt
+from app.services.mail_service_imports import mail_service_context_from_domain
 from app.services.mail_source_backfill_worker import run_due_mail_source_backfill_jobs
 from app.services.microsoft_graph_client import MicrosoftGraphClient
 from app.services.report_persistence import hydrate_report_store_from_db
@@ -652,6 +653,7 @@ async def domain_details(request: Request, domain_id: str):
             "domain": {
                 "name": domain_id,
                 "description": stored_domain.description if stored_domain else "",
+                "mail_service_context": mail_service_context_from_domain(stored_domain),
                 "policy": (
                     domain_summary.get("policy")
                     or (stored_domain.dmarc_policy if stored_domain else None)

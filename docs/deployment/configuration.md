@@ -148,6 +148,7 @@ operational policy if long-term storage size matters.
 |----------|-------------|---------|---------|
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API token for zone discovery, DNS inspection, and optional approved DNS writes | - | `your_cloudflare_api_token` |
 | `CLOUDFLARE_ZONE_ID` | Optional default Cloudflare Zone ID | - | `your_cloudflare_zone_id` |
+| `POSTMARK_ACCOUNT_TOKEN` | Optional Postmark account token for read-only sender-domain discovery | - | `your_postmark_account_token` |
 | `WEBHOOK_SECRET` | Required secret for inbound email worker webhooks | - | `openssl rand -hex 32` |
 
 Cloudflare credentials can also be stored from **Settings**. The API token is
@@ -166,10 +167,19 @@ The integration exposes these operational routes:
 | `GET /api/v1/domains/{domain}/dns/history` | Review DNS record additions, modifications, and removals. |
 | `GET /api/v1/domains/dns/providers` | List native and Lexicon-backed DNS write providers. |
 | `POST /api/v1/domains/{domain}/dns/change-plan/apply` | Dry-run or explicitly apply one safe DNS change plan. |
+| `GET /api/v1/domains/mail-services/import/providers` | List mail service providers that support sender-domain import. |
+| `GET /api/v1/domains/mail-services/import/postmark/preview` | Preview Postmark sender domains and required DNS records without creating rows. |
+| `POST /api/v1/domains/mail-services/import/postmark` | Import selected Postmark sender domains as monitored domains before reports arrive. |
 
 Provider writes are opt-in at action time. Requests default to dry-run, and real
 writes require `confirm=true` plus `dry_run=false`. Public demo mode rejects
 provider writes even if credentials are configured.
+
+Postmark sender-domain discovery is read-only. DMARQ uses the Postmark account
+token to list domains and sender signatures, then stores imported domains as
+monitored domains so DNS linting, report import, and remediation guidance can
+work before aggregate reports arrive. DMARQ does not modify Postmark or DNS
+records in this workflow.
 
 Cloudflare is implemented natively. Additional API-backed providers use
 DNS-Lexicon where the provider is available in the runtime and its credentials

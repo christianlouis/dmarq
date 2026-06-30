@@ -25,6 +25,17 @@
                     <p class="mb-2 text-sm font-semibold uppercase tracking-wide text-[#2f9da5]">Domain detail</p>
                     <h1 class="text-3xl font-bold tracking-normal text-[#07071f]">{{ domain.name }}</h1>
                     <p class="mt-2 max-w-3xl text-[#5f5c78]">{{ domain.description or "Domain monitored by DMARQ" }}</p>
+                    {% if domain.mail_service_context %}
+                    <div class="mt-4 flex flex-wrap gap-2">
+                        {% for context in domain.mail_service_context %}
+                        <span class="inline-flex items-center gap-2 rounded-md border border-[#d7eef0] bg-[#f1fbfc] px-3 py-1 text-sm font-semibold text-[#176d74]">
+                            <span>{{ context.provider_name }}</span>
+                            <span class="h-1 w-1 rounded-full bg-[#2f9da5]"></span>
+                            <span>{{ context.verification_state|capitalize }} sender domain</span>
+                        </span>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
                 </div>
                 <div class="flex flex-wrap gap-2">
                     <a href="/domains" class="btn btn-outline btn-sm border-[#dfdfdf] text-[#272a5f] hover:border-[#2f9da5] hover:bg-[#f4f3f2]">
