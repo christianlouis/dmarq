@@ -363,6 +363,42 @@ def test_workspace_health_history_returns_persisted_trend(
     assert data["top_drivers"][0]["domain"] == "example.net"
 
 
+def test_export_workspace_health_evidence_returns_json(
+    seeded_client: TestClient,
+    db_session,
+):
+    """Workspace evidence export returns sanitized aggregate rows as JSON."""
+    workspace = get_or_create_default_workspace(db_session)
+    upsert_health_score_snapshot(
+        db_session,
+        workspace_id=workspace.id,
+        domain_name=DOMAIN,
+        health={
+            "score": 91,
+            "grade": "A-",
+            "status": "healthy",
+            "factors": {"dns_posture": 96, "policy_strength": 100, "report_confidence": 90},
+            "actions": [{"title": "Keep monitoring", "severity": "low", "score_impact": 1}],
+        },
+        policy="reject",
+        compliance_rate=98,
+        total_emails=1200,
+        failed_emails=24,
+        report_count=8,
+        snapshot_date=date(2026, 6, 4),
+    )
+
+    response = seeded_client.get("/api/v1/domains/summary/health/evidence/export?format=json")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["scope"] == "workspace"
+    assert data["rows"][0]["domain"] == "workspace"
+    assert data["rows"][0]["score"] == 91
+    assert "forensic" not in response.text.lower()
+    assert "workspace-health-evidence.json" in response.headers["content-disposition"]
+
+
 def test_export_domain_health_evidence_returns_sanitized_csv(
     seeded_client: TestClient,
     db_session,
@@ -399,6 +435,44 @@ def test_export_domain_health_evidence_returns_sanitized_csv(
     assert rows[0]["policy"] == "none"
     assert rows[0]["top_actions"] == "medium:Move out of monitoring mode"
     assert "message" not in response.text.lower()
+
+
+def test_export_domain_health_evidence_returns_sanitized_json(
+    seeded_client: TestClient,
+    db_session,
+):
+    """Domain health evidence can be exported as JSON without sensitive report content."""
+    workspace = get_or_create_default_workspace(db_session)
+    upsert_health_score_snapshot(
+        db_session,
+        workspace_id=workspace.id,
+        domain_name=DOMAIN,
+        health={
+            "score": 72,
+            "grade": "C",
+            "status": "attention",
+            "factors": {"dns_posture": 80, "policy_strength": 55, "report_confidence": 78},
+            "actions": [{"title": "Move out of monitoring mode", "severity": "medium"}],
+        },
+        policy="none",
+        compliance_rate=94,
+        total_emails=500,
+        failed_emails=30,
+        report_count=5,
+        snapshot_date=date(2026, 6, 3),
+    )
+
+    response = seeded_client.get(
+        f"/api/v1/domains/{DOMAIN}/posture/evidence/export" "?capture_current=false&format=json"
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["scope"] == "domain"
+    assert data["rows"][0]["domain"] == DOMAIN
+    assert data["rows"][0]["policy"] == "none"
+    assert "message" not in response.text.lower()
+    assert "example.com-health-evidence.json" in response.headers["content-disposition"]
 
 
 def _stub_current_health(monkeypatch):
@@ -510,6 +584,18 @@ def test_workspace_health_history_rejects_invalid_date_order(seeded_client: Test
     assert response.status_code == 422
 
 
+def test_workspace_health_evidence_export_rejects_invalid_date_order(
+    seeded_client: TestClient,
+):
+    """Workspace evidence export validates date order."""
+    response = seeded_client.get(
+        "/api/v1/domains/summary/health/evidence/export"
+        "?start_date=2026-06-03&end_date=2026-06-02"
+    )
+
+    assert response.status_code == 422
+
+
 def test_domain_health_evidence_export_rejects_invalid_date_order(
     seeded_client: TestClient,
 ):
@@ -605,6 +691,31 @@ def test_workspace_health_history_uses_demo_history_fallback(
     assert data["points"][-1]["domain_count"] == 2
 
 
+def test_workspace_health_evidence_export_uses_demo_history_fallback(
+    authed_client: TestClient,
+    monkeypatch,
+):
+    """Demo mode exports rolling workspace evidence without persisted snapshots."""
+    _enable_endpoint_demo_mode(monkeypatch)
+
+    response = authed_client.get(
+        "/api/v1/domains/summary/health/evidence/export"
+        "?format=json&start_date=2026-06-01&limit=2"
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["scope"] == "workspace"
+    assert 0 < len(data["rows"]) <= 2
+    assert data["rows"][-1]["domain"] == "workspace"
+    top_action_domains = {
+        action.partition(":")[0]
+        for action in data["rows"][-1]["top_actions"].split("; ")
+        if action
+    }
+    assert top_action_domains == {"dmarq" + ".org", "dmarq" + ".com"}
+
+
 def test_health_history_helpers_cover_demo_and_empty_paths():
     empty = domains_endpoint._history_response_from_points(DOMAIN, [])
     assert empty.current_score is None
@@ -640,6 +751,12 @@ def test_health_history_helpers_cover_demo_and_empty_paths():
     workspace_response = domains_endpoint._workspace_history_response_from_points(workspace_points)
     assert len(workspace_response.points) <= 2
     assert workspace_response.current_score is not None
+    workspace_rows = domains_endpoint._workspace_evidence_export_rows(workspace_points)
+    assert workspace_rows[0]["domain"] == "workspace"
+    top_action_domains = {
+        action.partition(":")[0] for action in workspace_rows[0]["top_actions"].split("; ") if action
+    }
+    assert top_action_domains == {"dmarq" + ".org", "dmarq" + ".com"}
 
 
 # ---------------------------------------------------------------------------

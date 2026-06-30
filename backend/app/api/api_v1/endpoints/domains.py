@@ -8,7 +8,7 @@ from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request, status
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -1505,6 +1505,35 @@ def _write_health_evidence_csv(rows: List[Dict[str, Any]], *, domain_id: str) ->
     )
 
 
+def _write_health_evidence_json(
+    rows: List[Dict[str, Any]],
+    *,
+    export_id: str,
+    scope: str,
+) -> JSONResponse:
+    filename = f"{export_id.replace('/', '_')}-health-evidence.json"
+    return JSONResponse(
+        content={
+            "scope": scope,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "rows": rows,
+        },
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _write_health_evidence_export(
+    rows: List[Dict[str, Any]],
+    *,
+    export_id: str,
+    scope: str,
+    export_format: str,
+) -> Response:
+    if export_format == "json":
+        return _write_health_evidence_json(rows, export_id=export_id, scope=scope)
+    return _write_health_evidence_csv(rows, domain_id=export_id)
+
+
 def _demo_evidence_export_rows(
     domain_id: str, points: List[Dict[str, Any]]
 ) -> List[Dict[str, Any]]:
@@ -1527,6 +1556,42 @@ def _demo_evidence_export_rows(
                 "report_confidence_score": point["report_confidence_score"],
                 "top_actions": "; ".join(
                     f"{action.get('severity')}:{action.get('title')}"
+                    for action in point.get("top_actions", [])
+                    if action.get("title")
+                ),
+            }
+        )
+    return rows
+
+
+def _workspace_evidence_export_rows(points: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    rows = []
+    for point in points:
+        rows.append(
+            {
+                "domain": "workspace",
+                "snapshot_date": point["date"],
+                "score": point["score"],
+                "grade": point["grade"],
+                "status": point["status"],
+                "policy": point.get("policy") or "",
+                "compliance_rate": point["compliance_rate"],
+                "total_emails": point["total_emails"],
+                "failed_emails": point["failed_emails"],
+                "report_count": point["report_count"],
+                "dns_posture_score": point["dns_posture_score"],
+                "policy_strength_score": point["policy_strength_score"],
+                "report_confidence_score": point["report_confidence_score"],
+                "top_actions": "; ".join(
+                    ":".join(
+                        value
+                        for value in [
+                            str(action.get("domain") or ""),
+                            str(action.get("severity") or ""),
+                            str(action.get("title") or ""),
+                        ]
+                        if value
+                    )
                     for action in point.get("top_actions", [])
                     if action.get("title")
                 ),
@@ -1716,6 +1781,66 @@ async def get_workspace_health_score_history(
             )
         )
     return WorkspaceHealthScoreHistoryResponse(**build_workspace_health_score_history(snapshots))
+
+
+@router.get("/summary/health/evidence/export")
+async def export_workspace_health_evidence(
+    start_date: Optional[date] = Query(None, title="Start date for evidence export"),
+    end_date: Optional[date] = Query(None, title="End date for evidence export"),
+    limit: int = Query(400, ge=1, le=1000, title="Maximum exported snapshots"),
+    export_format: str = Query(
+        "csv",
+        alias="format",
+        pattern="^(csv|json)$",
+        title="Evidence export format",
+    ),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
+    """Export sanitized selected-workspace health score evidence as CSV or JSON."""
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="start_date must be on or before end_date",
+        )
+    selected_workspace_id = parse_selected_workspace_id(selected_workspace)
+    workspace = _authorized_domain_read_workspace(_auth, db, selected_workspace_id)
+    snapshots = list_workspace_health_score_snapshots(
+        db,
+        workspace_id=workspace.id,
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+    )
+    if not snapshots and get_settings().DEMO_MODE:
+        store = ReportStore()
+        hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
+        domains = _domain_names_for_summary(
+            db,
+            store,
+            workspace,
+            include_unscoped_report_domains=True,
+        )
+        points = _demo_workspace_history_points(
+            domains,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+        )
+        return _write_health_evidence_export(
+            _workspace_evidence_export_rows(points),
+            export_id="workspace",
+            scope="workspace",
+            export_format=export_format,
+        )
+
+    return _write_health_evidence_export(
+        _workspace_evidence_export_rows(build_workspace_health_score_history(snapshots)["points"]),
+        export_id="workspace",
+        scope="workspace",
+        export_format=export_format,
+    )
 
 
 @router.get("/domains", response_model=List[DomainResponse])
@@ -2319,11 +2444,17 @@ async def export_domain_health_evidence(
     end_date: Optional[date] = Query(None, title="End date for evidence export"),
     limit: int = Query(400, ge=1, le=1000, title="Maximum exported snapshots"),
     capture_current: bool = Query(True, title="Capture today's current posture first"),
+    export_format: str = Query(
+        "csv",
+        alias="format",
+        pattern="^(csv|json)$",
+        title="Evidence export format",
+    ),
     selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
 ):
-    """Export sanitized health score evidence for one domain as CSV."""
+    """Export sanitized health score evidence for one domain as CSV or JSON."""
     if start_date and end_date and start_date > end_date:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -2367,13 +2498,17 @@ async def export_domain_health_evidence(
             end_date=end_date,
             limit=limit,
         )
-        return _write_health_evidence_csv(
+        return _write_health_evidence_export(
             _demo_evidence_export_rows(domain_id, points),
-            domain_id=domain_id,
+            export_id=domain_id,
+            scope="domain",
+            export_format=export_format,
         )
-    return _write_health_evidence_csv(
+    return _write_health_evidence_export(
         build_health_evidence_export_rows(snapshots),
-        domain_id=domain_id,
+        export_id=domain_id,
+        scope="domain",
+        export_format=export_format,
     )
 
 
