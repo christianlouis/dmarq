@@ -98,6 +98,11 @@ class FakeWriteCloudflareProvider(FakeCloudflareProvider):
         return updated
 
 
+class FakeUnverifiedWriteCloudflareProvider(FakeWriteCloudflareProvider):
+    async def list_dns_records(self, *, zone_id=None, name=None, record_type=None):
+        return []
+
+
 def test_analyze_dns_records_reports_healthy_auth_records():
     records = [
         _record("spf", "TXT", DOMAIN, "v=spf1 include:_spf.google.com ~all"),
@@ -996,6 +1001,8 @@ def test_dns_change_plan_apply_dry_run_returns_cloudflare_mutation(
     assert data["mutation"]["operation"] == "create"
     assert data["mutation"]["name"] == f"_dmarc.{DOMAIN}"
     assert data["mutation"]["content"] == plan["proposed_value"]
+    assert data["verification"]["status"] == "not_run"
+    assert data["verification"]["verified"] is False
 
 
 def test_dns_change_plan_apply_uses_resolved_domain_for_provider_calls(
@@ -1203,6 +1210,9 @@ def test_dns_change_plan_apply_updates_cloudflare_and_audits(
     assert response.status_code == 200
     data = response.json()
     assert data["applied"] is True
+    assert data["verification"]["status"] == "verified"
+    assert data["verification"]["verified"] is True
+    assert data["verification"]["checked_values"] == [plan["proposed_value"]]
     assert provider.updated[0]["content"] == plan["proposed_value"]
     assert db_session.query(DNSRecordChange).count() == 1
     audit = db_session.query(WorkspaceAuditLog).one()
@@ -1210,6 +1220,57 @@ def test_dns_change_plan_apply_updates_cloudflare_and_audits(
     audit_details = json.loads(audit.details)
     assert audit_details["provider"] == "cloudflare"
     assert audit_details["provider_mismatch"] is False
+    assert audit_details["verification"]["status"] == "verified"
+    assert audit_details["verification"]["verified"] is True
+
+
+def test_dns_change_plan_apply_reports_unverified_provider_readback(
+    authed_client: TestClient,
+    db_session,
+):
+    db_session.add(Domain(name=DOMAIN))
+    db_session.commit()
+    plan = _dns_plan(operation="update")
+    provider = FakeUnverifiedWriteCloudflareProvider(
+        zones=[{"id": "zone-1", "name": DOMAIN}],
+        records=[_record("dmarc", "TXT", f"_dmarc.{DOMAIN}", "v=DMARC1; p=none")],
+    )
+
+    with (
+        patch(
+            "app.api.api_v1.endpoints.domains._build_domain_dns_guidance",
+            new=AsyncMock(return_value=_dns_guidance_with_plan(plan)),
+        ),
+        patch(
+            "app.services.dns_provider_writes.get_zone_for_domain",
+            new=AsyncMock(
+                return_value={"id": "zone-1", "name": DOMAIN, "records": list(provider.records)}
+            ),
+        ),
+        patch(
+            "app.services.dns_provider_writes.build_cloudflare_provider",
+            return_value=provider,
+        ),
+    ):
+        response = authed_client.post(
+            f"/api/v1/domains/{DOMAIN}/dns/change-plan/apply",
+            json={
+                "plan_id": plan["plan_id"],
+                "provider": "cloudflare",
+                "dry_run": False,
+                "confirm": True,
+            },
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["applied"] is True
+    assert data["verification"]["status"] == "failed"
+    assert data["verification"]["verified"] is False
+    assert "did not return the expected DNS record" in data["verification"]["message"]
+    audit_details = json.loads(db_session.query(WorkspaceAuditLog).one().details)
+    assert audit_details["verification"]["status"] == "failed"
+    assert audit_details["verification"]["verified"] is False
 
 
 def test_dns_change_plan_apply_allows_explicit_provider_mismatch_override_and_audits(
@@ -1410,6 +1471,8 @@ def test_cloudflare_write_provider_creates_record_and_syncs_history(db_session):
     assert result.applied is True
     assert cloudflare_provider.created[0]["ttl"] == 3600
     assert result.provider_result["id"] == "created-1"
+    assert result.verification.status == "verified"
+    assert result.verification.verified is True
     assert result.changes[0]["change_type"] == "added"
     assert db_session.query(DNSRecordChange).count() == 1
 
@@ -1472,17 +1535,22 @@ def test_lexicon_write_provider_reports_missing_runtime(db_session):
 
 def test_lexicon_write_provider_prepares_update_and_applies_record(db_session):
     provider = LexiconDNSWriteProvider("route53")
-    provider._list_records = lambda domain, record_type, record_name: [  # pylint: disable=protected-access
-        {
+    records = [{"id": "record-1", "content": "v=DMARC1; p=none"}]
+
+    def list_records(domain, record_type, record_name):
+        return records
+
+    def apply_record(domain, mutation):
+        records[0] = {
             "id": "record-1",
-            "type": record_type,
-            "name": record_name,
-            "content": "v=DMARC1; p=none",
+            "type": mutation.record_type,
+            "name": mutation.name,
+            "content": mutation.content,
         }
-    ]
-    provider._apply_record = (
-        lambda domain, mutation: mutation.record_id == "record-1"
-    )  # pylint: disable=protected-access
+        return mutation.record_id == "record-1"
+
+    provider._list_records = list_records  # pylint: disable=protected-access
+    provider._apply_record = apply_record  # pylint: disable=protected-access
 
     with patch("app.services.dns_provider_writes.lexicon_runtime_available", return_value=True):
         mutation = asyncio.run(
@@ -1501,6 +1569,8 @@ def test_lexicon_write_provider_prepares_update_and_applies_record(db_session):
     assert mutation.current_values == ["v=DMARC1; p=none"]
     assert result.applied is True
     assert result.provider_result == {"ok": True}
+    assert result.verification.status == "verified"
+    assert result.verification.verified is True
 
 
 def test_lexicon_write_provider_rejects_failed_apply(db_session):

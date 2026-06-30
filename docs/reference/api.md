@@ -629,7 +629,11 @@ nameserver detection recommends a different provider than the selected provider,
 the request is rejected unless `allow_provider_mismatch=true` is supplied.
 Applied changes are written to the workspace audit log, including provider
 mismatch override details when present, and refresh provider-backed DNS change
-history where the provider supports it.
+history where the provider supports it. Apply responses also include a
+`verification` object with `status`, `verified`, `checked_values`, and
+`message`. Treat a repair as complete only when `verification.verified=true`;
+otherwise the mutation was submitted but the provider readback did not yet show
+the expected DNS value.
 
 `GET /domains/{domain_id}/dns/change-plan` also returns
 `available_write_providers`, `recommended_provider`, and response-level

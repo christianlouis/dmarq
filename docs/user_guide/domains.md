@@ -122,6 +122,12 @@ overridden only with an explicit confirmation that the selected provider
 actually manages the zone; that override is captured in the workspace audit log
 when a write is applied.
 
+After a confirmed provider write, DMARQ reads the record back from the provider
+API and shows the verification result. Do not treat the issue as repaired until
+the response says the expected value was verified. If verification fails, keep
+the change under review and check provider state, propagation, and whether a
+different authoritative DNS provider manages the zone.
+
 Automatic apply is intentionally limited. DMARQ only applies plans that already
 contain a concrete DNS value and a low-risk operation such as create or update.
 Plans that require provider-specific values, DKIM rotation, record
