@@ -97,6 +97,10 @@ def test_build_demo_dashboard_statistics_fills_chart_sources_and_changes():
     assert stats["source_anomalies"]
     assert any(source["dmarc"] in {"mixed", "fail"} for source in stats["top_sources"])
     assert all("geo" in source for source in stats["top_sources"])
+    assert any(
+        source["ip"] == "198.51.100.199" and source["geo"]["network"] == "Unverified Forwarder"
+        for source in stats["top_sources"]
+    )
 
 
 def test_build_demo_domain_statistics_includes_sources():

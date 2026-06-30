@@ -1326,6 +1326,7 @@ def build_demo_dashboard_statistics(
             "dmarc_pass_count": 0,
             "dmarc_fail_count": 0,
             "domains": set(),
+            "extensions": {},
         }
     )
 
@@ -1353,6 +1354,9 @@ def build_demo_dashboard_statistics(
             source["dmarc_pass_count"] += count if dmarc_pass else 0
             source["dmarc_fail_count"] += 0 if dmarc_pass else count
             source["domains"].add(report["domain"])
+            for key, value in (record.get("extensions") or {}).items():
+                if key.startswith("demo:") and value and key not in source["extensions"]:
+                    source["extensions"][key] = value
 
     compliance_trend: List[Dict[str, Any]] = []
     for day_key in sorted(daily):
@@ -1394,6 +1398,7 @@ def build_demo_dashboard_statistics(
                 ),
                 "domains": sorted(source["domains"]),
                 "geo": source_geo_for(source["ip"], source),
+                "extensions": dict(source["extensions"]),
             }
         )
     source_rows.sort(key=lambda item: item["count"], reverse=True)
@@ -1406,11 +1411,15 @@ def build_demo_dashboard_statistics(
                 "count": source["count"],
                 "dmarc_fail_count": source["dmarc_fail_count"],
                 "extensions": {
-                    "demo:region": source["geo"]["region"],
-                    "demo:country_code": source["geo"]["country_code"],
-                    "demo:country": source["geo"]["country"],
-                    "demo:asn": source["geo"]["asn"],
-                    "demo:network": source["geo"]["network"],
+                    "demo:region": source["extensions"].get("demo:region")
+                    or source["geo"]["region"],
+                    "demo:country_code": source["extensions"].get("demo:country_code")
+                    or source["geo"]["country_code"],
+                    "demo:country": source["extensions"].get("demo:country")
+                    or source["geo"]["country"],
+                    "demo:asn": source["extensions"].get("demo:asn") or source["geo"]["asn"],
+                    "demo:network": source["extensions"].get("demo:network")
+                    or source["geo"]["network"],
                 },
             }
             for source in source_rows

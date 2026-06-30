@@ -228,6 +228,7 @@ def source_geo_for(ip: str, source: Optional[Dict[str, Any]] = None) -> Dict[str
                     }
                 )
         except ValueError:
+            # Invalid source identifiers have no network metadata to infer.
             pass
 
     return {
@@ -254,9 +255,12 @@ def _report_timestamp(report: Dict[str, Any]) -> int:
                 return int(value)
             except ValueError:
                 try:
-                    return int(
-                        datetime.fromisoformat(value).replace(tzinfo=timezone.utc).timestamp()
-                    )
+                    parsed = datetime.fromisoformat(value)
+                    if parsed.tzinfo is None:
+                        parsed = parsed.replace(tzinfo=timezone.utc)
+                    else:
+                        parsed = parsed.astimezone(timezone.utc)
+                    return int(parsed.timestamp())
                 except ValueError:
                     continue
     return 0
@@ -397,7 +401,8 @@ def _source_anomalies(
         if previous and previous["count"] > 0:
             baseline_rate = previous["count"] / max(1, period_days - recent_days)
             current_rate = count / max(1, recent_days)
-            if current_rate >= baseline_rate * 2.5 and count - previous["count"] >= 50:
+            expected_baseline_count = baseline_rate * recent_days
+            if current_rate >= baseline_rate * 2.5 and count - expected_baseline_count >= 50:
                 add_anomaly(
                     {
                         "type": "volume_spike",
@@ -473,10 +478,13 @@ def build_source_intelligence(
     period_days = max(1, int(period_days or 30))
     recent_days = min(7, max(1, period_days // 2))
     recent_start = latest_ts - recent_days * 86400 if latest_ts else 0
+    period_start = latest_ts - period_days * 86400 if latest_ts else 0
 
     baseline: Dict[str, Dict[str, Any]] = {}
     recent: Dict[str, Dict[str, Any]] = {}
     for row in report_rows:
+        if period_start and int(row.get("_timestamp") or 0) < period_start:
+            continue
         if latest_ts and int(row.get("_timestamp") or 0) >= recent_start:
             _add_rollup(recent, row)
         else:
