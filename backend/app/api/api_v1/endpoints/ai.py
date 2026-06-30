@@ -95,12 +95,17 @@ async def get_ai_config(
 @router.get("/domains/{domain}/context", response_model=SafeContextResponse)
 async def get_domain_safe_context(
     domain: str,
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
 ) -> SafeContextResponse:
     """Return a redacted, evidence-linked context payload for one domain."""
     _require_ai_enabled(db)
-    workspace = _authorized_ai_workspace(_auth, db)
+    workspace = _authorized_ai_workspace(
+        _auth,
+        db,
+        parse_selected_workspace_id(selected_workspace),
+    )
     try:
         return {"context": build_safe_context(db, domain, workspace_id=workspace.id)}
     except ValueError as exc:
