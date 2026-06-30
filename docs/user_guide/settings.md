@@ -150,6 +150,21 @@ DMARQ never performs background DNS edits. A write-capable token only enables
 operator-approved actions from the DNS change plan UI, and each applied change
 is recorded in the workspace audit log.
 
+### Mail Service Sender Imports
+
+If you use Postmark to send mail:
+
+1. Navigate to **Settings** > **Mail Service Imports**.
+2. Add a Postmark account token.
+3. Use **Discover** to preview sender domains and their verification state.
+4. Use **Import New** to create monitored domain rows before DMARQ has received
+   reports for those domains.
+
+Imported domains appear in the normal domain list and detail pages. The detail
+page shows that the domain came from Postmark, while DNS linting and
+remediation guidance stay inside DMARQ. This workflow is read-only against
+Postmark and does not change DNS records.
+
 ### Other Integrations
 
 DMARQ supports additional integrations:
