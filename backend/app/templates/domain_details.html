@@ -1048,6 +1048,27 @@
                                                                x-text="dnsWrite.preview.verification.message"></p>
                                                         </div>
                                                     </template>
+                                                    <template x-if="dnsWrite.preview.rollback">
+                                                        <div class="mt-2 rounded bg-white/70 p-2">
+                                                            <p>
+                                                                <span class="font-semibold">Rollback:</span>
+                                                                <span x-text="dnsWrite.preview.rollback.summary"></span>
+                                                            </p>
+                                                            <template x-if="dnsWrite.preview.rollback.previous_values && dnsWrite.preview.rollback.previous_values.length">
+                                                                <div class="mt-2">
+                                                                    <p class="font-semibold">Previous value</p>
+                                                                    <template x-for="value in dnsWrite.preview.rollback.previous_values" :key="value">
+                                                                        <code class="mt-1 block break-all rounded bg-base-200 p-2" x-text="value"></code>
+                                                                    </template>
+                                                                </div>
+                                                            </template>
+                                                            <ol class="mt-2 list-decimal space-y-1 pl-5 text-base-content/70">
+                                                                <template x-for="(step, stepIndex) in dnsWrite.preview.rollback.steps" :key="'rollback-' + stepIndex">
+                                                                    <li x-text="step"></li>
+                                                                </template>
+                                                            </ol>
+                                                        </div>
+                                                    </template>
                                                 </div>
                                             </template>
                                         </div>
