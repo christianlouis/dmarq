@@ -302,6 +302,67 @@ def test_domain_health_history_returns_persisted_trend(seeded_client: TestClient
     assert data["points"][1]["top_actions"][0]["title"] == "Fix SPF coverage"
 
 
+def test_workspace_health_history_returns_persisted_trend(
+    seeded_client: TestClient,
+    db_session,
+):
+    """Workspace health history aggregates daily scores across monitored domains."""
+    workspace = get_or_create_default_workspace(db_session)
+    db_session.add(
+        Domain(name="example.net", workspace_id=workspace.id, active=True, dmarc_policy="none")
+    )
+    db_session.commit()
+    upsert_health_score_snapshot(
+        db_session,
+        workspace_id=workspace.id,
+        domain_name=DOMAIN,
+        health={"score": 92, "grade": "A-", "status": "healthy", "factors": {}, "actions": []},
+        policy="reject",
+        compliance_rate=97,
+        total_emails=900,
+        failed_emails=27,
+        report_count=10,
+        snapshot_date=date(2026, 6, 1),
+    )
+    upsert_health_score_snapshot(
+        db_session,
+        workspace_id=workspace.id,
+        domain_name="example.net",
+        health={
+            "score": 68,
+            "grade": "D",
+            "status": "critical",
+            "factors": {},
+            "actions": [
+                {
+                    "title": "Move out of monitoring mode",
+                    "severity": "medium",
+                    "score_impact": 14,
+                }
+            ],
+        },
+        policy="none",
+        compliance_rate=72,
+        total_emails=100,
+        failed_emails=28,
+        report_count=3,
+        snapshot_date=date(2026, 6, 1),
+    )
+
+    response = seeded_client.get(
+        "/api/v1/domains/summary/health/history"
+        "?start_date=2026-06-01&end_date=2026-06-30&limit=30"
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["scope"] == "workspace"
+    assert data["current_score"] == 90
+    assert data["points"][0]["domain_count"] == 2
+    assert data["points"][0]["total_emails"] == 1000
+    assert data["top_drivers"][0]["domain"] == "example.net"
+
+
 def test_export_domain_health_evidence_returns_sanitized_csv(
     seeded_client: TestClient,
     db_session,
@@ -440,6 +501,15 @@ def test_domain_health_history_rejects_invalid_date_order(seeded_client: TestCli
     assert response.status_code == 422
 
 
+def test_workspace_health_history_rejects_invalid_date_order(seeded_client: TestClient):
+    """Workspace health history validates that the start date is not after the end date."""
+    response = seeded_client.get(
+        "/api/v1/domains/summary/health/history" "?start_date=2026-06-03&end_date=2026-06-02"
+    )
+
+    assert response.status_code == 422
+
+
 def test_domain_health_evidence_export_rejects_invalid_date_order(
     seeded_client: TestClient,
 ):
@@ -516,6 +586,25 @@ def test_domain_health_evidence_export_uses_demo_history_fallback(
     assert rows[-1]["policy"] == "none"
 
 
+def test_workspace_health_history_uses_demo_history_fallback(
+    authed_client: TestClient,
+    monkeypatch,
+):
+    """Demo mode serves rolling workspace health history without persisted snapshots."""
+    _enable_endpoint_demo_mode(monkeypatch)
+
+    response = authed_client.get(
+        "/api/v1/domains/summary/health/history" "?start_date=2026-06-01&limit=3"
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["scope"] == "workspace"
+    assert 0 < len(data["points"]) <= 3
+    assert data["current_score"] is not None
+    assert data["points"][-1]["domain_count"] == 2
+
+
 def test_health_history_helpers_cover_demo_and_empty_paths():
     empty = domains_endpoint._history_response_from_points(DOMAIN, [])
     assert empty.current_score is None
@@ -542,6 +631,15 @@ def test_health_history_helpers_cover_demo_and_empty_paths():
     )
     assert csv_response.media_type == "text/csv"
     assert "health-evidence.csv" in csv_response.headers["content-disposition"]
+
+    workspace_points = domains_endpoint._demo_workspace_history_points(
+        ["dmarq.org", "dmarq.com"],
+        start_date=date(2026, 6, 1),
+        limit=2,
+    )
+    workspace_response = domains_endpoint._workspace_history_response_from_points(workspace_points)
+    assert len(workspace_response.points) <= 2
+    assert workspace_response.current_score is not None
 
 
 # ---------------------------------------------------------------------------

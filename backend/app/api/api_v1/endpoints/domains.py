@@ -42,9 +42,12 @@ from app.services.dns_resolver import (
 )
 from app.services.health_score import build_health_summary, score_domain_health
 from app.services.health_score_snapshots import (
+    aggregate_workspace_health_points,
     build_health_evidence_export_rows,
     build_health_score_history,
+    build_workspace_health_score_history,
     list_health_score_snapshots,
+    list_workspace_health_score_snapshots,
     upsert_health_score_snapshot,
 )
 from app.services.mta_sts import MTAStsResult, check_mta_sts_cached
@@ -429,6 +432,25 @@ class HealthScoreHistoryResponse(BaseModel):
 
     domain: str
     points: List[HealthScoreHistoryPoint]
+    current_score: Optional[int] = None
+    previous_score: Optional[int] = None
+    score_delta: Optional[int] = None
+    current_grade: Optional[str] = None
+    previous_grade: Optional[str] = None
+    top_drivers: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class WorkspaceHealthScoreHistoryPoint(HealthScoreHistoryPoint):
+    """One workspace-level health score history point."""
+
+    domain_count: int
+
+
+class WorkspaceHealthScoreHistoryResponse(BaseModel):
+    """Score history and trend metadata for the selected workspace."""
+
+    scope: str
+    points: List[WorkspaceHealthScoreHistoryPoint]
     current_score: Optional[int] = None
     previous_score: Optional[int] = None
     score_delta: Optional[int] = None
@@ -1415,6 +1437,45 @@ def _demo_history_points(
     return points[-limit:]
 
 
+def _workspace_history_response_from_points(
+    points: List[Dict[str, Any]],
+) -> WorkspaceHealthScoreHistoryResponse:
+    """Build a workspace health history response from serialized points."""
+    current = points[-1] if points else None
+    previous = points[-2] if len(points) > 1 else None
+    return WorkspaceHealthScoreHistoryResponse(
+        scope="workspace",
+        points=points,
+        current_score=current["score"] if current else None,
+        previous_score=previous["score"] if previous else None,
+        score_delta=current["score"] - previous["score"] if current and previous else None,
+        current_grade=current["grade"] if current else None,
+        previous_grade=previous["grade"] if previous else None,
+        top_drivers=current.get("top_actions", []) if current else [],
+    )
+
+
+def _demo_workspace_history_points(
+    domain_names: List[str],
+    *,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    limit: int = 120,
+) -> List[Dict[str, Any]]:
+    """Return aggregated rolling demo history for the active workspace."""
+    demo_domains = domain_names or ["dmarq.org", "dmarq.com"]
+    points_by_domain = {
+        domain_name: _demo_history_points(
+            domain_name,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+        )
+        for domain_name in demo_domains
+    }
+    return aggregate_workspace_health_points(points_by_domain)[-limit:]
+
+
 def _write_health_evidence_csv(rows: List[Dict[str, Any]], *, domain_id: str) -> Response:
     output = io.StringIO()
     fields = [
@@ -1611,6 +1672,50 @@ async def get_domains_summary(
         domains=domains_list,
         health_summary=build_health_summary(domains_list, domain_health),
     )
+
+
+@router.get("/summary/health/history", response_model=WorkspaceHealthScoreHistoryResponse)
+async def get_workspace_health_score_history(
+    start_date: Optional[date] = Query(None, title="Start date for score history"),
+    end_date: Optional[date] = Query(None, title="End date for score history"),
+    limit: int = Query(120, ge=1, le=400, title="Maximum history points"),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
+    """Return selected-workspace health score history aggregated across domains."""
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="start_date must be on or before end_date",
+        )
+    selected_workspace_id = parse_selected_workspace_id(selected_workspace)
+    workspace = _authorized_domain_read_workspace(_auth, db, selected_workspace_id)
+    snapshots = list_workspace_health_score_snapshots(
+        db,
+        workspace_id=workspace.id,
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+    )
+    if not snapshots and get_settings().DEMO_MODE:
+        store = ReportStore()
+        hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
+        domains = _domain_names_for_summary(
+            db,
+            store,
+            workspace,
+            include_unscoped_report_domains=True,
+        )
+        return _workspace_history_response_from_points(
+            _demo_workspace_history_points(
+                domains,
+                start_date=start_date,
+                end_date=end_date,
+                limit=limit,
+            )
+        )
+    return WorkspaceHealthScoreHistoryResponse(**build_workspace_health_score_history(snapshots))
 
 
 @router.get("/domains", response_model=List[DomainResponse])
