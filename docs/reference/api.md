@@ -239,6 +239,63 @@ trigger `backfill`. In demo mode, DMARQ exposes credential-free synthetic mail
 sources and backfill jobs so the workflow is visible without connecting a real
 mailbox.
 
+### Migration And Portability
+
+Migration endpoints are admin/session endpoints for safe platform cutovers.
+They are scoped to the selected workspace through `X-DMARQ-Workspace-ID` when
+that header is present.
+
+#### Get Migration Readiness
+
+```text
+GET /domains/{domain_id}/migration/readiness
+```
+
+Returns the safe parallel-reporting checklist, portability export links, report
+counts, source counts, and DNS readiness guidance for one monitored domain.
+
+#### Get Migration Parity
+
+```text
+GET /domains/{domain_id}/migration/parity
+```
+
+Optional query parameters:
+
+| Parameter | Purpose |
+| --- | --- |
+| `baseline_report_count` | Aggregate reports seen by the legacy platform |
+| `baseline_total_emails` | Messages seen by the legacy platform |
+| `baseline_source_count` | Sending sources seen by the legacy platform |
+| `baseline_compliance_rate` | Legacy alignment or compliance percentage |
+| `baseline_policy` | DMARC `p=` policy reported by the legacy platform |
+| `tolerance_percent` | Allowed percent delta before review is required |
+
+If no baseline values are provided, the response status is `baseline_needed`
+instead of claiming parity.
+
+#### Preview Historical Export
+
+```text
+POST /domains/{domain_id}/migration/import/preview
+```
+
+Request:
+
+```json
+{
+  "format": "auto",
+  "source_platform": "DMARCguard",
+  "content": "Domain,Report ID,Date,Source IP,Messages,DKIM,SPF,Policy\nexample.com,r1,2026-06-01,192.0.2.10,10,pass,fail,reject",
+  "max_rows": 50
+}
+```
+
+The preview accepts CSV or JSON export content and returns detected columns,
+mapped DMARC fields, warnings, sample normalized rows, and suggested parity
+baseline values. It is read-only: it does not create domains, persist aggregate
+reports, or modify DNS.
+
 ### MSP Operator Views
 
 #### List Workspace Operator Summaries

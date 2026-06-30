@@ -958,6 +958,92 @@ def test_get_domain_migration_parity_flags_legacy_mismatch(seeded_client: TestCl
     assert metrics["policy"]["baseline_display"] == "none"
 
 
+def test_preview_domain_migration_import_csv_baseline(seeded_client: TestClient):
+    """Historical CSV exports are normalized without writing reports."""
+    content = "\n".join(
+        [
+            "Domain,Report ID,Date,Source IP,Messages,DKIM,SPF,Policy,Reporter",
+            "example.com,legacy-1,2026-06-01,192.0.2.10,8,pass,fail,reject,Vendor",
+            "example.com,legacy-1,2026-06-01,192.0.2.20,2,fail,pass,reject,Vendor",
+        ]
+    )
+    response = seeded_client.post(
+        f"/api/v1/domains/{DOMAIN}/migration/import/preview",
+        json={
+            "format": "csv",
+            "source_platform": "DMARCguard",
+            "content": content,
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["domain"] == DOMAIN
+    assert data["status"] == "ready"
+    assert data["import_mode"] == "preview_only"
+    assert data["row_count"] == 2
+    assert data["normalized_count"] == 2
+    assert data["baseline"] == {
+        "report_count": 1,
+        "total_emails": 10,
+        "source_count": 2,
+        "compliance_rate": 100.0,
+        "policy": "reject",
+        "date_start": None,
+        "date_end": "2026-06-01",
+    }
+    assert data["mapped_columns"]["source_ip"] == "Source IP"
+    assert data["sample_rows"][0]["source_ip"] == "192.0.2.10"
+    assert data["next_steps"][-1] == (
+        "Keep the old DMARC platform active until mismatches are explained."
+    )
+
+
+def test_preview_domain_migration_import_json_warns_on_domain_mismatch(
+    seeded_client: TestClient,
+):
+    """Preview remains domain scoped and warns when export rows include other domains."""
+    response = seeded_client.post(
+        f"/api/v1/domains/{DOMAIN}/migration/import/preview",
+        json={
+            "format": "json",
+            "content": {
+                "rows": [
+                    {
+                        "domain": "other.example",
+                        "report_id": "legacy-2",
+                        "source_ip": "198.51.100.10",
+                        "count": 5,
+                        "dkim_result": "fail",
+                        "spf_result": "pass",
+                        "policy": "p=none",
+                    }
+                ]
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["baseline"]["policy"] == "none"
+    assert data["baseline"]["compliance_rate"] == 100.0
+    assert data["warnings"][0] == "Export contains rows for other domains: other.example"
+
+
+def test_preview_domain_migration_import_rejects_invalid_json(seeded_client: TestClient):
+    """Invalid vendor export payloads return a clear 400 without side effects."""
+    response = seeded_client.post(
+        f"/api/v1/domains/{DOMAIN}/migration/import/preview",
+        json={"format": "json", "content": "{not-json"},
+    )
+
+    assert response.status_code == 400
+    assert (
+        response.json()["detail"]
+        == "JSON content could not be parsed: Expecting property name enclosed in double quotes"
+    )
+
+
 def test_get_domain_migration_readiness_blocks_empty_domain(
     authed_client: TestClient,
     db_session,

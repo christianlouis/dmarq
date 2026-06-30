@@ -33,6 +33,25 @@ If no legacy baseline is entered, DMARQ marks the comparison as
 until the parity signals are either matched, explained, or intentionally
 accepted.
 
+## Historical export preview
+
+Use the read-only migration import preview before relying on historical exports
+from another DMARC platform. The preview accepts CSV or JSON content, detects
+common export columns, normalizes a sample of rows, and suggests baseline values
+for the Migration Parity panel:
+
+- aggregate report count
+- message volume
+- observed sending source count
+- compliance or alignment rate
+- most common DMARC policy
+- first and last observed dates where present
+
+The preview does not create domains, write aggregate reports, or modify DNS.
+It is intentionally safe to run against vendor exports while planning a
+cutover. Review warnings for missing columns, rows from other domains, or
+truncated previews before using the suggested baseline values.
+
 ## Platform-specific notes
 
 For Valimail, EasyDMARC, dmarcian, PowerDMARC, DMARCguard, and manual mailbox
@@ -59,7 +78,7 @@ They are meant for parity checks, audit evidence, and rollback decisions.
 ## Import limitations
 
 DMARQ can ingest standard DMARC aggregate reports through upload, IMAP, Gmail,
-and Microsoft 365 mail sources. Vendor-specific historical export imports are
-tracked as follow-up work. Until a vendor importer exists, use the previous
-platform's export as a comparison artifact and let DMARQ build its own evidence
-from newly received aggregate reports.
+and Microsoft 365 mail sources. Vendor-specific historical export persistence is
+tracked as follow-up work. Until a write importer exists, use the migration
+preview and parity dashboard as comparison artifacts while DMARQ builds its own
+evidence from newly received aggregate reports.

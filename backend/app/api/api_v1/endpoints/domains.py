@@ -2,6 +2,7 @@ import asyncio
 import csv
 import io
 import ipaddress
+import json
 import logging
 from dataclasses import asdict
 from datetime import date, datetime, timezone
@@ -50,6 +51,7 @@ from app.services.health_score_snapshots import (
     list_workspace_health_score_snapshots,
     upsert_health_score_snapshot,
 )
+from app.services.migration_import import preview_migration_import
 from app.services.mta_sts import MTAStsResult, check_mta_sts_cached
 from app.services.organizations import (
     OrganizationPlanLimitError,
@@ -219,6 +221,62 @@ class MigrationParityResponse(BaseModel):
     baseline_required: bool
     tolerance_percent: float
     metrics: List[MigrationParityMetric]
+    next_steps: List[str] = Field(default_factory=list)
+
+
+class MigrationImportPreviewRequest(BaseModel):
+    """Read-only historical export preview request."""
+
+    content: Any
+    format: str = Field(default="auto", pattern="^(auto|csv|json)$")
+    source_platform: Optional[str] = None
+    max_rows: int = Field(default=50, ge=1, le=500)
+
+
+class MigrationImportBaseline(BaseModel):
+    """Suggested legacy baseline values derived from a historical export."""
+
+    report_count: int
+    total_emails: int
+    source_count: int
+    compliance_rate: float
+    policy: Optional[str] = None
+    date_start: Optional[str] = None
+    date_end: Optional[str] = None
+
+
+class MigrationImportPreviewRow(BaseModel):
+    """One normalized read-only export row."""
+
+    domain: Optional[str] = None
+    report_id: Optional[str] = None
+    begin_date: Optional[str] = None
+    end_date: Optional[str] = None
+    source_ip: Optional[str] = None
+    count: int
+    dkim: Optional[str] = None
+    spf: Optional[str] = None
+    disposition: Optional[str] = None
+    policy: Optional[str] = None
+    org_name: Optional[str] = None
+
+
+class MigrationImportPreviewResponse(BaseModel):
+    """Read-only preview of a historical DMARC platform export."""
+
+    domain: str
+    status: str
+    source_platform: Optional[str] = None
+    format: str
+    import_mode: str = "preview_only"
+    row_count: int
+    normalized_count: int
+    ignored_count: int
+    detected_columns: List[str]
+    mapped_columns: Dict[str, str]
+    warnings: List[str] = Field(default_factory=list)
+    baseline: MigrationImportBaseline
+    sample_rows: List[MigrationImportPreviewRow] = Field(default_factory=list)
     next_steps: List[str] = Field(default_factory=list)
 
 
@@ -2413,6 +2471,62 @@ async def get_domain_migration_parity(
         baseline_compliance_rate=baseline_compliance_rate,
         baseline_policy=baseline_policy,
         tolerance_percent=tolerance_percent,
+    )
+
+
+@router.post("/{domain_id}/migration/import/preview", response_model=MigrationImportPreviewResponse)
+async def preview_domain_migration_import(
+    payload: MigrationImportPreviewRequest,
+    domain_id: str = Path(..., title="The domain ID or name"),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
+    """Preview a historical DMARC export without writing reports or domains."""
+    selected_workspace_id = parse_selected_workspace_id(selected_workspace)
+    workspace = _authorized_domain_read_workspace(_auth, db, selected_workspace_id)
+    store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
+    domain_name = _resolve_domain_name_for_read(db, store, domain_id, workspace)
+
+    try:
+        content = (
+            payload.content if isinstance(payload.content, str) else json.dumps(payload.content)
+        )
+        preview = preview_migration_import(
+            domain=domain_name,
+            content=content,
+            source_format=payload.format,
+            max_rows=payload.max_rows,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    status_text = "ready" if preview["normalized_count"] else "needs_mapping"
+    next_steps = [
+        "Use the suggested baseline values in Migration Parity for the same date window.",
+        "Keep the old DMARC platform active until mismatches are explained.",
+    ]
+    if preview["warnings"]:
+        next_steps.insert(0, "Review warnings before using this export for parity decisions.")
+
+    return MigrationImportPreviewResponse(
+        domain=domain_name,
+        status=status_text,
+        source_platform=payload.source_platform,
+        format=preview["format"],
+        row_count=preview["row_count"],
+        normalized_count=preview["normalized_count"],
+        ignored_count=preview["ignored_count"],
+        detected_columns=preview["detected_columns"],
+        mapped_columns=preview["mapped_columns"],
+        warnings=preview["warnings"],
+        baseline=MigrationImportBaseline(**preview["baseline"]),
+        sample_rows=[MigrationImportPreviewRow(**row) for row in preview["sample_rows"]],
+        next_steps=next_steps,
     )
 
 
