@@ -12,7 +12,7 @@ def test_preview_migration_import_auto_json_list_limits_and_warns():
         domain="example.com",
         content="""[
           {"domain": "example.com", "source": "192.0.2.1", "total": "1,200"},
-          {"domain": "example.com", "source": "192.0.2.2", "total": 5}
+          {"domain": "example.com", "source": "192.0.2.2", "total": 5, "unused_after_preview": true}
         ]""",
         max_rows=1,
     )
@@ -21,8 +21,12 @@ def test_preview_migration_import_auto_json_list_limits_and_warns():
     assert preview["row_count"] == 2
     assert preview["normalized_count"] == 1
     assert preview["ignored_count"] == 1
+    assert preview["rejected_count"] == 0
+    assert preview["truncated_count"] == 1
     assert preview["baseline"]["total_emails"] == 1200
     assert preview["sample_rows"][0]["source_ip"] == "192.0.2.1"
+    assert "total" in preview["detected_columns"]
+    assert "unused_after_preview" not in preview["detected_columns"]
     assert "Preview limited to the first 1 rows." in preview["warnings"]
     assert "Missing recommended columns: dkim, spf, policy" in preview["warnings"]
 
@@ -37,8 +41,34 @@ def test_preview_migration_import_ignores_unmappable_rows():
 
     assert preview["normalized_count"] == 0
     assert preview["ignored_count"] == 1
+    assert preview["rejected_count"] == 1
+    assert preview["truncated_count"] == 0
     assert preview["sample_rows"] == []
     assert "Ignored a row without a sending source or message count." in preview["warnings"]
+
+
+def test_preview_migration_import_splits_rejected_and_truncated_counts():
+    """Ignored counts distinguish rejected preview rows from truncated rows."""
+    preview = preview_migration_import(
+        domain="example.com",
+        content="\n".join(
+            [
+                "Domain,Source IP,Messages",
+                "example.com,,0",
+                "example.com,192.0.2.10,3",
+                "example.com,192.0.2.11,7",
+            ]
+        ),
+        source_format="csv",
+        max_rows=2,
+    )
+
+    assert preview["row_count"] == 3
+    assert preview["normalized_count"] == 1
+    assert preview["rejected_count"] == 1
+    assert preview["truncated_count"] == 1
+    assert preview["ignored_count"] == 2
+    assert preview["baseline"]["total_emails"] == 3
 
 
 def test_preview_migration_import_json_object_without_row_collection():
@@ -80,6 +110,18 @@ def test_preview_migration_import_rejects_invalid_inputs(content, source_format,
             domain="example.com",
             content=content,
             source_format=source_format,
+        )
+
+
+def test_preview_migration_import_rejects_oversized_content():
+    """Oversized preview payloads fail without creating a huge parametrized test id."""
+    content = "x" * (migration_import.MAX_PREVIEW_CONTENT_BYTES + 1)
+
+    with pytest.raises(ValueError, match="import content is too large for preview"):
+        preview_migration_import(
+            domain="example.com",
+            content=content,
+            source_format="csv",
         )
 
 

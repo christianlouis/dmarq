@@ -272,6 +272,8 @@ class MigrationImportPreviewResponse(BaseModel):
     row_count: int
     normalized_count: int
     ignored_count: int
+    rejected_count: int
+    truncated_count: int
     detected_columns: List[str]
     mapped_columns: Dict[str, str]
     warnings: List[str] = Field(default_factory=list)
@@ -2521,6 +2523,8 @@ async def preview_domain_migration_import(
         row_count=preview["row_count"],
         normalized_count=preview["normalized_count"],
         ignored_count=preview["ignored_count"],
+        rejected_count=preview["rejected_count"],
+        truncated_count=preview["truncated_count"],
         detected_columns=preview["detected_columns"],
         mapped_columns=preview["mapped_columns"],
         warnings=preview["warnings"],

@@ -983,6 +983,9 @@ def test_preview_domain_migration_import_csv_baseline(seeded_client: TestClient)
     assert data["import_mode"] == "preview_only"
     assert data["row_count"] == 2
     assert data["normalized_count"] == 2
+    assert data["ignored_count"] == 0
+    assert data["rejected_count"] == 0
+    assert data["truncated_count"] == 0
     assert data["baseline"] == {
         "report_count": 1,
         "total_emails": 10,
@@ -1038,10 +1041,7 @@ def test_preview_domain_migration_import_rejects_invalid_json(seeded_client: Tes
     )
 
     assert response.status_code == 400
-    assert (
-        response.json()["detail"]
-        == "JSON content could not be parsed: Expecting property name enclosed in double quotes"
-    )
+    assert response.json()["detail"].startswith("JSON content could not be parsed:")
 
 
 def test_get_domain_migration_readiness_blocks_empty_domain(

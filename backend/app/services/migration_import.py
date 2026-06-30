@@ -33,6 +33,7 @@ COLUMN_ALIASES = {
 
 PASS_VALUES = {"pass", "passed", "true", "yes", "1", "aligned", "ok"}
 POLICY_VALUES = {"none", "quarantine", "reject"}
+MAX_PREVIEW_CONTENT_BYTES = 1_000_000
 
 
 @dataclass(frozen=True)
@@ -77,19 +78,23 @@ def preview_migration_import(
 ) -> Dict[str, Any]:
     """Parse a CSV/JSON vendor export into a read-only migration preview."""
     rows, detected_format = _load_rows(content, source_format)
-    detected_columns = _detected_columns(rows)
+    preview_rows = rows[:max_rows]
+    detected_columns = _detected_columns(preview_rows)
     aliases = _column_aliases(detected_columns)
     normalized_rows: List[MigrationImportRow] = []
     warnings: List[str] = []
+    rejected_count = 0
 
-    for raw_row in rows[:max_rows]:
+    for raw_row in preview_rows:
         normalized = _normalize_row(raw_row, aliases)
         if not normalized.source_ip and normalized.count == 0:
+            rejected_count += 1
             warnings.append("Ignored a row without a sending source or message count.")
             continue
         normalized_rows.append(normalized)
 
-    ignored_count = max(0, len(rows) - len(normalized_rows))
+    truncated_count = max(0, len(rows) - len(preview_rows))
+    ignored_count = rejected_count + truncated_count
     domain_mismatches = sorted(
         {
             row.domain
@@ -113,6 +118,8 @@ def preview_migration_import(
         "row_count": len(rows),
         "normalized_count": len(normalized_rows),
         "ignored_count": ignored_count,
+        "rejected_count": rejected_count,
+        "truncated_count": truncated_count,
         "detected_columns": detected_columns,
         "mapped_columns": aliases,
         "warnings": warnings,
@@ -129,6 +136,8 @@ def _load_rows(content: str, source_format: str) -> tuple[List[Dict[str, Any]], 
     text = content.strip()
     if not text:
         raise ValueError("import content is empty")
+    if len(text.encode("utf-8")) > MAX_PREVIEW_CONTENT_BYTES:
+        raise ValueError("import content is too large for preview")
 
     if normalized_format == "json" or (normalized_format == "auto" and text[:1] in {"[", "{"}):
         return _load_json_rows(text), "json"
