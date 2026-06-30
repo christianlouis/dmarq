@@ -9,7 +9,13 @@ from app.models.api_token import APIToken
 from app.models.domain import Domain
 from app.models.organization import BillingAccount, Organization
 from app.models.workspace import Workspace
-from app.services.api_tokens import READ_POSTURE_SCOPE, READ_REPORTS_SCOPE, create_api_token
+from app.services.api_tokens import (
+    MCP_READ_SCOPE,
+    READ_POSTURE_SCOPE,
+    READ_REPORTS_SCOPE,
+    READ_TLS_SCOPE,
+    create_api_token,
+)
 from app.services.health_score_snapshots import upsert_health_score_snapshot
 from app.services.organizations import (
     BILLING_MODE_MANUAL_CONTRACT,
@@ -119,6 +125,67 @@ def test_public_domains_summary_uses_scoped_token_context(client: TestClient, db
 
     assert response.status_code == 200
     assert response.json()["domains"][0]["domain_name"] == DOMAIN
+
+
+def test_public_export_catalog_lists_available_exports_and_token_usage(
+    client: TestClient,
+    db_session,
+):
+    """Public export catalog exposes stable routes without leaking token secrets."""
+    _persist_report(db_session)
+    created = create_api_token(
+        db_session,
+        name="catalog bot",
+        scopes=[READ_REPORTS_SCOPE, READ_POSTURE_SCOPE],
+    )
+
+    response = client.get(
+        "/api/v1/public/exports",
+        headers={"X-API-Key": created.secret},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["workspace"]["domain_count"] == 1
+    assert body["token"]["name"] == "catalog bot"
+    assert body["token"]["usage_count"] == 1
+    assert "secret" not in body["token"]
+    endpoint_by_key = {endpoint["key"]: endpoint for endpoint in body["public_endpoints"]}
+    assert endpoint_by_key["domain_reports"]["available"] is True
+    assert endpoint_by_key["health_evidence_export"]["available"] is True
+    assert endpoint_by_key["tls_report_summary"]["available"] is False
+    assert body["domains"][0]["domain"] == DOMAIN
+    assert (
+        body["domains"][0]["exports"]["health_evidence_export"]["href"]
+        == f"/api/v1/public/domains/{DOMAIN}/posture/evidence/export"
+    )
+    assert body["mcp"]["available"] is False
+    assert "export_catalog" in {tool["name"] for tool in body["mcp"]["tools"]}
+
+
+def test_public_export_catalog_accepts_tls_or_mcp_scope_without_domain_leak(
+    client: TestClient,
+    db_session,
+):
+    """Catalog is discoverable to read-only tokens but limits domain-specific links."""
+    _persist_report(db_session)
+    tls_token = create_api_token(db_session, name="tls bot", scopes=[READ_TLS_SCOPE])
+    mcp_token = create_api_token(db_session, name="mcp bot", scopes=[MCP_READ_SCOPE])
+
+    tls_response = client.get(
+        "/api/v1/public/exports",
+        headers={"X-API-Key": tls_token.secret},
+    )
+    mcp_response = client.get(
+        "/api/v1/public/exports",
+        headers={"X-API-Key": mcp_token.secret},
+    )
+
+    assert tls_response.status_code == 200
+    assert tls_response.json()["workspace"]["domain_count"] == 0
+    assert tls_response.json()["domains"] == []
+    assert mcp_response.status_code == 200
+    assert mcp_response.json()["workspace"]["domain_count"] == 1
 
 
 def test_public_source_intelligence_endpoints_use_report_scope(client: TestClient, db_session):
