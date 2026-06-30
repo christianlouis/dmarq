@@ -80,6 +80,32 @@ READ_ONLY_TOOLS = [
         "readOnlyHint": True,
     },
     {
+        "name": "dns_lint",
+        "description": "Return DNS lint findings, evidence, and target records for one domain.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string"},
+                "refresh": {"type": "boolean", "default": False},
+            },
+            "required": ["domain"],
+        },
+        "readOnlyHint": True,
+    },
+    {
+        "name": "dns_change_plan",
+        "description": "Return read-only DNS change plans without apply links.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string"},
+                "refresh": {"type": "boolean", "default": False},
+            },
+            "required": ["domain"],
+        },
+        "readOnlyHint": True,
+    },
+    {
         "name": "source_intelligence",
         "description": "Return source geography summaries and anomaly hints for one domain.",
         "inputSchema": {
@@ -201,6 +227,21 @@ async def _call_read_only_tool(
             db=db,
             _auth=auth_context,
         )
+    if name == "dns_lint":
+        return await domains.get_domain_dns_lint(
+            domain_id=_tool_domain(arguments),
+            refresh=bool(arguments.get("refresh", False)),
+            db=db,
+            _auth=auth_context,
+        )
+    if name == "dns_change_plan":
+        response = await domains.get_domain_dns_change_plan(
+            domain_id=_tool_domain(arguments),
+            refresh=bool(arguments.get("refresh", False)),
+            db=db,
+            _auth=auth_context,
+        )
+        return domains.read_only_dns_change_plan_response(response)
     if name == "source_intelligence":
         return await domains.get_domain_source_intelligence(
             domain_id=_tool_domain(arguments),

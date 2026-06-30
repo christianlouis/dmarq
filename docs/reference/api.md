@@ -62,6 +62,8 @@ through the `/public` path and avoid UI-specific payloads.
 | `GET /public/domains/{domain_id}/sources` | `reports:read` | Enriched sending sources with sender, geo, anomaly, and fix hints |
 | `GET /public/domains/{domain_id}/source-intelligence` | `reports:read` | Regional source summaries and anomaly hints |
 | `GET /public/domains/{domain_id}/posture` | `posture:read` | Evidence-first posture dashboard payload |
+| `GET /public/domains/{domain_id}/dns/lint` | `posture:read` | DNS lint findings, target records, and evidence |
+| `GET /public/domains/{domain_id}/dns/change-plan` | `posture:read` | Read-only DNS change plans without apply links |
 | `GET /public/domains/{domain_id}/action-proposals` | `posture:read` | Reviewable read-only remediation proposals |
 | `GET /public/tls-reports/summary` | `tls-reports:read` | SMTP TLS report trends and failure groups |
 | `POST /mcp` | `mcp:read` | Read-only MCP-style JSON-RPC tool endpoint |
@@ -83,6 +85,8 @@ The MCP endpoint currently exposes these read-only tools:
 | `domain_summary` | Return an evidence-first DMARC summary |
 | `domain_posture` | Return posture score, grade, DNS health, and action guidance |
 | `domain_sources` | Return enriched DMARC sending sources |
+| `dns_lint` | Return DNS lint findings, evidence, and target records |
+| `dns_change_plan` | Return read-only DNS change plans without apply links |
 | `source_intelligence` | Return source regions and anomaly hints |
 | `action_proposals` | Return reviewable remediation proposals without applying them |
 
@@ -365,6 +369,11 @@ Available tools:
 | --- | --- |
 | `list_domains` | List monitored domains and aggregate counts |
 | `domain_summary` | Return an evidence-first summary for one domain |
+| `domain_posture` | Return posture score, grade, DNS health, and action guidance |
+| `domain_sources` | Return enriched DMARC sending sources |
+| `dns_lint` | Return DNS lint findings, evidence, and target records |
+| `dns_change_plan` | Return read-only DNS change plans without apply links |
+| `source_intelligence` | Return source regions and anomaly hints |
 | `action_proposals` | Return reviewable remediation proposals without applying changes |
 
 Every successful tool call is audited as `mcp.tool_called`.

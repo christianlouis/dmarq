@@ -75,6 +75,11 @@ The current tools are read-only:
 
 - `list_domains`
 - `domain_summary`
+- `domain_posture`
+- `domain_sources`
+- `dns_lint`
+- `dns_change_plan`
+- `source_intelligence`
 - `action_proposals`
 
 Create a token with the `mcp:read` scope and send it through `X-API-Key`.

@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
+from app.api.api_v1.endpoints import domains as domains_endpoint
 from app.models.api_token import APIToken
 from app.models.organization import BillingAccount, Organization
 from app.models.workspace import Workspace
@@ -234,6 +235,94 @@ def test_public_action_proposals_are_workspace_scoped(client: TestClient, db_ses
     assert denied.status_code == 404
     assert allowed.status_code == 200
     assert allowed.json()["domain"] == other_domain
+
+
+def test_public_dns_guidance_uses_posture_scope_and_read_only_plans(
+    client: TestClient,
+    db_session,
+):
+    """Stable public DNS guidance is posture-scoped and never exposes write affordances."""
+    _persist_report(db_session)
+    posture_token = create_api_token(
+        db_session,
+        name="dns posture bot",
+        scopes=[READ_POSTURE_SCOPE],
+    )
+    reports_token = create_api_token(
+        db_session,
+        name="reports bot",
+        scopes=[READ_REPORTS_SCOPE],
+    )
+    lint_payload = domains_endpoint.DNSGuidanceResponse(
+        domain=DOMAIN,
+        status="attention",
+        findings=[],
+        target_records=[],
+        change_plans=[],
+    )
+    change_payload = domains_endpoint.DNSChangePlanResponse(
+        domain=DOMAIN,
+        status="attention",
+        read_only=False,
+        provider_write_available=True,
+        apply_endpoint=f"/api/v1/domains/{DOMAIN}/dns/change-plan/apply",
+        plans=[
+            domains_endpoint.DNSChangePlanItemResponse(
+                plan_id="dns-plan-1",
+                finding_code="dmarc_missing",
+                severity="error",
+                operation="create",
+                record_type="TXT",
+                name=f"_dmarc.{DOMAIN}",
+                proposed_value="v=DMARC1; p=none",
+                current_values=[],
+                rationale="Publish DMARC policy discovery.",
+                risk="Low; validates syntax before enforcement.",
+                rollback="Remove the new TXT record.",
+                expected_health_impact="Expected to remove a DNS-health finding.",
+                manual_steps=["Create the TXT record."],
+                requires_approval=True,
+                applies_automatically=True,
+                provider_write_available=True,
+            )
+        ],
+    )
+
+    with (
+        patch(
+            "app.api.api_v1.endpoints.public.domains.get_domain_dns_lint",
+            new=AsyncMock(return_value=lint_payload),
+        ) as lint,
+        patch(
+            "app.api.api_v1.endpoints.public.domains.get_domain_dns_change_plan",
+            new=AsyncMock(return_value=change_payload),
+        ) as change_plan,
+    ):
+        denied = client.get(
+            f"/api/v1/public/domains/{DOMAIN}/dns/lint",
+            headers={"X-API-Key": reports_token.secret},
+        )
+        lint_response = client.get(
+            f"/api/v1/public/domains/{DOMAIN}/dns/lint?refresh=true",
+            headers={"X-API-Key": posture_token.secret},
+        )
+        plan_response = client.get(
+            f"/api/v1/public/domains/{DOMAIN}/dns/change-plan",
+            headers={"X-API-Key": posture_token.secret},
+        )
+
+    assert denied.status_code == 403
+    assert lint_response.status_code == 200
+    assert lint_response.json()["domain"] == DOMAIN
+    assert plan_response.status_code == 200
+    plan_body = plan_response.json()
+    assert plan_body["read_only"] is True
+    assert plan_body["provider_write_available"] is False
+    assert plan_body["apply_endpoint"] is None
+    assert plan_body["plans"][0]["provider_write_available"] is False
+    assert plan_body["plans"][0]["applies_automatically"] is False
+    lint.assert_awaited_once()
+    change_plan.assert_awaited_once()
 
 
 def test_admin_can_create_list_and_revoke_api_tokens(authed_client: TestClient, db_session):
