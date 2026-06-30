@@ -493,6 +493,19 @@ class TestStatsSummarizerDomain:
         assert stats["compliance_rate"] == 62.5
         assert stats["reports_processed"] == 1
 
+    def test_domain_stats_without_reports(self, db_session, summarizer):
+        db_session.add(Domain(name="empty.example"))
+        db_session.commit()
+
+        stats = summarizer.calculate_summary_statistics(db_session, domain_id="empty.example")
+
+        assert stats["domain"] == "empty.example"
+        assert stats["total_emails"] == 0
+        assert stats["compliant_emails"] == 0
+        assert stats["compliance_rate"] == 0.0
+        assert stats["reports_processed"] == 0
+        assert stats["sources"] == []
+
     def test_domain_sources(self, db_session, summarizer):
         _seed_domain_and_reports(db_session, "example.com")
         db_session.commit()
