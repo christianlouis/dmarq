@@ -18,6 +18,7 @@ from app.services.api_tokens import MCP_READ_SCOPE, create_api_token
 from app.services.bimi import BIMIResult
 from app.services.dns_resolver import DomainDNSResult
 from app.services.mta_sts import MTAStsResult
+from app.services.report_persistence import save_parsed_report
 from app.services.report_store import ReportStore
 
 DOMAIN = "example.com"
@@ -49,6 +50,11 @@ REPORT = {
 
 def _seed_report_store() -> None:
     ReportStore.get_instance().add_report(REPORT)
+
+
+def _persist_report(db_session: Session) -> None:
+    save_parsed_report(db_session, REPORT)
+    db_session.commit()
 
 
 def _set_setting(db: Session, key: str, value: str, category: str) -> None:
@@ -100,7 +106,7 @@ def test_ai_summary_is_evidence_first_and_redacted(
     authed_client: TestClient,
     db_session: Session,
 ):
-    _seed_report_store()
+    _persist_report(db_session)
     _set_setting(db_session, "ai.enabled", "true", "ai")
     _set_setting(db_session, "ai.redaction_mode", "strict", "ai")
 
@@ -131,7 +137,7 @@ def test_ai_remediation_plan_uses_template_and_cache(
     authed_client: TestClient,
     db_session: Session,
 ):
-    _seed_report_store()
+    _persist_report(db_session)
     _set_setting(db_session, "ai.enabled", "true", "ai")
     _set_setting(db_session, "ai.remediation_cache_seconds", "86400", "ai")
     provider = AsyncMock()
@@ -454,7 +460,7 @@ def test_ai_remediation_plan_can_use_litellm_provider(
     authed_client: TestClient,
     db_session: Session,
 ):
-    _seed_report_store()
+    _persist_report(db_session)
     _set_setting(db_session, "ai.enabled", "true", "ai")
     _set_setting(db_session, "ai.provider", "litellm", "ai")
     provider = AsyncMock()
@@ -562,7 +568,7 @@ def test_action_proposals_are_reviewable_and_not_mutating(
     authed_client: TestClient,
     db_session: Session,
 ):
-    _seed_report_store()
+    _persist_report(db_session)
     _set_setting(db_session, "ai.enabled", "true", "ai")
 
     response = authed_client.get(f"/api/v1/ai/domains/{DOMAIN}/action-proposals")
@@ -581,7 +587,7 @@ def test_action_confirmation_requires_action_tools_enabled(
     authed_client: TestClient,
     db_session: Session,
 ):
-    _seed_report_store()
+    _persist_report(db_session)
     _set_setting(db_session, "ai.enabled", "true", "ai")
     proposal = authed_client.get(f"/api/v1/ai/domains/{DOMAIN}/action-proposals").json()[
         "proposals"
@@ -710,7 +716,7 @@ async def test_mcp_read_only_tool_dispatch_rejects_invalid_tool_arguments(
 
 
 def test_mcp_requires_enabled_scoped_token(client: TestClient, db_session: Session):
-    _seed_report_store()
+    _persist_report(db_session)
     token = create_api_token(db_session, name="mcp client", scopes=[MCP_READ_SCOPE])
 
     disabled = client.post(

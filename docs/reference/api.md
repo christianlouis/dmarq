@@ -62,6 +62,7 @@ through the `/public` path and avoid UI-specific payloads.
 | `GET /public/domains/{domain_id}/sources` | `reports:read` | Enriched sending sources with sender, geo, anomaly, and fix hints |
 | `GET /public/domains/{domain_id}/source-intelligence` | `reports:read` | Regional source summaries and anomaly hints |
 | `GET /public/domains/{domain_id}/posture` | `posture:read` | Evidence-first posture dashboard payload |
+| `GET /public/domains/{domain_id}/action-proposals` | `posture:read` | Reviewable read-only remediation proposals |
 | `GET /public/tls-reports/summary` | `tls-reports:read` | SMTP TLS report trends and failure groups |
 | `POST /mcp` | `mcp:read` | Read-only MCP-style JSON-RPC tool endpoint |
 

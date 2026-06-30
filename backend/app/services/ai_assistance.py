@@ -128,13 +128,19 @@ def redact_safe_value(value: Any, *, mode: str = "strict") -> Any:
     return redacted
 
 
-def _domain_exists(db: Session, store: ReportStore, domain: str) -> bool:
+def _domain_exists(
+    db: Session,
+    store: ReportStore,
+    domain: str,
+    *,
+    workspace_id: Optional[int] = None,
+) -> bool:
     if domain in store.get_domains():
         return True
-    return (
-        db.query(Domain.id).filter(Domain.name == domain, Domain.active.is_(True)).first()
-        is not None
-    )
+    query = db.query(Domain.id).filter(Domain.name == domain, Domain.active.is_(True))
+    if workspace_id is not None:
+        query = query.filter(Domain.workspace_id == workspace_id)
+    return query.first() is not None
 
 
 def _evidence(label: str, value: Any, href: str) -> Dict[str, str]:
@@ -145,8 +151,16 @@ def _evidence(label: str, value: Any, href: str) -> Dict[str, str]:
     }
 
 
-def _domain_selectors_from_db(db: Session, domain: str) -> List[str]:
-    row = db.query(Domain.dkim_selectors).filter(Domain.name == domain).first()
+def _domain_selectors_from_db(
+    db: Session,
+    domain: str,
+    *,
+    workspace_id: Optional[int] = None,
+) -> List[str]:
+    query = db.query(Domain.dkim_selectors).filter(Domain.name == domain)
+    if workspace_id is not None:
+        query = query.filter(Domain.workspace_id == workspace_id)
+    row = query.first()
     if row is None:
         return []
     return [selector.strip() for selector in (row[0] or "").split(",") if selector.strip()]
@@ -165,8 +179,15 @@ def _selectors_from_reports(store: ReportStore, domain: str) -> List[str]:
     return selectors
 
 
-def _mail_source_context(db: Session) -> List[Dict[str, Any]]:
-    rows = db.query(MailSource).filter(MailSource.enabled.is_(True)).order_by(MailSource.name).all()
+def _mail_source_context(
+    db: Session,
+    *,
+    workspace_id: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    query = db.query(MailSource).filter(MailSource.enabled.is_(True))
+    if workspace_id is not None:
+        query = query.filter(MailSource.workspace_id == workspace_id)
+    rows = query.order_by(MailSource.name).all()
     return [
         {
             "name": source.name,
@@ -325,15 +346,16 @@ async def build_remediation_plan(  # pylint: disable=too-many-locals
     *,
     finding_code: Optional[str] = None,
     refresh: bool = False,
+    workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Build a step-by-step remediation plan, optionally enhanced through LiteLLM."""
     store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store)
-    if not _domain_exists(db, store, domain):
+    hydrate_report_store_from_db(db, store, workspace_id=workspace_id)
+    if not _domain_exists(db, store, domain, workspace_id=workspace_id):
         raise ValueError("Domain not found")
 
     config = get_assistance_config(db)
-    manual_selectors = _domain_selectors_from_db(db, domain)
+    manual_selectors = _domain_selectors_from_db(db, domain, workspace_id=workspace_id)
     report_selectors = _selectors_from_reports(store, domain)
     combined_selectors = list(dict.fromkeys(manual_selectors + report_selectors))
     provider = get_default_provider(db)
@@ -365,14 +387,14 @@ async def build_remediation_plan(  # pylint: disable=too-many-locals
             "generated_at": datetime.utcnow().isoformat() + "Z",
             "demo_mode": get_settings().DEMO_MODE,
             "dns_provider": provider.__class__.__name__,
-            "mail_sources": _mail_source_context(db),
+            "mail_sources": _mail_source_context(db, workspace_id=workspace_id),
             "dkim_selectors": {
                 "manual": manual_selectors,
                 "observed_from_reports": report_selectors,
                 "checked": dns_result.selectors_checked,
                 "resolved": dns_result.dkim_selectors,
             },
-            "safe_summary": build_safe_context(db, domain)["summary"],
+            "safe_summary": build_safe_context(db, domain, workspace_id=workspace_id)["summary"],
             "dns_guidance": {
                 "status": guidance.status,
                 "findings": finding_dicts,
@@ -414,11 +436,16 @@ async def build_remediation_plan(  # pylint: disable=too-many-locals
     return plan
 
 
-def build_safe_context(db: Session, domain: str) -> Dict[str, Any]:
+def build_safe_context(
+    db: Session,
+    domain: str,
+    *,
+    workspace_id: Optional[int] = None,
+) -> Dict[str, Any]:
     """Build a redacted, evidence-linked context bundle for one domain."""
     store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store)
-    if not _domain_exists(db, store, domain):
+    hydrate_report_store_from_db(db, store, workspace_id=workspace_id)
+    if not _domain_exists(db, store, domain, workspace_id=workspace_id):
         raise ValueError("Domain not found")
 
     config = get_assistance_config(db)
@@ -497,9 +524,14 @@ def _headline_for_context(context: Dict[str, Any]) -> str:
     return "DMARC posture needs remediation before policy enforcement."
 
 
-def build_evidence_summary(db: Session, domain: str) -> Dict[str, Any]:
+def build_evidence_summary(
+    db: Session,
+    domain: str,
+    *,
+    workspace_id: Optional[int] = None,
+) -> Dict[str, Any]:
     """Return an evidence-first operator summary and remediation plan."""
-    context = build_safe_context(db, domain)
+    context = build_safe_context(db, domain, workspace_id=workspace_id)
     summary = context["summary"]
     failed = int(summary["failed_messages"])
     total = int(summary["total_messages"])
@@ -573,9 +605,14 @@ def _proposal_id(payload: Dict[str, Any]) -> str:
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()[:16]
 
 
-def build_action_proposals(db: Session, domain: str) -> Dict[str, Any]:
+def build_action_proposals(
+    db: Session,
+    domain: str,
+    *,
+    workspace_id: Optional[int] = None,
+) -> Dict[str, Any]:
     """Generate reviewable, reproducible action proposals without mutating state."""
-    summary = build_evidence_summary(db, domain)
+    summary = build_evidence_summary(db, domain, workspace_id=workspace_id)
     proposals = []
     for index, recommendation in enumerate(summary["recommendations"], start=1):
         payload = {

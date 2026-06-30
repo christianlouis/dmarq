@@ -186,7 +186,7 @@ async def _call_read_only_tool(
     if name == "list_domains":
         return _list_domains(db, workspace_id=workspace_id)
     if name == "domain_summary":
-        return build_evidence_summary(db, _tool_domain(arguments))
+        return build_evidence_summary(db, _tool_domain(arguments), workspace_id=workspace_id)
     if name == "domain_posture":
         return await domains.get_domain_posture_dashboard(
             domain_id=_tool_domain(arguments),
@@ -209,7 +209,7 @@ async def _call_read_only_tool(
             _auth=auth_context,
         )
     if name == "action_proposals":
-        return build_action_proposals(db, _tool_domain(arguments))
+        return build_action_proposals(db, _tool_domain(arguments), workspace_id=workspace_id)
     raise KeyError(name)
 
 
