@@ -100,8 +100,9 @@ async def get_domain_safe_context(
 ) -> SafeContextResponse:
     """Return a redacted, evidence-linked context payload for one domain."""
     _require_ai_enabled(db)
+    workspace = _authorized_ai_workspace(_auth, db)
     try:
-        return {"context": build_safe_context(db, domain)}
+        return {"context": build_safe_context(db, domain, workspace_id=workspace.id)}
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
@@ -116,15 +117,15 @@ async def get_domain_evidence_summary(
 ) -> EvidenceSummaryResponse:
     """Return deterministic evidence-first assistance for one domain."""
     _require_ai_enabled(db)
-    try:
-        summary = build_evidence_summary(db, domain)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     workspace = _authorized_ai_workspace(
         _auth,
         db,
         parse_selected_workspace_id(selected_workspace),
     )
+    try:
+        summary = build_evidence_summary(db, domain, workspace_id=workspace.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     record_workspace_audit_log(
         db,
         workspace=workspace,
@@ -155,20 +156,21 @@ async def get_domain_remediation_plan(
 ) -> RemediationPlanResponse:  # pylint: disable=too-many-positional-arguments
     """Return a cached step-by-step remediation plan for DNS/posture findings."""
     _require_ai_enabled(db)
+    workspace = _authorized_ai_workspace(
+        _auth,
+        db,
+        parse_selected_workspace_id(selected_workspace),
+    )
     try:
         plan = await build_remediation_plan(
             db,
             domain,
             finding_code=finding_code,
             refresh=refresh,
+            workspace_id=workspace.id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    workspace = _authorized_ai_workspace(
-        _auth,
-        db,
-        parse_selected_workspace_id(selected_workspace),
-    )
     record_workspace_audit_log(
         db,
         workspace=workspace,
@@ -199,15 +201,15 @@ async def get_domain_action_proposals(
 ) -> ActionProposalResponse:
     """Return reviewable proposals; this endpoint never applies changes."""
     _require_ai_enabled(db)
-    try:
-        payload = build_action_proposals(db, domain)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     workspace = _authorized_ai_workspace(
         _auth,
         db,
         parse_selected_workspace_id(selected_workspace),
     )
+    try:
+        payload = build_action_proposals(db, domain, workspace_id=workspace.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     record_workspace_audit_log(
         db,
         workspace=workspace,
@@ -242,7 +244,12 @@ async def confirm_action_proposal(
                 "Action tools are disabled. Enable ai.action_tools_enabled to confirm " "proposals."
             ),
         )
-    proposals = build_action_proposals(db, domain)["proposals"]
+    workspace = _authorized_ai_workspace(
+        _auth,
+        db,
+        parse_selected_workspace_id(selected_workspace),
+    )
+    proposals = build_action_proposals(db, domain, workspace_id=workspace.id)["proposals"]
     proposal = next(
         (item for item in proposals if item["proposal_id"] == payload.proposal_id),
         None,
@@ -254,11 +261,6 @@ async def confirm_action_proposal(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="confirmation_text must match proposal_id",
         )
-    workspace = _authorized_ai_workspace(
-        _auth,
-        db,
-        parse_selected_workspace_id(selected_workspace),
-    )
     record_workspace_audit_log(
         db,
         workspace=workspace,

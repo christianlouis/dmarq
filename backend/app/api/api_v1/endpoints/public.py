@@ -2,13 +2,15 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy.orm import Session
 
-from app.api.api_v1.endpoints import domains, tls_reports
+from app.api.api_v1.endpoints import ai, domains, tls_reports
 from app.core.database import get_db
 from app.core.security import require_api_token_scope
+from app.services.ai_assistance import build_action_proposals
 from app.services.api_tokens import READ_POSTURE_SCOPE, READ_REPORTS_SCOPE, READ_TLS_SCOPE
+from app.services.workspace_access import PERMISSION_REPORTS_READ, resolve_authorized_workspace
 
 router = APIRouter()
 
@@ -39,6 +41,23 @@ async def public_domain_posture(
         db=db,
         _auth=_auth,
     )
+
+
+@router.get(
+    "/domains/{domain_id}/action-proposals",
+    response_model=ai.ActionProposalResponse,
+)
+async def public_domain_action_proposals(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_api_token_scope(READ_POSTURE_SCOPE)),
+):
+    """Return stable read-only remediation proposals for one domain."""
+    workspace = resolve_authorized_workspace(db, _auth, PERMISSION_REPORTS_READ)
+    try:
+        return build_action_proposals(db, domain_id, workspace_id=workspace.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
 @router.get(

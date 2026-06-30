@@ -43,6 +43,23 @@ MINIMAL_REPORT = {
     "summary": {"total_count": 5, "passed_count": 5, "failed_count": 0, "pass_rate": 100.0},
 }
 
+FAILING_REPORT = {
+    **MINIMAL_REPORT,
+    "report_id": "public-api-failing-001",
+    "records": [
+        {
+            "source_ip": "5.6.7.8",
+            "count": 10,
+            "disposition": "none",
+            "dkim_result": "fail",
+            "spf_result": "fail",
+            "dkim": [{"domain": DOMAIN, "result": "fail", "selector": "legacy"}],
+            "spf": [{"domain": DOMAIN, "result": "fail"}],
+        }
+    ],
+    "summary": {"total_count": 10, "passed_count": 0, "failed_count": 10, "pass_rate": 0.0},
+}
+
 
 def _seed_report_store():
     ReportStore.get_instance().add_report(MINIMAL_REPORT)
@@ -50,6 +67,11 @@ def _seed_report_store():
 
 def _persist_report(db_session):
     save_parsed_report(db_session, MINIMAL_REPORT)
+    db_session.commit()
+
+
+def _persist_failing_report(db_session, report=None, *, workspace_id=None):
+    save_parsed_report(db_session, report or FAILING_REPORT, workspace_id=workspace_id)
     db_session.commit()
 
 
@@ -136,6 +158,82 @@ def test_public_api_rejects_token_without_required_scope(client: TestClient, db_
 
     assert response.status_code == 403
     assert response.json()["detail"] == f"API token requires scope: {READ_POSTURE_SCOPE}"
+
+
+def test_public_action_proposals_use_posture_scope(client: TestClient, db_session):
+    """Public action proposals are read-only and scoped to posture tokens."""
+    _persist_failing_report(db_session)
+    posture_token = create_api_token(
+        db_session,
+        name="posture bot",
+        scopes=[READ_POSTURE_SCOPE],
+    )
+    reports_token = create_api_token(
+        db_session,
+        name="reports bot",
+        scopes=[READ_REPORTS_SCOPE],
+    )
+
+    denied = client.get(
+        f"/api/v1/public/domains/{DOMAIN}/action-proposals",
+        headers={"X-API-Key": reports_token.secret},
+    )
+    response = client.get(
+        f"/api/v1/public/domains/{DOMAIN}/action-proposals",
+        headers={"X-API-Key": posture_token.secret},
+    )
+
+    assert denied.status_code == 403
+    assert response.status_code == 200
+    body = response.json()
+    assert body["domain"] == DOMAIN
+    assert body["proposals"]
+    assert body["proposals"][0]["mutates_state"] is False
+    assert body["proposals"][0]["requires_human_confirmation"] is True
+
+
+def test_public_action_proposals_are_workspace_scoped(client: TestClient, db_session):
+    """Public action proposals cannot cross the API token workspace boundary."""
+    get_or_create_default_workspace(db_session)
+    other_workspace = Workspace(
+        slug="public-actions-other",
+        name="Public Actions Other",
+        active=True,
+    )
+    db_session.add(other_workspace)
+    db_session.commit()
+
+    other_domain = "other-workspace.example"
+    other_report = {
+        **FAILING_REPORT,
+        "domain": other_domain,
+        "report_id": "public-api-other-workspace-001",
+    }
+    _persist_failing_report(db_session, other_report, workspace_id=other_workspace.id)
+    default_token = create_api_token(
+        db_session,
+        name="default posture bot",
+        scopes=[READ_POSTURE_SCOPE],
+    )
+    other_token = create_api_token(
+        db_session,
+        name="other posture bot",
+        scopes=[READ_POSTURE_SCOPE],
+        workspace_id=other_workspace.id,
+    )
+
+    denied = client.get(
+        f"/api/v1/public/domains/{other_domain}/action-proposals",
+        headers={"X-API-Key": default_token.secret},
+    )
+    allowed = client.get(
+        f"/api/v1/public/domains/{other_domain}/action-proposals",
+        headers={"X-API-Key": other_token.secret},
+    )
+
+    assert denied.status_code == 404
+    assert allowed.status_code == 200
+    assert allowed.json()["domain"] == other_domain
 
 
 def test_admin_can_create_list_and_revoke_api_tokens(authed_client: TestClient, db_session):
