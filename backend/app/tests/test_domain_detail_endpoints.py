@@ -778,6 +778,83 @@ def test_get_domain_sources_returns_200(seeded_client: TestClient):
     assert source["dmarc"] == "pass"
 
 
+def test_get_domain_migration_readiness_projects_parallel_cutover_state(
+    seeded_client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Migration readiness summarizes reports, sources, DNS state, and exports."""
+
+    async def fake_guidance(*_args, **_kwargs):
+        return {
+            "domain": DOMAIN,
+            "status": "ready",
+            "findings": [],
+            "target_records": [],
+            "change_plans": [],
+        }
+
+    monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", fake_guidance)
+
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/migration/readiness")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["domain"] == DOMAIN
+    assert data["report_count"] == 1
+    assert data["source_count"] == 1
+    assert data["parallel_reporting_days"] == 1
+    assert data["status"] == "in_progress"
+    assert data["readiness_score"] == 80
+    statuses = {item["key"]: item["status"] for item in data["checklist"]}
+    assert statuses["parallel-reporting"] == "complete"
+    assert statuses["volume-parity"] == "in_progress"
+    assert statuses["dns-readiness"] == "complete"
+    assert any(link["format"] == "json" for link in data["export_links"])
+    assert "DMARCguard" in data["supported_sources"]
+
+
+def test_get_domain_migration_readiness_blocks_empty_domain(
+    authed_client: TestClient,
+    db_session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A pre-created domain remains migration-blocked until reports arrive."""
+    db_session.add(Domain(name="empty.example", active=True))
+    db_session.commit()
+
+    async def fake_guidance(*_args, **_kwargs):
+        return {
+            "domain": "empty.example",
+            "status": "attention",
+            "findings": [
+                {
+                    "code": "dmarc_missing",
+                    "severity": "error",
+                    "title": "Publish DMARC",
+                    "detail": "No DMARC record was found.",
+                    "action": "Publish a DMARC record before cutover.",
+                    "record_type": "TXT",
+                    "record_name": "_dmarc.empty.example",
+                    "evidence": [],
+                    "remediation_steps": [],
+                }
+            ],
+            "target_records": [],
+            "change_plans": [],
+        }
+
+    monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", fake_guidance)
+
+    response = authed_client.get("/api/v1/domains/empty.example/migration/readiness")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "blocked"
+    assert data["readiness_score"] == 0
+    assert data["report_count"] == 0
+    assert data["source_count"] == 0
+    assert all(item["status"] == "blocked" for item in data["checklist"])
+
+
 def test_get_domain_sources_returns_rollup_counts(authed_client: TestClient):
     """Endpoint reports pass/fail totals instead of only the latest IP result."""
     report = {
