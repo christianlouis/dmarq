@@ -628,6 +628,11 @@ that already have a concrete value. Applied changes are written to the
 workspace audit log and refresh provider-backed DNS change history where the
 provider supports it.
 
+`GET /domains/{domain_id}/dns/change-plan` also returns
+`available_write_providers`, `recommended_provider`, and response-level
+`safety_notes`. Each plan contains its own `safety_notes` explaining whether it
+can be previewed through a provider connector or why it remains manual-only.
+
 #### Get Posture Dashboard
 
 ```

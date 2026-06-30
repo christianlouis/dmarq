@@ -369,6 +369,7 @@ class DNSChangePlanItemResponse(BaseModel):
     applies_automatically: bool = False
     provider_write_available: bool = False
     provider_value_required: bool = False
+    safety_notes: List[str] = Field(default_factory=list)
 
 
 class DNSChangePlanResponse(BaseModel):
@@ -379,6 +380,9 @@ class DNSChangePlanResponse(BaseModel):
     read_only: bool = True
     provider_write_available: bool = False
     dns_provider: Optional[Dict[str, Any]] = None
+    recommended_provider: Optional[str] = None
+    available_write_providers: List[str] = Field(default_factory=list)
+    safety_notes: List[str] = Field(default_factory=list)
     apply_endpoint: Optional[str] = None
     plans: List[DNSChangePlanItemResponse]
 
@@ -402,9 +406,94 @@ def read_only_dns_change_plan_response(payload: Any) -> DNSChangePlanResponse:
         read_only=True,
         provider_write_available=False,
         dns_provider=data.get("dns_provider"),
+        recommended_provider=None,
+        available_write_providers=[],
+        safety_notes=[
+            "Public automation responses are read-only and never expose DNS write affordances."
+        ],
         apply_endpoint=None,
         plans=plans,
     )
+
+
+DNS_AUTOMATION_OPERATIONS = {"create", "update"}
+DNS_AUTOMATION_RECORD_TYPES = {"TXT", "CNAME"}
+DNS_PROVIDER_ID_ALIASES = {
+    "azure_dns": "azure",
+}
+
+
+def _ready_dns_write_provider_ids() -> List[str]:
+    """Return configured provider IDs that can be used for DNS write previews."""
+    return [
+        provider["id"] for provider in provider_capabilities() if provider.get("status") == "ready"
+    ]
+
+
+def _recommended_dns_write_provider(
+    dns_provider: Optional[Dict[str, Any]], available_providers: List[str]
+) -> Optional[str]:
+    """Map detected DNS provider metadata to an available writer implementation."""
+    if not dns_provider:
+        return available_providers[0] if available_providers else None
+    detected = str(dns_provider.get("provider_id") or "").strip().lower()
+    provider_id = DNS_PROVIDER_ID_ALIASES.get(detected, detected)
+    if provider_id in available_providers:
+        return provider_id
+    return None
+
+
+def _dns_plan_provider_write_available(plan: Dict[str, Any]) -> bool:
+    """Return whether a change plan is safe enough to preview through a provider."""
+    return (
+        plan.get("operation") in DNS_AUTOMATION_OPERATIONS
+        and plan.get("record_type") in DNS_AUTOMATION_RECORD_TYPES
+        and not plan.get("provider_value_required")
+        and bool(plan.get("proposed_value"))
+        and "<" not in str(plan.get("proposed_value") or "")
+    )
+
+
+def _dns_plan_safety_notes(plan: Dict[str, Any], *, provider_write_available: bool) -> List[str]:
+    """Explain why a plan is apply-ready or intentionally manual-only."""
+    notes: List[str] = []
+    if provider_write_available:
+        notes.append("Preview the provider mutation before applying this DNS change.")
+        if plan.get("current_values"):
+            notes.append("Existing provider values will be shown in the preview before approval.")
+        return notes
+    if plan.get("operation") not in DNS_AUTOMATION_OPERATIONS:
+        notes.append("This operation is review-only and is not safe for automatic DNS writes.")
+    if plan.get("record_type") not in DNS_AUTOMATION_RECORD_TYPES:
+        notes.append("Only TXT and CNAME records are provider-write enabled right now.")
+    if plan.get("provider_value_required"):
+        notes.append("A provider-specific final value is required before automation is safe.")
+    proposed_value = str(plan.get("proposed_value") or "")
+    if not proposed_value:
+        notes.append("No concrete target value is available for an automated write.")
+    elif "<" in proposed_value:
+        notes.append("Placeholder values must be replaced with provider-confirmed values first.")
+    return notes or ["Manual review is required before this DNS change can be automated."]
+
+
+def _dns_change_plan_safety_notes(
+    *, recommended_provider: Optional[str], available_providers: List[str]
+) -> List[str]:
+    """Return response-level safety guidance for operator-controlled DNS writes."""
+    notes = [
+        "DNS writes are never automatic; every provider change requires explicit approval.",
+        "Use preview first to confirm zone, record, old value, new value, and TTL.",
+    ]
+    if recommended_provider:
+        notes.append(f"Recommended provider for this domain: {recommended_provider}.")
+    elif not available_providers:
+        notes.append("No ready DNS write provider is configured; use the manual steps.")
+    else:
+        notes.append(
+            "Detected DNS provider does not match a ready write connector; "
+            "choose a provider manually only if it manages this zone."
+        )
+    return notes
 
 
 class DNSProviderCapabilityResponse(BaseModel):
@@ -2993,24 +3082,38 @@ async def get_domain_dns_change_plan(
         )
 
     guidance = await _build_domain_dns_guidance(db, store, domain_id, refresh=refresh)
+    available_providers = _ready_dns_write_provider_ids()
+    recommended_provider = _recommended_dns_write_provider(
+        guidance.get("dns_provider"),
+        available_providers,
+    )
+    plans = []
+    for plan in guidance["change_plans"]:
+        provider_write_available = _dns_plan_provider_write_available(plan)
+        plans.append(
+            {
+                **plan,
+                "provider_write_available": provider_write_available,
+                "safety_notes": _dns_plan_safety_notes(
+                    plan,
+                    provider_write_available=provider_write_available,
+                ),
+            }
+        )
     return DNSChangePlanResponse(
         domain=guidance["domain"],
         status=guidance["status"],
         read_only=False,
-        provider_write_available=True,
+        provider_write_available=bool(available_providers),
         dns_provider=guidance.get("dns_provider"),
+        recommended_provider=recommended_provider,
+        available_write_providers=available_providers,
+        safety_notes=_dns_change_plan_safety_notes(
+            recommended_provider=recommended_provider,
+            available_providers=available_providers,
+        ),
         apply_endpoint=f"/api/v1/domains/{domain_id}/dns/change-plan/apply",
-        plans=[
-            {
-                **plan,
-                "provider_write_available": (
-                    plan.get("operation") in {"create", "update"}
-                    and plan.get("record_type") in {"TXT", "CNAME"}
-                    and not plan.get("provider_value_required")
-                ),
-            }
-            for plan in guidance["change_plans"]
-        ],
+        plans=plans,
     )
 
 

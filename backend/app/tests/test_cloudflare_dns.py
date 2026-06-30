@@ -784,6 +784,7 @@ def _dns_guidance_with_plan(plan):
         "status": "critical",
         "findings": [],
         "target_records": [],
+        "dns_provider": None,
         "change_plans": [plan],
     }
 
@@ -830,6 +831,7 @@ def test_dns_change_plan_marks_apply_ready_records(authed_client: TestClient, db
     db_session.add(Domain(name=DOMAIN))
     db_session.commit()
     plan = _dns_plan()
+    plan["current_values"] = ["v=DMARC1; p=none"]
 
     with patch(
         "app.api.api_v1.endpoints.domains._build_domain_dns_guidance",
@@ -842,7 +844,125 @@ def test_dns_change_plan_marks_apply_ready_records(authed_client: TestClient, db
     assert data["read_only"] is False
     assert data["provider_write_available"] is True
     assert data["apply_endpoint"].endswith("/dns/change-plan/apply")
+    assert "cloudflare" in data["available_write_providers"]
+    assert data["recommended_provider"] == "cloudflare"
+    assert data["safety_notes"]
     assert data["plans"][0]["provider_write_available"] is True
+    assert data["plans"][0]["safety_notes"] == [
+        "Preview the provider mutation before applying this DNS change.",
+        "Existing provider values will be shown in the preview before approval.",
+    ]
+
+
+def test_dns_change_plan_recommends_detected_provider(authed_client: TestClient, db_session):
+    db_session.add(Domain(name=DOMAIN))
+    db_session.commit()
+    plan = _dns_plan(operation="update")
+    guidance = _dns_guidance_with_plan(plan)
+    guidance["dns_provider"] = {
+        "provider_id": "digitalocean",
+        "provider_name": "DigitalOcean DNS",
+        "confidence": "high",
+        "evidence": ["ns1.digitalocean.com"],
+    }
+
+    with (
+        patch(
+            "app.api.api_v1.endpoints.domains._build_domain_dns_guidance",
+            new=AsyncMock(return_value=guidance),
+        ),
+        patch(
+            "app.api.api_v1.endpoints.domains.provider_capabilities",
+            return_value=[
+                {
+                    "id": "cloudflare",
+                    "name": "Cloudflare",
+                    "mode": "native",
+                    "record_types": ["CNAME", "TXT"],
+                    "operations": ["create", "update"],
+                    "credentials": "settings",
+                    "status": "ready",
+                },
+                {
+                    "id": "digitalocean",
+                    "name": "digitalocean",
+                    "mode": "lexicon",
+                    "record_types": ["CNAME", "TXT"],
+                    "operations": ["create", "update"],
+                    "credentials": "environment",
+                    "status": "ready",
+                },
+            ],
+        ),
+    ):
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns/change-plan")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["recommended_provider"] == "digitalocean"
+    assert data["available_write_providers"] == ["cloudflare", "digitalocean"]
+    assert "Recommended provider for this domain: digitalocean." in data["safety_notes"]
+
+
+def test_dns_change_plan_avoids_wrong_provider_recommendation(
+    authed_client: TestClient, db_session
+):
+    db_session.add(Domain(name=DOMAIN))
+    db_session.commit()
+    guidance = _dns_guidance_with_plan(_dns_plan(operation="update"))
+    guidance["dns_provider"] = {
+        "provider_id": "exampledns",
+        "provider_name": "ExampleDNS",
+        "confidence": "medium",
+        "evidence": ["ns1.exampledns.test"],
+    }
+
+    with (
+        patch(
+            "app.api.api_v1.endpoints.domains._build_domain_dns_guidance",
+            new=AsyncMock(return_value=guidance),
+        ),
+        patch(
+            "app.api.api_v1.endpoints.domains.provider_capabilities",
+            return_value=[
+                {
+                    "id": "cloudflare",
+                    "name": "Cloudflare",
+                    "mode": "native",
+                    "record_types": ["CNAME", "TXT"],
+                    "operations": ["create", "update"],
+                    "credentials": "settings",
+                    "status": "ready",
+                },
+            ],
+        ),
+    ):
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns/change-plan")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["recommended_provider"] is None
+    assert data["available_write_providers"] == ["cloudflare"]
+    assert "does not match a ready write connector" in " ".join(data["safety_notes"])
+
+
+def test_dns_change_plan_explains_manual_only_plans(authed_client: TestClient, db_session):
+    db_session.add(Domain(name=DOMAIN))
+    db_session.commit()
+    plan = _dns_plan(operation="rotate", proposed_value="<provider-current-dkim-key>")
+    plan["provider_value_required"] = True
+
+    with patch(
+        "app.api.api_v1.endpoints.domains._build_domain_dns_guidance",
+        new=AsyncMock(return_value=_dns_guidance_with_plan(plan)),
+    ):
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns/change-plan")
+
+    assert response.status_code == 200
+    plan_response = response.json()["plans"][0]
+    assert plan_response["provider_write_available"] is False
+    assert "This operation is review-only" in " ".join(plan_response["safety_notes"])
+    assert "provider-specific final value" in " ".join(plan_response["safety_notes"])
 
 
 def test_dns_change_plan_apply_dry_run_returns_cloudflare_mutation(
