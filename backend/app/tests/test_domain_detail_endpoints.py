@@ -926,6 +926,38 @@ def test_get_domain_migration_parity_matches_legacy_baseline(seeded_client: Test
     assert data["metrics"][0]["baseline_display"] == "1"
 
 
+def test_get_domain_migration_parity_flags_legacy_mismatch(seeded_client: TestClient):
+    """Parity dashboard calls out mismatched legacy baseline values."""
+    response = seeded_client.get(
+        f"/api/v1/domains/{DOMAIN}/migration/parity"
+        "?baseline_report_count=0"
+        "&baseline_total_emails=20"
+        "&baseline_source_count=0"
+        "&baseline_compliance_rate=80"
+        "&baseline_policy=none"
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "attention"
+    assert data["baseline_required"] is False
+    assert data["summary"] == (
+        "Some migration parity signals differ from the legacy-platform baseline."
+    )
+    assert data["next_steps"][0] == (
+        "Review attention metrics before removing legacy reporting routes."
+    )
+    metrics = {metric["key"]: metric for metric in data["metrics"]}
+    assert metrics["reports"]["status"] == "attention"
+    assert metrics["reports"]["delta"] == 100.0
+    assert metrics["messages"]["status"] == "attention"
+    assert metrics["messages"]["delta"] == -50.0
+    assert metrics["alignment"]["status"] == "attention"
+    assert metrics["alignment"]["delta"] == 20.0
+    assert metrics["policy"]["status"] == "attention"
+    assert metrics["policy"]["baseline_display"] == "none"
+
+
 def test_get_domain_migration_readiness_blocks_empty_domain(
     authed_client: TestClient,
     db_session,
