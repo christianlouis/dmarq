@@ -132,8 +132,9 @@ If you use Cloudflare for DNS management:
 2. Configure:
    - **API Token**: Your Cloudflare API token
    - **Zone ID**: Optional Cloudflare Zone ID for a single domain
-3. Use **Discover** to list zones visible to the token.
-4. Use **Import New** to create monitored domain rows for discovered zones that are not already tracked.
+3. Use **Discover** to preview DNS zones visible to the token.
+4. Use **Import New** to create monitored domain rows for selected/new zones,
+   even before DMARQ has received reports for those domains.
 
 For inspection only, the token needs zone and DNS read access. To apply DNS
 change plans from a domain detail page, the token also needs Cloudflare DNS
@@ -141,6 +142,9 @@ write permission for the affected zone. DMARQ uses the token to fetch managed
 DNS records, detect missing or malformed DMARC/SPF/DKIM entries, record DNS
 additions, modifications, or removals over time, and apply explicitly approved
 TXT/CNAME remediation plans.
+
+The DNS-zone import workflow is provider-shaped. Cloudflare is supported first,
+with the API path designed for additional DNS providers.
 
 DMARQ never performs background DNS edits. A write-capable token only enables
 operator-approved actions from the DNS change plan UI, and each applied change
