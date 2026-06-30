@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
+from app.services.dns_provider_detection import DNSProviderDetection, detect_dns_provider
+
 logger = logging.getLogger(__name__)
 
 
@@ -97,6 +99,8 @@ class DomainDNSResult:
     dmarc_tags: Dict[str, str] = field(default_factory=dict)
     dmarc_warnings: List[str] = field(default_factory=list)
     dmarc_suggestions: List[str] = field(default_factory=list)
+    nameservers: List[str] = field(default_factory=list)
+    dns_provider: Optional[DNSProviderDetection] = None
 
 
 def _normalize_dns_name(domain: str) -> str:
@@ -391,6 +395,10 @@ class BaseDNSProvider(ABC):
         """
         return None
 
+    async def lookup_ns(self, domain: str) -> List[str]:
+        """Return authoritative nameservers for *domain* when available."""
+        return []
+
     async def check_dkim(
         self, domain: str, selectors: List[str]
     ) -> Tuple[bool, List[str], Optional[str]]:
@@ -439,12 +447,14 @@ class BaseDNSProvider(ABC):
         dmarc_coro = self.discover_dmarc_policy(domain)
         spf_coro = self.check_spf(domain)
         dkim_coro = self.check_dkim(domain, all_selectors)
+        ns_coro = self.lookup_ns(domain)
 
         (
             (dmarc_ok, dmarc_record, dmarc_policy_domain, dmarc_discovery_method, dmarc_tags),
             (spf_ok, spf_record),
             (dkim_ok, dkim_sels, dkim_record),
-        ) = await asyncio.gather(dmarc_coro, spf_coro, dkim_coro)
+            nameservers,
+        ) = await asyncio.gather(dmarc_coro, spf_coro, dkim_coro, ns_coro)
 
         dmarc_tags = dmarc_tags or {}
         warnings, suggestions = _lint_dmarc_tags(
@@ -478,6 +488,8 @@ class BaseDNSProvider(ABC):
             dmarc_tags=dmarc_tags,
             dmarc_warnings=warnings,
             dmarc_suggestions=suggestions,
+            nameservers=nameservers,
+            dns_provider=detect_dns_provider(nameservers),
         )
 
 
@@ -539,6 +551,21 @@ class SystemDNSProvider(BaseDNSProvider):
         except dns.exception.DNSException as exc:
             logger.debug("CNAME lookup failed for %s: %s", _sanitize_for_log(name), exc)
         return None
+
+    async def lookup_ns(self, domain: str) -> List[str]:
+        """Resolve authoritative NS records for *domain* via the system resolver."""
+        import dns.asyncresolver  # type: ignore[import]
+        import dns.exception  # type: ignore[import]
+
+        try:
+            answers = await dns.asyncresolver.resolve(
+                domain, "NS", lifetime=DNS_TIMEOUT, raise_on_no_answer=False
+            )
+            if answers:
+                return sorted(str(rdata.target).rstrip(".").lower() for rdata in answers)
+        except dns.exception.DNSException as exc:
+            logger.debug("NS lookup failed for %s: %s", _sanitize_for_log(domain), exc)
+        return []
 
 
 class CloudflareDNSProvider(BaseDNSProvider):
@@ -821,6 +848,31 @@ class CloudflareDNSProvider(BaseDNSProvider):
             pass
         return None
 
+    async def lookup_ns(self, domain: str) -> List[str]:
+        """Resolve authoritative NS records via Cloudflare's DoH endpoint."""
+        import httpx  # type: ignore[import]
+
+        params = {"name": domain, "type": "NS"}
+        headers = {"Accept": "application/dns-json"}
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    self.CLOUDFLARE_DOH_URL,
+                    params=params,
+                    headers=headers,
+                    timeout=DNS_TIMEOUT,
+                )
+                response.raise_for_status()
+                data = response.json()
+                return sorted(
+                    answer.get("data", "").rstrip(".").lower()
+                    for answer in data.get("Answer", [])
+                    if answer.get("type") == 2 and answer.get("data")
+                )
+        except (httpx.RequestError, httpx.HTTPStatusError, httpx.TimeoutException):
+            pass
+        return []
+
 
 class DemoDNSProvider(BaseDNSProvider):
     """Deterministic DNS provider for the opt-in public demo mode."""
@@ -897,6 +949,14 @@ class DemoDNSProvider(BaseDNSProvider):
     async def lookup_cname(self, name: str) -> Optional[str]:
         normalized = _normalize_dns_name(name)
         return self._cname_records.get(normalized)
+
+    async def lookup_ns(self, domain: str) -> List[str]:
+        normalized = _normalize_dns_name(domain)
+        if normalized == "dmarq.org":
+            return ["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"]
+        if normalized == "dmarq.com":
+            return ["ns1.digitalocean.com", "ns2.digitalocean.com"]
+        return []
 
 
 def _decrypt_setting_value(value: Optional[str]) -> Optional[str]:

@@ -305,6 +305,8 @@ class DNSRecordResponse(BaseModel):
     checkedAt: Optional[str] = None
     dmarcWarnings: List[str] = []
     dmarcSuggestions: List[str] = []
+    nameservers: List[str] = []
+    dnsProvider: Optional[Dict[str, Any]] = None
 
 
 class DNSGuidanceRecordResponse(BaseModel):
@@ -362,6 +364,7 @@ class DNSChangePlanResponse(BaseModel):
     status: str
     read_only: bool = True
     provider_write_available: bool = False
+    dns_provider: Optional[Dict[str, Any]] = None
     apply_endpoint: Optional[str] = None
     plans: List[DNSChangePlanItemResponse]
 
@@ -384,6 +387,7 @@ def read_only_dns_change_plan_response(payload: Any) -> DNSChangePlanResponse:
         status=data["status"],
         read_only=True,
         provider_write_available=False,
+        dns_provider=data.get("dns_provider"),
         apply_endpoint=None,
         plans=plans,
     )
@@ -453,6 +457,7 @@ class DNSGuidanceResponse(BaseModel):
     status: str
     findings: List[DNSLintFindingResponse]
     target_records: List[DNSGuidanceRecordResponse]
+    dns_provider: Optional[Dict[str, Any]] = None
     change_plans: List[DNSChangePlanItemResponse] = Field(default_factory=list)
 
 
@@ -2684,6 +2689,8 @@ async def get_domain_dns_records(
         checkedAt=checked_at.isoformat(),
         dmarcWarnings=result.dmarc_warnings,
         dmarcSuggestions=result.dmarc_suggestions,
+        nameservers=result.nameservers,
+        dnsProvider=asdict(result.dns_provider) if result.dns_provider else None,
     )
 
 
@@ -2732,6 +2739,7 @@ async def get_domain_dns_change_plan(
         status=guidance["status"],
         read_only=False,
         provider_write_available=True,
+        dns_provider=guidance.get("dns_provider"),
         apply_endpoint=f"/api/v1/domains/{domain_id}/dns/change-plan/apply",
         plans=[
             {

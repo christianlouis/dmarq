@@ -576,16 +576,22 @@ GET /domains/dns/lint/export
 ```
 
 Returns typed DNS lint findings with stable `code` values, suggested target
-records, and deterministic `remediation_steps` for DMARC, SPF, DKIM, MTA-STS,
-TLS-RPT, and BIMI readiness. DKIM findings distinguish missing selectors,
-broken CNAME targets, short RSA keys, and stale selectors. The bulk endpoint
-returns the same payload shape per monitored domain, and the export endpoint
-returns the finding list as CSV for managed-domain reviews.
+records, detected DNS provider evidence, and deterministic `remediation_steps`
+for DMARC, SPF, DKIM, MTA-STS, TLS-RPT, and BIMI readiness. DKIM findings
+distinguish missing selectors, broken CNAME targets, short RSA keys, and stale
+selectors. The bulk endpoint returns the same payload shape per monitored
+domain, and the export endpoint returns the finding list as CSV for
+managed-domain reviews.
 
 The single-domain lint payload also includes `change_plans`. The dedicated
 `/dns/change-plan` endpoint returns the same operator-facing plans with
 proposed DNS records, captured current values, risk notes, rollback notes,
-expected health impact, and manual approval flags.
+expected health impact, manual approval flags, and the same `dns_provider`
+advisory object. Provider detection is derived from authoritative NS records
+and includes provider id/name, confidence, evidence, connector availability,
+automation support, and the suggested next setup step. It does not imply write
+access unless credentials are configured and the operator approves an apply
+request.
 
 `GET /domains/dns/providers` returns native and Lexicon-backed provider
 capabilities. `POST /domains/{domain_id}/dns/change-plan/apply` accepts

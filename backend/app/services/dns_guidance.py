@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from app.services.bimi import BIMIResult
+from app.services.dns_provider_detection import DNSProviderDetection
 from app.services.dns_resolver import BaseDNSProvider, DomainDNSResult, extract_dmarc_policy
 from app.services.mta_sts import MTAStsResult
 
@@ -71,6 +72,7 @@ class DNSGuidanceResult:
     status: str
     findings: List[DNSLintFinding]
     target_records: List[DNSGuidanceRecord]
+    dns_provider: Optional[DNSProviderDetection] = None
     change_plans: List[DNSChangePlan] = field(default_factory=list)
 
 
@@ -1121,5 +1123,6 @@ async def build_dns_guidance(
         status=_status(findings),
         findings=findings,
         target_records=targets,
+        dns_provider=result.dns_provider,
         change_plans=build_dns_change_plans(findings),
     )

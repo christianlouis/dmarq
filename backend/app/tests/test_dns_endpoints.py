@@ -25,6 +25,7 @@ from app.models.report import DMARCReport, ReportRecord
 from app.models.workspace import Workspace
 from app.services.bimi import BIMIResult
 from app.services.dns_cache import _selectors_key, resolve_domain_dns_cached
+from app.services.dns_provider_detection import detect_dns_provider
 from app.services.dns_resolver import DomainDNSResult
 from app.services.mta_sts import MTAStsResult
 from app.services.report_persistence import save_parsed_report
@@ -295,6 +296,8 @@ def test_dns_endpoint_returns_dmarc_lint_findings(authed_client: TestClient):
         dkim=False,
         dmarc_warnings=["External rua destination reports.example.net is missing authorization."],
         dmarc_suggestions=["Policy is monitoring-only."],
+        nameservers=["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"],
+        dns_provider=detect_dns_provider(["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"]),
     )
 
     with _mock_dns(result):
@@ -304,6 +307,9 @@ def test_dns_endpoint_returns_dmarc_lint_findings(authed_client: TestClient):
     data = response.json()
     assert data["dmarcWarnings"] == result.dmarc_warnings
     assert data["dmarcSuggestions"] == result.dmarc_suggestions
+    assert data["nameservers"] == ["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"]
+    assert data["dnsProvider"]["provider_id"] == "cloudflare"
+    assert data["dnsProvider"]["connector_available"] is True
 
 
 def test_dns_lint_endpoint_returns_typed_findings_and_targets(authed_client: TestClient):
@@ -314,6 +320,8 @@ def test_dns_lint_endpoint_returns_typed_findings_and_targets(authed_client: Tes
         spf_record="v=spf1 include:_spf.example.com ~all",
         dkim=False,
         selectors_checked=["selector1"],
+        nameservers=["ns1.digitalocean.com", "ns2.digitalocean.com"],
+        dns_provider=detect_dns_provider(["ns1.digitalocean.com", "ns2.digitalocean.com"]),
     )
     mta_sts = MTAStsResult(errors=["No _mta-sts TXT record was found."])
     bimi = BIMIResult(errors=["No BIMI TXT record was found at the selector."])
@@ -335,6 +343,8 @@ def test_dns_lint_endpoint_returns_typed_findings_and_targets(authed_client: Tes
     data = response.json()
     assert data["domain"] == DOMAIN
     assert data["status"] == "attention"
+    assert data["dns_provider"]["provider_id"] == "digitalocean"
+    assert data["dns_provider"]["confidence"] == "high"
     codes = {finding["code"] for finding in data["findings"]}
     assert {"dkim_selector_missing", "tls_rpt_missing", "bimi_dmarc_not_enforced"}.issubset(codes)
     assert {record["code"] for record in data["target_records"]} >= {
@@ -366,6 +376,8 @@ def test_dns_change_plan_endpoint_returns_apply_gated_plans(authed_client: TestC
         spf=False,
         dkim=False,
         selectors_checked=["selector1"],
+        nameservers=["ns1.example.net"],
+        dns_provider=detect_dns_provider(["ns1.example.net"]),
     )
     mta_sts = MTAStsResult(errors=["No _mta-sts TXT record was found."])
     bimi = BIMIResult(errors=["No BIMI TXT record was found at the selector."])
@@ -388,6 +400,7 @@ def test_dns_change_plan_endpoint_returns_apply_gated_plans(authed_client: TestC
     assert data["domain"] == DOMAIN
     assert data["read_only"] is False
     assert data["provider_write_available"] is True
+    assert data["dns_provider"]["provider_id"] == "custom"
     assert data["apply_endpoint"].endswith("/dns/change-plan/apply")
     plan = next(plan for plan in data["plans"] if plan["finding_code"] == "dmarc_missing")
     assert plan["operation"] == "create"
@@ -548,6 +561,41 @@ async def test_dns_cache_recovers_from_concurrent_insert(db_session, monkeypatch
     assert result == MOCK_DNS_RESULT
     assert cached is False
     assert db_session.query(DNSCache).count() == 1
+
+
+@pytest.mark.asyncio
+async def test_dns_cache_preserves_provider_detection(db_session):
+    """Cached DNS results should keep nameserver and provider detection evidence."""
+    result_with_provider = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=none; rua=mailto:dmarc@example.com",
+        spf=True,
+        spf_record="v=spf1 -all",
+        dkim=False,
+        nameservers=["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"],
+        dns_provider=detect_dns_provider(["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"]),
+    )
+    mock_provider = AsyncMock(check_domain=AsyncMock(return_value=result_with_provider))
+
+    first, cached, _checked = await resolve_domain_dns_cached(
+        db_session,
+        mock_provider,
+        DOMAIN,
+        selectors=[],
+    )
+    second, cached_again, _checked_again = await resolve_domain_dns_cached(
+        db_session,
+        mock_provider,
+        DOMAIN,
+        selectors=[],
+    )
+
+    assert cached is False
+    assert first.dns_provider is not None
+    assert cached_again is True
+    assert second.nameservers == ["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"]
+    assert second.dns_provider is not None
+    assert second.dns_provider.provider_id == "cloudflare"
 
 
 @pytest.mark.asyncio
