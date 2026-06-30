@@ -1,5 +1,5 @@
 from datetime import date
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,6 +13,7 @@ from app.models.mail_source import MailSource
 from app.models.mail_source_import import MailSourceImport
 from app.models.organization import BillingAccount, Organization
 from app.models.workspace import Workspace
+from app.services import workspace_usage as workspace_usage_service
 from app.services.api_tokens import (
     MCP_READ_SCOPE,
     READ_POSTURE_SCOPE,
@@ -300,6 +301,69 @@ def test_public_workspace_usage_is_workspace_scoped_and_read_only(
     assert body["alerts"]["by_rule"] == {"new_sender_source": 1}
     assert [row["domain"] for row in body["domains"]] == [DOMAIN]
     assert other_domain not in response.text
+
+
+def test_public_workspace_usage_handles_empty_workspace(client: TestClient, db_session):
+    """Usage exports remain well-formed for newly created workspaces."""
+    workspace = Workspace(slug="usage-empty", name="Usage Empty", active=True)
+    db_session.add(workspace)
+    db_session.commit()
+    token = create_api_token(
+        db_session,
+        name="empty usage bot",
+        scopes=[READ_REPORTS_SCOPE],
+        workspace_id=workspace.id,
+    )
+
+    response = client.get(
+        "/api/v1/public/usage",
+        headers={"X-API-Key": token.secret},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["workspace"]["id"] == workspace.id
+    assert body["summary"] == {
+        "domain_count": 0,
+        "active_domain_count": 0,
+        "verified_domain_count": 0,
+        "aggregate_report_count": 0,
+        "forensic_report_count": 0,
+        "tls_report_count": 0,
+        "total_messages": 0,
+        "compliant_messages": 0,
+        "failed_messages": 0,
+        "compliance_rate": 0.0,
+        "distinct_source_count": 0,
+        "last_report_end_at": None,
+    }
+    assert body["mail_sources"] == {
+        "total": 0,
+        "enabled": 0,
+        "disabled": 0,
+        "by_method": {},
+        "imports": {"total": 0, "by_status": {}},
+    }
+    assert body["alerts"] == {"total": 0, "active": 0, "resolved": 0, "by_rule": {}}
+    assert body["domains"] == []
+
+
+def test_workspace_usage_message_totals_handles_missing_aggregate_row():
+    query = MagicMock()
+    query.join.return_value = query
+    query.filter.return_value = query
+    query.first.return_value = None
+    db = MagicMock()
+    db.query.return_value = query
+
+    totals = workspace_usage_service._message_totals(db, [123])
+
+    assert totals == {
+        "total_messages": 0,
+        "compliant_messages": 0,
+        "failed_messages": 0,
+        "distinct_source_count": 0,
+    }
 
 
 def test_public_source_intelligence_endpoints_use_report_scope(client: TestClient, db_session):
