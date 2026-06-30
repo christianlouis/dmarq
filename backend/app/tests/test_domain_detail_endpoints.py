@@ -912,9 +912,11 @@ def test_get_domain_source_intelligence_returns_regions_and_anomalies(
     data = response.json()
     assert data["domain"] == DOMAIN
     assert data["summary"]["regions"] >= 1
-    assert data["regions"][0]["message_count"] == 10
-    assert data["anomalies"][0]["type"] == "new_sender"
-    assert data["anomalies"][0]["source_ip"] == "209.85.220.1"
+    assert any(region["message_count"] == 10 for region in data["regions"])
+    assert any(
+        anomaly["type"] == "new_sender" and anomaly["source_ip"] == "209.85.220.1"
+        for anomaly in data["anomalies"]
+    )
 
 
 def test_get_domain_source_intelligence_unknown_domain_returns_404(
@@ -933,9 +935,9 @@ def test_get_domain_sources_includes_geo_and_anomaly_hints(seeded_client: TestCl
     response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources?days=30")
 
     assert response.status_code == 200
-    source = response.json()["sources"][0]
+    source = next(item for item in response.json()["sources"] if item["anomalies"])
     assert source["geo"]["region"]
-    assert source["anomalies"][0]["type"] == "new_sender"
+    assert any(anomaly["type"] == "new_sender" for anomaly in source["anomalies"])
     recommendation_types = {item["type"] for item in source["recommendations"]}
     assert "anomaly_new_sender" in recommendation_types
 

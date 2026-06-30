@@ -463,7 +463,7 @@ to the page section that triggered the finding.
 
 #### Get Source Intelligence
 
-```
+```http
 GET /domains/{domain_id}/source-intelligence?days=30
 ```
 

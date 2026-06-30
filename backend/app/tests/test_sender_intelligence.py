@@ -220,3 +220,95 @@ def test_build_source_intelligence_accepts_iso_report_dates():
     )
 
     assert intelligence["summary"]["regions"] == 1
+
+
+def test_build_source_intelligence_preserves_aware_iso_offsets():
+    reports = [
+        {
+            "domain": "example.com",
+            "begin_date": "2026-06-24T23:00:00-02:00",
+            "records": [
+                {
+                    "source_ip": "203.0.113.10",
+                    "count": 10,
+                    "spf_result": "pass",
+                    "dkim_result": "pass",
+                }
+            ],
+        },
+        {
+            "domain": "example.com",
+            "begin_date": "2026-06-25T00:30:00+00:00",
+            "records": [
+                {
+                    "source_ip": "198.51.100.199",
+                    "count": 20,
+                    "spf_result": "fail",
+                    "dkim_result": "fail",
+                }
+            ],
+        },
+    ]
+
+    intelligence = build_source_intelligence(
+        "example.com",
+        reports,
+        [
+            {"source_ip": "203.0.113.10", "count": 10, "dmarc_fail_count": 0},
+            {"source_ip": "198.51.100.199", "count": 20, "dmarc_fail_count": 20},
+        ],
+        period_days=30,
+    )
+
+    anomaly_ips = {item["source_ip"] for item in intelligence["anomalies"]}
+    assert "203.0.113.10" in anomaly_ips
+
+
+def test_build_source_intelligence_limits_baseline_to_analysis_window():
+    reports = [
+        {
+            "domain": "example.com",
+            "begin_timestamp": 1_700_000_000,
+            "records": [
+                {
+                    "source_ip": "203.0.113.10",
+                    "count": 1000,
+                    "spf_result": "pass",
+                    "dkim_result": "pass",
+                }
+            ],
+        },
+        {
+            "domain": "example.com",
+            "begin_timestamp": 1_703_500_000,
+            "records": [
+                {
+                    "source_ip": "203.0.113.10",
+                    "count": 10,
+                    "spf_result": "pass",
+                    "dkim_result": "pass",
+                }
+            ],
+        },
+        {
+            "domain": "example.com",
+            "begin_timestamp": 1_704_000_000,
+            "records": [
+                {
+                    "source_ip": "203.0.113.10",
+                    "count": 70,
+                    "spf_result": "pass",
+                    "dkim_result": "pass",
+                }
+            ],
+        },
+    ]
+
+    intelligence = build_source_intelligence(
+        "example.com",
+        reports,
+        [{"source_ip": "203.0.113.10", "count": 1080, "dmarc_fail_count": 0}],
+        period_days=7,
+    )
+
+    assert any(item["type"] == "volume_spike" for item in intelligence["anomalies"])
