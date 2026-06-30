@@ -5,9 +5,11 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.api.api_v1.endpoints import domains
 from app.core.database import get_db
 from app.core.security import require_api_token_scope
 from app.services.ai_assistance import (
@@ -47,6 +49,45 @@ READ_ONLY_TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {"domain": {"type": "string"}},
+            "required": ["domain"],
+        },
+        "readOnlyHint": True,
+    },
+    {
+        "name": "domain_posture",
+        "description": "Return DNS posture, health score, grade, and action guidance.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string"},
+                "refresh": {"type": "boolean", "default": False},
+            },
+            "required": ["domain"],
+        },
+        "readOnlyHint": True,
+    },
+    {
+        "name": "domain_sources",
+        "description": "Return enriched DMARC sending sources for one domain.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string"},
+                "days": {"type": "integer", "minimum": 1, "maximum": 365, "default": 30},
+            },
+            "required": ["domain"],
+        },
+        "readOnlyHint": True,
+    },
+    {
+        "name": "source_intelligence",
+        "description": "Return source geography summaries and anomaly hints for one domain.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string"},
+                "days": {"type": "integer", "minimum": 1, "maximum": 365, "default": 30},
+            },
             "required": ["domain"],
         },
         "readOnlyHint": True,
@@ -116,6 +157,62 @@ def _list_domains(db: Session, *, workspace_id: Optional[int] = None) -> Dict[st
     }
 
 
+def _tool_domain(arguments: Dict[str, Any]) -> str:
+    domain = str(arguments.get("domain", "")).strip()
+    if not domain:
+        raise ValueError("domain is required")
+    return domain
+
+
+def _tool_days(arguments: Dict[str, Any]) -> int:
+    raw_days = arguments.get("days", 30)
+    try:
+        days = int(raw_days)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("days must be an integer from 1 to 365") from exc
+    if days < 1 or days > 365:
+        raise ValueError("days must be an integer from 1 to 365")
+    return days
+
+
+async def _call_read_only_tool(
+    name: str,
+    arguments: Dict[str, Any],
+    *,
+    db: Session,
+    auth_context: Dict[str, Any],
+    workspace_id: Optional[int],
+) -> Any:
+    if name == "list_domains":
+        return _list_domains(db, workspace_id=workspace_id)
+    if name == "domain_summary":
+        return build_evidence_summary(db, _tool_domain(arguments))
+    if name == "domain_posture":
+        return await domains.get_domain_posture_dashboard(
+            domain_id=_tool_domain(arguments),
+            refresh=bool(arguments.get("refresh", False)),
+            db=db,
+            _auth=auth_context,
+        )
+    if name == "domain_sources":
+        return await domains.get_domain_sources(
+            domain_id=_tool_domain(arguments),
+            days=_tool_days(arguments),
+            db=db,
+            _auth=auth_context,
+        )
+    if name == "source_intelligence":
+        return await domains.get_domain_source_intelligence(
+            domain_id=_tool_domain(arguments),
+            days=_tool_days(arguments),
+            db=db,
+            _auth=auth_context,
+        )
+    if name == "action_proposals":
+        return build_action_proposals(db, _tool_domain(arguments))
+    raise KeyError(name)
+
+
 @router.post("")
 async def mcp_jsonrpc(
     payload: MCPRequest,
@@ -151,17 +248,18 @@ async def mcp_jsonrpc(
     name = payload.params.get("name")
     arguments = payload.params.get("arguments") or {}
     try:
-        if name == "list_domains":
-            result = _list_domains(db, workspace_id=workspace.id)
-        elif name == "domain_summary":
-            result = build_evidence_summary(db, str(arguments.get("domain", "")))
-        elif name == "action_proposals":
-            result = build_action_proposals(db, str(arguments.get("domain", "")))
-        else:
-            return _jsonrpc_response(
-                payload.id,
-                error={"code": -32602, "message": f"Unsupported tool: {name}"},
-            )
+        result = await _call_read_only_tool(
+            str(name),
+            arguments,
+            db=db,
+            auth_context=_auth,
+            workspace_id=workspace.id,
+        )
+    except KeyError:
+        return _jsonrpc_response(
+            payload.id,
+            error={"code": -32602, "message": f"Unsupported tool: {name}"},
+        )
     except ValueError as exc:
         return _jsonrpc_response(payload.id, error={"code": -32004, "message": str(exc)})
 
@@ -180,7 +278,7 @@ async def mcp_jsonrpc(
     return _jsonrpc_response(
         payload.id,
         {
-            "content": [{"type": "json", "json": result}],
+            "content": [{"type": "json", "json": jsonable_encoder(result)}],
             "isError": False,
         },
     )

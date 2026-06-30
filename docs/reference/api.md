@@ -59,12 +59,31 @@ through the `/public` path and avoid UI-specific payloads.
 | --- | --- | --- |
 | `GET /public/domains` | `reports:read` | Domain report and DNS summary list |
 | `GET /public/domains/{domain_id}/reports` | `reports:read` | Recent DMARC aggregate report summaries |
+| `GET /public/domains/{domain_id}/sources` | `reports:read` | Enriched sending sources with sender, geo, anomaly, and fix hints |
+| `GET /public/domains/{domain_id}/source-intelligence` | `reports:read` | Regional source summaries and anomaly hints |
 | `GET /public/domains/{domain_id}/posture` | `posture:read` | Evidence-first posture dashboard payload |
 | `GET /public/tls-reports/summary` | `tls-reports:read` | SMTP TLS report trends and failure groups |
 | `POST /mcp` | `mcp:read` | Read-only MCP-style JSON-RPC tool endpoint |
 
 Successful public API calls update the token's last-used timestamp, source IP,
 and usage count for auditing.
+
+Public source responses are intended for SIEM, SOC, ISP, MSP, and AI-agent
+consumers that need evidence-linked DMARC sending-source context without
+screen-scraping the dashboard. Source rows include DNS/PTR enrichment when
+available, sender classification, coarse geography, anomaly badges, SPF hints,
+and safe remediation recommendations.
+
+The MCP endpoint currently exposes these read-only tools:
+
+| Tool | Purpose |
+| --- | --- |
+| `list_domains` | List monitored domains and aggregate counts |
+| `domain_summary` | Return an evidence-first DMARC summary |
+| `domain_posture` | Return posture score, grade, DNS health, and action guidance |
+| `domain_sources` | Return enriched DMARC sending sources |
+| `source_intelligence` | Return source regions and anomaly hints |
+| `action_proposals` | Return reviewable remediation proposals without applying them |
 
 ### Provider API
 
