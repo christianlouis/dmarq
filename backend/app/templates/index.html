@@ -39,7 +39,7 @@
                                    x-model="customEndDate">
                             <button type="button"
                                     class="rounded-md bg-[#272a5f] px-3 py-2 text-sm font-semibold text-white hover:bg-[#171346]"
-                                    @click="fetchDashboardStats()">
+                                    @click="fetchDashboardStats(); fetchWorkspaceHealthHistory()">
                                 Apply
                             </button>
                         </div>
@@ -153,6 +153,18 @@
                     <span x-text="healthSummary?.domain_count || 0"></span>
                     <span> domains need attention.</span>
                 </p>
+                <div class="mt-5 border-t border-[#dfdfdf] pt-4" x-show="healthHistory?.points?.length">
+                    <div class="mb-3 flex items-center justify-between gap-3">
+                        <p class="text-sm font-semibold text-[#120d36]">Score Trend</p>
+                        <p class="text-sm font-semibold"
+                           :class="(healthHistory?.score_delta || 0) >= 0 ? 'text-[#247982]' : 'text-[#b8431d]'">
+                            <span x-text="formatScoreDelta(healthHistory?.score_delta)"></span>
+                        </p>
+                    </div>
+                    <div class="h-24">
+                        <canvas id="health-trend-chart" aria-label="System health score trend"></canvas>
+                    </div>
+                </div>
             </div>
             <div class="grid gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
                 <div>
@@ -752,8 +764,10 @@ function dashboardApp() {
         hasDomainData: false,
         volumeTrendChart: null,
         complianceTrendChart: null,
+        healthTrendChart: null,
         domains: [],
         healthSummary: null,
+        healthHistory: null,
         selectedDnsDomain: '',
         demoDeployment: null,
         selectedDemoScenarioId: 'single-user-multiple-domains',
@@ -901,10 +915,12 @@ function dashboardApp() {
                     this.$nextTick(() => {
                         this.updateDnsHealth();
                         this.fetchDashboardStats();
+                        this.fetchWorkspaceHealthHistory();
                     });
                 } else {
                     this.domains = [];
                     this.healthSummary = null;
+                    this.healthHistory = null;
                     this.selectedDnsDomain = '';
                     this.hasDomainData = false;
                     this.clearDashboardCharts();
@@ -915,6 +931,7 @@ function dashboardApp() {
                 console.error('Error fetching domain summary:', error);
                 this.domains = [];
                 this.healthSummary = null;
+                this.healthHistory = null;
                 this.selectedDnsDomain = '';
                 this.hasDomainData = false;
                 this.clearDashboardCharts();
@@ -942,6 +959,21 @@ function dashboardApp() {
             }
         },
 
+        async fetchWorkspaceHealthHistory() {
+            try {
+                const response = await fetch(this.workspaceHealthHistoryUrl());
+                if (!response.ok) {
+                    console.error('Error fetching workspace health history:', response.status);
+                    return;
+                }
+                const data = await response.json();
+                this.healthHistory = data;
+                this.$nextTick(() => this.renderHealthTrend(data.points || []));
+            } catch (error) {
+                console.error('Error fetching workspace health history:', error);
+            }
+        },
+
         dashboardStatsUrl() {
             const params = new URLSearchParams();
             params.set('interval', this.dateInterval);
@@ -952,9 +984,47 @@ function dashboardApp() {
             return `/api/v1/stats/dashboard?${params.toString()}`;
         },
 
+        workspaceHealthHistoryUrl() {
+            const params = new URLSearchParams();
+            params.set('limit', '120');
+            const range = this.healthHistoryDateRange();
+            if (range.start) params.set('start_date', range.start);
+            if (range.end) params.set('end_date', range.end);
+            return `/api/v1/domains/summary/health/history?${params.toString()}`;
+        },
+
+        healthHistoryDateRange() {
+            const today = new Date();
+            const start = new Date(today);
+            if (this.dateInterval === 'custom') {
+                return { start: this.customStartDate || '', end: this.customEndDate || '' };
+            }
+            if (this.dateInterval === 'last_24_hours') {
+                start.setDate(today.getDate() - 1);
+            } else if (this.dateInterval === 'last_48_hours') {
+                start.setDate(today.getDate() - 2);
+            } else if (this.dateInterval === 'last_7_days') {
+                start.setDate(today.getDate() - 6);
+            } else if (this.dateInterval === 'last_90_days') {
+                start.setDate(today.getDate() - 89);
+            } else if (this.dateInterval === 'week_to_date') {
+                const day = today.getDay() || 7;
+                start.setDate(today.getDate() - day + 1);
+            } else if (this.dateInterval === 'month_to_date') {
+                start.setDate(1);
+            } else {
+                start.setDate(today.getDate() - 29);
+            }
+            return {
+                start: start.toISOString().slice(0, 10),
+                end: today.toISOString().slice(0, 10)
+            };
+        },
+
         handleDateIntervalChange() {
             if (this.dateInterval !== 'custom') {
                 this.fetchDashboardStats();
+                this.fetchWorkspaceHealthHistory();
                 return;
             }
             if (!this.customEndDate) {
@@ -1107,6 +1177,66 @@ function dashboardApp() {
 
             this.renderVolumeTrend(trendData);
             this.renderComplianceTrend(trendData);
+        },
+
+        renderHealthTrend(points) {
+            const canvas = document.getElementById('health-trend-chart');
+            if (!canvas || !window.Chart) return;
+            if (!points.length) {
+                if (this.healthTrendChart) {
+                    this.healthTrendChart.destroy();
+                    this.healthTrendChart = null;
+                }
+                return;
+            }
+
+            if (this.healthTrendChart) {
+                this.healthTrendChart.destroy();
+            }
+
+            this.healthTrendChart = new Chart(canvas.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels: points.map(item => item.date),
+                    datasets: [
+                        {
+                            label: 'Health Score',
+                            data: points.map(item => item.score || 0),
+                            borderColor: '#2f9da5',
+                            backgroundColor: 'rgba(47, 157, 165, 0.14)',
+                            pointRadius: 0,
+                            pointHoverRadius: 4,
+                            borderWidth: 3,
+                            tension: 0.35,
+                            fill: true
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            min: 0,
+                            max: 100,
+                            grid: { color: '#dfdfdf' },
+                            ticks: { display: false }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { display: false }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: context => `Health Score: ${context.parsed.y}/100`
+                            }
+                        }
+                    }
+                }
+            });
         },
 
         renderVolumeTrend(trendData) {
@@ -1268,6 +1398,13 @@ function dashboardApp() {
 
         formatLargeNumber(value) {
             return new Intl.NumberFormat(undefined, { notation: 'compact' }).format(value);
+        },
+
+        formatScoreDelta(value) {
+            if (value === null || value === undefined) return 'No prior score';
+            const number = Number(value) || 0;
+            if (number === 0) return 'No change';
+            return `${number > 0 ? '+' : ''}${number} pts`;
         },
 
         formatMoney(cents, currency = 'EUR') {

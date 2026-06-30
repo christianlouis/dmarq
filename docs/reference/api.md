@@ -474,6 +474,20 @@ shape audit or dashboard windows. By default the endpoint captures the current
 posture as today's snapshot before reading history; pass `capture_current=false`
 when reading already persisted evidence only.
 
+#### Get Workspace Health Score History
+
+```
+GET /domains/summary/health/history
+```
+
+Returns persisted daily health score snapshots aggregated across the selected
+workspace. The response includes account-level score, grade, domain count,
+aggregate message/report counts, factor scores, top action drivers, previous
+score, and score delta. Use `start_date`, `end_date`, and `limit` to shape the
+same date windows used by the dashboard. In demo mode, the endpoint falls back
+to rolling dmarq.org and dmarq.com demo history when no persisted snapshots are
+available.
+
 #### Export Health Evidence
 
 ```

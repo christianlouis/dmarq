@@ -20,6 +20,15 @@ def test_dashboard_domain_details_links_are_encoded():
     assert "encodeURIComponent(domainId)" in template
 
 
+def test_dashboard_exposes_workspace_health_history():
+    template = (Path(__file__).resolve().parents[1] / "templates" / "index.html").read_text()
+
+    assert "Score Trend" in template
+    assert "health-trend-chart" in template
+    assert "/api/v1/domains/summary/health/history" in template
+    assert "fetchWorkspaceHealthHistory" in template
+
+
 def test_domain_details_exposes_health_history_without_html_injection():
     template = (
         Path(__file__).resolve().parents[1] / "templates" / "domain_details.html"

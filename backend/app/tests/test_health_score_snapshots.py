@@ -1,9 +1,12 @@
 from datetime import date
 
 from app.services.health_score_snapshots import (
+    aggregate_workspace_health_points,
     build_health_evidence_export_rows,
     build_health_score_history,
+    build_workspace_health_score_history,
     list_health_score_snapshots,
+    list_workspace_health_score_snapshots,
     snapshot_to_history_point,
     upsert_health_score_snapshot,
 )
@@ -150,3 +153,101 @@ def test_health_score_snapshot_filters_by_date_range(db_session):
         date(2026, 6, 2),
         date(2026, 6, 3),
     ]
+
+
+def test_workspace_health_score_history_aggregates_domain_snapshots(db_session):
+    workspace = get_or_create_default_workspace(db_session)
+    for domain_name, score, total_emails, failed_emails, action_title in [
+        ("example.com", 90, 1000, 20, "Keep reject policy"),
+        ("example.net", 70, 100, 30, "Fix DKIM selector coverage"),
+    ]:
+        upsert_health_score_snapshot(
+            db_session,
+            workspace_id=workspace.id,
+            domain_name=domain_name,
+            health={
+                "score": score,
+                "grade": "A-" if score >= 90 else "C",
+                "status": "healthy" if score >= 90 else "attention",
+                "factors": {
+                    "dns_posture": score,
+                    "policy_strength": 88,
+                    "report_confidence": 90,
+                },
+                "actions": [
+                    {
+                        "type": "demo",
+                        "severity": "high",
+                        "title": action_title,
+                        "score_impact": 12 if score < 90 else 2,
+                    }
+                ],
+            },
+            policy="quarantine",
+            compliance_rate=score,
+            total_emails=total_emails,
+            failed_emails=failed_emails,
+            report_count=4,
+            snapshot_date=date(2026, 6, 5),
+        )
+
+    snapshots = list_workspace_health_score_snapshots(
+        db_session,
+        workspace_id=workspace.id,
+        start_date=date(2026, 6, 1),
+        end_date=date(2026, 6, 30),
+    )
+    history = build_workspace_health_score_history(snapshots)
+
+    assert history["scope"] == "workspace"
+    assert history["current_score"] == 88
+    assert history["points"][0]["domain_count"] == 2
+    assert history["points"][0]["total_emails"] == 1100
+    assert history["points"][0]["failed_emails"] == 50
+    assert history["top_drivers"][0]["domain"] == "example.net"
+
+
+def test_aggregate_workspace_health_points_handles_demo_points():
+    points = aggregate_workspace_health_points(
+        {
+            "dmarq.org": [
+                {
+                    "date": "2026-06-01",
+                    "score": 94,
+                    "grade": "A",
+                    "status": "healthy",
+                    "policy": "reject",
+                    "compliance_rate": 98,
+                    "total_emails": 1000,
+                    "failed_emails": 20,
+                    "report_count": 10,
+                    "dns_posture_score": 99,
+                    "policy_strength_score": 100,
+                    "report_confidence_score": 100,
+                    "top_actions": [],
+                }
+            ],
+            "dmarq.com": [
+                {
+                    "date": "2026-06-01",
+                    "score": 70,
+                    "grade": "C",
+                    "status": "attention",
+                    "policy": "none",
+                    "compliance_rate": 75,
+                    "total_emails": 1000,
+                    "failed_emails": 250,
+                    "report_count": 8,
+                    "dns_posture_score": 80,
+                    "policy_strength_score": 55,
+                    "report_confidence_score": 90,
+                    "top_actions": [{"title": "Move out of monitoring mode", "score_impact": 14}],
+                }
+            ],
+        }
+    )
+
+    assert points[0]["score"] == 82
+    assert points[0]["grade"] == "B-"
+    assert points[0]["domain_count"] == 2
+    assert points[0]["top_actions"][0]["domain"] == "dmarq.com"
