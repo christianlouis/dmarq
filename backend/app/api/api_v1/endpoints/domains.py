@@ -232,6 +232,29 @@ class DNSChangePlanResponse(BaseModel):
     plans: List[DNSChangePlanItemResponse]
 
 
+def read_only_dns_change_plan_response(payload: Any) -> DNSChangePlanResponse:
+    """Return an automation-safe DNS plan payload without write affordances."""
+    data = payload.model_dump() if hasattr(payload, "model_dump") else dict(payload)
+    plans = []
+    for plan in data.get("plans") or []:
+        plan_data = plan.model_dump() if hasattr(plan, "model_dump") else dict(plan)
+        plans.append(
+            {
+                **plan_data,
+                "provider_write_available": False,
+                "applies_automatically": False,
+            }
+        )
+    return DNSChangePlanResponse(
+        domain=data["domain"],
+        status=data["status"],
+        read_only=True,
+        provider_write_available=False,
+        apply_endpoint=None,
+        plans=plans,
+    )
+
+
 class DNSProviderCapabilityResponse(BaseModel):
     """DNS provider write capability metadata."""
 

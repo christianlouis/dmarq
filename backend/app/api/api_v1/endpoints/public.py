@@ -44,6 +44,45 @@ async def public_domain_posture(
 
 
 @router.get(
+    "/domains/{domain_id}/dns/lint",
+    response_model=domains.DNSGuidanceResponse,
+)
+async def public_domain_dns_lint(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    refresh: bool = Query(False, title="Refresh cached DNS result"),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_api_token_scope(READ_POSTURE_SCOPE)),
+):
+    """Return stable read-only DNS lint findings for one domain."""
+    return await domains.get_domain_dns_lint(
+        domain_id=domain_id,
+        refresh=refresh,
+        db=db,
+        _auth=_auth,
+    )
+
+
+@router.get(
+    "/domains/{domain_id}/dns/change-plan",
+    response_model=domains.DNSChangePlanResponse,
+)
+async def public_domain_dns_change_plan(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    refresh: bool = Query(False, title="Refresh cached DNS result"),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_api_token_scope(READ_POSTURE_SCOPE)),
+):
+    """Return public read-only DNS change plans without write affordances."""
+    response = await domains.get_domain_dns_change_plan(
+        domain_id=domain_id,
+        refresh=refresh,
+        db=db,
+        _auth=_auth,
+    )
+    return domains.read_only_dns_change_plan_response(response)
+
+
+@router.get(
     "/domains/{domain_id}/action-proposals",
     response_model=ai.ActionProposalResponse,
 )

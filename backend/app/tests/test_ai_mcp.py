@@ -702,6 +702,42 @@ async def test_mcp_read_only_tool_dispatch_covers_new_domain_tools(db_session: S
             new=AsyncMock(return_value={"domain": DOMAIN, "sources": []}),
         ) as sources,
         patch(
+            "app.api.api_v1.endpoints.mcp.domains.get_domain_dns_lint",
+            new=AsyncMock(return_value={"domain": DOMAIN, "status": "attention"}),
+        ) as dns_lint,
+        patch(
+            "app.api.api_v1.endpoints.mcp.domains.get_domain_dns_change_plan",
+            new=AsyncMock(
+                return_value={
+                    "domain": DOMAIN,
+                    "status": "attention",
+                    "read_only": False,
+                    "provider_write_available": True,
+                    "apply_endpoint": f"/api/v1/domains/{DOMAIN}/dns/change-plan/apply",
+                    "plans": [
+                        {
+                            "plan_id": "dns-plan-1",
+                            "finding_code": "dmarc_missing",
+                            "severity": "error",
+                            "operation": "create",
+                            "record_type": "TXT",
+                            "name": f"_dmarc.{DOMAIN}",
+                            "proposed_value": "v=DMARC1; p=none",
+                            "current_values": [],
+                            "rationale": "Publish DMARC policy discovery.",
+                            "risk": "Low; validates syntax before enforcement.",
+                            "rollback": "Remove the new TXT record.",
+                            "expected_health_impact": ("Expected to remove a DNS-health finding."),
+                            "manual_steps": ["Create the TXT record."],
+                            "requires_approval": True,
+                            "applies_automatically": True,
+                            "provider_write_available": True,
+                        }
+                    ],
+                }
+            ),
+        ) as dns_change_plan,
+        patch(
             "app.api.api_v1.endpoints.mcp.domains.get_domain_source_intelligence",
             new=AsyncMock(return_value={"domain": DOMAIN, "regions": []}),
         ) as intelligence,
@@ -727,6 +763,20 @@ async def test_mcp_read_only_tool_dispatch_covers_new_domain_tools(db_session: S
             auth_context=auth_context,
             workspace_id=None,
         )
+        dns_lint_result = await mcp_endpoint._call_read_only_tool(
+            "dns_lint",
+            {"domain": DOMAIN, "refresh": True},
+            db=db_session,
+            auth_context=auth_context,
+            workspace_id=None,
+        )
+        dns_plan_result = await mcp_endpoint._call_read_only_tool(
+            "dns_change_plan",
+            {"domain": DOMAIN},
+            db=db_session,
+            auth_context=auth_context,
+            workspace_id=None,
+        )
         intelligence_result = await mcp_endpoint._call_read_only_tool(
             "source_intelligence",
             {"domain": DOMAIN},
@@ -745,10 +795,18 @@ async def test_mcp_read_only_tool_dispatch_covers_new_domain_tools(db_session: S
     assert listed["domains"][0]["domain"] == DOMAIN
     assert posture_result["grade"] == "A"
     assert source_result["sources"] == []
+    assert dns_lint_result["status"] == "attention"
+    assert dns_plan_result.read_only is True
+    assert dns_plan_result.provider_write_available is False
+    assert dns_plan_result.apply_endpoint is None
+    assert dns_plan_result.plans[0].provider_write_available is False
+    assert dns_plan_result.plans[0].applies_automatically is False
     assert intelligence_result["regions"] == []
     assert proposals["proposals"]
     posture.assert_awaited_once()
     sources.assert_awaited_once()
+    dns_lint.assert_awaited_once()
+    dns_change_plan.assert_awaited_once()
     intelligence.assert_awaited_once()
 
 
@@ -807,7 +865,13 @@ def test_mcp_requires_enabled_scoped_token(client: TestClient, db_session: Sessi
     tools = listed.json()["result"]["tools"]
     assert tools[0]["readOnlyHint"] is True
     tool_names = {tool["name"] for tool in tools}
-    assert {"domain_sources", "source_intelligence", "domain_posture"}.issubset(tool_names)
+    assert {
+        "domain_sources",
+        "source_intelligence",
+        "domain_posture",
+        "dns_lint",
+        "dns_change_plan",
+    }.issubset(tool_names)
 
     initialized = client.post(
         "/api/v1/mcp",
