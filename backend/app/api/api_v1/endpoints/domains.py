@@ -866,6 +866,26 @@ def _domain_exists(db: Session, store: ReportStore, domain_name: str, workspace=
     return domain_name in store.get_domains()
 
 
+def _resolve_domain_name_for_read(
+    db: Session,
+    store: ReportStore,
+    domain_id: str,
+    workspace,
+) -> str:
+    """Resolve a domain path segment to the canonical workspace domain name."""
+    domain = workspace_domain_query(db, workspace).filter(Domain.name == domain_id).first()
+    if domain is None and domain_id.isdigit():
+        domain = workspace_domain_query(db, workspace).filter(Domain.id == int(domain_id)).first()
+    if domain is not None:
+        return str(domain.name)
+    if _domain_exists(db, store, domain_id, workspace):
+        return domain_id
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Domain not found",
+    )
+
+
 def _record_evidence(
     label: str, value: Optional[str], href: str = "#dns-records"
 ) -> DNSHealthEvidence:
@@ -2234,27 +2254,24 @@ async def get_domain_stats(
 async def get_domain_migration_readiness(
     domain_id: str = Path(..., title="The domain ID or name"),
     refresh: bool = Query(False, title="Refresh cached DNS result"),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
 ):
     """Return safe migration and data-portability readiness for one monitored domain."""
-    workspace = _authorized_domain_read_workspace(_auth, db)
+    selected_workspace_id = parse_selected_workspace_id(selected_workspace)
+    workspace = _authorized_domain_read_workspace(_auth, db, selected_workspace_id)
     store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store)
+    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
+    domain_name = _resolve_domain_name_for_read(db, store, domain_id, workspace)
 
-    if not _domain_exists(db, store, domain_id, workspace):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Domain not found",
-        )
-
-    summary = store.get_domain_summary(domain_id)
-    reports = store.get_domain_reports(domain_id, limit=10000)
-    sources = store.get_domain_sources(domain_id)
-    guidance_payload = await _build_domain_dns_guidance(db, store, domain_id, refresh=refresh)
+    summary = store.get_domain_summary(domain_name)
+    reports = store.get_domain_reports(domain_name, limit=10000)
+    sources = store.get_domain_sources(domain_name)
+    guidance_payload = await _build_domain_dns_guidance(db, store, domain_name, refresh=refresh)
     guidance = DNSGuidanceResponse(**guidance_payload)
     checklist, parallel_days = _build_migration_checklist(
-        domain_id,
+        domain_name,
         summary,
         reports,
         sources,
@@ -2264,12 +2281,12 @@ async def get_domain_migration_readiness(
     report_count = int(summary.get("reports_processed", 0) or len(reports))
     source_count = len(sources)
     summary_text = (
-        f"{domain_id} has {parallel_days} distinct report days, "
+        f"{domain_name} has {parallel_days} distinct report days, "
         f"{report_count} aggregate reports, and {source_count} observed sending sources."
     )
 
     return MigrationReadinessResponse(
-        domain=domain_id,
+        domain=domain_name,
         status=migration_status,
         readiness_score=readiness_score,
         summary=summary_text,
@@ -2280,24 +2297,36 @@ async def get_domain_migration_readiness(
         export_links=[
             MigrationExportLink(
                 label="Aggregate report CSV",
-                href=f"/api/v1/domains/{domain_id}/reports/export",
+                href=f"/api/v1/domains/{domain_name}/reports/export",
                 format="csv",
                 detail="Portable aggregate report summary for parity checks.",
             ),
             MigrationExportLink(
                 label="Health evidence CSV",
-                href=f"/api/v1/domains/{domain_id}/posture/evidence/export?capture_current=false",
+                href=f"/api/v1/domains/{domain_name}/posture/evidence/export?capture_current=false",
                 format="csv",
                 detail="Score, policy, report, and DNS posture evidence.",
             ),
             MigrationExportLink(
                 label="Health evidence JSON",
                 href=(
-                    f"/api/v1/domains/{domain_id}/posture/evidence/export"
+                    f"/api/v1/domains/{domain_name}/posture/evidence/export"
                     "?capture_current=false&format=json"
                 ),
                 format="json",
                 detail="Machine-readable portability packet for automation.",
+            ),
+            MigrationExportLink(
+                label="Workspace health evidence",
+                href="/api/v1/domains/summary/health/evidence/export?format=json",
+                format="json",
+                detail="Workspace-level health evidence for portfolio audit checks.",
+            ),
+            MigrationExportLink(
+                label="DNS lint CSV",
+                href="/api/v1/domains/dns/lint/export",
+                format="csv",
+                detail="Managed-domain DNS lint findings for cutover review.",
             ),
         ],
         supported_sources=[
@@ -3204,8 +3233,8 @@ def _build_migration_checklist(
         _migration_item(
             "volume-parity",
             volume_status,
-            "Validate 14-30 days of report parity",
-            "Use the overlap window to compare report volume, sender inventory, and policy results.",
+            "Build 14-30 days of report evidence",
+            "Use the overlap window to observe report volume, sender inventory, and policy results.",
             "Wait for at least 14 distinct report days before removing the old tool.",
             [f"{parallel_days} distinct report days", f"{report_count} reports processed"],
             "#compliance-chart-section",
@@ -3213,8 +3242,8 @@ def _build_migration_checklist(
         _migration_item(
             "sender-parity",
             source_status,
-            "Review sending-source parity",
-            "Confirmed senders should match what the current platform reports before cutover.",
+            "Review observed sending sources",
+            "Observed senders should be reviewed against the current platform before cutover.",
             "Investigate unknown or failing sources before tightening policy or removing old routing.",
             [f"{source_count} sending sources observed"],
             "#sending-sources",
