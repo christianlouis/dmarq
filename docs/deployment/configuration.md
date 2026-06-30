@@ -176,7 +176,10 @@ writes require `confirm=true` plus `dry_run=false`. Public demo mode rejects
 provider writes even if credentials are configured. DNS change-plan responses
 include the currently ready write providers, the provider DMARQ recommends from
 nameserver detection when possible, and safety notes for apply-ready versus
-manual-only changes.
+manual-only changes. If a write request selects a provider that does not match
+the detected provider, DMARQ rejects it unless the request explicitly sets
+`allow_provider_mismatch=true`; applied overrides are captured in the workspace
+audit log.
 
 Postmark sender-domain discovery is read-only. DMARQ uses the Postmark account
 token to list domains and sender signatures, then stores imported domains as

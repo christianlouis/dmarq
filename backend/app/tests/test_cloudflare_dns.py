@@ -1054,6 +1054,53 @@ def test_dns_change_plan_apply_dry_run_returns_noop_for_unchanged_cloudflare_rec
     assert data["mutation"]["current_values"] == [plan["proposed_value"]]
 
 
+def test_dns_change_plan_apply_blocks_detected_provider_mismatch(
+    authed_client: TestClient,
+    db_session,
+):
+    db_session.add(Domain(name=DOMAIN))
+    db_session.commit()
+    plan = _dns_plan()
+    guidance = _dns_guidance_with_plan(plan)
+    guidance["dns_provider"] = {
+        "provider_id": "digitalocean",
+        "provider_name": "DigitalOcean DNS",
+        "confidence": "high",
+        "evidence": ["ns1.digitalocean.com"],
+    }
+    zone_lookup = AsyncMock(return_value={"id": "zone-1", "name": DOMAIN, "records": []})
+
+    with (
+        patch(
+            "app.api.api_v1.endpoints.domains._build_domain_dns_guidance",
+            new=AsyncMock(return_value=guidance),
+        ),
+        patch(
+            "app.api.api_v1.endpoints.domains.provider_capabilities",
+            return_value=[
+                {
+                    "id": "cloudflare",
+                    "name": "Cloudflare",
+                    "mode": "native",
+                    "record_types": ["CNAME", "TXT"],
+                    "operations": ["create", "update"],
+                    "credentials": "settings",
+                    "status": "ready",
+                },
+            ],
+        ),
+        patch("app.services.dns_provider_writes.get_zone_for_domain", new=zone_lookup),
+    ):
+        response = authed_client.post(
+            f"/api/v1/domains/{DOMAIN}/dns/change-plan/apply",
+            json={"plan_id": plan["plan_id"], "provider": "cloudflare"},
+        )
+
+    assert response.status_code == 422
+    assert "does not match the detected provider" in response.json()["detail"]
+    zone_lookup.assert_not_awaited()
+
+
 def test_dns_change_plan_apply_blocks_multiple_matching_cloudflare_records(
     authed_client: TestClient,
     db_session,
@@ -1160,7 +1207,89 @@ def test_dns_change_plan_apply_updates_cloudflare_and_audits(
     assert db_session.query(DNSRecordChange).count() == 1
     audit = db_session.query(WorkspaceAuditLog).one()
     assert audit.action == "domain.dns_change_applied"
-    assert json.loads(audit.details)["provider"] == "cloudflare"
+    audit_details = json.loads(audit.details)
+    assert audit_details["provider"] == "cloudflare"
+    assert audit_details["provider_mismatch"] is False
+
+
+def test_dns_change_plan_apply_allows_explicit_provider_mismatch_override_and_audits(
+    authed_client: TestClient,
+    db_session,
+):
+    db_session.add(Domain(name=DOMAIN))
+    db_session.commit()
+    plan = _dns_plan(operation="update")
+    guidance = _dns_guidance_with_plan(plan)
+    guidance["dns_provider"] = {
+        "provider_id": "digitalocean",
+        "provider_name": "DigitalOcean DNS",
+        "confidence": "high",
+        "evidence": ["ns1.digitalocean.com"],
+    }
+    provider = FakeWriteCloudflareProvider(
+        zones=[{"id": "zone-1", "name": DOMAIN}],
+        records=[_record("dmarc", "TXT", f"_dmarc.{DOMAIN}", "v=DMARC1; p=none")],
+    )
+
+    with (
+        patch(
+            "app.api.api_v1.endpoints.domains._build_domain_dns_guidance",
+            new=AsyncMock(return_value=guidance),
+        ),
+        patch(
+            "app.api.api_v1.endpoints.domains.provider_capabilities",
+            return_value=[
+                {
+                    "id": "cloudflare",
+                    "name": "Cloudflare",
+                    "mode": "native",
+                    "record_types": ["CNAME", "TXT"],
+                    "operations": ["create", "update"],
+                    "credentials": "settings",
+                    "status": "ready",
+                },
+                {
+                    "id": "digitalocean",
+                    "name": "digitalocean",
+                    "mode": "lexicon",
+                    "record_types": ["CNAME", "TXT"],
+                    "operations": ["create", "update"],
+                    "credentials": "environment",
+                    "status": "ready",
+                },
+            ],
+        ),
+        patch(
+            "app.services.dns_provider_writes.get_zone_for_domain",
+            new=AsyncMock(
+                return_value={"id": "zone-1", "name": DOMAIN, "records": list(provider.records)}
+            ),
+        ),
+        patch(
+            "app.services.dns_provider_writes.build_cloudflare_provider",
+            return_value=provider,
+        ),
+    ):
+        response = authed_client.post(
+            f"/api/v1/domains/{DOMAIN}/dns/change-plan/apply",
+            json={
+                "plan_id": plan["plan_id"],
+                "provider": "cloudflare",
+                "dry_run": False,
+                "confirm": True,
+                "allow_provider_mismatch": True,
+            },
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["applied"] is True
+    audit = db_session.query(WorkspaceAuditLog).one()
+    audit_details = json.loads(audit.details)
+    assert audit_details["recommended_provider"] == "digitalocean"
+    assert audit_details["selected_provider"] == "cloudflare"
+    assert audit_details["provider_mismatch"] is True
+    assert audit_details["provider_mismatch_override"] is True
 
 
 def test_dns_change_plan_apply_blocks_provider_value_placeholders(
