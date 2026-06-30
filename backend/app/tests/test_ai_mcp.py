@@ -1,3 +1,4 @@
+import asyncio
 import builtins
 import sys
 import time
@@ -8,7 +9,9 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.api.api_v1.endpoints import ai as ai_endpoint
 from app.api.api_v1.endpoints import mcp as mcp_endpoint
+from app.models.domain import Domain
 from app.models.organization import Entitlement, Organization
 from app.models.setting import Setting
 from app.models.workspace import Workspace
@@ -562,6 +565,74 @@ def test_report_selectors_ignore_malformed_entries():
 def test_build_safe_context_returns_not_found_for_unknown_domain(db_session: Session):
     with pytest.raises(ValueError, match="Domain not found"):
         ai_assistance.build_safe_context(db_session, "missing.example")
+
+
+def test_ai_context_endpoint_honors_selected_workspace_header(
+    monkeypatch: pytest.MonkeyPatch,
+    db_session: Session,
+):
+    seen = {}
+
+    def fake_authorized_workspace(auth_context, db, selected_workspace_id=None):
+        seen["selected_workspace_id"] = selected_workspace_id
+        return SimpleNamespace(id=456)
+
+    monkeypatch.setattr(ai_endpoint, "_require_ai_enabled", lambda db: None)
+    monkeypatch.setattr(ai_endpoint, "_authorized_ai_workspace", fake_authorized_workspace)
+    monkeypatch.setattr(
+        ai_endpoint,
+        "build_safe_context",
+        lambda db, domain, *, workspace_id: {
+            "domain": domain,
+            "workspace_id": workspace_id,
+        },
+    )
+
+    response = asyncio.run(
+        ai_endpoint.get_domain_safe_context(
+            DOMAIN,
+            selected_workspace="123",
+            db=db_session,
+            _auth={"auth_type": "jwt"},
+        )
+    )
+
+    assert seen["selected_workspace_id"] == 123
+    assert response["context"]["workspace_id"] == 456
+
+
+def test_domain_exists_ignores_report_store_for_scoped_lookup(db_session: Session):
+    store = ReportStore()
+    store.add_report(
+        {
+            **REPORT,
+            "domain": "store-only.example",
+            "report_id": "store-only",
+        }
+    )
+
+    assert (
+        ai_assistance._domain_exists(
+            db_session,
+            store,
+            "store-only.example",
+            workspace_id=999,
+        )
+        is False
+    )
+
+    db_session.add(Domain(name="scoped-existing.example", workspace_id=999, active=True))
+    db_session.commit()
+
+    assert (
+        ai_assistance._domain_exists(
+            db_session,
+            store,
+            "scoped-existing.example",
+            workspace_id=999,
+        )
+        is True
+    )
 
 
 def test_action_proposals_are_reviewable_and_not_mutating(

@@ -135,7 +135,7 @@ def _domain_exists(
     *,
     workspace_id: Optional[int] = None,
 ) -> bool:
-    if domain in store.get_domains():
+    if workspace_id is None and domain in store.get_domains():
         return True
     query = db.query(Domain.id).filter(Domain.name == domain, Domain.active.is_(True))
     if workspace_id is not None:
