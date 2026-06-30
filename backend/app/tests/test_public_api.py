@@ -9,6 +9,8 @@ from app.core.security import require_api_token_any_scope
 from app.models.alert import AlertHistory
 from app.models.api_token import APIToken
 from app.models.domain import Domain
+from app.models.mail_source import MailSource
+from app.models.mail_source_import import MailSourceImport
 from app.models.organization import BillingAccount, Organization
 from app.models.workspace import Workspace
 from app.services.api_tokens import (
@@ -163,6 +165,7 @@ def test_public_export_catalog_lists_available_exports_and_token_usage(
     )
     assert body["mcp"]["available"] is False
     assert "export_catalog" in {tool["name"] for tool in body["mcp"]["tools"]}
+    assert "workspace_usage" in {tool["name"] for tool in body["mcp"]["tools"]}
 
 
 def test_public_export_catalog_accepts_tls_or_mcp_scope_without_domain_leak(
@@ -192,11 +195,111 @@ def test_public_export_catalog_accepts_tls_or_mcp_scope_without_domain_leak(
     assert mcp_body["workspace"]["domain_count"] == 1
     assert mcp_body["domains"][0]["exports"]["domain_reports"]["available"] is False
     assert mcp_body["domains"][0]["exports"]["health_evidence_export"]["available"] is False
+    endpoint_by_key = {endpoint["key"]: endpoint for endpoint in mcp_body["public_endpoints"]}
+    assert endpoint_by_key["workspace_usage"]["available"] is True
 
 
 def test_require_api_token_any_scope_rejects_bare_string_scope():
     with pytest.raises(TypeError, match="not a string"):
         require_api_token_any_scope(READ_REPORTS_SCOPE)
+
+
+def test_public_workspace_usage_is_workspace_scoped_and_read_only(
+    client: TestClient,
+    db_session,
+):
+    """Public usage returns aggregate workspace evidence without cross-tenant leakage."""
+    _persist_report(db_session)
+    workspace = get_or_create_default_workspace(db_session)
+    mail_source = MailSource(
+        workspace_id=workspace.id,
+        name="Reports Gmail",
+        method="GMAIL_API",
+        enabled=True,
+    )
+    other_workspace = Workspace(slug="usage-other", name="Usage Other", active=True)
+    db_session.add_all([mail_source, other_workspace])
+    db_session.flush()
+    db_session.add(
+        MailSourceImport(
+            mail_source_id=mail_source.id,
+            trigger="manual",
+            status="completed",
+            processed=3,
+            reports_found=1,
+        )
+    )
+    db_session.add(
+        AlertHistory(
+            fingerprint="public-usage-alert",
+            rule="new_sender_source",
+            severity="warning",
+            domain=DOMAIN,
+            title="New sender",
+            detail="A new sender appeared.",
+            observed_count=1,
+            is_active=True,
+        )
+    )
+    other_domain = "usage-other.example"
+    other_report = {
+        **FAILING_REPORT,
+        "domain": other_domain,
+        "report_id": "public-usage-other-001",
+    }
+    save_parsed_report(db_session, other_report, workspace_id=other_workspace.id)
+    db_session.add(
+        AlertHistory(
+            fingerprint="public-usage-other-alert",
+            rule="missing_reports",
+            severity="error",
+            domain=other_domain,
+            title="Other alert",
+            detail="Should not leak.",
+            observed_count=1,
+            is_active=True,
+        )
+    )
+    db_session.commit()
+    reports_token = create_api_token(
+        db_session,
+        name="usage reports bot",
+        scopes=[READ_REPORTS_SCOPE],
+        workspace_id=workspace.id,
+    )
+    tls_token = create_api_token(
+        db_session,
+        name="usage tls bot",
+        scopes=[READ_TLS_SCOPE],
+        workspace_id=workspace.id,
+    )
+
+    denied = client.get(
+        "/api/v1/public/usage",
+        headers={"X-API-Key": tls_token.secret},
+    )
+    response = client.get(
+        "/api/v1/public/usage",
+        headers={"X-API-Key": reports_token.secret},
+    )
+
+    assert denied.status_code == 403
+    assert response.status_code == 200
+    body = response.json()
+    assert body["workspace"]["id"] == workspace.id
+    assert body["summary"]["domain_count"] == 1
+    assert body["summary"]["aggregate_report_count"] == 1
+    assert body["summary"]["total_messages"] == 5
+    assert body["summary"]["compliant_messages"] == 5
+    assert body["summary"]["failed_messages"] == 0
+    assert body["summary"]["distinct_source_count"] == 1
+    assert body["mail_sources"]["total"] == 1
+    assert body["mail_sources"]["by_method"] == {"GMAIL_API": 1}
+    assert body["mail_sources"]["imports"]["by_status"] == {"completed": 1}
+    assert body["alerts"]["active"] == 1
+    assert body["alerts"]["by_rule"] == {"new_sender_source": 1}
+    assert [row["domain"] for row in body["domains"]] == [DOMAIN]
+    assert other_domain not in response.text
 
 
 def test_public_source_intelligence_endpoints_use_report_scope(client: TestClient, db_session):

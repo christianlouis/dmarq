@@ -691,7 +691,8 @@ def test_action_confirmation_requires_action_tools_enabled(
 @pytest.mark.asyncio
 async def test_mcp_read_only_tool_dispatch_covers_new_domain_tools(db_session: Session):
     _seed_report_store()
-    auth_context = {"token_id": "test-token"}
+    _persist_report(db_session)
+    auth_context = {"auth_type": "disabled", "token_id": "test-token"}
 
     with (
         patch(
@@ -803,6 +804,13 @@ async def test_mcp_read_only_tool_dispatch_covers_new_domain_tools(db_session: S
             auth_context=auth_context,
             workspace_id=None,
         )
+        usage_result = await mcp_endpoint._call_read_only_tool(
+            "workspace_usage",
+            {},
+            db=db_session,
+            auth_context=auth_context,
+            workspace_id=None,
+        )
 
     assert listed["domains"][0]["domain"] == DOMAIN
     assert posture_result["grade"] == "A"
@@ -817,6 +825,8 @@ async def test_mcp_read_only_tool_dispatch_covers_new_domain_tools(db_session: S
     assert proposals["proposals"]
     assert health_evidence_result["scope"] == "domain"
     assert health_evidence_result["rows"][0]["score"] == 72
+    assert usage_result["summary"]["domain_count"] == 1
+    assert usage_result["summary"]["total_messages"] == 10
     posture.assert_awaited_once()
     sources.assert_awaited_once()
     dns_lint.assert_awaited_once()
@@ -939,7 +949,9 @@ def test_mcp_export_catalog_returns_workspace_exports(
     assert result["mcp"]["available"] is True
     assert result["workspace"]["domain_count"] == 1
     assert result["domains"][0]["domain"] == DOMAIN
-    assert "export_catalog" in {tool["name"] for tool in result["mcp"]["tools"]}
+    tool_names = {tool["name"] for tool in result["mcp"]["tools"]}
+    assert "export_catalog" in tool_names
+    assert "workspace_usage" in tool_names
     assert (
         result["domains"][0]["exports"]["domain_reports"]["href"]
         == f"/api/v1/public/domains/{DOMAIN}/reports"
@@ -1046,6 +1058,7 @@ def test_mcp_requires_enabled_scoped_token(client: TestClient, db_session: Sessi
         "health_evidence_export",
         "alert_history",
         "export_catalog",
+        "workspace_usage",
     }.issubset(tool_names)
 
     initialized = client.post(

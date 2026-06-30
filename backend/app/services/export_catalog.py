@@ -28,6 +28,14 @@ PUBLIC_EXPORT_ENDPOINTS = [
         "description": "Domain report and DNS summary list.",
     },
     {
+        "key": "workspace_usage",
+        "method": "GET",
+        "path": "/api/v1/public/usage",
+        "scope": "reports:read or posture:read or mcp:read",
+        "scopes": [READ_REPORTS_SCOPE, READ_POSTURE_SCOPE, MCP_READ_SCOPE],
+        "description": "Workspace-level DMARC usage, alert, source, and import counts.",
+    },
+    {
         "key": "domain_reports",
         "method": "GET",
         "path_template": "/api/v1/public/domains/{domain}/reports",
@@ -155,6 +163,11 @@ MCP_EXPORT_TOOLS = [
         "description": "Return available public exports, MCP tools, and token usage metadata.",
         "read_only": True,
     },
+    {
+        "name": "workspace_usage",
+        "description": "Return workspace-level DMARC usage, source, alert, and import counts.",
+        "read_only": True,
+    },
 ]
 
 
@@ -187,8 +200,20 @@ def _token_summary(db: Session, auth_context: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _endpoint_scopes(endpoint: Dict[str, Any]) -> List[str]:
+    scopes = endpoint.get("scopes")
+    if scopes:
+        return [str(scope) for scope in scopes]
+    return [str(endpoint["scope"])]
+
+
 def _scope_available(scope: str, token_scopes: Iterable[str]) -> bool:
     return scope in set(token_scopes)
+
+
+def _endpoint_available(endpoint: Dict[str, Any], token_scopes: Iterable[str]) -> bool:
+    scopes = set(token_scopes)
+    return not scopes.isdisjoint(_endpoint_scopes(endpoint))
 
 
 def _public_endpoint_catalog(token_scopes: Iterable[str]) -> List[Dict[str, Any]]:
@@ -196,7 +221,7 @@ def _public_endpoint_catalog(token_scopes: Iterable[str]) -> List[Dict[str, Any]
     return [
         {
             **endpoint,
-            "available": _scope_available(endpoint["scope"], scopes),
+            "available": _endpoint_available(endpoint, scopes),
         }
         for endpoint in PUBLIC_EXPORT_ENDPOINTS
     ]
@@ -214,7 +239,7 @@ def _domain_export_links(domain_name: str, token_scopes: Iterable[str]) -> Dict[
             "href": path_template.format(domain=encoded_domain),
             "method": endpoint["method"],
             "scope": endpoint["scope"],
-            "available": _scope_available(endpoint["scope"], scopes),
+            "available": _endpoint_available(endpoint, scopes),
         }
     return links
 

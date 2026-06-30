@@ -75,6 +75,7 @@ The current tools are read-only:
 
 - `list_domains`
 - `export_catalog`
+- `workspace_usage`
 - `domain_summary`
 - `domain_posture`
 - `health_evidence_export`
