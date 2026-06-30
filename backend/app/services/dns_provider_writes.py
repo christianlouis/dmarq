@@ -85,6 +85,24 @@ class DNSWriteMutation:
 
 
 @dataclass
+class DNSWriteVerification:
+    """Provider-side verification evidence for an applied DNS mutation."""
+
+    status: str
+    verified: bool
+    checked_values: List[str] = field(default_factory=list)
+    message: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "status": self.status,
+            "verified": self.verified,
+            "checked_values": self.checked_values,
+            "message": self.message,
+        }
+
+
+@dataclass
 class DNSWriteResult:
     """Result of previewing or applying one DNS provider mutation."""
 
@@ -94,6 +112,13 @@ class DNSWriteResult:
     mutation: DNSWriteMutation
     provider_result: Optional[Dict[str, Any]] = None
     changes: List[Dict[str, Any]] = field(default_factory=list)
+    verification: DNSWriteVerification = field(
+        default_factory=lambda: DNSWriteVerification(
+            status="not_run",
+            verified=False,
+            message="Verification only runs after a confirmed provider apply.",
+        )
+    )
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -103,6 +128,7 @@ class DNSWriteResult:
             "mutation": self.mutation.to_dict(),
             "provider_result": self.provider_result,
             "changes": self.changes,
+            "verification": self.verification.to_dict(),
         }
 
 
@@ -197,6 +223,56 @@ def _validate_plan_for_automation(plan: Dict[str, Any]) -> None:
         )
 
 
+def _verification_from_records(
+    *,
+    mutation: DNSWriteMutation,
+    records: List[Dict[str, Any]],
+) -> DNSWriteVerification:
+    """Return provider-side evidence that the expected record is now visible."""
+    checked_values = [
+        str(record.get("content") or "")
+        for record in records
+        if (not record.get("type") or str(record.get("type") or "").upper() == mutation.record_type)
+        and (
+            not record.get("name")
+            or str(record.get("name") or "").rstrip(".").lower()
+            == mutation.name.rstrip(".").lower()
+        )
+    ]
+    verified = mutation.content in checked_values
+    if verified:
+        return DNSWriteVerification(
+            status="verified",
+            verified=True,
+            checked_values=checked_values,
+            message="Provider API returned the expected DNS record after apply.",
+        )
+    return DNSWriteVerification(
+        status="failed",
+        verified=False,
+        checked_values=checked_values,
+        message=(
+            "Provider API did not return the expected DNS record after apply; "
+            "verify propagation and provider state before treating this as repaired."
+        ),
+    )
+
+
+def _noop_verification(mutation: DNSWriteMutation) -> DNSWriteVerification:
+    """Return verification evidence for an unchanged record."""
+    verified = mutation.content in mutation.current_values
+    return DNSWriteVerification(
+        status="already_current" if verified else "failed",
+        verified=verified,
+        checked_values=mutation.current_values,
+        message=(
+            "Provider already has the expected DNS value."
+            if verified
+            else "Provider preview marked this record unchanged, but the expected value was not present."
+        ),
+    )
+
+
 class CloudflareDNSWriteProvider:
     """DNS write provider backed by DMARQ's native Cloudflare client."""
 
@@ -273,6 +349,7 @@ class CloudflareDNSWriteProvider:
                 applied=False,
                 mutation=mutation,
                 provider_result={"status": "unchanged"},
+                verification=_noop_verification(mutation),
             )
 
         provider = build_cloudflare_provider(db)
@@ -307,6 +384,7 @@ class CloudflareDNSWriteProvider:
             zone_id=mutation.zone_id,
             records=records,
         )
+        verification = _verification_from_records(mutation=mutation, records=records)
         return DNSWriteResult(
             provider=self.provider_id,
             dry_run=False,
@@ -314,6 +392,7 @@ class CloudflareDNSWriteProvider:
             mutation=mutation,
             provider_result=provider_result,
             changes=changes,
+            verification=verification,
         )
 
 
@@ -386,18 +465,26 @@ class LexiconDNSWriteProvider:
                 applied=False,
                 mutation=mutation,
                 provider_result={"status": "unchanged"},
+                verification=_noop_verification(mutation),
             )
         provider_result = await asyncio.to_thread(self._apply_record, domain, mutation)
         if not provider_result:
             raise DNSProviderWriteError(
                 f"Lexicon provider '{self.provider_id}' did not apply the DNS mutation"
             )
+        records = await asyncio.to_thread(
+            self._list_records,
+            domain,
+            mutation.record_type,
+            mutation.name,
+        )
         return DNSWriteResult(
             provider=self.provider_id,
             dry_run=False,
             applied=True,
             mutation=mutation,
             provider_result={"ok": True},
+            verification=_verification_from_records(mutation=mutation, records=records),
         )
 
     def _client_config(self, domain: str):

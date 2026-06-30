@@ -628,6 +628,15 @@ class DNSWriteMutationResponse(BaseModel):
     blocked_reason: Optional[str] = None
 
 
+class DNSWriteVerificationResponse(BaseModel):
+    """Provider-side verification evidence after a DNS apply."""
+
+    status: str
+    verified: bool
+    checked_values: List[str] = Field(default_factory=list)
+    message: str = ""
+
+
 class DNSWriteResultResponse(BaseModel):
     """DNS write preview/apply response."""
 
@@ -637,6 +646,7 @@ class DNSWriteResultResponse(BaseModel):
     mutation: DNSWriteMutationResponse
     provider_result: Optional[Dict[str, Any]] = None
     changes: List[Dict[str, Any]] = Field(default_factory=list)
+    verification: DNSWriteVerificationResponse
 
 
 class DNSGuidanceResponse(BaseModel):
@@ -3316,6 +3326,7 @@ async def apply_domain_dns_change_plan(
             "plan_id": payload.plan_id,
             "mutation": result.mutation.to_dict(),
             "applied": result.applied,
+            "verification": result.verification.to_dict(),
             **provider_mismatch_details,
         },
         auth_context=_auth,

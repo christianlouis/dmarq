@@ -1038,6 +1038,16 @@
                                                         <p><span class="font-semibold">TTL:</span> <span x-text="dnsWrite.preview.mutation.ttl"></span></p>
                                                     </div>
                                                     <code class="mt-2 block break-all rounded bg-white/70 p-2" x-text="dnsWrite.preview.mutation.name + ' ' + dnsWrite.preview.mutation.record_type + ' ' + dnsWrite.preview.mutation.content"></code>
+                                                    <template x-if="dnsWrite.preview.verification && dnsWrite.preview.verification.status !== 'not_run'">
+                                                        <div class="mt-2 rounded bg-white/70 p-2">
+                                                            <p>
+                                                                <span class="font-semibold">Verification:</span>
+                                                                <span x-text="dnsWrite.preview.verification.status"></span>
+                                                            </p>
+                                                            <p class="mt-1 text-base-content/70"
+                                                               x-text="dnsWrite.preview.verification.message"></p>
+                                                        </div>
+                                                    </template>
                                                 </div>
                                             </template>
                                         </div>
@@ -1904,7 +1914,9 @@ function domainDetailsApp(domainId) {
                 data.plan_id = plan.plan_id;
                 this.dnsWrite.preview = data;
                 this.dnsWrite.message = apply
-                    ? 'DNS change submitted. Refreshing DNS evidence now.'
+                    ? (data.verification?.verified
+                        ? 'DNS change verified by the provider. Refreshing DNS evidence now.'
+                        : 'DNS change submitted, but provider verification is not complete. Review the verification details before treating it as repaired.')
                     : 'Preview ready. Review the provider mutation before applying.';
                 if (apply) {
                     await this.fetchDNSRecords();
