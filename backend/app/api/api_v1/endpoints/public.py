@@ -60,6 +60,44 @@ async def public_domain_reports(
     )
 
 
+@router.get(
+    "/domains/{domain_id}/sources",
+    response_model=domains.DomainSourcesResponse,
+)
+async def public_domain_sources(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    days: int = Query(30, ge=1, le=365),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_api_token_scope(READ_REPORTS_SCOPE)),
+):
+    """Return enriched DMARC sending sources for one domain."""
+    return await domains.get_domain_sources(
+        domain_id=domain_id,
+        days=days,
+        db=db,
+        _auth=_auth,
+    )
+
+
+@router.get(
+    "/domains/{domain_id}/source-intelligence",
+    response_model=domains.SourceIntelligenceResponse,
+)
+async def public_domain_source_intelligence(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    days: int = Query(30, ge=1, le=365),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_api_token_scope(READ_REPORTS_SCOPE)),
+):
+    """Return regional source summaries and anomaly hints for one domain."""
+    return await domains.get_domain_source_intelligence(
+        domain_id=domain_id,
+        days=days,
+        db=db,
+        _auth=_auth,
+    )
+
+
 @router.get("/tls-reports/summary", response_model=tls_reports.TLSSummaryResponse)
 async def public_tls_report_summary(
     domain: Optional[str] = Query(default=None),

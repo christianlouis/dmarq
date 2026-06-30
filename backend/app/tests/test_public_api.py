@@ -1,3 +1,5 @@
+from unittest.mock import AsyncMock, patch
+
 from fastapi.testclient import TestClient
 
 from app.models.api_token import APIToken
@@ -90,6 +92,36 @@ def test_public_domains_summary_uses_scoped_token_context(client: TestClient, db
 
     assert response.status_code == 200
     assert response.json()["domains"][0]["domain_name"] == DOMAIN
+
+
+def test_public_source_intelligence_endpoints_use_report_scope(client: TestClient, db_session):
+    """Stable public API exposes source evidence without admin-session auth."""
+    _persist_report(db_session)
+    created = create_api_token(db_session, name="source bot", scopes=[READ_REPORTS_SCOPE])
+
+    with patch(
+        "app.api.api_v1.endpoints.domains._safe_ptr_lookup",
+        new=AsyncMock(return_value="mail.example.net"),
+    ):
+        sources = client.get(
+            f"/api/v1/public/domains/{DOMAIN}/sources?days=30",
+            headers={"X-API-Key": created.secret},
+        )
+    intelligence = client.get(
+        f"/api/v1/public/domains/{DOMAIN}/source-intelligence?days=30",
+        headers={"X-API-Key": created.secret},
+    )
+
+    assert sources.status_code == 200
+    source_row = sources.json()["sources"][0]
+    assert source_row["ip"] == "1.2.3.4"
+    assert source_row["hostname"] == "mail.example.net"
+    assert "geo" in source_row
+    assert "anomalies" in source_row
+    assert intelligence.status_code == 200
+    assert intelligence.json()["domain"] == DOMAIN
+    assert "regions" in intelligence.json()
+    assert "summary" in intelligence.json()
 
 
 def test_public_api_rejects_token_without_required_scope(client: TestClient, db_session):

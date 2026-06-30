@@ -627,7 +627,10 @@ def test_mcp_requires_enabled_scoped_token(client: TestClient, db_session: Sessi
         json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
     )
     assert listed.status_code == 200
-    assert listed.json()["result"]["tools"][0]["readOnlyHint"] is True
+    tools = listed.json()["result"]["tools"]
+    assert tools[0]["readOnlyHint"] is True
+    tool_names = {tool["name"] for tool in tools}
+    assert {"domain_sources", "source_intelligence", "domain_posture"}.issubset(tool_names)
 
     called = client.post(
         "/api/v1/mcp",
@@ -642,6 +645,34 @@ def test_mcp_requires_enabled_scoped_token(client: TestClient, db_session: Sessi
     assert called.status_code == 200
     result = called.json()["result"]["content"][0]["json"]
     assert result["summary"]["domain"] == DOMAIN
+
+    source_intelligence = client.post(
+        "/api/v1/mcp",
+        headers={"X-API-Key": token.secret},
+        json={
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {"name": "source_intelligence", "arguments": {"domain": DOMAIN}},
+        },
+    )
+    assert source_intelligence.status_code == 200
+    source_result = source_intelligence.json()["result"]["content"][0]["json"]
+    assert source_result["domain"] == DOMAIN
+    assert "regions" in source_result
+
+    invalid_window = client.post(
+        "/api/v1/mcp",
+        headers={"X-API-Key": token.secret},
+        json={
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "tools/call",
+            "params": {"name": "source_intelligence", "arguments": {"domain": DOMAIN, "days": 0}},
+        },
+    )
+    assert invalid_window.status_code == 200
+    assert invalid_window.json()["error"]["code"] == -32004
 
 
 def test_mcp_requires_advanced_integrations_entitlement(client: TestClient, db_session: Session):
