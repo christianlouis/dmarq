@@ -7,6 +7,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
 from app.services.report_store import ReportStore
+from app.services.sender_intelligence import build_source_intelligence, source_geo_for
 
 DEMO_DOMAINS = ("dmarq.org", "dmarq.com")
 DEMO_DAYS = 90
@@ -1005,6 +1006,11 @@ _SOURCE_PROFILES = {
         {
             "ip": "203.0.113.10",
             "name": "primary-saas",
+            "country": "United States",
+            "country_code": "US",
+            "region": "North America",
+            "asn": "AS64510",
+            "network": "DMARQ Cloud Mail",
             "base": 950,
             "spf": "pass",
             "dkim": "pass",
@@ -1013,6 +1019,11 @@ _SOURCE_PROFILES = {
         {
             "ip": "203.0.113.44",
             "name": "newsletter",
+            "country": "United States",
+            "country_code": "US",
+            "region": "North America",
+            "asn": "AS64511",
+            "network": "Newsletter Delivery Edge",
             "base": 420,
             "spf": "pass",
             "dkim": "fail",
@@ -1021,6 +1032,11 @@ _SOURCE_PROFILES = {
         {
             "ip": "198.51.100.23",
             "name": "ticketing",
+            "country": "Germany",
+            "country_code": "DE",
+            "region": "Europe",
+            "asn": "AS64520",
+            "network": "Support Desk Mail",
             "base": 180,
             "spf": "fail",
             "dkim": "pass",
@@ -1029,6 +1045,11 @@ _SOURCE_PROFILES = {
         {
             "ip": "192.0.2.66",
             "name": "legacy-crm",
+            "country": "Netherlands",
+            "country_code": "NL",
+            "region": "Europe",
+            "asn": "AS64530",
+            "network": "Legacy CRM Relay",
             "base": 55,
             "spf": "fail",
             "dkim": "fail",
@@ -1039,6 +1060,11 @@ _SOURCE_PROFILES = {
         {
             "ip": "203.0.113.75",
             "name": "workspace-mail",
+            "country": "United States",
+            "country_code": "US",
+            "region": "North America",
+            "asn": "AS64512",
+            "network": "Google Workspace Demo",
             "base": 610,
             "spf": "pass",
             "dkim": "pass",
@@ -1047,6 +1073,11 @@ _SOURCE_PROFILES = {
         {
             "ip": "198.51.100.88",
             "name": "marketing",
+            "country": "Germany",
+            "country_code": "DE",
+            "region": "Europe",
+            "asn": "AS64521",
+            "network": "Marketing Automation Edge",
             "base": 260,
             "spf": "pass",
             "dkim": "mixed",
@@ -1055,6 +1086,11 @@ _SOURCE_PROFILES = {
         {
             "ip": "192.0.2.114",
             "name": "billing",
+            "country": "Netherlands",
+            "country_code": "NL",
+            "region": "Europe",
+            "asn": "AS64531",
+            "network": "Billing Mail Relay",
             "base": 130,
             "spf": "fail",
             "dkim": "pass",
@@ -1063,6 +1099,11 @@ _SOURCE_PROFILES = {
         {
             "ip": "198.51.100.199",
             "name": "unknown-forwarder",
+            "country": "Romania",
+            "country_code": "RO",
+            "region": "Europe",
+            "asn": "AS64599",
+            "network": "Unverified Forwarder",
             "base": 35,
             "spf": "fail",
             "dkim": "fail",
@@ -1174,6 +1215,11 @@ def _record(domain: str, profile: Dict[str, Any], day_index: int) -> Dict[str, A
         "extensions": {
             "demo:source": profile["name"],
             "demo:scenario": "corner-case" if not dmarc_pass else "normal",
+            "demo:country": profile["country"],
+            "demo:country_code": profile["country_code"],
+            "demo:region": profile["region"],
+            "demo:asn": profile["asn"],
+            "demo:network": profile["network"],
         },
     }
 
@@ -1347,9 +1393,30 @@ def build_demo_dashboard_statistics(
                     source["dmarc_pass_count"], source["dmarc_fail_count"]
                 ),
                 "domains": sorted(source["domains"]),
+                "geo": source_geo_for(source["ip"], source),
             }
         )
     source_rows.sort(key=lambda item: item["count"], reverse=True)
+    intelligence = build_source_intelligence(
+        normalized_domain or "workspace",
+        reports,
+        [
+            {
+                "source_ip": source["ip"],
+                "count": source["count"],
+                "dmarc_fail_count": source["dmarc_fail_count"],
+                "extensions": {
+                    "demo:region": source["geo"]["region"],
+                    "demo:country_code": source["geo"]["country_code"],
+                    "demo:country": source["geo"]["country"],
+                    "demo:asn": source["geo"]["asn"],
+                    "demo:network": source["geo"]["network"],
+                },
+            }
+            for source in source_rows
+        ],
+        period_days=period_days,
+    )
 
     compliance_rate = round((compliant_emails / total_emails) * 100, 1) if total_emails else 0.0
     stats = {
@@ -1359,6 +1426,8 @@ def build_demo_dashboard_statistics(
         "reports_processed": len(reports),
         "compliance_trend": compliance_trend,
         "change_summary": _demo_change_summary(source_rows, normalized_domain),
+        "source_regions": intelligence["regions"],
+        "source_anomalies": intelligence["anomalies"],
     }
     if normalized_domain:
         stats.update({"domain": normalized_domain, "sources": source_rows[:10]})

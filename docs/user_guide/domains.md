@@ -79,6 +79,17 @@ Operator playbooks sit beside the recommendations. They are short remediation
 checklists for common gaps such as missing SPF, missing DKIM, policy enforcement
 readiness, MTA-STS setup, or BIMI prerequisites.
 
+### Source Intelligence
+
+The domain detail page groups sending sources into coarse regions and networks
+when that information is available from report metadata or demo intelligence.
+It also flags unusual source behavior, including new senders, new regions,
+source volume spikes, and increased SPF/DKIM alignment failures.
+
+Use these findings before editing DNS. A new source is not automatically a
+trusted sender; confirm the service owner first, then update SPF or DKIM only
+when the source is legitimate.
+
 ### DNS Guidance
 
 The domain detail page also shows typed DNS lint findings next to suggested

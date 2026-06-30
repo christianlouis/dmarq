@@ -1,4 +1,8 @@
-from app.services.sender_intelligence import identify_sender
+from app.services.sender_intelligence import (
+    build_source_intelligence,
+    identify_sender,
+    source_geo_for,
+)
 
 
 def test_identify_sender_matches_known_provider_from_hostname_and_selector():
@@ -68,3 +72,151 @@ def test_identify_sender_recognizes_owned_infrastructure():
     assert sender["id"] == "owned-infrastructure"
     assert sender["name"] == "Owned infrastructure"
     assert sender["status"] == "known"
+
+
+def test_source_geo_prefers_report_metadata():
+    geo = source_geo_for(
+        "198.51.100.88",
+        {
+            "extensions": {
+                "demo:country": "France",
+                "demo:country_code": "FR",
+                "demo:region": "Europe",
+                "demo:asn": "AS64555",
+                "demo:network": "Example Relay",
+            }
+        },
+    )
+
+    assert geo["country"] == "France"
+    assert geo["country_code"] == "FR"
+    assert geo["region"] == "Europe"
+    assert geo["asn"] == "AS64555"
+    assert geo["network"] == "Example Relay"
+    assert geo["source"] == "metadata"
+
+
+def test_source_geo_handles_private_and_invalid_addresses():
+    private_geo = source_geo_for("10.0.0.8")
+    invalid_geo = source_geo_for("not-an-ip")
+
+    assert private_geo["region"] == "Private or reserved"
+    assert private_geo["network"] == "Private or reserved address space"
+    assert invalid_geo["region"] == "Unknown"
+
+
+def test_identify_sender_can_match_report_extension_metadata():
+    sender = identify_sender(
+        "203.0.113.12",
+        {
+            "dkim_selectors": ["selector1"],
+            "extensions": {"source": "microsoft-365"},
+        },
+        hostname=None,
+        domain="example.com",
+    )
+
+    assert sender["id"] == "microsoft-365"
+    assert any("Report metadata matched" in item for item in sender["evidence"])
+
+
+def test_identify_sender_keeps_unknown_passing_source_low_priority():
+    sender = identify_sender(
+        "203.0.113.200",
+        {"dmarc_result": "pass", "dmarc_fail_count": 0},
+        hostname=None,
+        domain="example.com",
+    )
+
+    assert sender["id"] == "unknown-sender"
+    assert sender["status"] == "unknown"
+    assert sender["reason"] == "No known provider profile matched this source."
+
+
+def test_build_source_intelligence_detects_regions_and_anomalies():
+    reports = [
+        {
+            "domain": "example.com",
+            "report_id": "baseline",
+            "begin_timestamp": 1_700_000_000,
+            "records": [
+                {
+                    "source_ip": "203.0.113.10",
+                    "count": 120,
+                    "spf_result": "pass",
+                    "dkim_result": "pass",
+                }
+            ],
+        },
+        {
+            "domain": "example.com",
+            "report_id": "recent",
+            "begin_timestamp": 1_702_000_000,
+            "records": [
+                {
+                    "source_ip": "203.0.113.10",
+                    "count": 500,
+                    "spf_result": "fail",
+                    "dkim_result": "fail",
+                },
+                {
+                    "source_ip": "198.51.100.199",
+                    "count": 45,
+                    "spf_result": "fail",
+                    "dkim_result": "fail",
+                },
+            ],
+        },
+    ]
+    sources = [
+        {"source_ip": "203.0.113.10", "count": 620, "dmarc_fail_count": 500},
+        {"source_ip": "198.51.100.199", "count": 45, "dmarc_fail_count": 45},
+    ]
+
+    intelligence = build_source_intelligence("example.com", reports, sources, period_days=30)
+
+    anomaly_types = {item["type"] for item in intelligence["anomalies"]}
+    assert {"alignment_failure", "new_sender", "new_region"}.issubset(anomaly_types)
+    assert intelligence["regions"][0]["region"] in {"North America", "Europe"}
+    assert "198.51.100.199" in intelligence["anomalies_by_ip"]
+
+
+def test_build_source_intelligence_handles_no_data():
+    intelligence = build_source_intelligence("empty.example", [], [], period_days=30)
+
+    assert intelligence["regions"] == []
+    assert intelligence["anomalies"] == []
+    assert intelligence["summary"] == {"regions": 0, "anomalies": 0, "critical": 0, "warnings": 0}
+
+
+def test_build_source_intelligence_accepts_iso_report_dates():
+    reports = [
+        {
+            "domain": "example.com",
+            "report_id": "iso-date",
+            "begin_date": "2026-06-25T00:00:00",
+            "records": [
+                {
+                    "source_ip": "203.0.113.10",
+                    "count": 4,
+                    "spf_result": "pass",
+                    "dkim_result": "pass",
+                }
+            ],
+        },
+        {
+            "domain": "example.com",
+            "report_id": "bad-date",
+            "begin_date": "not-a-date",
+            "records": [],
+        },
+    ]
+
+    intelligence = build_source_intelligence(
+        "example.com",
+        reports,
+        [{"source_ip": "203.0.113.10", "count": 4, "dmarc_fail_count": 0}],
+        period_days=30,
+    )
+
+    assert intelligence["summary"]["regions"] == 1
