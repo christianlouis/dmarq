@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.api.api_v1.endpoints import mcp as mcp_endpoint
 from app.models.organization import Entitlement, Organization
 from app.models.setting import Setting
 from app.models.workspace import Workspace
@@ -609,6 +610,105 @@ def test_action_confirmation_requires_action_tools_enabled(
     assert confirmed.json()["applied"] is False
 
 
+@pytest.mark.asyncio
+async def test_mcp_read_only_tool_dispatch_covers_new_domain_tools(db_session: Session):
+    _seed_report_store()
+    auth_context = {"token_id": "test-token"}
+
+    with (
+        patch(
+            "app.api.api_v1.endpoints.mcp.domains.get_domain_posture_dashboard",
+            new=AsyncMock(return_value={"domain": DOMAIN, "grade": "A"}),
+        ) as posture,
+        patch(
+            "app.api.api_v1.endpoints.mcp.domains.get_domain_sources",
+            new=AsyncMock(return_value={"domain": DOMAIN, "sources": []}),
+        ) as sources,
+        patch(
+            "app.api.api_v1.endpoints.mcp.domains.get_domain_source_intelligence",
+            new=AsyncMock(return_value={"domain": DOMAIN, "regions": []}),
+        ) as intelligence,
+    ):
+        listed = await mcp_endpoint._call_read_only_tool(
+            "list_domains",
+            {},
+            db=db_session,
+            auth_context=auth_context,
+            workspace_id=None,
+        )
+        posture_result = await mcp_endpoint._call_read_only_tool(
+            "domain_posture",
+            {"domain": DOMAIN, "refresh": True},
+            db=db_session,
+            auth_context=auth_context,
+            workspace_id=None,
+        )
+        source_result = await mcp_endpoint._call_read_only_tool(
+            "domain_sources",
+            {"domain": DOMAIN, "days": "7"},
+            db=db_session,
+            auth_context=auth_context,
+            workspace_id=None,
+        )
+        intelligence_result = await mcp_endpoint._call_read_only_tool(
+            "source_intelligence",
+            {"domain": DOMAIN},
+            db=db_session,
+            auth_context=auth_context,
+            workspace_id=None,
+        )
+        proposals = await mcp_endpoint._call_read_only_tool(
+            "action_proposals",
+            {"domain": DOMAIN},
+            db=db_session,
+            auth_context=auth_context,
+            workspace_id=None,
+        )
+
+    assert listed["domains"][0]["domain"] == DOMAIN
+    assert posture_result["grade"] == "A"
+    assert source_result["sources"] == []
+    assert intelligence_result["regions"] == []
+    assert proposals["proposals"]
+    posture.assert_awaited_once()
+    sources.assert_awaited_once()
+    intelligence.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_mcp_read_only_tool_dispatch_rejects_invalid_tool_arguments(
+    db_session: Session,
+):
+    auth_context = {"token_id": "test-token"}
+
+    with pytest.raises(ValueError, match="domain is required"):
+        await mcp_endpoint._call_read_only_tool(
+            "domain_summary",
+            {"domain": " "},
+            db=db_session,
+            auth_context=auth_context,
+            workspace_id=None,
+        )
+
+    with pytest.raises(ValueError, match="days must be an integer"):
+        await mcp_endpoint._call_read_only_tool(
+            "domain_sources",
+            {"domain": DOMAIN, "days": "soon"},
+            db=db_session,
+            auth_context=auth_context,
+            workspace_id=None,
+        )
+
+    with pytest.raises(KeyError):
+        await mcp_endpoint._call_read_only_tool(
+            "unknown_tool",
+            {},
+            db=db_session,
+            auth_context=auth_context,
+            workspace_id=None,
+        )
+
+
 def test_mcp_requires_enabled_scoped_token(client: TestClient, db_session: Session):
     _seed_report_store()
     token = create_api_token(db_session, name="mcp client", scopes=[MCP_READ_SCOPE])
@@ -631,6 +731,22 @@ def test_mcp_requires_enabled_scoped_token(client: TestClient, db_session: Sessi
     assert tools[0]["readOnlyHint"] is True
     tool_names = {tool["name"] for tool in tools}
     assert {"domain_sources", "source_intelligence", "domain_posture"}.issubset(tool_names)
+
+    initialized = client.post(
+        "/api/v1/mcp",
+        headers={"X-API-Key": token.secret},
+        json={"jsonrpc": "2.0", "id": 5, "method": "initialize"},
+    )
+    assert initialized.status_code == 200
+    assert initialized.json()["result"]["serverInfo"]["name"] == "dmarq"
+
+    unsupported_method = client.post(
+        "/api/v1/mcp",
+        headers={"X-API-Key": token.secret},
+        json={"jsonrpc": "2.0", "id": 6, "method": "resources/list"},
+    )
+    assert unsupported_method.status_code == 200
+    assert unsupported_method.json()["error"]["code"] == -32601
 
     called = client.post(
         "/api/v1/mcp",
@@ -673,6 +789,19 @@ def test_mcp_requires_enabled_scoped_token(client: TestClient, db_session: Sessi
     )
     assert invalid_window.status_code == 200
     assert invalid_window.json()["error"]["code"] == -32004
+
+    unsupported_tool = client.post(
+        "/api/v1/mcp",
+        headers={"X-API-Key": token.secret},
+        json={
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "tools/call",
+            "params": {"name": "unknown_tool", "arguments": {}},
+        },
+    )
+    assert unsupported_tool.status_code == 200
+    assert unsupported_tool.json()["error"]["code"] == -32602
 
 
 def test_mcp_requires_advanced_integrations_entitlement(client: TestClient, db_session: Session):
