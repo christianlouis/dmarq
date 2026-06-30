@@ -851,6 +851,44 @@ def test_get_domain_migration_readiness_accepts_canonical_domain_id(
     assert response.json()["domain"] == DOMAIN
 
 
+def test_resolve_domain_name_for_read_accepts_report_store_only_domain(db_session):
+    """Legacy ReportStore-only domains can still resolve through the helper."""
+    store_only_domain = "store-only.example"
+    store = ReportStore()
+    store.add_report(
+        {
+            **REPORT_DICT_POLICY,
+            "domain": store_only_domain,
+            "report_id": "rpt-store-only-domain",
+            "records": [
+                {
+                    **REPORT_DICT_POLICY["records"][0],
+                    "header_from": store_only_domain,
+                }
+            ],
+        }
+    )
+
+    resolved = domains_endpoint._resolve_domain_name_for_read(
+        db_session,
+        store,
+        store_only_domain,
+        SimpleNamespace(id=1),
+    )
+
+    assert resolved == store_only_domain
+
+
+def test_get_domain_migration_readiness_returns_404_for_missing_domain(
+    seeded_client: TestClient,
+):
+    """Unknown domains are rejected before readiness guidance is built."""
+    response = seeded_client.get("/api/v1/domains/missing.example/migration/readiness")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Domain not found"
+
+
 def test_get_domain_migration_readiness_blocks_empty_domain(
     authed_client: TestClient,
     db_session,
