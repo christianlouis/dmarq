@@ -26,6 +26,7 @@ from app.services.report_persistence import hydrate_report_store_from_db
 from app.services.report_store import ReportStore
 from app.services.workspace_access import PERMISSION_REPORTS_READ, resolve_authorized_workspace
 from app.services.workspace_audit import record_workspace_audit_log
+from app.services.workspace_usage import build_workspace_usage_summary
 
 router = APIRouter()
 
@@ -162,6 +163,12 @@ READ_ONLY_TOOLS = [
     {
         "name": "export_catalog",
         "description": "Return available public exports, MCP tools, and token usage metadata.",
+        "inputSchema": {"type": "object", "properties": {}},
+        "readOnlyHint": True,
+    },
+    {
+        "name": "workspace_usage",
+        "description": "Return workspace-level DMARC usage, source, alert, and import counts.",
         "inputSchema": {"type": "object", "properties": {}},
         "readOnlyHint": True,
     },
@@ -335,10 +342,28 @@ def _call_export_catalog_tool(
     return build_export_catalog(db, workspace=workspace, auth_context=auth_context)
 
 
+def _call_workspace_usage_tool(
+    arguments: Dict[str, Any],
+    *,
+    db: Session,
+    auth_context: Dict[str, Any],
+    workspace_id: Optional[int],
+) -> Dict[str, Any]:
+    del arguments
+    workspace = resolve_authorized_workspace(
+        db,
+        auth_context,
+        PERMISSION_REPORTS_READ,
+        selected_workspace_id=workspace_id,
+    )
+    return build_workspace_usage_summary(db, workspace)
+
+
 READ_ONLY_SYNC_HANDLERS = {
     "action_proposals": _call_action_proposals_tool,
     "alert_history": _call_alert_history_tool,
     "export_catalog": _call_export_catalog_tool,
+    "workspace_usage": _call_workspace_usage_tool,
 }
 
 

@@ -58,6 +58,7 @@ through the `/public` path and avoid UI-specific payloads.
 | Endpoint | Required scope | Purpose |
 | --- | --- | --- |
 | `GET /public/exports` | any read-only automation scope | Available export routes, MCP tools, domains, and token usage metadata |
+| `GET /public/usage` | `reports:read`, `posture:read`, or `mcp:read` | Workspace-level DMARC usage, source, alert, and import counts |
 | `GET /public/domains` | `reports:read` | Domain report and DNS summary list |
 | `GET /public/domains/{domain_id}/reports` | `reports:read` | Recent DMARC aggregate report summaries |
 | `GET /public/domains/{domain_id}/sources` | `reports:read` | Enriched sending sources with sender, geo, anomaly, and fix hints |
@@ -80,6 +81,13 @@ count, public export routes with their required scopes, MCP tool metadata, and
 domain-specific export links when the current token is allowed to see monitored
 domains. TLS-only tokens can discover the catalog and their own usage state, but
 do not receive the domain-specific export list.
+
+`GET /public/usage` is a compact evidence endpoint for automation dashboards,
+capacity planning, or monthly operational reviews. It returns workspace-scoped
+domain counts, aggregate/forensic/TLS report counts, total and failed DMARC
+messages, distinct sending-source counts, mail-source and import-audit counts,
+active/resolved alert totals, and per-domain usage rows. It is read-only and
+does not expose mailbox credentials, raw report XML, or alert payloads.
 
 Public source responses are intended for SIEM, SOC, ISP, MSP, and AI-agent
 consumers that need evidence-linked DMARC sending-source context without
@@ -104,6 +112,7 @@ The MCP endpoint currently exposes these read-only tools:
 | --- | --- |
 | `list_domains` | List monitored domains and aggregate counts |
 | `export_catalog` | Return available public exports, MCP tools, and token usage metadata |
+| `workspace_usage` | Return workspace-level DMARC usage, source, alert, and import counts |
 | `domain_summary` | Return an evidence-first DMARC summary |
 | `domain_posture` | Return posture score, grade, DNS health, and action guidance |
 | `health_evidence_export` | Return sanitized health score evidence rows |

@@ -19,6 +19,7 @@ from app.services.api_tokens import (
 )
 from app.services.export_catalog import build_export_catalog
 from app.services.workspace_access import PERMISSION_REPORTS_READ, resolve_authorized_workspace
+from app.services.workspace_usage import build_workspace_usage_summary
 
 router = APIRouter()
 
@@ -45,6 +46,21 @@ async def public_export_catalog(
     """Return available public export routes, MCP tools, and token usage metadata."""
     workspace = resolve_authorized_workspace(db, _auth, PERMISSION_REPORTS_READ)
     return build_export_catalog(db, workspace=workspace, auth_context=_auth)
+
+
+@router.get("/usage")
+async def public_workspace_usage(
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(
+        require_api_token_any_scope(
+            [READ_REPORTS_SCOPE, READ_POSTURE_SCOPE, MCP_READ_SCOPE],
+            detail_scope="one of reports:read, posture:read, mcp:read",
+        )
+    ),
+):
+    """Return a read-only usage summary for the API token workspace."""
+    workspace = resolve_authorized_workspace(db, _auth, PERMISSION_REPORTS_READ)
+    return build_workspace_usage_summary(db, workspace)
 
 
 @router.get(
