@@ -87,6 +87,12 @@ def seeded_client(authed_client: TestClient, db_session):
         Domain(name=DOMAIN, workspace_id=workspace.id, active=True, dmarc_policy="reject")
     )
     db_session.commit()
+    report_persistence.save_parsed_report(
+        db_session,
+        REPORT_DICT_POLICY,
+        workspace_id=workspace.id,
+    )
+    db_session.commit()
     ReportStore.get_instance().add_report(REPORT_DICT_POLICY)
     return authed_client
 
@@ -808,8 +814,41 @@ def test_get_domain_migration_readiness_projects_parallel_cutover_state(
     assert statuses["parallel-reporting"] == "complete"
     assert statuses["volume-parity"] == "in_progress"
     assert statuses["dns-readiness"] == "complete"
+    titles = {item["key"]: item["title"] for item in data["checklist"]}
+    assert titles["volume-parity"] == "Build 14-30 days of report evidence"
+    assert titles["sender-parity"] == "Review observed sending sources"
     assert any(link["format"] == "json" for link in data["export_links"])
+    assert {link["label"] for link in data["export_links"]} >= {
+        "Workspace health evidence",
+        "DNS lint CSV",
+    }
     assert "DMARCguard" in data["supported_sources"]
+
+
+def test_get_domain_migration_readiness_accepts_canonical_domain_id(
+    seeded_client: TestClient,
+    db_session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Path IDs resolve to the canonical domain name before report lookups."""
+    domain = db_session.query(Domain).filter(Domain.name == DOMAIN).one()
+
+    async def fake_guidance(*_args, **_kwargs):
+        assert _args[2] == DOMAIN
+        return {
+            "domain": DOMAIN,
+            "status": "ready",
+            "findings": [],
+            "target_records": [],
+            "change_plans": [],
+        }
+
+    monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", fake_guidance)
+
+    response = seeded_client.get(f"/api/v1/domains/{domain.id}/migration/readiness")
+
+    assert response.status_code == 200
+    assert response.json()["domain"] == DOMAIN
 
 
 def test_get_domain_migration_readiness_blocks_empty_domain(

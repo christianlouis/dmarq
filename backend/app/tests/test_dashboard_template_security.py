@@ -49,6 +49,8 @@ def test_domain_details_exposes_migration_readiness_without_html_injection():
 
     assert "Migration Readiness" in template
     assert "/migration/readiness" in template
+    assert "migration.error" in template
+    assert "Migration readiness could not be loaded." in template
     assert "parallel_reporting_days" in template
     assert "migration.export_links" in template
     assert "migration.checklist" in template

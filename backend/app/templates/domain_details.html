@@ -392,7 +392,7 @@
                     <div class="text-right">
                         <span class="inline-flex items-center rounded px-2 py-1 text-xs font-semibold capitalize"
                               :class="migrationStatusClass"
-                              x-text="migration.status.replace('_', ' ') || 'checking'"></span>
+                              x-text="migration.loading ? 'checking' : (migration.status.replace('_', ' ') || 'unavailable')"></span>
                         <div class="mt-1 text-xs text-[#5f5c78]">
                             <span x-text="migration.readiness_score"></span><span>% ready</span>
                         </div>
@@ -400,6 +400,7 @@
                 </div>
             {% endcall %}
             {% call card_content() %}
+                <p x-show="migration.error" class="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700" x-text="migration.error"></p>
                 <div class="grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
                     <div class="rounded-lg bg-[#f4f3f2] p-4">
                         <div class="text-sm font-semibold text-[#5f5c78]">Parallel window</div>
@@ -1276,6 +1277,8 @@ function domainDetailsApp(domainId) {
             top_drivers: []
         },
         migration: {
+            loading: true,
+            error: '',
             status: '',
             readiness_score: 0,
             summary: '',
@@ -1391,6 +1394,7 @@ function domainDetailsApp(domainId) {
         },
 
         get migrationStatusClass() {
+            if (this.migration.error) return 'bg-red-100 text-red-700';
             if (this.migration.status === 'ready') return 'bg-green-100 text-green-700';
             if (this.migration.status === 'in_progress') return 'bg-yellow-100 text-yellow-800';
             if (this.migration.status === 'blocked') return 'bg-red-100 text-red-700';
@@ -1580,12 +1584,24 @@ function domainDetailsApp(domainId) {
         },
 
         async fetchMigrationReadiness() {
+            this.migration.loading = true;
+            this.migration.error = '';
             try {
                 const response = await fetch(`/api/v1/domains/${encodeURIComponent(this.domainId)}/migration/readiness`);
-                if (response.ok) {
-                    this.migration = await response.json();
+                if (!response.ok) {
+                    throw new Error('Migration readiness could not be loaded.');
                 }
+                this.migration = {
+                    loading: false,
+                    error: '',
+                    ...(await response.json())
+                };
             } catch (error) {
+                this.migration = {
+                    ...this.migration,
+                    loading: false,
+                    error: error.message || 'Migration readiness could not be loaded.'
+                };
                 console.error('Error fetching migration readiness:', error);
             }
         },
