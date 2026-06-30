@@ -633,7 +633,11 @@ history where the provider supports it. Apply responses also include a
 `verification` object with `status`, `verified`, `checked_values`, and
 `message`. Treat a repair as complete only when `verification.verified=true`;
 otherwise the mutation was submitted but the provider readback did not yet show
-the expected DNS value.
+the expected DNS value. The same response includes a `rollback` object with a
+summary, manual steps, captured `previous_values` when available, and
+`requires_manual_review=true`. DMARQ does not automatically roll back provider
+writes; operators should use this evidence to restore the prior value only
+after confirming the rollback is still safe.
 
 `GET /domains/{domain_id}/dns/change-plan` also returns
 `available_write_providers`, `recommended_provider`, and response-level

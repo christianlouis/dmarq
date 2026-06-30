@@ -637,6 +637,18 @@ class DNSWriteVerificationResponse(BaseModel):
     message: str = ""
 
 
+class DNSWriteRollbackResponse(BaseModel):
+    """Human-reviewed rollback guidance for a provider DNS mutation."""
+
+    summary: str
+    steps: List[str] = Field(default_factory=list)
+    previous_values: List[str] = Field(default_factory=list)
+    record_type: str
+    name: str
+    provider: str
+    requires_manual_review: bool = True
+
+
 class DNSWriteResultResponse(BaseModel):
     """DNS write preview/apply response."""
 
@@ -647,6 +659,7 @@ class DNSWriteResultResponse(BaseModel):
     provider_result: Optional[Dict[str, Any]] = None
     changes: List[Dict[str, Any]] = Field(default_factory=list)
     verification: DNSWriteVerificationResponse
+    rollback: DNSWriteRollbackResponse
 
 
 class DNSGuidanceResponse(BaseModel):
@@ -3223,6 +3236,59 @@ def _find_dns_change_plan(guidance: Dict[str, Any], plan_id: str) -> Dict[str, A
     )
 
 
+def _dns_write_rollback_guidance(plan: Dict[str, Any], result: Any) -> Dict[str, Any]:
+    """Return manual rollback guidance for a prepared or applied DNS mutation."""
+    mutation = result.mutation
+    previous_values = list(mutation.current_values or [])
+    summary = str(plan.get("rollback") or "").strip()
+    if not summary:
+        summary = "Review provider history and restore the previous DNS value if needed."
+
+    if mutation.operation == "create":
+        steps = [
+            f"Open {mutation.provider} DNS for the zone that contains {mutation.name}.",
+            f"Find the {mutation.record_type} record named {mutation.name}.",
+            "Delete the created record only after confirming no legitimate sender depends on it.",
+            "Refresh DMARQ DNS evidence and confirm the domain returns to the intended state.",
+        ]
+    elif mutation.operation == "update":
+        if previous_values:
+            steps = [
+                f"Open {mutation.provider} DNS for the zone that contains {mutation.name}.",
+                f"Edit the {mutation.record_type} record named {mutation.name}.",
+                "Restore the previous value shown in DMARQ's rollback evidence.",
+                "Refresh DMARQ DNS evidence and confirm the restored record is visible.",
+            ]
+        else:
+            steps = [
+                f"Open {mutation.provider} DNS for the zone that contains {mutation.name}.",
+                f"Review provider history for the {mutation.record_type} record named {mutation.name}.",
+                "Restore the last known-good value before this DMARQ repair.",
+                "Refresh DMARQ DNS evidence and confirm the restored record is visible.",
+            ]
+    elif mutation.operation == "noop":
+        summary = "No provider rollback is needed because no DNS mutation was applied."
+        steps = [
+            "No DNS record was created or updated by this operation.",
+            "Keep the finding under observation and refresh DNS evidence if the provider changes.",
+        ]
+    else:
+        steps = [
+            "Review the provider change history before reverting this DNS record.",
+            "Refresh DMARQ DNS evidence after any manual rollback.",
+        ]
+
+    return {
+        "summary": summary,
+        "steps": steps,
+        "previous_values": previous_values,
+        "record_type": mutation.record_type,
+        "name": mutation.name,
+        "provider": mutation.provider,
+        "requires_manual_review": True,
+    }
+
+
 @router.post("/{domain_id}/dns/change-plan/apply", response_model=DNSWriteResultResponse)
 async def apply_domain_dns_change_plan(
     request: Request,
@@ -3280,6 +3346,7 @@ async def apply_domain_dns_change_plan(
                 ttl=payload.ttl,
             )
             result_payload = result.to_dict()
+            result_payload["rollback"] = _dns_write_rollback_guidance(plan, result)
             safety_note = _provider_mismatch_safety_note(
                 requested_provider=payload.provider,
                 recommended_provider=recommended_provider,
@@ -3315,6 +3382,7 @@ async def apply_domain_dns_change_plan(
             detail=str(exc),
         ) from exc
 
+    rollback = _dns_write_rollback_guidance(plan, result)
     record_workspace_audit_log(
         db,
         workspace=workspace,
@@ -3327,13 +3395,16 @@ async def apply_domain_dns_change_plan(
             "mutation": result.mutation.to_dict(),
             "applied": result.applied,
             "verification": result.verification.to_dict(),
+            "rollback": rollback,
             **provider_mismatch_details,
         },
         auth_context=_auth,
         request=request,
         commit=True,
     )
-    return result.to_dict()
+    result_payload = result.to_dict()
+    result_payload["rollback"] = rollback
+    return result_payload
 
 
 @router.get("/{domain_id}/dns/health", response_model=DNSHealthResponse)

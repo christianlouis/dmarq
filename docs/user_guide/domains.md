@@ -128,6 +128,12 @@ the response says the expected value was verified. If verification fails, keep
 the change under review and check provider state, propagation, and whether a
 different authoritative DNS provider manages the zone.
 
+Provider previews and apply responses also include rollback guidance. For
+updates, DMARQ shows the previous provider value when it was captured; for
+creates, it explains how to remove the created record. Rollback is deliberately
+manual-review only so an operator can confirm no current sender depends on the
+record before reverting it.
+
 Automatic apply is intentionally limited. DMARQ only applies plans that already
 contain a concrete DNS value and a low-risk operation such as create or update.
 Plans that require provider-specific values, DKIM rotation, record

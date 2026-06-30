@@ -1003,6 +1003,12 @@ def test_dns_change_plan_apply_dry_run_returns_cloudflare_mutation(
     assert data["mutation"]["content"] == plan["proposed_value"]
     assert data["verification"]["status"] == "not_run"
     assert data["verification"]["verified"] is False
+    assert data["rollback"]["summary"] == plan["rollback"]
+    assert data["rollback"]["provider"] == "cloudflare"
+    assert data["rollback"]["record_type"] == "TXT"
+    assert data["rollback"]["name"] == f"_dmarc.{DOMAIN}"
+    assert data["rollback"]["requires_manual_review"] is True
+    assert "Delete the created record" in " ".join(data["rollback"]["steps"])
 
 
 def test_dns_change_plan_apply_uses_resolved_domain_for_provider_calls(
@@ -1059,6 +1065,8 @@ def test_dns_change_plan_apply_dry_run_returns_noop_for_unchanged_cloudflare_rec
     assert data["dry_run"] is True
     assert data["mutation"]["operation"] == "noop"
     assert data["mutation"]["current_values"] == [plan["proposed_value"]]
+    assert "No provider rollback is needed" in data["rollback"]["summary"]
+    assert data["rollback"]["previous_values"] == [plan["proposed_value"]]
 
 
 def test_dns_change_plan_apply_blocks_detected_provider_mismatch(
@@ -1213,6 +1221,8 @@ def test_dns_change_plan_apply_updates_cloudflare_and_audits(
     assert data["verification"]["status"] == "verified"
     assert data["verification"]["verified"] is True
     assert data["verification"]["checked_values"] == [plan["proposed_value"]]
+    assert data["rollback"]["previous_values"] == ["v=DMARC1; p=none"]
+    assert "Restore the previous value" in " ".join(data["rollback"]["steps"])
     assert provider.updated[0]["content"] == plan["proposed_value"]
     assert db_session.query(DNSRecordChange).count() == 1
     audit = db_session.query(WorkspaceAuditLog).one()
@@ -1222,6 +1232,7 @@ def test_dns_change_plan_apply_updates_cloudflare_and_audits(
     assert audit_details["provider_mismatch"] is False
     assert audit_details["verification"]["status"] == "verified"
     assert audit_details["verification"]["verified"] is True
+    assert audit_details["rollback"]["previous_values"] == ["v=DMARC1; p=none"]
 
 
 def test_dns_change_plan_apply_reports_unverified_provider_readback(
