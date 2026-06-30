@@ -614,8 +614,11 @@ provider. Use `GET /domains/mail-services/import/postmark/preview` to list
 Postmark domains and sender signatures, including verification state and DNS
 records that Postmark exposes. Use
 `POST /domains/mail-services/import/postmark` with an optional `domains` array
-to import selected sender domains as monitored DMARQ domains. This flow does
-not modify Postmark or DNS records.
+to import selected sender domains as monitored DMARQ domains. When Postmark
+requirements are available for a monitored domain, `GET
+/domains/{domain_id}/dns/lint` and `GET /domains/{domain_id}/dns/change-plan`
+surface missing or conflicting Postmark DNS records as normal DNS findings and
+change plans. This flow does not modify Postmark or DNS records.
 
 `POST /domains/{domain_id}/dns/change-plan/apply` accepts
 `plan_id`, `provider`, `dry_run`, `confirm`, optional `value`, and `ttl`. Calls

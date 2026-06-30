@@ -258,6 +258,16 @@ def _default_remediation_steps(code: str) -> List[str]:
             "Publish a default._bimi TXT record with an HTTPS SVG logo URL.",
             "Add a certificate URL if the mailbox providers you care about require it.",
         ],
+        "mail_service_record_missing": [
+            "Open the sender-domain authentication page in the mail service.",
+            "Copy the required DNS record into the authoritative DNS provider.",
+            "Refresh DMARQ DNS lint and then re-check verification in the mail service.",
+        ],
+        "mail_service_record_conflict": [
+            "Compare the existing DNS value with the value required by the mail service.",
+            "Confirm no other active sender depends on the current value.",
+            "Update the record or split senders onto provider-supported hostnames.",
+        ],
     }
     return steps.get(
         code,
@@ -930,6 +940,92 @@ def _bimi_findings(
     return findings
 
 
+def _normalize_dns_value(value: str) -> str:
+    return " ".join(str(value or "").strip().strip(".").split()).lower()
+
+
+async def _current_mail_service_values(
+    provider: BaseDNSProvider, record_type: str, name: str
+) -> List[str]:
+    if record_type == "TXT":
+        try:
+            return await provider.lookup_txt(name)
+        except LookupError:
+            return []
+    if record_type == "CNAME":
+        cname_lookup = getattr(provider, "lookup_cname", None)
+        if not callable(cname_lookup):
+            return []
+        value = await cname_lookup(name)
+        return [value] if isinstance(value, str) and value else []
+    return []
+
+
+async def _mail_service_dns_findings(
+    provider: BaseDNSProvider,
+    mail_service_records: List[Dict[str, str]],
+) -> List[DNSLintFinding]:
+    findings: List[DNSLintFinding] = []
+    seen: set[tuple[str, str, str]] = set()
+    for item in mail_service_records:
+        record_type = str(item.get("record_type") or "").strip().upper()
+        name = str(item.get("name") or "").strip().strip(".")
+        value = str(item.get("value") or "").strip().strip(".")
+        provider_name = str(item.get("provider_name") or item.get("provider") or "Mail service")
+        purpose = str(item.get("purpose") or "sender verification").replace("_", " ")
+        if record_type not in {"TXT", "CNAME"} or not name or not value:
+            continue
+        dedupe_key = (record_type, name.lower(), value)
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+
+        current_values = await _current_mail_service_values(provider, record_type, name)
+        normalized_expected = _normalize_dns_value(value)
+        normalized_current = {_normalize_dns_value(current) for current in current_values}
+        if normalized_expected in normalized_current:
+            continue
+
+        target = DNSGuidanceRecord(
+            code=f"target_mail_service_{provider_name.lower()}_{purpose.replace(' ', '_')}",
+            record_type=record_type,
+            name=name,
+            value=value,
+            purpose=f"{provider_name} {purpose} for authenticated sender setup.",
+        )
+        if current_values:
+            findings.append(
+                _finding(
+                    "mail_service_record_conflict",
+                    "warning",
+                    f"{provider_name} DNS record value needs review",
+                    (
+                        f"{provider_name} requires a {record_type} record at {name}, "
+                        "but DNS currently returns a different value."
+                    ),
+                    "Review the sender-domain requirement and update DNS after approval.",
+                    record_type,
+                    name,
+                    target_record=target,
+                    evidence=current_values,
+                )
+            )
+            continue
+        findings.append(
+            _finding(
+                "mail_service_record_missing",
+                "warning",
+                f"{provider_name} DNS record is missing",
+                f"{provider_name} requires a {record_type} record at {name} for {purpose}.",
+                "Publish the required sender-domain DNS record after approval.",
+                record_type,
+                name,
+                target_record=target,
+            )
+        )
+    return findings
+
+
 def _status(findings: List[DNSLintFinding]) -> str:
     severities = {finding.severity for finding in findings}
     if "error" in severities:
@@ -998,7 +1094,8 @@ def _risk_for_finding(finding: DNSLintFinding) -> str:
             "complete can break forwarding or third-party senders."
         ),
         "dkim_selector_missing": (
-            "Low DNS risk, but the value must come from the sending provider that owns the selector."
+            "Low DNS risk, but the value must come from the sending provider that owns "
+            "the selector."
         ),
         "dkim_selector_cname_broken": (
             "Medium risk: replacing a CNAME with the wrong provider target keeps DKIM failing."
@@ -1014,6 +1111,14 @@ def _risk_for_finding(finding: DNSLintFinding) -> str:
         ),
         "tls_rpt_missing": "Low risk: TLS-RPT only controls report delivery.",
         "bimi_missing": "Low mail-flow risk; BIMI is a brand/readiness feature.",
+        "mail_service_record_missing": (
+            "Low DNS risk when copied exactly; mail-service verification remains pending until "
+            "DNS propagates."
+        ),
+        "mail_service_record_conflict": (
+            "Medium risk: replacing a record that another active sender depends on can break "
+            "that sender's authentication."
+        ),
     }
     return risks.get(
         finding.code,
@@ -1098,6 +1203,7 @@ async def build_dns_guidance(
     *,
     monitored_selectors: Optional[List[str]] = None,
     observed_selectors: Optional[List[str]] = None,
+    mail_service_records: Optional[List[Dict[str, str]]] = None,
 ) -> DNSGuidanceResult:
     """Build typed DNS lint findings and target records for a domain."""
     normalized_domain = domain.strip().strip(".").lower()
@@ -1118,6 +1224,7 @@ async def build_dns_guidance(
     findings.extend(_mta_sts_findings(mta_sts, targets))
     findings.extend(await _tls_rpt_findings(normalized_domain, provider, targets))
     findings.extend(_bimi_findings(bimi, extract_dmarc_policy(result.dmarc_record), targets))
+    findings.extend(await _mail_service_dns_findings(provider, mail_service_records or []))
     return DNSGuidanceResult(
         domain=normalized_domain,
         status=_status(findings),

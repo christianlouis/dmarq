@@ -320,6 +320,43 @@ async def preview_mail_service_import(
     }
 
 
+async def mail_service_dns_records_for_domain(
+    db: Session,
+    domain: str,
+    *,
+    workspace_id: Optional[int] = None,
+) -> List[Dict[str, str]]:
+    """Return provider-required DNS records for one sender domain."""
+    normalized_domain = domain.strip().strip(".").lower()
+    if not normalized_domain:
+        return []
+    try:
+        domains = await discover_postmark_sender_domains(db, workspace_id=workspace_id)
+    except (LookupError, MailServiceImportError):
+        return []
+    records: List[Dict[str, str]] = []
+    for item in domains:
+        if str(item.get("domain") or "").strip().strip(".").lower() != normalized_domain:
+            continue
+        for record in item.get("required_dns_records") or []:
+            record_type = str(record.get("record_type") or "").strip().upper()
+            name = str(record.get("name") or "").strip().strip(".")
+            value = str(record.get("value") or "").strip().strip(".")
+            if not record_type or not name or not value:
+                continue
+            records.append(
+                {
+                    "provider": "postmark",
+                    "provider_name": _provider_name("postmark"),
+                    "record_type": record_type,
+                    "name": name,
+                    "value": value,
+                    "purpose": str(record.get("purpose") or "sender_verification"),
+                }
+            )
+    return records
+
+
 def mail_service_context_from_domain(domain: Optional[Domain]) -> List[Dict[str, str]]:
     """Extract displayable mail service context from imported domain descriptions."""
     if domain is None or not domain.description:

@@ -162,8 +162,12 @@ If you use Postmark to send mail:
 
 Imported domains appear in the normal domain list and detail pages. The detail
 page shows that the domain came from Postmark, while DNS linting and
-remediation guidance stay inside DMARQ. This workflow is read-only against
-Postmark and does not change DNS records.
+remediation guidance stay inside DMARQ. When the Postmark token is available,
+DMARQ also maps Postmark's required DKIM and return-path records into the
+domain DNS lint and change-plan views. Those plans can be reviewed and, where a
+DNS provider connector is configured, previewed through the normal safe DNS
+write flow. This workflow is read-only against Postmark and does not change DNS
+records without explicit operator approval.
 
 ### Other Integrations
 

@@ -409,6 +409,61 @@ def test_dns_change_plan_endpoint_returns_apply_gated_plans(authed_client: TestC
     assert plan["expected_health_impact"]
 
 
+def test_dns_change_plan_endpoint_includes_postmark_records(authed_client: TestClient):
+    result = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=reject; rua=mailto:dmarc@example.com",
+        spf=True,
+        spf_record="v=spf1 -all",
+        dkim=True,
+        dkim_selectors=["selector1"],
+        nameservers=["ns1.example.net"],
+        dns_provider=detect_dns_provider(["ns1.example.net"]),
+    )
+    mta_sts = MTAStsResult(status="pass")
+    bimi = BIMIResult(status="pass")
+
+    with (
+        _mock_dns(result),
+        patch(
+            "app.api.api_v1.endpoints.domains.check_mta_sts_cached",
+            new=AsyncMock(return_value=(mta_sts, False, None)),
+        ),
+        patch(
+            "app.api.api_v1.endpoints.domains.check_bimi_cached",
+            new=AsyncMock(return_value=(bimi, False, None)),
+        ),
+        patch(
+            "app.api.api_v1.endpoints.domains.mail_service_dns_records_for_domain",
+            new=AsyncMock(
+                return_value=[
+                    {
+                        "provider": "postmark",
+                        "provider_name": "Postmark",
+                        "record_type": "CNAME",
+                        "name": "pm-bounces.example.com",
+                        "value": "pm.mtasv.net",
+                        "purpose": "return_path",
+                    }
+                ]
+            ),
+        ),
+    ):
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns/change-plan")
+
+    assert response.status_code == 200
+    plan = next(
+        plan
+        for plan in response.json()["plans"]
+        if plan["finding_code"] == "mail_service_record_missing"
+    )
+    assert plan["operation"] == "create"
+    assert plan["record_type"] == "CNAME"
+    assert plan["name"] == "pm-bounces.example.com"
+    assert plan["proposed_value"] == "pm.mtasv.net"
+    assert plan["provider_write_available"] is True
+
+
 def test_dns_lint_endpoint_flags_advanced_spf_lookup_findings(
     authed_client: TestClient,
 ):
