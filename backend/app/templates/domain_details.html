@@ -374,6 +374,85 @@
                         </div>
                     </div>
                 </div>
+                <div class="mt-5 rounded-lg border border-[#e6e3e1] p-4">
+                    <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div>
+                            <h3 class="font-semibold text-[#07071f]">Migration Parity</h3>
+                            <p class="mt-1 text-sm text-[#5f5c78]" x-text="migrationParity.summary"></p>
+                        </div>
+                        <span class="inline-flex w-fit rounded px-2 py-1 text-xs font-semibold capitalize"
+                              :class="migrationParityStatusClass"
+                              x-text="migrationParity.loading ? 'checking' : migrationParity.status.replace('_', ' ')"></span>
+                    </div>
+                    <p x-show="migrationParity.error" class="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700" x-text="migrationParity.error"></p>
+                    <div class="mt-4 grid gap-3 lg:grid-cols-5">
+                        <label class="text-xs font-semibold text-[#5f5c78]">
+                            Reports
+                            <input x-model="migrationBaseline.report_count" inputmode="numeric" type="number" min="0" class="mt-1 input input-sm input-bordered w-full" />
+                        </label>
+                        <label class="text-xs font-semibold text-[#5f5c78]">
+                            Messages
+                            <input x-model="migrationBaseline.total_emails" inputmode="numeric" type="number" min="0" class="mt-1 input input-sm input-bordered w-full" />
+                        </label>
+                        <label class="text-xs font-semibold text-[#5f5c78]">
+                            Sources
+                            <input x-model="migrationBaseline.source_count" inputmode="numeric" type="number" min="0" class="mt-1 input input-sm input-bordered w-full" />
+                        </label>
+                        <label class="text-xs font-semibold text-[#5f5c78]">
+                            Alignment %
+                            <input x-model="migrationBaseline.compliance_rate" inputmode="decimal" type="number" min="0" max="100" step="0.1" class="mt-1 input input-sm input-bordered w-full" />
+                        </label>
+                        <label class="text-xs font-semibold text-[#5f5c78]">
+                            Policy
+                            <select x-model="migrationBaseline.policy" class="mt-1 select select-sm select-bordered w-full">
+                                <option value="">Not provided</option>
+                                <option value="none">none</option>
+                                <option value="quarantine">quarantine</option>
+                                <option value="reject">reject</option>
+                            </select>
+                        </label>
+                    </div>
+                    <div class="mt-3 flex flex-wrap items-center gap-2">
+                        <button class="btn btn-sm bg-[#2f9da5] text-white hover:bg-[#272a5f]" @click="compareMigrationBaseline">
+                            Compare baseline
+                        </button>
+                        <span class="text-xs text-[#5f5c78]">Use values from the same legacy-platform export window.</span>
+                    </div>
+                    <div class="mt-4 overflow-x-auto">
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Signal</th>
+                                    <th>DMARQ</th>
+                                    <th>Legacy baseline</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="metric in migrationParity.metrics" :key="metric.key">
+                                    <tr>
+                                        <td>
+                                            <div class="font-semibold text-[#07071f]" x-text="metric.label"></div>
+                                            <div class="text-xs text-[#5f5c78]" x-text="metric.detail"></div>
+                                        </td>
+                                        <td x-text="metric.dmarq_display"></td>
+                                        <td x-text="metric.baseline_display"></td>
+                                        <td>
+                                            <span class="rounded px-2 py-1 text-xs font-semibold capitalize"
+                                                  :class="migrationParityMetricStatusClass(metric.status)"
+                                                  x-text="metric.status.replace('_', ' ')"></span>
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="mt-4 grid gap-2 md:grid-cols-3">
+                        <template x-for="step in migrationParity.next_steps" :key="step">
+                            <div class="rounded bg-[#f4f3f2] px-3 py-2 text-xs text-[#5f5c78]" x-text="step"></div>
+                        </template>
+                    </div>
+                </div>
             {% endcall %}
         {% endcall %}
         </section>
@@ -1290,6 +1369,23 @@ function domainDetailsApp(domainId) {
             supported_sources: [],
             docs_url: 'https://github.com/christianlouis/dmarq/blob/main/docs/user_guide/migration.md'
         },
+        migrationParity: {
+            loading: true,
+            error: '',
+            status: '',
+            summary: '',
+            baseline_required: true,
+            tolerance_percent: 10,
+            metrics: [],
+            next_steps: []
+        },
+        migrationBaseline: {
+            report_count: '',
+            total_emails: '',
+            source_count: '',
+            compliance_rate: '',
+            policy: ''
+        },
         filters: {
             dateRange: '30',
             sourceFilter: '',
@@ -1306,6 +1402,7 @@ function domainDetailsApp(domainId) {
             this.fetchPosture();
             this.fetchHealthHistory();
             this.fetchMigrationReadiness();
+            this.fetchMigrationParity();
             this.fetchMtaSts();
             this.fetchBimi();
             this.fetchSelectors();
@@ -1401,6 +1498,14 @@ function domainDetailsApp(domainId) {
             return 'bg-base-200 text-base-content/70';
         },
 
+        get migrationParityStatusClass() {
+            if (this.migrationParity.error) return 'bg-red-100 text-red-700';
+            if (this.migrationParity.status === 'matched') return 'bg-green-100 text-green-700';
+            if (this.migrationParity.status === 'attention') return 'bg-yellow-100 text-yellow-800';
+            if (this.migrationParity.status === 'baseline_needed') return 'bg-base-200 text-base-content/70';
+            return 'bg-base-200 text-base-content/70';
+        },
+
         migrationItemStatusClass(status) {
             if (status === 'complete') return 'bg-green-100 text-green-700';
             if (status === 'in_progress') return 'bg-yellow-100 text-yellow-800';
@@ -1411,6 +1516,12 @@ function domainDetailsApp(domainId) {
             if (status === 'complete') return 'bg-green-500';
             if (status === 'in_progress') return 'bg-yellow-500';
             return 'bg-red-500';
+        },
+
+        migrationParityMetricStatusClass(status) {
+            if (status === 'matched') return 'bg-green-100 text-green-700';
+            if (status === 'attention') return 'bg-yellow-100 text-yellow-800';
+            return 'bg-base-200 text-base-content/70';
         },
 
         recommendationSeverityClass(severity) {
@@ -1604,6 +1715,44 @@ function domainDetailsApp(domainId) {
                 };
                 console.error('Error fetching migration readiness:', error);
             }
+        },
+
+        migrationParityQueryString() {
+            const params = new URLSearchParams();
+            if (this.migrationBaseline.report_count !== '') params.set('baseline_report_count', this.migrationBaseline.report_count);
+            if (this.migrationBaseline.total_emails !== '') params.set('baseline_total_emails', this.migrationBaseline.total_emails);
+            if (this.migrationBaseline.source_count !== '') params.set('baseline_source_count', this.migrationBaseline.source_count);
+            if (this.migrationBaseline.compliance_rate !== '') params.set('baseline_compliance_rate', this.migrationBaseline.compliance_rate);
+            if (this.migrationBaseline.policy) params.set('baseline_policy', this.migrationBaseline.policy);
+            const query = params.toString();
+            return query ? `?${query}` : '';
+        },
+
+        async fetchMigrationParity() {
+            this.migrationParity.loading = true;
+            this.migrationParity.error = '';
+            try {
+                const response = await fetch(`/api/v1/domains/${encodeURIComponent(this.domainId)}/migration/parity${this.migrationParityQueryString()}`);
+                if (!response.ok) {
+                    throw new Error('Migration parity could not be loaded.');
+                }
+                this.migrationParity = {
+                    loading: false,
+                    error: '',
+                    ...(await response.json())
+                };
+            } catch (error) {
+                this.migrationParity = {
+                    ...this.migrationParity,
+                    loading: false,
+                    error: error.message || 'Migration parity could not be loaded.'
+                };
+                console.error('Error fetching migration parity:', error);
+            }
+        },
+
+        compareMigrationBaseline() {
+            return this.fetchMigrationParity();
         },
 
         async fetchMtaSts() {

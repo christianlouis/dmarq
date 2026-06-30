@@ -570,6 +570,31 @@ source, DNS lint, and export evidence to track parallel-reporting progress,
 sender parity, DNS readiness, and export/offboarding availability. It does not
 import third-party vendor files or apply DNS changes.
 
+#### Get Migration Parity
+
+```text
+GET /domains/{domain_id}/migration/parity
+```
+
+Returns a read-only parity dashboard for comparing DMARQ evidence with an
+optional legacy-platform baseline. Without baseline query parameters, metrics
+are marked `baseline_needed`.
+
+Optional query parameters:
+
+| Parameter | Purpose |
+| --- | --- |
+| `baseline_report_count` | Aggregate reports seen by the legacy platform |
+| `baseline_total_emails` | Messages seen by the legacy platform |
+| `baseline_source_count` | Sending sources seen by the legacy platform |
+| `baseline_compliance_rate` | Legacy alignment or compliance percentage |
+| `baseline_policy` | Legacy DMARC `p=` policy |
+| `tolerance_percent` | Allowed numeric delta before review is required |
+
+The endpoint compares report count, message volume, sending sources,
+alignment/compliance rate, and policy posture. It does not import vendor files
+or persist the entered baseline values.
+
 #### Add Domain
 
 ```

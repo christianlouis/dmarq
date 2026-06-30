@@ -889,6 +889,43 @@ def test_get_domain_migration_readiness_returns_404_for_missing_domain(
     assert response.json()["detail"] == "Domain not found"
 
 
+def test_get_domain_migration_parity_requires_legacy_baseline(seeded_client: TestClient):
+    """Parity dashboard is explicit when the old-platform baseline is missing."""
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/migration/parity")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["domain"] == DOMAIN
+    assert data["status"] == "baseline_needed"
+    assert data["baseline_required"] is True
+    metrics = {metric["key"]: metric for metric in data["metrics"]}
+    assert metrics["reports"]["dmarq_display"] == "1"
+    assert metrics["messages"]["dmarq_display"] == "10"
+    assert metrics["sources"]["dmarq_display"] == "1"
+    assert metrics["alignment"]["dmarq_display"] == "100.0%"
+    assert metrics["policy"]["dmarq_display"] == "reject"
+    assert {metric["status"] for metric in data["metrics"]} == {"baseline_needed"}
+
+
+def test_get_domain_migration_parity_matches_legacy_baseline(seeded_client: TestClient):
+    """Matching legacy values mark migration parity as matched."""
+    response = seeded_client.get(
+        f"/api/v1/domains/{DOMAIN}/migration/parity"
+        "?baseline_report_count=1"
+        "&baseline_total_emails=10"
+        "&baseline_source_count=1"
+        "&baseline_compliance_rate=100"
+        "&baseline_policy=reject"
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "matched"
+    assert data["baseline_required"] is False
+    assert {metric["status"] for metric in data["metrics"]} == {"matched"}
+    assert data["metrics"][0]["baseline_display"] == "1"
+
+
 def test_get_domain_migration_readiness_blocks_empty_domain(
     authed_client: TestClient,
     db_session,

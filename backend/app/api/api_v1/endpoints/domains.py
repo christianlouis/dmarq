@@ -195,6 +195,33 @@ class MigrationReadinessResponse(BaseModel):
     docs_url: str = "https://github.com/christianlouis/dmarq/blob/main/docs/user_guide/migration.md"
 
 
+class MigrationParityMetric(BaseModel):
+    """One DMARQ-vs-legacy migration parity comparison."""
+
+    key: str
+    label: str
+    status: str
+    unit: str
+    dmarq_value: Any
+    dmarq_display: str
+    baseline_value: Optional[Any] = None
+    baseline_display: str = "Not provided"
+    delta: Optional[float] = None
+    detail: str
+
+
+class MigrationParityResponse(BaseModel):
+    """Migration parity dashboard for one monitored domain."""
+
+    domain: str
+    status: str
+    summary: str
+    baseline_required: bool
+    tolerance_percent: float
+    metrics: List[MigrationParityMetric]
+    next_steps: List[str] = Field(default_factory=list)
+
+
 class DNSRecordResponse(BaseModel):
     """DNS record information for a domain"""
 
@@ -2340,6 +2367,55 @@ async def get_domain_migration_readiness(
     )
 
 
+@router.get("/{domain_id}/migration/parity", response_model=MigrationParityResponse)
+async def get_domain_migration_parity(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    baseline_report_count: Optional[int] = Query(
+        None, ge=0, title="Aggregate reports seen by the legacy platform"
+    ),
+    baseline_total_emails: Optional[int] = Query(
+        None, ge=0, title="Messages seen by the legacy platform"
+    ),
+    baseline_source_count: Optional[int] = Query(
+        None, ge=0, title="Sending sources seen by the legacy platform"
+    ),
+    baseline_compliance_rate: Optional[float] = Query(
+        None, ge=0, le=100, title="Legacy DMARC alignment or compliance percentage"
+    ),
+    baseline_policy: Optional[str] = Query(
+        None, title="DMARC p= policy reported by the legacy platform"
+    ),
+    tolerance_percent: float = Query(
+        10.0, ge=0, le=100, title="Allowed percent delta before review is required"
+    ),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
+    """Compare DMARQ evidence with an optional legacy-platform migration baseline."""
+    selected_workspace_id = parse_selected_workspace_id(selected_workspace)
+    workspace = _authorized_domain_read_workspace(_auth, db, selected_workspace_id)
+    store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
+    domain_name = _resolve_domain_name_for_read(db, store, domain_id, workspace)
+
+    summary = store.get_domain_summary(domain_name)
+    reports = store.get_domain_reports(domain_name, limit=10000)
+    sources = store.get_domain_sources(domain_name)
+    return _build_migration_parity_response(
+        domain_name,
+        summary,
+        reports,
+        sources,
+        baseline_report_count=baseline_report_count,
+        baseline_total_emails=baseline_total_emails,
+        baseline_source_count=baseline_source_count,
+        baseline_compliance_rate=baseline_compliance_rate,
+        baseline_policy=baseline_policy,
+        tolerance_percent=tolerance_percent,
+    )
+
+
 @router.get("/{domain_id}/dns", response_model=DNSRecordResponse)
 async def get_domain_dns_records(
     domain_id: str = Path(..., title="The domain ID or name"),
@@ -3267,6 +3343,180 @@ def _build_migration_checklist(
             "#recent-reports",
         ),
     ], parallel_days
+
+
+def _format_parity_value(value: Any, unit: str) -> str:
+    if value is None:
+        return "Not provided"
+    if unit == "percent":
+        return f"{float(value):.1f}%"
+    if unit == "policy":
+        return str(value)
+    return f"{int(value):,}"
+
+
+def _numeric_parity_metric(
+    key: str,
+    label: str,
+    dmarq_value: int | float,
+    baseline_value: Optional[int | float],
+    unit: str,
+    tolerance_percent: float,
+) -> MigrationParityMetric:
+    if baseline_value is None:
+        return MigrationParityMetric(
+            key=key,
+            label=label,
+            status="baseline_needed",
+            unit=unit,
+            dmarq_value=dmarq_value,
+            dmarq_display=_format_parity_value(dmarq_value, unit),
+            detail="Add the legacy-platform value to compare this migration signal.",
+        )
+
+    if unit == "percent":
+        delta = round(float(dmarq_value) - float(baseline_value), 2)
+        matched = abs(delta) <= tolerance_percent
+    elif baseline_value == 0:
+        delta = 0.0 if dmarq_value == 0 else 100.0
+        matched = dmarq_value == 0
+    else:
+        delta = round(
+            ((float(dmarq_value) - float(baseline_value)) / float(baseline_value)) * 100, 2
+        )
+        matched = abs(delta) <= tolerance_percent
+
+    return MigrationParityMetric(
+        key=key,
+        label=label,
+        status="matched" if matched else "attention",
+        unit=unit,
+        dmarq_value=dmarq_value,
+        dmarq_display=_format_parity_value(dmarq_value, unit),
+        baseline_value=baseline_value,
+        baseline_display=_format_parity_value(baseline_value, unit),
+        delta=delta,
+        detail=(
+            "Within the migration tolerance."
+            if matched
+            else "Review the legacy export and DMARQ ingestion before cutover."
+        ),
+    )
+
+
+def _policy_parity_metric(
+    dmarq_policy: Optional[str],
+    baseline_policy: Optional[str],
+) -> MigrationParityMetric:
+    normalized_dmarq = (dmarq_policy or "unknown").lower()
+    normalized_baseline = baseline_policy.lower() if baseline_policy else None
+    if normalized_baseline is None:
+        status_value = "baseline_needed"
+        detail = "Add the legacy-platform DMARC policy to compare policy posture."
+    elif normalized_dmarq == normalized_baseline:
+        status_value = "matched"
+        detail = "DMARQ and the legacy platform report the same DMARC policy."
+    else:
+        status_value = "attention"
+        detail = "Policy differs from the legacy baseline; review DNS and report timing."
+
+    return MigrationParityMetric(
+        key="policy",
+        label="DMARC policy",
+        status=status_value,
+        unit="policy",
+        dmarq_value=normalized_dmarq,
+        dmarq_display=_format_parity_value(normalized_dmarq, "policy"),
+        baseline_value=normalized_baseline,
+        baseline_display=_format_parity_value(normalized_baseline, "policy"),
+        detail=detail,
+    )
+
+
+def _build_migration_parity_response(
+    domain_id: str,
+    summary: Dict[str, Any],
+    reports: List[Dict[str, Any]],
+    sources: List[Dict[str, Any]],
+    *,
+    baseline_report_count: Optional[int],
+    baseline_total_emails: Optional[int],
+    baseline_source_count: Optional[int],
+    baseline_compliance_rate: Optional[float],
+    baseline_policy: Optional[str],
+    tolerance_percent: float,
+) -> MigrationParityResponse:
+    report_count = int(summary.get("reports_processed", 0) or len(reports))
+    total_emails = int(summary.get("total_count", 0) or 0)
+    source_count = len(sources)
+    compliance_rate = float(summary.get("compliance_rate", 0.0) or 0.0)
+    dmarq_policy = _normalize_reported_policy(summary.get("policy"))
+    metrics = [
+        _numeric_parity_metric(
+            "reports",
+            "Aggregate reports",
+            report_count,
+            baseline_report_count,
+            "count",
+            tolerance_percent,
+        ),
+        _numeric_parity_metric(
+            "messages",
+            "Message volume",
+            total_emails,
+            baseline_total_emails,
+            "count",
+            tolerance_percent,
+        ),
+        _numeric_parity_metric(
+            "sources",
+            "Sending sources",
+            source_count,
+            baseline_source_count,
+            "count",
+            tolerance_percent,
+        ),
+        _numeric_parity_metric(
+            "alignment",
+            "Alignment rate",
+            compliance_rate,
+            baseline_compliance_rate,
+            "percent",
+            tolerance_percent,
+        ),
+        _policy_parity_metric(dmarq_policy, baseline_policy),
+    ]
+    baseline_required = any(metric.status == "baseline_needed" for metric in metrics)
+    attention_required = any(metric.status == "attention" for metric in metrics)
+    if baseline_required:
+        status_value = "baseline_needed"
+        summary_text = (
+            "Add baseline values from the current DMARC platform to compare cutover parity."
+        )
+    elif attention_required:
+        status_value = "attention"
+        summary_text = "Some migration parity signals differ from the legacy-platform baseline."
+    else:
+        status_value = "matched"
+        summary_text = "DMARQ evidence is within tolerance of the legacy-platform baseline."
+
+    next_steps = [
+        "Export the same date window from the current DMARC platform.",
+        "Compare aggregate reports, message volume, sending sources, alignment, and policy.",
+        "Keep dual rua reporting active until differences are resolved or documented.",
+    ]
+    if attention_required:
+        next_steps.insert(0, "Review attention metrics before removing legacy reporting routes.")
+
+    return MigrationParityResponse(
+        domain=domain_id,
+        status=status_value,
+        summary=summary_text,
+        baseline_required=baseline_required,
+        tolerance_percent=tolerance_percent,
+        metrics=metrics,
+        next_steps=next_steps,
+    )
 
 
 def _spf_fix_hint(ip: str, spf_result: str, failed_count: int = 0) -> Optional[str]:

@@ -54,6 +54,10 @@ def test_domain_details_exposes_migration_readiness_without_html_injection():
     assert "parallel_reporting_days" in template
     assert "migration.export_links" in template
     assert "migration.checklist" in template
+    assert "Migration Parity" in template
+    assert "/migration/parity" in template
+    assert "migrationParity.metrics" in template
+    assert "migrationBaseline" in template
     assert "x-html" not in template
 
 
