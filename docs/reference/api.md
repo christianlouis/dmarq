@@ -488,16 +488,29 @@ same date windows used by the dashboard. In demo mode, the endpoint falls back
 to rolling dmarq.org and dmarq.com demo history when no persisted snapshots are
 available.
 
+#### Export Workspace Health Evidence
+
+```
+GET /domains/summary/health/evidence/export
+```
+
+Exports sanitized workspace-level score history evidence as CSV by default.
+Pass `format=json` for a JSON evidence packet. The export aggregates the same
+score, grade, policy, aggregate message/report counts, factor scores, and top
+action titles used by the dashboard. It does not include forensic message
+content, subjects, recipients, or raw uploaded report bodies.
+
 #### Export Health Evidence
 
 ```
 GET /domains/{domain_id}/posture/evidence/export
 ```
 
-Exports sanitized score history evidence as CSV. The export includes aggregate
-posture metadata only: score, grade, policy, aggregate message/report counts,
-factor scores, and top action titles. It does not include forensic message
-content, subjects, recipients, or raw uploaded report bodies.
+Exports sanitized domain score history evidence as CSV by default. Pass
+`format=json` for a JSON evidence packet. The export includes aggregate posture
+metadata only: score, grade, policy, aggregate message/report counts, factor
+scores, and top action titles. It does not include forensic message content,
+subjects, recipients, or raw uploaded report bodies.
 
 #### Add Domain
 
