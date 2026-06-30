@@ -2507,6 +2507,7 @@ async def preview_domain_migration_import(
             row[0]
             for row in db.query(DMARCReport.report_id)
             .filter(DMARCReport.domain_id == domain_row.id)
+            .distinct()
             .all()
             if row[0]
         ]

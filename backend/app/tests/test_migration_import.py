@@ -8,12 +8,18 @@ from app.services.migration_import import preview_migration_import
 
 def test_preview_migration_import_auto_json_list_limits_and_warns():
     """Auto-detected JSON previews cap sample size and surface mapping gaps."""
-    preview = preview_migration_import(
-        domain="example.com",
-        content="""[
+    content = """[
           {"domain": "example.com", "source": "192.0.2.1", "total": "1,200"},
           {"domain": "example.com", "source": "192.0.2.2", "total": 5, "unused_after_preview": true}
-        ]""",
+        ]"""
+    preview = preview_migration_import(
+        domain="example.com",
+        content=content,
+        max_rows=1,
+    )
+    repeated_preview = preview_migration_import(
+        domain="example.com",
+        content=content,
         max_rows=1,
     )
 
@@ -29,6 +35,8 @@ def test_preview_migration_import_auto_json_list_limits_and_warns():
     assert preview["sample_rows"][0]["import_status"] == "needs_report_id"
     assert preview["sample_rows"][0]["row_key"].startswith("mir_")
     assert preview["batch_fingerprint"].startswith("mib_")
+    assert preview["batch_fingerprint"] == repeated_preview["batch_fingerprint"]
+    assert preview["sample_rows"][0]["row_key"] == repeated_preview["sample_rows"][0]["row_key"]
     assert preview["baseline"]["total_emails"] == 1200
     assert preview["sample_rows"][0]["source_ip"] == "192.0.2.1"
     assert "total" in preview["detected_columns"]
@@ -80,16 +88,23 @@ def test_preview_migration_import_splits_rejected_and_truncated_counts():
 
 def test_preview_migration_import_marks_existing_and_duplicate_reports():
     """Import planning marks existing reports without removing them from parity baselines."""
+    content = "\n".join(
+        [
+            "Domain,Report ID,Date,Source IP,Messages,DKIM,SPF,Policy",
+            "example.com,legacy-1,2026-06-01,192.0.2.10,3,pass,fail,reject",
+            "example.com,legacy-1,2026-06-01,192.0.2.10,3,pass,fail,reject",
+            "example.com,legacy-2,2026-06-01,192.0.2.11,7,fail,pass,reject",
+        ]
+    )
     preview = preview_migration_import(
         domain="example.com",
-        content="\n".join(
-            [
-                "Domain,Report ID,Date,Source IP,Messages,DKIM,SPF,Policy",
-                "example.com,legacy-1,2026-06-01,192.0.2.10,3,pass,fail,reject",
-                "example.com,legacy-1,2026-06-01,192.0.2.10,3,pass,fail,reject",
-                "example.com,legacy-2,2026-06-01,192.0.2.11,7,fail,pass,reject",
-            ]
-        ),
+        content=content,
+        source_format="csv",
+        existing_report_ids={"legacy-1"},
+    )
+    repeated_preview = preview_migration_import(
+        domain="example.com",
+        content=content,
         source_format="csv",
         existing_report_ids={"legacy-1"},
     )
@@ -103,6 +118,12 @@ def test_preview_migration_import_marks_existing_and_duplicate_reports():
     assert preview["sample_rows"][1]["import_status"] == "existing_report"
     assert preview["sample_rows"][2]["import_status"] == "planned"
     assert preview["sample_rows"][2]["report_import_key"].startswith("mip_")
+    assert preview["batch_fingerprint"] == repeated_preview["batch_fingerprint"]
+    assert preview["sample_rows"][2]["row_key"] == repeated_preview["sample_rows"][2]["row_key"]
+    assert (
+        preview["sample_rows"][2]["report_import_key"]
+        == repeated_preview["sample_rows"][2]["report_import_key"]
+    )
     assert "Export contains reports that already exist in DMARQ." in preview["warnings"]
 
 

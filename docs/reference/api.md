@@ -299,16 +299,22 @@ reports, or modify DNS.
 The response also includes import-planning metadata for a future confirmed
 write step:
 
-| Field | Purpose |
+| Top-level field | Purpose |
 | --- | --- |
 | `batch_fingerprint` | Stable fingerprint for the normalized preview batch |
-| `row_key` | Stable key for each normalized sample row |
+| `importable_row_count` | Normalized rows that are safe to import in a later write step |
+| `planned_report_count` | Distinct planned report keys that could be imported later |
+| `existing_report_count` | Distinct report keys already present in the selected workspace |
+| `duplicate_row_count` | Duplicate normalized rows inside the preview sample |
+| `needs_report_id_count` | Normalized rows missing a safe report identifier |
+
+Each entry in `sample_rows[*]` includes row-level planning fields:
+
+| Row field | Purpose |
+| --- | --- |
+| `row_key` | Stable key for the normalized sample row |
 | `report_import_key` | Stable key for the report that row would belong to |
 | `import_status` | `planned`, `existing_report`, or `needs_report_id` |
-| `planned_report_count` | Distinct reports that could be imported later |
-| `existing_report_count` | Distinct reports already present in the workspace |
-| `duplicate_row_count` | Duplicate normalized rows inside the preview sample |
-| `needs_report_id_count` | Rows missing a safe report identifier |
 
 These fields are advisory and read-only. They exist so operators can verify
 idempotency and tenant-scoped duplicate detection before DMARQ adds a confirmed
