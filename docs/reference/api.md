@@ -57,6 +57,7 @@ through the `/public` path and avoid UI-specific payloads.
 
 | Endpoint | Required scope | Purpose |
 | --- | --- | --- |
+| `GET /public/exports` | any read-only automation scope | Available export routes, MCP tools, domains, and token usage metadata |
 | `GET /public/domains` | `reports:read` | Domain report and DNS summary list |
 | `GET /public/domains/{domain_id}/reports` | `reports:read` | Recent DMARC aggregate report summaries |
 | `GET /public/domains/{domain_id}/sources` | `reports:read` | Enriched sending sources with sender, geo, anomaly, and fix hints |
@@ -72,6 +73,13 @@ through the `/public` path and avoid UI-specific payloads.
 
 Successful public API calls update the token's last-used timestamp, source IP,
 and usage count for auditing.
+
+`GET /public/exports` is the discovery endpoint for automation clients. It
+returns the current workspace, safe token metadata such as scopes and usage
+count, public export routes with their required scopes, MCP tool metadata, and
+domain-specific export links when the current token is allowed to see monitored
+domains. TLS-only tokens can discover the catalog and their own usage state, but
+do not receive the domain-specific export list.
 
 Public source responses are intended for SIEM, SOC, ISP, MSP, and AI-agent
 consumers that need evidence-linked DMARC sending-source context without
@@ -95,6 +103,7 @@ The MCP endpoint currently exposes these read-only tools:
 | Tool | Purpose |
 | --- | --- |
 | `list_domains` | List monitored domains and aggregate counts |
+| `export_catalog` | Return available public exports, MCP tools, and token usage metadata |
 | `domain_summary` | Return an evidence-first DMARC summary |
 | `domain_posture` | Return posture score, grade, DNS health, and action guidance |
 | `health_evidence_export` | Return sanitized health score evidence rows |
@@ -465,6 +474,7 @@ Available tools:
 | Tool | Purpose |
 | --- | --- |
 | `list_domains` | List monitored domains and aggregate counts |
+| `export_catalog` | Return available public exports, MCP tools, and token usage metadata |
 | `domain_summary` | Return an evidence-first summary for one domain |
 | `domain_posture` | Return posture score, grade, DNS health, and action guidance |
 | `health_evidence_export` | Return sanitized health score evidence rows |

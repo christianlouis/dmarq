@@ -20,6 +20,7 @@ from app.services.ai_assistance import (
 )
 from app.services.alert_history import alert_history_summary, list_workspace_alert_history
 from app.services.api_tokens import MCP_READ_SCOPE
+from app.services.export_catalog import build_export_catalog
 from app.services.organizations import require_organization_feature
 from app.services.report_persistence import hydrate_report_store_from_db
 from app.services.report_store import ReportStore
@@ -158,6 +159,12 @@ READ_ONLY_TOOLS = [
         },
         "readOnlyHint": True,
     },
+    {
+        "name": "export_catalog",
+        "description": "Return available public exports, MCP tools, and token usage metadata.",
+        "inputSchema": {"type": "object", "properties": {}},
+        "readOnlyHint": True,
+    },
 ]
 
 
@@ -275,8 +282,10 @@ def _call_action_proposals_tool(
     arguments: Dict[str, Any],
     *,
     db: Session,
+    auth_context: Dict[str, Any],
     workspace_id: Optional[int],
 ) -> Any:
+    del auth_context
     return build_action_proposals(db, _tool_domain(arguments), workspace_id=workspace_id)
 
 
@@ -284,8 +293,10 @@ def _call_alert_history_tool(
     arguments: Dict[str, Any],
     *,
     db: Session,
+    auth_context: Dict[str, Any],
     workspace_id: Optional[int],
 ) -> Dict[str, Any]:
+    del auth_context
     active_filter = _tool_optional_bool(arguments, "active")
     domain_filter = _tool_optional_domain(arguments)
     limit = _tool_limit(arguments, default=50, maximum=200)
@@ -307,9 +318,27 @@ def _call_alert_history_tool(
     }
 
 
+def _call_export_catalog_tool(
+    arguments: Dict[str, Any],
+    *,
+    db: Session,
+    auth_context: Dict[str, Any],
+    workspace_id: Optional[int],
+) -> Dict[str, Any]:
+    del arguments
+    workspace = resolve_authorized_workspace(
+        db,
+        auth_context,
+        PERMISSION_REPORTS_READ,
+        selected_workspace_id=workspace_id,
+    )
+    return build_export_catalog(db, workspace=workspace, auth_context=auth_context)
+
+
 READ_ONLY_SYNC_HANDLERS = {
     "action_proposals": _call_action_proposals_tool,
     "alert_history": _call_alert_history_tool,
+    "export_catalog": _call_export_catalog_tool,
 }
 
 
@@ -363,7 +392,12 @@ async def _call_read_only_tool(
         )
     sync_handler = READ_ONLY_SYNC_HANDLERS.get(name)
     if sync_handler is not None:
-        return sync_handler(arguments, db=db, workspace_id=workspace_id)
+        return sync_handler(
+            arguments,
+            db=db,
+            auth_context=auth_context,
+            workspace_id=workspace_id,
+        )
     if name == "health_evidence_export":
         domain = _tool_domain(arguments)
         rows = await domains.build_domain_health_evidence_export_rows(

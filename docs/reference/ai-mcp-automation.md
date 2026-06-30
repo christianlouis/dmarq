@@ -74,6 +74,7 @@ requests.
 The current tools are read-only:
 
 - `list_domains`
+- `export_catalog`
 - `domain_summary`
 - `domain_posture`
 - `health_evidence_export`

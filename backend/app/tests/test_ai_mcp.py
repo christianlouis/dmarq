@@ -909,6 +909,41 @@ async def test_mcp_alert_history_returns_sanitized_workspace_alerts(
 
 
 @pytest.mark.asyncio
+async def test_mcp_export_catalog_returns_workspace_exports(db_session: Session):
+    _persist_report(db_session)
+    domain = db_session.query(Domain).filter(Domain.name == DOMAIN).one()
+    token = create_api_token(
+        db_session,
+        name="mcp catalog",
+        scopes=[MCP_READ_SCOPE],
+        workspace_id=domain.workspace_id,
+    )
+
+    result = await mcp_endpoint._call_read_only_tool(
+        "export_catalog",
+        {},
+        db=db_session,
+        auth_context={
+            "auth_type": "api_token",
+            "token_id": token.token.id,
+            "workspace_id": domain.workspace_id,
+            "scopes": [MCP_READ_SCOPE],
+        },
+        workspace_id=domain.workspace_id,
+    )
+
+    assert result["token"]["name"] == "mcp catalog"
+    assert result["mcp"]["available"] is True
+    assert result["workspace"]["domain_count"] == 1
+    assert result["domains"][0]["domain"] == DOMAIN
+    assert "export_catalog" in {tool["name"] for tool in result["mcp"]["tools"]}
+    assert (
+        result["domains"][0]["exports"]["domain_reports"]["href"]
+        == f"/api/v1/public/domains/{DOMAIN}/reports"
+    )
+
+
+@pytest.mark.asyncio
 async def test_mcp_read_only_tool_dispatch_rejects_invalid_tool_arguments(
     db_session: Session,
 ):
@@ -1007,6 +1042,7 @@ def test_mcp_requires_enabled_scoped_token(client: TestClient, db_session: Sessi
         "dns_change_plan",
         "health_evidence_export",
         "alert_history",
+        "export_catalog",
     }.issubset(tool_names)
 
     initialized = client.post(

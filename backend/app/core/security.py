@@ -2,7 +2,7 @@ import logging
 import os
 import secrets
 from datetime import datetime, timedelta
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Iterable, Optional, Union
 
 from fastapi import Depends, HTTPException, Request, Security, status
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
@@ -224,6 +224,20 @@ async def require_admin_auth(
 
 def require_api_token_scope(required_scope: str) -> Callable:
     """Build a dependency that requires a scoped persistent API token."""
+    return require_api_token_any_scope([required_scope], detail_scope=required_scope)
+
+
+def require_api_token_any_scope(
+    required_scopes: Iterable[str],
+    *,
+    detail_scope: Optional[str] = None,
+) -> Callable:
+    """Build a dependency requiring at least one scoped persistent API token scope."""
+    accepted_scopes = {
+        scope.strip().lower() for scope in required_scopes if scope and scope.strip()
+    }
+    if not accepted_scopes:
+        raise ValueError("At least one API token scope is required")
 
     async def _require_api_token_scope(
         request: Request,
@@ -247,10 +261,11 @@ def require_api_token_scope(required_scope: str) -> Callable:
             )
 
         scopes = parse_scopes(token.scopes)
-        if required_scope not in scopes:
+        if scopes.isdisjoint(accepted_scopes):
+            required_detail = detail_scope or ", ".join(sorted(accepted_scopes))
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"API token requires scope: {required_scope}",
+                detail=f"API token requires scope: {required_detail}",
             )
 
         client_host = request.client.host if request.client else None

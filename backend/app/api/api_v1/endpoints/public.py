@@ -8,10 +8,16 @@ from sqlalchemy.orm import Session
 
 from app.api.api_v1.endpoints import ai, domains, tls_reports
 from app.core.database import get_db
-from app.core.security import require_api_token_scope
+from app.core.security import require_api_token_any_scope, require_api_token_scope
 from app.services.ai_assistance import build_action_proposals
 from app.services.alert_history import alert_history_summary, list_workspace_alert_history
-from app.services.api_tokens import READ_POSTURE_SCOPE, READ_REPORTS_SCOPE, READ_TLS_SCOPE
+from app.services.api_tokens import (
+    MCP_READ_SCOPE,
+    READ_POSTURE_SCOPE,
+    READ_REPORTS_SCOPE,
+    READ_TLS_SCOPE,
+)
+from app.services.export_catalog import build_export_catalog
 from app.services.workspace_access import PERMISSION_REPORTS_READ, resolve_authorized_workspace
 
 router = APIRouter()
@@ -24,6 +30,21 @@ async def public_domain_summary(
 ):
     """List monitored domains with report and DNS posture summary fields."""
     return await domains.get_domains_summary(db=db, _auth=_auth)
+
+
+@router.get("/exports")
+async def public_export_catalog(
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(
+        require_api_token_any_scope(
+            [READ_REPORTS_SCOPE, READ_POSTURE_SCOPE, READ_TLS_SCOPE, MCP_READ_SCOPE],
+            detail_scope="one of reports:read, posture:read, tls-reports:read, mcp:read",
+        )
+    ),
+):
+    """Return available public export routes, MCP tools, and token usage metadata."""
+    workspace = resolve_authorized_workspace(db, _auth, PERMISSION_REPORTS_READ)
+    return build_export_catalog(db, workspace=workspace, auth_context=_auth)
 
 
 @router.get(
