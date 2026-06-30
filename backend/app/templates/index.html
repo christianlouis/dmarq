@@ -50,90 +50,6 @@
         </div>
     </div>
 
-    <div class="rounded-lg bg-white p-5 shadow-sm" x-show="demoDeployment" x-cloak data-tour="demo-orientation">
-        <div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-            <div class="max-w-3xl">
-                <p class="text-xs font-semibold uppercase tracking-wide text-[#2f9da5]">Demo experience</p>
-                <h2 class="mt-1 text-2xl font-semibold tracking-normal text-[#07071f]">
-                    <span x-text="selectedDemoScenario()?.label || 'Single user, multiple domains'"></span>
-                </h2>
-                <p class="mt-2 text-sm text-[#5f5c78]"
-                   x-text="selectedDemoScenarioDescription()"></p>
-                <div class="mt-4 flex flex-wrap gap-2" x-show="selectedDemoOrganization()" x-cloak data-tour="demo-session-context">
-                    <span class="rounded-full bg-[#edf7f7] px-3 py-1 text-xs font-semibold text-[#247982]"
-                          x-text="demoSessionLabel()"></span>
-                    <span class="rounded-full bg-[#fff7df] px-3 py-1 text-xs font-semibold text-[#8a6418]"
-                          x-show="selectedDemoUser()"
-                          x-text="demoImpersonationNotice()"></span>
-                </div>
-            </div>
-            <div class="flex flex-col gap-3 sm:flex-row sm:items-end" data-tour="demo-persona">
-                <div class="grid gap-1">
-                    <label class="text-sm font-semibold text-[#120d36]" for="demo-persona">
-                        View as
-                    </label>
-                    <select id="demo-persona"
-                            class="min-w-64 rounded-md border border-[#dfdfdf] bg-white px-3 py-2 text-sm font-semibold text-[#120d36]"
-                            x-model="selectedDemoScenarioId"
-                            @change="applyDemoScenario()">
-                        <template x-for="scenario in demoScenarios()" :key="scenario.id || scenario.label">
-                            <option :value="scenario.id || scenario.label" x-text="`${scenario.label} · ${scenario.email}`"></option>
-                        </template>
-                    </select>
-                </div>
-                <button type="button"
-                        class="whitespace-nowrap rounded-md bg-[#272a5f] px-4 py-2 text-sm font-semibold text-white hover:bg-[#171346]"
-                        @click="startDemoTour()">
-                    Start tour
-                </button>
-            </div>
-        </div>
-        <div class="mt-5 grid gap-3 lg:grid-cols-3" data-tour="demo-zoom">
-            <template x-for="level in demoZoomLevels()" :key="level.level">
-                <button type="button"
-                        class="rounded-md border p-4 text-left transition hover:border-[#2f9da5] hover:shadow-sm"
-                        :class="selectedDemoZoomLevel === level.level ? 'border-[#2f9da5] bg-[#edf7f7]' : 'border-[#dfdfdf] bg-white'"
-                        @click="selectDemoZoomLevel(level.level)">
-                    <p class="text-sm font-semibold text-[#120d36]" x-text="level.label"></p>
-                    <p class="mt-1 text-sm text-[#5f5c78]" x-text="level.description"></p>
-                </button>
-            </template>
-        </div>
-        <div class="mt-5 grid gap-3 md:grid-cols-2" data-tour="demo-domains">
-            <template x-for="domain in demoDomainShowcase()" :key="domain.domain">
-                <a class="rounded-md border border-[#dfdfdf] p-4 transition hover:border-[#2f9da5] hover:shadow-sm"
-                   :href="`/domains/${encodeURIComponent(domain.domain)}`">
-                    <div class="flex items-start justify-between gap-3">
-                        <div>
-                            <p class="text-lg font-semibold text-[#120d36]" x-text="domain.domain"></p>
-                            <p class="mt-1 text-sm text-[#5f5c78]" x-text="domain.story"></p>
-                        </div>
-                        <span class="rounded-full bg-[#f4f3f2] px-3 py-1 text-xs font-semibold text-[#5f5c78]"
-                              x-text="domain.posture"></span>
-                    </div>
-                </a>
-            </template>
-        </div>
-        <div class="mt-5" x-show="demoJourneySteps().length" x-cloak data-tour="demo-journey">
-            <p class="mb-3 text-xs font-semibold uppercase tracking-wide text-[#5f5c78]">Demo path</p>
-            <div class="grid gap-3 lg:grid-cols-5">
-                <template x-for="step in demoJourneySteps()" :key="step.step">
-                    <button type="button"
-                            class="rounded-md border p-4 text-left transition hover:border-[#2f9da5] hover:shadow-sm"
-                            :class="selectedDemoScenarioId === step.scenario_id && selectedDemoWorkspaceSlug === step.workspace_slug ? 'border-[#2f9da5] bg-[#edf7f7]' : 'border-[#dfdfdf] bg-white'"
-                            @click="selectDemoJourneyStep(step)">
-                        <div class="mb-3 inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#272a5f] text-xs font-bold text-white"
-                             x-text="step.step"></div>
-                        <p class="text-sm font-semibold text-[#120d36]" x-text="step.label"></p>
-                        <p class="mt-2 text-xs text-[#5f5c78]" x-text="step.action"></p>
-                        <p class="mt-3 text-xs font-semibold text-[#2f9da5]"
-                           x-text="`${formatDemoLabel(step.zoom_level)} · ${step.domain}`"></p>
-                    </button>
-                </template>
-            </div>
-        </div>
-    </div>
-
     <section class="rounded-lg bg-white p-6 shadow-sm" x-show="healthSummary && hasDomainData" x-cloak data-tour="health-score">
         <div class="grid gap-6 xl:grid-cols-[18rem_minmax(0,1fr)]">
             <div class="rounded-lg bg-[#f4f3f2] p-5">
@@ -366,266 +282,6 @@
         <div id="change-summary-list" class="grid gap-3 md:grid-cols-3"></div>
     </div>
 
-    <div class="rounded-lg bg-white p-6 shadow-sm" x-show="demoDeployment" x-cloak data-tour="tenant-zoom">
-        <div class="mb-5 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-            <div>
-                <h2 class="text-2xl font-semibold tracking-normal text-[#07071f]">Deployment Zoom</h2>
-                <p class="text-sm text-[#5f5c78]">
-                    Click into SaaS, ISP, and self-hosted accounts, then view the product as one of their users.
-                </p>
-            </div>
-            <a href="/api/v1/operator/demo/multi-user"
-               class="text-sm font-semibold text-[#2f9da5] hover:text-[#272a5f]">
-                Open operator data
-            </a>
-        </div>
-        <div class="mb-5 grid gap-3 md:grid-cols-4">
-            <div class="rounded-md bg-[#f4f3f2] p-3">
-                <p class="text-xs uppercase tracking-wide text-[#5f5c78]">Organizations</p>
-                <p class="mt-1 text-2xl font-semibold text-[#120d36]" x-text="visibleDemoOrganizations().length"></p>
-            </div>
-            <div class="rounded-md bg-[#f4f3f2] p-3">
-                <p class="text-xs uppercase tracking-wide text-[#5f5c78]">Workspaces</p>
-                <p class="mt-1 text-2xl font-semibold text-[#120d36]" x-text="demoWorkspaceTotal()"></p>
-            </div>
-            <div class="rounded-md bg-[#f4f3f2] p-3">
-                <p class="text-xs uppercase tracking-wide text-[#5f5c78]">Users</p>
-                <p class="mt-1 text-2xl font-semibold text-[#120d36]" x-text="demoUserTotal()"></p>
-            </div>
-            <div class="rounded-md bg-[#f4f3f2] p-3">
-                <p class="text-xs uppercase tracking-wide text-[#5f5c78]">Demo MRR</p>
-                <p class="mt-1 text-2xl font-semibold text-[#120d36]" x-text="formatMoney(demoMonthlyTotal())"></p>
-            </div>
-        </div>
-        <div class="grid gap-4 xl:grid-cols-3">
-            <template x-for="organization in visibleDemoOrganizations()" :key="organization.slug">
-                <article class="rounded-md border p-4 transition hover:border-[#2f9da5] hover:shadow-sm"
-                         :class="selectedDemoOrganizationSlug === organization.slug ? 'border-[#2f9da5] shadow-sm' : 'border-[#dfdfdf]'">
-                    <div class="mb-4 flex items-start justify-between gap-3">
-                        <div class="min-w-0">
-                            <h3 class="truncate text-lg font-semibold text-[#120d36]" x-text="organization.name"></h3>
-                            <p class="mt-1 text-sm uppercase tracking-wide text-[#5f5c78]"
-                               x-text="formatDemoLabel(organization.deployment_model)"></p>
-                        </div>
-                        <span class="rounded-full bg-[#edf7f7] px-3 py-1 text-xs font-semibold text-[#247982]"
-                              x-text="formatDemoLabel(organization.billing_mode)"></span>
-                    </div>
-                    <p class="mb-4 text-sm text-[#5f5c78]" x-text="organization.demo_story"></p>
-                    <div class="grid grid-cols-2 gap-3 text-sm">
-                        <div class="rounded-md bg-[#f4f3f2] p-3">
-                            <p class="text-[#5f5c78]">Plan</p>
-                            <p class="mt-1 font-semibold text-[#120d36]" x-text="organization.plan.name"></p>
-                        </div>
-                        <div class="rounded-md bg-[#f4f3f2] p-3">
-                            <p class="text-[#5f5c78]">Billing</p>
-                            <p class="mt-1 font-semibold text-[#120d36]" x-text="formatMoney(organization.billing?.current_period_total_cents, organization.plan.price.currency)"></p>
-                        </div>
-                    </div>
-                    <div class="mt-4 rounded-md border border-[#e6e3e1] p-3 text-sm">
-                        <div class="flex items-start justify-between gap-3">
-                            <div class="min-w-0">
-                                <p class="truncate font-semibold text-[#120d36]" x-text="organization.billing_profile.display_name"></p>
-                                <p class="mt-1 text-[#5f5c78]" x-text="organization.billing_profile.invoice_reference"></p>
-                            </div>
-                            <span class="rounded-full bg-[#f4f3f2] px-2 py-1 text-xs font-semibold text-[#5f5c78]"
-                                  x-text="formatDemoLabel(organization.billing?.status || 'not_configured')"></span>
-                        </div>
-                        <dl class="mt-3 grid grid-cols-2 gap-2 text-xs text-[#5f5c78]">
-                            <div>
-                                <dt>Invoice owner</dt>
-                                <dd class="mt-1 font-semibold text-[#120d36]" x-text="organization.billing_profile.invoice_owner"></dd>
-                            </div>
-                            <div>
-                                <dt>Next invoice</dt>
-                                <dd class="mt-1 font-semibold text-[#120d36]" x-text="organization.billing?.next_invoice_date || 'Not scheduled'"></dd>
-                            </div>
-                            <div>
-                                <dt>Collection</dt>
-                                <dd class="mt-1 font-semibold text-[#120d36]" x-text="formatDemoLabel(organization.billing_profile.collection_model)"></dd>
-                            </div>
-                            <div>
-                                <dt>Payment rail</dt>
-                                <dd class="mt-1 font-semibold text-[#120d36]" x-text="formatDemoLabel(organization.billing_profile.payment_rail)"></dd>
-                            </div>
-                        </dl>
-                    </div>
-                    <div class="mt-4">
-                        <p class="text-xs uppercase tracking-wide text-[#5f5c78]">Usage and entitlements</p>
-                        <div class="mt-2 flex flex-wrap gap-2">
-                            <template x-for="usage in organization.usage" :key="usage.metric">
-                                <span class="rounded-full bg-[#edf7f7] px-3 py-1 text-xs font-semibold text-[#247982]"
-                                      x-text="formatDemoUsage(organization, usage)"></span>
-                            </template>
-                        </div>
-                    </div>
-                    <div class="mt-4">
-                        <p class="text-xs uppercase tracking-wide text-[#5f5c78]">Roles</p>
-                        <div class="mt-2 flex flex-wrap gap-2">
-                            <template x-for="role in demoRoleSummary(organization)" :key="role">
-                                <span class="rounded-full bg-[#f4f3f2] px-3 py-1 text-xs font-semibold text-[#120d36]"
-                                      x-text="formatDemoLabel(role)"></span>
-                            </template>
-                        </div>
-                    </div>
-                    <div class="mt-4 space-y-2">
-                        <template x-for="workspace in organization.workspaces" :key="workspace.slug">
-                            <div class="flex items-center justify-between gap-3 border-t border-[#e6e3e1] pt-3 text-sm">
-                                <span class="min-w-0 truncate font-semibold text-[#120d36]" x-text="workspace.name"></span>
-                                <span class="rounded-full px-2 py-1 text-xs font-semibold"
-                                      :class="workspace.health === 'critical' ? 'bg-[#fff1ea] text-[#b8431d]' : workspace.health === 'healthy' ? 'bg-[#edf7f7] text-[#247982]' : 'bg-[#f4f3f2] text-[#5f5c78]'"
-                                      x-text="workspace.health"></span>
-                            </div>
-                        </template>
-                    </div>
-                    <div class="mt-4 flex flex-wrap gap-2">
-                        <button type="button"
-                                class="rounded-md bg-[#272a5f] px-3 py-2 text-sm font-semibold text-white hover:bg-[#171346]"
-                                @click="selectDemoOrganization(organization.slug)">
-                            Open account
-                        </button>
-                        <button type="button"
-                                class="rounded-md border border-[#dfdfdf] px-3 py-2 text-sm font-semibold text-[#2f9da5] hover:border-[#2f9da5]"
-                                @click="impersonateFirstDemoUser(organization.slug)">
-                            View as user
-                        </button>
-                    </div>
-                    <div class="mt-4 space-y-2" x-show="organization.provider_customers?.length">
-                        <p class="text-xs uppercase tracking-wide text-[#5f5c78]">Provider billing samples</p>
-                        <template x-for="customer in organization.provider_customers" :key="customer.external_customer_id">
-                            <div class="rounded-md bg-[#f4f3f2] p-3 text-sm">
-                                <div class="flex items-start justify-between gap-3">
-                                    <div class="min-w-0">
-                                        <p class="truncate font-semibold text-[#120d36]" x-text="customer.name"></p>
-                                        <p class="mt-1 text-xs text-[#5f5c78]" x-text="customer.external_customer_id"></p>
-                                    </div>
-                                    <span class="font-semibold text-[#120d36]" x-text="formatMoney(customer.monthly_charge_cents, organization.plan.price.currency)"></span>
-                                </div>
-                                <p class="mt-2 text-xs text-[#5f5c78]"
-                                   x-text="`${customer.subscription_tier} · ${formatDemoLabel(customer.billing_status)} · ${formatLargeNumber(customer.aggregate_messages)} messages`"></p>
-                            </div>
-                        </template>
-                    </div>
-                </article>
-            </template>
-        </div>
-        <div class="mt-5 rounded-lg border border-[#dfdfdf] bg-[#fbfbfb] p-5" x-show="selectedDemoOrganization()" x-cloak data-tour="tenant-detail">
-            <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                    <p class="text-xs font-semibold uppercase tracking-wide text-[#2f9da5]">Account detail</p>
-                    <h3 class="mt-1 text-2xl font-semibold text-[#120d36]" x-text="selectedDemoOrganization()?.name"></h3>
-                    <p class="mt-2 max-w-3xl text-sm text-[#5f5c78]" x-text="selectedDemoOrganization()?.demo_story"></p>
-                </div>
-                <div class="grid gap-1">
-                    <label class="text-sm font-semibold text-[#120d36]" for="demo-user-switcher">Impersonate</label>
-                    <select id="demo-user-switcher"
-                            class="min-w-64 rounded-md border border-[#dfdfdf] bg-white px-3 py-2 text-sm font-semibold text-[#120d36]"
-                            x-model="selectedDemoUserEmail"
-                            @change="applyDemoUserSelection()">
-                        <template x-for="user in selectedDemoOrganizationUsers()" :key="user.email">
-                            <option :value="user.email" x-text="`${user.name} · ${formatDemoLabel((user.roles || [])[0])}`"></option>
-                        </template>
-                    </select>
-                </div>
-            </div>
-            <div class="mt-5 grid gap-4 lg:grid-cols-3">
-                <div class="rounded-md bg-white p-4">
-                    <p class="text-xs uppercase tracking-wide text-[#5f5c78]">Current user</p>
-                    <p class="mt-2 text-lg font-semibold text-[#120d36]" x-text="selectedDemoUser()?.name || 'Select a user'"></p>
-                    <p class="mt-1 text-sm text-[#5f5c78]" x-text="selectedDemoUser()?.email || ''"></p>
-                    <div class="mt-3 flex flex-wrap gap-2">
-                        <template x-for="role in selectedDemoUser()?.roles || []" :key="role">
-                            <span class="rounded-full bg-[#f4f3f2] px-3 py-1 text-xs font-semibold text-[#120d36]"
-                                  x-text="formatDemoLabel(role)"></span>
-                        </template>
-                    </div>
-                </div>
-                <div class="rounded-md bg-white p-4">
-                    <p class="text-xs uppercase tracking-wide text-[#5f5c78]">Billing profile</p>
-                    <p class="mt-2 text-lg font-semibold text-[#120d36]" x-text="selectedDemoOrganization()?.billing_profile?.display_name"></p>
-                    <p class="mt-1 text-sm text-[#5f5c78]" x-text="selectedDemoOrganization()?.billing_profile?.invoice_reference"></p>
-                    <p class="mt-3 text-sm font-semibold text-[#2f9da5]"
-                       x-text="`${selectedDemoOrganization()?.billing_profile?.invoice_owner || 'Owner'} · ${formatDemoLabel(selectedDemoOrganization()?.billing_profile?.collection_model)}`"></p>
-                </div>
-                <div class="rounded-md bg-white p-4">
-                    <p class="text-xs uppercase tracking-wide text-[#5f5c78]">Visible workspaces</p>
-                    <div class="mt-3 space-y-2">
-                        <template x-for="workspace in selectedDemoVisibleWorkspaces()" :key="workspace.slug">
-                            <button type="button"
-                                    class="w-full rounded-md border p-3 text-left transition hover:border-[#2f9da5]"
-                                    :class="selectedDemoWorkspaceSlug === workspace.slug ? 'border-[#2f9da5] bg-[#edf7f7]' : 'border-[#e6e3e1] bg-white'"
-                                    @click="selectDemoWorkspace(workspace.slug)">
-                                <div class="flex items-start justify-between gap-3">
-                                    <div class="min-w-0">
-                                        <p class="font-semibold text-[#120d36]" x-text="workspace.name"></p>
-                                        <p class="mt-1 text-sm text-[#5f5c78]" x-text="(workspace.domains || []).join(', ')"></p>
-                                    </div>
-                                    <span class="rounded-full px-2 py-1 text-xs font-semibold"
-                                          :class="workspace.health === 'critical' ? 'bg-[#fff1ea] text-[#b8431d]' : workspace.health === 'healthy' ? 'bg-[#edf7f7] text-[#247982]' : 'bg-[#f4f3f2] text-[#5f5c78]'"
-                                          x-text="workspace.health"></span>
-                                </div>
-                            </button>
-                        </template>
-                    </div>
-                </div>
-            </div>
-            <div class="mt-5 rounded-md border border-[#e6e3e1] bg-white p-4" x-show="selectedDemoWorkspace()" x-cloak data-tour="tenant-workspace-drilldown">
-                <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div>
-                        <p class="text-xs font-semibold uppercase tracking-wide text-[#2f9da5]">Workspace drill-down</p>
-                        <h4 class="mt-1 text-xl font-semibold text-[#120d36]" x-text="selectedDemoWorkspace()?.name"></h4>
-                        <p class="mt-2 text-sm text-[#5f5c78]">
-                            This is the tenant scope the current demo user can inspect.
-                        </p>
-                    </div>
-                    <span class="w-fit rounded-full bg-[#f4f3f2] px-3 py-1 text-xs font-semibold text-[#5f5c78]"
-                          x-text="formatDemoLabel(selectedDemoWorkspace()?.health || 'unknown')"></span>
-                </div>
-                <div class="mt-4 grid gap-4 lg:grid-cols-2">
-                    <div>
-                        <p class="text-xs uppercase tracking-wide text-[#5f5c78]">Domains</p>
-                        <div class="mt-2 flex flex-wrap gap-2">
-                            <template x-for="domainName in selectedDemoWorkspaceDomains()" :key="domainName">
-                                <span class="inline-flex items-center gap-2 rounded-md border border-[#dfdfdf] px-3 py-2 text-sm">
-                                    <span class="font-semibold text-[#120d36]" x-text="domainName"></span>
-                                    <template x-if="hasLiveDomain(domainName)">
-                                        <a class="font-semibold text-[#2f9da5] hover:text-[#272a5f]"
-                                           :href="domainHrefByName(domainName)">Open detail</a>
-                                    </template>
-                                    <template x-if="!hasLiveDomain(domainName)">
-                                        <span class="rounded-full bg-[#fff7df] px-2 py-0.5 text-xs font-semibold text-[#8a6418]">Demo-only</span>
-                                    </template>
-                                </span>
-                            </template>
-                        </div>
-                    </div>
-                    <div>
-                        <p class="text-xs uppercase tracking-wide text-[#5f5c78]">Action cues</p>
-                        <div class="mt-2 space-y-2">
-                            <template x-for="finding in selectedDemoWorkspaceFindings()" :key="finding">
-                                <div class="rounded-md bg-[#f4f3f2] px-3 py-2 text-sm text-[#120d36]" x-text="finding"></div>
-                            </template>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="mt-5 grid gap-3 md:grid-cols-2" x-show="selectedDemoOrganization()?.provider_customers?.length">
-                <template x-for="customer in selectedDemoOrganization()?.provider_customers || []" :key="customer.external_customer_id">
-                    <button type="button"
-                            class="rounded-md border border-[#dfdfdf] bg-white p-4 text-left transition hover:border-[#2f9da5] hover:shadow-sm"
-                            @click="selectDemoProviderCustomer(customer)">
-                        <div class="flex items-start justify-between gap-3">
-                            <div>
-                                <p class="font-semibold text-[#120d36]" x-text="customer.name"></p>
-                                <p class="mt-1 text-sm text-[#5f5c78]" x-text="`${customer.subscription_tier} · ${formatDemoLabel(customer.billing_status)}`"></p>
-                            </div>
-                            <span class="font-semibold text-[#120d36]" x-text="formatMoney(customer.monthly_charge_cents, selectedDemoOrganization()?.plan?.price?.currency)"></span>
-                        </div>
-                    </button>
-                </template>
-            </div>
-        </div>
-    </div>
-    
     <!-- Domain Compliance Table -->
     <div x-show="hasDomainData" x-cloak data-tour="domain-table">
         {% call card() %}
@@ -779,21 +435,6 @@ function dashboardApp() {
         demoTourStepIndex: 0,
         demoTourSteps: [
             {
-                selector: '[data-tour="demo-orientation"]',
-                title: 'Start with the normal customer view',
-                body: 'The default demo is one user managing multiple domains, so dmarq.org and dmarq.com stay front and center.'
-            },
-            {
-                selector: '[data-tour="demo-journey"]',
-                title: 'Follow the product story',
-                body: 'Use the demo path to move from the daily domain view to account, provider, impersonation, and self-hosted workflows.'
-            },
-            {
-                selector: '[data-tour="demo-session-context"]',
-                title: 'Track the active scope',
-                body: 'The demo always shows which account, workspace, and user context is active before you drill into tenant data.'
-            },
-            {
                 selector: '[data-tour="date-filter"]',
                 title: 'Change the evidence window',
                 body: 'Use sensible ranges or custom dates to inspect current incidents, week-to-date activity, or the full rolling demo history.'
@@ -812,21 +453,6 @@ function dashboardApp() {
                 selector: '[data-tour="top-sources"]',
                 title: 'Investigate senders',
                 body: 'Top sources surface the systems sending mail on behalf of the selected account and where authentication breaks.'
-            },
-            {
-                selector: '[data-tour="tenant-zoom"]',
-                title: 'Zoom out to accounts',
-                body: 'Switch from the daily operator view to SaaS, ISP, managed-service, and self-hosted deployment models.'
-            },
-            {
-                selector: '[data-tour="tenant-detail"]',
-                title: 'Impersonate demo users',
-                body: 'Open an account and view it as an owner, analyst, auditor, ISP operator, or customer admin.'
-            },
-            {
-                selector: '[data-tour="tenant-workspace-drilldown"]',
-                title: 'Drill into tenant workspaces',
-                body: 'Workspace drill-downs show the visible domains, report-backed links, and demo-only customer examples.'
             }
         ],
         dateInterval: 'last_30_days',
@@ -861,7 +487,6 @@ function dashboardApp() {
             // Check IMAP status
             this.getImapStatus();
             this.fetchForensicSummary();
-            this.fetchDeploymentShowcase();
         },
         
         async getImapStatus() {
@@ -1046,18 +671,6 @@ function dashboardApp() {
                 : (dateRange.label || this.dateRangeLabel);
         },
 
-        async fetchDeploymentShowcase() {
-            try {
-                const response = await fetch('/api/v1/operator/demo/multi-user');
-                if (!response.ok) return;
-                const data = await response.json();
-                this.demoDeployment = data.deployment || null;
-                this.applyDemoScenario();
-            } catch (error) {
-                this.demoDeployment = null;
-            }
-        },
-        
         updateDashboardStats(data) {
             if (!data) return;
             
@@ -1534,7 +1147,6 @@ function dashboardApp() {
                 this.selectedDnsDomain = step.domain;
                 this.updateDnsHealth();
             }
-            this.$nextTick(() => this.ensureTourTargetVisible('[data-tour="tenant-workspace-drilldown"]'));
         },
 
         applyDemoScenario() {
@@ -1570,7 +1182,6 @@ function dashboardApp() {
             if (!visibleWorkspaces.some(workspace => workspace.slug === this.selectedDemoWorkspaceSlug)) {
                 this.selectedDemoWorkspaceSlug = visibleWorkspaces[0]?.slug || '';
             }
-            this.$nextTick(() => this.ensureTourTargetVisible('[data-tour="tenant-detail"]'));
         },
 
         selectDemoWorkspace(slug) {
