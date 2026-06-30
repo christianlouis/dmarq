@@ -93,7 +93,10 @@ def test_build_demo_dashboard_statistics_fills_chart_sources_and_changes():
     assert stats["compliance_trend"]
     assert stats["top_sources"]
     assert stats["change_summary"]
+    assert stats["source_regions"]
+    assert stats["source_anomalies"]
     assert any(source["dmarc"] in {"mixed", "fail"} for source in stats["top_sources"])
+    assert all("geo" in source for source in stats["top_sources"])
 
 
 def test_build_demo_domain_statistics_includes_sources():

@@ -709,9 +709,7 @@ def test_workspace_health_evidence_export_uses_demo_history_fallback(
     assert 0 < len(data["rows"]) <= 2
     assert data["rows"][-1]["domain"] == "workspace"
     top_action_domains = {
-        action.partition(":")[0]
-        for action in data["rows"][-1]["top_actions"].split("; ")
-        if action
+        action.partition(":")[0] for action in data["rows"][-1]["top_actions"].split("; ") if action
     }
     assert top_action_domains == {"dmarq" + ".org", "dmarq" + ".com"}
 
@@ -754,7 +752,9 @@ def test_health_history_helpers_cover_demo_and_empty_paths():
     workspace_rows = domains_endpoint._workspace_evidence_export_rows(workspace_points)
     assert workspace_rows[0]["domain"] == "workspace"
     top_action_domains = {
-        action.partition(":")[0] for action in workspace_rows[0]["top_actions"].split("; ") if action
+        action.partition(":")[0]
+        for action in workspace_rows[0]["top_actions"].split("; ")
+        if action
     }
     assert top_action_domains == {"dmarq" + ".org", "dmarq" + ".com"}
 
@@ -854,7 +854,7 @@ def test_get_domain_sources_returns_recommendations(
     assert response.status_code == 200
     source = response.json()["sources"][0]
     recommendation_types = {item["type"] for item in source["recommendations"]}
-    assert recommendation_types == {"unknown_sender", "full_fail", "policy_not_enforced"}
+    assert {"unknown_sender", "full_fail", "policy_not_enforced"}.issubset(recommendation_types)
     assert source["sender"]["name"] == "Unknown sender"
     assert source["sender"]["status"] == "unknown"
     assert source["spf_fix_hint"] == "ip4:192.0.2.10"
@@ -899,6 +899,45 @@ def test_get_domain_sources_returns_sender_identity(
     assert source["sender"]["confidence"] >= 90
     assert source["sender"]["evidence"]
     assert "Google Workspace DKIM" in source["sender"]["remediation_hint"]
+
+
+def test_get_domain_source_intelligence_returns_regions_and_anomalies(
+    seeded_client: TestClient,
+):
+    """Source intelligence summarizes regions and notable sending-source changes."""
+
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/source-intelligence?days=30")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["domain"] == DOMAIN
+    assert data["summary"]["regions"] >= 1
+    assert data["regions"][0]["message_count"] == 10
+    assert data["anomalies"][0]["type"] == "new_sender"
+    assert data["anomalies"][0]["source_ip"] == "209.85.220.1"
+
+
+def test_get_domain_source_intelligence_unknown_domain_returns_404(
+    authed_client: TestClient,
+):
+    """Source intelligence returns 404 for unknown domains."""
+
+    response = authed_client.get("/api/v1/domains/missing.example/source-intelligence")
+
+    assert response.status_code == 404
+
+
+def test_get_domain_sources_includes_geo_and_anomaly_hints(seeded_client: TestClient):
+    """Source rows carry coarse geo data and anomaly recommendations."""
+
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources?days=30")
+
+    assert response.status_code == 200
+    source = response.json()["sources"][0]
+    assert source["geo"]["region"]
+    assert source["anomalies"][0]["type"] == "new_sender"
+    recommendation_types = {item["type"] for item in source["recommendations"]}
+    assert "anomaly_new_sender" in recommendation_types
 
 
 def test_source_recommendations_cover_common_cases():
@@ -970,6 +1009,32 @@ def test_source_recommendations_cover_common_cases():
             )
         )
         assert {item.type for item in recommendations} == expected_types
+
+
+@pytest.mark.asyncio
+async def test_safe_ptr_lookup_skips_invalid_ips():
+    """PTR lookup refuses invalid source addresses before querying DNS."""
+
+    class InvalidProvider:
+        async def lookup_ptr(self, _ip):
+            raise AssertionError("lookup_ptr should not be called")
+
+    class FailingProvider:
+        async def lookup_ptr(self, _ip):
+            raise LookupError("no PTR")
+
+    assert (
+        await domains_endpoint._safe_ptr_lookup(  # pylint: disable=protected-access
+            InvalidProvider(), "not-an-ip"
+        )
+        is None
+    )
+    assert (
+        await domains_endpoint._safe_ptr_lookup(  # pylint: disable=protected-access
+            FailingProvider(), "203.0.113.7"
+        )
+        is None
+    )
 
 
 def test_get_domain_sources_days_param_accepted(seeded_client: TestClient):

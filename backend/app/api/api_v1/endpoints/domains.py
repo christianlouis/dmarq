@@ -59,7 +59,11 @@ from app.services.report_persistence import (
     hydrate_report_store_from_db,
 )
 from app.services.report_store import ReportStore
-from app.services.sender_intelligence import identify_sender
+from app.services.sender_intelligence import (
+    build_source_intelligence,
+    identify_sender,
+    source_geo_for,
+)
 from app.services.workspace_access import (
     PERMISSION_DOMAINS_WRITE,
     PERMISSION_REPORTS_READ,
@@ -582,6 +586,44 @@ class SenderIdentity(BaseModel):
     docs_url: Optional[str] = None
 
 
+class SourceGeo(BaseModel):
+    """Coarse source geography from report metadata or inferred demo intelligence."""
+
+    country: str
+    country_code: str
+    region: str
+    asn: Optional[str] = None
+    network: Optional[str] = None
+    source: str
+
+
+class SourceAnomaly(BaseModel):
+    """A notable sender, geography, volume, or alignment change."""
+
+    type: str
+    severity: str
+    title: str
+    domain: str
+    source_ip: Optional[str] = None
+    region: Optional[str] = None
+    message_count: int = 0
+    failed_count: int = 0
+    detail: str
+    action: str
+
+
+class SourceRegionSummary(BaseModel):
+    """Aggregate message volume for a coarse source region."""
+
+    region: str
+    country_codes: List[str] = Field(default_factory=list)
+    message_count: int = 0
+    source_count: int = 0
+    failed_count: int = 0
+    failure_rate: float = 0.0
+    networks: List[str] = Field(default_factory=list)
+
+
 class SourceEntry(BaseModel):
     """Summary of a sending source"""
 
@@ -600,6 +642,8 @@ class SourceEntry(BaseModel):
     disposition_counts: Dict[str, int] = Field(default_factory=dict)
     hostname: Optional[str] = None
     sender: SenderIdentity
+    geo: SourceGeo
+    anomalies: List[SourceAnomaly] = Field(default_factory=list)
     spf_fix_hint: Optional[str] = None
     recommendations: List[SourceRecommendation] = Field(default_factory=list)
 
@@ -615,6 +659,17 @@ class DomainSourcesResponse(BaseModel):
     """Domain sending sources"""
 
     sources: List[SourceEntry]
+
+
+class SourceIntelligenceResponse(BaseModel):
+    """Domain-level source intelligence summary."""
+
+    domain: str
+    period_days: int
+    recent_days: int = 0
+    regions: List[SourceRegionSummary] = Field(default_factory=list)
+    anomalies: List[SourceAnomaly] = Field(default_factory=list)
+    summary: Dict[str, int] = Field(default_factory=dict)
 
 
 class DomainSummaryResponse(BaseModel):
@@ -2986,6 +3041,22 @@ def _source_recommendations(
     return recommendations
 
 
+def _anomaly_recommendations(anomalies: List[Dict[str, Any]]) -> List[SourceRecommendation]:
+    """Expose source intelligence anomalies as source-level next steps."""
+    recommendations = []
+    for anomaly in anomalies[:3]:
+        recommendations.append(
+            SourceRecommendation(
+                type=f"anomaly_{anomaly['type']}",
+                severity=anomaly["severity"],
+                title=anomaly["title"],
+                detail=anomaly["detail"],
+                action=anomaly["action"],
+            )
+        )
+    return recommendations
+
+
 def _sender_identity_recommendations(
     sender: Optional[Dict[str, Any]],
     dmarc_failed: bool,
@@ -3168,6 +3239,13 @@ async def get_domain_sources(
         )
 
     sources = store.get_domain_sources(domain_id, days=days)
+    intelligence = build_source_intelligence(
+        domain_id,
+        store.get_domain_reports(domain_id),
+        sources,
+        period_days=days,
+    )
+    anomalies_by_ip = intelligence.get("anomalies_by_ip", {})
     provider = get_default_provider(db)
 
     ips = [s.get("source_ip", "unknown") for s in sources]
@@ -3180,6 +3258,9 @@ async def get_domain_sources(
         dkim_result = source.get("dkim_result", "unknown")
         spf_fix_hint = _spf_fix_hint(ip, spf_result, source.get("spf_fail_count", 0))
         sender = identify_sender(ip, source, hostname=hostname, domain=domain_id)
+        source_anomalies = anomalies_by_ip.get(ip, [])
+        recommendations = _source_recommendations(ip, source, hostname, spf_fix_hint, sender)
+        recommendations.extend(_anomaly_recommendations(source_anomalies))
         source_entries.append(
             SourceEntry(
                 ip=ip,
@@ -3198,12 +3279,49 @@ async def get_domain_sources(
                 disposition_counts=source.get("disposition_counts", {}),
                 hostname=hostname,
                 sender=SenderIdentity(**sender),
+                geo=SourceGeo(**source_geo_for(ip, source)),
+                anomalies=[SourceAnomaly(**anomaly) for anomaly in source_anomalies],
                 spf_fix_hint=spf_fix_hint,
-                recommendations=_source_recommendations(ip, source, hostname, spf_fix_hint, sender),
+                recommendations=recommendations,
             )
         )
 
     return DomainSourcesResponse(sources=source_entries)
+
+
+@router.get("/{domain_id}/source-intelligence", response_model=SourceIntelligenceResponse)
+async def get_domain_source_intelligence(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    days: int = Query(30, ge=1, le=365, title="Number of days to analyze"),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
+    """Return region summaries and source anomaly hints for a domain."""
+    workspace = _authorized_domain_read_workspace(_auth, db)
+    store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
+
+    if not _domain_exists(db, store, domain_id, workspace):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Domain not found",
+        )
+
+    sources = store.get_domain_sources(domain_id, days=days)
+    intelligence = build_source_intelligence(
+        domain_id,
+        store.get_domain_reports(domain_id),
+        sources,
+        period_days=days,
+    )
+    return SourceIntelligenceResponse(
+        domain=intelligence["domain"],
+        period_days=intelligence["period_days"],
+        recent_days=intelligence.get("recent_days", 0),
+        regions=[SourceRegionSummary(**region) for region in intelligence["regions"]],
+        anomalies=[SourceAnomaly(**anomaly) for anomaly in intelligence["anomalies"]],
+        summary=intelligence["summary"],
+    )
 
 
 @router.get("/{domain_id}/selectors")

@@ -461,6 +461,23 @@ actionable recommendations, recent provider-backed DNS drift summaries, and
 short operator playbooks. Recommendation and playbook evidence links point back
 to the page section that triggered the finding.
 
+#### Get Source Intelligence
+
+```
+GET /domains/{domain_id}/source-intelligence?days=30
+```
+
+Returns coarse region summaries and source anomaly hints for one domain.
+DMARQ uses existing report metadata when available and deterministic inferred
+fallbacks for demo data; it does not require a live GeoIP lookup. The response
+includes top regions, source counts, message/failure counts, and anomalies such
+as new senders, new regions, source volume spikes, and increased alignment
+failures.
+
+`GET /domains/{domain_id}/sources` also includes per-source `geo` and
+`anomalies` fields so the domain detail page can show the same context next to
+the raw sending-source evidence.
+
 #### Get Health Score History
 
 ```
