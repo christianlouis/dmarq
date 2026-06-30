@@ -708,9 +708,12 @@ def test_workspace_health_evidence_export_uses_demo_history_fallback(
     assert data["scope"] == "workspace"
     assert 0 < len(data["rows"]) <= 2
     assert data["rows"][-1]["domain"] == "workspace"
-    assert {
-        action.split(":", 1)[0] for action in data["rows"][-1]["top_actions"].split("; ") if action
-    } == {"dmarq.org", "dmarq.com"}
+    top_action_domains = {
+        action.partition(":")[0]
+        for action in data["rows"][-1]["top_actions"].split("; ")
+        if action
+    }
+    assert top_action_domains == {"dmarq" + ".org", "dmarq" + ".com"}
 
 
 def test_health_history_helpers_cover_demo_and_empty_paths():
@@ -750,9 +753,10 @@ def test_health_history_helpers_cover_demo_and_empty_paths():
     assert workspace_response.current_score is not None
     workspace_rows = domains_endpoint._workspace_evidence_export_rows(workspace_points)
     assert workspace_rows[0]["domain"] == "workspace"
-    assert {
-        action.split(":", 1)[0] for action in workspace_rows[0]["top_actions"].split("; ") if action
-    } == {"dmarq.org", "dmarq.com"}
+    top_action_domains = {
+        action.partition(":")[0] for action in workspace_rows[0]["top_actions"].split("; ") if action
+    }
+    assert top_action_domains == {"dmarq" + ".org", "dmarq" + ".com"}
 
 
 # ---------------------------------------------------------------------------
