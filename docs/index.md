@@ -1,12 +1,27 @@
 # DMARQ Documentation
 
-Welcome to the official documentation for DMARQ - a comprehensive DMARC reporting and analysis tool.
+Welcome to the official documentation for DMARQ - a DMARC reporting and domain
+mail-health tool.
 
-DMARQ helps organizations monitor their email authentication status, analyze DMARC reports, and improve email deliverability and security.
+DMARQ helps organizations monitor email authentication, analyze DMARC reports,
+understand DNS and sender posture, and improve mail-sending health without
+giving up control of their data.
 
 ## What is DMARQ?
 
-DMARQ is a full-stack DMARC monitoring platform designed to help organizations track and improve their email authentication. It processes DMARC reports (aggregate and forensic) and presents compliance insights via a user-friendly dashboard.
+DMARQ is a full-stack DMARC monitoring platform designed to help organizations
+track and improve email authentication. It processes DMARC reports, presents
+compliance insights, and is growing into a human-in-the-loop remediation
+assistant: automatic detection and guidance, operator-approved repair.
+
+The product direction is intentionally practical:
+
+- show which domains and senders are healthy,
+- explain what is broken and why it matters,
+- prepare safe fixes for DNS and provider configuration,
+- support both commercial providers and self-hosted mail infrastructure,
+- surface sender reputation and blacklist risks, and
+- provide guidance in language operators can act on.
 
 ## Key Features
 
@@ -16,6 +31,8 @@ DMARQ is a full-stack DMARC monitoring platform designed to help organizations t
 - **Mailbox Integrations**: Automatically fetch reports from IMAP, Gmail, and Microsoft 365 inboxes
 - **Alerting**: Get notified about important authentication issues
 - **Easy Setup**: Web-based configuration wizard for quick onboarding
+- **Human-in-the-loop Remediation**: Detect automatically, explain clearly, apply only after approval
+- **Roadmap**: Health scoring, sender reputation, provider imports, direct intake workers, and localized guidance
 
 ## Getting Started
 
@@ -37,7 +54,8 @@ Aggregate-report parser support, known edge cases, and fixture guidance are docu
 Opt-in AI summaries and read-only MCP automation are covered in [AI and MCP Automation](reference/ai-mcp-automation.md).
 
 The current product direction across self-hosted, hosted SaaS, ISP/OEM,
-billing, and multi-tenant work is captured in the [Product Roadmap](development/roadmap.md).
+provider integrations, billing, localization, and mail-health automation is
+captured in the [Product Roadmap](development/roadmap.md).
 
 ISP, MSP, and hosting-control-panel lifecycle integrations are documented in
 [Provider Integrations](reference/provider-integrations.md).

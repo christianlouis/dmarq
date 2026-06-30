@@ -1,6 +1,8 @@
 # DMARQ
 
-**DMARQ** is a modern, privacy-conscious DMARC monitoring and analysis platform built for professionals who want deep visibility into their email authentication posture — without giving up control or relying on third-party SaaS providers.
+**DMARQ** is a modern, privacy-conscious mail health platform built for
+professionals who want to understand and improve domain sending posture without
+giving up control of their reports, DNS, and infrastructure.
 
 - 🌐 [Live Demo](https://demo.dmarq.org)
 - 🔒 Self-hosted. Secure. Beautifully visual.
@@ -11,9 +13,20 @@
 
 ## 💡 What is DMARQ?
 
-DMARQ ingests and visualizes DMARC (Domain-based Message Authentication, Reporting & Conformance) reports — primarily aggregate (RUA) reports today — to help domain owners understand who is sending emails on their behalf and whether those messages are properly authenticated using SPF and DKIM.
+DMARQ ingests and visualizes DMARC (Domain-based Message Authentication,
+Reporting & Conformance) reports — primarily aggregate (RUA) reports today — to
+help domain owners understand who is sending emails on their behalf and whether
+those messages are properly authenticated using SPF and DKIM.
 
-No more guessing. See which services are passing DMARC, which are failing, and how to fix them — all in one clear dashboard.
+The product direction is broader than reporting alone: DMARQ should become a
+human-in-the-loop mail health assistant. It observes DMARC and mail-delivery
+signals, explains what is unhealthy, prepares safe fixes, and tells the operator
+what changed. Automatic detection and guidance are encouraged; hidden DNS or
+mail-server changes are not.
+
+No more guessing. See which services are passing DMARC, which are failing, which
+senders may be risky, and how to fix the underlying issue — all in one clear
+dashboard.
 
 ---
 
@@ -37,6 +50,9 @@ Included:
 - ✅ Forensic/failure report ingestion with redacted metadata and grouped analysis
 - ✅ SMTP TLS report ingestion, trends, and top failure summaries
 - ✅ Public demo mode with rolling synthetic `dmarq.org` and `dmarq.com` data
+- 🔭 Roadmap: domain mail-health scoring, human-approved repair loops, sender IP
+  reputation checks, DNS/mail provider imports, direct report intake workers,
+  ecosystem integrations, and localized remediation guidance
 
 ---
 
@@ -59,6 +75,13 @@ Included:
 - Apply safe TXT/CNAME remediation through Cloudflare after explicit confirmation
 - Use the modular DNS provider layer for API-backed providers via Lexicon-backed adapters
 - 🔒 No background changes — all DNS updates require explicit operator confirmation
+
+### 🧭 Mail Health Direction
+- **Health Score & Grade**: Make domain sending health visible at a glance
+- **Human-in-the-loop Repair**: Detect automatically, explain clearly, apply only after approval
+- **Provider & Self-hosted Guidance**: Work for Google/Microsoft/Postmark/SES-style senders and custom MTAs
+- **Sender Reputation**: Surface blacklist and reputation risks for sending IPs
+- **Localized Advice**: Make remediation guidance understandable to the operator receiving it
 
 ### 🌐 Cloudflare Integration
 - Optional domain discovery, DNS inspection, and approved DNS record updates
@@ -165,10 +188,20 @@ settings.
 
 ## 🧭 Development Roadmap
 
-DMARQ's product scope is deliberately narrow: parse standards-based reports,
-explain the results, and help operators configure and lint DMARC-adjacent DNS
-records. Future work should strengthen that loop rather than turn DMARQ into a
-general-purpose mail gateway or delivery platform.
+DMARQ's product scope is deliberately focused: parse standards-based reports,
+explain the results, and help operators improve DMARC-adjacent DNS and mail
+sending health. Future work should strengthen that loop rather than turn DMARQ
+into a general-purpose mail gateway or a hidden automation platform.
+
+The current roadmap is organized around:
+
+- **Trustworthy report ingestion and DNS linting**
+- **Health score, A-F rating, and prioritized remediation**
+- **Human-approved DNS and provider repair workflows**
+- **Provider discovery, domain imports, and direct report intake**
+- **Sender identity, reputation, and blacklist monitoring**
+- **API/MCP automation for evidence-linked workflows**
+- **Localized guidance, starting with German as the first non-English target**
 
 See the full [Roadmap](docs/development/roadmap.md) and [Milestones](docs/milestones.md).
 
@@ -183,6 +216,10 @@ MIT License — you are free to use, modify, and host DMARQ for any purpose.
 ## 🤝 Contributing
 
 Pull requests are welcome! Please open an issue to discuss major features or design ideas before submitting code. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide.
+
+Roadmap feedback is especially useful around provider integrations, DNS repair
+safety, reputation data sources, localization, and real-world migration paths
+from commercial DMARC tools.
 
 This project uses [Conventional Commits](https://www.conventionalcommits.org/) and
 [python-semantic-release](https://python-semantic-release.readthedocs.io/) for

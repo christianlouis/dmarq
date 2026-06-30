@@ -1,6 +1,6 @@
 # DMARQ Product Roadmap
 
-Last updated: 2026-06-29
+Last updated: 2026-06-30
 
 DMARQ has moved beyond its original MVP. The product now parses aggregate and
 forensic DMARC reports, imports from IMAP/Gmail/Microsoft 365, persists report
@@ -19,11 +19,34 @@ The next roadmap turns that foundation into three durable product modes:
 It also grows DMARQ toward competitive parity with commercial DMARC monitoring
 platforms such as Valimail, EasyDMARC, dmarcian, PowerDMARC, and DMARCguard
 while preserving DMARQ's differentiators: self-hosted operation, transparent
-evidence, operator-approved DNS changes, and no forced DNS delegation.
+evidence, human-approved changes, and no forced DNS delegation.
 
 This roadmap is intentionally product-oriented. It should drive implementation
 issues, not replace release notes or the completed milestone history in
 [`milestones.md`](../milestones.md).
+
+## Product North Star
+
+DMARQ should become a domain mail-health assistant, not only a DMARC report
+viewer.
+
+The desired user story is:
+
+> DMARQ observes DMARC and mail-delivery health, detects what is wrong, safely
+> prepares what can be fixed, and tells the operator how healthy each sending
+> domain is - regardless of whether the sender uses commercial providers or
+> self-hosted mail infrastructure.
+
+The human-in-the-loop boundary is non-negotiable:
+
+- DMARQ may automatically ingest, detect, correlate, explain, prioritize, draft
+  repair plans, and notify.
+- DMARQ may apply changes only when the operator has connected a scoped
+  provider, reviewed the exact change, and approved the action.
+- DMARQ must show what it changed, what it could not change, and what still
+  needs manual work.
+- DMARQ should never hide DNS or mail-server modifications behind background
+  automation.
 
 ## Product Commitments
 
@@ -43,6 +66,9 @@ The roadmap must continue to honor the public DMARQ promise:
   secret redaction.
 - Keep normal operation GUI-first: setup, mailbox connection, DNS linting,
   alerts, and report review should not require CLI work.
+- Make remediation understandable. Technical DNS values stay exact, but
+  operator-facing explanations should support localization, with German as the
+  first non-English target language.
 
 ## Current Baseline
 
@@ -75,6 +101,14 @@ The main open strategic issues are:
   score, A-F rating, and remediation action plan.
 - [Issue #305](https://github.com/christianlouis/dmarq/issues/305): competitive
   parity tracker for DMARC monitoring platforms.
+- [Issue #384](https://github.com/christianlouis/dmarq/issues/384): autonomous
+  mail health remediation loop with human approval.
+- [Issue #385](https://github.com/christianlouis/dmarq/issues/385): sender IP
+  reputation and blacklist monitoring.
+- [Issue #386](https://github.com/christianlouis/dmarq/issues/386): ecosystem
+  integration roadmap.
+- [Issue #387](https://github.com/christianlouis/dmarq/issues/387):
+  localization and multilingual remediation guidance.
 
 ## Roadmap Tracks
 
@@ -99,13 +133,53 @@ Deliverables:
   visually consistent.
 - Maintain export and data-access guarantees for a customer's own report data.
 - Add score history and compliance evidence exports for audit workflows.
+- Add sender IP reputation and blacklist signals as visible health-score
+  contributors.
+- Group raw findings into remediation incidents: fixed, approval-ready, manual,
+  or informational.
 
 Exit criteria:
 
 - A domain owner can answer who sends mail, what is failing, what changed, and
   what to do next without leaving the dashboard/detail flow.
+- A domain owner can distinguish observed problems from approved repairs and
+  manual work still waiting on them.
 - Demo mode continues to showcase realistic aggregate, forensic, DNS, TLS-RPT,
   MTA-STS, and BIMI states without touching production paths.
+
+### Track A2: Ecosystem Integrations and Localization
+
+Goal: make DMARQ fit into the places where operators already manage domains,
+DNS, mail delivery, hosting, tickets, and customer accounts.
+
+Integration categories:
+
+| Ecosystem | Why it matters | First useful behavior | Write boundary |
+| --- | --- | --- | --- |
+| DNS providers | DMARC/SPF/DKIM fixes live in DNS | detect provider, import zones, generate change plans | human-approved only |
+| Mail services | sender domains and DKIM records originate there | import verified sender domains and required DNS records | human-approved only |
+| Self-hosted MTAs | many deliverability problems are not SaaS-specific | show IP reputation, DNS, rDNS, and alignment guidance | manual or explicit integration |
+| Hosting panels | SMB users manage DNS/mail in control panels | ISPConfig/cPanel/Plesk/WHMCS integration path | provider-scoped approval |
+| Report intake workers | polling mailboxes is not always ideal | Cloudflare/AWS SES/generic webhook intake | no DNS writes |
+| Ticketing/chatops/SIEM | operators need workflows, not dashboards only | alert and evidence envelopes | read/notify by default |
+| Identity/provider portals | hosted and ISP deployments need lifecycle hooks | OIDC, SCIM, provider SSO, provisioning APIs | audited admin actions |
+
+Localization priorities:
+
+- English remains the source and fallback language.
+- German is the first non-English target because early visible community signals
+  and the project context suggest a strong German-speaking operator audience.
+- Danish, Hebrew, and Estonian are later candidate languages based on a small,
+  aggregate review of public GitHub stargazer profile locations. This is a weak
+  signal, not nationality inference, and should be validated through community
+  feedback before significant translation work.
+
+Exit criteria:
+
+- Remediation guidance can be localized without changing DNS record values,
+  protocol tags, provider names, or evidence.
+- Users can understand what to do next in their preferred language.
+- Community contributors have a documented path to review or add translations.
 
 ### Track B: Auth, RBAC, and Tenant Safety
 
@@ -291,12 +365,18 @@ Deliverables:
 - Add geo/source enrichment and anomaly detection views.
 - Design operator-approved DNS change plans and optional provider write
   integrations without changing the read-only default.
+- Add sender IP reputation and blacklist monitoring as a mail-health signal.
+- Add an autonomous remediation loop that turns findings into human-approved
+  repair plans and notifications.
+- Add multilingual remediation guidance so advice is actionable outside an
+  English-only operations team.
 
 Exit criteria:
 
 - DMARQ can answer the same buyer questions as commercial DMARC monitoring
   platforms: score, grade, sender identity, what changed, what to fix, what the
-  audit evidence is, and how to migrate in or out.
+  audit evidence is, whether sending IPs have reputation risk, and how to
+  migrate in or out.
 - Features remain evidence-linked, tenant-safe, exportable, and usable in
   self-hosted mode.
 
@@ -379,6 +459,21 @@ the features buyers expect.
 - Productize API/MCP surfaces for posture and reporting.
 - Add migration, portability, geo/source intelligence, anomaly detection, and
   optional DNS change-plan workflows.
+- Add reputation/blacklist monitoring for sending IPs and source identities.
+- Add localization support for remediation and notification text.
+
+### Phase 8: Mail Health Autopilot
+
+Outcome: DMARQ can guide operators from observation to safe repair.
+
+- Group DNS, DMARC, sender, provider, and reputation findings into domain health
+  incidents.
+- Classify each incident as informational, manual, approval-ready, or already
+  fixed.
+- Notify operators when important incidents appear, worsen, are fixed, or need
+  approval.
+- Connect one-click repair to the same audited, human-approved change-plan
+  model instead of adding provider-specific shortcuts.
 
 ## GitHub Tracking
 
@@ -408,6 +503,26 @@ the features buyers expect.
   enrichment and anomaly detection views.
 - [Issue #314](https://github.com/christianlouis/dmarq/issues/314):
   operator-approved DNS change plans and optional provider write integrations.
+- [Issue #378](https://github.com/christianlouis/dmarq/issues/378): import
+  domains from verified sender mail services.
+- [Issue #379](https://github.com/christianlouis/dmarq/issues/379): import
+  domains from DNS provider zones.
+- [Issue #380](https://github.com/christianlouis/dmarq/issues/380): safe
+  one-click DNS repair across provider plugins.
+- [Issue #381](https://github.com/christianlouis/dmarq/issues/381): detect DNS
+  provider from NS records and suggest automation path.
+- [Issue #382](https://github.com/christianlouis/dmarq/issues/382): Postmark
+  DNS automation for sender domain setup.
+- [Issue #383](https://github.com/christianlouis/dmarq/issues/383): direct
+  DMARC report intake via hosted mail/webhook workers.
+- [Issue #384](https://github.com/christianlouis/dmarq/issues/384):
+  autonomous mail health remediation loop.
+- [Issue #385](https://github.com/christianlouis/dmarq/issues/385): sender IP
+  reputation and blacklist monitoring.
+- [Issue #386](https://github.com/christianlouis/dmarq/issues/386): ecosystem
+  integration roadmap.
+- [Issue #387](https://github.com/christianlouis/dmarq/issues/387):
+  localization and multilingual remediation guidance.
 
 Completed reference issues:
 
