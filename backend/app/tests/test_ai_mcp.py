@@ -908,8 +908,10 @@ async def test_mcp_alert_history_returns_sanitized_workspace_alerts(
     assert "hidden" not in str(result)
 
 
-@pytest.mark.asyncio
-async def test_mcp_export_catalog_returns_workspace_exports(db_session: Session):
+def test_mcp_export_catalog_returns_workspace_exports(
+    client: TestClient,
+    db_session: Session,
+):
     _persist_report(db_session)
     domain = db_session.query(Domain).filter(Domain.name == DOMAIN).one()
     token = create_api_token(
@@ -918,19 +920,20 @@ async def test_mcp_export_catalog_returns_workspace_exports(db_session: Session)
         scopes=[MCP_READ_SCOPE],
         workspace_id=domain.workspace_id,
     )
+    _set_setting(db_session, "mcp.enabled", "true", "mcp")
 
-    result = await mcp_endpoint._call_read_only_tool(
-        "export_catalog",
-        {},
-        db=db_session,
-        auth_context={
-            "auth_type": "api_token",
-            "token_id": token.token.id,
-            "workspace_id": domain.workspace_id,
-            "scopes": [MCP_READ_SCOPE],
+    response = client.post(
+        "/api/v1/mcp",
+        headers={"X-API-Key": token.secret},
+        json={
+            "jsonrpc": "2.0",
+            "id": 8,
+            "method": "tools/call",
+            "params": {"name": "export_catalog", "arguments": {}},
         },
-        workspace_id=domain.workspace_id,
     )
+    assert response.status_code == 200
+    result = response.json()["result"]["content"][0]["json"]
 
     assert result["token"]["name"] == "mcp catalog"
     assert result["mcp"]["available"] is True

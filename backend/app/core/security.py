@@ -233,6 +233,8 @@ def require_api_token_any_scope(
     detail_scope: Optional[str] = None,
 ) -> Callable:
     """Build a dependency requiring at least one scoped persistent API token scope."""
+    if isinstance(required_scopes, (str, bytes)):
+        raise TypeError("required_scopes must be an iterable of scope strings, not a string")
     accepted_scopes = {
         scope.strip().lower() for scope in required_scopes if scope and scope.strip()
     }
