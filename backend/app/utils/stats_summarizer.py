@@ -416,77 +416,32 @@ class StatsSummarizer:
         workspace_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Calculate statistics for a specific domain from the database."""
-        # Look up the domain by name
-        domain_query = db.query(Domain).filter(Domain.name == domain_id)
-        if workspace_id is not None:
-            domain_query = domain_query.filter(Domain.workspace_id == workspace_id)
-        domain = domain_query.first()
+        domain = self._find_domain(db, domain_id, workspace_id)
         if not domain:
-            return {
-                "domain": domain_id,
-                "total_emails": 0,
-                "compliant_emails": 0,
-                "compliance_rate": 0.0,
-                "reports_processed": 0,
-                "sources": [],
-                "compliance_trend": [],
-                "change_summary": [],
-            }
+            return self._empty_domain_statistics(domain_id)
 
-        # Aggregate email counts for this domain
-        total_query = (
-            db.query(func.coalesce(func.sum(ReportRecord.count), 0))
-            .join(DMARCReport, ReportRecord.report_id == DMARCReport.id)
-            .filter(DMARCReport.domain_id == domain.id)
-        )
-        total_emails = self._apply_report_window(
-            total_query,
-            period_days,
-            start_ts,
-            end_ts,
-        ).scalar()
-        total_emails = int(total_emails) if total_emails else 0
-
-        # Count compliant emails for this domain
-        compliant_query = (
-            db.query(func.coalesce(func.sum(ReportRecord.count), 0))
-            .join(DMARCReport, ReportRecord.report_id == DMARCReport.id)
-            .filter(DMARCReport.domain_id == domain.id)
-            .filter((ReportRecord.dkim == "pass") | (ReportRecord.spf == "pass"))
-        )
-        compliant_emails = self._apply_report_window(
-            compliant_query,
-            period_days,
-            start_ts,
-            end_ts,
-        ).scalar()
-        compliant_emails = int(compliant_emails) if compliant_emails else 0
-
-        # Count reports for this domain
-        reports_processed = (
-            self._apply_report_window(
-                db.query(func.count(DMARCReport.id)).filter(DMARCReport.domain_id == domain.id),
-                period_days,
-                start_ts,
-                end_ts,
-            ).scalar()
-        ) or 0
-
-        # Compliance rate
-        compliance_rate = 0.0
-        if total_emails > 0:
-            compliance_rate = round((compliant_emails / total_emails) * 100, 1)
-
-        # Top sources for this domain
-        sources = self._get_domain_sources(
+        total_emails = self._sum_domain_emails(
             db,
             domain.id,
             period_days=period_days,
             start_ts=start_ts,
             end_ts=end_ts,
         )
-
-        # Compliance trend for this domain
+        compliant_emails = self._sum_domain_emails(
+            db,
+            domain.id,
+            period_days=period_days,
+            start_ts=start_ts,
+            end_ts=end_ts,
+            compliant_only=True,
+        )
+        reports_processed = self._count_domain_reports(
+            db,
+            domain.id,
+            period_days=period_days,
+            start_ts=start_ts,
+            end_ts=end_ts,
+        )
         compliance_trend = self._get_compliance_trend(
             db,
             domain.id,
@@ -495,8 +450,6 @@ class StatsSummarizer:
             end_ts=end_ts,
             workspace_id=workspace_id,
         )
-
-        # Recently changed source and compliance signals
         change_summary = self._get_change_summary(
             db,
             domain.id,
@@ -511,12 +464,76 @@ class StatsSummarizer:
             "domain": domain_id,
             "total_emails": total_emails,
             "compliant_emails": compliant_emails,
-            "compliance_rate": compliance_rate,
+            "compliance_rate": self._compliance_rate(total_emails, compliant_emails),
             "reports_processed": reports_processed,
-            "sources": sources,
+            "sources": self._get_domain_sources(
+                db,
+                domain.id,
+                period_days=period_days,
+                start_ts=start_ts,
+                end_ts=end_ts,
+            ),
             "compliance_trend": compliance_trend,
             "change_summary": change_summary,
         }
+
+    def _find_domain(
+        self,
+        db: Session,
+        domain_name: str,
+        workspace_id: Optional[int] = None,
+    ) -> Optional[Domain]:
+        domain_query = db.query(Domain).filter(Domain.name == domain_name)
+        if workspace_id is not None:
+            domain_query = domain_query.filter(Domain.workspace_id == workspace_id)
+        return domain_query.first()
+
+    def _empty_domain_statistics(self, domain_name: str) -> Dict[str, Any]:
+        return {
+            "domain": domain_name,
+            "total_emails": 0,
+            "compliant_emails": 0,
+            "compliance_rate": 0.0,
+            "reports_processed": 0,
+            "sources": [],
+            "compliance_trend": [],
+            "change_summary": [],
+        }
+
+    def _sum_domain_emails(
+        self,
+        db: Session,
+        domain_pk: int,
+        period_days: int,
+        start_ts: Optional[int] = None,
+        end_ts: Optional[int] = None,
+        compliant_only: bool = False,
+    ) -> int:
+        query = (
+            db.query(func.coalesce(func.sum(ReportRecord.count), 0))
+            .join(DMARCReport, ReportRecord.report_id == DMARCReport.id)
+            .filter(DMARCReport.domain_id == domain_pk)
+        )
+        if compliant_only:
+            query = query.filter((ReportRecord.dkim == "pass") | (ReportRecord.spf == "pass"))
+        total = self._apply_report_window(query, period_days, start_ts, end_ts).scalar()
+        return int(total) if total else 0
+
+    def _count_domain_reports(
+        self,
+        db: Session,
+        domain_pk: int,
+        period_days: int,
+        start_ts: Optional[int] = None,
+        end_ts: Optional[int] = None,
+    ) -> int:
+        query = db.query(func.count(DMARCReport.id)).filter(DMARCReport.domain_id == domain_pk)
+        return int(self._apply_report_window(query, period_days, start_ts, end_ts).scalar() or 0)
+
+    def _compliance_rate(self, total_emails: int, compliant_emails: int) -> float:
+        if total_emails <= 0:
+            return 0.0
+        return round((compliant_emails / total_emails) * 100, 1)
 
     def _get_top_sources(
         self,
