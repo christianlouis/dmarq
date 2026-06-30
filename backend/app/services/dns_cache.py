@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.dns_cache import DNSCache
+from app.services.dns_provider_detection import detection_from_json
 from app.services.dns_resolver import BaseDNSProvider, DomainDNSResult
 
 DEFAULT_DNS_CACHE_TTL_SECONDS = 900
@@ -46,6 +47,8 @@ def _result_from_json(value: str) -> DomainDNSResult:
         dmarc_tags=dict(data.get("dmarc_tags") or {}),
         dmarc_warnings=list(data.get("dmarc_warnings") or []),
         dmarc_suggestions=list(data.get("dmarc_suggestions") or []),
+        nameservers=list(data.get("nameservers") or []),
+        dns_provider=detection_from_json(data.get("dns_provider")),
     )
 
 

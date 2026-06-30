@@ -11,6 +11,7 @@ import pytest
 
 from app.core.credential_encryption import encrypt_secret
 from app.models.setting import Setting
+from app.services.dns_provider_detection import detect_dns_provider
 from app.services.dns_resolver import (
     BaseDNSProvider,
     CloudflareDNSProvider,
@@ -30,18 +31,42 @@ from app.services.dns_resolver import (
 class FakeDNSProvider(BaseDNSProvider):
     """Concrete provider backed by a simple dict for deterministic tests."""
 
-    def __init__(self, records: dict):
+    def __init__(self, records: dict, nameservers: list[str] | None = None):
         self._records = records
+        self._nameservers = nameservers or []
 
     async def lookup_txt(self, name: str):
         if name in self._records:
             return self._records[name]
         raise LookupError(f"NXDOMAIN: {name}")
 
+    async def lookup_ns(self, domain: str):
+        return list(self._nameservers)
+
 
 # ---------------------------------------------------------------------------
 # extract_dmarc_policy
 # ---------------------------------------------------------------------------
+
+
+def test_detect_dns_provider_matches_cloudflare_with_connector_hint():
+    detection = detect_dns_provider(["ada.ns.cloudflare.com.", "ian.ns.cloudflare.com"])
+
+    assert detection.provider_id == "cloudflare"
+    assert detection.provider_name == "Cloudflare"
+    assert detection.confidence == "high"
+    assert detection.connector_available is True
+    assert detection.automation_supported is True
+    assert "Connect Cloudflare" in detection.suggested_action
+
+
+def test_detect_dns_provider_degrades_for_unknown_nameservers():
+    detection = detect_dns_provider(["ns1.mailhost.example", "ns2.mailhost.example"])
+
+    assert detection.provider_id == "custom"
+    assert detection.confidence == "low"
+    assert detection.connector_available is False
+    assert detection.evidence == ["ns1.mailhost.example", "ns2.mailhost.example"]
 
 
 def test_extract_dmarc_policy_none():
@@ -125,6 +150,24 @@ async def test_check_domain_lints_external_report_destination_without_authorizat
         "External rua destination reports.example.net is missing authorization TXT at "
         "example.com._report._dmarc.reports.example.net."
     ]
+
+
+@pytest.mark.asyncio
+async def test_check_domain_includes_dns_provider_detection():
+    provider = FakeDNSProvider(
+        {
+            "_dmarc.example.com": ["v=DMARC1; p=none; rua=mailto:dmarc@example.com"],
+            "example.com": ["v=spf1 include:_spf.example.com -all"],
+        },
+        nameservers=["ns1.digitalocean.com", "ns2.digitalocean.com"],
+    )
+
+    result = await provider.check_domain("example.com", selectors=[])
+
+    assert result.nameservers == ["ns1.digitalocean.com", "ns2.digitalocean.com"]
+    assert result.dns_provider is not None
+    assert result.dns_provider.provider_id == "digitalocean"
+    assert result.dns_provider.confidence == "high"
 
 
 @pytest.mark.asyncio
@@ -481,6 +524,44 @@ async def test_system_provider_lookup_cname_returns_none_on_dns_exception():
     assert target is None
 
 
+@pytest.mark.asyncio
+async def test_system_provider_lookup_ns_returns_sorted_targets():
+    """SystemDNSProvider.lookup_ns should normalize authoritative NS targets."""
+
+    class FakeNsRdata:
+        def __init__(self, target: str):
+            self.target = target
+
+    class FakeNsAnswers:
+        def __iter__(self):
+            return iter(
+                [
+                    FakeNsRdata("IAN.NS.Cloudflare.com."),
+                    FakeNsRdata("ada.ns.cloudflare.com."),
+                ]
+            )
+
+    with patch("dns.asyncresolver.resolve", new=AsyncMock(return_value=FakeNsAnswers())):
+        provider = SystemDNSProvider()
+        nameservers = await provider.lookup_ns("example.com")
+
+    assert nameservers == ["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"]
+
+
+@pytest.mark.asyncio
+async def test_system_provider_lookup_ns_returns_empty_on_dns_exception():
+    import dns.exception  # type: ignore[import]
+
+    with patch(
+        "dns.asyncresolver.resolve",
+        new=AsyncMock(side_effect=dns.exception.DNSException("NXDOMAIN")),
+    ):
+        provider = SystemDNSProvider()
+        nameservers = await provider.lookup_ns("example.com")
+
+    assert nameservers == []
+
+
 # ---------------------------------------------------------------------------
 # CloudflareDNSProvider
 # ---------------------------------------------------------------------------
@@ -557,6 +638,44 @@ async def test_cloudflare_provider_lookup_cname_returns_none_on_http_error():
         target = await provider.lookup_cname("selector._domainkey.example.com")
 
     assert target is None
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_provider_lookup_ns_returns_sorted_targets():
+    """CloudflareDNSProvider.lookup_ns should parse NS answers from DoH JSON."""
+    from unittest.mock import MagicMock
+
+    fake_response_data = {
+        "Answer": [
+            {"type": 2, "data": "IAN.NS.Cloudflare.com."},
+            {"type": 1, "data": "93.184.216.34"},
+            {"type": 2, "data": "ada.ns.cloudflare.com."},
+        ]
+    }
+
+    mock_response = AsyncMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json = lambda: fake_response_data
+
+    with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=mock_response)):
+        provider = CloudflareDNSProvider()
+        nameservers = await provider.lookup_ns("example.com")
+
+    assert nameservers == ["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"]
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_provider_lookup_ns_returns_empty_on_http_error():
+    import httpx
+
+    with patch(
+        "httpx.AsyncClient.get",
+        new=AsyncMock(side_effect=httpx.RequestError("connection refused")),
+    ):
+        provider = CloudflareDNSProvider()
+        nameservers = await provider.lookup_ns("example.com")
+
+    assert nameservers == []
 
 
 @pytest.mark.asyncio
@@ -869,3 +988,18 @@ async def test_demo_provider_lookup_cname_returns_configured_target():
     target = await provider.lookup_cname("mailchimp._domainkey.dmarq.com")
 
     assert target == "missing-mcsv._domainkey.mcsv.net"
+
+
+@pytest.mark.asyncio
+async def test_demo_provider_lookup_ns_returns_story_providers():
+    provider = DemoDNSProvider()
+
+    assert await provider.lookup_ns("dmarq.org") == [
+        "ada.ns.cloudflare.com",
+        "ian.ns.cloudflare.com",
+    ]
+    assert await provider.lookup_ns("dmarq.com") == [
+        "ns1.digitalocean.com",
+        "ns2.digitalocean.com",
+    ]
+    assert await provider.lookup_ns("unknown.example") == []

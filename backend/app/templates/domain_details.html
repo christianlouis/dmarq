@@ -684,6 +684,24 @@
             {% endcall %}
             {% call card_content() %}
                 <div class="grid gap-4">
+                    <div class="rounded-md border border-[#e6e3e1] bg-[#f9f8f7] p-4">
+                        <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                            <div class="min-w-0">
+                                <p class="text-xs font-semibold uppercase text-[#5f5c78]">Detected DNS provider</p>
+                                <div class="mt-1 flex flex-wrap items-center gap-2">
+                                    <p class="text-lg font-semibold text-[#07071f]" x-text="dnsProviderName"></p>
+                                    <span class="rounded-full px-2 py-1 text-xs font-semibold capitalize"
+                                          :class="dnsProviderConfidenceClass"
+                                          x-text="dnsProviderConfidence"></span>
+                                </div>
+                                <p class="mt-1 text-sm text-[#5f5c78]" x-text="dnsProviderAction"></p>
+                            </div>
+                            <div class="min-w-0 text-sm lg:text-right">
+                                <p class="font-semibold text-[#07071f]">Nameservers</p>
+                                <p class="mt-1 font-mono text-xs text-[#5f5c78] break-all" x-text="dnsNameserverText"></p>
+                            </div>
+                        </div>
+                    </div>
                     <div>
                         <h3 class="font-semibold mb-1 flex items-center">
                             <span class="mr-2">DMARC Record</span>
@@ -812,7 +830,11 @@
                     </div>
                     <div id="dns-guidance" class="border rounded-lg p-4">
                         <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                            <h3 class="font-semibold">DNS Guidance</h3>
+                            <div>
+                                <h3 class="font-semibold">DNS Guidance</h3>
+                                <p class="text-xs text-base-content/60"
+                                   x-text="'Automation path: ' + dnsProviderAction"></p>
+                            </div>
                             <span class="inline-flex w-fit rounded px-2 py-1 text-xs font-semibold capitalize"
                                   :class="dnsGuidanceStatusClass"
                                   x-text="dnsGuidance.status || 'checking'"></span>
@@ -1388,7 +1410,9 @@ function domainDetailsApp(domainId) {
             spf: false,
             spfRecord: '',
             dkim: false,
-            dkimSelectors: []
+            dkimSelectors: [],
+            nameservers: [],
+            dnsProvider: null
         },
         dnsHealth: {
             status: '',
@@ -1399,6 +1423,7 @@ function domainDetailsApp(domainId) {
             status: '',
             findings: [],
             target_records: [],
+            dns_provider: null,
             change_plans: []
         },
         dnsProviders: [
@@ -1593,6 +1618,43 @@ function domainDetailsApp(domainId) {
             return 'Verified';
         },
 
+        get detectedDnsProvider() {
+            return this.dnsGuidance.dns_provider || this.dns.dnsProvider || null;
+        },
+
+        get dnsProviderName() {
+            return this.detectedDnsProvider?.provider_name || 'Unknown provider';
+        },
+
+        get dnsProviderConfidence() {
+            return this.detectedDnsProvider?.confidence || 'unknown';
+        },
+
+        get dnsProviderAction() {
+            return this.detectedDnsProvider?.suggested_action || 'Review nameservers and select the DNS provider manually before making changes.';
+        },
+
+        get dnsProviderConfidenceClass() {
+            const confidence = this.dnsProviderConfidence;
+            if (confidence === 'high') return 'bg-green-100 text-green-700';
+            if (confidence === 'medium') return 'bg-yellow-100 text-yellow-800';
+            if (confidence === 'low') return 'bg-red-100 text-red-700';
+            return 'bg-base-200 text-base-content/70';
+        },
+
+        get dnsNameserverText() {
+            const nameservers = this.dns.nameservers || this.detectedDnsProvider?.evidence || [];
+            return nameservers.length ? nameservers.join(', ') : 'No NS evidence available yet';
+        },
+
+        syncDetectedDnsProvider() {
+            const providerId = this.detectedDnsProvider?.provider_id;
+            if (!providerId) return;
+            if (this.dnsProviders.some(provider => provider.id === providerId)) {
+                this.dnsWrite.provider = providerId;
+            }
+        },
+
         get dnsHealthStatusClass() {
             if (this.dnsHealth.status === 'healthy') return 'bg-green-100 text-green-700';
             if (this.dnsHealth.status === 'degraded') return 'bg-yellow-100 text-yellow-800';
@@ -1695,6 +1757,7 @@ function domainDetailsApp(domainId) {
                 if (response.ok) {
                     const data = await response.json();
                     this.dns = data;
+                    this.syncDetectedDnsProvider();
                 }
             } catch (error) {
                 console.error('Error fetching DNS records:', error);
@@ -1717,6 +1780,7 @@ function domainDetailsApp(domainId) {
                 const response = await fetch(`/api/v1/domains/${this.domainId}/dns/lint`);
                 if (response.ok) {
                     this.dnsGuidance = await response.json();
+                    this.syncDetectedDnsProvider();
                 }
             } catch (error) {
                 console.error('Error fetching DNS guidance:', error);
@@ -1733,6 +1797,7 @@ function domainDetailsApp(domainId) {
                     if (!this.dnsProviders.some(provider => provider.id === this.dnsWrite.provider)) {
                         this.dnsWrite.provider = this.dnsProviders[0].id;
                     }
+                    this.syncDetectedDnsProvider();
                 }
             } catch (error) {
                 console.error('Error fetching DNS providers:', error);
