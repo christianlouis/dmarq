@@ -47,10 +47,16 @@ for the Migration Parity panel:
 - most common DMARC policy
 - first and last observed dates where present
 
+The domain detail page includes a **Historical Export Preview** panel for this
+flow. Paste a CSV or JSON export, or load the sample export in demo mode, then
+review the detected columns, warnings, row status, duplicate counts, and
+suggested parity baseline. Use **Use suggested baseline** to copy those values
+into Migration Parity for the same domain.
+
 The preview does not create domains, write aggregate reports, or modify DNS.
 It is intentionally safe to run against vendor exports while planning a
-cutover. Review warnings for missing columns, rows from other domains, or
-truncated previews before using the suggested baseline values.
+cutover. Review warnings for missing columns, duplicate rows, rows from other
+domains, or truncated previews before using the suggested baseline values.
 
 Preview responses also include an import plan with stable identifiers:
 

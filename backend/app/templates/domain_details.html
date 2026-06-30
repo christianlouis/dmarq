@@ -377,6 +377,121 @@
                 <div class="mt-5 rounded-lg border border-[#e6e3e1] p-4">
                     <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                         <div>
+                            <h3 class="font-semibold text-[#07071f]">Historical Export Preview</h3>
+                            <p class="mt-1 text-sm text-[#5f5c78]">
+                                Check legacy-platform exports before relying on them for parity or a future import.
+                            </p>
+                        </div>
+                        <span x-show="migrationImport.preview?.batch_fingerprint"
+                              class="inline-flex w-fit rounded bg-[#f4f3f2] px-2 py-1 text-xs font-semibold text-[#5f5c78]"
+                              x-text="migrationImport.preview?.batch_fingerprint"></span>
+                    </div>
+                    <div class="mt-4 grid gap-3 lg:grid-cols-[1fr_10rem_12rem]">
+                        <label class="text-xs font-semibold text-[#5f5c78]">
+                            Export content
+                            <textarea x-model="migrationImport.content"
+                                      class="textarea textarea-bordered mt-1 min-h-32 w-full text-sm"
+                                      placeholder="Paste CSV or JSON export rows"></textarea>
+                        </label>
+                        <label class="text-xs font-semibold text-[#5f5c78]">
+                            Format
+                            <select x-model="migrationImport.format" class="mt-1 select select-sm select-bordered w-full">
+                                <option value="auto">Auto</option>
+                                <option value="csv">CSV</option>
+                                <option value="json">JSON</option>
+                            </select>
+                        </label>
+                        <label class="text-xs font-semibold text-[#5f5c78]">
+                            Source platform
+                            <input x-model="migrationImport.source_platform" class="mt-1 input input-sm input-bordered w-full" placeholder="DMARCguard" />
+                        </label>
+                    </div>
+                    <div class="mt-3 flex flex-wrap items-center gap-2">
+                        <button class="btn btn-sm bg-[#2f9da5] text-white hover:bg-[#272a5f]"
+                                @click="previewMigrationImport"
+                                :disabled="migrationImport.loading || !migrationImport.content.trim()">
+                            <span x-text="migrationImport.loading ? 'Previewing...' : 'Preview export'"></span>
+                        </button>
+                        <button class="btn btn-sm btn-outline" @click="loadMigrationImportSample">
+                            Load sample
+                        </button>
+                        <button class="btn btn-sm btn-outline"
+                                x-show="migrationImport.preview?.baseline"
+                                @click="applyMigrationPreviewBaseline">
+                            Use suggested baseline
+                        </button>
+                    </div>
+                    <p x-show="migrationImport.error" class="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700" x-text="migrationImport.error"></p>
+                    <div x-show="migrationImport.preview" class="mt-4 space-y-4">
+                        <dl class="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+                            <div class="rounded bg-[#f4f3f2] px-3 py-2">
+                                <dt class="text-xs font-semibold text-[#5f5c78]">Rows</dt>
+                                <dd class="mt-1 text-lg font-bold text-[#120d36]" x-text="migrationImport.preview?.normalized_count ?? 0"></dd>
+                            </div>
+                            <div class="rounded bg-[#f4f3f2] px-3 py-2">
+                                <dt class="text-xs font-semibold text-[#5f5c78]">Importable</dt>
+                                <dd class="mt-1 text-lg font-bold text-[#120d36]" x-text="migrationImport.preview?.importable_row_count ?? 0"></dd>
+                            </div>
+                            <div class="rounded bg-[#f4f3f2] px-3 py-2">
+                                <dt class="text-xs font-semibold text-[#5f5c78]">Planned reports</dt>
+                                <dd class="mt-1 text-lg font-bold text-[#120d36]" x-text="migrationImport.preview?.planned_report_count ?? 0"></dd>
+                            </div>
+                            <div class="rounded bg-[#f4f3f2] px-3 py-2">
+                                <dt class="text-xs font-semibold text-[#5f5c78]">Existing</dt>
+                                <dd class="mt-1 text-lg font-bold text-[#120d36]" x-text="migrationImport.preview?.existing_report_count ?? 0"></dd>
+                            </div>
+                            <div class="rounded bg-[#f4f3f2] px-3 py-2">
+                                <dt class="text-xs font-semibold text-[#5f5c78]">Duplicates</dt>
+                                <dd class="mt-1 text-lg font-bold text-[#120d36]" x-text="migrationImport.preview?.duplicate_row_count ?? 0"></dd>
+                            </div>
+                            <div class="rounded bg-[#f4f3f2] px-3 py-2">
+                                <dt class="text-xs font-semibold text-[#5f5c78]">Needs ID</dt>
+                                <dd class="mt-1 text-lg font-bold text-[#120d36]" x-text="migrationImport.preview?.needs_report_id_count ?? 0"></dd>
+                            </div>
+                        </dl>
+                        <div x-show="migrationImport.preview?.warnings?.length" class="rounded-lg border border-yellow-200 bg-yellow-50 p-3">
+                            <p class="text-xs font-semibold uppercase text-yellow-800">Warnings</p>
+                            <ul class="mt-2 space-y-1 text-sm text-yellow-900">
+                                <template x-for="warning in migrationImport.preview?.warnings || []" :key="warning">
+                                    <li x-text="warning"></li>
+                                </template>
+                            </ul>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Source</th>
+                                        <th>Messages</th>
+                                        <th>DKIM</th>
+                                        <th>SPF</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="row in migrationImport.preview?.sample_rows || []" :key="row.row_key">
+                                        <tr>
+                                            <td x-text="row.begin_date || row.end_date || '-'"></td>
+                                            <td x-text="row.source_ip || '-'"></td>
+                                            <td x-text="row.count ?? '-'"></td>
+                                            <td x-text="row.dkim || '-'"></td>
+                                            <td x-text="row.spf || '-'"></td>
+                                            <td>
+                                                <span class="rounded px-2 py-1 text-xs font-semibold"
+                                                      :class="migrationImportStatusClass(row.import_status)"
+                                                      x-text="(row.import_status || 'preview').replace('_', ' ')"></span>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-5 rounded-lg border border-[#e6e3e1] p-4">
+                    <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div>
                             <h3 class="font-semibold text-[#07071f]">Migration Parity</h3>
                             <p class="mt-1 text-sm text-[#5f5c78]" x-text="migrationParity.summary"></p>
                         </div>
@@ -1386,6 +1501,15 @@ function domainDetailsApp(domainId) {
             compliance_rate: '',
             policy: ''
         },
+        migrationImport: {
+            content: '',
+            format: 'auto',
+            source_platform: '',
+            max_rows: 50,
+            loading: false,
+            error: '',
+            preview: null
+        },
         filters: {
             dateRange: '30',
             sourceFilter: '',
@@ -1521,6 +1645,13 @@ function domainDetailsApp(domainId) {
         migrationParityMetricStatusClass(status) {
             if (status === 'matched') return 'bg-green-100 text-green-700';
             if (status === 'attention') return 'bg-yellow-100 text-yellow-800';
+            return 'bg-base-200 text-base-content/70';
+        },
+
+        migrationImportStatusClass(status) {
+            if (status === 'planned') return 'bg-green-100 text-green-700';
+            if (status === 'existing_report') return 'bg-blue-100 text-blue-700';
+            if (status === 'needs_report_id') return 'bg-yellow-100 text-yellow-800';
             return 'bg-base-200 text-base-content/70';
         },
 
@@ -1752,6 +1883,58 @@ function domainDetailsApp(domainId) {
         },
 
         compareMigrationBaseline() {
+            return this.fetchMigrationParity();
+        },
+
+        loadMigrationImportSample() {
+            const domain = this.domainId || 'example.com';
+            this.migrationImport.format = 'csv';
+            this.migrationImport.source_platform = 'DMARCguard';
+            this.migrationImport.content = [
+                'Domain,Report ID,Date,Source IP,Messages,DKIM,SPF,Policy',
+                `${domain},legacy-${domain}-001,2026-06-01,192.0.2.10,1250,pass,pass,quarantine`,
+                `${domain},legacy-${domain}-002,2026-06-02,198.51.100.23,340,pass,fail,quarantine`,
+                `${domain},legacy-${domain}-003,2026-06-02,203.0.113.44,84,fail,pass,quarantine`,
+                `${domain},legacy-${domain}-003,2026-06-02,203.0.113.44,84,fail,pass,quarantine`,
+                `${domain},,2026-06-03,192.0.2.77,19,fail,fail,quarantine`
+            ].join('\n');
+        },
+
+        async previewMigrationImport() {
+            this.migrationImport.loading = true;
+            this.migrationImport.error = '';
+            try {
+                const response = await fetch(`/api/v1/domains/${encodeURIComponent(this.domainId)}/migration/import/preview`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        format: this.migrationImport.format || 'auto',
+                        source_platform: this.migrationImport.source_platform || null,
+                        content: this.migrationImport.content,
+                        max_rows: this.migrationImport.max_rows
+                    })
+                });
+                if (!response.ok) {
+                    const errorBody = await response.json().catch(() => ({}));
+                    throw new Error(errorBody.detail || 'Historical export preview could not be loaded.');
+                }
+                this.migrationImport.preview = await response.json();
+            } catch (error) {
+                this.migrationImport.error = error.message || 'Historical export preview could not be loaded.';
+                console.error('Error previewing migration import:', error);
+            } finally {
+                this.migrationImport.loading = false;
+            }
+        },
+
+        applyMigrationPreviewBaseline() {
+            const baseline = this.migrationImport.preview?.baseline;
+            if (!baseline) return;
+            this.migrationBaseline.report_count = baseline.report_count ?? '';
+            this.migrationBaseline.total_emails = baseline.total_emails ?? '';
+            this.migrationBaseline.source_count = baseline.source_count ?? '';
+            this.migrationBaseline.compliance_rate = baseline.compliance_rate ?? '';
+            this.migrationBaseline.policy = baseline.policy || '';
             return this.fetchMigrationParity();
         },
 

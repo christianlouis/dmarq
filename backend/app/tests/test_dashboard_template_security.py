@@ -58,6 +58,12 @@ def test_domain_details_exposes_migration_readiness_without_html_injection():
     assert "/migration/parity" in template
     assert "migrationParity.metrics" in template
     assert "migrationBaseline" in template
+    assert "Historical Export Preview" in template
+    assert "/migration/import/preview" in template
+    assert "loadMigrationImportSample" in template
+    assert "previewMigrationImport" in template
+    assert "applyMigrationPreviewBaseline" in template
+    assert "migrationImport.preview?.sample_rows" in template
     assert "x-html" not in template
 
 

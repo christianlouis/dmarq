@@ -293,8 +293,9 @@ Request:
 
 The preview accepts CSV or JSON export content and returns detected columns,
 mapped DMARC fields, warnings, sample normalized rows, and suggested parity
-baseline values. It is read-only: it does not create domains, persist aggregate
-reports, or modify DNS.
+baseline values. The same read-only flow is available from the domain detail
+page as **Historical Export Preview**. It does not create domains, persist
+aggregate reports, or modify DNS.
 
 The response also includes import-planning metadata for a future confirmed
 write step:
