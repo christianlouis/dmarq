@@ -192,7 +192,7 @@ async def verify_cloudflare_domain_ownership(
     db: Session,
     *,
     domain_name: str,
-    workspace_id: Optional[int] = None,
+    workspace_id: int,
 ) -> Dict[str, Any]:
     """Verify a monitored domain by proving Cloudflare zone access."""
     normalized = domain_name.strip().lower().rstrip(".")
@@ -204,10 +204,11 @@ async def verify_cloudflare_domain_ownership(
     if not zone:
         raise LookupError(f"No Cloudflare zone visible for {normalized}")
 
-    query = db.query(Domain).filter(Domain.name == normalized)
-    if workspace_id is not None:
-        query = query.filter(Domain.workspace_id == workspace_id)
-    domain = query.first()
+    domain = (
+        db.query(Domain)
+        .filter(Domain.name == normalized, Domain.workspace_id == workspace_id)
+        .first()
+    )
     if domain is None:
         raise LookupError(f"Domain {normalized} is not monitored in this workspace")
 

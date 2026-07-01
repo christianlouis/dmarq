@@ -1954,6 +1954,7 @@ async def test_verify_cloudflare_domain_ownership_rejects_missing_zone(
         await cloudflare_dns.verify_cloudflare_domain_ownership(
             db_session,
             domain_name=DOMAIN,
+            workspace_id=1,
         )
 
 
@@ -1973,6 +1974,7 @@ async def test_verify_cloudflare_domain_ownership_requires_monitored_domain(
         await cloudflare_dns.verify_cloudflare_domain_ownership(
             db_session,
             domain_name=DOMAIN,
+            workspace_id=1,
         )
 
 
@@ -1984,6 +1986,7 @@ async def test_verify_cloudflare_domain_ownership_requires_domain_name(
         await cloudflare_dns.verify_cloudflare_domain_ownership(
             db_session,
             domain_name=" ",
+            workspace_id=1,
         )
 
 
