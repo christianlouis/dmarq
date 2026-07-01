@@ -658,8 +658,11 @@ read-only notification routing metadata. DNS items that have a concrete safe
 TXT/CNAME provider write are marked `approval_ready` and point to the same
 explicit preview/apply endpoint used by the DNS change-plan UI. Notification
 metadata includes the event name, channel, dedupe key, reason, and next state
-transition that an operator workflow can use. The endpoint does not perform DNS
-writes or send notifications.
+transition that an operator workflow can use. Each item also includes a
+sanitized `payload_preview` using schema
+`dmarq.remediation.notification.v1`; it is the deterministic data shape a
+future webhook, ticketing, or chatops delivery would receive. The endpoint does
+not perform DNS writes, enqueue webhook deliveries, or send notifications.
 
 #### Get Posture Dashboard
 
@@ -1139,6 +1142,10 @@ Supported event types:
 - `dmarq.reports.missing`
 - `dmarq.alert.created`
 - `dmarq.alert.resolved`
+- `dmarq.remediation.approval_required`
+- `dmarq.remediation.manual_action_required`
+- `dmarq.remediation.investigation_required`
+- `dmarq.remediation.summary`
 - `dmarq.webhook.test`
 
 Deliveries are signed with HMAC-SHA256 using the endpoint signing secret.

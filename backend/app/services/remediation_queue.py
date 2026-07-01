@@ -84,7 +84,7 @@ def _summary(items: List[Dict[str, Any]]) -> Dict[str, int]:
     }
 
 
-def _notification_profile(domain: str, item: Dict[str, Any]) -> Dict[str, str]:
+def _notification_profile(domain: str, item: Dict[str, Any]) -> Dict[str, Any]:
     """Return read-only notification routing metadata for a remediation item."""
     state = str(item.get("state") or "")
     severity = str(item.get("severity") or "info")
@@ -129,9 +129,45 @@ def _notification_profile(domain: str, item: Dict[str, Any]) -> Dict[str, str]:
     }
 
 
+def _remediation_notification_payload(domain: str, item: Dict[str, Any]) -> Dict[str, Any]:
+    """Return the sanitized event payload that would be sent for a queue item."""
+    notification = item.get("notification") or {}
+    automation = item.get("automation") or {}
+    return {
+        "schema_version": "dmarq.remediation.notification.v1",
+        "domain": domain,
+        "item_id": str(item.get("id") or ""),
+        "source": str(item.get("source") or "remediation"),
+        "state": str(item.get("state") or ""),
+        "severity": str(item.get("severity") or "info"),
+        "confidence": str(item.get("confidence") or "medium"),
+        "title": str(item.get("title") or ""),
+        "detail": str(item.get("detail") or ""),
+        "notification_state": str(notification.get("state") or "summary_only"),
+        "event_type": str(notification.get("event") or "dmarq.remediation.summary"),
+        "channel": str(notification.get("channel") or "email_security"),
+        "dedupe_key": str(notification.get("dedupe_key") or ""),
+        "reason": str(notification.get("reason") or ""),
+        "next_transition": str(notification.get("next_transition") or ""),
+        "automation": {
+            "eligible": bool(automation.get("eligible")),
+            "requires_approval": bool(automation.get("requires_approval", True)),
+            "provider": automation.get("provider"),
+            "plan_id": automation.get("plan_id"),
+            "apply_endpoint": automation.get("apply_endpoint"),
+        },
+        "evidence": [
+            {"label": str(row.get("label") or "evidence"), "value": str(row.get("value") or "")}
+            for row in item.get("evidence", [])[:5]
+            if str(row.get("value") or "")
+        ],
+    }
+
+
 def _attach_notification_profiles(domain: str, items: List[Dict[str, Any]]) -> None:
     for item in items:
         item["notification"] = _notification_profile(domain, item)
+        item["notification"]["payload_preview"] = _remediation_notification_payload(domain, item)
 
 
 def _dns_item(

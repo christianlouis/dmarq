@@ -31,10 +31,17 @@ Use these default workflow mappings as the starting point:
 | `dmarq.reports.missing` | mail-operations | create or update | notify channel |
 | `dmarq.alert.created` | email-security | create or update | notify channel |
 | `dmarq.alert.resolved` | email-security | resolve or comment | notify thread |
+| `dmarq.remediation.approval_required` | email-security | create or update | notify channel |
+| `dmarq.remediation.manual_action_required` | email-security | create or update | notify channel and thread |
+| `dmarq.remediation.investigation_required` | email-security | create or update | notify channel |
+| `dmarq.remediation.summary` | email-security | comment or summarize | include in summary |
 
 Use the DMARQ webhook `X-DMARQ-Idempotency-Key` header when available. If the
 receiver is building a workflow from API output, use the documented
 `dedupe_key_template` from the template endpoint.
+Remediation Queue responses already include a sanitized `payload_preview` and
+dedupe key, so operators can test ticket/chat routing before enabling any
+delivery automation.
 
 ## Jira
 
