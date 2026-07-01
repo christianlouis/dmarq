@@ -7,7 +7,6 @@ import pytest
 
 from app.services.tls_report_parser import TLSReportParser
 
-
 SAMPLE_TLS_REPORT = {
     "organization-name": "Example Reporter",
     "date-range": {
