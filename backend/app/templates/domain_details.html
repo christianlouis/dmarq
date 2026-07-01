@@ -2118,6 +2118,20 @@ function domainDetailsApp(domainId) {
             }
         },
 
+        resetRemediationQueue() {
+            this.remediationQueue = {
+                status: 'unavailable',
+                summary: {
+                    total: 0,
+                    approval_ready: 0,
+                    manual_action: 0,
+                    investigate: 0,
+                    informational: 0
+                },
+                items: []
+            };
+        },
+
         async fetchRemediationQueue() {
             try {
                 const response = await fetch(`/api/v1/domains/${encodeURIComponent(this.domainId)}/remediation`);
@@ -2127,22 +2141,13 @@ function domainDetailsApp(domainId) {
                         status: response.status,
                         statusText: response.statusText
                     });
-                    this.remediationQueue = {
-                        status: 'unavailable',
-                        summary: {
-                            total: 0,
-                            approval_ready: 0,
-                            manual_action: 0,
-                            investigate: 0,
-                            informational: 0
-                        },
-                        items: []
-                    };
+                    this.resetRemediationQueue();
                     return;
                 }
                 this.remediationQueue = await response.json();
             } catch (error) {
                 console.error('Error fetching remediation queue:', error);
+                this.resetRemediationQueue();
             }
         },
 

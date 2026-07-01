@@ -1321,6 +1321,13 @@ def _domain_exists(db: Session, store: ReportStore, domain_name: str, workspace=
     return domain_name in store.get_domains()
 
 
+def _stored_domain_exists(db: Session, domain_id: str) -> bool:
+    query = db.query(Domain.id)
+    if domain_id.isdigit() and query.filter(Domain.id == int(domain_id)).first() is not None:
+        return True
+    return query.filter(Domain.name == domain_id).first() is not None
+
+
 def _resolve_domain_name_for_read(
     db: Session,
     store: ReportStore,
@@ -3542,26 +3549,28 @@ async def get_domain_remediation_queue(
     workspace = _authorized_domain_read_workspace(_auth, db)
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
-    if not _domain_exists(db, store, domain_id, workspace):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Domain not found",
-        )
+    try:
+        domain_name = _resolve_domain_name_for_read(db, store, domain_id, workspace)
+    except HTTPException as exc:
+        if exc.status_code != status.HTTP_404_NOT_FOUND or _stored_domain_exists(db, domain_id):
+            raise
+        hydrate_report_store_from_db(db, store)
+        domain_name = _resolve_domain_name_for_read(db, store, domain_id, workspace)
 
     domain_health = await _build_domain_health_grade(
         db,
-        domain_id,
+        domain_name,
         store,
         refresh=refresh,
     )
-    guidance = await _build_domain_dns_guidance(db, store, domain_id, refresh=refresh)
+    guidance = await _build_domain_dns_guidance(db, store, domain_name, refresh=refresh)
     available_providers = _ready_dns_write_provider_ids()
     recommended_provider = _recommended_dns_write_provider(
         guidance.get("dns_provider"),
         available_providers,
     )
     return build_remediation_queue(
-        domain=domain_id,
+        domain=domain_name,
         health=domain_health,
         dns_guidance=guidance,
         available_write_providers=available_providers,

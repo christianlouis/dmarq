@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 
 from app.api.api_v1.endpoints import domains as domains_endpoint
 from app.models.domain import Domain
+from app.models.workspace import Workspace
 from app.services import report_persistence
 from app.services.health_score_snapshots import upsert_health_score_snapshot
 from app.services.report_store import ReportStore
@@ -707,6 +708,134 @@ def test_domain_remediation_queue_hydrates_report_store_with_workspace_filter(
     assert response.status_code == 200
     assert captured["workspace_id"] == workspace.id
     assert response.json()["domain"] == DOMAIN
+
+
+def test_domain_remediation_queue_falls_back_for_legacy_report_domains(
+    authed_client: TestClient,
+    monkeypatch,
+):
+    """Domain remediation uses scoped hydration before legacy report-only fallback."""
+    hydrate_calls = []
+
+    def fake_hydrate(db, store_arg, workspace_id=None):
+        hydrate_calls.append(workspace_id)
+        if workspace_id is not None:
+            store_arg.clear()
+            return 0
+        store_arg.add_report(REPORT_DICT_POLICY)
+        return 1
+
+    async def fake_domain_grade(db, domain_id, store_arg, refresh=False):
+        return {
+            "domain": domain_id,
+            "score": 100,
+            "grade": "A",
+            "status": "healthy",
+            "factors": {},
+            "actions": [],
+        }
+
+    async def fake_dns_guidance(db, store_arg, domain_id, refresh=False):
+        return {
+            "domain": domain_id,
+            "status": "healthy",
+            "dns_provider": None,
+            "findings": [],
+            "change_plans": [],
+        }
+
+    monkeypatch.setattr(domains_endpoint, "hydrate_report_store_from_db", fake_hydrate)
+    monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_domain_grade)
+    monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", fake_dns_guidance)
+    monkeypatch.setattr(domains_endpoint, "_ready_dns_write_provider_ids", lambda: [])
+
+    response = authed_client.get(f"/api/v1/domains/{DOMAIN}/remediation")
+
+    assert response.status_code == 200
+    assert len(hydrate_calls) == 2
+    assert hydrate_calls[0] is not None
+    assert hydrate_calls[1] is None
+    assert response.json()["domain"] == DOMAIN
+
+
+def test_domain_remediation_queue_accepts_numeric_domain_id(
+    seeded_client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    """Domain remediation resolves numeric path IDs to the authorized domain name."""
+    domain = db_session.query(Domain).filter(Domain.name == DOMAIN).one()
+    hydrate_calls = []
+    seen_domains = []
+
+    def fake_hydrate(db, store_arg, workspace_id=None):
+        hydrate_calls.append(workspace_id)
+        return 1
+
+    async def fake_domain_grade(db, domain_id, store_arg, refresh=False):
+        seen_domains.append(domain_id)
+        return {
+            "domain": domain_id,
+            "score": 100,
+            "grade": "A",
+            "status": "healthy",
+            "factors": {},
+            "actions": [],
+        }
+
+    async def fake_dns_guidance(db, store_arg, domain_id, refresh=False):
+        seen_domains.append(domain_id)
+        return {
+            "domain": domain_id,
+            "status": "healthy",
+            "dns_provider": None,
+            "findings": [],
+            "change_plans": [],
+        }
+
+    monkeypatch.setattr(domains_endpoint, "hydrate_report_store_from_db", fake_hydrate)
+    monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_domain_grade)
+    monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", fake_dns_guidance)
+    monkeypatch.setattr(domains_endpoint, "_ready_dns_write_provider_ids", lambda: [])
+
+    response = seeded_client.get(f"/api/v1/domains/{domain.id}/remediation")
+
+    assert response.status_code == 200
+    assert len(hydrate_calls) == 1
+    assert hydrate_calls[0] is not None
+    assert seen_domains == [DOMAIN, DOMAIN]
+    assert response.json()["domain"] == DOMAIN
+
+
+def test_domain_remediation_queue_rejects_other_workspace_numeric_domain_without_fallback(
+    seeded_client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    """Existing domains outside the authorized workspace do not trigger legacy fallback."""
+    other_workspace = Workspace(slug="other-remediation", name="Other Remediation", active=True)
+    db_session.add(other_workspace)
+    db_session.flush()
+    other_domain = Domain(
+        name="other-remediation.example",
+        workspace_id=other_workspace.id,
+        active=True,
+    )
+    db_session.add(other_domain)
+    db_session.commit()
+    hydrate_calls = []
+
+    def fake_hydrate(db, store_arg, workspace_id=None):
+        hydrate_calls.append(workspace_id)
+        return 0
+
+    monkeypatch.setattr(domains_endpoint, "hydrate_report_store_from_db", fake_hydrate)
+
+    response = seeded_client.get(f"/api/v1/domains/{other_domain.id}/remediation")
+
+    assert response.status_code == 404
+    assert len(hydrate_calls) == 1
+    assert hydrate_calls[0] is not None
 
 
 def test_domain_health_history_rejects_invalid_date_order(seeded_client: TestClient):
