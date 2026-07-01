@@ -591,6 +591,8 @@ def test_mail_sources_template_exposes_backfill_progress_controls():
     assert "canCancelBackfill" in template
     assert "canRetryBackfill" in template
     assert "latestBackfill(source)" in template
+    assert "apiErrorFeedback" in template
+    assert "feedback.links" in template
     assert "x-html" not in template
 
 
@@ -877,6 +879,9 @@ class TestMailSourcesAPIAuthed:
         assert blocked.status_code == 409
         detail = blocked.json()["detail"]
         assert detail["code"] == "domain_verification_required"
+        assert detail["summary"].startswith("DMARQ blocks production mail-source fetches")
+        assert detail["next_steps"][0] == "Open Domains and verify ownership for: example.com."
+        assert {"label": "Domains", "href": "/domains"} in detail["links"]
         assert detail["unverified_domains"] == ["example.com"]
         assert disabled.status_code == 201
         assert disabled.json()["enabled"] is False
@@ -2351,7 +2356,10 @@ class TestManualSourceFetchEndpoint:
             response = authed_client.post(f"/api/v1/mail-sources/{source.id}/fetch?days=30")
 
         assert response.status_code == 409
-        assert response.json()["detail"]["action"] == "mail_source.fetch"
+        detail = response.json()["detail"]
+        assert detail["action"] == "mail_source.fetch"
+        assert "prevents a mailbox or OAuth connection" in detail["summary"]
+        assert "After verification" in detail["next_steps"][-1]
         mock_imap.assert_not_called()
 
     def test_provider_fetches_require_verified_domains(

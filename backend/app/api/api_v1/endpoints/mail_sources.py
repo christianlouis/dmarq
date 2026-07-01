@@ -311,16 +311,45 @@ def _raise_if_workspace_domains_unverified(db: Session, workspace, *, action: st
     unverified_domains = [domain.name for domain in domains if not domain.verified]
     if not unverified_domains:
         return
+    domain_label = ", ".join(unverified_domains[:5])
+    if len(unverified_domains) > 5:
+        domain_label = f"{domain_label}, and {len(unverified_domains) - 5} more"
     raise HTTPException(
         status_code=status.HTTP_409_CONFLICT,
         detail={
             "code": "domain_verification_required",
             "message": (
-                "Verify domain ownership before enabling or fetching production "
-                "DMARC report mail sources."
+                "Domain ownership verification is required before DMARQ can fetch "
+                "production DMARC reports."
+            ),
+            "summary": (
+                "DMARQ blocks production mail-source fetches until at least one active "
+                "domain in this workspace is verified. This prevents a mailbox or OAuth "
+                "connection from importing reports for domains the workspace has not "
+                "proven it controls."
             ),
             "action": action,
             "unverified_domains": unverified_domains,
+            "next_steps": [
+                f"Open Domains and verify ownership for: {domain_label}.",
+                (
+                    "If the domain lives in a connected DNS provider, import it from "
+                    "the DNS provider so DMARQ can mark it as provider-verified."
+                ),
+                (
+                    "If you added the domain manually, confirm that you control its DNS "
+                    "or reporting address before enabling the mail source."
+                ),
+                (
+                    "After verification, return to Mail Sources and retry the backfill "
+                    "or enable the source."
+                ),
+            ],
+            "links": [
+                {"label": "Domains", "href": "/domains"},
+                {"label": "DNS provider import", "href": "/domains?panel=dns-import"},
+                {"label": "Mail Sources", "href": "/mail-sources"},
+            ],
         },
     )
 
