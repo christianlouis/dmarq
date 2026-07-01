@@ -1051,6 +1051,7 @@ def test_domain_remediation_notification_dispatch_rejects_stale_identifiers(
     )
     assert missing_item_response.status_code == 404
     assert missing_item_response.json()["detail"] == "Remediation item not found"
+    assert db_session.query(WebhookDelivery).count() == 0
 
     event_mismatch_response = seeded_client.post(
         f"/api/v1/domains/{DOMAIN}/remediation/notifications/dispatch",
@@ -1062,6 +1063,7 @@ def test_domain_remediation_notification_dispatch_rejects_stale_identifiers(
     )
     assert event_mismatch_response.status_code == 400
     assert "event does not match" in event_mismatch_response.json()["detail"]
+    assert db_session.query(WebhookDelivery).count() == 0
 
     dedupe_mismatch_response = seeded_client.post(
         f"/api/v1/domains/{DOMAIN}/remediation/notifications/dispatch",
