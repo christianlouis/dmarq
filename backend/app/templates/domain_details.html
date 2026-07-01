@@ -2143,6 +2143,17 @@ function domainDetailsApp(domainId) {
                 this.remediationQueue = await response.json();
             } catch (error) {
                 console.error('Error fetching remediation queue:', error);
+                this.remediationQueue = {
+                    status: 'unavailable',
+                    summary: {
+                        total: 0,
+                        approval_ready: 0,
+                        manual_action: 0,
+                        investigate: 0,
+                        informational: 0
+                    },
+                    items: []
+                };
             }
         },
 
