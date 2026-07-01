@@ -19,7 +19,12 @@ from app.models.setting import Setting
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog
-from app.services import cloudflare_dns, dns_provider_imports, dns_provider_writes
+from app.services import (
+    cloudflare_dns,
+    dns_provider_connectors,
+    dns_provider_imports,
+    dns_provider_writes,
+)
 from app.services.cloudflare_dns import analyze_dns_records, sync_dns_record_changes
 from app.services.dns_provider_writes import (
     CloudflareDNSWriteProvider,
@@ -697,7 +702,13 @@ def test_dns_provider_capabilities_mark_cloudflare_import_available(authed_clien
     assert response.status_code == 200
     providers = {provider["id"]: provider for provider in response.json()["providers"]}
     assert providers["cloudflare"]["import_available"] is True
+    assert providers["cloudflare"]["zone_import_status"] == "ready"
+    assert providers["cloudflare"]["record_read_status"] == "ready"
+    assert providers["cloudflare"]["record_write_status"] == "ready"
+    assert "Zone:Read" in providers["cloudflare"]["minimum_permissions"]
     assert providers["route53"]["import_available"] is False
+    assert providers["route53"]["zone_import_status"] == "planned"
+    assert "iam_role_external_id" in providers["route53"]["auth_models"]
 
 
 def test_cloudflare_import_endpoint_returns_import_summary(authed_client: TestClient):
@@ -802,6 +813,20 @@ def test_dns_provider_capabilities_include_cloudflare_and_lexicon(authed_client:
     assert providers["cloudflare"]["mode"] == "native"
     assert "route53" in providers
     assert "googleclouddns" in providers
+    assert providers["akamai-edgedns"]["mode"] == "planned"
+    assert providers["akamai-edgedns"]["name"] == "Akamai Edge DNS / FastDNS"
+    assert providers["akamai-edgedns"]["record_write_status"] == "planned"
+    assert "edgegrid" in providers["akamai-edgedns"]["auth_models"]
+
+
+def test_dns_provider_connector_metadata_keeps_hyphenated_canonical_id():
+    metadata = dns_provider_connectors.provider_connector_metadata("akamai_edgedns")
+
+    assert metadata is not None
+    assert metadata["id"] == "akamai-edgedns"
+    assert dns_provider_connectors.provider_connector_metadata("fastdns")["id"] == (
+        "akamai-edgedns"
+    )
 
 
 def test_dns_provider_capabilities_report_available_lexicon_runtime():

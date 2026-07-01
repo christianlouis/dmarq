@@ -615,13 +615,17 @@ automation support, and the suggested next setup step. It does not imply write
 access unless credentials are configured and the operator approves an apply
 request.
 
-`GET /domains/dns/providers` returns native and Lexicon-backed provider
-capabilities plus whether a provider supports DNS-zone domain import. Use
-`GET /domains/dns/import/{provider}/preview` to list DNS zones visible to a
-connected provider without creating anything. Use
+`GET /domains/dns/providers` returns native, Lexicon-backed, and planned Tier 1
+provider connector metadata. Each row includes the supported auth model,
+minimum permission hints, zone-import/read/write status, dry-run support,
+verification support, rollback guidance support, and whether DNS-zone import is
+actually available today. Use `GET /domains/dns/import/{provider}/preview` to
+list DNS zones visible to a connected provider without creating anything. Use
 `POST /domains/dns/import/{provider}` with an optional `domains` array to import
 selected zones as monitored DMARQ domains before reports have arrived.
-Cloudflare is the first supported provider; the legacy
+Cloudflare is currently the only ready DNS-zone import provider; Route 53,
+Akamai Edge DNS/FastDNS, Hetzner, and Linode are exposed as connector roadmap
+metadata until their read/import implementations land. The legacy
 `/domains/cloudflare/discover` and `/domains/cloudflare/import` endpoints remain
 available for compatibility.
 
