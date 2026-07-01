@@ -57,5 +57,10 @@ The current product direction across self-hosted, hosted SaaS, ISP/OEM,
 provider integrations, billing, localization, and mail-health automation is
 captured in the [Product Roadmap](development/roadmap.md).
 
+The cross-product integration boundary for DNS providers, mail services,
+hosting/control panels, direct report intake, ticketing/chatops, SIEM, identity,
+and automation is captured in the
+[Ecosystem Integration Matrix](reference/ecosystem-integrations.md).
+
 ISP, MSP, and hosting-control-panel lifecycle integrations are documented in
 [Provider Integrations](reference/provider-integrations.md).
