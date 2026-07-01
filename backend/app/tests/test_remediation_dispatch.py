@@ -57,3 +57,21 @@ def test_attach_remediation_dispatch_previews_reuses_request_context(monkeypatch
     dispatches = [item["notification"]["dispatch"] for item in result["items"]]
     assert [dispatch["webhook_endpoint_count"] for dispatch in dispatches] == [1, 1]
     assert [dispatch["eligible"] for dispatch in dispatches] == [True, True]
+
+
+def test_attach_remediation_dispatch_previews_skips_empty_queues(monkeypatch):
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("empty queues should not fetch dispatch context")
+
+    monkeypatch.setattr(remediation_dispatch, "_settings", fail_if_called)
+    monkeypatch.setattr(remediation_dispatch, "_enabled_webhook_endpoints", fail_if_called)
+
+    queue = {"domain": "example.com", "items": []}
+
+    result = remediation_dispatch.attach_remediation_dispatch_previews(
+        object(),
+        workspace=SimpleNamespace(id=42),
+        queue=queue,
+    )
+
+    assert result is queue

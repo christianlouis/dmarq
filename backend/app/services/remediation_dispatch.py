@@ -196,6 +196,8 @@ def attach_remediation_dispatch_previews(
     """Attach read-only dispatch readiness to every queue item notification."""
     domain = str(queue.get("domain") or "")
     items = list(queue.get("items", []))
+    if not items:
+        return queue
     settings = _settings(db)
     configured_events = _configured_events(settings.get(DISPATCH_EVENTS_KEY, ""))
     event_types = {
