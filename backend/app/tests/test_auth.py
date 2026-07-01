@@ -25,9 +25,11 @@ from fastapi.testclient import TestClient
 from app.api.api_v1.endpoints.auth import _create_next_cookie
 from app.core.auth_providers import (
     ExternalIdentityClaims,
+    OIDCProviderConfig,
     configured_oidc_provider,
     create_oidc_state,
     decode_oidc_state,
+    exchange_oidc_callback,
     normalize_external_claims,
     sync_external_user,
     trusted_proxy_auth_context,
@@ -288,6 +290,42 @@ class TestExternalAuthProviders:
             "username": "owner",
         }
 
+    @pytest.mark.asyncio
+    async def test_oidc_callback_rejects_unverified_id_token_without_userinfo(self):
+        provider = OIDCProviderConfig(
+            provider="oidc",
+            label="OpenID Connect",
+            issuer_url="https://idp.example.test",
+            client_id="client-id",
+            client_secret="client-secret",
+            redirect_uri=None,
+            scopes="openid email profile",
+            skip_ssl_verify=False,
+        )
+        request = MagicMock()
+        request.base_url = "https://dmarq.example.test/"
+        token_response = MagicMock()
+        token_response.raise_for_status = MagicMock()
+        token_response.json.return_value = {
+            "id_token": "header.payload.signature",
+            "access_token": "access-token",
+        }
+
+        with patch(
+            "app.core.auth_providers.fetch_oidc_discovery",
+            new=AsyncMock(
+                return_value={
+                    "authorization_endpoint": "https://idp.example.test/auth",
+                    "token_endpoint": "https://idp.example.test/token",
+                }
+            ),
+        ), patch("httpx.AsyncClient.post", new=AsyncMock(return_value=token_response)):
+            with pytest.raises(HTTPException) as exc:
+                await exchange_oidc_callback(request, provider, code="callback-code")
+
+        assert exc.value.status_code == 401
+        assert "unvalidated ID-token claims" in exc.value.detail
+
 
 # ── /api/v1/auth/me ───────────────────────────────────────────────────────────
 
@@ -450,6 +488,18 @@ class TestSignInEndpoint:
             mock_settings.logto_configured = False
             res = client.get("/api/v1/auth/sign-in", follow_redirects=False)
         assert res.status_code == 503
+
+    def test_trusted_proxy_sign_in_uses_fixed_local_redirect(self, client: TestClient):
+        """Trusted-proxy mode must not redirect to caller-controlled destinations."""
+        with patch("app.api.api_v1.endpoints.auth.settings") as mock_settings:
+            mock_settings.active_auth_provider = "trusted_proxy"
+            res = client.get(
+                "/api/v1/auth/sign-in?next=/domains",
+                follow_redirects=False,
+            )
+
+        assert res.status_code == 302
+        assert res.headers["location"] == "/"
 
 
 # ── /api/v1/auth/sign-out ────────────────────────────────────────────────────

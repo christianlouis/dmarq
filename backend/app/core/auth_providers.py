@@ -222,7 +222,18 @@ async def exchange_oidc_callback(
             userinfo_response.raise_for_status()
             claims_payload = userinfo_response.json()
         elif token_payload.get("id_token"):
-            claims_payload = jwt.get_unverified_claims(token_payload["id_token"])
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=(
+                    "OIDC provider did not expose a userinfo endpoint; "
+                    "refusing to trust unvalidated ID-token claims."
+                ),
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="OIDC provider did not return usable identity claims.",
+            )
 
     return normalize_external_claims(
         provider.provider,
