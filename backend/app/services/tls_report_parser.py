@@ -63,6 +63,7 @@ def _extract_json_content(file_content: bytes, filename: str) -> bytes:
         extracted = _extract_json_from_zip(file_content)
         if extracted is not None:
             return extracted
+        raise ValueError("Could not extract JSON content from ZIP TLS report")
     if lower.endswith((".gz", ".gzip")):
         try:
             return gzip.decompress(file_content)

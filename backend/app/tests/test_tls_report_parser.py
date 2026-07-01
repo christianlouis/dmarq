@@ -79,6 +79,11 @@ def test_parse_tls_report_zip():
     assert parsed["policies"][0]["policy_domain"] == "example.com"
 
 
+def test_parse_tls_report_rejects_bad_zip_file():
+    with pytest.raises(ValueError, match="Could not extract JSON content"):
+        TLSReportParser.parse_file(b"not a zip file", "tls-report.zip")
+
+
 def test_parse_tls_report_generates_stable_id_when_missing():
     report = dict(SAMPLE_TLS_REPORT)
     report.pop("report-id")
