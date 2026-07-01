@@ -47,9 +47,62 @@
                         Check DNS
                     </a>
                     <a href="#sending-sources" class="btn btn-sm border-0 bg-[#2f9da5] text-white hover:bg-[#272a5f]">Review sources</a>
+                    <button type="button"
+                            class="btn btn-outline btn-sm border-[#ff6f3c] text-[#b64218] hover:border-[#ff6f3c] hover:bg-[#fff2ec]"
+                            @click="deleteDomain()">
+                        Delete domain
+                    </button>
                 </div>
             </div>
         </div>
+
+        <!-- Ownership proof -->
+        <section id="domain-ownership">
+        {% call card() %}
+            {% call card_header() %}
+                <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div>
+                        {% call card_title() %}Domain Ownership{% endcall %}
+                        {% call card_description() %}
+                            Proof status for DNS writes and one-click repair; report ingestion does not require this gate.
+                        {% endcall %}
+                    </div>
+                    <span class="inline-flex w-fit rounded px-2 py-1 text-xs font-semibold capitalize"
+                          :class="ownership.verified ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-800'"
+                          x-text="ownership.verified ? 'verified' : 'proof needed'"></span>
+                </div>
+            {% endcall %}
+            {% call card_content() %}
+                <p class="text-sm text-[#5f5c78]" x-text="ownership.proof_reason"></p>
+                <div class="mt-4 grid gap-3 lg:grid-cols-[1fr_1fr_auto]">
+                    <label class="text-xs font-semibold text-[#5f5c78]">
+                        TXT name
+                        <input readonly class="input input-sm input-bordered mt-1 w-full font-mono text-xs" :value="ownership.proof_record_name || ''">
+                    </label>
+                    <label class="text-xs font-semibold text-[#5f5c78]">
+                        TXT value
+                        <input readonly class="input input-sm input-bordered mt-1 w-full font-mono text-xs" :value="ownership.proof_record_value || ''">
+                    </label>
+                    <div class="flex items-end">
+                        <button type="button"
+                                class="btn btn-sm bg-[#2f9da5] text-white hover:bg-[#272a5f]"
+                                :disabled="ownership.loading"
+                                @click="verifyDomainOwnership()">
+                            <span x-text="ownership.loading ? 'Checking...' : 'Check ownership'"></span>
+                        </button>
+                    </div>
+                </div>
+                <p x-show="ownership.message" class="mt-3 rounded-lg p-3 text-sm"
+                   :class="ownership.error ? 'bg-red-50 text-red-700' : 'bg-[#eefaf6] text-[#0f6b4d]'"
+                   x-text="ownership.message"></p>
+                <div class="mt-3 grid gap-2 md:grid-cols-3">
+                    <template x-for="step in ownership.next_steps" :key="step">
+                        <div class="rounded bg-[#f4f3f2] px-3 py-2 text-xs text-[#5f5c78]" x-text="step"></div>
+                    </template>
+                </div>
+            {% endcall %}
+        {% endcall %}
+        </section>
 
         <!-- Domain Stats -->
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -543,7 +596,22 @@
                         </div>
                     </div>
                 </div>
-                <div class="mt-5 rounded-lg border border-[#e6e3e1] p-4">
+                <div x-show="!migrationToolsEnabled" class="mt-5 rounded-lg border border-[#e6e3e1] bg-[#fbfaf9] p-4">
+                    <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div>
+                            <h3 class="font-semibold text-[#07071f]">Migration tools are hidden</h3>
+                            <p class="mt-1 text-sm text-[#5f5c78]">
+                                Enable them only when you are comparing DMARQ with another platform, importing historical exports, or planning an offboarding export.
+                            </p>
+                        </div>
+                        <button type="button"
+                                class="btn btn-sm bg-[#272a5f] text-white hover:bg-[#2f9da5]"
+                                @click="enableMigrationTools()">
+                            I am migrating data
+                        </button>
+                    </div>
+                </div>
+                <div x-show="migrationToolsEnabled" x-cloak class="mt-5 rounded-lg border border-[#e6e3e1] p-4">
                     <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                         <div>
                             <h3 class="font-semibold text-[#07071f]">Historical Export Preview</h3>
@@ -658,7 +726,7 @@
                         </div>
                     </div>
                 </div>
-                <div class="mt-5 rounded-lg border border-[#e6e3e1] p-4">
+                <div x-show="migrationToolsEnabled" x-cloak class="mt-5 rounded-lg border border-[#e6e3e1] p-4">
                     <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                         <div>
                             <h3 class="font-semibold text-[#07071f]">Migration Parity</h3>
@@ -742,7 +810,7 @@
         </section>
 
         <!-- Migration Readiness -->
-        <section id="migration-readiness">
+        <section id="migration-readiness" x-show="migrationToolsEnabled" x-cloak>
         {% call card() %}
             {% call card_header() %}
                 <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -1354,7 +1422,14 @@
                         <template x-if="sources.length === 0">
                             <tr>
                                 <td colspan="8" class="text-center py-4">
-                                    <div class="text-muted-foreground">No data available for this time period</div>
+                                    <div class="text-muted-foreground" x-show="sourcesLoading">Loading sending sources...</div>
+                                    <div class="text-red-700" x-show="!sourcesLoading && sourcesError" x-text="sourcesError"></div>
+                                    <div class="text-muted-foreground" x-show="!sourcesLoading && !sourcesError && sourceEvidenceCount === 0">
+                                        No sending sources have been observed for this domain yet.
+                                    </div>
+                                    <div class="text-muted-foreground" x-show="!sourcesLoading && !sourcesError && sourceEvidenceCount > 0">
+                                        Source summary is available, but row details are not loaded for this window. Try All time or refresh the page.
+                                    </div>
                                 </td>
                             </tr>
                         </template>
@@ -1725,10 +1800,22 @@ function domainDetailsApp(domainId) {
         selectorError: '',
         reports: [],
         sources: [],
+        sourcesLoading: false,
+        sourcesError: '',
         sourceIntelligence: {
             regions: [],
             anomalies: [],
             summary: {}
+        },
+        ownership: {
+            loading: false,
+            error: '',
+            message: '',
+            verified: false,
+            proof_record_name: '',
+            proof_record_value: '',
+            proof_reason: '',
+            next_steps: []
         },
         complianceChart: null,
         healthScoreChart: null,
@@ -1783,6 +1870,8 @@ function domainDetailsApp(domainId) {
             error: '',
             preview: null
         },
+        migrationToolsEnabled: false,
+        migrationToolsLoaded: false,
         filters: {
             dateRange: '30',
             sourceFilter: '',
@@ -1792,6 +1881,7 @@ function domainDetailsApp(domainId) {
 
         init() {
             this.fetchDomainStats();
+            this.fetchDomainOwnership();
             this.fetchDNSRecords();
             this.fetchDNSHealth();
             this.fetchDNSGuidance();
@@ -1799,8 +1889,6 @@ function domainDetailsApp(domainId) {
             this.fetchPosture();
             this.fetchRemediationQueue();
             this.fetchHealthHistory();
-            this.fetchMigrationReadiness();
-            this.fetchMigrationParity();
             this.fetchMtaSts();
             this.fetchBimi();
             this.fetchSelectors();
@@ -1812,6 +1900,18 @@ function domainDetailsApp(domainId) {
                 this.fetchSources();
                 this.fetchSourceIntelligence();
             });
+        },
+
+        get sourceEvidenceCount() {
+            const summary = this.sourceIntelligence.summary || {};
+            const regionSources = (this.sourceIntelligence.regions || []).reduce(
+                (total, region) => total + Number(region.source_count || 0),
+                0
+            );
+            if (summary.sources !== null && summary.sources !== undefined) {
+                return Number(summary.sources);
+            }
+            return Number(regionSources || this.sources.length || 0);
         },
 
         get filteredSources() {
@@ -2089,7 +2189,89 @@ function domainDetailsApp(domainId) {
         },
 
         sourceDateWindow() {
-            return this.filters.dateRange === 'all' ? '365' : this.filters.dateRange;
+            return this.filters.dateRange === 'all' ? '3650' : this.filters.dateRange;
+        },
+
+        async fetchDomainOwnership() {
+            try {
+                const response = await fetch(`/api/v1/domains/${encodeURIComponent(this.domainId)}/ownership`);
+                if (!response.ok) {
+                    throw new Error('Ownership proof could not be loaded.');
+                }
+                this.ownership = {
+                    ...this.ownership,
+                    ...(await response.json()),
+                    loading: false,
+                    error: '',
+                    message: ''
+                };
+            } catch (error) {
+                this.ownership = {
+                    ...this.ownership,
+                    loading: false,
+                    error: error.message || 'Ownership proof could not be loaded.',
+                    message: error.message || 'Ownership proof could not be loaded.'
+                };
+                console.error('Error fetching ownership proof:', error);
+            }
+        },
+
+        async verifyDomainOwnership() {
+            this.ownership.loading = true;
+            this.ownership.error = '';
+            this.ownership.message = '';
+            try {
+                const response = await fetch(`/api/v1/domains/${encodeURIComponent(this.domainId)}/ownership/verify`, {
+                    method: 'POST'
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Ownership proof could not be checked.');
+                }
+                this.ownership = {
+                    ...this.ownership,
+                    ...data,
+                    loading: false,
+                    error: '',
+                    message: data.matched
+                        ? 'Ownership verified. DNS write and repair workflows can now trust this domain.'
+                        : 'TXT proof was not found yet. Check the record name and wait for DNS propagation.'
+                };
+            } catch (error) {
+                this.ownership = {
+                    ...this.ownership,
+                    loading: false,
+                    error: error.message || 'Ownership proof could not be checked.',
+                    message: error.message || 'Ownership proof could not be checked.'
+                };
+                console.error('Error verifying ownership proof:', error);
+            }
+        },
+
+        async deleteDomain() {
+            const typed = window.prompt(`Delete ${this.domainId}? Type the domain name to confirm.`);
+            if (typed !== this.domainId) return;
+            try {
+                const response = await fetch(`/api/v1/domains/${encodeURIComponent(this.domainId)}`, {
+                    method: 'DELETE'
+                });
+                if (response.status === 204) {
+                    window.location.href = '/domains';
+                    return;
+                }
+                const data = await response.json().catch(() => ({}));
+                window.alert(data.detail || 'Domain could not be deleted.');
+            } catch (error) {
+                window.alert(error.message || 'Domain could not be deleted.');
+            }
+        },
+
+        enableMigrationTools() {
+            this.migrationToolsEnabled = true;
+            if (this.migrationToolsLoaded) return;
+            this.migrationToolsLoaded = true;
+            this.fetchMigrationReadiness();
+            this.fetchMigrationParity();
         },
 
         async fetchDomainStats() {
@@ -2544,20 +2726,27 @@ function domainDetailsApp(domainId) {
         },
         
         async fetchSources() {
+            this.sourcesLoading = true;
+            this.sourcesError = '';
             try {
-                const response = await fetch(`/api/v1/domains/${this.domainId}/sources?days=${this.sourceDateWindow()}`);
-                if (response.ok) {
-                    const data = await response.json();
-                    this.sources = data.sources;
+                const response = await fetch(`/api/v1/domains/${encodeURIComponent(this.domainId)}/sources?days=${this.sourceDateWindow()}`);
+                if (!response.ok) {
+                    throw new Error('Sending sources could not be loaded.');
                 }
+                const data = await response.json();
+                this.sources = data.sources || [];
             } catch (error) {
+                this.sources = [];
+                this.sourcesError = error.message || 'Sending sources could not be loaded.';
                 console.error('Error fetching sources:', error);
+            } finally {
+                this.sourcesLoading = false;
             }
         },
 
         async fetchSourceIntelligence() {
             try {
-                const response = await fetch(`/api/v1/domains/${this.domainId}/source-intelligence?days=${this.sourceDateWindow()}`);
+                const response = await fetch(`/api/v1/domains/${encodeURIComponent(this.domainId)}/source-intelligence?days=${this.sourceDateWindow()}`);
                 if (response.ok) {
                     this.sourceIntelligence = await response.json();
                 }

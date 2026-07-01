@@ -792,6 +792,50 @@ def test_get_report_by_id_returns_detail(authed_client: TestClient):
     assert data["summary"]["total_count"] == 2
 
 
+def test_get_report_by_id_includes_record_review_guidance(
+    authed_client: TestClient,
+    db_session,
+):
+    """Failed aggregate report rows include actionable operator guidance."""
+    workspace = get_or_create_default_workspace(db_session)
+    _persist_parsed_report(
+        db_session,
+        {
+            "domain": "example.com",
+            "report_id": "mixed-review-report",
+            "org_name": "google.com",
+            "email": "noreply@example.com",
+            "begin_timestamp": 1782691200,
+            "end_timestamp": 1782777599,
+            "policy": {"p": "reject", "sp": "reject", "pct": "100"},
+            "records": [
+                {
+                    "source_ip": "192.0.2.44",
+                    "count": 1,
+                    "disposition": "reject",
+                    "dkim_result": "fail",
+                    "spf_result": "fail",
+                    "header_from": "mx1.example.com",
+                }
+            ],
+            "summary": {"total_count": 1, "passed_count": 0, "failed_count": 1},
+        },
+        workspace_id=workspace.id,
+    )
+
+    response = authed_client.get("/api/v1/reports/mixed-review-report")
+
+    assert response.status_code == 200
+    failed_record = response.json()["records"][0]
+    assert failed_record["review_status"] == "needs_review"
+    assert any("SPF did not pass" in reason for reason in failed_record["failure_reasons"])
+    assert any("DKIM did not pass" in reason for reason in failed_record["failure_reasons"])
+    assert any(
+        "Open the domain sending-source view" in step for step in failed_record["next_steps"]
+    )
+    assert any("Header From alignment" in step for step in failed_record["next_steps"])
+
+
 def test_get_report_by_id_not_found(authed_client: TestClient):
     """GET /api/v1/reports/{report_id} returns 404 when report does not exist."""
     response = authed_client.get("/api/v1/reports/no-such-report-id")

@@ -64,6 +64,36 @@ def test_domain_details_exposes_migration_readiness_without_html_injection():
     assert "previewMigrationImport" in template
     assert "applyMigrationPreviewBaseline" in template
     assert "migrationImport.preview?.sample_rows" in template
+    assert "migrationToolsEnabled" in template
+    assert "I am migrating data" in template
+    assert "x-html" not in template
+
+
+def test_domain_details_exposes_ownership_and_delete_controls_without_html_injection():
+    template = (
+        Path(__file__).resolve().parents[1] / "templates" / "domain_details.html"
+    ).read_text()
+
+    assert "Domain Ownership" in template
+    assert "/ownership" in template
+    assert "/ownership/verify" in template
+    assert "Report mailbox access is enough" not in template
+    assert "deleteDomain()" in template
+    assert "Type the domain name to confirm" in template
+    assert "sourcesLoading" in template
+    assert "sourceEvidenceCount" in template
+    assert "x-html" not in template
+
+
+def test_report_detail_exposes_record_review_guidance_without_html_injection():
+    template = (
+        Path(__file__).resolve().parents[1] / "templates" / "report_detail.html"
+    ).read_text()
+
+    assert "record.review_status" in template
+    assert "record.failure_reasons" in template
+    assert "record.next_steps" in template
+    assert "Needs review" in template
     assert "x-html" not in template
 
 
