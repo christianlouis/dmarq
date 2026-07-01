@@ -571,6 +571,7 @@ GET /domains/{domain_id}/dns/lint
 GET /domains/{domain_id}/dns/change-plan
 POST /domains/{domain_id}/dns/change-plan/apply
 GET /domains/{domain_id}/remediation
+POST /domains/{domain_id}/remediation/notifications/audit
 GET /domains/dns/providers
 GET /domains/dns/import/{provider}/preview
 POST /domains/dns/import/{provider}
@@ -663,6 +664,15 @@ sanitized `payload_preview` using schema
 `dmarq.remediation.notification.v1`; it is the deterministic data shape a
 future webhook, ticketing, or chatops delivery would receive. The endpoint does
 not perform DNS writes, enqueue webhook deliveries, or send notifications.
+
+`POST /domains/{domain_id}/remediation/notifications/audit` records an
+operator lifecycle marker for one current remediation item. The request accepts
+`item_id`, `lifecycle_state`, and optional `event`, `dedupe_key`, and `note`.
+Supported lifecycle states are `previewed`, `acknowledged`, `snoozed`,
+`resolved`, and `rejected`. If `event` or `dedupe_key` is supplied, it must
+match the current queue item's notification metadata. The response includes the
+sanitized workspace audit row. This endpoint is deliberately audit-only: it
+does not enqueue webhook deliveries, send notifications, or attempt DNS writes.
 
 #### Get Posture Dashboard
 
