@@ -80,6 +80,15 @@ def _confidence_factor(domain: Dict[str, Any]) -> float:
     return 30.0
 
 
+def _reputation_factor(domain: Dict[str, Any]) -> float:
+    reputation = domain.get("source_reputation") or {}
+    summary = reputation.get("summary") or {}
+    highest_risk = _bounded(summary.get("highest_risk_score"))
+    if int(summary.get("total_sources") or 0) == 0:
+        return 70.0
+    return _bounded(100.0 - highest_risk)
+
+
 def _score_cap(domain: Dict[str, Any], confidence: float, *, policy: Optional[str] = None) -> int:
     policy = policy or _effective_dmarc_policy(domain)
     cap = 100
@@ -203,6 +212,39 @@ def _domain_actions(domain: Dict[str, Any]) -> List[Dict[str, Any]]:
                 ],
             )
         )
+    reputation = domain.get("source_reputation") or {}
+    reputation_summary = reputation.get("summary") or {}
+    listed = int(reputation_summary.get("listed") or 0)
+    suspicious = int(reputation_summary.get("suspicious") or 0)
+    if listed:
+        actions.append(
+            _action(
+                action_type="source_reputation_listed",
+                severity="critical",
+                title="Review listed sending IPs",
+                detail=f"{listed} observed sending source is listed or flagged by reputation data.",
+                next_step=(
+                    "Open sending sources, confirm ownership, and follow the named delisting "
+                    "or provider remediation process before tightening policy."
+                ),
+                score_impact=18,
+                domain=domain_name,
+                evidence=[{"label": "listed_sources", "value": str(listed)}],
+            )
+        )
+    elif suspicious:
+        actions.append(
+            _action(
+                action_type="source_reputation_review",
+                severity="high",
+                title="Review suspicious sending IPs",
+                detail=f"{suspicious} observed sending source needs reputation review.",
+                next_step="Confirm whether the source is authorized and fix SPF/DKIM alignment.",
+                score_impact=10,
+                domain=domain_name,
+                evidence=[{"label": "suspicious_sources", "value": str(suspicious)}],
+            )
+        )
 
     return sorted(actions, key=lambda item: item["score_impact"], reverse=True)
 
@@ -223,7 +265,14 @@ def score_domain_health(domain: Dict[str, Any]) -> Dict[str, Any]:
     policy_name = _effective_dmarc_policy(domain)
     policy = _policy_factor(policy_name)
     confidence = _confidence_factor(domain)
-    raw_score = round((pass_rate * 0.45) + (dns * 0.20) + (policy * 0.25) + (confidence * 0.10))
+    reputation = _reputation_factor(domain)
+    raw_score = round(
+        (pass_rate * 0.40)
+        + (dns * 0.20)
+        + (policy * 0.25)
+        + (confidence * 0.10)
+        + (reputation * 0.05)
+    )
     score = min(raw_score, _score_cap(domain, confidence, policy=policy_name))
     actions = _domain_actions(domain)
     critical_actions = sum(1 for action in actions if action["severity"] == "critical")
@@ -238,6 +287,7 @@ def score_domain_health(domain: Dict[str, Any]) -> Dict[str, Any]:
             "dns_posture": round(dns, 1),
             "policy_strength": round(policy, 1),
             "report_confidence": round(confidence, 1),
+            "source_reputation": round(reputation, 1),
         },
         "actions": actions[:5],
     }
@@ -259,9 +309,7 @@ def build_health_summary(
         _domain_key(domain) for domain in domains if _domain_key(domain) not in by_domain
     ]
     if missing_health:
-        raise ValueError(
-            f"Missing health payloads for domains: {', '.join(missing_health)}"
-        )
+        raise ValueError(f"Missing health payloads for domains: {', '.join(missing_health)}")
 
     total_weight = sum(max(1, int(domain.get("total_emails") or 0)) for domain in domains)
     if total_weight:

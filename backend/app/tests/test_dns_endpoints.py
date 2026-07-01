@@ -258,8 +258,43 @@ def test_get_selectors_report_selector_moves_to_manual_when_added(authed_client:
     r2 = authed_client.get(f"/api/v1/domains/{DOMAIN}/selectors")
     data = r2.json()
     assert "google" in data["selectors"]
-    # It must not appear in both lists
     assert "google" not in data["report_selectors"]
+
+
+def test_get_source_reputation_returns_listed_source(authed_client: TestClient):
+    """Source reputation exposes listed sender IP evidence for domain detail views."""
+    ReportStore.get_instance().add_report(
+        {
+            **MINIMAL_REPORT,
+            "report_id": "listed-source-reputation",
+            "records": [
+                {
+                    "source_ip": "198.51.100.199",
+                    "count": 12,
+                    "disposition": "none",
+                    "dkim_result": "fail",
+                    "spf_result": "fail",
+                    "dkim": [{"domain": DOMAIN, "result": "fail", "selector": "legacy"}],
+                    "spf": [{"domain": DOMAIN, "result": "fail"}],
+                    "extensions": {
+                        "demo:source": "unknown-forwarder",
+                        "demo:reputation": "listed",
+                        "demo:blacklists": "Demo RBL",
+                    },
+                }
+            ],
+        }
+    )
+
+    response = authed_client.get(f"/api/v1/domains/{DOMAIN}/source-reputation")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "listed"
+    assert data["summary"]["listed"] == 1
+    listed = next(source for source in data["sources"] if source["ip"] == "198.51.100.199")
+    assert listed["status"] == "listed"
+    assert listed["listings"] == ["Demo RBL"]
 
 
 def test_dns_endpoint_returns_dkim_selectors_as_list(authed_client: TestClient):

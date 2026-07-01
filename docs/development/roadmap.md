@@ -1,6 +1,6 @@
 # DMARQ Product Roadmap
 
-Last updated: 2026-06-30
+Last updated: 2026-07-01
 
 DMARQ has moved beyond its original MVP. The product now parses aggregate and
 forensic DMARC reports, imports from IMAP/Gmail/Microsoft 365, persists report
@@ -83,6 +83,10 @@ Completed or substantially delivered:
   recommendations.
 - DNS health checks for DMARC/SPF/DKIM plus posture checks for MTA-STS, TLS-RPT,
   BIMI, and passive DANE/TLSA readiness.
+- Passive sender IP reputation scoring from observed report evidence, known
+  sender context, local/demo metadata, reserved-address detection, and source
+  anomalies. External DNSBL and commercial reputation feeds remain modular
+  follow-up work.
 - Cloudflare read-only inspection, DNS snapshots, and DNS change history.
 - Notifications, alert rules, alert history, and Apprise delivery.
 - API tokens, webhooks, SIEM templates, and ticketing/chatops templates.
@@ -107,7 +111,9 @@ The main open strategic issues are:
 - [Issue #384](https://github.com/christianlouis/dmarq/issues/384): autonomous
   mail health remediation loop with human approval.
 - [Issue #385](https://github.com/christianlouis/dmarq/issues/385): sender IP
-  reputation and blacklist monitoring.
+  reputation and blacklist monitoring. The first shipped slice is passive,
+  cached source reputation evidence; external blacklist/reputation feed
+  integrations remain follow-up work.
 - [Issue #386](https://github.com/christianlouis/dmarq/issues/386): ecosystem
   integration roadmap.
 - [Issue #387](https://github.com/christianlouis/dmarq/issues/387):
