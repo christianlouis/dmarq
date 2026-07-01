@@ -261,30 +261,30 @@ def test_get_selectors_report_selector_moves_to_manual_when_added(authed_client:
     assert "google" not in data["report_selectors"]
 
 
-def test_get_source_reputation_returns_listed_source(authed_client: TestClient):
+def test_get_source_reputation_returns_listed_source(authed_client: TestClient, db_session):
     """Source reputation exposes listed sender IP evidence for domain detail views."""
-    ReportStore.get_instance().add_report(
-        {
-            **MINIMAL_REPORT,
-            "report_id": "listed-source-reputation",
-            "records": [
-                {
-                    "source_ip": "198.51.100.199",
-                    "count": 12,
-                    "disposition": "none",
-                    "dkim_result": "fail",
-                    "spf_result": "fail",
-                    "dkim": [{"domain": DOMAIN, "result": "fail", "selector": "legacy"}],
-                    "spf": [{"domain": DOMAIN, "result": "fail"}],
-                    "extensions": {
-                        "demo:source": "unknown-forwarder",
-                        "demo:reputation": "listed",
-                        "demo:blacklists": "Demo RBL",
-                    },
-                }
-            ],
-        }
-    )
+    report = {
+        **MINIMAL_REPORT,
+        "report_id": "listed-source-reputation",
+        "records": [
+            {
+                "source_ip": "198.51.100.199",
+                "count": 12,
+                "disposition": "none",
+                "dkim_result": "fail",
+                "spf_result": "fail",
+                "dkim": [{"domain": DOMAIN, "result": "fail", "selector": "legacy"}],
+                "spf": [{"domain": DOMAIN, "result": "fail"}],
+                "extensions": {
+                    "demo:source": "unknown-forwarder",
+                    "demo:reputation": "listed",
+                    "demo:blacklists": "Demo RBL",
+                },
+            }
+        ],
+    }
+    save_parsed_report(db_session, report)
+    db_session.commit()
 
     response = authed_client.get(f"/api/v1/domains/{DOMAIN}/source-reputation")
 
