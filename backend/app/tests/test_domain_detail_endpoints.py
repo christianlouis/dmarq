@@ -571,6 +571,100 @@ def test_domain_posture_dashboard_records_current_snapshot(
     assert snapshots[-1].score == 96
 
 
+def test_domain_remediation_queue_groups_dns_and_health_actions(
+    seeded_client: TestClient,
+    monkeypatch,
+):
+    """Domain remediation returns a prioritized, human-reviewed action queue."""
+
+    async def fake_domain_grade(db, domain_id, store, refresh=False):
+        return {
+            "domain": domain_id,
+            "score": 72,
+            "grade": "C",
+            "status": "attention",
+            "factors": {
+                "dns_posture": 60,
+                "policy_strength": 40,
+                "report_confidence": 90,
+            },
+            "actions": [
+                {
+                    "type": "missing_dmarc",
+                    "severity": "high",
+                    "title": "Publish DMARC",
+                    "detail": "No DMARC policy was found.",
+                    "next_step": "Publish a DMARC TXT record.",
+                    "score_impact": 30,
+                },
+                {
+                    "type": "low_compliance",
+                    "severity": "medium",
+                    "title": "Review failing senders",
+                    "detail": "Some senders fail DMARC.",
+                    "next_step": "Investigate the top failing source.",
+                    "score_impact": 12,
+                },
+            ],
+        }
+
+    async def fake_dns_guidance(db, store, domain_id, refresh=False):
+        return {
+            "domain": domain_id,
+            "status": "critical",
+            "dns_provider": {"provider_id": "cloudflare"},
+            "findings": [
+                {
+                    "code": "dmarc_missing",
+                    "severity": "error",
+                    "title": "Publish DMARC",
+                    "detail": "No DMARC TXT record was found.",
+                    "evidence": ["_dmarc.example.com"],
+                }
+            ],
+            "change_plans": [
+                {
+                    "plan_id": "dmarc-missing",
+                    "finding_code": "dmarc_missing",
+                    "severity": "error",
+                    "operation": "create",
+                    "record_type": "TXT",
+                    "name": "_dmarc.example.com",
+                    "proposed_value": "v=DMARC1; p=none; rua=mailto:dmarc@example.com",
+                    "current_values": [],
+                    "rationale": "Publish a monitoring DMARC record.",
+                    "expected_health_impact": "High",
+                    "manual_steps": ["Create the TXT record."],
+                }
+            ],
+        }
+
+    monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_domain_grade)
+    monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", fake_dns_guidance)
+    monkeypatch.setattr(domains_endpoint, "_ready_dns_write_provider_ids", lambda: ["cloudflare"])
+    monkeypatch.setattr(
+        domains_endpoint,
+        "_recommended_dns_write_provider",
+        lambda dns_provider, available_providers: "cloudflare",
+    )
+
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/remediation")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "needs_approval"
+    assert data["summary"]["total"] == 2
+    assert data["summary"]["approval_ready"] == 1
+    assert data["summary"]["investigate"] == 1
+    assert data["items"][0]["id"] == "dns:dmarc-missing"
+    assert data["items"][0]["automation"]["eligible"] is True
+    assert data["items"][0]["automation"]["provider"] == "cloudflare"
+    assert [item["id"] for item in data["items"]] == [
+        "dns:dmarc-missing",
+        "health:low_compliance",
+    ]
+
+
 def test_domain_health_history_rejects_invalid_date_order(seeded_client: TestClient):
     """Health history validates that the start date is not after the end date."""
     response = seeded_client.get(

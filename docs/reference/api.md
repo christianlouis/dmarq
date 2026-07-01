@@ -570,6 +570,7 @@ queried DNS name, record text, logo URL, certificate URL, warnings, and errors.
 GET /domains/{domain_id}/dns/lint
 GET /domains/{domain_id}/dns/change-plan
 POST /domains/{domain_id}/dns/change-plan/apply
+GET /domains/{domain_id}/remediation
 GET /domains/dns/providers
 GET /domains/dns/import/{provider}/preview
 POST /domains/dns/import/{provider}
@@ -648,6 +649,14 @@ after confirming the rollback is still safe.
 `available_write_providers`, `recommended_provider`, and response-level
 `safety_notes`. Each plan contains its own `safety_notes` explaining whether it
 can be previewed through a provider connector or why it remains manual-only.
+
+`GET /domains/{domain_id}/remediation` returns the human-reviewed remediation
+queue for a domain. It groups DNS change plans and health-score actions into
+prioritized items with state, severity, next steps, evidence, blast radius,
+prerequisites, expected health-score impact, and automation eligibility. DNS
+items that have a concrete safe TXT/CNAME provider write are marked
+`approval_ready` and point to the same explicit preview/apply endpoint used by
+the DNS change-plan UI. The endpoint does not perform DNS writes.
 
 #### Get Posture Dashboard
 

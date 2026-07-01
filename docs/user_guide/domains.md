@@ -79,6 +79,13 @@ Operator playbooks sit beside the recommendations. They are short remediation
 checklists for common gaps such as missing SPF, missing DKIM, policy enforcement
 readiness, MTA-STS setup, or BIMI prerequisites.
 
+The dashboard also includes a **Remediation Queue** that merges health-score
+actions and DNS lint change plans into one prioritized list. Items are marked
+as approval-ready, manual, or investigate-only, and include the evidence,
+blast radius, prerequisites, and expected health-score impact. Approval-ready
+DNS items link back to the DNS change-plan review area; they still require an
+operator preview and explicit approval before any provider write is sent.
+
 ### Source Intelligence
 
 The domain detail page groups sending sources into coarse regions and networks
