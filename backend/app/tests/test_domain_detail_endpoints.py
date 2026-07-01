@@ -811,6 +811,18 @@ def test_domain_remediation_notification_lifecycle_audit_rejects_mismatched_even
     assert response.status_code == 400
     assert "does not match" in response.json()["detail"]
 
+    empty_event_response = seeded_client.post(
+        f"/api/v1/domains/{DOMAIN}/remediation/notifications/audit",
+        json={
+            "item_id": "dns:dmarc-missing",
+            "event": "",
+            "lifecycle_state": "acknowledged",
+        },
+    )
+
+    assert empty_event_response.status_code == 400
+    assert "does not match" in empty_event_response.json()["detail"]
+
 
 def test_domain_remediation_notification_lifecycle_audit_rejects_invalid_state(
     seeded_client: TestClient,
@@ -928,6 +940,18 @@ def test_domain_remediation_notification_lifecycle_audit_rejects_mismatched_dedu
 
     assert response.status_code == 400
     assert "dedupe_key does not match" in response.json()["detail"]
+
+    empty_dedupe_response = seeded_client.post(
+        f"/api/v1/domains/{DOMAIN}/remediation/notifications/audit",
+        json={
+            "item_id": "dns:dmarc-missing",
+            "dedupe_key": "",
+            "lifecycle_state": "previewed",
+        },
+    )
+
+    assert empty_dedupe_response.status_code == 400
+    assert "dedupe_key does not match" in empty_dedupe_response.json()["detail"]
 
 
 def test_domain_remediation_queue_hydrates_report_store_with_workspace_filter(
