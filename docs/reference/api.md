@@ -572,9 +572,11 @@ GET /domains/{domain_id}/dns/dane
 
 Returns cached read-only SMTP DANE evidence for the domain's MX hosts. The
 response lists discovered MX hosts, queried TLSA owner names, parsed TLSA
-fields, syntax errors, warnings, cache state, and the check timestamp. DMARQ
-currently validates MX coverage and TLSA syntax only; it does not yet validate
-DNSSEC chains or compare TLSA hashes with live SMTP certificates.
+fields, syntax errors, live `3 1 1` SPKI SHA-256 suggestions when SMTP
+STARTTLS certificate retrieval succeeds, warnings, cache state, and the check
+timestamp. DMARQ validates MX coverage and TLSA syntax, and compares DANE-EE
+SPKI hashes with the live STARTTLS certificate when reachable. DNSSEC chain
+validation is still operator-confirmed.
 
 #### Get DNS Lint Guidance
 

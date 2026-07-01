@@ -1031,6 +1031,21 @@ class TLSARecordResponse(BaseModel):
     warnings: List[str] = Field(default_factory=list)
 
 
+class TLSASuggestionResponse(BaseModel):
+    """One TLSA record suggestion derived from a live MX certificate."""
+
+    query_name: str
+    mx_host: str
+    record: str = ""
+    certificate_usage: int = 3
+    selector: int = 1
+    matching_type: int = 1
+    association_data: str = ""
+    status: str = "unavailable"
+    source: str = "smtp-starttls-live-certificate"
+    error: Optional[str] = None
+
+
 class DANEResponse(BaseModel):
     """DANE/TLSA posture result for a domain."""
 
@@ -1038,6 +1053,7 @@ class DANEResponse(BaseModel):
     port: int = 25
     mx_hosts: List[str] = Field(default_factory=list)
     records: List[TLSARecordResponse] = Field(default_factory=list)
+    suggested_records: List[TLSASuggestionResponse] = Field(default_factory=list)
     errors: List[str] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
     cached: bool = False
@@ -1960,6 +1976,7 @@ async def _build_domain_dns_guidance(
         provider,
         domain_id,
         refresh=refresh,
+        derive_suggestions=True,
     )
     mail_service_records = await mail_service_dns_records_for_domain(db, domain_id)
     guidance = await build_dns_guidance(
@@ -4362,12 +4379,16 @@ async def get_domain_dane(
         domain_id,
         port=port,
         refresh=refresh,
+        derive_suggestions=True,
     )
     return DANEResponse(
         status=result.status,
         port=result.port,
         mx_hosts=result.mx_hosts,
         records=[TLSARecordResponse(**asdict(record)) for record in result.records],
+        suggested_records=[
+            TLSASuggestionResponse(**asdict(suggestion)) for suggestion in result.suggested_records
+        ],
         errors=result.errors,
         warnings=result.warnings,
         cached=cached,

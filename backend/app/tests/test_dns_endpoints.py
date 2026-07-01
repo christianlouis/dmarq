@@ -24,7 +24,7 @@ from app.models.organization import Entitlement, Organization
 from app.models.report import DMARCReport, ReportRecord
 from app.models.workspace import Workspace
 from app.services.bimi import BIMIResult
-from app.services.dane import DANEResult, TLSARecord
+from app.services.dane import DANEResult, TLSARecord, TLSASuggestion
 from app.services.dns_cache import _selectors_key, resolve_domain_dns_cached
 from app.services.dns_provider_detection import detect_dns_provider
 from app.services.dns_resolver import DomainDNSResult
@@ -961,6 +961,19 @@ def test_dane_endpoint_returns_cached_posture(authed_client: TestClient):
                 valid=True,
             )
         ],
+        suggested_records=[
+            TLSASuggestion(
+                query_name="_25._tcp.mx.example.com",
+                mx_host="mx.example.com",
+                record=(
+                    "3 1 1 " "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                ),
+                association_data=(
+                    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                ),
+                status="ready",
+            )
+        ],
     )
 
     with patch(
@@ -976,6 +989,8 @@ def test_dane_endpoint_returns_cached_posture(authed_client: TestClient):
     assert data["records"][0]["query_name"] == "_25._tcp.mx.example.com"
     assert data["records"][0]["certificate_usage"] == 3
     assert data["records"][0]["valid"] is True
+    assert data["suggested_records"][0]["record"].startswith("3 1 1 ")
+    assert data["suggested_records"][0]["status"] == "ready"
     assert data["cached"] is True
     assert data["checked_at"] == checked_at.isoformat()
 
