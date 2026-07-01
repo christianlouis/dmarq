@@ -143,7 +143,8 @@ async def check_dane(domain: str, provider: BaseDNSProvider, *, port: int = 25) 
     result = DANEResult(port=port)
     raw_mx_hosts = await provider.lookup_mx(normalized_domain)
     mx_hosts = raw_mx_hosts if isinstance(raw_mx_hosts, (list, tuple)) else []
-    result.mx_hosts = list(dict.fromkeys(str(host).strip(".").lower() for host in mx_hosts if host))
+    normalized_hosts = (str(host).strip(".").lower() for host in mx_hosts)
+    result.mx_hosts = list(dict.fromkeys(host for host in normalized_hosts if host))
     if not result.mx_hosts:
         result.errors.append("No MX hosts were found for DANE/TLSA evaluation.")
         return result
@@ -178,9 +179,10 @@ async def check_dane(domain: str, provider: BaseDNSProvider, *, port: int = 25) 
             "or compare TLSA hashes with live SMTP certificates."
         )
 
+    valid_hosts = {record.mx_host for record in result.records if record.valid}
     if not result.errors:
         result.status = "pass"
-    elif result.records:
+    elif valid_hosts:
         result.status = "partial"
     return result
 

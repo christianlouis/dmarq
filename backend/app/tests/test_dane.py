@@ -60,7 +60,7 @@ async def test_check_dane_requires_mx_hosts():
 
 
 @pytest.mark.asyncio
-async def test_check_dane_reports_partial_mx_coverage_and_invalid_records():
+async def test_check_dane_reports_fail_when_all_records_are_invalid_or_missing():
     provider = FakeDANEDNSProvider(
         mx_hosts=["mx1.example.com", "mx2.example.com"],
         tlsa_records={
@@ -70,11 +70,42 @@ async def test_check_dane_reports_partial_mx_coverage_and_invalid_records():
 
     result = await check_dane("example.com", provider)
 
-    assert result.status == "partial"
+    assert result.status == "fail"
     assert result.mx_hosts == ["mx1.example.com", "mx2.example.com"]
     assert result.records[0].valid is False
     assert "No TLSA records were found for MX host(s): mx2.example.com" in result.errors
     assert "TLSA records need syntax review for MX host(s): mx1.example.com" in result.errors
+
+
+@pytest.mark.asyncio
+async def test_check_dane_reports_partial_mx_coverage_with_one_valid_host():
+    provider = FakeDANEDNSProvider(
+        mx_hosts=["mx1.example.com", "mx2.example.com"],
+        tlsa_records={
+            "_25._tcp.mx1.example.com": [
+                "3 1 1 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+            ],
+        },
+    )
+
+    result = await check_dane("example.com", provider)
+
+    assert result.status == "partial"
+    assert result.mx_hosts == ["mx1.example.com", "mx2.example.com"]
+    assert result.records[0].valid is True
+    assert "No TLSA records were found for MX host(s): mx2.example.com" in result.errors
+
+
+@pytest.mark.asyncio
+async def test_check_dane_filters_null_mx_marker():
+    provider = FakeDANEDNSProvider(mx_hosts=["."])
+
+    result = await check_dane("example.com", provider)
+
+    assert result.status == "fail"
+    assert result.mx_hosts == []
+    assert result.errors == ["No MX hosts were found for DANE/TLSA evaluation."]
+    provider.lookup_tlsa.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -105,3 +136,4 @@ async def test_check_dane_cached_reuses_fresh_result(db_session):
     assert second_cached is True
     assert second_checked == first_checked
     provider.lookup_mx.assert_awaited_once()
+    provider.lookup_tlsa.assert_awaited_once()

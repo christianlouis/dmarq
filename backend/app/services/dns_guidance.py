@@ -152,8 +152,9 @@ def _dane_target_record(domain: str, result: DANEResult) -> DNSGuidanceRecord:
         name=f"_{result.port}._tcp.{mx_host}",
         value="3 1 1 <sha256-of-current-mx-certificate-spki>",
         purpose=(
-            "DANE SMTP TLSA certificate pinning for the MX host. Publish only after "
-            "DNSSEC is correctly signed and the TLSA value matches the live MX certificate."
+            "DANE SMTP TLSA certificate pinning for one MX host. Publish one matching TLSA "
+            "record for every MX host, and only after DNSSEC is correctly signed and the TLSA "
+            "value matches the live MX certificate."
         ),
         priority="optional",
     )

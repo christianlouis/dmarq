@@ -940,7 +940,7 @@ class CloudflareDNSProvider(BaseDNSProvider):
                     try:
                         preference = int(parts[0])
                     except ValueError:
-                        preference = 0
+                        continue
                     rows.append((preference, parts[1].rstrip(".").lower()))
                 return [host for _preference, host in sorted(rows)]
         except (httpx.RequestError, httpx.HTTPStatusError, httpx.TimeoutException):
