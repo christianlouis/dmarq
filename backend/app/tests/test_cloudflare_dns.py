@@ -22,6 +22,7 @@ from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog
 from app.services import (
     cloudflare_dns,
+    cloudflare_oauth,
     dns_provider_connectors,
     dns_provider_imports,
     dns_provider_writes,
@@ -1428,6 +1429,143 @@ def test_cloudflare_import_endpoint_returns_import_summary(authed_client: TestCl
 
     assert response.status_code == 200
     assert response.json()["imported"] == [DOMAIN]
+
+
+def _cloudflare_oauth_settings(**overrides):
+    defaults = {
+        "SECRET_KEY": "s" * 32,
+        "CLOUDFLARE_OAUTH_CLIENT_ID": "client-id",
+        "CLOUDFLARE_OAUTH_CLIENT_SECRET": "client-secret",
+        "CLOUDFLARE_OAUTH_SCOPES": "zone.read dns.read",
+    }
+    defaults.update(overrides)
+    return SimpleNamespace(**defaults)
+
+
+def test_cloudflare_oauth_state_round_trips_and_sanitizes_return_to(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(cloudflare_oauth, "get_settings", lambda: _cloudflare_oauth_settings())
+
+    state = cloudflare_oauth.build_cloudflare_oauth_state(
+        workspace_id=42,
+        return_to="https://evil.example/settings",
+    )
+
+    assert state.startswith("v1.")
+    assert cloudflare_oauth.decode_cloudflare_oauth_state(state) == {
+        "workspace_id": 42,
+        "return_to": "/settings",
+    }
+    with pytest.raises(LookupError, match="Invalid Cloudflare OAuth state"):
+        cloudflare_oauth.decode_cloudflare_oauth_state("not-a-valid-token")
+
+
+def test_cloudflare_oauth_authorization_url_uses_configured_scopes(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(
+        cloudflare_oauth,
+        "get_settings",
+        lambda: _cloudflare_oauth_settings(CLOUDFLARE_OAUTH_SCOPES="zone.read"),
+    )
+
+    result = cloudflare_oauth.build_cloudflare_authorization_url(
+        redirect_uri="https://app.example.test/api/v1/domains/cloudflare/oauth/callback",
+        state="state-token",
+    )
+
+    assert result["redirect_uri"].endswith("/cloudflare/oauth/callback")
+    assert result["scopes"] == "zone.read"
+    assert result["authorization_url"].startswith("https://dash.cloudflare.com/oauth2/auth?")
+    assert "client_id=client-id" in result["authorization_url"]
+    assert "scope=zone.read" in result["authorization_url"]
+    assert "state=state-token" in result["authorization_url"]
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_oauth_exchange_posts_token_request(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    requests = []
+    monkeypatch.setattr(cloudflare_oauth, "get_settings", lambda: _cloudflare_oauth_settings())
+
+    class FakeTokenResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"access_token": "provider-token", "scope": "zone.read dns.read"}
+
+    class FakeAsyncClient:
+        def __init__(self, *, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, *, data):
+            requests.append({"url": url, "data": data})
+            return FakeTokenResponse()
+
+    monkeypatch.setattr(cloudflare_oauth.httpx, "AsyncClient", FakeAsyncClient)
+
+    token_data = await cloudflare_oauth.exchange_cloudflare_oauth_code(
+        code="oauth-code",
+        redirect_uri="https://app.example.test/api/v1/domains/cloudflare/oauth/callback",
+    )
+
+    assert token_data["access_token"] == "provider-token"
+    assert requests == [
+        {
+            "url": cloudflare_oauth.CLOUDFLARE_TOKEN_URL,
+            "data": {
+                "grant_type": "authorization_code",
+                "code": "oauth-code",
+                "redirect_uri": (
+                    "https://app.example.test/api/v1/domains/cloudflare/oauth/callback"
+                ),
+                "client_id": "client-id",
+                "client_secret": "client-secret",
+            },
+        }
+    ]
+
+
+def test_persist_cloudflare_oauth_tokens_stores_encrypted_provider_token(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(cloudflare_oauth, "encrypt_secret", lambda value: f"encrypted:{value}")
+
+    cloudflare_oauth.persist_cloudflare_oauth_tokens(
+        db_session,
+        {"access_token": "provider-token", "scope": "zone.read dns.read"},
+    )
+
+    settings = {
+        row.key: row.value
+        for row in db_session.query(Setting)
+        .filter(
+            Setting.key.in_(
+                [
+                    "cloudflare.api_token",
+                    "cloudflare.auth_mode",
+                    "cloudflare.oauth_scopes",
+                    "cloudflare.oauth_connected_at",
+                ]
+            )
+        )
+        .all()
+    }
+    assert settings["cloudflare.api_token"] == "encrypted:provider-token"
+    assert settings["cloudflare.api_token"] != "provider-token"
+    assert settings["cloudflare.auth_mode"] == "oauth"
+    assert settings["cloudflare.oauth_scopes"] == "zone.read dns.read"
+    assert settings["cloudflare.oauth_connected_at"]
 
 
 def test_cloudflare_oauth_authorize_url_endpoint_returns_redirect(
