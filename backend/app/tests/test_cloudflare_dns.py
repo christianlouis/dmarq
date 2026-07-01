@@ -1204,11 +1204,78 @@ def test_dns_change_plan_apply_rejects_unconfirmed_real_write(
     assert db_session.query(WorkspaceAuditLog).count() == 0
 
 
+def test_dns_change_plan_apply_requires_verified_domain_for_live_write(
+    authed_client: TestClient,
+    db_session,
+):
+    db_session.add(Domain(name=DOMAIN, verified=False))
+    db_session.commit()
+    plan = _dns_plan(operation="update")
+    provider = FakeWriteCloudflareProvider(
+        zones=[{"id": "zone-1", "name": DOMAIN}],
+        records=[_record("dmarc", "TXT", f"_dmarc.{DOMAIN}", "v=DMARC1; p=none")],
+    )
+
+    with (
+        patch(
+            "app.api.api_v1.endpoints.domains._build_domain_dns_guidance",
+            new=AsyncMock(return_value=_dns_guidance_with_plan(plan)),
+        ),
+        patch(
+            "app.services.dns_provider_writes.build_cloudflare_provider",
+            return_value=provider,
+        ) as build_provider,
+    ):
+        response = authed_client.post(
+            f"/api/v1/domains/{DOMAIN}/dns/change-plan/apply",
+            json={
+                "plan_id": plan["plan_id"],
+                "provider": "cloudflare",
+                "dry_run": False,
+                "confirm": True,
+            },
+        )
+
+    assert response.status_code == 422
+    assert "Verify domain ownership before applying live DNS changes" in response.json()["detail"]
+    build_provider.assert_not_called()
+    assert provider.updated == []
+    assert db_session.query(WorkspaceAuditLog).count() == 0
+
+
+def test_dns_change_plan_apply_requires_stored_domain_for_live_write(
+    authed_client: TestClient,
+):
+    plan = _dns_plan(operation="update")
+
+    with (
+        patch("app.api.api_v1.endpoints.domains._domain_exists", return_value=True),
+        patch(
+            "app.api.api_v1.endpoints.domains._build_domain_dns_guidance",
+            new=AsyncMock(return_value=_dns_guidance_with_plan(plan)),
+        ),
+        patch("app.services.dns_provider_writes.build_cloudflare_provider") as build_provider,
+    ):
+        response = authed_client.post(
+            f"/api/v1/domains/{DOMAIN}/dns/change-plan/apply",
+            json={
+                "plan_id": plan["plan_id"],
+                "provider": "cloudflare",
+                "dry_run": False,
+                "confirm": True,
+            },
+        )
+
+    assert response.status_code == 422
+    assert "Add this domain to the workspace" in response.json()["detail"]
+    build_provider.assert_not_called()
+
+
 def test_dns_change_plan_apply_updates_cloudflare_and_audits(
     authed_client: TestClient,
     db_session,
 ):
-    db_session.add(Domain(name=DOMAIN))
+    db_session.add(Domain(name=DOMAIN, verified=True))
     db_session.commit()
     plan = _dns_plan(operation="update")
     provider = FakeWriteCloudflareProvider(
@@ -1266,7 +1333,7 @@ def test_dns_change_plan_apply_reports_unverified_provider_readback(
     authed_client: TestClient,
     db_session,
 ):
-    db_session.add(Domain(name=DOMAIN))
+    db_session.add(Domain(name=DOMAIN, verified=True))
     db_session.commit()
     plan = _dns_plan(operation="update")
     provider = FakeUnverifiedWriteCloudflareProvider(
@@ -1379,7 +1446,7 @@ def test_dns_change_plan_apply_allows_explicit_provider_mismatch_override_and_au
     authed_client: TestClient,
     db_session,
 ):
-    db_session.add(Domain(name=DOMAIN))
+    db_session.add(Domain(name=DOMAIN, verified=True))
     db_session.commit()
     plan = _dns_plan(operation="update")
     guidance = _dns_guidance_with_plan(plan)
