@@ -644,7 +644,7 @@ def simulate_demo_dns_write(
         verification=DNSWriteVerification(
             status="verified",
             verified=True,
-            checked_values=[content],
+            checked_values=[mutation.content],
             message=(
                 "Demo mode simulated provider readback for the proposed DNS value. "
                 "No live DNS was changed."
