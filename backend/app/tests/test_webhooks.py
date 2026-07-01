@@ -19,6 +19,10 @@ from app.services.webhook_events import (
     DELIVERY_FAILED,
     DELIVERY_PENDING,
     EVENT_ALERT_CREATED,
+    EVENT_REMEDIATION_APPROVAL_REQUIRED,
+    EVENT_REMEDIATION_INVESTIGATION_REQUIRED,
+    EVENT_REMEDIATION_MANUAL_ACTION_REQUIRED,
+    EVENT_REMEDIATION_SUMMARY,
     EVENT_REPORTS_MISSING,
     EVENT_WEBHOOK_TEST,
     DeliveryAttemptResult,
@@ -171,6 +175,19 @@ def test_webhook_validation_update_and_abandoned_delivery(db_session):
     """Endpoint helpers validate input, update secrets, and abandon disabled endpoints."""
     assert normalize_event_types([]) == ["*"]
     assert normalize_event_types(["*", EVENT_ALERT_CREATED]) == ["*"]
+    assert normalize_event_types(
+        [
+            EVENT_REMEDIATION_APPROVAL_REQUIRED,
+            EVENT_REMEDIATION_MANUAL_ACTION_REQUIRED,
+            EVENT_REMEDIATION_INVESTIGATION_REQUIRED,
+            EVENT_REMEDIATION_SUMMARY,
+        ]
+    ) == [
+        EVENT_REMEDIATION_APPROVAL_REQUIRED,
+        EVENT_REMEDIATION_INVESTIGATION_REQUIRED,
+        EVENT_REMEDIATION_MANUAL_ACTION_REQUIRED,
+        EVENT_REMEDIATION_SUMMARY,
+    ]
     assert (
         validate_webhook_url(" https://receiver.example/hook ") == "https://receiver.example/hook"
     )

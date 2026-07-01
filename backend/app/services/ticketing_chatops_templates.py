@@ -9,6 +9,10 @@ from app.services.webhook_events import (
     EVENT_ALERT_CREATED,
     EVENT_ALERT_RESOLVED,
     EVENT_COMPLIANCE_DROP,
+    EVENT_REMEDIATION_APPROVAL_REQUIRED,
+    EVENT_REMEDIATION_INVESTIGATION_REQUIRED,
+    EVENT_REMEDIATION_MANUAL_ACTION_REQUIRED,
+    EVENT_REMEDIATION_SUMMARY,
     EVENT_REPORTS_MISSING,
     EVENT_SENDER_NEW,
 )
@@ -22,6 +26,10 @@ WORKFLOW_EVENT_TYPES = [
     EVENT_REPORTS_MISSING,
     EVENT_ALERT_CREATED,
     EVENT_ALERT_RESOLVED,
+    EVENT_REMEDIATION_APPROVAL_REQUIRED,
+    EVENT_REMEDIATION_MANUAL_ACTION_REQUIRED,
+    EVENT_REMEDIATION_INVESTIGATION_REQUIRED,
+    EVENT_REMEDIATION_SUMMARY,
 ]
 
 EVENT_WORKFLOW_MAPPINGS: Dict[str, Dict[str, Any]] = {
@@ -69,6 +77,42 @@ EVENT_WORKFLOW_MAPPINGS: Dict[str, Dict[str, Any]] = {
         "dedupe_key_template": "dmarq:alert:{domain}:{alert_rule}",
         "summary_template": "DMARQ alert resolved: {title}",
         "noise_control": "Resolve the linked ticket when all active signals for the dedupe key are clear.",
+    },
+    EVENT_REMEDIATION_APPROVAL_REQUIRED: {
+        "severity": "medium",
+        "owner": "email-security",
+        "ticket_action": "create_or_update",
+        "chat_action": "notify_channel",
+        "dedupe_key_template": "{dedupe_key}",
+        "summary_template": "Approve DMARQ remediation for {domain}: {title}",
+        "noise_control": "Open or update one ticket per remediation dedupe key until the operator approves, rejects, or resolves it.",
+    },
+    EVENT_REMEDIATION_MANUAL_ACTION_REQUIRED: {
+        "severity": "high",
+        "owner": "email-security",
+        "ticket_action": "create_or_update",
+        "chat_action": "notify_channel_and_thread",
+        "dedupe_key_template": "{dedupe_key}",
+        "summary_template": "Manual DMARQ remediation required for {domain}: {title}",
+        "noise_control": "Escalate high-impact manual work once, then update the existing ticket while evidence changes.",
+    },
+    EVENT_REMEDIATION_INVESTIGATION_REQUIRED: {
+        "severity": "medium",
+        "owner": "email-security",
+        "ticket_action": "create_or_update",
+        "chat_action": "notify_channel",
+        "dedupe_key_template": "{dedupe_key}",
+        "summary_template": "Investigate DMARQ remediation item for {domain}: {title}",
+        "noise_control": "Create one investigation ticket per dedupe key and suppress repeats until the state changes.",
+    },
+    EVENT_REMEDIATION_SUMMARY: {
+        "severity": "info",
+        "owner": "email-security",
+        "ticket_action": "comment_or_summarize",
+        "chat_action": "include_in_summary",
+        "dedupe_key_template": "{dedupe_key}",
+        "summary_template": "DMARQ remediation summary item for {domain}: {title}",
+        "noise_control": "Do not create standalone tickets for summary-only items unless the severity escalates.",
     },
 }
 

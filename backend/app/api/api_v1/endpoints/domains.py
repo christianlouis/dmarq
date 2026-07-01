@@ -818,6 +818,7 @@ class RemediationNotification(BaseModel):
     dedupe_key: str
     reason: str
     next_transition: str
+    payload_preview: Dict[str, Any] = Field(default_factory=dict)
 
 
 class RemediationQueueItem(BaseModel):

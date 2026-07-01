@@ -76,16 +76,46 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
     assert queue["items"][0]["automation"]["apply_endpoint"] == (
         "/api/v1/domains/example.com/dns/change-plan/apply"
     )
-    assert queue["items"][0]["notification"] == {
+    notification = queue["items"][0]["notification"]
+    assert notification == {
         "state": "approval_required",
         "event": "dmarq.remediation.approval_required",
         "channel": "email_security",
         "dedupe_key": "dmarq:remediation:example.com:dns:dmarc-missing",
         "reason": "Notify an operator that a safe DNS repair is ready for preview.",
         "next_transition": "verified_after_apply",
+        "payload_preview": notification["payload_preview"],
+    }
+    assert notification["payload_preview"] == {
+        "schema_version": "dmarq.remediation.notification.v1",
+        "domain": "example.com",
+        "item_id": "dns:dmarc-missing",
+        "source": "dns_lint",
+        "state": "approval_ready",
+        "severity": "critical",
+        "confidence": "high",
+        "title": "Publish DMARC",
+        "detail": "No DMARC TXT record was found.",
+        "notification_state": "approval_required",
+        "event_type": "dmarq.remediation.approval_required",
+        "channel": "email_security",
+        "dedupe_key": "dmarq:remediation:example.com:dns:dmarc-missing",
+        "reason": "Notify an operator that a safe DNS repair is ready for preview.",
+        "next_transition": "verified_after_apply",
+        "automation": {
+            "eligible": True,
+            "requires_approval": True,
+            "provider": "cloudflare",
+            "plan_id": "dmarc-missing",
+            "apply_endpoint": "/api/v1/domains/example.com/dns/change-plan/apply",
+        },
+        "evidence": [{"label": "finding", "value": "_dmarc.example.com"}],
     }
     assert queue["items"][1]["notification"]["state"] == "investigation_required"
     assert queue["items"][1]["notification"]["event"] == (
+        "dmarq.remediation.investigation_required"
+    )
+    assert queue["items"][1]["notification"]["payload_preview"]["event_type"] == (
         "dmarq.remediation.investigation_required"
     )
     assert [item["id"] for item in queue["items"]] == [
@@ -134,6 +164,9 @@ def test_remediation_queue_keeps_placeholder_plan_manual():
     assert queue["items"][0]["automation"]["apply_endpoint"] is None
     assert queue["items"][0]["notification"]["state"] == "summary_only"
     assert queue["items"][0]["notification"]["event"] == "dmarq.remediation.summary"
+    assert queue["items"][0]["notification"]["payload_preview"]["event_type"] == (
+        "dmarq.remediation.summary"
+    )
 
 
 def test_remediation_queue_requires_recommended_provider_for_automation():

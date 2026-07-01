@@ -15,6 +15,8 @@ from app.services.webhook_events import (
     EVENT_ALERT_CREATED,
     EVENT_ALERT_RESOLVED,
     EVENT_COMPLIANCE_DROP,
+    EVENT_REMEDIATION_APPROVAL_REQUIRED,
+    EVENT_REMEDIATION_SUMMARY,
 )
 
 
@@ -40,6 +42,14 @@ def test_ticketing_chatops_bundle_is_versioned_and_complete():
     assert (
         bundle["event_workflow_mappings"][EVENT_ALERT_RESOLVED]["ticket_action"]
         == "resolve_or_comment"
+    )
+    assert (
+        bundle["event_workflow_mappings"][EVENT_REMEDIATION_APPROVAL_REQUIRED]["ticket_action"]
+        == "create_or_update"
+    )
+    assert (
+        bundle["event_workflow_mappings"][EVENT_REMEDIATION_SUMMARY]["chat_action"]
+        == "include_in_summary"
     )
 
 
