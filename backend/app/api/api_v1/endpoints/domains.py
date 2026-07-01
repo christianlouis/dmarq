@@ -1330,7 +1330,7 @@ def _stored_domain_exists(db: Session, domain_id: str) -> bool:
 
 
 def _allows_legacy_report_only_fallback(db: Session) -> bool:
-    return db.query(Workspace.id).filter(Workspace.active.is_(True)).limit(2).count() <= 1
+    return db.query(Workspace.id).limit(2).count() <= 1
 
 
 def _resolve_domain_name_for_read(

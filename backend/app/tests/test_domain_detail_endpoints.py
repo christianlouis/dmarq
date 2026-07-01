@@ -838,16 +838,18 @@ def test_domain_remediation_queue_rejects_other_workspace_numeric_domain_without
     assert hydrate_calls[0] is not None
 
 
+@pytest.mark.parametrize("other_workspace_active", [True, False])
 def test_domain_remediation_queue_rejects_report_only_fallback_with_multiple_workspaces(
     authed_client: TestClient,
     db_session,
     monkeypatch,
+    other_workspace_active,
 ):
     """Legacy report-only fallback is only safe for single-workspace deployments."""
     other_workspace = Workspace(
         slug="second-remediation",
         name="Second Remediation",
-        active=True,
+        active=other_workspace_active,
     )
     db_session.add(other_workspace)
     db_session.commit()
