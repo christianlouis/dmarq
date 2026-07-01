@@ -17,6 +17,7 @@ from app.models.dns_cache import DNSCache
 from app.services.dns_cache import DEFAULT_DNS_CACHE_TTL_SECONDS
 from app.services.source_reputation_feeds import (
     IPFeedReputation,
+    ReputationFeedProvider,
     lookup_sources_reputation_cached,
     providers_from_settings,
 )
@@ -466,21 +467,52 @@ def source_reputation_cache_key(
     senders_by_ip: Optional[Dict[str, Dict[str, Any]]] = None,
     anomalies_by_ip: Optional[Dict[str, List[Dict[str, Any]]]] = None,
     feed_results_by_ip: Optional[Dict[str, IPFeedReputation]] = None,
+    feed_providers: Optional[Iterable[ReputationFeedProvider]] = None,
+    feed_max_ips: Optional[int] = None,
     days: int = 30,
 ) -> str:
     """Return a stable cache key for a domain reputation input set."""
+    feed_fingerprint = (
+        _feed_provider_fingerprint(feed_providers, feed_max_ips=feed_max_ips)
+        if feed_providers is not None
+        else _feed_fingerprint(feed_results_by_ip)
+    )
     return (
         f"source-reputation:{int(days)}:"
         f"{_source_fingerprint(sources)}:"
         f"{_report_fingerprint(reports)}:"
         f"{_context_fingerprint(senders_by_ip, anomalies_by_ip)}:"
-        f"{_feed_fingerprint(feed_results_by_ip)}"
+        f"{feed_fingerprint}"
     )
 
 
 def _feed_fingerprint(feed_results_by_ip: Optional[Dict[str, IPFeedReputation]]) -> str:
     payload = json.dumps(
         {ip: asdict(result) for ip, result in sorted((feed_results_by_ip or {}).items())},
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
+
+
+def _feed_provider_fingerprint(
+    feed_providers: Iterable[ReputationFeedProvider],
+    *,
+    feed_max_ips: Optional[int],
+) -> str:
+    payload = json.dumps(
+        {
+            "max_ips": feed_max_ips,
+            "providers": [
+                {
+                    "provider_id": provider.config.provider_id,
+                    "enabled": provider.config.enabled,
+                    "kind": provider.config.kind,
+                    "query_zone": provider.config.query_zone,
+                    "listing_name": provider.config.listing_name,
+                }
+                for provider in feed_providers
+            ],
+        },
         sort_keys=True,
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
@@ -503,20 +535,14 @@ async def build_source_reputation_cached(
     source_rows = list(sources)
     report_rows = list(reports)
     settings = get_settings()
-    feed_results_by_ip = await lookup_sources_reputation_cached(
-        db,
-        [str(source.get("source_ip") or source.get("ip") or "unknown") for source in source_rows],
-        providers_from_settings(settings),
-        ttl_seconds=settings.SOURCE_REPUTATION_FEED_CACHE_SECONDS,
-        max_ips=settings.SOURCE_REPUTATION_FEED_MAX_IPS,
-        refresh=refresh,
-    )
+    feed_providers = providers_from_settings(settings)
     cache_key = source_reputation_cache_key(
         source_rows,
         report_rows,
         senders_by_ip=senders_by_ip,
         anomalies_by_ip=anomalies_by_ip,
-        feed_results_by_ip=feed_results_by_ip,
+        feed_providers=feed_providers,
+        feed_max_ips=settings.SOURCE_REPUTATION_FEED_MAX_IPS,
         days=days,
     )
     row = (
@@ -530,6 +556,15 @@ async def build_source_reputation_cached(
     )
     if row and not refresh and _is_fresh(row, ttl_seconds, now):
         return _result_from_json(row.result_json), True, row.checked_at
+
+    feed_results_by_ip = await lookup_sources_reputation_cached(
+        db,
+        [str(source.get("source_ip") or source.get("ip") or "unknown") for source in source_rows],
+        feed_providers,
+        ttl_seconds=settings.SOURCE_REPUTATION_FEED_CACHE_SECONDS,
+        max_ips=settings.SOURCE_REPUTATION_FEED_MAX_IPS,
+        refresh=refresh,
+    )
 
     result = build_source_reputation(
         domain,

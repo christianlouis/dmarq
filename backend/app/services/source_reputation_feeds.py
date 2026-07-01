@@ -162,11 +162,17 @@ class DNSBLFeedProvider:
     ) -> FeedLookupEvidence:
         if isinstance(exc, dns.resolver.NXDOMAIN):
             return self._evidence("clean", checked_at=checked_at)
-        if isinstance(exc, (dns.resolver.NoAnswer, dns.resolver.NoNameservers)):
+        if isinstance(exc, dns.resolver.NoAnswer):
             return self._evidence(
                 "clean",
                 checked_at=checked_at,
                 detail="No listing response returned.",
+            )
+        if isinstance(exc, dns.resolver.NoNameservers):
+            return self._evidence(
+                "error",
+                checked_at=checked_at,
+                detail="Provider nameservers are unavailable.",
             )
         if isinstance(exc, dns.exception.Timeout):
             return self._evidence("error", checked_at=checked_at, detail="Lookup timed out.")
@@ -247,7 +253,16 @@ def providers_from_settings(settings: Optional[Settings] = None) -> List[Reputat
 def feed_registry(settings: Optional[Settings] = None) -> Dict[str, Dict[str, object]]:
     """Return safe metadata for available external reputation providers."""
     return {
-        config.provider_id: asdict(config) for config in provider_configs_from_settings(settings)
+        config.provider_id: {
+            "provider_id": config.provider_id,
+            "display_name": config.display_name,
+            "kind": config.kind,
+            "enabled": config.enabled,
+            "requires_terms": config.requires_terms,
+            "default_enabled": config.default_enabled,
+            "configured": bool(config.query_zone),
+        }
+        for config in provider_configs_from_settings(settings)
     }
 
 
@@ -380,7 +395,22 @@ async def lookup_sources_reputation_cached(
     provider_rows = list(providers)
     if not provider_rows:
         return {}
-    unique_ips = list(dict.fromkeys(str(ip) for ip in source_ips if str(ip).strip()))[:max_ips]
+    unique_ips: List[str] = []
+    seen: set[str] = set()
+    for raw_ip in source_ips:
+        ip = str(raw_ip).strip()
+        if not ip or ip in seen:
+            continue
+        try:
+            address = ipaddress.ip_address(ip)
+        except ValueError:
+            continue
+        if not address.is_global:
+            continue
+        seen.add(ip)
+        unique_ips.append(ip)
+        if len(unique_ips) >= max_ips:
+            break
     results: Dict[str, IPFeedReputation] = {}
     for ip in unique_ips:
         result, _, _ = await lookup_ip_reputation_cached(

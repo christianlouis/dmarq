@@ -1,12 +1,15 @@
 from types import SimpleNamespace
 
+import dns.resolver
 import pytest
 
 from app.services.source_reputation_feeds import (
+    DNSBLFeedProvider,
     FeedProviderConfig,
     StaticFeedProvider,
     feed_registry,
     lookup_ip_reputation_cached,
+    lookup_sources_reputation_cached,
     provider_configs_from_settings,
 )
 
@@ -65,7 +68,36 @@ def test_feed_registry_exposes_safe_metadata_only():
     assert registry["spamcop_scbl"]["enabled"] is True
     assert registry["barracuda_brbl"]["enabled"] is True
     assert registry["spamhaus_dqs"]["enabled"] is False
+    assert registry["spamcop_scbl"]["configured"] is True
+    assert registry["spamhaus_dqs"]["configured"] is False
+    assert "query_zone" not in registry["spamcop_scbl"]
     assert "secret" not in registry["spamcop_scbl"]
+
+
+class NoNameserversResolver:
+    lifetime = 0.0
+    timeout = 0.0
+
+    def resolve(self, *_args, **_kwargs):
+        raise dns.resolver.NoNameservers()
+
+
+@pytest.mark.asyncio
+async def test_dnsbl_no_nameservers_reports_provider_error():
+    provider = DNSBLFeedProvider(
+        FeedProviderConfig(
+            provider_id="demo_feed",
+            display_name="Demo Reputation Feed",
+            enabled=True,
+            query_zone="example.test",
+        ),
+        resolver=NoNameserversResolver(),
+    )
+
+    evidence = await provider.lookup_ip("8.8.8.8")
+
+    assert evidence.status == "error"
+    assert "nameserver" in evidence.detail.lower()
 
 
 @pytest.mark.asyncio
@@ -97,3 +129,26 @@ async def test_lookup_ip_reputation_cached_reuses_provider_result(db_session):
     assert first_cached is False
     assert second_cached is True
     assert second.listed is True
+
+
+@pytest.mark.asyncio
+async def test_lookup_sources_reputation_filters_ineligible_ips_before_max_limit(db_session):
+    provider = StaticFeedProvider(
+        FeedProviderConfig(
+            provider_id="demo_feed",
+            display_name="Demo Reputation Feed",
+            enabled=True,
+            listing_name="Demo RBL",
+        ),
+        {"8.8.8.8": "Demo RBL"},
+    )
+
+    results = await lookup_sources_reputation_cached(
+        db_session,
+        ["10.0.0.1", "not-an-ip", "8.8.8.8"],
+        [provider],
+        max_ips=1,
+    )
+
+    assert list(results) == ["8.8.8.8"]
+    assert results["8.8.8.8"].listed is True
