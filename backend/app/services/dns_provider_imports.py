@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
 
 from app.services.cloudflare_dns import discover_cloudflare_zones, import_cloudflare_domains
+from app.services.dns_provider_connectors import provider_connector_registry
 from app.services.dns_provider_writes import normalize_provider_id
 
 
@@ -31,7 +32,9 @@ class DNSProviderImportZone:
 
 
 PROVIDER_NAMES = {
-    "cloudflare": "Cloudflare",
+    item["id"]: item["name"]
+    for item in provider_connector_registry()
+    if item.get("zone_import_status") == "ready"
 }
 
 

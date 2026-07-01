@@ -272,10 +272,29 @@ normal DNS lint and change-plan responses. DMARQ does not modify Postmark or DNS
 records in this workflow; DNS writes still require an explicit confirmed action
 through a configured DNS provider connector.
 
-Cloudflare is implemented natively. Additional API-backed providers use
-DNS-Lexicon where the provider is available in the runtime and its credentials
-are supplied through Lexicon-compatible environment/configuration. Some
-providers require provider-specific Python extras in a custom image.
+Cloudflare is implemented natively and is the first provider with ready
+DNS-zone import, record readback, dry-run, approved apply, verification, and
+rollback evidence. `GET /api/v1/domains/dns/providers` exposes the broader
+connector registry so operators can see which providers are ready, planned, or
+Lexicon-backed before wiring credentials.
+
+Tier 1 connector metadata currently covers:
+
+- Cloudflare: API token, ready for zone import and approved DNS repair.
+- Amazon Route 53: planned zone import/read path; Lexicon-backed write path
+  where the runtime and credentials are available. Prefer IAM role assumption
+  with external ID for hosted deployments.
+- Akamai Edge DNS / FastDNS: planned EdgeGrid-backed DNS connector. Akamai EAA
+  is an access/SSO frontdoor option and does not replace the Edge DNS connector.
+- Hetzner DNS: planned zone import/read path; Lexicon-backed write path where
+  the runtime and credentials are available.
+- Linode DNS: planned zone import/read path; Lexicon-backed write path where
+  the runtime and credentials are available.
+
+Additional API-backed providers use DNS-Lexicon where the provider is available
+in the runtime and its credentials are supplied through Lexicon-compatible
+environment/configuration. Some providers require provider-specific Python
+extras in a custom image.
 
 ### DNS Result Cache
 

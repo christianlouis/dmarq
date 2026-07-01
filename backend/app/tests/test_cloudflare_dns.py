@@ -697,7 +697,13 @@ def test_dns_provider_capabilities_mark_cloudflare_import_available(authed_clien
     assert response.status_code == 200
     providers = {provider["id"]: provider for provider in response.json()["providers"]}
     assert providers["cloudflare"]["import_available"] is True
+    assert providers["cloudflare"]["zone_import_status"] == "ready"
+    assert providers["cloudflare"]["record_read_status"] == "ready"
+    assert providers["cloudflare"]["record_write_status"] == "ready"
+    assert "Zone:Read" in providers["cloudflare"]["minimum_permissions"]
     assert providers["route53"]["import_available"] is False
+    assert providers["route53"]["zone_import_status"] == "planned"
+    assert "iam_role_external_id" in providers["route53"]["auth_models"]
 
 
 def test_cloudflare_import_endpoint_returns_import_summary(authed_client: TestClient):
@@ -802,6 +808,10 @@ def test_dns_provider_capabilities_include_cloudflare_and_lexicon(authed_client:
     assert providers["cloudflare"]["mode"] == "native"
     assert "route53" in providers
     assert "googleclouddns" in providers
+    assert providers["akamai_edgedns"]["mode"] == "planned"
+    assert providers["akamai_edgedns"]["name"] == "Akamai Edge DNS / FastDNS"
+    assert providers["akamai_edgedns"]["record_write_status"] == "planned"
+    assert "edgegrid" in providers["akamai_edgedns"]["auth_models"]
 
 
 def test_dns_provider_capabilities_report_available_lexicon_runtime():

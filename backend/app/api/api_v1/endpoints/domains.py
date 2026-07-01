@@ -35,6 +35,7 @@ from app.services.dane import check_dane_cached
 from app.services.demo_data import DEMO_DAYS, build_demo_health_score_history
 from app.services.dns_cache import resolve_domain_dns_cached
 from app.services.dns_guidance import build_dns_guidance
+from app.services.dns_provider_connectors import provider_connector_registry
 from app.services.dns_provider_imports import (
     import_dns_provider_domains,
     preview_dns_provider_import,
@@ -633,6 +634,17 @@ class DNSProviderCapabilityResponse(BaseModel):
     credentials: str
     status: str
     import_available: bool = False
+    tier: Optional[int] = None
+    auth_models: List[str] = Field(default_factory=list)
+    zone_import_status: Optional[str] = None
+    record_read_status: Optional[str] = None
+    record_write_status: Optional[str] = None
+    dry_run_supported: bool = False
+    verification_supported: bool = False
+    rollback_supported: bool = False
+    minimum_permissions: List[str] = Field(default_factory=list)
+    setup_hint: Optional[str] = None
+    docs_url: Optional[str] = None
 
 
 class DNSProviderCapabilitiesResponse(BaseModel):
@@ -3014,15 +3026,52 @@ async def get_dns_provider_capabilities(
     """Return provider-backed DNS write capabilities."""
     capabilities = provider_capabilities()
     import_provider_ids = {provider["id"] for provider in supported_import_providers()}
-    return DNSProviderCapabilitiesResponse(
-        providers=[
+    connector_metadata = {provider["id"]: provider for provider in provider_connector_registry()}
+    provider_rows = []
+    seen_provider_ids = set()
+    metadata_keys = {
+        "tier",
+        "auth_models",
+        "zone_import_status",
+        "record_read_status",
+        "record_write_status",
+        "dry_run_supported",
+        "verification_supported",
+        "rollback_supported",
+        "minimum_permissions",
+        "setup_hint",
+        "docs_url",
+    }
+    for provider in capabilities:
+        seen_provider_ids.add(provider["id"])
+        provider_rows.append(
             {
                 **provider,
                 "import_available": provider["id"] in import_provider_ids,
+                **{
+                    key: value
+                    for key, value in connector_metadata.get(provider["id"], {}).items()
+                    if key in metadata_keys
+                },
             }
-            for provider in capabilities
-        ]
-    )
+        )
+    for provider_id, metadata in connector_metadata.items():
+        if provider_id in seen_provider_ids:
+            continue
+        provider_rows.append(
+            {
+                "id": provider_id,
+                "name": metadata["name"],
+                "mode": "planned",
+                "record_types": [],
+                "operations": [],
+                "credentials": ", ".join(metadata.get("auth_models") or ["provider credentials"]),
+                "status": "planned",
+                "import_available": provider_id in import_provider_ids,
+                **{key: value for key, value in metadata.items() if key in metadata_keys},
+            }
+        )
+    return DNSProviderCapabilitiesResponse(providers=provider_rows)
 
 
 @router.get("/dns/import/{provider}/preview", response_model=DNSProviderImportPreviewResponse)
