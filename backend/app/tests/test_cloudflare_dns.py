@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.api.api_v1.endpoints import domains as domains_endpoint
 from app.api.api_v1.endpoints.domains import _policy_enforcement_suggestions
 from app.core.credential_encryption import encrypt_secret
 from app.core.database import get_db
@@ -22,6 +23,7 @@ from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog
 from app.services import (
     cloudflare_dns,
+    cloudflare_oauth,
     dns_provider_connectors,
     dns_provider_imports,
     dns_provider_writes,
@@ -1428,6 +1430,609 @@ def test_cloudflare_import_endpoint_returns_import_summary(authed_client: TestCl
 
     assert response.status_code == 200
     assert response.json()["imported"] == [DOMAIN]
+
+
+def _cloudflare_oauth_settings(**overrides):
+    defaults = {
+        "SECRET_KEY": "s" * 32,
+        "CLOUDFLARE_OAUTH_CLIENT_ID": "client-id",
+        "CLOUDFLARE_OAUTH_CLIENT_SECRET": "client-secret",
+        "CLOUDFLARE_OAUTH_SCOPES": "zone.read dns.read",
+    }
+    defaults.update(overrides)
+    return SimpleNamespace(**defaults)
+
+
+def _cloudflare_oauth_zone_read_settings():
+    return _cloudflare_oauth_settings(CLOUDFLARE_OAUTH_SCOPES="zone.read")
+
+
+def _cloudflare_oauth_empty_scope_settings():
+    return _cloudflare_oauth_settings(CLOUDFLARE_OAUTH_SCOPES="")
+
+
+def _cloudflare_oauth_missing_credential_settings():
+    return _cloudflare_oauth_settings(
+        CLOUDFLARE_OAUTH_CLIENT_ID="",
+        CLOUDFLARE_OAUTH_CLIENT_SECRET="",
+    )
+
+
+def _encrypted_secret(value):
+    return f"encrypted:{value}"
+
+
+def _cloudflare_provider_factory(provider):
+    def build_provider(_db):
+        return provider
+
+    return build_provider
+
+
+def test_cloudflare_oauth_state_round_trips_and_sanitizes_return_to(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(cloudflare_oauth, "get_settings", _cloudflare_oauth_settings)
+
+    state = cloudflare_oauth.build_cloudflare_oauth_state(
+        workspace_id=42,
+        return_to="https://evil.example/settings",
+    )
+    scheme_relative_state = cloudflare_oauth.build_cloudflare_oauth_state(
+        workspace_id=42,
+        return_to="//evil.example/settings",
+    )
+
+    assert state.startswith("v1.")
+    assert cloudflare_oauth.decode_cloudflare_oauth_state(state) == {
+        "workspace_id": 42,
+        "return_to": "/settings",
+    }
+    assert cloudflare_oauth.decode_cloudflare_oauth_state(scheme_relative_state) == {
+        "workspace_id": 42,
+        "return_to": "/settings",
+    }
+    with pytest.raises(LookupError, match="Invalid Cloudflare OAuth state"):
+        cloudflare_oauth.decode_cloudflare_oauth_state("not-a-valid-token")
+
+
+def test_cloudflare_oauth_authorization_url_uses_configured_scopes(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(cloudflare_oauth, "get_settings", _cloudflare_oauth_zone_read_settings)
+
+    result = cloudflare_oauth.build_cloudflare_authorization_url(
+        redirect_uri="https://app.example.test/api/v1/domains/cloudflare/oauth/callback",
+        state="state-token",
+    )
+
+    assert result["redirect_uri"].endswith("/cloudflare/oauth/callback")
+    assert result["scopes"] == "zone.read"
+    assert result["authorization_url"].startswith("https://dash.cloudflare.com/oauth2/auth?")
+    assert "client_id=client-id" in result["authorization_url"]
+    assert "scope=zone.read" in result["authorization_url"]
+    assert "state=state-token" in result["authorization_url"]
+
+
+def test_cloudflare_oauth_config_defaults_to_read_scopes(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(cloudflare_oauth, "get_settings", _cloudflare_oauth_empty_scope_settings)
+
+    assert (
+        cloudflare_oauth.get_cloudflare_oauth_config().scopes
+        == cloudflare_oauth.CLOUDFLARE_DEFAULT_READ_SCOPES
+    )
+
+
+def test_cloudflare_oauth_config_requires_client_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(
+        cloudflare_oauth,
+        "get_settings",
+        _cloudflare_oauth_missing_credential_settings,
+    )
+
+    assert cloudflare_oauth.cloudflare_oauth_configured() is False
+    with pytest.raises(LookupError, match="Cloudflare OAuth is not configured"):
+        cloudflare_oauth.get_cloudflare_oauth_config()
+
+
+def test_cloudflare_oauth_decode_rejects_state_without_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(cloudflare_oauth, "get_settings", _cloudflare_oauth_settings)
+    token = cloudflare_oauth.jwt.encode(
+        {"return_to": "/settings"},
+        "s" * 32 + ":cloudflare-oauth-state",
+        algorithm="HS256",
+    )
+
+    with pytest.raises(LookupError, match="Invalid Cloudflare OAuth state"):
+        cloudflare_oauth.decode_cloudflare_oauth_state(f"v1.{token}")
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_oauth_exchange_posts_token_request(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    requests = []
+    monkeypatch.setattr(cloudflare_oauth, "get_settings", _cloudflare_oauth_settings)
+
+    class FakeTokenResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"access_token": "provider-token", "scope": "zone.read dns.read"}
+
+    class FakeAsyncClient:
+        def __init__(self, *, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, *, data):
+            requests.append({"url": url, "data": data})
+            return FakeTokenResponse()
+
+    monkeypatch.setattr(cloudflare_oauth.httpx, "AsyncClient", FakeAsyncClient)
+
+    token_data = await cloudflare_oauth.exchange_cloudflare_oauth_code(
+        code="oauth-code",
+        redirect_uri="https://app.example.test/api/v1/domains/cloudflare/oauth/callback",
+    )
+
+    assert token_data["access_token"] == "provider-token"
+    assert requests == [
+        {
+            "url": cloudflare_oauth.CLOUDFLARE_TOKEN_URL,
+            "data": {
+                "grant_type": "authorization_code",
+                "code": "oauth-code",
+                "redirect_uri": (
+                    "https://app.example.test/api/v1/domains/cloudflare/oauth/callback"
+                ),
+                "client_id": "client-id",
+                "client_secret": "client-secret",
+            },
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_oauth_exchange_rejects_missing_access_token(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(cloudflare_oauth, "get_settings", _cloudflare_oauth_settings)
+
+    class FakeTokenResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"scope": "zone.read"}
+
+    class FakeAsyncClient:
+        def __init__(self, *, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, *, data):
+            return FakeTokenResponse()
+
+    monkeypatch.setattr(cloudflare_oauth.httpx, "AsyncClient", FakeAsyncClient)
+
+    with pytest.raises(LookupError, match="did not return an access token"):
+        await cloudflare_oauth.exchange_cloudflare_oauth_code(
+            code="oauth-code",
+            redirect_uri="https://app.example.test/api/v1/domains/cloudflare/oauth/callback",
+        )
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_oauth_exchange_wraps_http_errors(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(cloudflare_oauth, "get_settings", _cloudflare_oauth_settings)
+
+    class FakeAsyncClient:
+        def __init__(self, *, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, *, data):
+            raise cloudflare_oauth.httpx.RequestError("network unavailable")
+
+    monkeypatch.setattr(cloudflare_oauth.httpx, "AsyncClient", FakeAsyncClient)
+
+    with pytest.raises(LookupError, match="token exchange failed"):
+        await cloudflare_oauth.exchange_cloudflare_oauth_code(
+            code="oauth-code",
+            redirect_uri="https://app.example.test/api/v1/domains/cloudflare/oauth/callback",
+        )
+
+
+def test_persist_cloudflare_oauth_tokens_stores_encrypted_provider_token(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(cloudflare_oauth, "encrypt_secret", _encrypted_secret)
+
+    cloudflare_oauth.persist_cloudflare_oauth_tokens(
+        db_session,
+        {"access_token": "provider-token", "scope": "zone.read dns.read"},
+    )
+
+    settings = {
+        row.key: row.value
+        for row in db_session.query(Setting)
+        .filter(
+            Setting.key.in_(
+                [
+                    "cloudflare.api_token",
+                    "cloudflare.auth_mode",
+                    "cloudflare.oauth_scopes",
+                    "cloudflare.oauth_connected_at",
+                ]
+            )
+        )
+        .all()
+    }
+    assert settings["cloudflare.api_token"] == "encrypted:provider-token"
+    assert settings["cloudflare.api_token"] != "provider-token"
+    assert settings["cloudflare.auth_mode"] == "oauth"
+    assert settings["cloudflare.oauth_scopes"] == "zone.read dns.read"
+    assert settings["cloudflare.oauth_connected_at"]
+
+
+def test_persist_cloudflare_oauth_tokens_requires_access_token(
+    db_session: Session,
+):
+    with pytest.raises(LookupError, match="did not return an access token"):
+        cloudflare_oauth.persist_cloudflare_oauth_tokens(db_session, {})
+
+
+def test_persist_cloudflare_oauth_tokens_defaults_to_configured_scopes(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(cloudflare_oauth, "encrypt_secret", _encrypted_secret)
+    monkeypatch.setattr(cloudflare_oauth, "get_settings", _cloudflare_oauth_zone_read_settings)
+
+    cloudflare_oauth.persist_cloudflare_oauth_tokens(
+        db_session,
+        {"access_token": "provider-token"},
+    )
+
+    scope = db_session.query(Setting).filter(Setting.key == "cloudflare.oauth_scopes").first()
+    assert scope.value == "zone.read"
+
+
+def test_persist_cloudflare_oauth_tokens_updates_existing_settings(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    db_session.add(
+        Setting(
+            key="cloudflare.auth_mode",
+            value="token",
+            category="legacy",
+            value_type="secret",
+            description="old mode",
+        )
+    )
+    db_session.commit()
+    monkeypatch.setattr(cloudflare_oauth, "encrypt_secret", _encrypted_secret)
+
+    cloudflare_oauth.persist_cloudflare_oauth_tokens(
+        db_session,
+        {"access_token": "provider-token", "scope": "zone.read"},
+    )
+
+    auth_mode = db_session.query(Setting).filter(Setting.key == "cloudflare.auth_mode").one()
+    assert auth_mode.value == "oauth"
+    assert auth_mode.category == "cloudflare"
+    assert auth_mode.value_type == "string"
+    assert auth_mode.description == "Cloudflare connector authentication mode"
+
+
+def test_cloudflare_oauth_authorize_url_endpoint_returns_redirect(
+    authed_client: TestClient,
+):
+    with (
+        patch(
+            "app.api.api_v1.endpoints.domains.build_cloudflare_oauth_state",
+            return_value="state-token",
+        ) as state_mock,
+        patch(
+            "app.api.api_v1.endpoints.domains.build_cloudflare_authorization_url",
+            return_value={
+                "authorization_url": "https://dash.cloudflare.com/oauth2/auth?state=state-token",
+                "redirect_uri": "https://app.example.test/api/v1/domains/cloudflare/oauth/callback",
+                "scopes": "zone.read dns.read",
+            },
+        ) as authorize_mock,
+    ):
+        response = authed_client.get(
+            "/api/v1/domains/cloudflare/oauth/authorize-url?return_to=/settings",
+            headers={"x-forwarded-proto": "https", "host": "app.example.test"},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["authorization_url"].startswith("https://dash.cloudflare.com/oauth2/auth")
+    assert data["scopes"] == "zone.read dns.read"
+    state_mock.assert_called_once()
+    authorize_mock.assert_called_once()
+    assert authorize_mock.call_args.kwargs["redirect_uri"] == (
+        "https://app.example.test/api/v1/domains/cloudflare/oauth/callback"
+    )
+
+
+def test_cloudflare_oauth_authorize_url_endpoint_returns_setup_error(
+    authed_client: TestClient,
+):
+    with patch(
+        "app.api.api_v1.endpoints.domains.build_cloudflare_authorization_url",
+        side_effect=LookupError("Cloudflare OAuth is not configured."),
+    ):
+        response = authed_client.get("/api/v1/domains/cloudflare/oauth/authorize-url")
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Cloudflare OAuth is not configured."
+
+
+def test_cloudflare_oauth_callback_requires_code_and_state(
+    authed_client: TestClient,
+):
+    response = authed_client.get("/api/v1/domains/cloudflare/oauth/callback?state=state-token")
+
+    assert response.status_code == 400
+    assert "Cloudflare connection failed" in response.text
+
+
+def test_cloudflare_oauth_callback_returns_failure_for_invalid_state(
+    authed_client: TestClient,
+):
+    with patch(
+        "app.api.api_v1.endpoints.domains.decode_cloudflare_oauth_state",
+        side_effect=LookupError("Invalid Cloudflare OAuth state."),
+    ):
+        response = authed_client.get(
+            "/api/v1/domains/cloudflare/oauth/callback?code=oauth-code&state=bad-state"
+        )
+
+    assert response.status_code == 400
+    assert "retry after checking the connector settings" in response.text
+
+
+def test_cloudflare_oauth_callback_stores_token_and_redirects(
+    authed_client: TestClient,
+    db_session: Session,
+):
+    workspace = get_or_create_default_workspace(db_session)
+    exchange_mock = AsyncMock(return_value={"access_token": "provider-token"})
+
+    with (
+        patch(
+            "app.api.api_v1.endpoints.domains.decode_cloudflare_oauth_state",
+            return_value={"workspace_id": workspace.id, "return_to": "/settings/cloudflare"},
+        ) as decode_mock,
+        patch(
+            "app.api.api_v1.endpoints.domains.exchange_cloudflare_oauth_code",
+            exchange_mock,
+        ),
+        patch("app.api.api_v1.endpoints.domains.persist_cloudflare_oauth_tokens") as persist_mock,
+    ):
+        response = authed_client.get(
+            "/api/v1/domains/cloudflare/oauth/callback?code=oauth-code&state=state-token",
+            headers={"x-forwarded-proto": "https", "host": "app.example.test"},
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/settings/cloudflare"
+    decode_mock.assert_called_once_with("state-token")
+    exchange_mock.assert_awaited_once_with(
+        code="oauth-code",
+        redirect_uri="https://app.example.test/api/v1/domains/cloudflare/oauth/callback",
+    )
+    persist_mock.assert_called_once_with(db_session, {"access_token": "provider-token"})
+
+
+def test_cloudflare_oauth_status_endpoint_reports_connected_token(
+    authed_client: TestClient,
+    db_session: Session,
+):
+    db_session.add(
+        Setting(
+            key="cloudflare.api_token",
+            value="encrypted-token",
+            category="cloudflare",
+            value_type="string",
+        )
+    )
+    db_session.add(
+        Setting(
+            key="cloudflare.auth_mode",
+            value="oauth",
+            category="cloudflare",
+            value_type="string",
+        )
+    )
+    db_session.add(
+        Setting(
+            key="cloudflare.oauth_scopes",
+            value="zone.read dns.read",
+            category="cloudflare",
+            value_type="string",
+        )
+    )
+    db_session.commit()
+
+    with patch("app.api.api_v1.endpoints.domains.cloudflare_oauth_configured", return_value=True):
+        response = authed_client.get("/api/v1/domains/cloudflare/oauth/status")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "oauth_configured": True,
+        "connected": True,
+        "auth_mode": "oauth",
+        "scopes": "zone.read dns.read",
+        "connected_at": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_verify_cloudflare_domain_ownership_marks_domain_verified(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    workspace = get_or_create_default_workspace(db_session)
+    domain = Domain(name=DOMAIN, workspace_id=workspace.id, verified=False, active=True)
+    db_session.add(domain)
+    db_session.commit()
+
+    provider = FakeCloudflareProvider(
+        zones=[
+            {
+                "id": "zone-1",
+                "name": DOMAIN,
+                "status": "active",
+                "account": {"name": "Example Account"},
+            }
+        ]
+    )
+    monkeypatch.setattr(
+        cloudflare_dns,
+        "build_cloudflare_provider",
+        _cloudflare_provider_factory(provider),
+    )
+
+    result = await cloudflare_dns.verify_cloudflare_domain_ownership(
+        db_session,
+        domain_name=DOMAIN,
+        workspace_id=workspace.id,
+    )
+
+    db_session.refresh(domain)
+    assert result["verified"] is True
+    assert result["zone_id"] == "zone-1"
+    assert result["account_name"] == "Example Account"
+    assert domain.verified is True
+
+
+@pytest.mark.asyncio
+async def test_verify_cloudflare_domain_ownership_rejects_missing_zone(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    provider = FakeCloudflareProvider(zones=[])
+    monkeypatch.setattr(
+        cloudflare_dns,
+        "build_cloudflare_provider",
+        _cloudflare_provider_factory(provider),
+    )
+
+    with pytest.raises(LookupError, match="No Cloudflare zone visible"):
+        await cloudflare_dns.verify_cloudflare_domain_ownership(
+            db_session,
+            domain_name=DOMAIN,
+            workspace_id=1,
+        )
+
+
+@pytest.mark.asyncio
+async def test_verify_cloudflare_domain_ownership_requires_monitored_domain(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    provider = FakeCloudflareProvider(zones=[{"id": "zone-1", "name": DOMAIN}])
+    monkeypatch.setattr(
+        cloudflare_dns,
+        "build_cloudflare_provider",
+        _cloudflare_provider_factory(provider),
+    )
+
+    with pytest.raises(LookupError, match="is not monitored"):
+        await cloudflare_dns.verify_cloudflare_domain_ownership(
+            db_session,
+            domain_name=DOMAIN,
+            workspace_id=1,
+        )
+
+
+@pytest.mark.asyncio
+async def test_verify_cloudflare_domain_ownership_requires_domain_name(
+    db_session: Session,
+):
+    with pytest.raises(LookupError, match="Domain name is required"):
+        await cloudflare_dns.verify_cloudflare_domain_ownership(
+            db_session,
+            domain_name=" ",
+            workspace_id=1,
+        )
+
+
+def test_cloudflare_ownership_endpoint_returns_provider_proof(
+    authed_client: TestClient,
+    db_session: Session,
+):
+    workspace = get_or_create_default_workspace(db_session)
+    db_session.add(Domain(name=DOMAIN, workspace_id=workspace.id, verified=False, active=True))
+    db_session.commit()
+    ownership_result = {
+        "domain": DOMAIN,
+        "verified": True,
+        "provider": "cloudflare",
+        "zone_id": "zone-1",
+        "zone_name": DOMAIN,
+        "zone_status": "active",
+        "account_name": "Example Account",
+        "proof_reason": "DMARQ can see this domain as a Cloudflare zone.",
+        "next_steps": ["Review the imported Cloudflare zones."],
+    }
+
+    verify_mock = AsyncMock(return_value=ownership_result)
+    with patch.object(domains_endpoint, "verify_cloudflare_domain_ownership", verify_mock):
+        response = authed_client.post(f"/api/v1/domains/{DOMAIN}/ownership/cloudflare")
+
+    assert response.status_code == 200
+    assert response.json() == ownership_result
+    verify_mock.assert_awaited_once_with(
+        db_session,
+        domain_name=DOMAIN,
+        workspace_id=workspace.id,
+    )
+
+
+def test_cloudflare_ownership_endpoint_returns_next_steps_on_provider_error(
+    authed_client: TestClient,
+):
+    verify_mock = AsyncMock(side_effect=LookupError(f"No Cloudflare zone visible for {DOMAIN}"))
+    with patch.object(domains_endpoint, "verify_cloudflare_domain_ownership", verify_mock):
+        response = authed_client.post(f"/api/v1/domains/{DOMAIN}/ownership/cloudflare")
+
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["message"] == f"No Cloudflare zone visible for {DOMAIN}"
+    assert "Connect Cloudflare from Settings" in detail["next_steps"][0]
 
 
 def test_cloudflare_dns_analysis_endpoint_persists_history(

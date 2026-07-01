@@ -21,6 +21,7 @@ from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.domain import Domain
 from app.models.report import DMARCReport
+from app.models.setting import Setting
 from app.models.workspace import Workspace
 from app.services.bimi import BIMIResult, check_bimi_cached
 from app.services.cloudflare_dns import (
@@ -30,6 +31,15 @@ from app.services.cloudflare_dns import (
     import_cloudflare_domains,
     list_dns_record_changes,
     sync_dns_record_changes,
+    verify_cloudflare_domain_ownership,
+)
+from app.services.cloudflare_oauth import (
+    build_cloudflare_authorization_url,
+    build_cloudflare_oauth_state,
+    cloudflare_oauth_configured,
+    decode_cloudflare_oauth_state,
+    exchange_cloudflare_oauth_code,
+    persist_cloudflare_oauth_tokens,
 )
 from app.services.dane import check_dane_cached
 from app.services.demo_data import DEMO_DAYS, build_demo_health_score_history
@@ -156,6 +166,27 @@ def _raise_plan_limit_error(exc: OrganizationPlanLimitError) -> None:
         status_code=status.HTTP_402_PAYMENT_REQUIRED,
         detail=exc.to_detail(),
     ) from exc
+
+
+def _setting_value(db: Session, key: str) -> Optional[str]:
+    row = db.query(Setting).filter(Setting.key == key).first()
+    return row.value if row and row.value else None
+
+
+def _public_base_url(request: Request, db: Session) -> str:
+    """Return the externally visible base URL for provider OAuth redirects."""
+    configured = get_settings().PUBLIC_BASE_URL or _setting_value(db, "general.base_url")
+    if configured:
+        return configured.rstrip("/")
+
+    base_url = str(request.base_url).rstrip("/")
+    forwarded_proto = (
+        (request.headers.get("x-forwarded-proto") or "").split(",", maxsplit=1)[0].strip()
+    )
+    if forwarded_proto in {"http", "https"} and "://" in base_url:
+        _, rest = base_url.split("://", maxsplit=1)
+        return f"{forwarded_proto}://{rest}".rstrip("/")
+    return base_url
 
 
 def _normalize_reported_policy(policy_value: Any) -> Optional[str]:
@@ -1095,6 +1126,38 @@ class CloudflareImportResponse(BaseModel):
     existing: List[str]
     skipped: List[str]
     total_discovered: int
+
+
+class CloudflareOAuthAuthorizeResponse(BaseModel):
+    """Cloudflare OAuth authorization details."""
+
+    authorization_url: str
+    redirect_uri: str
+    scopes: str
+
+
+class CloudflareOAuthStatusResponse(BaseModel):
+    """Cloudflare connector status for the settings UI."""
+
+    oauth_configured: bool
+    connected: bool
+    auth_mode: Optional[str] = None
+    scopes: Optional[str] = None
+    connected_at: Optional[str] = None
+
+
+class CloudflareOwnershipVerifyResponse(BaseModel):
+    """Cloudflare-backed domain ownership verification result."""
+
+    domain: str
+    verified: bool
+    provider: str = "cloudflare"
+    zone_id: Optional[str] = None
+    zone_name: Optional[str] = None
+    zone_status: Optional[str] = None
+    account_name: Optional[str] = None
+    proof_reason: str
+    next_steps: List[str] = Field(default_factory=list)
 
 
 class DNSProviderImportZoneResponse(BaseModel):
@@ -2936,7 +2999,7 @@ async def read_domain(
     """
     workspace = _authorized_domain_read_workspace(_auth, db)
     store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store)
+    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
     domains = _domain_names_for_summary(db, store, workspace)
     stored_domain = workspace_domain_query(db, workspace).filter(Domain.name == domain_name).first()
 
@@ -3339,6 +3402,42 @@ async def verify_domain_ownership(
         matched=matched,
         observed_values=[str(value) for value in observed],
     )
+
+
+@router.post(
+    "/{domain_id}/ownership/cloudflare",
+    response_model=CloudflareOwnershipVerifyResponse,
+)
+async def verify_domain_ownership_with_cloudflare(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
+    """Verify a monitored domain through connected Cloudflare zone access."""
+    workspace = _authorized_domain_workspace(
+        _auth,
+        db,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
+    )
+    try:
+        return await verify_cloudflare_domain_ownership(
+            db,
+            domain_name=normalize_domain_name(domain_id),
+            workspace_id=workspace.id,
+        )
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "message": str(exc),
+                "next_steps": [
+                    "Connect Cloudflare from Settings, or use a scoped Cloudflare API token.",
+                    "Make sure the connected Cloudflare account can list this domain's zone.",
+                    "If the domain is not on Cloudflare, use the TXT ownership proof instead.",
+                ],
+            },
+        ) from exc
 
 
 @router.get("/{domain_id}/migration/readiness", response_model=MigrationReadinessResponse)
@@ -4496,6 +4595,90 @@ async def discover_cloudflare_domains(
         ) from exc
 
 
+@router.get("/cloudflare/oauth/status", response_model=CloudflareOAuthStatusResponse)
+async def get_cloudflare_oauth_status(
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
+    """Return Cloudflare connector status without exposing token material."""
+    auth_mode = _setting_value(db, "cloudflare.auth_mode")
+    token_row = db.query(Setting).filter(Setting.key == "cloudflare.api_token").first()
+    return CloudflareOAuthStatusResponse(
+        oauth_configured=cloudflare_oauth_configured(),
+        connected=bool(token_row and token_row.value),
+        auth_mode=auth_mode,
+        scopes=_setting_value(db, "cloudflare.oauth_scopes"),
+        connected_at=_setting_value(db, "cloudflare.oauth_connected_at"),
+    )
+
+
+@router.get("/cloudflare/oauth/authorize-url", response_model=CloudflareOAuthAuthorizeResponse)
+async def get_cloudflare_oauth_authorize_url(
+    request: Request,
+    return_to: str = Query("/settings", title="Path to return to after OAuth"),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
+    """Return the Cloudflare OAuth authorization URL for DNS provider access."""
+    workspace = _authorized_domain_workspace(
+        _auth,
+        db,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
+    )
+    redirect_uri = f"{_public_base_url(request, db)}/api/v1/domains/cloudflare/oauth/callback"
+    try:
+        payload = build_cloudflare_authorization_url(
+            redirect_uri=redirect_uri,
+            state=build_cloudflare_oauth_state(workspace_id=workspace.id, return_to=return_to),
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return CloudflareOAuthAuthorizeResponse(**payload)
+
+
+@router.get("/cloudflare/oauth/callback")
+async def cloudflare_oauth_callback(
+    request: Request,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
+    """Handle the Cloudflare OAuth redirect and store the scoped access token."""
+    from fastapi.responses import HTMLResponse, RedirectResponse
+
+    error = request.query_params.get("error")
+    code = request.query_params.get("code")
+    state_value = request.query_params.get("state")
+    if error or not code or not state_value:
+        return HTMLResponse(
+            content=(
+                "<html><body><p>Cloudflare connection failed. "
+                "Please close this window and try again from DMARQ settings.</p></body></html>"
+            ),
+            status_code=400,
+        )
+
+    try:
+        state_payload = decode_cloudflare_oauth_state(state_value)
+        _authorized_domain_workspace(_auth, db, selected_workspace_id=state_payload["workspace_id"])
+        token_data = await exchange_cloudflare_oauth_code(
+            code=code,
+            redirect_uri=f"{_public_base_url(request, db)}/api/v1/domains/cloudflare/oauth/callback",
+        )
+        persist_cloudflare_oauth_tokens(db, token_data)
+    except LookupError as exc:
+        logger.info("Cloudflare OAuth callback failed: %s", exc)
+        return HTMLResponse(
+            content=(
+                "<html><body><p>Cloudflare connection failed. "
+                "Please close this window and retry after checking the connector settings.</p></body></html>"
+            ),
+            status_code=400,
+        )
+
+    return RedirectResponse(url=state_payload.get("return_to") or "/settings", status_code=303)
+
+
 @router.post("/cloudflare/import", response_model=CloudflareImportResponse)
 async def import_cloudflare_domain_zones(
     payload: CloudflareImportRequest,
@@ -5422,16 +5605,23 @@ async def get_domain_sources(
         sender_by_ip[ip] = identify_sender(ip, source, hostname=hostname, domain=domain_id)
         source_context.append((source, hostname, sender_by_ip[ip]))
 
-    reputation_result, _, _ = await build_source_reputation_cached(
-        db,
-        domain_id,
-        reports,
-        sources,
-        senders_by_ip=sender_by_ip,
-        anomalies_by_ip=anomalies_by_ip,
-        days=days,
-    )
-    reputations_by_ip = source_reputation_by_ip(reputation_result)
+    reputations_by_ip = {}
+    try:
+        reputation_result, _, _ = await build_source_reputation_cached(
+            db,
+            domain_id,
+            reports,
+            sources,
+            senders_by_ip=sender_by_ip,
+            anomalies_by_ip=anomalies_by_ip,
+            days=days,
+        )
+        reputations_by_ip = source_reputation_by_ip(reputation_result)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.info(
+            "Source reputation enrichment failed for domain sources: %s",
+            type(exc).__name__,
+        )
 
     for source, hostname, sender in source_context:
         ip = source.get("source_ip", "unknown")

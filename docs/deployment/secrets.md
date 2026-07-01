@@ -18,6 +18,7 @@ Store these values in a 1Password Environment for each deployment target:
 | `AUTHENTIK_CLIENT_SECRET` | Secret | Required when Authentik direct OIDC authentication is enabled. |
 | `OIDC_CLIENT_SECRET` | Secret | Required when generic OIDC authentication is enabled. |
 | `CLOUDFLARE_API_TOKEN` | Secret | Optional DNS inspection/integration token. |
+| `CLOUDFLARE_OAUTH_CLIENT_SECRET` | Secret | Optional Cloudflare OAuth connector secret for one-click zone import and ownership verification. |
 | `FIRST_SUPERUSER_PASSWORD` | Secret | Only needed for bootstrap flows that create an initial local admin. |
 
 Non-sensitive values, such as `IMAP_SERVER`, `IMAP_USERNAME`, `LOGTO_ENDPOINT`,

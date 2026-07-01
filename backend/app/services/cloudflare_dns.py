@@ -188,6 +188,56 @@ async def get_zone_for_domain(db: Session, domain: str) -> Dict[str, Any]:
     return {"id": zone["id"], "name": zone["name"], "records": records}
 
 
+async def verify_cloudflare_domain_ownership(
+    db: Session,
+    *,
+    domain_name: str,
+    workspace_id: int,
+) -> Dict[str, Any]:
+    """Verify a monitored domain by proving Cloudflare zone access."""
+    normalized = domain_name.strip().lower().rstrip(".")
+    if not normalized:
+        raise LookupError("Domain name is required")
+
+    provider = build_cloudflare_provider(db)
+    zone = await provider.find_zone_for_domain(normalized)
+    if not zone:
+        raise LookupError(f"No Cloudflare zone visible for {normalized}")
+
+    domain = (
+        db.query(Domain)
+        .filter(Domain.name == normalized, Domain.workspace_id == workspace_id)
+        .first()
+    )
+    if domain is None:
+        raise LookupError(f"Domain {normalized} is not monitored in this workspace")
+
+    if not domain.verified:
+        domain.verified = True
+    domain.description = domain.description or "Verified through Cloudflare zone access"
+    db.commit()
+    db.refresh(domain)
+    return {
+        "domain": normalized,
+        "verified": bool(domain.verified),
+        "provider": PROVIDER_NAME,
+        "zone_id": zone.get("id"),
+        "zone_name": zone.get("name"),
+        "zone_status": zone.get("status"),
+        "account_name": (zone.get("account") or {}).get("name"),
+        "proof_reason": (
+            "DMARQ can see this domain as a Cloudflare zone through the connected "
+            "provider account. This verifies provider control for DNS guidance and "
+            "future human-approved repair workflows."
+        ),
+        "next_steps": [
+            "Review the imported Cloudflare zones and monitored domain list.",
+            "Use DNS linting to preview DMARC/SPF/DKIM fixes.",
+            "Enable a separate DNS write scope only when one-click repair should be available.",
+        ],
+    }
+
+
 def _record_key(record: Dict[str, Any]) -> str:
     record_id = record.get("id")
     if record_id:

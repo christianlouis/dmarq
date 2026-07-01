@@ -1,3 +1,5 @@
+import asyncio
+import ipaddress
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -10,6 +12,7 @@ from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.domain import Domain
 from app.services.dmarc_parser import DMARCParser
+from app.services.dns_resolver import get_default_provider
 from app.services.organizations import OrganizationPlanLimitError
 from app.services.report_persistence import (
     delete_persisted_report,
@@ -18,6 +21,12 @@ from app.services.report_persistence import (
     save_parsed_report,
 )
 from app.services.report_store import ReportStore
+from app.services.sender_intelligence import identify_sender, source_geo_for
+from app.services.source_reputation import (
+    SourceReputation,
+    build_source_reputation_cached,
+    source_reputation_by_ip,
+)
 from app.services.workspace_access import (
     PERMISSION_REPORTS_READ,
     PERMISSION_REPORTS_WRITE,
@@ -617,6 +626,8 @@ class ReportRecordDetail(BaseModel):
     review_status: str = "pass"
     failure_reasons: List[str] = Field(default_factory=list)
     next_steps: List[str] = Field(default_factory=list)
+    source_details: Dict[str, Any] = Field(default_factory=dict)
+    reputation: Optional[Dict[str, Any]] = None
 
 
 class ReportPolicyDetail(BaseModel):
@@ -692,6 +703,79 @@ def _record_review_guidance(record: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+async def _safe_ptr_lookup(provider: Any, ip: str, timeout: float = 3.0) -> Optional[str]:
+    """Return reverse DNS for an IP without letting enrichment break report loading."""
+    try:
+        ipaddress.ip_address(ip)
+    except ValueError:
+        return None
+    try:
+        return await asyncio.wait_for(provider.lookup_ptr(ip), timeout=timeout)
+    except Exception:
+        return None
+
+
+def _source_row_from_report_record(record: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert one report record into the source-row shape used by reputation scoring."""
+    count = int(record.get("count") or 0)
+    spf_result = str(record.get("spf_result") or "unknown").lower()
+    dkim_result = str(record.get("dkim_result") or "unknown").lower()
+    dmarc_pass = spf_result == "pass" or dkim_result == "pass"
+    row = dict(record)
+    row.update(
+        {
+            "source_ip": str(record.get("source_ip") or "unknown"),
+            "count": count,
+            "spf_result": spf_result,
+            "dkim_result": dkim_result,
+            "dmarc_result": "pass" if dmarc_pass else "fail",
+            "spf_pass_count": count if spf_result == "pass" else 0,
+            "spf_fail_count": count if spf_result == "fail" else 0,
+            "dkim_pass_count": count if dkim_result == "pass" else 0,
+            "dkim_fail_count": count if dkim_result == "fail" else 0,
+            "dmarc_pass_count": count if dmarc_pass else 0,
+            "dmarc_fail_count": 0 if dmarc_pass else count,
+        }
+    )
+    return row
+
+
+def _source_reputation_dict(item: SourceReputation) -> Dict[str, Any]:
+    """Return a template-friendly reputation payload."""
+    return {
+        "ip": item.ip,
+        "status": item.status,
+        "risk_score": item.risk_score,
+        "summary": item.summary,
+        "listings": item.listings,
+        "evidence": [
+            {"label": evidence.label, "value": evidence.value, "source": evidence.source}
+            for evidence in item.evidence
+        ],
+        "recommendations": item.recommendations,
+        "checked_at": item.checked_at,
+    }
+
+
+def _source_details(
+    ip: str,
+    record: Dict[str, Any],
+    hostname: Optional[str],
+    sender: Dict[str, Any],
+) -> Dict[str, Any]:
+    geo = source_geo_for(ip, record)
+    return {
+        "hostname": hostname,
+        "sender": sender,
+        "country": geo.get("country"),
+        "country_code": geo.get("country_code"),
+        "region": geo.get("region"),
+        "asn": geo.get("asn"),
+        "network": geo.get("network"),
+        "geo_source": geo.get("source"),
+    }
+
+
 @router.get("/{report_id}", response_model=ReportDetail)
 async def get_report_by_id(
     report_id: str,
@@ -727,10 +811,45 @@ async def get_report_by_id(
         pct=str(policy_val.get("pct", "100")),
     )
 
+    raw_records = list(report.get("records", []))
+    source_rows = [_source_row_from_report_record(rec) for rec in raw_records]
+    provider = get_default_provider(db)
+    ips = [str(row.get("source_ip") or "unknown") for row in source_rows]
+    ptr_semaphore = asyncio.Semaphore(20)
+
+    async def _bounded_ptr_lookup(ip: str) -> Optional[str]:
+        async with ptr_semaphore:
+            return await _safe_ptr_lookup(provider, ip)
+
+    hostnames = await asyncio.gather(*[_bounded_ptr_lookup(ip) for ip in ips])
+    sender_by_ip = {
+        ip: identify_sender(ip, row, hostname=hostname, domain=report.get("domain", ""))
+        for ip, row, hostname in zip(ips, source_rows, hostnames, strict=True)
+    }
+    reputations_by_ip: Dict[str, SourceReputation] = {}
+    try:
+        reputation_result, _, _ = await build_source_reputation_cached(
+            db,
+            str(report.get("domain", "")),
+            [report],
+            source_rows,
+            senders_by_ip=sender_by_ip,
+            anomalies_by_ip={},
+            days=1,
+        )
+        reputations_by_ip = source_reputation_by_ip(reputation_result)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.info(
+            "Report source reputation enrichment failed for report detail: %s",
+            type(exc).__name__,
+        )
+
     # Normalize records
     record_details = []
-    for rec in report.get("records", []):
+    for rec, row, hostname in zip(raw_records, source_rows, hostnames, strict=True):
+        ip = str(row.get("source_ip") or "unknown")
         guidance = _record_review_guidance(rec)
+        reputation = reputations_by_ip.get(ip)
         record_details.append(
             ReportRecordDetail(
                 source_ip=rec.get("source_ip", ""),
@@ -741,6 +860,8 @@ async def get_report_by_id(
                 header_from=rec.get("header_from", ""),
                 spf=rec.get("spf") if isinstance(rec.get("spf"), list) else None,
                 dkim=rec.get("dkim") if isinstance(rec.get("dkim"), list) else None,
+                source_details=_source_details(ip, rec, hostname, sender_by_ip.get(ip, {})),
+                reputation=_source_reputation_dict(reputation) if reputation else None,
                 **guidance,
             )
         )

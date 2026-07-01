@@ -178,6 +178,7 @@
                         {% call thead() %}
                             {% call tr() %}
                                 {% call th() %}Source IP{% endcall %}
+                                {% call th() %}Source intelligence{% endcall %}
                                 {% call th() %}Count{% endcall %}
                                 {% call th() %}Disposition{% endcall %}
                                 {% call th() %}DKIM{% endcall %}
@@ -189,7 +190,7 @@
                         {% call tbody() %}
                             <template x-if="report.records.length === 0">
                                 <tr>
-                                    <td colspan="7" class="text-center py-4">
+                                    <td colspan="8" class="text-center py-4">
                                         <div class="text-muted-foreground">No records in this report</div>
                                     </td>
                                 </tr>
@@ -198,6 +199,35 @@
                                 {% call tr() %}
                                     {% call td() %}
                                         <span class="font-mono text-sm" x-text="record.source_ip"></span>
+                                    {% endcall %}
+                                    {% call td() %}
+                                        <div class="min-w-64 max-w-sm space-y-1 text-xs text-[#5f5c78]">
+                                            <div class="font-semibold text-[#120d36]" x-text="record.source_details?.sender?.name || 'Unknown sender'"></div>
+                                            <div x-show="record.source_details?.hostname">
+                                                PTR: <span class="font-mono" x-text="record.source_details.hostname"></span>
+                                            </div>
+                                            <div>
+                                                <span x-text="sourceLocation(record)"></span>
+                                            </div>
+                                            <div x-show="record.source_details?.asn || record.source_details?.network">
+                                                <span x-text="record.source_details?.asn || 'ASN unknown'"></span>
+                                                <span x-show="record.source_details?.network"> · </span>
+                                                <span x-text="record.source_details?.network || ''"></span>
+                                            </div>
+                                            <template x-if="record.reputation">
+                                                <div class="pt-1">
+                                                    <span class="inline-flex items-center px-2 py-1 rounded text-xs"
+                                                          :class="reputationClass(record.reputation.status)"
+                                                          x-text="`Reputation ${record.reputation.risk_score}/100 · ${record.reputation.status}`"></span>
+                                                    <div class="mt-1" x-text="record.reputation.summary"></div>
+                                                    <template x-if="record.reputation.listings?.length">
+                                                        <div class="font-semibold text-[#ff6f3c]">
+                                                            DNSBL: <span x-text="record.reputation.listings.join(', ')"></span>
+                                                        </div>
+                                                    </template>
+                                                </div>
+                                            </template>
+                                        </div>
                                     {% endcall %}
                                     {% call td() %}
                                         <span x-text="record.count"></span>
@@ -332,6 +362,21 @@ function reportDetailApp(reportId) {
         reviewStatusLabel(status) {
             if (status === 'needs_review') return 'Needs review';
             return 'Pass';
+        },
+
+        sourceLocation(record) {
+            const details = record.source_details || {};
+            const country = details.country || 'Unknown country';
+            const region = details.region || 'Unknown region';
+            const code = details.country_code && details.country_code !== 'ZZ' ? ` (${details.country_code})` : '';
+            return `${region}, ${country}${code}`;
+        },
+
+        reputationClass(status) {
+            if (status === 'listed' || status === 'critical') return 'bg-red-100 text-red-800';
+            if (status === 'suspicious') return 'bg-yellow-100 text-yellow-800';
+            if (status === 'clean') return 'bg-green-100 text-green-800';
+            return 'bg-gray-100 text-gray-800';
         },
     };
 }

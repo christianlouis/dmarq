@@ -83,12 +83,18 @@
                         TXT value
                         <input readonly class="input input-sm input-bordered mt-1 w-full font-mono text-xs" :value="ownership.proof_record_value || ''">
                     </label>
-                    <div class="flex items-end">
+                    <div class="flex flex-col justify-end gap-2">
                         <button type="button"
                                 class="btn btn-sm bg-[#2f9da5] text-white hover:bg-[#272a5f]"
                                 :disabled="ownership.loading"
                                 @click="verifyDomainOwnership()">
                             <span x-text="ownership.loading ? 'Checking...' : 'Check ownership'"></span>
+                        </button>
+                        <button type="button"
+                                class="btn btn-outline btn-sm border-[#dfdfdf] text-[#272a5f] hover:border-[#2f9da5]"
+                                :disabled="ownership.loading"
+                                @click="verifyDomainOwnershipCloudflare()">
+                            <span x-text="ownership.loading ? 'Checking...' : 'Verify via Cloudflare'"></span>
                         </button>
                     </div>
                 </div>
@@ -2108,6 +2114,19 @@ function domainDetailsApp(domainId) {
             return 'bg-base-200 text-base-content/70';
         },
 
+        apiHeaders() {
+            return { 'Content-Type': 'application/json' };
+        },
+
+        workspaceHeaders() {
+            const headers = this.apiHeaders();
+            const workspaceId = localStorage.getItem('dmarq.selectedWorkspaceId');
+            if (workspaceId) {
+                headers['X-DMARQ-Workspace-ID'] = workspaceId;
+            }
+            return headers;
+        },
+
         recommendationSeverityClass(severity) {
             if (severity === 'error') return 'bg-red-500';
             if (severity === 'warning') return 'bg-yellow-500';
@@ -2245,6 +2264,45 @@ function domainDetailsApp(domainId) {
                     message: error.message || 'Ownership proof could not be checked.'
                 };
                 console.error('Error verifying ownership proof:', error);
+            }
+        },
+
+        async verifyDomainOwnershipCloudflare() {
+            this.ownership.loading = true;
+            this.ownership.error = '';
+            this.ownership.message = '';
+            try {
+                const headers = this.workspaceHeaders();
+                const response = await fetch(`/api/v1/domains/${encodeURIComponent(this.domainId)}/ownership/cloudflare`, {
+                    method: 'POST',
+                    headers
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    const detail = typeof data.detail === 'string' ? data.detail : data.detail?.message;
+                    const nextSteps = Array.isArray(data.detail?.next_steps) ? data.detail.next_steps : data.next_steps;
+                    if (nextSteps) {
+                        this.ownership.next_steps = nextSteps;
+                    }
+                    throw new Error(detail || 'Cloudflare ownership could not be verified.');
+                }
+                this.ownership = {
+                    ...this.ownership,
+                    verified: data.verified,
+                    proof_reason: data.proof_reason || this.ownership.proof_reason,
+                    next_steps: data.next_steps || this.ownership.next_steps,
+                    loading: false,
+                    error: '',
+                    message: `Cloudflare verified ${data.domain} through zone ${data.zone_name || data.zone_id}.`
+                };
+            } catch (error) {
+                this.ownership = {
+                    ...this.ownership,
+                    loading: false,
+                    error: error.message || 'Cloudflare ownership could not be verified.',
+                    message: error.message || 'Cloudflare ownership could not be verified.'
+                };
+                console.error('Error verifying Cloudflare ownership:', error);
             }
         },
 
@@ -2731,7 +2789,9 @@ function domainDetailsApp(domainId) {
             try {
                 const response = await fetch(`/api/v1/domains/${encodeURIComponent(this.domainId)}/sources?days=${this.sourceDateWindow()}`);
                 if (!response.ok) {
-                    throw new Error('Sending sources could not be loaded.');
+                    const data = await response.json().catch(() => ({}));
+                    const detail = typeof data.detail === 'string' ? data.detail : data.detail?.message;
+                    throw new Error(detail || 'Sending sources could not be loaded.');
                 }
                 const data = await response.json();
                 this.sources = data.sources || [];
@@ -2765,9 +2825,13 @@ function domainDetailsApp(domainId) {
             }
             
             const labels = timelineData.map(item => item.date);
-            const complianceData = timelineData.map(item => item.compliance_rate);
-            const failureData = timelineData.map(item => item.failure_rate || 0);
-            const volumeData = timelineData.map(item => item.volume || item.total || 0);
+            const complianceData = timelineData.map(item => (item.volume || item.total || 0) > 0 ? item.compliance_rate : null);
+            const failureData = timelineData.map(item => (item.volume || item.total || 0) > 0 ? (item.failure_rate || 0) : null);
+            const volumeRawData = timelineData.map(item => item.volume || item.total || 0);
+            const volumeData = volumeRawData.map(value => value > 0 ? value : null);
+            const observedRates = [...complianceData, ...failureData]
+                .filter(value => value !== null && Number.isFinite(value));
+            const observedVolumes = volumeRawData.filter(value => value > 0 && Number.isFinite(value));
             
             // Calculate the threshold line data (recommended 98% for policy advancement)
             const thresholdData = Array(labels.length).fill(98);
@@ -2787,7 +2851,8 @@ function domainDetailsApp(domainId) {
                             fill: true,
                             pointBackgroundColor: 'rgb(59, 130, 246)',
                             pointRadius: 3,
-                            pointHoverRadius: 5
+                            pointHoverRadius: 5,
+                            spanGaps: false
                         },
                         {
                             label: 'Failure Rate',
@@ -2799,7 +2864,8 @@ function domainDetailsApp(domainId) {
                             fill: false,
                             pointBackgroundColor: 'rgb(220, 38, 38)',
                             pointRadius: 3,
-                            pointHoverRadius: 5
+                            pointHoverRadius: 5,
+                            spanGaps: false
                         },
                         {
                             label: 'Message Volume',
@@ -2833,7 +2899,7 @@ function domainDetailsApp(domainId) {
                             type: 'linear',
                             position: 'left',
                             beginAtZero: false,
-                            min: Math.max(0, Math.min(...complianceData) - 10), // Dynamic min value
+                            min: observedRates.length ? Math.max(0, Math.min(...observedRates) - 10) : 0,
                             max: 100,
                             ticks: {
                                 callback: value => value + '%'
@@ -2850,15 +2916,22 @@ function domainDetailsApp(domainId) {
                             }
                         },
                         yVolume: {
-                            type: 'linear',
+                            type: observedVolumes.length ? 'logarithmic' : 'linear',
                             position: 'right',
-                            beginAtZero: true,
+                            min: observedVolumes.length ? 1 : 0,
                             ticks: {
-                                precision: 0
+                                precision: 0,
+                                callback: function(value) {
+                                    const numeric = Number(value);
+                                    if (!Number.isFinite(numeric)) return value;
+                                    if (numeric >= 1000000) return `${(numeric / 1000000).toFixed(numeric % 1000000 === 0 ? 0 : 1)}m`;
+                                    if (numeric >= 1000) return `${(numeric / 1000).toFixed(numeric % 1000 === 0 ? 0 : 1)}k`;
+                                    return numeric;
+                                }
                             },
                             title: {
                                 display: true,
-                                text: 'Messages',
+                                text: observedVolumes.length ? 'Messages (log scale)' : 'Messages',
                                 font: {
                                     weight: 'bold'
                                 }
@@ -2893,13 +2966,17 @@ function domainDetailsApp(domainId) {
                             callbacks: {
                                 label: function(context) {
                                     if (context.dataset.label === 'Compliance Rate') {
+                                        if (context.parsed.y === null) return 'Compliance: no observed mail volume';
                                         return `Compliance: ${context.parsed.y}%`;
                                     }
                                     if (context.dataset.label === 'Failure Rate') {
+                                        if (context.parsed.y === null) return 'Failures: no observed mail volume';
                                         return `Failures: ${context.parsed.y}%`;
                                     }
                                     if (context.dataset.label === 'Message Volume') {
-                                        return `Messages: ${context.parsed.y}`;
+                                        const rawVolume = volumeRawData[context.dataIndex] || 0;
+                                        if (rawVolume <= 0) return 'Messages: no observed mail volume';
+                                        return `Messages: ${rawVolume.toLocaleString()}`;
                                     }
                                     return context.dataset.label;
                                 },

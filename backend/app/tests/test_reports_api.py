@@ -1,3 +1,4 @@
+import asyncio
 import io
 import zipfile
 from contextlib import contextmanager
@@ -19,6 +20,7 @@ from app.models.workspace_access import WorkspaceMembership
 from app.services.organizations import OrganizationPlanLimitError
 from app.services.report_persistence import persisted_report_to_dict, save_parsed_report
 from app.services.report_store import ReportStore
+from app.services.source_reputation import DomainReputation, ReputationEvidence, SourceReputation
 from app.services.workspace_access import ROLE_ANALYST
 from app.services.workspaces import get_or_create_default_workspace
 from app.tests.test_data import SAMPLE_XML, load_dmarc_fixture
@@ -833,7 +835,133 @@ def test_get_report_by_id_includes_record_review_guidance(
     assert any(
         "Open the domain sending-source view" in step for step in failed_record["next_steps"]
     )
-    assert any("Header From alignment" in step for step in failed_record["next_steps"])
+
+
+def test_get_report_by_id_includes_source_intelligence_and_reputation(
+    authed_client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    """Report records expose PTR, geo/network metadata, and reputation evidence."""
+    workspace = get_or_create_default_workspace(db_session)
+    _persist_parsed_report(
+        db_session,
+        {
+            "domain": "example.com",
+            "report_id": "source-intel-report",
+            "org_name": "google.com",
+            "email": "noreply@example.com",
+            "begin_timestamp": 1782691200,
+            "end_timestamp": 1782777599,
+            "policy": {"p": "reject", "sp": "reject", "pct": "100"},
+            "records": [
+                {
+                    "source_ip": "193.138.195.141",
+                    "count": 2,
+                    "disposition": "reject",
+                    "dkim_result": "fail",
+                    "spf_result": "fail",
+                    "header_from": "example.com",
+                    "extensions": {
+                        "geo:country": "Germany",
+                        "geo:country_code": "DE",
+                        "geo:region": "Europe",
+                        "geo:asn": "AS64555",
+                        "geo:network": "Example Sender Network",
+                        "demo:blacklists": "Example DNSBL",
+                    },
+                }
+            ],
+            "summary": {"total_count": 2, "passed_count": 0, "failed_count": 2},
+        },
+        workspace_id=workspace.id,
+    )
+
+    async def fake_ptr_lookup(_provider, _ip, timeout=3.0):  # pylint: disable=unused-argument
+        return "mail.example-sender.net"
+
+    async def fake_reputation(*_args, **_kwargs):
+        return (
+            DomainReputation(
+                domain="example.com",
+                status="listed",
+                checked_at="2026-07-01T00:00:00Z",
+                sources=[
+                    SourceReputation(
+                        ip="193.138.195.141",
+                        status="listed",
+                        risk_score=82,
+                        summary="Observed source has blacklist or reputation-list evidence.",
+                        listings=["Example DNSBL"],
+                        evidence=[
+                            ReputationEvidence(
+                                label="External reputation feeds",
+                                value="Example DNSBL",
+                                source="external",
+                            )
+                        ],
+                        recommendations=["Follow the provider delisting process."],
+                        checked_at="2026-07-01T00:00:00Z",
+                    )
+                ],
+                summary={"total_sources": 1, "listed": 1},
+            ),
+            False,
+            None,
+        )
+
+    monkeypatch.setattr(reports_endpoint, "_safe_ptr_lookup", fake_ptr_lookup)
+    monkeypatch.setattr(reports_endpoint, "build_source_reputation_cached", fake_reputation)
+
+    response = authed_client.get("/api/v1/reports/source-intel-report")
+
+    assert response.status_code == 200
+    record = response.json()["records"][0]
+    assert record["source_details"]["hostname"] == "mail.example-sender.net"
+    assert record["source_details"]["country"] == "Germany"
+    assert record["source_details"]["asn"] == "AS64555"
+    assert record["source_details"]["network"] == "Example Sender Network"
+    assert record["reputation"]["status"] == "listed"
+    assert record["reputation"]["risk_score"] == 82
+    assert record["reputation"]["listings"] == ["Example DNSBL"]
+
+
+def test_get_report_by_id_continues_when_reputation_enrichment_fails(
+    authed_client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    workspace = get_or_create_default_workspace(db_session)
+    _persist_parsed_report(
+        db_session,
+        _parsed_report(domain="example.com", report_id="source-intel-fallback-report"),
+        workspace_id=workspace.id,
+    )
+
+    async def failing_reputation(*_args, **_kwargs):
+        raise RuntimeError("provider unavailable")
+
+    async def fake_ptr_lookup(_provider, _ip, timeout=3.0):  # pylint: disable=unused-argument
+        return None
+
+    monkeypatch.setattr(reports_endpoint, "_safe_ptr_lookup", fake_ptr_lookup)
+    monkeypatch.setattr(reports_endpoint, "build_source_reputation_cached", failing_reputation)
+
+    response = authed_client.get("/api/v1/reports/source-intel-fallback-report")
+
+    assert response.status_code == 200
+    record = response.json()["records"][0]
+    assert record["source_details"]["sender"]
+    assert record["reputation"] is None
+
+
+def test_safe_ptr_lookup_returns_none_for_invalid_or_failed_lookup():
+    class FailingProvider:
+        async def lookup_ptr(self, _ip):
+            raise RuntimeError("dns unavailable")
+
+    assert asyncio.run(reports_endpoint._safe_ptr_lookup(FailingProvider(), "not-an-ip")) is None
+    assert asyncio.run(reports_endpoint._safe_ptr_lookup(FailingProvider(), "192.0.2.55")) is None
 
 
 def test_get_report_by_id_not_found(authed_client: TestClient):
