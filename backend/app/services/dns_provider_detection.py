@@ -36,17 +36,61 @@ _PROVIDER_PATTERNS: tuple[_ProviderPattern, ...] = (
         connector_available=True,
         automation_supported=True,
     ),
-    _ProviderPattern("route53", "Amazon Route 53", ("awsdns-", "awsdns.")),
-    _ProviderPattern("googleclouddns", "Google Cloud DNS", ("googledomains.com",)),
-    _ProviderPattern("azure_dns", "Azure DNS", ("azure-dns.",)),
-    _ProviderPattern("digitalocean", "DigitalOcean DNS", ("digitalocean.com",)),
-    _ProviderPattern("hetzner", "Hetzner DNS", ("hetzner.com", "hetzner.de")),
-    _ProviderPattern("namecheap", "Namecheap", ("registrar-servers.com",)),
-    _ProviderPattern("godaddy", "GoDaddy", ("domaincontrol.com",)),
+    _ProviderPattern(
+        "route53",
+        "Amazon Route 53",
+        ("awsdns-", "awsdns."),
+        connector_available=True,
+        automation_supported=True,
+    ),
+    _ProviderPattern(
+        "googleclouddns",
+        "Google Cloud DNS",
+        ("googledomains.com",),
+        connector_available=True,
+        automation_supported=True,
+    ),
+    _ProviderPattern(
+        "azure_dns",
+        "Azure DNS",
+        ("azure-dns.",),
+        connector_available=True,
+        automation_supported=True,
+    ),
+    _ProviderPattern(
+        "digitalocean",
+        "DigitalOcean DNS",
+        ("digitalocean.com",),
+        connector_available=True,
+        automation_supported=True,
+    ),
+    _ProviderPattern(
+        "hetzner",
+        "Hetzner DNS",
+        ("hetzner.com", "hetzner.de"),
+        connector_available=True,
+        automation_supported=True,
+    ),
+    _ProviderPattern(
+        "namecheap",
+        "Namecheap",
+        ("registrar-servers.com",),
+        connector_available=True,
+        automation_supported=True,
+    ),
+    _ProviderPattern(
+        "godaddy",
+        "GoDaddy",
+        ("domaincontrol.com",),
+        connector_available=True,
+        automation_supported=True,
+    ),
     _ProviderPattern(
         "powerdns",
         "PowerDNS or custom DNS",
         ("powerdns", "pdns"),
+        connector_available=True,
+        automation_supported=True,
     ),
     _ProviderPattern("plesk", "Plesk-hosted DNS", ("plesk",)),
     _ProviderPattern("cpanel", "cPanel/WHM-hosted DNS", ("cpanel", "webhostbox.net")),
@@ -61,7 +105,7 @@ def _action_for(pattern: _ProviderPattern) -> str:
     if pattern.connector_available:
         return (
             f"Connect {pattern.provider_name} in Settings to enable provider-aware "
-            "DNS inspection and approved repair plans."
+            "DNS inspection, preview, and explicitly approved repair plans."
         )
     return (
         f"Use the {pattern.provider_name} DNS console or hosting panel with DMARQ's "
