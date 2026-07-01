@@ -665,13 +665,13 @@ def test_domain_remediation_queue_groups_dns_and_health_actions(
     ]
 
 
-def test_domain_remediation_queue_hydrates_legacy_report_domains_without_workspace_filter(
-    authed_client: TestClient,
+def test_domain_remediation_queue_hydrates_report_store_with_workspace_filter(
+    seeded_client: TestClient,
+    db_session,
     monkeypatch,
 ):
-    """Legacy report-only domains remain readable through the remediation endpoint."""
-    store = ReportStore.get_instance()
-    store.add_report(REPORT_DICT_POLICY)
+    """Domain remediation only hydrates reports scoped to the authorized workspace."""
+    workspace = get_or_create_default_workspace(db_session)
     captured = {}
 
     def fake_hydrate(db, store_arg, workspace_id=None):
@@ -702,10 +702,10 @@ def test_domain_remediation_queue_hydrates_legacy_report_domains_without_workspa
     monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", fake_dns_guidance)
     monkeypatch.setattr(domains_endpoint, "_ready_dns_write_provider_ids", lambda: [])
 
-    response = authed_client.get(f"/api/v1/domains/{DOMAIN}/remediation")
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/remediation")
 
     assert response.status_code == 200
-    assert captured["workspace_id"] is None
+    assert captured["workspace_id"] == workspace.id
     assert response.json()["domain"] == DOMAIN
 
 
