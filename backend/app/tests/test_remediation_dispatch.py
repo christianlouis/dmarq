@@ -75,3 +75,47 @@ def test_attach_remediation_dispatch_previews_skips_empty_queues(monkeypatch):
     )
 
     assert result is queue
+
+
+def test_build_remediation_dispatch_preview_fetches_context_when_not_preloaded(monkeypatch):
+    calls = {"settings": 0, "webhooks": 0}
+
+    def fake_settings(_db):
+        calls["settings"] += 1
+        return {
+            remediation_dispatch.DISPATCH_ENABLED_KEY: "true",
+            remediation_dispatch.DISPATCH_REQUIRE_ACK_KEY: "false",
+            remediation_dispatch.DISPATCH_CHANNEL_KEY: "webhook",
+            remediation_dispatch.DISPATCH_EVENTS_KEY: EVENT_REMEDIATION_APPROVAL_REQUIRED,
+        }
+
+    def fake_enabled_webhook_endpoints(_db, *, workspace):
+        calls["webhooks"] += 1
+        assert workspace.id == 42
+        return [SimpleNamespace(event_types=EVENT_REMEDIATION_APPROVAL_REQUIRED)]
+
+    monkeypatch.setattr(remediation_dispatch, "_settings", fake_settings)
+    monkeypatch.setattr(
+        remediation_dispatch,
+        "_enabled_webhook_endpoints",
+        fake_enabled_webhook_endpoints,
+    )
+    monkeypatch.setattr(
+        remediation_dispatch,
+        "_latest_lifecycle_marker",
+        lambda *_args, **_kwargs: {"state": None, "recorded_at": None},
+    )
+
+    preview = remediation_dispatch.build_remediation_dispatch_preview(
+        object(),
+        workspace=SimpleNamespace(id=42),
+        domain="example.com",
+        item={
+            "id": "dns:dmarc-missing",
+            "notification": {"event": EVENT_REMEDIATION_APPROVAL_REQUIRED},
+        },
+    )
+
+    assert calls == {"settings": 1, "webhooks": 1}
+    assert preview["webhook_endpoint_count"] == 1
+    assert preview["eligible"] is True
