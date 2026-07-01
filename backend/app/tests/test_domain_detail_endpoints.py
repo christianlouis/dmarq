@@ -838,6 +838,40 @@ def test_domain_remediation_queue_rejects_other_workspace_numeric_domain_without
     assert hydrate_calls[0] is not None
 
 
+@pytest.mark.parametrize("other_workspace_active", [True, False])
+def test_domain_remediation_queue_rejects_report_only_fallback_with_multiple_workspaces(
+    authed_client: TestClient,
+    db_session,
+    monkeypatch,
+    other_workspace_active,
+):
+    """Legacy report-only fallback is only safe for single-workspace deployments."""
+    other_workspace = Workspace(
+        slug="second-remediation",
+        name="Second Remediation",
+        active=other_workspace_active,
+    )
+    db_session.add(other_workspace)
+    db_session.commit()
+    hydrate_calls = []
+
+    def fake_hydrate(db, store_arg, workspace_id=None):
+        hydrate_calls.append(workspace_id)
+        if workspace_id is None:
+            store_arg.add_report(REPORT_DICT_POLICY)
+            return 1
+        store_arg.clear()
+        return 0
+
+    monkeypatch.setattr(domains_endpoint, "hydrate_report_store_from_db", fake_hydrate)
+
+    response = authed_client.get(f"/api/v1/domains/{DOMAIN}/remediation")
+
+    assert response.status_code == 404
+    assert len(hydrate_calls) == 1
+    assert hydrate_calls[0] is not None
+
+
 def test_domain_health_history_rejects_invalid_date_order(seeded_client: TestClient):
     """Health history validates that the start date is not after the end date."""
     response = seeded_client.get(

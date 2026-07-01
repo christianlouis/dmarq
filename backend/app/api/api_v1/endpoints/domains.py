@@ -19,6 +19,7 @@ from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.domain import Domain
 from app.models.report import DMARCReport
+from app.models.workspace import Workspace
 from app.services.bimi import BIMIResult, check_bimi_cached
 from app.services.cloudflare_dns import (
     analyze_dns_records,
@@ -1326,6 +1327,10 @@ def _stored_domain_exists(db: Session, domain_id: str) -> bool:
     if domain_id.isdigit() and query.filter(Domain.id == int(domain_id)).first() is not None:
         return True
     return query.filter(Domain.name == domain_id).first() is not None
+
+
+def _allows_legacy_report_only_fallback(db: Session) -> bool:
+    return db.query(Workspace.id).limit(2).count() <= 1
 
 
 def _resolve_domain_name_for_read(
@@ -3552,7 +3557,11 @@ async def get_domain_remediation_queue(
     try:
         domain_name = _resolve_domain_name_for_read(db, store, domain_id, workspace)
     except HTTPException as exc:
-        if exc.status_code != status.HTTP_404_NOT_FOUND or _stored_domain_exists(db, domain_id):
+        if (
+            exc.status_code != status.HTTP_404_NOT_FOUND
+            or _stored_domain_exists(db, domain_id)
+            or not _allows_legacy_report_only_fallback(db)
+        ):
             raise
         hydrate_report_store_from_db(db, store)
         domain_name = _resolve_domain_name_for_read(db, store, domain_id, workspace)
