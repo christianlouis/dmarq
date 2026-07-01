@@ -41,15 +41,15 @@
                     </p>
                 </div>
             </div>
-            {% elif not logto_configured %}
-            <!-- Logto not yet configured -->
+            {% elif not auth_configured %}
+            <!-- Authentication not yet configured -->
             <div role="alert" class="alert alert-warning">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
                 </svg>
                 <div>
                     <p class="font-semibold">Authentication not configured</p>
-                    <p class="text-sm">Logto is not set up yet. Please visit the
+                    <p class="text-sm">No identity provider is set up yet. Please visit the
                         <a href="/setup" class="link link-warning font-medium">setup page</a>
                         for configuration instructions.
                     </p>
@@ -80,27 +80,30 @@
             <div class="space-y-3">
                 <a href="/api/v1/auth/sign-in?next={{ next | urlencode }}"
                    class="btn btn-primary btn-lg w-full gap-2">
-                    <!-- Logto "shield" icon approximation -->
+                    <!-- Identity-provider shield icon -->
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                               d="M12 2L4 5v6c0 5.25 3.5 9.74 8 11 4.5-1.26 8-5.75 8-11V5L12 2z"/>
                     </svg>
-                    Sign in with Logto
+                    Sign in with {{ auth_provider_label }}
                 </a>
 
+                {% if auth_provider == 'logto' %}
                 <div class="text-center">
                     <a href="/api/v1/auth/forgot-password"
                        class="link link-primary text-sm">
                         Forgot your password?
                     </a>
                 </div>
+                {% endif %}
 
                 <p class="text-center text-xs text-base-content/50">
-                    Logto securely handles authentication.
+                    {{ auth_provider_label }} securely handles authentication.
                     Your credentials are never sent to {{ app_name }}.
                 </p>
             </div>
 
+            {% if auth_provider == 'logto' %}
             <div class="divider text-xs text-base-content/40">What is Logto?</div>
 
             <div class="text-sm text-base-content/60 space-y-1">
@@ -115,6 +118,26 @@
                     free tier.
                 </p>
             </div>
+            {% elif auth_provider == 'authentik' %}
+            <div class="divider text-xs text-base-content/40">What is Authentik?</div>
+
+            <div class="text-sm text-base-content/60 space-y-1">
+                <p>
+                    <a href="https://goauthentik.io" target="_blank" rel="noopener" class="link link-primary">Authentik</a>
+                    is an open-source identity provider. DMARQ can use it directly
+                    via OIDC or sit behind an Authentik Outpost reverse proxy.
+                </p>
+            </div>
+            {% else %}
+            <div class="divider text-xs text-base-content/40">External identity</div>
+
+            <div class="text-sm text-base-content/60 space-y-1">
+                <p>
+                    DMARQ delegates sign-in to your configured identity provider.
+                    Passwords, MFA, and account recovery stay with that provider.
+                </p>
+            </div>
+            {% endif %}
             {% endif %}
         </div>
     </div>

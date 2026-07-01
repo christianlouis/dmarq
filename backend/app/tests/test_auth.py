@@ -18,10 +18,21 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.api.api_v1.endpoints.auth import _create_next_cookie
-from app.core.config import get_settings
+from app.core.auth_providers import (
+    ExternalIdentityClaims,
+    configured_oidc_provider,
+    create_oidc_state,
+    decode_oidc_state,
+    normalize_external_claims,
+    sync_external_user,
+    trusted_proxy_auth_context,
+)
+from app.core.config import Settings, get_settings
 from app.core.logto import (
     SESSION_COOKIE,
     CookieStorage,
@@ -160,6 +171,122 @@ class TestSyncLogtoUser:
         claims2 = self._claims(name="New Name")
         user = sync_logto_user(claims2, db_session)
         assert user.full_name == "New Name"
+
+
+# ── Authentik / generic OIDC helpers ─────────────────────────────────────────
+
+
+class TestExternalAuthProviders:
+    def test_authentik_config_selects_direct_oidc_provider(self):
+        settings = Settings(
+            AUTH_MODE="authentik",
+            AUTHENTIK_ISSUER_URL="https://idp.example.test/application/o/dmarq",
+            AUTHENTIK_CLIENT_ID="client-id",
+            AUTHENTIK_CLIENT_SECRET="client-secret",
+        )
+
+        provider = configured_oidc_provider(settings)
+
+        assert settings.active_auth_provider == "authentik"
+        assert provider is not None
+        assert provider.provider == "authentik"
+        assert provider.label == "Authentik"
+        assert provider.issuer_url == "https://idp.example.test/application/o/dmarq"
+
+    def test_generic_oidc_config_selects_provider_label(self):
+        settings = Settings(
+            AUTH_MODE="oidc",
+            OIDC_ISSUER_URL="https://idp.example.test",
+            OIDC_CLIENT_ID="client-id",
+            OIDC_CLIENT_SECRET="client-secret",
+            OIDC_PROVIDER_LABEL="Keycloak",
+        )
+
+        provider = configured_oidc_provider(settings)
+
+        assert settings.active_auth_provider == "oidc"
+        assert provider is not None
+        assert provider.label == "Keycloak"
+
+    def test_oidc_state_round_trip(self):
+        settings = Settings(SECRET_KEY="s" * 32)
+        token = create_oidc_state("/domains", settings)
+
+        payload = decode_oidc_state(token, settings)
+
+        assert payload is not None
+        assert payload["next"] == "/domains"
+
+    def test_normalize_external_claims_applies_domain_allowlist(self):
+        claims = normalize_external_claims(
+            "authentik",
+            {
+                "sub": "authentik-user-1",
+                "email": "owner@example.com",
+                "name": "Owner",
+                "preferred_username": "owner",
+                "email_verified": True,
+            },
+            allowed_domains="example.com",
+        )
+
+        assert claims.provider == "authentik"
+        assert claims.subject == "authentik-user-1"
+        assert claims.email == "owner@example.com"
+        assert claims.username == "owner"
+        assert claims.email_verified is True
+
+    def test_normalize_external_claims_rejects_unlisted_email(self):
+        with pytest.raises(HTTPException) as exc:
+            normalize_external_claims(
+                "authentik",
+                {"sub": "authentik-user-1", "email": "owner@other.test"},
+                allowed_domains="example.com",
+            )
+
+        assert exc.value.status_code == 403
+
+    def test_sync_external_user_uses_provider_scoped_subject(self, db_session):
+        user = sync_external_user(
+            ExternalIdentityClaims(
+                provider="authentik",
+                subject="authentik-user-1",
+                email="owner@example.com",
+                name="Owner",
+                username="owner",
+                email_verified=True,
+            ),
+            db_session,
+        )
+
+        assert user.id is not None
+        assert user.logto_id == "authentik:authentik-user-1"
+        assert user.email == "owner@example.com"
+        assert user.full_name == "Owner"
+
+    def test_trusted_proxy_auth_context_uses_authentik_headers(self):
+        settings = Settings(
+            AUTH_MODE="trusted_proxy",
+            AUTH_TRUSTED_PROXY_ALLOWED_DOMAINS="example.com",
+        )
+        request = MagicMock()
+        request.headers = {
+            "X-Authentik-Email": "owner@example.com",
+            "X-Authentik-Uid": "authentik-user-1",
+            "X-Authentik-Name": "Owner",
+            "X-Authentik-Username": "owner",
+        }
+
+        context = trusted_proxy_auth_context(request, settings)
+
+        assert context == {
+            "auth_type": "trusted_proxy",
+            "provider": "authentik",
+            "sub": "authentik:authentik-user-1",
+            "email": "owner@example.com",
+            "name": "Owner",
+            "username": "owner",
+        }
 
 
 # ── /api/v1/auth/me ───────────────────────────────────────────────────────────
@@ -384,6 +511,31 @@ class TestAuthDisabled:
             mock_req.cookies = {}
             result = asyncio.run(require_admin_auth(request=mock_req, api_key=None, bearer=None))
         assert result["auth_type"] == "disabled"
+
+    def test_require_admin_auth_accepts_trusted_proxy_headers(self):
+        """Trusted proxy mode accepts explicitly configured Authentik headers."""
+        import asyncio
+        from unittest.mock import MagicMock
+
+        from app.core.config import Settings
+        from app.core.security import require_admin_auth
+
+        trusted_settings = Settings(
+            AUTH_MODE="trusted_proxy",
+            AUTH_TRUSTED_PROXY_ALLOWED_DOMAINS="example.com",
+        )
+        mock_req = MagicMock()
+        mock_req.cookies = {}
+        mock_req.headers = {
+            "X-Authentik-Email": "owner@example.com",
+            "X-Authentik-Uid": "authentik-user-1",
+        }
+        with patch("app.core.security.settings", trusted_settings):
+            result = asyncio.run(require_admin_auth(request=mock_req, api_key=None, bearer=None))
+
+        assert result["auth_type"] == "trusted_proxy"
+        assert result["email"] == "owner@example.com"
+        assert result["sub"] == "authentik:authentik-user-1"
 
     def test_middleware_passes_all_requests_when_auth_disabled(self, client: TestClient):
         """The auth middleware must let every request through when AUTH_DISABLED=True."""

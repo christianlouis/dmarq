@@ -15,10 +15,16 @@ Store these values in a 1Password Environment for each deployment target:
 | `DATABASE_URL` | Secret when it contains credentials | Prefer this single URL for production PostgreSQL deployments. |
 | `IMAP_PASSWORD` | Secret | Required when IMAP polling is enabled. |
 | `LOGTO_APP_SECRET` | Secret | Required when Logto authentication is enabled. |
+| `AUTHENTIK_CLIENT_SECRET` | Secret | Required when Authentik direct OIDC authentication is enabled. |
+| `OIDC_CLIENT_SECRET` | Secret | Required when generic OIDC authentication is enabled. |
 | `CLOUDFLARE_API_TOKEN` | Secret | Optional DNS inspection/integration token. |
 | `FIRST_SUPERUSER_PASSWORD` | Secret | Only needed for bootstrap flows that create an initial local admin. |
 
-Non-sensitive values, such as `IMAP_SERVER`, `IMAP_USERNAME`, `LOGTO_ENDPOINT`, `LOGTO_APP_ID`, and `BACKEND_CORS_ORIGINS`, may also live in the Environment so each deployment has one complete configuration bundle.
+Non-sensitive values, such as `IMAP_SERVER`, `IMAP_USERNAME`, `LOGTO_ENDPOINT`,
+`LOGTO_APP_ID`, `AUTHENTIK_ISSUER_URL`, `AUTHENTIK_CLIENT_ID`,
+`OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `PUBLIC_BASE_URL`, and
+`BACKEND_CORS_ORIGINS`, may also live in the Environment so each deployment has
+one complete configuration bundle.
 
 OAuth mail connectors can also store provider client secrets and refresh/access tokens in encrypted database fields after an administrator authorizes the source. Treat values such as `GMAIL_CLIENT_SECRET`, Microsoft 365 client secrets, refresh tokens, and access tokens as secrets even when they are provider-generated and short-lived.
 
@@ -93,7 +99,9 @@ Restrict the service user and file permissions so only the DMARQ process and the
 - Never paste mailbox passwords, OAuth secrets, API tokens, database passwords, or generated session keys into issues, pull requests, logs, or chat.
 - Never include provider tokens, authorization headers, client secrets, raw mailbox payloads, or message bodies in connector diagnostics, import history, webhook payloads, screenshots, or support notes.
 - Keep `AUTH_DISABLED=true` limited to local development or a deployment protected by a separate authentication proxy.
+- Use `AUTH_MODE=trusted_proxy` only when DMARQ is reachable exclusively through the trusted proxy or Authentik Outpost.
 - Keep `LOGTO_SKIP_SSL_VERIFY=false` in production.
+- Keep `OIDC_SKIP_SSL_VERIFY=false` in production.
 - Use separate 1Password Environments for development, preprod, and production.
 
 ## Connector Development

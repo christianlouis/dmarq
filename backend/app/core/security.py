@@ -173,7 +173,8 @@ async def require_admin_auth(
 
     Accepts (in priority order):
     1. ``AUTH_DISABLED=true`` env var – passes through with a synthetic context.
-    2. ``dmarq_session`` cookie – set after a successful Logto login.
+    2. Trusted proxy headers – only when explicitly configured.
+    3. ``dmarq_session`` cookie – set after a successful browser login.
     3. ``X-API-Key`` header    – static admin key for programmatic access.
     4. ``Authorization: Bearer <token>`` header – app-issued JWT.
 
@@ -181,10 +182,17 @@ async def require_admin_auth(
     authenticated.  Raises ``HTTP 401`` when no valid credential is present.
     """
     # 0. Auth globally disabled
-    if settings.AUTH_DISABLED:
+    if settings.AUTH_DISABLED or getattr(settings, "active_auth_provider", "") == "disabled":
         return {"auth_type": "disabled"}
 
-    # 1. Session cookie (Logto-backed app session)
+    # 1. Trusted proxy / Authentik Outpost headers
+    from app.core.auth_providers import trusted_proxy_auth_context  # local import
+
+    proxy_context = trusted_proxy_auth_context(request, settings)
+    if proxy_context is not None:
+        return proxy_context
+
+    # 2. Session cookie (external-IdP-backed app session)
     from app.core.logto import SESSION_COOKIE, decode_session_token  # local import
 
     session_token = request.cookies.get(SESSION_COOKIE)
@@ -193,11 +201,11 @@ async def require_admin_auth(
         if user_id is not None:
             return {"auth_type": "session", "user_id": user_id}
 
-    # 2. Static admin API key
+    # 3. Static admin API key
     if api_key and verify_api_key(api_key):
         return {"auth_type": "api_key"}
 
-    # 3. Bearer JWT (app-issued; also covers Bearer tokens set by older clients)
+    # 4. Bearer JWT (app-issued; also covers Bearer tokens set by older clients)
     if bearer:
         from app.core.logto import decode_session_token as _dec  # local import
 

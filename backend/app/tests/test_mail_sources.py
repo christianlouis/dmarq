@@ -26,6 +26,7 @@ from app.models.domain import Domain
 from app.models.mail_source import MailSource
 from app.models.mail_source_backfill import MailSourceBackfillJob
 from app.models.mail_source_import import MailSourceImport
+from app.models.setting import Setting
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceMembership
@@ -164,6 +165,56 @@ class TestOAuthStateHelpers:
 
         assert exc.value.status_code == 400
         assert exc.value.detail == expected_detail
+
+
+class TestOAuthRedirectBaseUrl:
+    """OAuth redirect URIs use the public app URL, not the internal proxy URL."""
+
+    @staticmethod
+    def _request(base_url: str = "http://app.dmarc.org/", headers: Optional[dict] = None):
+        request = MagicMock()
+        request.base_url = base_url
+        request.headers = headers or {}
+        return request
+
+    def test_public_base_url_prefers_environment_setting(self, db_session, monkeypatch):
+        monkeypatch.setattr(
+            mail_sources_endpoint.get_settings(),
+            "PUBLIC_BASE_URL",
+            "https://app.dmarc.org/",
+        )
+
+        assert (
+            mail_sources_endpoint._public_base_url(self._request(), db_session)
+            == "https://app.dmarc.org"
+        )
+
+    def test_public_base_url_prefers_setup_setting(self, db_session, monkeypatch):
+        monkeypatch.setattr(mail_sources_endpoint.get_settings(), "PUBLIC_BASE_URL", None)
+        db_session.add(
+            Setting(
+                key="general.base_url",
+                value="https://setup.dmarc.org/",
+                category="general",
+            )
+        )
+        db_session.commit()
+
+        assert (
+            mail_sources_endpoint._public_base_url(self._request(), db_session)
+            == "https://setup.dmarc.org"
+        )
+
+    def test_public_base_url_respects_forwarded_proto(self, db_session, monkeypatch):
+        monkeypatch.setattr(mail_sources_endpoint.get_settings(), "PUBLIC_BASE_URL", None)
+
+        assert (
+            mail_sources_endpoint._public_base_url(
+                self._request(headers={"x-forwarded-proto": "https"}),
+                db_session,
+            )
+            == "https://app.dmarc.org"
+        )
 
 
 def _add_user(db_session: Session, email: str):

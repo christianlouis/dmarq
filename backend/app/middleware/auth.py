@@ -63,8 +63,8 @@ class AuthRedirectMiddleware(BaseHTTPMiddleware):
     Decision tree
     -------------
     1. Path is public → pass through.
-    2. Session cookie present and valid → pass through.
-    3. Logto not configured → redirect to ``/setup``.
+    2. Trusted proxy headers or session cookie present and valid → pass through.
+    3. Browser auth not configured → redirect to ``/setup``.
     4. Otherwise → redirect to ``/login?next=<original_path>``.
     """
 
@@ -78,7 +78,7 @@ class AuthRedirectMiddleware(BaseHTTPMiddleware):
         from app.core.config import get_settings  # local import avoids circular dep
 
         cfg = get_settings()
-        if cfg.AUTH_DISABLED:
+        if cfg.AUTH_DISABLED or getattr(cfg, "active_auth_provider", "") == "disabled":
             return await call_next(request)
 
         # ── 1. Public paths & prefixes ────────────────────────────────────────
@@ -89,16 +89,22 @@ class AuthRedirectMiddleware(BaseHTTPMiddleware):
         if any(path.endswith(ext) for ext in _STATIC_EXTENSIONS):
             return await call_next(request)
 
-        # ── 2. Valid session cookie ───────────────────────────────────────────
+        # ── 2. Trusted proxy / Authentik Outpost headers ─────────────────────
+        from app.core.auth_providers import trusted_proxy_auth_context
+
+        if trusted_proxy_auth_context(request, cfg) is not None:
+            return await call_next(request)
+
+        # ── 3. Valid session cookie ───────────────────────────────────────────
         token = request.cookies.get(SESSION_COOKIE)
         if token and decode_session_token(token) is not None:
             return await call_next(request)
 
-        # ── 3. Logto not configured ───────────────────────────────────────────
-        if not cfg.logto_configured:
+        # ── 4. Browser auth not configured ───────────────────────────────────
+        if not getattr(cfg, "auth_configured", False):
             return RedirectResponse(url="/setup", status_code=302)
 
-        # ── 4. Redirect to login ──────────────────────────────────────────────
+        # ── 5. Redirect to login ──────────────────────────────────────────────
         next_path = request.url.path
         if request.url.query:
             next_path = f"{next_path}?{request.url.query}"

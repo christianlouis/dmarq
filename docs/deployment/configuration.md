@@ -41,6 +41,17 @@ For deployment verification, upgrades, rollback, and routine checks, use the [Op
 
 ### Logto Authentication Settings
 
+DMARQ supports multiple authentication modes. Keep `AUTH_MODE=auto` to preserve
+the existing Logto auto-detection behavior, or choose an explicit mode.
+
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `AUTH_MODE` | Browser authentication mode: `auto`, `disabled`, `logto`, `authentik`, `oidc`, or `trusted_proxy` | `auto` | `authentik` |
+| `AUTH_DISABLED` | Disable authentication entirely. Only use for local development or a separately protected deployment. | `false` | `true`, `false` |
+| `PUBLIC_BASE_URL` | Public URL used when building OAuth callback URLs behind a reverse proxy or ingress | Auto-detected | `https://dmarq.example.com` |
+
+#### Logto
+
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
 | `LOGTO_ENDPOINT` | Base URL of your Logto instance | - | `https://your-tenant.logto.app` |
@@ -48,6 +59,56 @@ For deployment verification, upgrades, rollback, and routine checks, use the [Op
 | `LOGTO_APP_SECRET` | Client Secret of the Logto application | - | `your-app-secret` |
 | `LOGTO_REDIRECT_URI` | Override the OAuth callback URL | Auto-detected | `https://dmarq.example.com/api/v1/auth/callback` |
 | `LOGTO_SKIP_SSL_VERIFY` | Disable SSL certificate verification for connections to the Logto endpoint. **Only use this when your Logto instance uses a self-signed certificate that you control. Never enable in production environments.** | `false` | `true`, `false` |
+
+#### Authentik Direct OIDC
+
+Create an Authentik OAuth2/OpenID provider and register DMARQ's callback URL:
+`https://<your-dmarq-host>/api/v1/auth/callback`.
+
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `AUTH_MODE` | Set to `authentik` for direct Authentik OIDC | `auto` | `authentik` |
+| `AUTHENTIK_ISSUER_URL` | Authentik provider issuer URL | - | `https://idp.example.com/application/o/dmarq` |
+| `AUTHENTIK_CLIENT_ID` | Authentik OAuth client ID | - | `client-id` |
+| `AUTHENTIK_CLIENT_SECRET` | Authentik OAuth client secret | - | `client-secret` |
+| `AUTHENTIK_REDIRECT_URI` | Optional callback URL override | Auto-detected | `https://dmarq.example.com/api/v1/auth/callback` |
+| `AUTHENTIK_ALLOWED_EMAILS` | Optional comma-separated email allowlist | - | `admin@example.com` |
+| `AUTHENTIK_ALLOWED_DOMAINS` | Optional comma-separated email-domain allowlist | - | `example.com,example.org` |
+
+#### Generic OIDC
+
+Use this for Keycloak, Entra ID, Google Workspace, Okta, Ping/OneLogin, and
+other OIDC-capable providers.
+
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `AUTH_MODE` | Set to `oidc` for generic OIDC | `auto` | `oidc` |
+| `OIDC_ISSUER_URL` | OIDC issuer URL | - | `https://idp.example.com/realms/dmarq` |
+| `OIDC_CLIENT_ID` | OIDC client ID | - | `dmarq` |
+| `OIDC_CLIENT_SECRET` | OIDC client secret | - | `client-secret` |
+| `OIDC_REDIRECT_URI` | Optional callback URL override | Auto-detected | `https://dmarq.example.com/api/v1/auth/callback` |
+| `OIDC_PROVIDER_LABEL` | UI label for the sign-in provider | `OpenID Connect` | `Keycloak` |
+| `OIDC_ALLOWED_EMAILS` | Optional comma-separated email allowlist | - | `admin@example.com` |
+| `OIDC_ALLOWED_DOMAINS` | Optional comma-separated email-domain allowlist | - | `example.com` |
+| `OIDC_SKIP_SSL_VERIFY` | Disable TLS verification for provider requests. Do not use in production unless explicitly allowed. | `false` | `true`, `false` |
+
+#### Authentik Outpost / Trusted Proxy
+
+Use `AUTH_MODE=trusted_proxy` only when DMARQ is not reachable except through a
+trusted authentication proxy such as an Authentik Outpost. DMARQ trusts the
+configured headers and treats the authenticated user as the self-hosted instance
+owner.
+
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `AUTH_MODE` | Enable trusted proxy mode | `auto` | `trusted_proxy` |
+| `AUTH_TRUSTED_PROXY_PROVIDER` | Provider label stored in auth context | `authentik` | `authentik` |
+| `AUTH_TRUSTED_PROXY_EMAIL_HEADER` | Header containing the authenticated email | `X-Authentik-Email` | `X-Authentik-Email` |
+| `AUTH_TRUSTED_PROXY_SUBJECT_HEADER` | Header containing the stable user id | `X-Authentik-Uid` | `X-Authentik-Uid` |
+| `AUTH_TRUSTED_PROXY_NAME_HEADER` | Header containing display name | `X-Authentik-Name` | `X-Authentik-Name` |
+| `AUTH_TRUSTED_PROXY_USERNAME_HEADER` | Header containing username | `X-Authentik-Username` | `X-Authentik-Username` |
+| `AUTH_TRUSTED_PROXY_ALLOWED_EMAILS` | Optional comma-separated email allowlist | - | `admin@example.com` |
+| `AUTH_TRUSTED_PROXY_ALLOWED_DOMAINS` | Optional comma-separated domain allowlist | - | `example.com` |
 
 ### IMAP Settings
 

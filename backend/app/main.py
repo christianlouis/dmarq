@@ -597,6 +597,9 @@ async def login(request: Request, next: str = "/"):
         {
             "app_name": settings.PROJECT_NAME,
             "logto_configured": settings.logto_configured,
+            "auth_configured": settings.auth_configured,
+            "auth_provider": settings.active_auth_provider,
+            "auth_provider_label": settings.auth_provider_label,
             "auth_disabled": settings.AUTH_DISABLED,
             "next": next,
         },
@@ -611,6 +614,9 @@ async def setup(request: Request):
         {
             "app_name": settings.PROJECT_NAME,
             "logto_configured": settings.logto_configured,
+            "auth_configured": settings.auth_configured,
+            "auth_provider": settings.active_auth_provider,
+            "auth_provider_label": settings.auth_provider_label,
         },
     )
 
@@ -716,6 +722,9 @@ async def profile_page(request: Request):
         {
             "app_name": settings.PROJECT_NAME,
             "logto_configured": settings.logto_configured,
+            "auth_configured": settings.auth_configured,
+            "auth_provider": settings.active_auth_provider,
+            "auth_provider_label": settings.auth_provider_label,
             "auth_disabled": settings.AUTH_DISABLED,
         },
     )

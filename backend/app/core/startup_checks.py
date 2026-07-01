@@ -58,10 +58,19 @@ def validate_startup_configuration(settings: Settings) -> StartupCheckResult:
             "ALLOW_LOGTO_SKIP_SSL_VERIFY_IN_PRODUCTION=true is also set."
         )
 
-    if not settings.AUTH_DISABLED and not settings.ADMIN_API_KEY and not settings.logto_configured:
+    if (
+        settings.OIDC_SKIP_SSL_VERIFY
+        and not settings.ALLOW_OIDC_SKIP_SSL_VERIFY_IN_PRODUCTION
+    ):
         errors.append(
-            "Production startup requires Logto settings or ADMIN_API_KEY. "
-            "Set LOGTO_ENDPOINT, LOGTO_APP_ID, and LOGTO_APP_SECRET, or set ADMIN_API_KEY."
+            "OIDC_SKIP_SSL_VERIFY=true is not allowed in production unless "
+            "ALLOW_OIDC_SKIP_SSL_VERIFY_IN_PRODUCTION=true is also set."
+        )
+
+    if not settings.AUTH_DISABLED and not settings.ADMIN_API_KEY and not settings.auth_configured:
+        errors.append(
+            "Production startup requires an authentication path or ADMIN_API_KEY. "
+            "Configure Logto, Authentik/OIDC, trusted proxy auth, or set ADMIN_API_KEY."
         )
 
     if settings.ADMIN_API_KEY and len(settings.ADMIN_API_KEY) < 32:

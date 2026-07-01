@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     ENVIRONMENT: str = "development"
     DEMO_MODE: bool = False
+    PUBLIC_BASE_URL: Optional[str] = None
 
     # Database
     # Default to a sub-directory so the SQLite file lives in a location that
@@ -85,6 +86,44 @@ class Settings(BaseSettings):
     #     Never expose an AUTH_DISABLED instance directly to the internet.
     AUTH_DISABLED: bool = False
     ALLOW_AUTH_DISABLED_IN_PRODUCTION: bool = False
+    # Optional explicit auth mode.  Keep unset/"auto" for backwards-compatible
+    # Logto auto-detection.  Supported values: auto, disabled, logto, oidc,
+    # authentik, trusted_proxy.
+    AUTH_MODE: str = "auto"
+
+    # ── Generic OIDC / Authentik OIDC ────────────────────────────────────────
+    # DMARQ can authenticate directly against any standards-based OIDC provider.
+    # For Authentik, set AUTH_MODE=authentik and the AUTHENTIK_* values below.
+    OIDC_ISSUER_URL: Optional[str] = None
+    OIDC_CLIENT_ID: Optional[str] = None
+    OIDC_CLIENT_SECRET: Optional[str] = None
+    OIDC_REDIRECT_URI: Optional[str] = None
+    OIDC_SCOPES: str = "openid email profile"
+    OIDC_PROVIDER_LABEL: str = "OpenID Connect"
+    OIDC_SKIP_SSL_VERIFY: bool = False
+    ALLOW_OIDC_SKIP_SSL_VERIFY_IN_PRODUCTION: bool = False
+    OIDC_ALLOWED_EMAILS: Optional[str] = None
+    OIDC_ALLOWED_DOMAINS: Optional[str] = None
+
+    AUTHENTIK_ISSUER_URL: Optional[str] = None
+    AUTHENTIK_CLIENT_ID: Optional[str] = None
+    AUTHENTIK_CLIENT_SECRET: Optional[str] = None
+    AUTHENTIK_REDIRECT_URI: Optional[str] = None
+    AUTHENTIK_SCOPES: str = "openid email profile"
+    AUTHENTIK_ALLOWED_EMAILS: Optional[str] = None
+    AUTHENTIK_ALLOWED_DOMAINS: Optional[str] = None
+
+    # ── Trusted proxy / Authentik Outpost mode ───────────────────────────────
+    # Use only when DMARQ is reachable exclusively through the trusted proxy.
+    AUTH_TRUSTED_PROXY_ENABLED: bool = False
+    AUTH_TRUSTED_PROXY_PROVIDER: str = "authentik"
+    AUTH_TRUSTED_PROXY_EMAIL_HEADER: str = "X-Authentik-Email"
+    AUTH_TRUSTED_PROXY_NAME_HEADER: str = "X-Authentik-Name"
+    AUTH_TRUSTED_PROXY_USERNAME_HEADER: str = "X-Authentik-Username"
+    AUTH_TRUSTED_PROXY_SUBJECT_HEADER: str = "X-Authentik-Uid"
+    AUTH_TRUSTED_PROXY_GROUPS_HEADER: str = "X-Authentik-Groups"
+    AUTH_TRUSTED_PROXY_ALLOWED_EMAILS: Optional[str] = None
+    AUTH_TRUSTED_PROXY_ALLOWED_DOMAINS: Optional[str] = None
 
     # ── Logto OIDC ────────────────────────────────────────────────────────────
     # Set these to enable Logto-based authentication.
@@ -108,6 +147,79 @@ class Settings(BaseSettings):
     def logto_configured(self) -> bool:
         """Return True when the minimum Logto settings are present."""
         return bool(self.LOGTO_ENDPOINT and self.LOGTO_APP_ID and self.LOGTO_APP_SECRET)
+
+    @property
+    def generic_oidc_configured(self) -> bool:
+        """Return True when the generic OIDC settings are present."""
+        return bool(self.OIDC_ISSUER_URL and self.OIDC_CLIENT_ID and self.OIDC_CLIENT_SECRET)
+
+    @property
+    def authentik_configured(self) -> bool:
+        """Return True when Authentik direct OIDC settings are present."""
+        return bool(
+            self.AUTHENTIK_ISSUER_URL and self.AUTHENTIK_CLIENT_ID and self.AUTHENTIK_CLIENT_SECRET
+        )
+
+    @property
+    def trusted_proxy_configured(self) -> bool:
+        """Return True when trusted proxy authentication is explicitly enabled."""
+        return self.AUTH_TRUSTED_PROXY_ENABLED or self.AUTH_MODE.strip().lower() in {
+            "trusted_proxy",
+            "authentik_proxy",
+            "proxy",
+        }
+
+    @property
+    def active_auth_provider(self) -> str:
+        """Return the configured browser authentication provider."""
+        mode = (self.AUTH_MODE or "auto").strip().lower()
+        if self.AUTH_DISABLED or mode in {"disabled", "none", "off", "no_auth"}:
+            return "disabled"
+        if mode in {"trusted_proxy", "authentik_proxy", "proxy"}:
+            return "trusted_proxy"
+        if mode == "logto":
+            return "logto"
+        if mode in {"authentik", "authentik_oidc"}:
+            return "authentik"
+        if mode in {"oidc", "generic_oidc", "multi_user_oidc", "single_external_user"}:
+            return "oidc"
+        if self.trusted_proxy_configured:
+            return "trusted_proxy"
+        if self.logto_configured:
+            return "logto"
+        if self.authentik_configured:
+            return "authentik"
+        if self.generic_oidc_configured:
+            return "oidc"
+        return "unconfigured"
+
+    @property
+    def auth_configured(self) -> bool:
+        """Return True when browser authentication has a usable path."""
+        return self.active_auth_provider in {
+            "disabled",
+            "logto",
+            "authentik",
+            "oidc",
+            "trusted_proxy",
+        }
+
+    @property
+    def auth_provider_label(self) -> str:
+        """Return a short UI label for the active auth provider."""
+        provider = self.active_auth_provider
+        if provider == "disabled":
+            return "No authentication"
+        if provider == "logto":
+            return "Logto"
+        if provider == "authentik":
+            return "Authentik"
+        if provider == "trusted_proxy":
+            proxy = (self.AUTH_TRUSTED_PROXY_PROVIDER or "trusted proxy").strip()
+            return "Authentik Outpost" if proxy.lower() == "authentik" else proxy
+        if provider == "oidc":
+            return self.OIDC_PROVIDER_LABEL or "OpenID Connect"
+        return "Not configured"
 
     @property
     def is_production(self) -> bool:

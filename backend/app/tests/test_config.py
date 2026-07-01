@@ -250,7 +250,24 @@ class TestProductionStartupSettings:
         result = validate_startup_configuration(settings)
 
         assert result.ok is False
-        assert any("Logto settings or ADMIN_API_KEY" in error for error in result.errors)
+        assert any("authentication path or ADMIN_API_KEY" in error for error in result.errors)
+
+    def test_production_startup_accepts_authentik_oidc(self):
+        from app.core.startup_checks import validate_startup_configuration
+
+        settings = Settings(
+            ENVIRONMENT="production",
+            SECRET_KEY="s" * 32,
+            AUTH_MODE="authentik",
+            AUTHENTIK_ISSUER_URL="https://idp.example.test/application/o/dmarq",
+            AUTHENTIK_CLIENT_ID="client-id",
+            AUTHENTIK_CLIENT_SECRET="client-secret",
+            DATABASE_URL="postgresql://dmarq:password@db/dmarq",
+        )
+
+        result = validate_startup_configuration(settings)
+
+        assert result.ok is True
 
     def test_production_startup_rejects_auth_disabled_without_override(self):
         from app.core.startup_checks import validate_startup_configuration
