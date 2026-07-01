@@ -11,6 +11,7 @@ from app.services.cloudflare_dns import discover_cloudflare_zones, import_cloudf
 from app.services.dns_provider_connectors import provider_connector_registry
 from app.services.dns_provider_writes import normalize_provider_id
 from app.services.hetzner_dns import discover_hetzner_zones, import_hetzner_domains
+from app.services.route53_dns import discover_route53_zones, import_route53_domains
 
 
 @dataclass
@@ -58,6 +59,8 @@ async def preview_dns_provider_import(
     provider_id = normalize_provider_id(provider)
     if provider_id == "cloudflare":
         zones = await discover_cloudflare_zones(db, workspace_id=workspace_id)
+    elif provider_id == "route53":
+        zones = await discover_route53_zones(db, workspace_id=workspace_id)
     elif provider_id == "hetzner":
         zones = await discover_hetzner_zones(db, workspace_id=workspace_id)
     else:
@@ -104,6 +107,12 @@ async def import_dns_provider_domains(
     provider_id = normalize_provider_id(provider)
     if provider_id == "cloudflare":
         result = await import_cloudflare_domains(
+            db,
+            requested_domains=requested_domains,
+            workspace_id=workspace_id,
+        )
+    elif provider_id == "route53":
+        result = await import_route53_domains(
             db,
             requested_domains=requested_domains,
             workspace_id=workspace_id,

@@ -125,6 +125,26 @@ DMARQ, strip spoofed identity headers, and provide a stable verified identity.
 DNS zone access for Cloudflare, Akamai Edge DNS/FastDNS, Route53, Hetzner, and
 Linode is separate from login and belongs to the DNS provider connector flow.
 
+### DNS Provider Integrations
+
+DNS provider integrations are read-only by default. They let DMARQ import
+domains from zones you already manage, even before DMARC reports have arrived.
+Live DNS writes stay behind the separate DNS repair approval flow.
+
+| Provider | Zone import | Configuration |
+|----------|-------------|---------------|
+| Cloudflare | Ready | `CLOUDFLARE_API_TOKEN` with Zone/DNS read permissions |
+| Amazon Route 53 | Ready | boto3/AWS credential chain, `DMARQ_ROUTE53_PROFILE`, or `DMARQ_ROUTE53_ROLE_ARN` with optional `DMARQ_ROUTE53_EXTERNAL_ID` |
+| Hetzner DNS | Ready | `HETZNER_DNS_API_TOKEN` or `HETZNER_API_TOKEN` with DNS zone read access |
+| Akamai Edge DNS/FastDNS | Planned | EdgeGrid DNS credentials, separate from Akamai EAA login |
+| Linode DNS | Planned | Domains-scoped token |
+
+For Route 53 self-hosted installs, use a local AWS profile or environment
+credentials with `route53:ListHostedZones`. Hosted/provider deployments should
+prefer role assumption with an external ID. Add `route53:ListResourceRecordSets`
+or `route53:ChangeResourceRecordSets` only when future DNS inspection or
+approved repair actions require them.
+
 ### IMAP Settings
 
 | Variable | Description | Default | Example |

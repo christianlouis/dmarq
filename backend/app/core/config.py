@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     CLOUDFLARE_ZONE_ID: Optional[str] = None
     HETZNER_DNS_API_TOKEN: Optional[str] = None
     HETZNER_API_TOKEN: Optional[str] = None
+    AWS_PROFILE: Optional[str] = None
+    AWS_REGION: Optional[str] = None
+    DMARQ_ROUTE53_PROFILE: Optional[str] = None
+    DMARQ_ROUTE53_ROLE_ARN: Optional[str] = None
+    DMARQ_ROUTE53_EXTERNAL_ID: Optional[str] = None
     POSTMARK_ACCOUNT_TOKEN: Optional[str] = None
     WEBHOOK_SECRET: Optional[str] = None
 
