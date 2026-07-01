@@ -294,6 +294,38 @@
                                         <template x-if="(item.notification.dispatch.blocked_reasons || []).length">
                                             <p class="mt-1 text-xs text-[#5f5c78]" x-text="item.notification.dispatch.blocked_reasons[0]"></p>
                                         </template>
+                                        <template x-if="(item.notification.history || []).length">
+                                            <div class="mt-3 border-t border-[#e6e3e1] pt-3">
+                                                <p class="text-xs font-semibold uppercase text-[#5f5c78]">Recent operator history</p>
+                                                <div class="mt-2 space-y-2">
+                                                    <template x-for="entry in item.notification.history.slice(0, 3)"
+                                                              :key="item.id + '-' + entry.action + '-' + entry.created_at">
+                                                        <div class="flex items-start gap-2 text-xs">
+                                                            <span class="mt-1 h-2 w-2 shrink-0 rounded-full"
+                                                                  :class="remediationHistoryDotClass(entry)"></span>
+                                                            <div class="min-w-0">
+                                                                <p class="font-semibold text-[#120d36]">
+                                                                    <span x-text="entry.label"></span>
+                                                                    <span x-show="entry.delivery_count"
+                                                                          class="font-normal text-[#5f5c78]">
+                                                                        · <span x-text="entry.delivery_count"></span> delivery
+                                                                    </span>
+                                                                </p>
+                                                                <p class="text-[#5f5c78]">
+                                                                    <span x-text="formatDate(entry.created_at)"></span>
+                                                                    <span x-show="entry.actor_type"> · </span>
+                                                                    <span x-show="entry.actor_type" x-text="entry.actor_type"></span>
+                                                                    <span x-show="entry.dns_write_attempted === false"> · no DNS write</span>
+                                                                </p>
+                                                                <p x-show="entry.operator_note"
+                                                                   class="truncate text-[#5f5c78]"
+                                                                   x-text="entry.operator_note"></p>
+                                                            </div>
+                                                        </div>
+                                                    </template>
+                                                </div>
+                                            </div>
+                                        </template>
                                     </div>
                                 </template>
                                 <div class="mt-3 flex flex-wrap items-center gap-2 text-xs">
@@ -2034,6 +2066,14 @@ function domainDetailsApp(domainId) {
             if (status === 'ready') return 'Review the payload preview and explicitly dispatch when the operator is ready.';
             const nextStep = (dispatch?.next_steps || [])[0];
             return nextStep || 'Review notification settings before dispatching this remediation item.';
+        },
+
+        remediationHistoryDotClass(entry) {
+            if (entry?.delivery_enqueued) return 'bg-teal-500';
+            if (['acknowledged', 'resolved'].includes(entry?.state)) return 'bg-green-500';
+            if (entry?.state === 'rejected') return 'bg-red-500';
+            if (entry?.state === 'snoozed') return 'bg-yellow-500';
+            return 'bg-blue-500';
         },
 
         senderStatusClass(status) {

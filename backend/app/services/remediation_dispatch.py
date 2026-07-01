@@ -25,6 +25,10 @@ DEFAULT_DISPATCH_EVENTS = {
     "dmarq.remediation.investigation_required",
 }
 ACKNOWLEDGED_LIFECYCLE_STATES = {"previewed", "acknowledged"}
+HISTORY_ACTIONS = {
+    "remediation.notification_lifecycle_recorded",
+    "remediation.notification_dispatch_enqueued",
+}
 
 
 def _truthy(value: Optional[str], *, default: bool = False) -> bool:
@@ -87,6 +91,94 @@ def _latest_lifecycle_marker(
     return {"state": details.get("lifecycle_state"), "recorded_at": recorded_at}
 
 
+def _audit_details(row: WorkspaceAuditLog) -> Dict[str, Any]:
+    try:
+        details = json.loads(row.details or "{}")
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    return details if isinstance(details, dict) else {}
+
+
+def _history_entry(row: WorkspaceAuditLog) -> Optional[Dict[str, Any]]:
+    details = _audit_details(row)
+    created_at = row.created_at.isoformat() if isinstance(row.created_at, datetime) else None
+    action = str(row.action or "")
+    if action == "remediation.notification_dispatch_enqueued":
+        state = "delivery_enqueued" if details.get("delivery_enqueued") else "dispatch_requested"
+        label = "Dispatch enqueued" if details.get("delivery_enqueued") else "Dispatch requested"
+    else:
+        lifecycle_state = str(details.get("lifecycle_state") or "")
+        if not lifecycle_state:
+            return None
+        state = lifecycle_state
+        label = f"Lifecycle {lifecycle_state.replace('_', ' ')}"
+
+    return {
+        "action": action,
+        "state": state,
+        "label": label,
+        "created_at": created_at,
+        "actor_type": row.actor_type,
+        "actor_id": row.actor_id,
+        "operator_note": details.get("operator_note"),
+        "delivery_enqueued": bool(details.get("delivery_enqueued")),
+        "delivery_count": int(details.get("delivery_count") or 0),
+        "dns_write_attempted": bool(details.get("dns_write_attempted")),
+        "sent": bool(details.get("sent")),
+    }
+
+
+def _notification_histories(
+    db: Session,
+    *,
+    workspace: Workspace,
+    domain: str,
+    item_ids: Iterable[str],
+    limit_per_item: int = 5,
+) -> Dict[str, List[Dict[str, Any]]]:
+    ids = [item_id for item_id in {str(item_id or "") for item_id in item_ids} if item_id]
+    if not ids:
+        return {}
+    rows = (
+        db.query(WorkspaceAuditLog)
+        .filter(
+            WorkspaceAuditLog.workspace_id == workspace.id,
+            WorkspaceAuditLog.entity_type == "remediation_notification",
+            WorkspaceAuditLog.entity_id.in_(ids),
+            WorkspaceAuditLog.entity_name == domain,
+            WorkspaceAuditLog.action.in_(HISTORY_ACTIONS),
+        )
+        .order_by(
+            WorkspaceAuditLog.entity_id.asc(),
+            WorkspaceAuditLog.created_at.desc(),
+            WorkspaceAuditLog.id.desc(),
+        )
+        .all()
+    )
+    histories: Dict[str, List[Dict[str, Any]]] = {item_id: [] for item_id in ids}
+    for row in rows:
+        item_id = str(row.entity_id or "")
+        if len(histories.setdefault(item_id, [])) >= limit_per_item:
+            continue
+        entry = _history_entry(row)
+        if entry is None:
+            continue
+        histories[item_id].append(entry)
+    return histories
+
+
+def _latest_lifecycle_marker_from_history(
+    history: Sequence[Dict[str, Any]],
+) -> Dict[str, Optional[str]]:
+    for entry in history:
+        if entry.get("action") == "remediation.notification_lifecycle_recorded":
+            return {
+                "state": entry.get("state"),
+                "recorded_at": entry.get("created_at"),
+            }
+    return {"state": None, "recorded_at": None}
+
+
 def _enabled_webhook_endpoints(db: Session, *, workspace: Workspace) -> List[WebhookEndpoint]:
     return (
         db.query(WebhookEndpoint)
@@ -138,6 +230,7 @@ def build_remediation_dispatch_preview(
     item: Dict[str, Any],
     settings: Optional[Dict[str, str]] = None,
     webhook_event_counts: Optional[Dict[str, int]] = None,
+    history: Optional[Sequence[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Return a read-only dispatch readiness summary for one remediation item."""
     settings = settings if settings is not None else _settings(db)
@@ -148,7 +241,11 @@ def build_remediation_dispatch_preview(
     notification = item.get("notification") or {}
     event_type = str(notification.get("event") or "")
     item_id = str(item.get("id") or "")
-    lifecycle = _latest_lifecycle_marker(db, workspace=workspace, domain=domain, item_id=item_id)
+    lifecycle = (
+        _latest_lifecycle_marker_from_history(history)
+        if history is not None
+        else _latest_lifecycle_marker(db, workspace=workspace, domain=domain, item_id=item_id)
+    )
     lifecycle_state = lifecycle.get("state")
     if webhook_event_counts is None:
         endpoints = _enabled_webhook_endpoints(db, workspace=workspace)
@@ -223,6 +320,12 @@ def attach_remediation_dispatch_previews(
         for item in items
     }
     endpoints = _enabled_webhook_endpoints(db, workspace=workspace)
+    histories = _notification_histories(
+        db,
+        workspace=workspace,
+        domain=domain,
+        item_ids=[str(item.get("id") or "") for item in items],
+    )
     webhook_event_counts = _webhook_event_counts(
         endpoints,
         configured_events | event_types,
@@ -233,6 +336,8 @@ def attach_remediation_dispatch_previews(
     )
     for item in items:
         notification = item.setdefault("notification", {})
+        item_history = histories.get(str(item.get("id") or ""), [])
+        notification["history"] = item_history
         notification["dispatch"] = build_remediation_dispatch_preview(
             db,
             workspace=workspace,
@@ -240,6 +345,7 @@ def attach_remediation_dispatch_previews(
             item=item,
             settings=settings,
             webhook_event_counts=webhook_event_counts,
+            history=item_history,
         )
     _attach_dispatch_summary(
         queue,

@@ -35,6 +35,11 @@ def test_attach_remediation_dispatch_previews_reuses_request_context(monkeypatch
         "_latest_lifecycle_marker",
         lambda *_args, **_kwargs: {"state": None, "recorded_at": None},
     )
+    monkeypatch.setattr(
+        remediation_dispatch,
+        "_notification_histories",
+        lambda *_args, **_kwargs: {},
+    )
 
     queue = {
         "domain": "example.com",
@@ -91,6 +96,20 @@ def test_attach_remediation_dispatch_previews_adds_dashboard_summary(monkeypatch
         fake_enabled_webhook_endpoints,
     )
     monkeypatch.setattr(remediation_dispatch, "_latest_lifecycle_marker", fake_lifecycle)
+    monkeypatch.setattr(
+        remediation_dispatch,
+        "_notification_histories",
+        lambda *_args, **_kwargs: {
+            "dns:dmarc-missing": [
+                {
+                    "action": "remediation.notification_lifecycle_recorded",
+                    "state": "acknowledged",
+                    "created_at": "2026-07-01T08:00:00",
+                }
+            ],
+            "health:spf-hardening": [],
+        },
+    )
 
     queue = {
         "domain": "example.com",

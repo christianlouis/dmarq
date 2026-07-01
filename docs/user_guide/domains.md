@@ -167,6 +167,14 @@ Dispatch remains opt-in through notification settings:
 separate dispatch request with `confirm=true` is still required to create
 delivery rows.
 
+The domain detail page shows recent operator history on each remediation
+notification, including preview/acknowledgement markers, snoozes or rejections,
+and confirmed dispatch enqueue events. This keeps the recommended next action
+next to the evidence: an operator can see whether a recommendation is still
+waiting for review, already acknowledged, or already queued for the configured
+webhook route. The timeline is read-only and highlights that remediation
+notification handling does not perform DNS writes.
+
 If an operator selects a different provider than the nameserver-detected
 provider, DMARQ blocks the preview/apply request by default. The mismatch can be
 overridden only with an explicit confirmation that the selected provider

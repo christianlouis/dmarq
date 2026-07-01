@@ -829,6 +829,7 @@ class RemediationNotification(BaseModel):
     reason: str
     next_transition: str
     payload_preview: Dict[str, Any] = Field(default_factory=dict)
+    history: List[Dict[str, Any]] = Field(default_factory=list)
     dispatch: Dict[str, Any] = Field(default_factory=dict)
 
 
