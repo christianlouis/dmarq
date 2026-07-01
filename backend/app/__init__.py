@@ -1,3 +1,3 @@
 """DMARQ - DMARC monitoring and analysis platform."""
 
-__version__ = "1.94.1"
+__version__ = "1.95.0"
