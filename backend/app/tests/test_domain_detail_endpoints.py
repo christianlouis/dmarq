@@ -1045,7 +1045,7 @@ def test_domain_remediation_notification_dispatch_rejects_stale_identifiers(
     missing_item_response = seeded_client.post(
         f"/api/v1/domains/{DOMAIN}/remediation/notifications/dispatch",
         json={
-            "item_id": "dns:spf-missing",
+            "item_id": "__missing-remediation-item__",
             "confirm": True,
         },
     )
