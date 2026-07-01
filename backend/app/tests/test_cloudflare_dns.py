@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -115,6 +116,22 @@ class FakeHetznerDNSClient:
 
     async def list_zones(self):
         return self.zones
+
+
+class FakeHetznerResponse:
+    def __init__(self, payload=None, *, json_error=False, status_error=None):
+        self.payload = payload or {}
+        self.json_error = json_error
+        self.status_error = status_error
+
+    def raise_for_status(self):
+        if self.status_error:
+            raise self.status_error
+
+    def json(self):
+        if self.json_error:
+            raise ValueError("bad json")
+        return self.payload
 
 
 def test_analyze_dns_records_reports_healthy_auth_records():
@@ -387,6 +404,117 @@ def test_hetzner_dns_client_list_zones_paginates(monkeypatch):
     assert [zone["name"] for zone in zones] == [DOMAIN, "second.example"]
 
 
+def test_hetzner_dns_client_headers_api_get_and_error_paths(monkeypatch):
+    requests = []
+
+    class FakeAsyncClient:
+        def __init__(self, *, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url, *, params=None, headers=None):
+            requests.append({"url": url, "params": params, "headers": headers})
+            return FakeHetznerResponse({"zones": []})
+
+    monkeypatch.setattr(hetzner_dns.httpx, "AsyncClient", FakeAsyncClient)
+    client = hetzner_dns.HetznerDNSClient(api_token="token", api_base="https://example.test/")
+
+    result = asyncio.run(client._api_get("/zones", params={"page": 1}))
+
+    assert result == {"zones": []}
+    assert requests == [
+        {
+            "url": "https://example.test/zones",
+            "params": {"page": 1},
+            "headers": {"Authorization": "Bearer token", "Accept": "application/json"},
+        }
+    ]
+    with pytest.raises(LookupError, match="not configured"):
+        hetzner_dns.HetznerDNSClient(api_token=None)._headers()
+
+
+def test_hetzner_dns_client_api_get_maps_invalid_json(monkeypatch):
+    class FakeAsyncClient:
+        def __init__(self, *, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url, *, params=None, headers=None):
+            return FakeHetznerResponse(json_error=True)
+
+    monkeypatch.setattr(hetzner_dns.httpx, "AsyncClient", FakeAsyncClient)
+    client = hetzner_dns.HetznerDNSClient(api_token="token")
+
+    with pytest.raises(LookupError, match="invalid JSON"):
+        asyncio.run(client._api_get("/zones"))
+
+
+def test_hetzner_dns_client_list_zones_handles_alternate_pagination(monkeypatch):
+    client = hetzner_dns.HetznerDNSClient(api_token="token")
+
+    async def fake_get(path, *, params=None):
+        assert path == "/zones"
+        if params["page"] == 1:
+            return {
+                "data": [{"id": 1, "name": DOMAIN}],
+                "pagination": {"last_page": 2},
+            }
+        return {
+            "result": [{"id": 2, "name": "second.example"}],
+            "pagination": {"last_page": 2},
+        }
+
+    monkeypatch.setattr(client, "_api_get", fake_get)
+
+    zones = asyncio.run(client.list_zones())
+
+    assert [zone["name"] for zone in zones] == [DOMAIN, "second.example"]
+
+
+def test_hetzner_dns_client_list_zones_ignores_malformed_payload(monkeypatch):
+    client = hetzner_dns.HetznerDNSClient(api_token="token")
+
+    async def fake_get(path, *, params=None):
+        return {"zones": "not-a-list"}
+
+    monkeypatch.setattr(client, "_api_get", fake_get)
+
+    assert asyncio.run(client.list_zones()) == []
+
+
+def test_hetzner_dns_credentials_and_build_client(monkeypatch):
+    monkeypatch.setattr(
+        hetzner_dns,
+        "get_settings",
+        lambda: SimpleNamespace(HETZNER_DNS_API_TOKEN="", HETZNER_API_TOKEN="fallback"),
+    )
+
+    credentials = hetzner_dns.get_hetzner_dns_credentials()
+    client = hetzner_dns.build_hetzner_dns_client()
+
+    assert credentials.configured is True
+    assert client.api_token == "fallback"
+
+    monkeypatch.setattr(
+        hetzner_dns,
+        "get_settings",
+        lambda: SimpleNamespace(HETZNER_DNS_API_TOKEN="", HETZNER_API_TOKEN=""),
+    )
+    assert hetzner_dns.get_hetzner_dns_credentials().configured is False
+    with pytest.raises(LookupError, match="not configured"):
+        hetzner_dns.build_hetzner_dns_client()
+
+
 def test_discover_hetzner_zones_marks_imported_and_filters_invalid(db_session):
     workspace = get_or_create_default_workspace(db_session)
     db_session.add(Domain(name=DOMAIN, workspace_id=workspace.id))
@@ -445,6 +573,30 @@ def test_import_hetzner_domains_imports_requested_and_skips_others(db_session):
     assert imported is not None
     assert imported.verified is True
     assert imported.description == "DNS-discovered from Hetzner DNS zone import"
+
+
+def test_import_hetzner_domains_treats_global_duplicate_as_existing(db_session):
+    workspace = Workspace(slug="hetzner-target", name="Hetzner Target")
+    db_session.add(workspace)
+    db_session.add(Domain(name=DOMAIN, workspace_id=None))
+    db_session.commit()
+
+    async def fake_discover(_db, workspace_id=None):
+        assert workspace_id == workspace.id
+        return [{"id": "zone-1", "name": DOMAIN, "imported": False}]
+
+    with patch("app.services.hetzner_dns.discover_hetzner_zones", new=fake_discover):
+        result = asyncio.run(
+            hetzner_dns.import_hetzner_domains(
+                db_session,
+                requested_domains=[DOMAIN],
+                workspace_id=workspace.id,
+            )
+        )
+
+    assert result["imported"] == []
+    assert result["existing"] == [DOMAIN]
+    assert db_session.query(Domain).filter(Domain.name == DOMAIN).count() == 1
 
 
 def test_dns_provider_import_preview_wraps_cloudflare_zones(db_session):
@@ -513,6 +665,32 @@ def test_dns_provider_import_preview_wraps_hetzner_zones(db_session):
     assert result["importable_count"] == 1
     assert result["zones"][0]["domain"] == DOMAIN
     assert "Hetzner DNS zone" in result["zones"][0]["next_action"]
+
+
+def test_dns_provider_import_apply_wraps_hetzner_import(db_session):
+    async def fake_import(_db, requested_domains=None, workspace_id=None):
+        assert requested_domains == [DOMAIN]
+        assert workspace_id == 456
+        return {
+            "imported": [DOMAIN],
+            "existing": [],
+            "skipped": [],
+            "total_discovered": 1,
+        }
+
+    with patch("app.services.dns_provider_imports.import_hetzner_domains", new=fake_import):
+        result = asyncio.run(
+            dns_provider_imports.import_dns_provider_domains(
+                db_session,
+                provider="hetzner",
+                requested_domains=[DOMAIN],
+                workspace_id=456,
+            )
+        )
+
+    assert result["provider"] == "hetzner"
+    assert result["provider_name"] == "Hetzner DNS"
+    assert result["imported"] == [DOMAIN]
 
 
 def test_dns_provider_import_rejects_unsupported_provider(db_session):
