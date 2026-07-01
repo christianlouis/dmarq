@@ -364,6 +364,9 @@
                 <div class="flex flex-col gap-4">
                     <div x-show="triggerPollMessage"
                          x-cloak
+                         role="status"
+                         aria-live="polite"
+                         aria-atomic="true"
                          class="rounded-md border px-3 py-2 text-sm"
                          :class="triggerPollStatus === 'error' ? 'border-[#ff6f3c] bg-[#fff2ec] text-[#8a2d0d]' : 'border-[#d7efe8] bg-[#eefaf6] text-[#0f6b4d]'">
                         <span x-text="triggerPollMessage"></span>

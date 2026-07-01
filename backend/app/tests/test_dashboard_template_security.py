@@ -117,3 +117,6 @@ def test_dashboard_trigger_poll_uses_post_action_not_get_link():
     assert "triggerPollNow()" in template
     assert "method: 'POST'" in template
     assert "triggerPollMessage" in template
+    assert 'role="status"' in template
+    assert 'aria-live="polite"' in template
+    assert 'aria-atomic="true"' in template

@@ -957,7 +957,7 @@ def _poll_enabled_sources_for_trigger(days: int) -> list[dict]:
 
 
 # API endpoint to manually trigger mail-source polling
-@app.get("/api/v1/admin/trigger-poll")
+@app.get("/api/v1/admin/trigger-poll", include_in_schema=False)
 async def trigger_imap_poll_get() -> None:
     """Explain that manual polling is a POST action when opened directly."""
     raise HTTPException(

@@ -3987,6 +3987,9 @@ class TestTriggerPollEndpoint:
         assert detail["code"] == "method_not_allowed"
         assert "dashboard button" in detail["message"]
         assert "POST /api/v1/admin/trigger-poll" in detail["next_steps"][1]
+        trigger_poll_schema = main_app.openapi()["paths"]["/api/v1/admin/trigger-poll"]
+        assert "get" not in trigger_poll_schema
+        assert "post" in trigger_poll_schema
 
     def test_trigger_poll_with_enabled_sources(self):
         """With enabled sources, the endpoint dispatches and returns results."""
