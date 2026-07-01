@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from app.services.bimi import BIMIResult
+from app.services.dane import DANEResult
 from app.services.dns_provider_detection import DNSProviderDetection
 from app.services.dns_resolver import BaseDNSProvider, DomainDNSResult, extract_dmarc_policy
 from app.services.mta_sts import MTAStsResult
@@ -143,6 +144,22 @@ def _target_by_code(records: List[DNSGuidanceRecord], code: str) -> DNSGuidanceR
     return next(record for record in records if record.code == code)
 
 
+def _dane_target_record(domain: str, result: DANEResult) -> DNSGuidanceRecord:
+    mx_host = result.mx_hosts[0] if result.mx_hosts else f"<mx-host>.{domain}"
+    return DNSGuidanceRecord(
+        code="target_dane",
+        record_type="TLSA",
+        name=f"_{result.port}._tcp.{mx_host}",
+        value="3 1 1 <sha256-of-current-mx-certificate-spki>",
+        purpose=(
+            "DANE SMTP TLSA certificate pinning for one MX host. Publish one matching TLSA "
+            "record for every MX host, and only after DNSSEC is correctly signed and the TLSA "
+            "value matches the live MX certificate."
+        ),
+        priority="optional",
+    )
+
+
 def _finding(
     code: str,
     severity: str,
@@ -257,6 +274,16 @@ def _default_remediation_steps(code: str) -> List[str]:
             "Complete DMARC enforcement first.",
             "Publish a default._bimi TXT record with an HTTPS SVG logo URL.",
             "Add a certificate URL if the mailbox providers you care about require it.",
+        ],
+        "dane_missing": [
+            "Confirm that the domain's DNS zone is signed and validating with DNSSEC.",
+            "For each MX host, derive the intended TLSA value from the live SMTP certificate.",
+            "Publish TLSA records under _25._tcp.<mx-host> and refresh DMARQ DNS lint.",
+        ],
+        "dane_review": [
+            "Review every TLSA record shown in evidence for the affected MX hosts.",
+            "Compare the TLSA selector and hash with the current SMTP TLS certificate.",
+            "Rotate TLSA values in the same change window as certificate changes.",
         ],
         "mail_service_record_missing": [
             "Open the sender-domain authentication page in the mail service.",
@@ -940,6 +967,52 @@ def _bimi_findings(
     return findings
 
 
+def _actionable_dane_warnings(result: DANEResult) -> List[str]:
+    return [
+        warning
+        for warning in result.warnings
+        if not warning.startswith(
+            "DMARQ validates TLSA syntax and MX coverage, but does not yet validate DNSSEC chains"
+        )
+    ]
+
+
+def _dane_findings(result: DANEResult, targets: List[DNSGuidanceRecord]) -> List[DNSLintFinding]:
+    target = _target_by_code(targets, "target_dane")
+    warnings = _actionable_dane_warnings(result)
+    if result.status == "pass" and not warnings:
+        return []
+    detail = "; ".join(warnings or result.errors or ["No DANE/TLSA records were found."])
+    evidence = [record.record for record in result.records] or result.mx_hosts
+    if result.status == "fail":
+        return [
+            _finding(
+                "dane_missing",
+                "info",
+                "DANE TLSA records are not ready",
+                detail,
+                "Treat DANE as optional unless you operate DNSSEC-signed MX infrastructure.",
+                "TLSA",
+                target.name,
+                target_record=target,
+                evidence=evidence,
+            )
+        ]
+    return [
+        _finding(
+            "dane_review",
+            "warning",
+            "DANE TLSA setup needs review",
+            detail,
+            "Review TLSA syntax, MX coverage, DNSSEC validation, and certificate rotation handling.",
+            "TLSA",
+            target.name,
+            target_record=target,
+            evidence=evidence,
+        )
+    ]
+
+
 def _normalize_dns_value(value: str) -> str:
     return " ".join(str(value or "").strip().strip(".").split()).lower()
 
@@ -1111,6 +1184,14 @@ def _risk_for_finding(finding: DNSLintFinding) -> str:
         ),
         "tls_rpt_missing": "Low risk: TLS-RPT only controls report delivery.",
         "bimi_missing": "Low mail-flow risk; BIMI is a brand/readiness feature.",
+        "dane_missing": (
+            "Medium operational risk if enabled incorrectly; DANE depends on DNSSEC and exact "
+            "TLSA/certificate lifecycle management."
+        ),
+        "dane_review": (
+            "Medium operational risk: stale or malformed TLSA records can cause strict receivers "
+            "to reject SMTP TLS delivery."
+        ),
         "mail_service_record_missing": (
             "Low DNS risk when copied exactly; mail-service verification remains pending until "
             "DNS propagates."
@@ -1200,6 +1281,7 @@ async def build_dns_guidance(
     result: DomainDNSResult,
     mta_sts: MTAStsResult,
     bimi: BIMIResult,
+    dane: Optional[DANEResult] = None,
     *,
     monitored_selectors: Optional[List[str]] = None,
     observed_selectors: Optional[List[str]] = None,
@@ -1207,7 +1289,9 @@ async def build_dns_guidance(
 ) -> DNSGuidanceResult:
     """Build typed DNS lint findings and target records for a domain."""
     normalized_domain = domain.strip().strip(".").lower()
+    dane_result = dane or DANEResult(errors=["No DANE/TLSA context was evaluated."])
     targets = _target_records(normalized_domain, result)
+    targets.append(_dane_target_record(normalized_domain, dane_result))
     findings: List[DNSLintFinding] = []
     findings.extend(_dmarc_findings(normalized_domain, result, targets))
     findings.extend(await _spf_findings(normalized_domain, provider, result, targets))
@@ -1224,6 +1308,7 @@ async def build_dns_guidance(
     findings.extend(_mta_sts_findings(mta_sts, targets))
     findings.extend(await _tls_rpt_findings(normalized_domain, provider, targets))
     findings.extend(_bimi_findings(bimi, extract_dmarc_policy(result.dmarc_record), targets))
+    findings.extend(_dane_findings(dane_result, targets))
     findings.extend(await _mail_service_dns_findings(provider, mail_service_records or []))
     return DNSGuidanceResult(
         domain=normalized_domain,

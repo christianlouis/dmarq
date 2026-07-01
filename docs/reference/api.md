@@ -564,6 +564,18 @@ GET /domains/{domain_id}/dns/bimi
 Returns the cached BIMI TXT posture for the default selector, including the
 queried DNS name, record text, logo URL, certificate URL, warnings, and errors.
 
+#### Get DANE/TLSA Posture
+
+```
+GET /domains/{domain_id}/dns/dane
+```
+
+Returns cached read-only SMTP DANE evidence for the domain's MX hosts. The
+response lists discovered MX hosts, queried TLSA owner names, parsed TLSA
+fields, syntax errors, warnings, cache state, and the check timestamp. DMARQ
+currently validates MX coverage and TLSA syntax only; it does not yet validate
+DNSSEC chains or compare TLSA hashes with live SMTP certificates.
+
 #### Get DNS Lint Guidance
 
 ```
@@ -584,7 +596,7 @@ GET /domains/dns/lint/export
 
 Returns typed DNS lint findings with stable `code` values, suggested target
 records, detected DNS provider evidence, and deterministic `remediation_steps`
-for DMARC, SPF, DKIM, MTA-STS, TLS-RPT, and BIMI readiness. DKIM findings
+for DMARC, SPF, DKIM, MTA-STS, TLS-RPT, BIMI, and DANE/TLSA readiness. DKIM findings
 distinguish missing selectors, broken CNAME targets, short RSA keys, and stale
 selectors. The bulk endpoint returns the same payload shape per monitored
 domain, and the export endpoint returns the finding list as CSV for

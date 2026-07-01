@@ -82,7 +82,7 @@ Completed or substantially delivered:
 - Dashboard, domain reports, source reports, trend charts, exports, and
   recommendations.
 - DNS health checks for DMARC/SPF/DKIM plus posture checks for MTA-STS, TLS-RPT,
-  and BIMI.
+  BIMI, and passive DANE/TLSA readiness.
 - Cloudflare read-only inspection, DNS snapshots, and DNS change history.
 - Notifications, alert rules, alert history, and Apprise delivery.
 - API tokens, webhooks, SIEM templates, and ticketing/chatops templates.
@@ -101,6 +101,9 @@ The main open strategic issues are:
   score, A-F rating, and remediation action plan.
 - [Issue #305](https://github.com/christianlouis/dmarq/issues/305): competitive
   parity tracker for DMARC monitoring platforms.
+- [Issue #310](https://github.com/christianlouis/dmarq/issues/310): DANE, ARC,
+  and ARF competitive protocol coverage. The first shipped slice is passive
+  DANE/TLSA posture; ARC and deeper ARF work remain separate design slices.
 - [Issue #384](https://github.com/christianlouis/dmarq/issues/384): autonomous
   mail health remediation loop with human approval.
 - [Issue #385](https://github.com/christianlouis/dmarq/issues/385): sender IP
@@ -145,7 +148,7 @@ Exit criteria:
 - A domain owner can distinguish observed problems from approved repairs and
   manual work still waiting on them.
 - Demo mode continues to showcase realistic aggregate, forensic, DNS, TLS-RPT,
-  MTA-STS, and BIMI states without touching production paths.
+  MTA-STS, BIMI, and DANE/TLSA states without touching production paths.
 
 ### Track A2: Ecosystem Integrations and Localization
 

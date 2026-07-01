@@ -700,6 +700,30 @@ async def test_cloudflare_provider_lookup_ns_returns_empty_on_http_error():
 
 
 @pytest.mark.asyncio
+async def test_cloudflare_provider_lookup_mx_skips_malformed_answers():
+    from unittest.mock import MagicMock
+
+    fake_response_data = {
+        "Answer": [
+            {"type": 15, "data": "bad mail.bad.example."},
+            {"type": 15, "data": "20 mail2.example."},
+            {"type": 15, "data": "10 mail1.example."},
+            {"type": 1, "data": "93.184.216.34"},
+        ]
+    }
+
+    mock_response = AsyncMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json = lambda: fake_response_data
+
+    with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=mock_response)):
+        provider = CloudflareDNSProvider()
+        mx_hosts = await provider.lookup_mx("example.com")
+
+    assert mx_hosts == ["mail1.example", "mail2.example"]
+
+
+@pytest.mark.asyncio
 async def test_cloudflare_provider_lists_zones_from_rest_api():
     from unittest.mock import MagicMock
 

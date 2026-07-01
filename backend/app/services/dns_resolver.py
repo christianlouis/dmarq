@@ -395,8 +395,16 @@ class BaseDNSProvider(ABC):
         """
         return None
 
+    async def lookup_mx(self, domain: str) -> List[str]:
+        """Return MX hostnames for *domain* when available."""
+        return []
+
     async def lookup_ns(self, domain: str) -> List[str]:
         """Return authoritative nameservers for *domain* when available."""
+        return []
+
+    async def lookup_tlsa(self, name: str) -> List[str]:
+        """Return TLSA record strings for *name* when available."""
         return []
 
     async def check_dkim(
@@ -565,6 +573,39 @@ class SystemDNSProvider(BaseDNSProvider):
                 return sorted(str(rdata.target).rstrip(".").lower() for rdata in answers)
         except dns.exception.DNSException as exc:
             logger.debug("NS lookup failed for %s: %s", _sanitize_for_log(domain), exc)
+        return []
+
+    async def lookup_mx(self, domain: str) -> List[str]:
+        """Resolve MX hostnames for *domain* via the system resolver."""
+        import dns.asyncresolver  # type: ignore[import]
+        import dns.exception  # type: ignore[import]
+
+        try:
+            answers = await dns.asyncresolver.resolve(
+                domain, "MX", lifetime=DNS_TIMEOUT, raise_on_no_answer=False
+            )
+            if answers:
+                return [
+                    str(rdata.exchange).rstrip(".").lower()
+                    for rdata in sorted(answers, key=lambda item: int(item.preference))
+                ]
+        except dns.exception.DNSException as exc:
+            logger.debug("MX lookup failed for %s: %s", _sanitize_for_log(domain), exc)
+        return []
+
+    async def lookup_tlsa(self, name: str) -> List[str]:
+        """Resolve TLSA records for *name* via the system resolver."""
+        import dns.asyncresolver  # type: ignore[import]
+        import dns.exception  # type: ignore[import]
+
+        try:
+            answers = await dns.asyncresolver.resolve(
+                name, "TLSA", lifetime=DNS_TIMEOUT, raise_on_no_answer=False
+            )
+            if answers:
+                return [str(rdata).strip() for rdata in answers]
+        except dns.exception.DNSException as exc:
+            logger.debug("TLSA lookup failed for %s: %s", _sanitize_for_log(name), exc)
         return []
 
 
@@ -873,6 +914,64 @@ class CloudflareDNSProvider(BaseDNSProvider):
             pass
         return []
 
+    async def lookup_mx(self, domain: str) -> List[str]:
+        """Resolve MX hostnames via Cloudflare's DoH endpoint."""
+        import httpx  # type: ignore[import]
+
+        params = {"name": domain, "type": "MX"}
+        headers = {"Accept": "application/dns-json"}
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    self.CLOUDFLARE_DOH_URL,
+                    params=params,
+                    headers=headers,
+                    timeout=DNS_TIMEOUT,
+                )
+                response.raise_for_status()
+                data = response.json()
+                rows = []
+                for answer in data.get("Answer", []):
+                    if answer.get("type") != 15 or not answer.get("data"):
+                        continue
+                    parts = str(answer["data"]).split()
+                    if len(parts) < 2:
+                        continue
+                    try:
+                        preference = int(parts[0])
+                    except ValueError:
+                        continue
+                    rows.append((preference, parts[1].rstrip(".").lower()))
+                return [host for _preference, host in sorted(rows)]
+        except (httpx.RequestError, httpx.HTTPStatusError, httpx.TimeoutException):
+            pass
+        return []
+
+    async def lookup_tlsa(self, name: str) -> List[str]:
+        """Resolve TLSA records via Cloudflare's DoH endpoint."""
+        import httpx  # type: ignore[import]
+
+        params = {"name": name, "type": "TLSA"}
+        headers = {"Accept": "application/dns-json"}
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    self.CLOUDFLARE_DOH_URL,
+                    params=params,
+                    headers=headers,
+                    timeout=DNS_TIMEOUT,
+                )
+                response.raise_for_status()
+                data = response.json()
+                return [
+                    str(answer.get("data", "")).strip()
+                    for answer in data.get("Answer", [])
+                    if answer.get("type") == 52 and answer.get("data")
+                ]
+        except (httpx.RequestError, httpx.HTTPStatusError, httpx.TimeoutException):
+            pass
+        return []
+
 
 class DemoDNSProvider(BaseDNSProvider):
     """Deterministic DNS provider for the opt-in public demo mode."""
@@ -950,6 +1049,14 @@ class DemoDNSProvider(BaseDNSProvider):
         normalized = _normalize_dns_name(name)
         return self._cname_records.get(normalized)
 
+    async def lookup_mx(self, domain: str) -> List[str]:
+        normalized = _normalize_dns_name(domain)
+        if normalized == "dmarq.org":
+            return ["mx1.dmarq.org", "mx2.dmarq.org"]
+        if normalized == "dmarq.com":
+            return ["mail.dmarq.com"]
+        return []
+
     async def lookup_ns(self, domain: str) -> List[str]:
         normalized = _normalize_dns_name(domain)
         if normalized == "dmarq.org":
@@ -957,6 +1064,18 @@ class DemoDNSProvider(BaseDNSProvider):
         if normalized == "dmarq.com":
             return ["ns1.digitalocean.com", "ns2.digitalocean.com"]
         return []
+
+    async def lookup_tlsa(self, name: str) -> List[str]:
+        records = {
+            "_25._tcp.mx1.dmarq.org": [
+                "3 1 1 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+            ],
+            "_25._tcp.mx2.dmarq.org": [
+                "3 1 1 abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+            ],
+            "_25._tcp.mail.dmarq.com": ["3 1 1 not-hex-demo-value"],
+        }
+        return list(records.get(_normalize_dns_name(name), []))
 
 
 def _decrypt_setting_value(value: Optional[str]) -> Optional[str]:

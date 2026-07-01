@@ -30,6 +30,7 @@ from app.services.cloudflare_dns import (
     list_dns_record_changes,
     sync_dns_record_changes,
 )
+from app.services.dane import check_dane_cached
 from app.services.demo_data import DEMO_DAYS, build_demo_health_score_history
 from app.services.dns_cache import resolve_domain_dns_cached
 from app.services.dns_guidance import build_dns_guidance
@@ -988,6 +989,34 @@ class BIMIResponse(BaseModel):
     checked_at: Optional[str] = None
 
 
+class TLSARecordResponse(BaseModel):
+    """One observed TLSA record for an MX host."""
+
+    query_name: str
+    mx_host: str
+    record: str
+    certificate_usage: Optional[int] = None
+    selector: Optional[int] = None
+    matching_type: Optional[int] = None
+    association_data: Optional[str] = None
+    valid: bool = False
+    errors: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+
+
+class DANEResponse(BaseModel):
+    """DANE/TLSA posture result for a domain."""
+
+    status: str
+    port: int = 25
+    mx_hosts: List[str] = Field(default_factory=list)
+    records: List[TLSARecordResponse] = Field(default_factory=list)
+    errors: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    cached: bool = False
+    checked_at: Optional[str] = None
+
+
 class CloudflareZoneResponse(BaseModel):
     """Cloudflare zone available for import."""
 
@@ -1819,6 +1848,12 @@ async def _build_domain_dns_guidance(
         domain_id,
         refresh=refresh,
     )
+    dane_result, _, _ = await check_dane_cached(
+        db,
+        provider,
+        domain_id,
+        refresh=refresh,
+    )
     mail_service_records = await mail_service_dns_records_for_domain(db, domain_id)
     guidance = await build_dns_guidance(
         domain_id,
@@ -1826,6 +1861,7 @@ async def _build_domain_dns_guidance(
         dns_result,
         mta_sts_result,
         bimi_result,
+        dane_result,
         monitored_selectors=combined_selectors,
         observed_selectors=report_selectors,
         mail_service_records=mail_service_records,
@@ -4094,6 +4130,42 @@ async def get_domain_bimi(
         logo_url=result.logo_url,
         certificate_url=result.certificate_url,
         evidence_url=result.evidence_url,
+        errors=result.errors,
+        warnings=result.warnings,
+        cached=cached,
+        checked_at=checked_at.isoformat(),
+    )
+
+
+@router.get("/{domain_id}/dns/dane", response_model=DANEResponse)
+async def get_domain_dane(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    port: int = Query(25, ge=1, le=65535, title="SMTP service port for TLSA lookup"),
+    refresh: bool = Query(False, title="Refresh cached DANE result"),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
+    """Return cached DANE/TLSA posture for a domain's MX hosts."""
+    workspace = _authorized_domain_read_workspace(_auth, db)
+    store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
+    if not _domain_exists(db, store, domain_id, workspace):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Domain not found",
+        )
+    result, cached, checked_at = await check_dane_cached(
+        db,
+        get_default_provider(db),
+        domain_id,
+        port=port,
+        refresh=refresh,
+    )
+    return DANEResponse(
+        status=result.status,
+        port=result.port,
+        mx_hosts=result.mx_hosts,
+        records=[TLSARecordResponse(**asdict(record)) for record in result.records],
         errors=result.errors,
         warnings=result.warnings,
         cached=cached,

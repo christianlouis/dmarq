@@ -70,7 +70,12 @@ Live DNS checks parse DMARC policy records according to RFC 9989:
 - Subdomain checks fall back to the bounded RFC 9989 DNS Tree Walk, including `psd=n` and `psd=y` stop conditions.
 - Records with a valid aggregate reporting URI but no valid `p` tag are treated as monitoring mode for policy extraction.
 - External `rua` and `ruf` destinations are linted for the required DNS authorization TXT record at `<policy-domain>._report._dmarc.<destination-domain>`.
-- Typed DNS guidance endpoints expose stable finding codes and target records for DMARC, SPF, DKIM, MTA-STS, TLS-RPT, and BIMI readiness. Provider writes are never automatic; safe TXT/CNAME changes require an explicit apply request.
+- Typed DNS guidance endpoints expose stable finding codes and target records
+  for DMARC, SPF, DKIM, MTA-STS, TLS-RPT, BIMI, and passive DANE/TLSA
+  readiness. Provider writes are never automatic; safe TXT/CNAME changes
+  require an explicit apply request. DANE/TLSA support is currently read-only
+  MX/TLSA syntax and coverage guidance, not DNSSEC chain validation or live SMTP
+  certificate pinning verification.
 
 ## Preserved Metadata
 
@@ -97,6 +102,8 @@ CSV exports include the most useful aggregate metadata for operators:
 - Unsupported attachments are skipped by IMAP and Gmail import paths and recorded in import details when stats are available.
 - For duplicate detection, DMARQ uses the domain and `report_id` pair. Fixture report IDs must remain unique within a single test import run.
 - RFC 9991 describes report generation duties such as outbound rate limiting and external `ruf` destination verification for Mail Receivers. DMARQ currently implements report-consumer parsing and analysis, not report generation.
+- ARC is tracked as a future message-analysis feature. DMARQ does not currently
+  score ARC chains or treat ARC as a replacement for DMARC alignment evidence.
 - The product-scope backlog for parser, analyzer, DNS guidance, and DNS linting work is tracked in `docs/development/dmarc-scope-open-items.md`.
 
 ## Fixture Pack
