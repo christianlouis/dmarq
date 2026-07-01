@@ -44,6 +44,7 @@ class Route53DNSCredentials:
                 os.getenv("AWS_ACCESS_KEY_ID"),
                 os.getenv("AWS_WEB_IDENTITY_TOKEN_FILE"),
                 os.getenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"),
+                os.getenv("AWS_CONTAINER_CREDENTIALS_FULL_URI"),
             ]
         )
 
@@ -208,12 +209,16 @@ async def import_route53_domains(
     imported: List[str] = []
     existing: List[str] = []
     skipped: List[str] = []
+    seen_candidates: set[str] = set()
 
     for zone in zones:
         name = str(zone["name"]).lower()
         if requested is not None and name not in requested:
             skipped.append(name)
             continue
+        if name in seen_candidates:
+            continue
+        seen_candidates.add(name)
         candidate_names.append(name)
 
     existing_names = set()
