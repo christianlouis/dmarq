@@ -155,7 +155,7 @@ async def test_build_dns_guidance_uses_live_tlsa_suggestion_as_dane_target():
         errors=["No TLSA records were found for MX host(s): mx.example.com"],
         suggested_records=[
             TLSASuggestion(
-                query_name="_25._tcp.mx.example.com",
+                query_name="_25._tcp.mail.example.net",
                 mx_host="mx.example.com",
                 record=(
                     "3 1 1 " "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -176,7 +176,7 @@ async def test_build_dns_guidance_uses_live_tlsa_suggestion_as_dane_target():
     )
 
     target = next(record for record in guidance.target_records if record.code == "target_dane")
-    assert target.name == "_25._tcp.mx.example.com"
+    assert target.name == "_25._tcp.mail.example.net"
     assert target.value == "3 1 1 " + "a" * 64
     assert "derived from the live STARTTLS certificate" in target.purpose
 

@@ -178,7 +178,7 @@ def _dane_target_record(domain: str, result: DANEResult) -> DNSGuidanceRecord:
     return DNSGuidanceRecord(
         code="target_dane",
         record_type="TLSA",
-        name=f"_{result.port}._tcp.{mx_host}",
+        name=ready_suggestion.query_name if ready_suggestion else f"_{result.port}._tcp.{mx_host}",
         value=value,
         purpose=purpose,
         priority="optional",

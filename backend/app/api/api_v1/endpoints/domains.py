@@ -1976,7 +1976,6 @@ async def _build_domain_dns_guidance(
         provider,
         domain_id,
         refresh=refresh,
-        derive_suggestions=True,
     )
     mail_service_records = await mail_service_dns_records_for_domain(db, domain_id)
     guidance = await build_dns_guidance(
@@ -4361,6 +4360,10 @@ async def get_domain_dane(
     domain_id: str = Path(..., title="The domain ID or name"),
     port: int = Query(25, ge=1, le=65535, title="SMTP service port for TLSA lookup"),
     refresh: bool = Query(False, title="Refresh cached DANE result"),
+    derive_suggestions: bool = Query(
+        False,
+        title="Derive live SMTP STARTTLS TLSA suggestions",
+    ),
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
 ):
@@ -4379,7 +4382,7 @@ async def get_domain_dane(
         domain_id,
         port=port,
         refresh=refresh,
-        derive_suggestions=True,
+        derive_suggestions=derive_suggestions,
     )
     return DANEResponse(
         status=result.status,

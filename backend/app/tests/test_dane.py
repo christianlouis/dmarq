@@ -4,6 +4,7 @@ import pytest
 
 from app.services.dane import (
     TLSASuggestion,
+    _derive_tlsa_suggestions,
     check_dane,
     check_dane_cached,
     parse_tlsa_record,
@@ -162,6 +163,69 @@ async def test_check_dane_flags_live_tlsa_mismatch(monkeypatch):
         "do not match the live SMTP STARTTLS certificate" in error for error in result.errors
     )
     assert any("does not match the live SMTP" in warning for warning in result.records[0].warnings)
+
+
+@pytest.mark.asyncio
+async def test_check_dane_accepts_matching_live_tlsa_suggestion(monkeypatch):
+    provider = FakeDANEDNSProvider(
+        mx_hosts=["mx1.example.com"],
+        tlsa_records={
+            "_25._tcp.mx1.example.com": [
+                "3 1 1 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            ],
+        },
+    )
+
+    async def fake_suggestions(mx_hosts, *, port, timeout=5.0):
+        return [
+            TLSASuggestion(
+                query_name="_25._tcp.mx1.example.com",
+                mx_host="mx1.example.com",
+                record=(
+                    "3 1 1 " "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                ),
+                association_data="a" * 64,
+                status="ready",
+            )
+        ]
+
+    monkeypatch.setattr("app.services.dane._derive_tlsa_suggestions", fake_suggestions)
+
+    result = await check_dane("example.com", provider, derive_suggestions=True)
+
+    assert result.status == "pass"
+    assert not any(
+        "do not match the live SMTP STARTTLS certificate" in error for error in result.errors
+    )
+    assert not any(
+        "does not match the live SMTP" in warning for warning in result.records[0].warnings
+    )
+
+
+@pytest.mark.asyncio
+async def test_derive_tlsa_suggestions_keeps_host_failures_as_data(monkeypatch):
+    def fake_suggestion(mx_host, port, timeout):
+        if mx_host == "mx1.example.com":
+            raise RuntimeError("transient STARTTLS failure")
+        return TLSASuggestion(
+            query_name="_25._tcp.mx2.example.com",
+            mx_host="mx2.example.com",
+            record="3 1 1 " + "a" * 64,
+            association_data="a" * 64,
+            status="ready",
+        )
+
+    monkeypatch.setattr("app.services.dane._derive_tlsa_suggestion_sync", fake_suggestion)
+
+    suggestions = await _derive_tlsa_suggestions(
+        ["mx1.example.com", "mx2.example.com"],
+        port=25,
+    )
+
+    assert suggestions[0].mx_host == "mx1.example.com"
+    assert suggestions[0].status == "unavailable"
+    assert "transient STARTTLS failure" in str(suggestions[0].error)
+    assert suggestions[1].status == "ready"
 
 
 @pytest.mark.asyncio

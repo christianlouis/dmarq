@@ -941,7 +941,7 @@ def test_bimi_endpoint_returns_404_for_unknown_domain(authed_client: TestClient)
 def test_dane_endpoint_returns_cached_posture(authed_client: TestClient):
     """The domain detail page can fetch DANE/TLSA posture with cache metadata."""
     checked_at = datetime(2026, 5, 23, 12, 0, 0)
-    result = DANEResult(
+    passive_result = DANEResult(
         status="pass",
         port=25,
         mx_hosts=["mx.example.com"],
@@ -961,26 +961,46 @@ def test_dane_endpoint_returns_cached_posture(authed_client: TestClient):
                 valid=True,
             )
         ],
-        suggested_records=[
-            TLSASuggestion(
-                query_name="_25._tcp.mx.example.com",
-                mx_host="mx.example.com",
-                record=(
-                    "3 1 1 " "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-                ),
-                association_data=(
-                    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-                ),
-                status="ready",
-            )
-        ],
     )
+    live_result = DANEResult(
+        **{
+            **passive_result.__dict__,
+            "suggested_records": [
+                TLSASuggestion(
+                    query_name="_25._tcp.mx.example.com",
+                    mx_host="mx.example.com",
+                    record=(
+                        "3 1 1 " "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                    ),
+                    association_data=(
+                        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                    ),
+                    status="ready",
+                )
+            ],
+        }
+    )
+    calls = []
+
+    async def fake_check(db, provider, domain, *, port=25, refresh=False, derive_suggestions=False):
+        calls.append(
+            {
+                "domain": domain,
+                "port": port,
+                "refresh": refresh,
+                "derive_suggestions": derive_suggestions,
+            }
+        )
+        return (live_result if derive_suggestions else passive_result), True, checked_at
 
     with patch(
         "app.api.api_v1.endpoints.domains.check_dane_cached",
-        new=AsyncMock(return_value=(result, True, checked_at)),
+        new=fake_check,
     ):
         response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns/dane")
+        live_response = authed_client.get(
+            f"/api/v1/domains/{DOMAIN}/dns/dane?derive_suggestions=true"
+        )
 
     assert response.status_code == 200
     data = response.json()
@@ -989,10 +1009,17 @@ def test_dane_endpoint_returns_cached_posture(authed_client: TestClient):
     assert data["records"][0]["query_name"] == "_25._tcp.mx.example.com"
     assert data["records"][0]["certificate_usage"] == 3
     assert data["records"][0]["valid"] is True
-    assert data["suggested_records"][0]["record"].startswith("3 1 1 ")
-    assert data["suggested_records"][0]["status"] == "ready"
+    assert data["suggested_records"] == []
     assert data["cached"] is True
     assert data["checked_at"] == checked_at.isoformat()
+    assert live_response.status_code == 200
+    live_data = live_response.json()
+    assert live_data["suggested_records"][0]["record"].startswith("3 1 1 ")
+    assert live_data["suggested_records"][0]["status"] == "ready"
+    assert calls == [
+        {"domain": DOMAIN, "port": 25, "refresh": False, "derive_suggestions": False},
+        {"domain": DOMAIN, "port": 25, "refresh": False, "derive_suggestions": True},
+    ]
 
 
 def test_dane_endpoint_returns_404_for_unknown_domain(authed_client: TestClient):

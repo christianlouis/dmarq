@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import ipaddress
 import json
 import re
 import smtplib
+import socket
 import ssl
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -179,10 +181,27 @@ def parse_tlsa_record(record: str, *, query_name: str, mx_host: str) -> TLSAReco
     return result
 
 
+def _is_public_smtp_address(address: str) -> bool:
+    try:
+        return ipaddress.ip_address(address).is_global
+    except ValueError:
+        return False
+
+
+def _resolve_public_smtp_address(mx_host: str, port: int) -> str:
+    candidates = socket.getaddrinfo(mx_host, port, type=socket.SOCK_STREAM)
+    for candidate in candidates:
+        sockaddr = candidate[4]
+        if sockaddr and _is_public_smtp_address(str(sockaddr[0])):
+            return str(sockaddr[0])
+    raise OSError("MX host did not resolve to a public SMTP address.")
+
+
 def _derive_tlsa_suggestion_sync(mx_host: str, port: int, timeout: float) -> TLSASuggestion:
     query_name = f"_{port}._tcp.{mx_host}"
     try:
         from cryptography import x509
+        from cryptography.exceptions import UnsupportedAlgorithm
         from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
     except ImportError as exc:  # pragma: no cover - dependency is present in packaged builds
         return TLSASuggestion(
@@ -192,8 +211,11 @@ def _derive_tlsa_suggestion_sync(mx_host: str, port: int, timeout: float) -> TLS
         )
 
     try:
-        context = ssl._create_unverified_context()  # nosec B323 - read-only certificate fetch.
-        with smtplib.SMTP(mx_host, port, timeout=timeout) as smtp:
+        smtp_address = _resolve_public_smtp_address(mx_host, port)
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        with smtplib.SMTP(smtp_address, port, timeout=timeout) as smtp:
             smtp.ehlo_or_helo_if_needed()
             if not smtp.has_extn("starttls"):
                 return TLSASuggestion(
@@ -225,7 +247,7 @@ def _derive_tlsa_suggestion_sync(mx_host: str, port: int, timeout: float) -> TLS
             Encoding.DER,
             PublicFormat.SubjectPublicKeyInfo,
         )
-    except ValueError as exc:
+    except (UnsupportedAlgorithm, ValueError) as exc:
         return TLSASuggestion(
             query_name=query_name,
             mx_host=mx_host,
@@ -251,12 +273,26 @@ async def _derive_tlsa_suggestions(
     limited_hosts = mx_hosts[:_MAX_LIVE_TLSA_HOSTS]
     if not limited_hosts:
         return []
-    return await asyncio.gather(
+    results = await asyncio.gather(
         *(
             asyncio.to_thread(_derive_tlsa_suggestion_sync, mx_host, port, timeout)
             for mx_host in limited_hosts
-        )
+        ),
+        return_exceptions=True,
     )
+    suggestions: List[TLSASuggestion] = []
+    for mx_host, result in zip(limited_hosts, results):
+        if isinstance(result, TLSASuggestion):
+            suggestions.append(result)
+            continue
+        suggestions.append(
+            TLSASuggestion(
+                query_name=f"_{port}._tcp.{mx_host}",
+                mx_host=mx_host,
+                error=f"Live TLSA suggestion failed: {result}",
+            )
+        )
+    return suggestions
 
 
 def _compare_live_tlsa_suggestions(result: DANEResult) -> None:
