@@ -135,6 +135,13 @@ then asks the operator to confirm the exact provider, operation, record name,
 record type, TTL, previous value, proposed value, and rollback summary before a
 live provider write is submitted.
 
+Remediation notification previews can also be marked as previewed,
+acknowledged, snoozed, resolved, or rejected through the API. These markers are
+written to the workspace audit log with the sanitized notification preview, but
+they do not send notifications, enqueue webhooks, or touch DNS. This gives
+operators an auditable lifecycle before any automated remediation loop is
+enabled.
+
 If an operator selects a different provider than the nameserver-detected
 provider, DMARQ blocks the preview/apply request by default. The mismatch can be
 overridden only with an explicit confirmation that the selected provider

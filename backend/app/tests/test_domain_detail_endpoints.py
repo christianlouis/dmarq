@@ -9,6 +9,7 @@ the use of begin_timestamp/end_timestamp integers for date fields.
 """
 
 import csv
+import json
 from datetime import date
 from io import StringIO
 from types import SimpleNamespace
@@ -19,6 +20,7 @@ from fastapi.testclient import TestClient
 from app.api.api_v1.endpoints import domains as domains_endpoint
 from app.models.domain import Domain
 from app.models.workspace import Workspace
+from app.models.workspace_access import WorkspaceAuditLog
 from app.services import report_persistence
 from app.services.health_score_snapshots import upsert_health_score_snapshot
 from app.services.report_store import ReportStore
@@ -664,6 +666,268 @@ def test_domain_remediation_queue_groups_dns_and_health_actions(
         "dns:dmarc-missing",
         "health:low_compliance",
     ]
+
+
+def test_domain_remediation_notification_lifecycle_audit_records_sanitized_marker(
+    seeded_client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    """Operators can audit notification lifecycle steps without dispatching work."""
+
+    async def fake_domain_grade(db, domain_id, store, refresh=False):
+        return {
+            "domain": domain_id,
+            "score": 72,
+            "grade": "C",
+            "status": "attention",
+            "factors": {"dns_posture": 60},
+            "actions": [],
+        }
+
+    async def fake_dns_guidance(db, store, domain_id, refresh=False):
+        return {
+            "domain": domain_id,
+            "status": "critical",
+            "dns_provider": {"provider_id": "cloudflare"},
+            "findings": [],
+            "change_plans": [
+                {
+                    "plan_id": "dmarc-missing",
+                    "finding_code": "dmarc_missing",
+                    "severity": "error",
+                    "operation": "create",
+                    "record_type": "TXT",
+                    "name": "_dmarc.example.com",
+                    "proposed_value": "v=DMARC1; p=none; rua=mailto:dmarc@example.com",
+                    "current_values": [],
+                    "rationale": "Publish a monitoring DMARC record.",
+                    "expected_health_impact": "High",
+                    "manual_steps": ["Create the TXT record."],
+                }
+            ],
+        }
+
+    monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_domain_grade)
+    monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", fake_dns_guidance)
+    monkeypatch.setattr(domains_endpoint, "_ready_dns_write_provider_ids", lambda: ["cloudflare"])
+    monkeypatch.setattr(
+        domains_endpoint,
+        "_recommended_dns_write_provider",
+        lambda dns_provider, available_providers: "cloudflare",
+    )
+
+    response = seeded_client.post(
+        f"/api/v1/domains/{DOMAIN}/remediation/notifications/audit",
+        json={
+            "item_id": "dns:dmarc-missing",
+            "event": "dmarq.remediation.approval_required",
+            "lifecycle_state": "acknowledged",
+            "note": "Reviewed with DNS owner",
+        },
+        headers={"X-Forwarded-For": "203.0.113.44"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["domain"] == DOMAIN
+    assert data["item_id"] == "dns:dmarc-missing"
+    assert data["lifecycle_state"] == "acknowledged"
+    assert data["audit"]["action"] == "remediation.notification_lifecycle_recorded"
+    assert data["audit"]["ip_address"] == "203.0.113.44"
+    details = data["audit"]["details"]
+    assert details["sent"] is False
+    assert details["delivery_enqueued"] is False
+    assert details["dns_write_attempted"] is False
+    assert details["payload_preview"]["event_type"] == "dmarq.remediation.approval_required"
+
+    audit_row = (
+        db_session.query(WorkspaceAuditLog)
+        .filter(WorkspaceAuditLog.action == "remediation.notification_lifecycle_recorded")
+        .one()
+    )
+    persisted_details = json.loads(audit_row.details)
+    assert persisted_details["operator_note"] == "Reviewed with DNS owner"
+    assert persisted_details["automation_provider"] == "cloudflare"
+
+
+def test_domain_remediation_notification_lifecycle_audit_rejects_mismatched_event(
+    seeded_client: TestClient,
+    monkeypatch,
+):
+    """Lifecycle markers must match the current remediation notification metadata."""
+
+    async def fake_domain_grade(db, domain_id, store, refresh=False):
+        return {
+            "domain": domain_id,
+            "score": 72,
+            "grade": "C",
+            "status": "attention",
+            "factors": {"dns_posture": 60},
+            "actions": [],
+        }
+
+    async def fake_dns_guidance(db, store, domain_id, refresh=False):
+        return {
+            "domain": domain_id,
+            "status": "critical",
+            "dns_provider": {"provider_id": "cloudflare"},
+            "findings": [],
+            "change_plans": [
+                {
+                    "plan_id": "dmarc-missing",
+                    "finding_code": "dmarc_missing",
+                    "severity": "error",
+                    "operation": "create",
+                    "record_type": "TXT",
+                    "name": "_dmarc.example.com",
+                    "proposed_value": "v=DMARC1; p=none; rua=mailto:dmarc@example.com",
+                    "current_values": [],
+                    "rationale": "Publish a monitoring DMARC record.",
+                    "expected_health_impact": "High",
+                    "manual_steps": ["Create the TXT record."],
+                }
+            ],
+        }
+
+    monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_domain_grade)
+    monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", fake_dns_guidance)
+    monkeypatch.setattr(domains_endpoint, "_ready_dns_write_provider_ids", lambda: ["cloudflare"])
+    monkeypatch.setattr(
+        domains_endpoint,
+        "_recommended_dns_write_provider",
+        lambda dns_provider, available_providers: "cloudflare",
+    )
+
+    response = seeded_client.post(
+        f"/api/v1/domains/{DOMAIN}/remediation/notifications/audit",
+        json={
+            "item_id": "dns:dmarc-missing",
+            "event": "dmarq.remediation.summary",
+            "lifecycle_state": "acknowledged",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "does not match" in response.json()["detail"]
+
+
+def test_domain_remediation_notification_lifecycle_audit_rejects_invalid_state(
+    seeded_client: TestClient,
+):
+    """Lifecycle markers only accept the explicit operator states."""
+    response = seeded_client.post(
+        f"/api/v1/domains/{DOMAIN}/remediation/notifications/audit",
+        json={
+            "item_id": "dns:dmarc-missing",
+            "lifecycle_state": "sent",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "Unsupported lifecycle_state" in response.json()["detail"]
+
+
+def test_domain_remediation_notification_lifecycle_audit_rejects_unknown_item(
+    seeded_client: TestClient,
+    monkeypatch,
+):
+    """Lifecycle markers must target a current remediation queue item."""
+
+    async def fake_domain_grade(db, domain_id, store, refresh=False):
+        return {
+            "domain": domain_id,
+            "score": 100,
+            "grade": "A",
+            "status": "healthy",
+            "factors": {},
+            "actions": [],
+        }
+
+    async def fake_dns_guidance(db, store, domain_id, refresh=False):
+        return {
+            "domain": domain_id,
+            "status": "healthy",
+            "dns_provider": None,
+            "findings": [],
+            "change_plans": [],
+        }
+
+    monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_domain_grade)
+    monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", fake_dns_guidance)
+    monkeypatch.setattr(domains_endpoint, "_ready_dns_write_provider_ids", lambda: [])
+
+    response = seeded_client.post(
+        f"/api/v1/domains/{DOMAIN}/remediation/notifications/audit",
+        json={
+            "item_id": "dns:dmarc-missing",
+            "lifecycle_state": "previewed",
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Remediation item not found"
+
+
+def test_domain_remediation_notification_lifecycle_audit_rejects_mismatched_dedupe_key(
+    seeded_client: TestClient,
+    monkeypatch,
+):
+    """Lifecycle markers can optionally guard against stale dedupe keys."""
+
+    async def fake_domain_grade(db, domain_id, store, refresh=False):
+        return {
+            "domain": domain_id,
+            "score": 72,
+            "grade": "C",
+            "status": "attention",
+            "factors": {"dns_posture": 60},
+            "actions": [],
+        }
+
+    async def fake_dns_guidance(db, store, domain_id, refresh=False):
+        return {
+            "domain": domain_id,
+            "status": "critical",
+            "dns_provider": {"provider_id": "cloudflare"},
+            "findings": [],
+            "change_plans": [
+                {
+                    "plan_id": "dmarc-missing",
+                    "finding_code": "dmarc_missing",
+                    "severity": "error",
+                    "operation": "create",
+                    "record_type": "TXT",
+                    "name": "_dmarc.example.com",
+                    "proposed_value": "v=DMARC1; p=none; rua=mailto:dmarc@example.com",
+                    "current_values": [],
+                    "rationale": "Publish a monitoring DMARC record.",
+                    "expected_health_impact": "High",
+                    "manual_steps": ["Create the TXT record."],
+                }
+            ],
+        }
+
+    monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_domain_grade)
+    monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", fake_dns_guidance)
+    monkeypatch.setattr(domains_endpoint, "_ready_dns_write_provider_ids", lambda: ["cloudflare"])
+    monkeypatch.setattr(
+        domains_endpoint,
+        "_recommended_dns_write_provider",
+        lambda dns_provider, available_providers: "cloudflare",
+    )
+
+    response = seeded_client.post(
+        f"/api/v1/domains/{DOMAIN}/remediation/notifications/audit",
+        json={
+            "item_id": "dns:dmarc-missing",
+            "dedupe_key": "stale-key",
+            "lifecycle_state": "previewed",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "dedupe_key does not match" in response.json()["detail"]
 
 
 def test_domain_remediation_queue_hydrates_report_store_with_workspace_filter(

@@ -91,7 +91,7 @@ from app.services.workspace_access import (
     parse_selected_workspace_id,
     resolve_authorized_workspace,
 )
-from app.services.workspace_audit import record_workspace_audit_log
+from app.services.workspace_audit import audit_log_to_dict, record_workspace_audit_log
 from app.services.workspaces import (
     workspace_domain_query,
 )
@@ -101,6 +101,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 DOMAIN_SELECTOR_LOOKUP_CHUNK_SIZE = 500
+REMEDIATION_NOTIFICATION_LIFECYCLE_STATES = {
+    "previewed",
+    "acknowledged",
+    "snoozed",
+    "resolved",
+    "rejected",
+}
 
 
 def _authorized_domain_workspace(
@@ -847,6 +854,27 @@ class RemediationQueueResponse(BaseModel):
     status: str
     summary: Dict[str, int]
     items: List[RemediationQueueItem]
+
+
+class RemediationNotificationAuditRequest(BaseModel):
+    """Operator lifecycle marker for one remediation notification preview."""
+
+    item_id: str
+    lifecycle_state: str
+    event: Optional[str] = None
+    dedupe_key: Optional[str] = None
+    note: Optional[str] = None
+
+
+class RemediationNotificationAuditResponse(BaseModel):
+    """Persisted audit marker for one remediation notification lifecycle step."""
+
+    domain: str
+    item_id: str
+    event: str
+    dedupe_key: str
+    lifecycle_state: str
+    audit: Dict[str, Any]
 
 
 class HealthScoreHistoryPoint(BaseModel):
@@ -3556,15 +3584,14 @@ async def get_domain_posture_dashboard(
     return _build_posture_dashboard(domain_id, health, domain_health, changes)
 
 
-@router.get("/{domain_id}/remediation", response_model=RemediationQueueResponse)
-async def get_domain_remediation_queue(
-    domain_id: str = Path(..., title="The domain ID or name"),
-    refresh: bool = Query(False, title="Refresh cached DNS posture"),
-    db: Session = Depends(get_db),
-    _auth: dict = Depends(require_admin_auth),
-):
-    """Return a prioritized, human-reviewed remediation queue for one domain."""
-    workspace = _authorized_domain_read_workspace(_auth, db)
+async def _build_domain_remediation_queue_for_workspace(
+    db: Session,
+    *,
+    workspace: Workspace,
+    domain_id: str,
+    refresh: bool = False,
+) -> Dict[str, Any]:
+    """Build the current remediation queue for an authorized workspace."""
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
     try:
@@ -3598,6 +3625,134 @@ async def get_domain_remediation_queue(
         available_write_providers=available_providers,
         recommended_provider=recommended_provider,
     )
+
+
+@router.get("/{domain_id}/remediation", response_model=RemediationQueueResponse)
+async def get_domain_remediation_queue(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    refresh: bool = Query(False, title="Refresh cached DNS posture"),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
+    """Return a prioritized, human-reviewed remediation queue for one domain."""
+    workspace = _authorized_domain_read_workspace(
+        _auth,
+        db,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
+    )
+    return await _build_domain_remediation_queue_for_workspace(
+        db,
+        workspace=workspace,
+        domain_id=domain_id,
+        refresh=refresh,
+    )
+
+
+@router.post(
+    "/{domain_id}/remediation/notifications/audit",
+    response_model=RemediationNotificationAuditResponse,
+)
+async def audit_domain_remediation_notification(
+    request: Request,
+    payload: RemediationNotificationAuditRequest,
+    domain_id: str = Path(..., title="The domain ID or name"),
+    refresh: bool = Query(False, title="Refresh cached DNS posture"),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
+    """Record a sanitized operator lifecycle marker without dispatching notifications."""
+    lifecycle_state = payload.lifecycle_state.strip().lower()
+    if lifecycle_state not in REMEDIATION_NOTIFICATION_LIFECYCLE_STATES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Unsupported lifecycle_state. Use one of: "
+                + ", ".join(sorted(REMEDIATION_NOTIFICATION_LIFECYCLE_STATES))
+            ),
+        )
+
+    workspace = _authorized_domain_workspace(
+        _auth,
+        db,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
+    )
+    queue = await _build_domain_remediation_queue_for_workspace(
+        db,
+        workspace=workspace,
+        domain_id=domain_id,
+        refresh=refresh,
+    )
+    item = next(
+        (
+            candidate
+            for candidate in queue.get("items", [])
+            if candidate.get("id") == payload.item_id
+        ),
+        None,
+    )
+    if item is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Remediation item not found",
+        )
+
+    notification = item.get("notification") or {}
+    event = str(notification.get("event") or "")
+    dedupe_key = str(notification.get("dedupe_key") or "")
+    if payload.event and payload.event != event:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Notification event does not match the current remediation item",
+        )
+    if payload.dedupe_key and payload.dedupe_key != dedupe_key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Notification dedupe_key does not match the current remediation item",
+        )
+
+    automation = item.get("automation") or {}
+    audit_row = record_workspace_audit_log(
+        db,
+        workspace=workspace,
+        action="remediation.notification_lifecycle_recorded",
+        entity_type="remediation_notification",
+        entity_id=item.get("id"),
+        entity_name=queue.get("domain"),
+        details={
+            "item_id": item.get("id"),
+            "domain": queue.get("domain"),
+            "event": event,
+            "dedupe_key": dedupe_key,
+            "lifecycle_state": lifecycle_state,
+            "notification_state": notification.get("state"),
+            "notification_channel": notification.get("channel"),
+            "notification_next_transition": notification.get("next_transition"),
+            "source": item.get("source"),
+            "severity": item.get("severity"),
+            "confidence": item.get("confidence"),
+            "automation_eligible": automation.get("eligible"),
+            "automation_provider": automation.get("provider"),
+            "automation_plan_id": automation.get("plan_id"),
+            "payload_preview": notification.get("payload_preview") or {},
+            "operator_note": payload.note,
+            "sent": False,
+            "delivery_enqueued": False,
+            "dns_write_attempted": False,
+        },
+        auth_context=_auth,
+        request=request,
+        commit=True,
+    )
+    return {
+        "domain": str(queue.get("domain") or domain_id),
+        "item_id": str(item.get("id") or payload.item_id),
+        "event": event,
+        "dedupe_key": dedupe_key,
+        "lifecycle_state": lifecycle_state,
+        "audit": audit_log_to_dict(audit_row),
+    }
 
 
 @router.get("/{domain_id}/posture/history", response_model=HealthScoreHistoryResponse)
