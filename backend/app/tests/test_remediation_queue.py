@@ -65,12 +65,28 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
         "manual_action": 0,
         "investigate": 1,
         "informational": 0,
+        "notify_approval_required": 1,
+        "notify_action_required": 0,
+        "notify_investigation_required": 1,
+        "notify_summary_only": 0,
     }
     assert queue["items"][0]["id"] == "dns:dmarc-missing"
     assert queue["items"][0]["state"] == "approval_ready"
     assert queue["items"][0]["automation"]["eligible"] is True
     assert queue["items"][0]["automation"]["apply_endpoint"] == (
         "/api/v1/domains/example.com/dns/change-plan/apply"
+    )
+    assert queue["items"][0]["notification"] == {
+        "state": "approval_required",
+        "event": "dmarq.remediation.approval_required",
+        "channel": "email_security",
+        "dedupe_key": "dmarq:remediation:example.com:dns:dmarc-missing",
+        "reason": "Notify an operator that a safe DNS repair is ready for preview.",
+        "next_transition": "verified_after_apply",
+    }
+    assert queue["items"][1]["notification"]["state"] == "investigation_required"
+    assert queue["items"][1]["notification"]["event"] == (
+        "dmarq.remediation.investigation_required"
     )
     assert [item["id"] for item in queue["items"]] == [
         "dns:dmarc-missing",
@@ -112,9 +128,12 @@ def test_remediation_queue_keeps_placeholder_plan_manual():
 
     assert queue["status"] == "needs_manual_action"
     assert queue["summary"]["manual_action"] == 1
+    assert queue["summary"]["notify_summary_only"] == 1
     assert queue["items"][0]["state"] == "manual_action"
     assert queue["items"][0]["automation"]["eligible"] is False
     assert queue["items"][0]["automation"]["apply_endpoint"] is None
+    assert queue["items"][0]["notification"]["state"] == "summary_only"
+    assert queue["items"][0]["notification"]["event"] == "dmarq.remediation.summary"
 
 
 def test_remediation_queue_requires_recommended_provider_for_automation():
@@ -154,3 +173,7 @@ def test_remediation_queue_requires_recommended_provider_for_automation():
     assert queue["items"][0]["automation"]["eligible"] is False
     assert queue["items"][0]["automation"]["provider"] is None
     assert queue["items"][0]["automation"]["apply_endpoint"] is None
+    assert queue["items"][0]["notification"]["state"] == "action_required"
+    assert queue["items"][0]["notification"]["event"] == (
+        "dmarq.remediation.manual_action_required"
+    )

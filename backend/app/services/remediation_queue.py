@@ -67,7 +67,71 @@ def _summary(items: List[Dict[str, Any]]) -> Dict[str, int]:
         "manual_action": sum(1 for item in items if item["state"] == "manual_action"),
         "investigate": sum(1 for item in items if item["state"] == "investigate"),
         "informational": sum(1 for item in items if item["state"] == "informational"),
+        "notify_approval_required": sum(
+            1 for item in items if item.get("notification", {}).get("state") == "approval_required"
+        ),
+        "notify_action_required": sum(
+            1 for item in items if item.get("notification", {}).get("state") == "action_required"
+        ),
+        "notify_investigation_required": sum(
+            1
+            for item in items
+            if item.get("notification", {}).get("state") == "investigation_required"
+        ),
+        "notify_summary_only": sum(
+            1 for item in items if item.get("notification", {}).get("state") == "summary_only"
+        ),
     }
+
+
+def _notification_profile(domain: str, item: Dict[str, Any]) -> Dict[str, str]:
+    """Return read-only notification routing metadata for a remediation item."""
+    state = str(item.get("state") or "")
+    severity = str(item.get("severity") or "info")
+    source = str(item.get("source") or "remediation")
+    item_id = str(item.get("id") or "unknown")
+    dedupe_key = f"dmarq:remediation:{domain}:{item_id}"
+
+    if state == "approval_ready":
+        return {
+            "state": "approval_required",
+            "event": "dmarq.remediation.approval_required",
+            "channel": "email_security",
+            "dedupe_key": dedupe_key,
+            "reason": "Notify an operator that a safe DNS repair is ready for preview.",
+            "next_transition": "verified_after_apply",
+        }
+    if state == "manual_action" and SEVERITY_RANK.get(severity, 0) >= SEVERITY_RANK["high"]:
+        return {
+            "state": "action_required",
+            "event": "dmarq.remediation.manual_action_required",
+            "channel": "email_security",
+            "dedupe_key": dedupe_key,
+            "reason": "Escalate high-impact manual remediation work.",
+            "next_transition": "resolved_by_operator",
+        }
+    if state == "investigate":
+        return {
+            "state": "investigation_required",
+            "event": "dmarq.remediation.investigation_required",
+            "channel": "email_security",
+            "dedupe_key": dedupe_key,
+            "reason": "Ask an operator to confirm whether the sender or finding is legitimate.",
+            "next_transition": "manual_action_or_resolved",
+        }
+    return {
+        "state": "summary_only",
+        "event": "dmarq.remediation.summary",
+        "channel": "daily_summary" if source == "dns_lint" else "email_security",
+        "dedupe_key": dedupe_key,
+        "reason": "Include this lower-risk remediation item in summary reporting.",
+        "next_transition": "resolved_or_escalated",
+    }
+
+
+def _attach_notification_profiles(domain: str, items: List[Dict[str, Any]]) -> None:
+    for item in items:
+        item["notification"] = _notification_profile(domain, item)
 
 
 def _dns_item(
@@ -187,6 +251,7 @@ def build_remediation_queue(
             continue
         items.append(_health_item(domain, action))
 
+    _attach_notification_profiles(domain, items)
     items.sort(
         key=lambda item: (
             item["state"] != "approval_ready",

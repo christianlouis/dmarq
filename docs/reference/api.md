@@ -653,10 +653,13 @@ can be previewed through a provider connector or why it remains manual-only.
 `GET /domains/{domain_id}/remediation` returns the human-reviewed remediation
 queue for a domain. It groups DNS change plans and health-score actions into
 prioritized items with state, severity, next steps, evidence, blast radius,
-prerequisites, expected health-score impact, and automation eligibility. DNS
-items that have a concrete safe TXT/CNAME provider write are marked
-`approval_ready` and point to the same explicit preview/apply endpoint used by
-the DNS change-plan UI. The endpoint does not perform DNS writes.
+prerequisites, expected health-score impact, automation eligibility, and
+read-only notification routing metadata. DNS items that have a concrete safe
+TXT/CNAME provider write are marked `approval_ready` and point to the same
+explicit preview/apply endpoint used by the DNS change-plan UI. Notification
+metadata includes the event name, channel, dedupe key, reason, and next state
+transition that an operator workflow can use. The endpoint does not perform DNS
+writes or send notifications.
 
 #### Get Posture Dashboard
 
