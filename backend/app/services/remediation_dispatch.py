@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set
 
 from sqlalchemy.orm import Session
 
@@ -87,8 +87,8 @@ def _latest_lifecycle_marker(
     return {"state": details.get("lifecycle_state"), "recorded_at": recorded_at}
 
 
-def _matching_webhook_count(db: Session, *, workspace: Workspace, event_type: str) -> int:
-    endpoints = (
+def _enabled_webhook_endpoints(db: Session, *, workspace: Workspace) -> List[WebhookEndpoint]:
+    return (
         db.query(WebhookEndpoint)
         .filter(
             WebhookEndpoint.workspace_id == workspace.id,
@@ -96,7 +96,21 @@ def _matching_webhook_count(db: Session, *, workspace: Workspace, event_type: st
         )
         .all()
     )
+
+
+def _matching_webhook_count(
+    endpoints: Sequence[WebhookEndpoint], *, event_type: str
+) -> int:
     return sum(1 for endpoint in endpoints if endpoint_matches_event(endpoint, event_type))
+
+
+def _webhook_event_counts(
+    endpoints: Sequence[WebhookEndpoint], event_types: Iterable[str]
+) -> Dict[str, int]:
+    return {
+        event_type: _matching_webhook_count(endpoints, event_type=event_type)
+        for event_type in set(event_types)
+    }
 
 
 def build_remediation_dispatch_preview(
@@ -105,9 +119,11 @@ def build_remediation_dispatch_preview(
     workspace: Workspace,
     domain: str,
     item: Dict[str, Any],
+    settings: Optional[Dict[str, str]] = None,
+    webhook_event_counts: Optional[Dict[str, int]] = None,
 ) -> Dict[str, Any]:
     """Return a read-only dispatch readiness summary for one remediation item."""
-    settings = _settings(db)
+    settings = settings if settings is not None else _settings(db)
     enabled = _truthy(settings.get(DISPATCH_ENABLED_KEY), default=False)
     channel = (settings.get(DISPATCH_CHANNEL_KEY) or "webhook").strip().lower() or "webhook"
     require_ack = _truthy(settings.get(DISPATCH_REQUIRE_ACK_KEY), default=True)
@@ -117,7 +133,11 @@ def build_remediation_dispatch_preview(
     item_id = str(item.get("id") or "")
     lifecycle = _latest_lifecycle_marker(db, workspace=workspace, domain=domain, item_id=item_id)
     lifecycle_state = lifecycle.get("state")
-    webhook_count = _matching_webhook_count(db, workspace=workspace, event_type=event_type)
+    if webhook_event_counts is None:
+        endpoints = _enabled_webhook_endpoints(db, workspace=workspace)
+        webhook_count = _matching_webhook_count(endpoints, event_type=event_type)
+    else:
+        webhook_count = webhook_event_counts.get(event_type, 0)
     blocked_reasons: List[str] = []
 
     if not enabled:
@@ -175,12 +195,28 @@ def attach_remediation_dispatch_previews(
 ) -> Dict[str, Any]:
     """Attach read-only dispatch readiness to every queue item notification."""
     domain = str(queue.get("domain") or "")
-    for item in queue.get("items", []):
+    items = list(queue.get("items", []))
+    if not items:
+        return queue
+    settings = _settings(db)
+    configured_events = _configured_events(settings.get(DISPATCH_EVENTS_KEY, ""))
+    event_types = {
+        str((item.get("notification") or {}).get("event") or "")
+        for item in items
+    }
+    endpoints = _enabled_webhook_endpoints(db, workspace=workspace)
+    webhook_event_counts = _webhook_event_counts(
+        endpoints,
+        configured_events | event_types,
+    )
+    for item in items:
         notification = item.setdefault("notification", {})
         notification["dispatch"] = build_remediation_dispatch_preview(
             db,
             workspace=workspace,
             domain=domain,
             item=item,
+            settings=settings,
+            webhook_event_counts=webhook_event_counts,
         )
     return queue
