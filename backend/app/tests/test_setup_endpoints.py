@@ -113,6 +113,27 @@ class TestSetupPage:
         assert response.status_code == 200
         assert "/onboarding" in response.text
 
+    def test_setup_page_links_onboarding_when_authentik_is_configured(self, monkeypatch):
+        from app.main import app as main_app
+        from app.main import settings as main_settings
+
+        monkeypatch.setattr(main_settings, "AUTH_MODE", "authentik")
+        monkeypatch.setattr(
+            main_settings,
+            "AUTHENTIK_ISSUER_URL",
+            "https://idp.example.test/application/o/dmarq",
+        )
+        monkeypatch.setattr(main_settings, "AUTHENTIK_CLIENT_ID", "client-id")
+        monkeypatch.setattr(main_settings, "AUTHENTIK_CLIENT_SECRET", "client-secret")
+
+        with TestClient(main_app) as test_client:
+            response = test_client.get("/setup")
+
+        assert response.status_code == 200
+        assert "/onboarding" in response.text
+        assert "Authentik is configured." in response.text
+        assert "Logto is configured." not in response.text
+
     def test_onboarding_page_renders_workspace_bootstrap_flow(self):
         from unittest.mock import MagicMock, patch
 

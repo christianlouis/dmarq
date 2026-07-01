@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 from app.core.auth_providers import (
     OIDC_STATE_COOKIE,
     OIDC_STATE_MAX_AGE,
+    auth_provider_registry,
     build_oidc_authorization_url,
     configured_oidc_provider,
     decode_oidc_state,
@@ -124,6 +125,17 @@ def _get_redirect_uri(request: Request) -> str:
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
+
+
+@router.get("/providers")
+async def auth_providers() -> dict[str, Any]:
+    """Return configured and available browser-auth provider options."""
+    return {
+        "active_provider": _active_auth_provider(),
+        "active_label": settings.auth_provider_label,
+        "auth_configured": settings.auth_configured,
+        "providers": auth_provider_registry(settings),
+    }
 
 
 @router.get("/sign-in")

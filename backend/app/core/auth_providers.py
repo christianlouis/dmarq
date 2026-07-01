@@ -51,6 +51,227 @@ class ExternalIdentityClaims:
     email_verified: bool = False
 
 
+@dataclass(frozen=True)
+class AuthProviderOption:
+    """Operator-facing auth provider preset metadata."""
+
+    provider: str
+    label: str
+    auth_mode: str
+    status: str
+    deployment_model: str
+    setup_hint: str
+    secret_fields: tuple[str, ...] = ()
+    docs_url: str | None = None
+    supports_direct_oidc: bool = False
+    supports_trusted_proxy: bool = False
+    supports_single_user: bool = False
+    supports_multi_user: bool = False
+
+    def as_dict(self, settings: Settings | None = None) -> dict[str, Any]:
+        """Return JSON/template-safe provider metadata."""
+        cfg = settings or get_settings()
+        return {
+            "provider": self.provider,
+            "label": self.label,
+            "auth_mode": self.auth_mode,
+            "status": self.status,
+            "deployment_model": self.deployment_model,
+            "setup_hint": self.setup_hint,
+            "secret_fields": list(self.secret_fields),
+            "docs_url": self.docs_url,
+            "supports_direct_oidc": self.supports_direct_oidc,
+            "supports_trusted_proxy": self.supports_trusted_proxy,
+            "supports_single_user": self.supports_single_user,
+            "supports_multi_user": self.supports_multi_user,
+            "active": getattr(cfg, "active_auth_provider", "unconfigured") == self.provider,
+            "configured": auth_provider_configured(self.provider, cfg),
+        }
+
+
+AUTH_PROVIDER_OPTIONS: tuple[AuthProviderOption, ...] = (
+    AuthProviderOption(
+        provider="disabled",
+        label="No app auth",
+        auth_mode="disabled",
+        status="ready",
+        deployment_model="Self-hosted behind a trusted network, VPN, or access proxy",
+        setup_hint=(
+            "Use only when DMARQ is protected outside the app. Public unauthenticated "
+            "deployments are blocked in production unless explicitly allowed."
+        ),
+        supports_single_user=True,
+    ),
+    AuthProviderOption(
+        provider="local",
+        label="Local admin",
+        auth_mode="local",
+        status="planned",
+        deployment_model="Standalone self-hosted recovery and small installs",
+        setup_hint=(
+            "Local bootstrap users exist, but a full browser login/session flow is still "
+            "tracked separately from this provider registry."
+        ),
+        secret_fields=("FIRST_SUPERUSER_PASSWORD",),
+        supports_single_user=True,
+    ),
+    AuthProviderOption(
+        provider="logto",
+        label="Logto",
+        auth_mode="logto",
+        status="ready",
+        deployment_model="Hosted or self-hosted OIDC identity provider",
+        setup_hint="Set LOGTO_ENDPOINT, LOGTO_APP_ID, and LOGTO_APP_SECRET.",
+        secret_fields=("LOGTO_APP_SECRET",),
+        docs_url="https://docs.logto.io/",
+        supports_direct_oidc=True,
+        supports_single_user=True,
+        supports_multi_user=True,
+    ),
+    AuthProviderOption(
+        provider="authentik",
+        label="Authentik OIDC",
+        auth_mode="authentik",
+        status="ready",
+        deployment_model="Direct Authentik OAuth2/OpenID provider",
+        setup_hint=(
+            "Create an Authentik OAuth2/OpenID provider and set AUTHENTIK_ISSUER_URL, "
+            "AUTHENTIK_CLIENT_ID, and AUTHENTIK_CLIENT_SECRET."
+        ),
+        secret_fields=("AUTHENTIK_CLIENT_SECRET",),
+        docs_url="https://docs.goauthentik.io/docs/add-secure-apps/providers/oauth2/",
+        supports_direct_oidc=True,
+        supports_single_user=True,
+        supports_multi_user=True,
+    ),
+    AuthProviderOption(
+        provider="trusted_proxy",
+        label="Trusted proxy / Authentik Outpost",
+        auth_mode="trusted_proxy",
+        status="ready",
+        deployment_model="Reverse-proxy enforced SSO in front of DMARQ",
+        setup_hint=(
+            "Use only when the proxy is the sole public path to DMARQ and strips any "
+            "incoming spoofed identity headers."
+        ),
+        docs_url="https://docs.goauthentik.io/docs/add-secure-apps/outposts/",
+        supports_trusted_proxy=True,
+        supports_single_user=True,
+        supports_multi_user=True,
+    ),
+    AuthProviderOption(
+        provider="oidc",
+        label="Generic OIDC",
+        auth_mode="oidc",
+        status="ready",
+        deployment_model="Provider-neutral OIDC for Keycloak, Entra ID, Google, Okta, and others",
+        setup_hint=(
+            "Set OIDC_ISSUER_URL, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET, and optionally "
+            "OIDC_PROVIDER_LABEL plus allowlists."
+        ),
+        secret_fields=("OIDC_CLIENT_SECRET",),
+        docs_url="https://openid.net/developers/how-connect-works/",
+        supports_direct_oidc=True,
+        supports_single_user=True,
+        supports_multi_user=True,
+    ),
+    AuthProviderOption(
+        provider="keycloak",
+        label="Keycloak",
+        auth_mode="oidc",
+        status="ready_via_generic_oidc",
+        deployment_model="Self-hosted or enterprise Keycloak realm/client",
+        setup_hint="Use AUTH_MODE=oidc and set OIDC_PROVIDER_LABEL=Keycloak.",
+        secret_fields=("OIDC_CLIENT_SECRET",),
+        docs_url="https://www.keycloak.org/docs/latest/securing_apps/",
+        supports_direct_oidc=True,
+        supports_single_user=True,
+        supports_multi_user=True,
+    ),
+    AuthProviderOption(
+        provider="entra_id",
+        label="Microsoft Entra ID",
+        auth_mode="oidc",
+        status="ready_via_generic_oidc",
+        deployment_model="Commercial enterprise IdP",
+        setup_hint="Use AUTH_MODE=oidc with the Entra issuer and group/app-role claims.",
+        secret_fields=("OIDC_CLIENT_SECRET",),
+        docs_url="https://learn.microsoft.com/en-us/entra/identity-platform/v2-protocols-oidc",
+        supports_direct_oidc=True,
+        supports_single_user=True,
+        supports_multi_user=True,
+    ),
+    AuthProviderOption(
+        provider="google_workspace",
+        label="Google Workspace",
+        auth_mode="oidc",
+        status="ready_via_generic_oidc",
+        deployment_model="Google-managed identity for self-hosted or team deployments",
+        setup_hint="Use AUTH_MODE=oidc and restrict access with OIDC_ALLOWED_EMAILS or domains.",
+        secret_fields=("OIDC_CLIENT_SECRET",),
+        docs_url="https://developers.google.com/identity/openid-connect/openid-connect",
+        supports_direct_oidc=True,
+        supports_single_user=True,
+        supports_multi_user=True,
+    ),
+    AuthProviderOption(
+        provider="cloudflare_access",
+        label="Cloudflare Access",
+        auth_mode="trusted_proxy",
+        status="planned",
+        deployment_model="Access proxy in front of DMARQ",
+        setup_hint=(
+            "Tracked as a trusted-proxy preset. DMARQ must validate the trusted proxy "
+            "boundary before accepting Cloudflare identity headers."
+        ),
+        docs_url="https://developers.cloudflare.com/cloudflare-one/applications/",
+        supports_trusted_proxy=True,
+        supports_single_user=True,
+        supports_multi_user=True,
+    ),
+    AuthProviderOption(
+        provider="akamai_eaa",
+        label="Akamai EAA",
+        auth_mode="trusted_proxy",
+        status="planned",
+        deployment_model="Enterprise access proxy in front of DMARQ",
+        setup_hint=(
+            "Tracked as a trusted-proxy preset for EAA-protected deployments; DNS account "
+            "linking belongs to the separate Edge DNS/FastDNS connector work."
+        ),
+        docs_url="https://techdocs.akamai.com/eaa/docs",
+        supports_trusted_proxy=True,
+        supports_single_user=True,
+        supports_multi_user=True,
+    ),
+)
+
+
+def auth_provider_registry(settings: Settings | None = None) -> list[dict[str, Any]]:
+    """Return operator-facing auth provider presets."""
+    return [option.as_dict(settings) for option in AUTH_PROVIDER_OPTIONS]
+
+
+def auth_provider_configured(provider: str, settings: Settings | None = None) -> bool:
+    """Return True when a provider has enough config to be used."""
+    cfg = settings or get_settings()
+    if provider == "disabled":
+        return cfg.active_auth_provider == "disabled"
+    if provider == "logto":
+        return cfg.logto_configured
+    if provider == "authentik":
+        return cfg.authentik_configured
+    if provider == "trusted_proxy":
+        return cfg.trusted_proxy_configured
+    if provider == "oidc":
+        return cfg.generic_oidc_configured
+    if provider in {"keycloak", "entra_id", "google_workspace"}:
+        return cfg.active_auth_provider == "oidc" and cfg.generic_oidc_configured
+    if provider == "local":
+        return bool(cfg.FIRST_SUPERUSER and cfg.FIRST_SUPERUSER_PASSWORD)
+    return False
+
+
 def _split_csv(value: Optional[str]) -> set[str]:
     if not value:
         return set()

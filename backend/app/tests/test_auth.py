@@ -26,6 +26,7 @@ from app.api.api_v1.endpoints.auth import _create_next_cookie
 from app.core.auth_providers import (
     ExternalIdentityClaims,
     OIDCProviderConfig,
+    auth_provider_registry,
     configured_oidc_provider,
     create_oidc_state,
     decode_oidc_state,
@@ -179,6 +180,26 @@ class TestSyncLogtoUser:
 
 
 class TestExternalAuthProviders:
+    def test_auth_provider_registry_exposes_required_modes(self):
+        settings = Settings(
+            AUTH_MODE="authentik",
+            AUTHENTIK_ISSUER_URL="https://idp.example.test/application/o/dmarq",
+            AUTHENTIK_CLIENT_ID="client-id",
+            AUTHENTIK_CLIENT_SECRET="client-secret",
+        )
+
+        providers = {entry["provider"]: entry for entry in auth_provider_registry(settings)}
+
+        assert providers["disabled"]["status"] == "ready"
+        assert providers["local"]["status"] == "planned"
+        assert providers["logto"]["auth_mode"] == "logto"
+        assert providers["authentik"]["configured"] is True
+        assert providers["authentik"]["active"] is True
+        assert providers["oidc"]["auth_mode"] == "oidc"
+        assert providers["keycloak"]["status"] == "ready_via_generic_oidc"
+        assert providers["cloudflare_access"]["auth_mode"] == "trusted_proxy"
+        assert providers["akamai_eaa"]["status"] == "planned"
+
     def test_authentik_config_selects_direct_oidc_provider(self):
         settings = Settings(
             AUTH_MODE="authentik",
@@ -311,20 +332,47 @@ class TestExternalAuthProviders:
             "access_token": "access-token",
         }
 
-        with patch(
-            "app.core.auth_providers.fetch_oidc_discovery",
-            new=AsyncMock(
-                return_value={
-                    "authorization_endpoint": "https://idp.example.test/auth",
-                    "token_endpoint": "https://idp.example.test/token",
-                }
+        with (
+            patch(
+                "app.core.auth_providers.fetch_oidc_discovery",
+                new=AsyncMock(
+                    return_value={
+                        "authorization_endpoint": "https://idp.example.test/auth",
+                        "token_endpoint": "https://idp.example.test/token",
+                    }
+                ),
             ),
-        ), patch("httpx.AsyncClient.post", new=AsyncMock(return_value=token_response)):
+            patch("httpx.AsyncClient.post", new=AsyncMock(return_value=token_response)),
+        ):
             with pytest.raises(HTTPException) as exc:
                 await exchange_oidc_callback(request, provider, code="callback-code")
 
         assert exc.value.status_code == 401
         assert "unvalidated ID-token claims" in exc.value.detail
+
+
+class TestAuthProviderEndpoint:
+    def test_auth_providers_endpoint_reports_active_authentik(self, client: TestClient):
+        from app.api.api_v1.endpoints import auth as auth_endpoint
+
+        endpoint_settings = Settings(
+            AUTH_MODE="authentik",
+            AUTHENTIK_ISSUER_URL="https://idp.example.test/application/o/dmarq",
+            AUTHENTIK_CLIENT_ID="client-id",
+            AUTHENTIK_CLIENT_SECRET="client-secret",
+        )
+
+        with patch.object(auth_endpoint, "settings", endpoint_settings):
+            res = client.get("/api/v1/auth/providers")
+
+        assert res.status_code == 200
+        data = res.json()
+        assert data["active_provider"] == "authentik"
+        assert data["active_label"] == "Authentik"
+        assert data["auth_configured"] is True
+        providers = {entry["provider"]: entry for entry in data["providers"]}
+        assert providers["authentik"]["configured"] is True
+        assert providers["keycloak"]["status"] == "ready_via_generic_oidc"
 
 
 # ── /api/v1/auth/me ───────────────────────────────────────────────────────────
