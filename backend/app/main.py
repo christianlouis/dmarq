@@ -23,6 +23,7 @@ import app.models.webhook  # noqa: F401 – ensure webhook tables are registered
 import app.models.workspace  # noqa: F401 – ensure workspace table is registered
 import app.models.workspace_access  # noqa: F401 – ensure RBAC/audit tables are registered
 from app.api.api_v1.api import api_router
+from app.core.auth_providers import auth_provider_registry
 from app.core.config import get_settings
 from app.core.database import Base, SessionLocal, engine
 from app.core.security import add_api_key, generate_api_key, require_admin_auth
@@ -617,6 +618,7 @@ async def setup(request: Request):
             "auth_configured": settings.auth_configured,
             "auth_provider": settings.active_auth_provider,
             "auth_provider_label": settings.auth_provider_label,
+            "auth_provider_options": auth_provider_registry(settings),
         },
     )
 

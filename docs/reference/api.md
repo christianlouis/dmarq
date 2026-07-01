@@ -8,6 +8,21 @@ Stable automation endpoints live under `/api/v1/public` and require a scoped
 API token in the `X-API-Key` header. Admin endpoints continue to require an
 administrator session or admin API key.
 
+`GET /api/v1/auth/providers` returns the browser-auth provider registry used by
+the setup UI. It contains provider metadata and configured/active booleans, but
+never returns client secrets. Each provider entry includes its `provider`,
+`label`, `auth_mode`, `status`, deployment model, setup hint, secret field names,
+docs URL, `supports_direct_oidc`, `supports_trusted_proxy`,
+`supports_single_user`, `supports_multi_user`, and configured/active state.
+
+Current ready providers include `disabled` (`No app auth`), `logto`,
+`authentik` (`Authentik OIDC`), `oidc` (`Generic OIDC`), and
+`trusted_proxy` (`Trusted proxy / Authentik Outpost`). Keycloak, Microsoft
+Entra ID, and Google Workspace are exposed as generic-OIDC presets and only
+report `configured=true` when the generic OIDC settings explicitly match that
+preset. Cloudflare Access and Akamai EAA are tracked as trusted-proxy presets
+and remain separate from DNS provider account connectors.
+
 ### API Keys
 
 To use the API, you need to generate an API key:

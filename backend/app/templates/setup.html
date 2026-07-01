@@ -136,7 +136,7 @@
                         </div>
                         <div class="flex flex-wrap gap-3">
                             <a href="/login" class="btn btn-primary">Sign in</a>
-                            {% if logto_configured %}
+                            {% if auth_configured %}
                             <a href="/onboarding" class="btn btn-secondary">Start workspace onboarding</a>
                             {% endif %}
                             <a href="/" class="btn btn-outline">Open dashboard</a>
@@ -150,20 +150,39 @@
             <div class="card bg-base-100 shadow">
                 <div class="card-body">
                     <h2 class="card-title text-lg">Authentication</h2>
-                    {% if logto_configured %}
+                    {% if auth_configured %}
                     <div role="alert" class="alert alert-success py-3 text-sm">
-                        <span>Logto is configured.</span>
+                        <span>{{ auth_provider_label }} is configured.</span>
                     </div>
                     {% else %}
                     <p class="text-sm leading-6 text-base-content/70">
-                        Configure Logto after setup to enable user sign-in.
+                        Choose the authentication mode that matches this deployment.
                     </p>
-                    <div class="mockup-code mt-2 text-xs">
-                        <pre><code>LOGTO_ENDPOINT=https://tenant.logto.app</code></pre>
-                        <pre><code>LOGTO_APP_ID=...</code></pre>
-                        <pre><code>LOGTO_APP_SECRET=...</code></pre>
-                    </div>
                     {% endif %}
+                    <div class="mt-3 space-y-3">
+                        {% for option in auth_provider_options %}
+                        {% if option.status in ['ready', 'ready_via_generic_oidc'] %}
+                        <div class="rounded-lg border border-base-300 p-3">
+                            <div class="flex items-center justify-between gap-3">
+                                <p class="font-semibold text-sm">{{ option.label }}</p>
+                                {% if option.configured %}
+                                <span class="badge badge-success badge-sm">configured</span>
+                                {% elif option.active %}
+                                <span class="badge badge-info badge-sm">active</span>
+                                {% else %}
+                                <span class="badge badge-ghost badge-sm">{{ option.auth_mode }}</span>
+                                {% endif %}
+                            </div>
+                            <p class="mt-1 text-xs leading-5 text-base-content/60">
+                                {{ option.deployment_model }}
+                            </p>
+                            <p class="mt-1 text-xs leading-5 text-base-content/50">
+                                {{ option.setup_hint }}
+                            </p>
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+                    </div>
                 </div>
             </div>
 

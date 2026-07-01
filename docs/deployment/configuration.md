@@ -43,6 +43,10 @@ For deployment verification, upgrades, rollback, and routine checks, use the [Op
 
 DMARQ supports multiple authentication modes. Keep `AUTH_MODE=auto` to preserve
 the existing Logto auto-detection behavior, or choose an explicit mode.
+The setup page and `GET /api/v1/auth/providers` expose the same provider
+registry so operators can see which identity modes are ready, which values are
+missing, and which ecosystem presets use the generic OIDC or trusted-proxy
+paths.
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
@@ -92,6 +96,11 @@ other OIDC-capable providers.
 | `OIDC_ALLOWED_DOMAINS` | Optional comma-separated email-domain allowlist | - | `example.com` |
 | `OIDC_SKIP_SSL_VERIFY` | Disable TLS verification for provider requests. Do not use in production unless explicitly allowed. | `false` | `true`, `false` |
 
+Presets such as Keycloak, Microsoft Entra ID, and Google Workspace do not need
+bespoke DMARQ code paths. Use `AUTH_MODE=oidc`, set `OIDC_PROVIDER_LABEL` to
+the provider name, and restrict single-user/self-hosted installs with
+`OIDC_ALLOWED_EMAILS` or `OIDC_ALLOWED_DOMAINS`.
+
 #### Authentik Outpost / Trusted Proxy
 
 Use `AUTH_MODE=trusted_proxy` only when DMARQ is not reachable except through a
@@ -109,6 +118,12 @@ owner.
 | `AUTH_TRUSTED_PROXY_USERNAME_HEADER` | Header containing username | `X-Authentik-Username` | `X-Authentik-Username` |
 | `AUTH_TRUSTED_PROXY_ALLOWED_EMAILS` | Optional comma-separated email allowlist | - | `admin@example.com` |
 | `AUTH_TRUSTED_PROXY_ALLOWED_DOMAINS` | Optional comma-separated domain allowlist | - | `example.com` |
+
+Cloudflare Access and Akamai EAA are tracked as trusted-proxy presets, not DNS
+provider account connectors. Use them only when they are the sole path to
+DMARQ, strip spoofed identity headers, and provide a stable verified identity.
+DNS zone access for Cloudflare, Akamai Edge DNS/FastDNS, Route53, Hetzner, and
+Linode is separate from login and belongs to the DNS provider connector flow.
 
 ### IMAP Settings
 
