@@ -145,7 +145,8 @@ TXT/CNAME remediation plans.
 
 The DNS-zone import workflow is provider-shaped. Cloudflare and Hetzner DNS can
 import zones before reports arrive; Hetzner import uses a read-only Hetzner
-Console API token from `HETZNER_DNS_API_TOKEN`.
+Console API token from `HETZNER_DNS_API_TOKEN` (or the fallback
+`HETZNER_API_TOKEN`).
 
 DMARQ never performs background DNS edits. A write-capable token only enables
 operator-approved actions from the DNS change plan UI, and each applied change

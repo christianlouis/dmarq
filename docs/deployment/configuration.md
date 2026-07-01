@@ -239,7 +239,7 @@ Notification and alert-rule configuration changes are stored in
 indefinite; prune old resolved history and audit rows according to your
 operational policy if long-term storage size matters.
 
-### Cloudflare Integration
+### DNS Provider Integrations
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
@@ -247,6 +247,11 @@ operational policy if long-term storage size matters.
 | `CLOUDFLARE_ZONE_ID` | Optional default Cloudflare Zone ID | - | `your_cloudflare_zone_id` |
 | `HETZNER_DNS_API_TOKEN` | Hetzner Console API token for read-only DNS zone import through `api.hetzner.cloud` | - | `your_hetzner_read_only_api_token` |
 | `HETZNER_API_TOKEN` | Fallback Hetzner token name if you already inject generic Hetzner Cloud credentials | - | `your_hetzner_read_only_api_token` |
+
+### Email Service and Webhook Integrations
+
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
 | `POSTMARK_ACCOUNT_TOKEN` | Optional Postmark account token for read-only sender-domain discovery | - | `your_postmark_account_token` |
 | `WEBHOOK_SECRET` | Required secret for inbound email worker webhooks | - | `openssl rand -hex 32` |
 

@@ -551,6 +551,22 @@ def test_discover_hetzner_zones_marks_imported_and_filters_invalid(db_session):
     ]
 
 
+def test_discover_hetzner_zones_scopes_default_workspace_import_state(db_session):
+    default_workspace = get_or_create_default_workspace(db_session)
+    other_workspace = Workspace(slug="hetzner-other", name="Hetzner Other", active=True)
+    db_session.add(other_workspace)
+    db_session.commit()
+    db_session.add(Domain(name=DOMAIN, workspace_id=other_workspace.id))
+    db_session.commit()
+    client = FakeHetznerDNSClient(zones=[{"id": 1, "name": DOMAIN}])
+
+    with patch("app.services.hetzner_dns.build_hetzner_dns_client", return_value=client):
+        zones = asyncio.run(hetzner_dns.discover_hetzner_zones(db_session))
+
+    assert default_workspace.id != other_workspace.id
+    assert zones[0]["imported"] is False
+
+
 def test_import_hetzner_domains_imports_requested_and_skips_others(db_session):
     async def fake_discover(_db, workspace_id=None):
         return [
@@ -596,6 +612,46 @@ def test_import_hetzner_domains_treats_global_duplicate_as_existing(db_session):
 
     assert result["imported"] == []
     assert result["existing"] == [DOMAIN]
+    assert db_session.query(Domain).filter(Domain.name == DOMAIN).count() == 1
+
+
+def test_import_hetzner_domains_empty_selection_imports_nothing(db_session):
+    async def fake_discover(_db, workspace_id=None):
+        return [
+            {"id": "zone-1", "name": DOMAIN, "imported": False},
+            {"id": "zone-2", "name": "skip.example", "imported": False},
+        ]
+
+    with patch("app.services.hetzner_dns.discover_hetzner_zones", new=fake_discover):
+        result = asyncio.run(
+            hetzner_dns.import_hetzner_domains(
+                db_session,
+                requested_domains=[],
+            )
+        )
+
+    assert result["imported"] == []
+    assert result["existing"] == []
+    assert sorted(result["skipped"]) == [DOMAIN, "skip.example"]
+    assert db_session.query(Domain).filter(Domain.name.in_([DOMAIN, "skip.example"])).count() == 0
+
+
+def test_import_hetzner_domains_reports_globally_existing_domain(db_session):
+    other_workspace = Workspace(slug="hetzner-existing", name="Hetzner Existing", active=True)
+    db_session.add(other_workspace)
+    db_session.commit()
+    db_session.add(Domain(name=DOMAIN, workspace_id=other_workspace.id))
+    db_session.commit()
+
+    async def fake_discover(_db, workspace_id=None):
+        return [{"id": "zone-1", "name": DOMAIN, "imported": False}]
+
+    with patch("app.services.hetzner_dns.discover_hetzner_zones", new=fake_discover):
+        result = asyncio.run(hetzner_dns.import_hetzner_domains(db_session))
+
+    assert result["imported"] == []
+    assert result["existing"] == [DOMAIN]
+    assert result["skipped"] == []
     assert db_session.query(Domain).filter(Domain.name == DOMAIN).count() == 1
 
 

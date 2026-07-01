@@ -106,10 +106,15 @@ def build_hetzner_dns_client() -> HetznerDNSClient:
     return HetznerDNSClient(api_token=credentials.api_token)
 
 
-def _workspace_domain_names(db: Session, workspace_id: Optional[int]) -> set[str]:
-    query = db.query(Domain.name)
+def _resolve_workspace_id(db: Session, workspace_id: Optional[int]) -> int:
     if workspace_id is not None:
-        query = query.filter(Domain.workspace_id == workspace_id)
+        return workspace_id
+    return assign_default_workspace_to_unscoped_rows(db).id
+
+
+def _workspace_domain_names(db: Session, workspace_id: Optional[int]) -> set[str]:
+    resolved_workspace_id = _resolve_workspace_id(db, workspace_id)
+    query = db.query(Domain.name).filter(Domain.workspace_id == resolved_workspace_id)
     return {name for (name,) in query.all()}
 
 
@@ -151,18 +156,17 @@ async def import_hetzner_domains(
     workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Create Domain rows for Hetzner DNS zones."""
-    if workspace_id is None:
-        workspace = assign_default_workspace_to_unscoped_rows(db)
-        workspace_id = workspace.id
-    else:
-        workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    workspace_id = _resolve_workspace_id(db, workspace_id)
+    workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
 
     zones = await discover_hetzner_zones(db, workspace_id=workspace_id)
-    requested = {
-        _normalize_domain_name(domain)
-        for domain in requested_domains or []
-        if _normalize_domain_name(domain)
-    }
+    requested = None
+    if requested_domains is not None:
+        requested = {
+            _normalize_domain_name(domain)
+            for domain in requested_domains
+            if _normalize_domain_name(domain)
+        }
     candidate_names: List[str] = []
     imported: List[str] = []
     existing: List[str] = []
@@ -170,7 +174,7 @@ async def import_hetzner_domains(
 
     for zone in zones:
         name = str(zone["name"]).lower()
-        if requested and name not in requested:
+        if requested is not None and name not in requested:
             skipped.append(name)
             continue
         candidate_names.append(name)
