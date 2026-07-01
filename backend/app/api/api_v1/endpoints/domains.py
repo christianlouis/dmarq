@@ -3543,6 +3543,8 @@ async def get_domain_remediation_queue(
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
     if not _domain_exists(db, store, domain_id, workspace):
+        hydrate_report_store_from_db(db, store)
+    if not _domain_exists(db, store, domain_id, workspace):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Domain not found",
