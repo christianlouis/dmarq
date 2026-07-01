@@ -39,6 +39,26 @@ LEXICON_PROVIDERS = {
     "route53",
     "vultr",
 }
+PROVIDER_DISPLAY_NAMES = {
+    "aliyun": "Alibaba Cloud DNS",
+    "azure": "Azure DNS",
+    "cloudflare": "Cloudflare",
+    "cloudns": "ClouDNS",
+    "digitalocean": "DigitalOcean DNS",
+    "dnsimple": "DNSimple",
+    "dnsmadeeasy": "DNS Made Easy",
+    "gandi": "Gandi",
+    "godaddy": "GoDaddy",
+    "googleclouddns": "Google Cloud DNS",
+    "hetzner": "Hetzner DNS",
+    "ionos": "IONOS",
+    "linode": "Linode DNS",
+    "namecheap": "Namecheap",
+    "ovh": "OVHcloud",
+    "powerdns": "PowerDNS",
+    "route53": "Amazon Route 53",
+    "vultr": "Vultr DNS",
+}
 
 
 class DNSProviderWriteError(ValueError):
@@ -168,7 +188,7 @@ def provider_capabilities() -> List[Dict[str, Any]]:
     capabilities = [
         {
             "id": "cloudflare",
-            "name": "Cloudflare",
+            "name": PROVIDER_DISPLAY_NAMES["cloudflare"],
             "mode": "native",
             "record_types": sorted(SUPPORTED_AUTOMATED_RECORD_TYPES),
             "operations": sorted(SUPPORTED_AUTOMATED_OPERATIONS),
@@ -181,7 +201,7 @@ def provider_capabilities() -> List[Dict[str, Any]]:
         capabilities.append(
             {
                 "id": provider_id,
-                "name": provider_id,
+                "name": PROVIDER_DISPLAY_NAMES.get(provider_id, provider_id),
                 "mode": "lexicon",
                 "record_types": sorted(SUPPORTED_AUTOMATED_RECORD_TYPES),
                 "operations": ["create", "update"],

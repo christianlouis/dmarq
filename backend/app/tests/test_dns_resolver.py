@@ -60,6 +60,27 @@ def test_detect_dns_provider_matches_cloudflare_with_connector_hint():
     assert "Connect Cloudflare" in detection.suggested_action
 
 
+def test_detect_dns_provider_matches_lexicon_provider_with_connector_hint():
+    detection = detect_dns_provider(["ns1.digitalocean.com", "ns2.digitalocean.com"])
+
+    assert detection.provider_id == "digitalocean"
+    assert detection.provider_name == "DigitalOcean DNS"
+    assert detection.confidence == "high"
+    assert detection.connector_available is True
+    assert detection.automation_supported is True
+    assert "Connect DigitalOcean DNS" in detection.suggested_action
+    assert "explicitly approved repair plans" in detection.suggested_action
+
+
+def test_detect_dns_provider_maps_azure_nameservers_to_aliasable_provider():
+    detection = detect_dns_provider(["ns1-01.azure-dns.com", "ns2-01.azure-dns.net"])
+
+    assert detection.provider_id == "azure_dns"
+    assert detection.provider_name == "Azure DNS"
+    assert detection.connector_available is True
+    assert detection.automation_supported is True
+
+
 def test_detect_dns_provider_degrades_for_unknown_nameservers():
     detection = detect_dns_provider(["ns1.mailhost.example", "ns2.mailhost.example"])
 

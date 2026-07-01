@@ -813,6 +813,8 @@ def test_dns_provider_capabilities_report_available_lexicon_runtime():
     assert providers["cloudflare"]["status"] == "ready"
     assert providers["route53"]["status"] == "ready"
     assert providers["route53"]["mode"] == "lexicon"
+    assert providers["route53"]["name"] == "Amazon Route 53"
+    assert providers["digitalocean"]["name"] == "DigitalOcean DNS"
 
 
 def test_dns_write_provider_registry_normalizes_supported_provider_ids():
