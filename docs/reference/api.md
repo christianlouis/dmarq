@@ -668,6 +668,11 @@ also includes a sanitized `payload_preview` using schema
 `dmarq.remediation.notification.v1`; it is the deterministic data shape a
 future webhook, ticketing, or chatops delivery would receive. The endpoint does
 not perform DNS writes, enqueue webhook deliveries, or send notifications.
+The queue `summary` also exposes dispatch readiness counters, including
+`dispatch_ready`, `dispatch_blocked`, `dispatch_disabled`,
+`dispatch_awaiting_acknowledgement`, and `dispatch_webhook_routes`, so
+dashboards can separate immediately actionable notifications from items blocked
+by settings, routing, or operator acknowledgement.
 
 `POST /domains/{domain_id}/remediation/notifications/audit` records an
 operator lifecycle marker for one current remediation item. The request accepts
