@@ -1,4 +1,4 @@
-from app.services.remediation_queue import build_remediation_queue
+from app.services.remediation_queue import _remediation_notification_payload, build_remediation_queue
 
 
 def test_remediation_queue_prioritizes_provider_ready_dns_plan():
@@ -167,6 +167,40 @@ def test_remediation_queue_keeps_placeholder_plan_manual():
     assert queue["items"][0]["notification"]["payload_preview"]["event_type"] == (
         "dmarq.remediation.summary"
     )
+
+
+def test_remediation_notification_payload_uses_first_non_empty_evidence_rows():
+    """Payload previews keep the first five evidence rows after removing blanks."""
+    payload = _remediation_notification_payload(
+        "example.com",
+        {
+            "id": "health:review",
+            "source": "health_score",
+            "state": "manual_action",
+            "severity": "medium",
+            "title": "Review evidence",
+            "notification": {"event": "dmarq.remediation.summary"},
+            "automation": {},
+            "evidence": [
+                {"label": "empty", "value": ""},
+                {"label": "first", "value": "one"},
+                {"label": "empty_again", "value": None},
+                {"label": "second", "value": "two"},
+                {"label": "third", "value": "three"},
+                {"label": "fourth", "value": "four"},
+                {"label": "fifth", "value": "five"},
+                {"label": "sixth", "value": "six"},
+            ],
+        },
+    )
+
+    assert payload["evidence"] == [
+        {"label": "first", "value": "one"},
+        {"label": "second", "value": "two"},
+        {"label": "third", "value": "three"},
+        {"label": "fourth", "value": "four"},
+        {"label": "fifth", "value": "five"},
+    ]
 
 
 def test_remediation_queue_requires_recommended_provider_for_automation():
