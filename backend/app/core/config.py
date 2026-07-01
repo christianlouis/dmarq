@@ -55,6 +55,15 @@ class Settings(BaseSettings):
     POSTMARK_ACCOUNT_TOKEN: Optional[str] = None
     WEBHOOK_SECRET: Optional[str] = None
 
+    # Optional sender reputation feed lookups. Disabled by default because many
+    # reputation providers require explicit terms, credentials, and volume limits.
+    SOURCE_REPUTATION_FEEDS_ENABLED: bool = False
+    SOURCE_REPUTATION_FEEDS: Optional[str] = None
+    SOURCE_REPUTATION_SPAMHAUS_DQS_ZONE: Optional[str] = None
+    SOURCE_REPUTATION_FEED_TIMEOUT_SECONDS: float = 2.0
+    SOURCE_REPUTATION_FEED_CACHE_SECONDS: int = 86_400
+    SOURCE_REPUTATION_FEED_MAX_IPS: int = 100
+
     # Optional Stripe Billing integration. Self-hosted and provider-billed
     # deployments work without these values.
     STRIPE_SECRET_KEY: Optional[str] = None

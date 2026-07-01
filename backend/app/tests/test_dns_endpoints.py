@@ -292,6 +292,8 @@ def test_get_source_reputation_returns_listed_source(authed_client: TestClient):
     data = response.json()
     assert data["status"] == "listed"
     assert data["summary"]["listed"] == 1
+    assert data["feeds"]["spamhaus_dqs"]["enabled"] is False
+    assert data["feeds"]["spamcop_scbl"]["default_enabled"] is False
     listed = next(source for source in data["sources"] if source["ip"] == "198.51.100.199")
     assert listed["status"] == "listed"
     assert listed["listings"] == ["Demo RBL"]

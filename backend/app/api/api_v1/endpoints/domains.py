@@ -93,6 +93,7 @@ from app.services.source_reputation import (
     build_source_reputation_cached,
     source_reputation_by_ip,
 )
+from app.services.source_reputation_feeds import feed_registry
 from app.services.webhook_events import delivery_to_dict, enqueue_webhook_event
 from app.services.workspace_access import (
     PERMISSION_DOMAINS_WRITE,
@@ -1324,6 +1325,7 @@ class DomainSourceReputationResponse(BaseModel):
     checked_at: str
     sources: List[SourceReputationResponse] = Field(default_factory=list)
     summary: Dict[str, int] = Field(default_factory=dict)
+    feeds: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     cached: bool = False
 
 
@@ -5272,6 +5274,7 @@ async def get_domain_source_reputation(
         checked_at=result.checked_at,
         sources=[_source_reputation_response(item) for item in result.sources],
         summary=result.summary,
+        feeds=feed_registry(),
         cached=cached,
     )
 
