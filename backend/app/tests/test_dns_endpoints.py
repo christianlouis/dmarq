@@ -258,6 +258,7 @@ def test_get_selectors_report_selector_moves_to_manual_when_added(authed_client:
     r2 = authed_client.get(f"/api/v1/domains/{DOMAIN}/selectors")
     data = r2.json()
     assert "google" in data["selectors"]
+    assert "google" not in data["report_selectors"]
 
 
 def test_get_source_reputation_returns_listed_source(authed_client: TestClient):

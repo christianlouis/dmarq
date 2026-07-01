@@ -139,6 +139,41 @@ def _source_fingerprint(sources: Iterable[Dict[str, Any]]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
 
 
+def _report_fingerprint(reports: Iterable[Dict[str, Any]]) -> str:
+    rows = []
+    for report in reports:
+        rows.append(
+            {
+                "begin": report.get("begin_date") or report.get("begin_timestamp"),
+                "end": report.get("end_date") or report.get("end_timestamp"),
+                "records": [
+                    {
+                        "source_ip": record.get("source_ip"),
+                        "count": record.get("count"),
+                        "disposition": record.get("disposition"),
+                    }
+                    for record in report.get("records") or []
+                ],
+            }
+        )
+    payload = json.dumps(rows, sort_keys=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
+
+
+def _context_fingerprint(
+    senders_by_ip: Optional[Dict[str, Dict[str, Any]]],
+    anomalies_by_ip: Optional[Dict[str, List[Dict[str, Any]]]],
+) -> str:
+    payload = json.dumps(
+        {
+            "senders": senders_by_ip or {},
+            "anomalies": anomalies_by_ip or {},
+        },
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
+
+
 def _source_seen_windows(reports: Iterable[Dict[str, Any]]) -> Dict[str, Dict[str, Optional[int]]]:
     windows: Dict[str, Dict[str, Optional[int]]] = {}
     for report in reports:
@@ -234,6 +269,9 @@ def _source_reputation(
     if listings:
         risk_score += 45
         evidence.append(ReputationEvidence("Blacklist listings", ", ".join(listings), "metadata"))
+    elif reported == "listed":
+        risk_score += 45
+        evidence.append(ReputationEvidence("Reputation status", "listed", "metadata"))
     if reported in {"suspicious", "watch"}:
         risk_score += 20
         evidence.append(ReputationEvidence("Reputation status", reported, "metadata"))
@@ -371,9 +409,21 @@ def source_reputation_by_ip(result: DomainReputation) -> Dict[str, SourceReputat
     return {source.ip: source for source in result.sources}
 
 
-def source_reputation_cache_key(sources: Iterable[Dict[str, Any]], *, days: int = 30) -> str:
+def source_reputation_cache_key(
+    sources: Iterable[Dict[str, Any]],
+    reports: Iterable[Dict[str, Any]] = (),
+    *,
+    senders_by_ip: Optional[Dict[str, Dict[str, Any]]] = None,
+    anomalies_by_ip: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+    days: int = 30,
+) -> str:
     """Return a stable cache key for a domain reputation input set."""
-    return f"source-reputation:{int(days)}:{_source_fingerprint(sources)}"
+    return (
+        f"source-reputation:{int(days)}:"
+        f"{_source_fingerprint(sources)}:"
+        f"{_report_fingerprint(reports)}:"
+        f"{_context_fingerprint(senders_by_ip, anomalies_by_ip)}"
+    )
 
 
 async def build_source_reputation_cached(
@@ -392,7 +442,13 @@ async def build_source_reputation_cached(
     now = _utcnow_naive()
     source_rows = list(sources)
     report_rows = list(reports)
-    cache_key = source_reputation_cache_key(source_rows, days=days)
+    cache_key = source_reputation_cache_key(
+        source_rows,
+        report_rows,
+        senders_by_ip=senders_by_ip,
+        anomalies_by_ip=anomalies_by_ip,
+        days=days,
+    )
     row = (
         db.query(DNSCache)
         .filter(
