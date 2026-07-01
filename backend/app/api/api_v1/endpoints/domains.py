@@ -3701,12 +3701,12 @@ async def audit_domain_remediation_notification(
     notification = item.get("notification") or {}
     event = str(notification.get("event") or "")
     dedupe_key = str(notification.get("dedupe_key") or "")
-    if payload.event and payload.event != event:
+    if payload.event is not None and payload.event != event:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Notification event does not match the current remediation item",
         )
-    if payload.dedupe_key and payload.dedupe_key != dedupe_key:
+    if payload.dedupe_key is not None and payload.dedupe_key != dedupe_key:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Notification dedupe_key does not match the current remediation item",
