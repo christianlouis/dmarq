@@ -318,7 +318,7 @@ jobs:
         with:
           cmd: |
             for manifest in \
-              k8s-cluster-state/apps/dmarq/preprod/dmarq-stack.yaml \
+              k8s-cluster-state/apps/dmarq/greenfield-preprod/dmarq-stack.yaml \
               k8s-cluster-state/apps/dmarq/greenfield-demo/dmarq-stack.yaml
             do
               test -f "$manifest"
@@ -336,7 +336,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git remote set-url origin "https://x-access-token:${GH_PAT}@github.com/${{ env.K8S_STATE_REPO }}.git"
           git add \
-            apps/dmarq/preprod/dmarq-stack.yaml \
+            apps/dmarq/greenfield-preprod/dmarq-stack.yaml \
             apps/dmarq/greenfield-demo/dmarq-stack.yaml
           if git diff --staged --quiet; then
             echo "No changes to commit"

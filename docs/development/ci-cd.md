@@ -77,9 +77,15 @@ Runs only on pushes to `main` after both **Test** and **Security** pass.
 
 Runs only on pushes to `main` after the Docker stage succeeds.
 
-Updates the image tag in the preprod Kubernetes manifest at
-`apps/dmarq/preprod/dmarq-stack.yaml` in the `christianlouis/k8s-cluster-state`
-repository.
+Updates the image tag in the GitOps manifests that Argo CD actually reconciles
+for the self-hosted demo and preprod environments:
+
+- `apps/dmarq/greenfield-demo/dmarq-stack.yaml` for `demo.dmarq.org`
+- `apps/dmarq/greenfield-preprod/dmarq-stack.yaml` for `preprod.app.dmarq.org`
+
+Production (`apps/dmarq/prod/dmarq-stack.yaml` for `app.dmarq.org`) is not
+updated automatically by this stage. Promote the tested image to production with
+an explicit GitOps change after reviewing the release.
 
 !!! note "Optional"
     This stage requires a `GH_PAT` repository secret with write access to the
