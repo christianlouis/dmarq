@@ -121,6 +121,24 @@ def test_build_source_reputation_reports_warning_anomalies():
     assert any(item.label == "Source anomalies" and item.value == "1" for item in source.evidence)
 
 
+def test_build_source_reputation_flags_non_global_source_ip():
+    sources = [
+        {
+            "source_ip": "10.0.0.25",
+            "count": 8,
+            "dmarc_fail_count": 0,
+            "extensions": {},
+        }
+    ]
+
+    result = build_source_reputation("example.com", [], sources)
+
+    source = source_reputation_by_ip(result)["10.0.0.25"]
+    assert source.status == "unknown"
+    assert source.risk_score == 18
+    assert any(item.label == "Network scope" for item in source.evidence)
+
+
 def test_build_source_reputation_marks_clean_known_source():
     sources = [
         {

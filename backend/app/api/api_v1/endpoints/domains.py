@@ -2111,11 +2111,21 @@ async def _build_domain_health_grade(
         sources,
         period_days=30,
     )
+    sender_by_ip = {
+        str(source.get("source_ip") or "unknown"): identify_sender(
+            str(source.get("source_ip") or "unknown"),
+            source,
+            hostname=None,
+            domain=domain_id,
+        )
+        for source in sources
+    }
     reputation_result, _, _ = await build_source_reputation_cached(
         db,
         domain_id,
         reports,
         sources,
+        senders_by_ip=sender_by_ip,
         anomalies_by_ip=intelligence.get("anomalies_by_ip", {}),
         days=30,
         refresh=refresh,
@@ -5241,7 +5251,7 @@ async def get_domain_source_reputation(
     """Return passive reputation evidence for observed sender IPs."""
     workspace = _authorized_domain_read_workspace(_auth, db)
     store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store)
+    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
 
     if not _domain_exists(db, store, domain_id, workspace):
         raise HTTPException(
@@ -5257,11 +5267,21 @@ async def get_domain_source_reputation(
         sources,
         period_days=days,
     )
+    sender_by_ip = {
+        str(source.get("source_ip") or "unknown"): identify_sender(
+            str(source.get("source_ip") or "unknown"),
+            source,
+            hostname=None,
+            domain=domain_id,
+        )
+        for source in sources
+    }
     result, cached, _ = await build_source_reputation_cached(
         db,
         domain_id,
         reports,
         sources,
+        senders_by_ip=sender_by_ip,
         anomalies_by_ip=intelligence.get("anomalies_by_ip", {}),
         days=days,
         refresh=refresh,
