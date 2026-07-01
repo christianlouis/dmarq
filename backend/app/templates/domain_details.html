@@ -221,8 +221,36 @@
                             <span class="rounded bg-blue-100 px-2 py-1 font-semibold text-blue-700">
                                 <span x-text="remediationQueue.summary.investigate"></span><span> investigate</span>
                             </span>
+                            <span class="rounded bg-teal-100 px-2 py-1 font-semibold text-teal-700">
+                                <span x-text="remediationQueue.summary.dispatch_ready || 0"></span><span> ready to notify</span>
+                            </span>
+                            <span class="rounded bg-red-100 px-2 py-1 font-semibold text-red-700">
+                                <span x-text="remediationQueue.summary.dispatch_blocked || 0"></span><span> blocked</span>
+                            </span>
                         </div>
                     </div>
+                    <template x-if="remediationQueue.items.length > 0">
+                        <div class="mt-4 grid gap-3 md:grid-cols-3">
+                            <div class="rounded-lg bg-white p-3">
+                                <p class="text-xs font-semibold uppercase text-[#5f5c78]">Notification readiness</p>
+                                <p class="mt-1 text-sm text-[#120d36]" x-text="remediationReadinessText"></p>
+                            </div>
+                            <div class="rounded-lg bg-white p-3">
+                                <p class="text-xs font-semibold uppercase text-[#5f5c78]">Awaiting operator</p>
+                                <p class="mt-1 text-sm text-[#120d36]">
+                                    <span x-text="remediationQueue.summary.dispatch_awaiting_acknowledgement || 0"></span>
+                                    <span> need preview or acknowledgement</span>
+                                </p>
+                            </div>
+                            <div class="rounded-lg bg-white p-3">
+                                <p class="text-xs font-semibold uppercase text-[#5f5c78]">Webhook routes</p>
+                                <p class="mt-1 text-sm text-[#120d36]">
+                                    <span x-text="remediationQueue.summary.dispatch_webhook_routes || 0"></span>
+                                    <span> matching endpoint routes</span>
+                                </p>
+                            </div>
+                        </div>
+                    </template>
                     <template x-if="remediationQueue.items.length === 0">
                         <p class="mt-4 text-sm text-[#5f5c78]">No remediation items are queued for this domain.</p>
                     </template>
@@ -254,6 +282,20 @@
                                     <p class="text-xs font-semibold uppercase text-[#5f5c78]">Next step</p>
                                     <p class="mt-1 text-sm text-[#120d36]" x-text="item.next_steps[0] || 'Review the evidence.'"></p>
                                 </div>
+                                <template x-if="item.notification && item.notification.dispatch">
+                                    <div class="mt-3 rounded border border-[#e6e3e1] bg-[#fbfaf9] p-3">
+                                        <div class="flex flex-wrap items-center justify-between gap-2">
+                                            <p class="text-xs font-semibold uppercase text-[#5f5c78]">Notification dispatch</p>
+                                            <span class="rounded px-2 py-1 text-xs font-semibold"
+                                                  :class="remediationDispatchClass(item.notification.dispatch)"
+                                                  x-text="remediationDispatchLabel(item.notification.dispatch)"></span>
+                                        </div>
+                                        <p class="mt-2 text-sm text-[#120d36]" x-text="remediationDispatchNextStep(item.notification.dispatch)"></p>
+                                        <template x-if="(item.notification.dispatch.blocked_reasons || []).length">
+                                            <p class="mt-1 text-xs text-[#5f5c78]" x-text="item.notification.dispatch.blocked_reasons[0]"></p>
+                                        </template>
+                                    </div>
+                                </template>
                                 <div class="mt-3 flex flex-wrap items-center gap-2 text-xs">
                                     <span class="rounded bg-[#f4f3f2] px-2 py-1 text-[#5f5c78]" x-text="item.blast_radius"></span>
                                     <span class="rounded bg-[#f4f3f2] px-2 py-1 text-[#5f5c78]">
@@ -1617,7 +1659,13 @@ function domainDetailsApp(domainId) {
                 approval_ready: 0,
                 manual_action: 0,
                 investigate: 0,
-                informational: 0
+                informational: 0,
+                dispatch_ready: 0,
+                dispatch_blocked: 0,
+                dispatch_disabled: 0,
+                dispatch_awaiting_acknowledgement: 0,
+                dispatch_webhook_routes: 0,
+                dispatch_delivery_enqueued: 0
             },
             items: []
         },
@@ -1758,6 +1806,19 @@ function domainDetailsApp(domainId) {
             const query = params.toString();
             const baseUrl = `/api/v1/domains/${encodeURIComponent(this.domainId)}/reports/export`;
             return query ? `${baseUrl}?${query}` : baseUrl;
+        },
+
+        get remediationReadinessText() {
+            const summary = this.remediationQueue.summary || {};
+            const ready = summary.dispatch_ready || 0;
+            const blocked = summary.dispatch_blocked || 0;
+            if (ready > 0) {
+                return `${ready} remediation notification${ready === 1 ? '' : 's'} can be dispatched after review.`;
+            }
+            if (blocked > 0) {
+                return `${blocked} remediation notification${blocked === 1 ? '' : 's'} need settings, acknowledgement, or routing first.`;
+            }
+            return 'No remediation notifications need operator dispatch.';
         },
 
         get healthEvidenceExportUrl() {
@@ -1941,6 +2002,27 @@ function domainDetailsApp(domainId) {
             if (state === 'action_required') return 'bg-red-100 text-red-700';
             if (state === 'investigation_required') return 'bg-blue-100 text-blue-700';
             return 'bg-base-200 text-base-content/70';
+        },
+
+        remediationDispatchClass(dispatch) {
+            if (dispatch?.delivery_enqueued) return 'bg-teal-100 text-teal-700';
+            if (dispatch?.eligible) return 'bg-green-100 text-green-700';
+            if (dispatch?.enabled) return 'bg-yellow-100 text-yellow-800';
+            return 'bg-base-200 text-base-content/70';
+        },
+
+        remediationDispatchLabel(dispatch) {
+            if (dispatch?.delivery_enqueued) return 'delivery queued';
+            if (dispatch?.eligible) return 'ready';
+            if (dispatch?.enabled) return 'blocked';
+            return 'disabled';
+        },
+
+        remediationDispatchNextStep(dispatch) {
+            if (dispatch?.delivery_enqueued) return 'Delivery has been queued for the configured webhook route.';
+            if (dispatch?.eligible) return 'Review the payload preview and explicitly dispatch when the operator is ready.';
+            const nextStep = (dispatch?.next_steps || [])[0];
+            return nextStep || 'Review notification settings before dispatching this remediation item.';
         },
 
         senderStatusClass(status) {
@@ -2144,7 +2226,13 @@ function domainDetailsApp(domainId) {
                     notify_approval_required: 0,
                     notify_action_required: 0,
                     notify_investigation_required: 0,
-                    notify_summary_only: 0
+                    notify_summary_only: 0,
+                    dispatch_ready: 0,
+                    dispatch_blocked: 0,
+                    dispatch_disabled: 0,
+                    dispatch_awaiting_acknowledgement: 0,
+                    dispatch_webhook_routes: 0,
+                    dispatch_delivery_enqueued: 0
                 },
                 items: []
             };

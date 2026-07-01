@@ -219,4 +219,37 @@ def attach_remediation_dispatch_previews(
             settings=settings,
             webhook_event_counts=webhook_event_counts,
         )
+    _attach_dispatch_summary(queue, items)
     return queue
+
+
+def _attach_dispatch_summary(queue: Dict[str, Any], items: Sequence[Dict[str, Any]]) -> None:
+    """Expose queue-level dispatch readiness counters for dashboards."""
+    summary = dict(queue.get("summary") or {})
+    dispatches = [
+        (item.get("notification") or {}).get("dispatch") or {}
+        for item in items
+        if (item.get("notification") or {}).get("dispatch") is not None
+    ]
+    blocked = [dispatch for dispatch in dispatches if dispatch.get("blocked_reasons")]
+    awaiting_ack = [
+        dispatch
+        for dispatch in blocked
+        if dispatch.get("requires_lifecycle_acknowledgement")
+        and dispatch.get("lifecycle_state") not in ACKNOWLEDGED_LIFECYCLE_STATES
+    ]
+    summary.update(
+        {
+            "dispatch_ready": sum(1 for dispatch in dispatches if dispatch.get("eligible")),
+            "dispatch_blocked": len(blocked),
+            "dispatch_disabled": sum(1 for dispatch in dispatches if not dispatch.get("enabled")),
+            "dispatch_awaiting_acknowledgement": len(awaiting_ack),
+            "dispatch_webhook_routes": sum(
+                int(dispatch.get("webhook_endpoint_count") or 0) for dispatch in dispatches
+            ),
+            "dispatch_delivery_enqueued": sum(
+                1 for dispatch in dispatches if dispatch.get("delivery_enqueued")
+            ),
+        }
+    )
+    queue["summary"] = summary

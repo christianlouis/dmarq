@@ -97,7 +97,9 @@ whether remediation dispatch is enabled, whether the event is configured, if a
 previewed or acknowledged audit marker is still required, and whether an
 enabled webhook endpoint is subscribed to the event. This is a readiness check
 only; DMARQ does not enqueue webhook deliveries or send notifications from the
-queue view.
+queue view. The queue header summarizes how many items are ready to notify,
+blocked, awaiting acknowledgement, or covered by webhook routes so operators can
+see the next action without opening every item.
 
 After a remediation notification is previewed or acknowledged, an operator can
 explicitly enqueue the notification through the dispatch API with
