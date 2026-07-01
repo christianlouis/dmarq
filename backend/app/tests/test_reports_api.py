@@ -941,6 +941,10 @@ def test_get_report_by_id_continues_when_reputation_enrichment_fails(
     async def failing_reputation(*_args, **_kwargs):
         raise RuntimeError("provider unavailable")
 
+    async def fake_ptr_lookup(_provider, _ip, timeout=3.0):  # pylint: disable=unused-argument
+        return None
+
+    monkeypatch.setattr(reports_endpoint, "_safe_ptr_lookup", fake_ptr_lookup)
     monkeypatch.setattr(reports_endpoint, "build_source_reputation_cached", failing_reputation)
 
     response = authed_client.get("/api/v1/reports/source-intel-fallback-report")

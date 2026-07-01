@@ -1478,9 +1478,17 @@ def test_cloudflare_oauth_state_round_trips_and_sanitizes_return_to(
         workspace_id=42,
         return_to="https://evil.example/settings",
     )
+    scheme_relative_state = cloudflare_oauth.build_cloudflare_oauth_state(
+        workspace_id=42,
+        return_to="//evil.example/settings",
+    )
 
     assert state.startswith("v1.")
     assert cloudflare_oauth.decode_cloudflare_oauth_state(state) == {
+        "workspace_id": 42,
+        "return_to": "/settings",
+    }
+    assert cloudflare_oauth.decode_cloudflare_oauth_state(scheme_relative_state) == {
         "workspace_id": 42,
         "return_to": "/settings",
     }

@@ -56,6 +56,13 @@ def _state_signing_key() -> str:
     return f"{get_settings().SECRET_KEY}:cloudflare-oauth-state"
 
 
+def _safe_return_to(value: str) -> str:
+    path = str(value or "")
+    if not path.startswith("/") or path.startswith("//") or "\\" in path:
+        return "/settings"
+    return path
+
+
 def build_cloudflare_oauth_state(
     *,
     workspace_id: int,
@@ -66,7 +73,7 @@ def build_cloudflare_oauth_state(
     token = jwt.encode(
         {
             "workspace_id": int(workspace_id),
-            "return_to": return_to if return_to.startswith("/") else "/settings",
+            "return_to": _safe_return_to(return_to),
             "iat": now,
             "exp": now + _STATE_TTL,
         },
@@ -90,7 +97,7 @@ def decode_cloudflare_oauth_state(state_value: str) -> Dict[str, Any]:
         )
         return {
             "workspace_id": int(payload["workspace_id"]),
-            "return_to": str(payload.get("return_to") or "/settings"),
+            "return_to": _safe_return_to(str(payload.get("return_to") or "/settings")),
         }
     except (JWTError, ValueError, KeyError, TypeError) as exc:
         raise LookupError("Invalid Cloudflare OAuth state.") from exc

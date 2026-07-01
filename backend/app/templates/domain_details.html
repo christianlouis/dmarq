@@ -2114,6 +2114,19 @@ function domainDetailsApp(domainId) {
             return 'bg-base-200 text-base-content/70';
         },
 
+        apiHeaders() {
+            return { 'Content-Type': 'application/json' };
+        },
+
+        workspaceHeaders() {
+            const headers = this.apiHeaders();
+            const workspaceId = localStorage.getItem('dmarq.selectedWorkspaceId');
+            if (workspaceId) {
+                headers['X-DMARQ-Workspace-ID'] = workspaceId;
+            }
+            return headers;
+        },
+
         recommendationSeverityClass(severity) {
             if (severity === 'error') return 'bg-red-500';
             if (severity === 'warning') return 'bg-yellow-500';
@@ -2259,12 +2272,18 @@ function domainDetailsApp(domainId) {
             this.ownership.error = '';
             this.ownership.message = '';
             try {
+                const headers = this.workspaceHeaders();
                 const response = await fetch(`/api/v1/domains/${encodeURIComponent(this.domainId)}/ownership/cloudflare`, {
-                    method: 'POST'
+                    method: 'POST',
+                    headers
                 });
                 const data = await response.json().catch(() => ({}));
                 if (!response.ok) {
                     const detail = typeof data.detail === 'string' ? data.detail : data.detail?.message;
+                    const nextSteps = Array.isArray(data.detail?.next_steps) ? data.detail.next_steps : data.next_steps;
+                    if (nextSteps) {
+                        this.ownership.next_steps = nextSteps;
+                    }
                     throw new Error(detail || 'Cloudflare ownership could not be verified.');
                 }
                 this.ownership = {
@@ -2810,7 +2829,8 @@ function domainDetailsApp(domainId) {
             const failureData = timelineData.map(item => (item.volume || item.total || 0) > 0 ? (item.failure_rate || 0) : null);
             const volumeRawData = timelineData.map(item => item.volume || item.total || 0);
             const volumeData = volumeRawData.map(value => value > 0 ? value : null);
-            const observedCompliance = complianceData.filter(value => value !== null && Number.isFinite(value));
+            const observedRates = [...complianceData, ...failureData]
+                .filter(value => value !== null && Number.isFinite(value));
             const observedVolumes = volumeRawData.filter(value => value > 0 && Number.isFinite(value));
             
             // Calculate the threshold line data (recommended 98% for policy advancement)
@@ -2879,7 +2899,7 @@ function domainDetailsApp(domainId) {
                             type: 'linear',
                             position: 'left',
                             beginAtZero: false,
-                            min: observedCompliance.length ? Math.max(0, Math.min(...observedCompliance) - 10) : 0,
+                            min: observedRates.length ? Math.max(0, Math.min(...observedRates) - 10) : 0,
                             max: 100,
                             ticks: {
                                 callback: value => value + '%'

@@ -815,10 +815,16 @@ async def get_report_by_id(
     source_rows = [_source_row_from_report_record(rec) for rec in raw_records]
     provider = get_default_provider(db)
     ips = [str(row.get("source_ip") or "unknown") for row in source_rows]
-    hostnames = await asyncio.gather(*[_safe_ptr_lookup(provider, ip) for ip in ips])
+    ptr_semaphore = asyncio.Semaphore(20)
+
+    async def _bounded_ptr_lookup(ip: str) -> Optional[str]:
+        async with ptr_semaphore:
+            return await _safe_ptr_lookup(provider, ip)
+
+    hostnames = await asyncio.gather(*[_bounded_ptr_lookup(ip) for ip in ips])
     sender_by_ip = {
         ip: identify_sender(ip, row, hostname=hostname, domain=report.get("domain", ""))
-        for ip, row, hostname in zip(ips, source_rows, hostnames)
+        for ip, row, hostname in zip(ips, source_rows, hostnames, strict=True)
     }
     reputations_by_ip: Dict[str, SourceReputation] = {}
     try:
@@ -840,7 +846,7 @@ async def get_report_by_id(
 
     # Normalize records
     record_details = []
-    for rec, row, hostname in zip(raw_records, source_rows, hostnames):
+    for rec, row, hostname in zip(raw_records, source_rows, hostnames, strict=True):
         ip = str(row.get("source_ip") or "unknown")
         guidance = _record_review_guidance(rec)
         reputation = reputations_by_ip.get(ip)
