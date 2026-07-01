@@ -665,6 +665,50 @@ def test_domain_remediation_queue_groups_dns_and_health_actions(
     ]
 
 
+def test_domain_remediation_queue_hydrates_legacy_report_domains_without_workspace_filter(
+    authed_client: TestClient,
+    monkeypatch,
+):
+    """Legacy report-only domains remain readable through the remediation endpoint."""
+    store = ReportStore.get_instance()
+    store.add_report(REPORT_DICT_POLICY)
+    captured = {}
+
+    def fake_hydrate(db, store_arg, workspace_id=None):
+        captured["workspace_id"] = workspace_id
+        return 1
+
+    async def fake_domain_grade(db, domain_id, store_arg, refresh=False):
+        return {
+            "domain": domain_id,
+            "score": 100,
+            "grade": "A",
+            "status": "healthy",
+            "factors": {},
+            "actions": [],
+        }
+
+    async def fake_dns_guidance(db, store_arg, domain_id, refresh=False):
+        return {
+            "domain": domain_id,
+            "status": "healthy",
+            "dns_provider": None,
+            "findings": [],
+            "change_plans": [],
+        }
+
+    monkeypatch.setattr(domains_endpoint, "hydrate_report_store_from_db", fake_hydrate)
+    monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_domain_grade)
+    monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", fake_dns_guidance)
+    monkeypatch.setattr(domains_endpoint, "_ready_dns_write_provider_ids", lambda: [])
+
+    response = authed_client.get(f"/api/v1/domains/{DOMAIN}/remediation")
+
+    assert response.status_code == 200
+    assert captured["workspace_id"] is None
+    assert response.json()["domain"] == DOMAIN
+
+
 def test_domain_health_history_rejects_invalid_date_order(seeded_client: TestClient):
     """Health history validates that the start date is not after the end date."""
     response = seeded_client.get(

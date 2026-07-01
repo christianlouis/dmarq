@@ -115,3 +115,42 @@ def test_remediation_queue_keeps_placeholder_plan_manual():
     assert queue["items"][0]["state"] == "manual_action"
     assert queue["items"][0]["automation"]["eligible"] is False
     assert queue["items"][0]["automation"]["apply_endpoint"] is None
+
+
+def test_remediation_queue_requires_recommended_provider_for_automation():
+    queue = build_remediation_queue(
+        domain="example.com",
+        health={"actions": []},
+        dns_guidance={
+            "findings": [
+                {
+                    "code": "dmarc_missing",
+                    "severity": "error",
+                    "title": "Publish DMARC",
+                    "detail": "No DMARC TXT record was found.",
+                }
+            ],
+            "change_plans": [
+                {
+                    "plan_id": "dmarc-missing",
+                    "finding_code": "dmarc_missing",
+                    "severity": "error",
+                    "operation": "create",
+                    "record_type": "TXT",
+                    "name": "_dmarc.example.com",
+                    "proposed_value": "v=DMARC1; p=none; rua=mailto:dmarc@example.com",
+                    "rationale": "Publish a monitoring DMARC record.",
+                }
+            ],
+        },
+        available_write_providers=["cloudflare"],
+        recommended_provider=None,
+    )
+
+    assert queue["status"] == "needs_manual_action"
+    assert queue["summary"]["approval_ready"] == 0
+    assert queue["summary"]["manual_action"] == 1
+    assert queue["items"][0]["state"] == "manual_action"
+    assert queue["items"][0]["automation"]["eligible"] is False
+    assert queue["items"][0]["automation"]["provider"] is None
+    assert queue["items"][0]["automation"]["apply_endpoint"] is None
