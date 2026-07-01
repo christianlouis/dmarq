@@ -306,7 +306,7 @@ Tier 1 connector metadata currently covers:
   with external ID for hosted deployments.
 - Akamai Edge DNS / FastDNS: planned EdgeGrid-backed DNS connector. Akamai EAA
   is an access/SSO frontdoor option and does not replace the Edge DNS connector.
-- Hetzner DNS: read-only zone import/read path using `HETZNER_DNS_API_TOKEN`;
+- Hetzner DNS: read-only zone import using `HETZNER_DNS_API_TOKEN`;
   Lexicon-backed write path where the runtime and credentials are available.
 - Linode DNS: planned zone import/read path; Lexicon-backed write path where
   the runtime and credentials are available.

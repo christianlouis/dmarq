@@ -393,7 +393,7 @@ def test_discover_hetzner_zones_marks_imported_and_filters_invalid(db_session):
     db_session.commit()
     client = FakeHetznerDNSClient(
         zones=[
-            {"id": 1, "name": DOMAIN, "mode": "primary"},
+            {"id": 1, "name": f"{DOMAIN}.", "mode": "primary"},
             {"id": 2, "name": "new.example", "status": "active"},
             {"id": None, "name": "invalid.example"},
             {"id": 3, "name": ""},
@@ -434,7 +434,7 @@ def test_import_hetzner_domains_imports_requested_and_skips_others(db_session):
         result = asyncio.run(
             hetzner_dns.import_hetzner_domains(
                 db_session,
-                requested_domains=[DOMAIN],
+                requested_domains=[f"{DOMAIN}."],
             )
         )
 
@@ -829,7 +829,7 @@ def test_dns_provider_capabilities_mark_cloudflare_import_available(authed_clien
     assert "Zone:Read" in providers["cloudflare"]["minimum_permissions"]
     assert providers["hetzner"]["import_available"] is True
     assert providers["hetzner"]["zone_import_status"] == "ready"
-    assert providers["hetzner"]["record_read_status"] == "ready"
+    assert providers["hetzner"]["record_read_status"] == "planned"
     assert providers["hetzner"]["record_write_status"] == "lexicon_available"
     assert "api_token" in providers["hetzner"]["auth_models"]
     assert providers["route53"]["import_available"] is False

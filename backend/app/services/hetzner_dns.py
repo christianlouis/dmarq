@@ -113,6 +113,10 @@ def _workspace_domain_names(db: Session, workspace_id: Optional[int]) -> set[str
     return {name for (name,) in query.all()}
 
 
+def _normalize_domain_name(domain: str) -> str:
+    return domain.strip().strip(".").lower()
+
+
 async def discover_hetzner_zones(
     db: Session,
     *,
@@ -124,7 +128,7 @@ async def discover_hetzner_zones(
     zones = await client.list_zones()
     discovered: List[Dict[str, Any]] = []
     for zone in zones:
-        name = str(zone.get("name") or "").strip().lower()
+        name = _normalize_domain_name(str(zone.get("name") or ""))
         zone_id = zone.get("id")
         if not zone_id or not name:
             continue
@@ -154,7 +158,11 @@ async def import_hetzner_domains(
         workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
 
     zones = await discover_hetzner_zones(db, workspace_id=workspace_id)
-    requested = {domain.strip().lower() for domain in requested_domains or [] if domain.strip()}
+    requested = {
+        _normalize_domain_name(domain)
+        for domain in requested_domains or []
+        if _normalize_domain_name(domain)
+    }
     candidate_names: List[str] = []
     imported: List[str] = []
     existing: List[str] = []
@@ -170,12 +178,7 @@ async def import_hetzner_domains(
     existing_names = set()
     if candidate_names:
         existing_names = {
-            row[0]
-            for row in (
-                db.query(Domain.name)
-                .filter(Domain.name.in_(candidate_names), Domain.workspace_id == workspace_id)
-                .all()
-            )
+            row[0] for row in db.query(Domain.name).filter(Domain.name.in_(candidate_names)).all()
         }
     new_names = [name for name in candidate_names if name not in existing_names]
     if workspace and workspace.organization and new_names:
