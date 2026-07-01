@@ -1487,6 +1487,23 @@ def test_cloudflare_oauth_authorization_url_uses_configured_scopes(
     assert "state=state-token" in result["authorization_url"]
 
 
+def test_cloudflare_oauth_config_requires_client_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(
+        cloudflare_oauth,
+        "get_settings",
+        lambda: _cloudflare_oauth_settings(
+            CLOUDFLARE_OAUTH_CLIENT_ID="",
+            CLOUDFLARE_OAUTH_CLIENT_SECRET="",
+        ),
+    )
+
+    assert cloudflare_oauth.cloudflare_oauth_configured() is False
+    with pytest.raises(LookupError, match="Cloudflare OAuth is not configured"):
+        cloudflare_oauth.get_cloudflare_oauth_config()
+
+
 @pytest.mark.asyncio
 async def test_cloudflare_oauth_exchange_posts_token_request(
     monkeypatch: pytest.MonkeyPatch,
@@ -1537,6 +1554,41 @@ async def test_cloudflare_oauth_exchange_posts_token_request(
             },
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_oauth_exchange_rejects_missing_access_token(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(cloudflare_oauth, "get_settings", _cloudflare_oauth_settings)
+
+    class FakeTokenResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"scope": "zone.read"}
+
+    class FakeAsyncClient:
+        def __init__(self, *, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, *, data):
+            return FakeTokenResponse()
+
+    monkeypatch.setattr(cloudflare_oauth.httpx, "AsyncClient", FakeAsyncClient)
+
+    with pytest.raises(LookupError, match="did not return an access token"):
+        await cloudflare_oauth.exchange_cloudflare_oauth_code(
+            code="oauth-code",
+            redirect_uri="https://app.example.test/api/v1/domains/cloudflare/oauth/callback",
+        )
 
 
 def test_persist_cloudflare_oauth_tokens_stores_encrypted_provider_token(
@@ -1603,6 +1655,62 @@ def test_cloudflare_oauth_authorize_url_endpoint_returns_redirect(
     assert authorize_mock.call_args.kwargs["redirect_uri"] == (
         "https://app.example.test/api/v1/domains/cloudflare/oauth/callback"
     )
+
+
+def test_cloudflare_oauth_authorize_url_endpoint_returns_setup_error(
+    authed_client: TestClient,
+):
+    with patch(
+        "app.api.api_v1.endpoints.domains.build_cloudflare_authorization_url",
+        side_effect=LookupError("Cloudflare OAuth is not configured."),
+    ):
+        response = authed_client.get("/api/v1/domains/cloudflare/oauth/authorize-url")
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Cloudflare OAuth is not configured."
+
+
+def test_cloudflare_oauth_callback_requires_code_and_state(
+    authed_client: TestClient,
+):
+    response = authed_client.get("/api/v1/domains/cloudflare/oauth/callback?state=state-token")
+
+    assert response.status_code == 400
+    assert "Cloudflare connection failed" in response.text
+
+
+def test_cloudflare_oauth_callback_stores_token_and_redirects(
+    authed_client: TestClient,
+    db_session: Session,
+):
+    workspace = get_or_create_default_workspace(db_session)
+    exchange_mock = AsyncMock(return_value={"access_token": "provider-token"})
+
+    with (
+        patch(
+            "app.api.api_v1.endpoints.domains.decode_cloudflare_oauth_state",
+            return_value={"workspace_id": workspace.id, "return_to": "/settings/cloudflare"},
+        ) as decode_mock,
+        patch(
+            "app.api.api_v1.endpoints.domains.exchange_cloudflare_oauth_code",
+            exchange_mock,
+        ),
+        patch("app.api.api_v1.endpoints.domains.persist_cloudflare_oauth_tokens") as persist_mock,
+    ):
+        response = authed_client.get(
+            "/api/v1/domains/cloudflare/oauth/callback?code=oauth-code&state=state-token",
+            headers={"x-forwarded-proto": "https", "host": "app.example.test"},
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/settings/cloudflare"
+    decode_mock.assert_called_once_with("state-token")
+    exchange_mock.assert_awaited_once_with(
+        code="oauth-code",
+        redirect_uri="https://app.example.test/api/v1/domains/cloudflare/oauth/callback",
+    )
+    persist_mock.assert_called_once_with(db_session, {"access_token": "provider-token"})
 
 
 def test_cloudflare_oauth_status_endpoint_reports_connected_token(
