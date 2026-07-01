@@ -22,7 +22,6 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.redaction import sanitize_for_log
 from app.core.security import require_admin_auth
-from app.models.domain import Domain
 from app.models.mail_source import MailSource
 from app.models.mail_source_backfill import MailSourceBackfillJob
 from app.models.mail_source_import import MailSourceImport
@@ -49,7 +48,6 @@ from app.services.workspace_access import (
 )
 from app.services.workspace_audit import changed_fields, record_workspace_audit_log
 from app.services.workspaces import (
-    workspace_domain_query,
     workspace_mail_source_query,
 )
 
@@ -298,60 +296,6 @@ def _get_source_or_404(source_id: int, db: Session, workspace=None) -> MailSourc
             detail=f"Mail source {source_id} not found",
         )
     return source
-
-
-def _raise_if_workspace_domains_unverified(db: Session, workspace, *, action: str) -> None:
-    """Require configured domains to be verified before production mail-source use."""
-    domains = (
-        workspace_domain_query(db, workspace)
-        .filter(Domain.active.is_(True))
-        .order_by(Domain.name)
-        .all()
-    )
-    unverified_domains = [domain.name for domain in domains if not domain.verified]
-    if not unverified_domains:
-        return
-    domain_label = ", ".join(unverified_domains[:5])
-    if len(unverified_domains) > 5:
-        domain_label = f"{domain_label}, and {len(unverified_domains) - 5} more"
-    raise HTTPException(
-        status_code=status.HTTP_409_CONFLICT,
-        detail={
-            "code": "domain_verification_required",
-            "message": (
-                "Domain ownership verification is required before DMARQ can fetch "
-                "production DMARC reports."
-            ),
-            "summary": (
-                "DMARQ blocks production mail-source fetches until every active "
-                "domain in this workspace is verified. This prevents a mailbox or OAuth "
-                "connection from importing reports for domains the workspace has not "
-                "proven it controls."
-            ),
-            "action": action,
-            "unverified_domains": unverified_domains,
-            "next_steps": [
-                f"Open Domains and verify ownership for: {domain_label}.",
-                (
-                    "If the domain lives in a connected DNS provider, import it from "
-                    "the DNS provider so DMARQ can mark it as provider-verified."
-                ),
-                (
-                    "If you added the domain manually, confirm that you control its DNS "
-                    "or reporting address before enabling the mail source."
-                ),
-                (
-                    "After verification, return to Mail Sources and retry the backfill "
-                    "or enable the source."
-                ),
-            ],
-            "links": [
-                {"label": "Domains", "href": "/domains"},
-                {"label": "DNS provider import", "href": "/domains?panel=dns-import"},
-                {"label": "Mail Sources", "href": "/mail-sources"},
-            ],
-        },
-    )
 
 
 def _selected_workspace_id(selected_workspace: Optional[str]) -> Optional[int]:
@@ -1048,8 +992,6 @@ async def create_mail_source(
         db,
         _selected_workspace_id(selected_workspace),
     )
-    if payload.enabled:
-        _raise_if_workspace_domains_unverified(db, workspace, action="mail_source.create_enabled")
     source = MailSource(
         workspace_id=workspace.id,
         name=payload.name,
@@ -1216,8 +1158,6 @@ async def create_mail_source_backfill(
     )
     source = _get_source_or_404(source_id, db, workspace)
     _ensure_backfill_supported(source)
-    _raise_if_workspace_domains_unverified(db, workspace, action="mail_source.backfill.create")
-
     now = datetime.utcnow()
     row = MailSourceBackfillJob(
         workspace_id=workspace.id,
@@ -1439,7 +1379,6 @@ async def fetch_mail_source(
         _auth, db, _selected_workspace_id(selected_workspace)
     )
     source = _get_source_or_404(source_id, db, workspace)
-    _raise_if_workspace_domains_unverified(db, workspace, action="mail_source.fetch")
     results = _fetch_source(source, db, days)
     logger.info(
         "Manual fetch for source id=%d: processed=%d reports_found=%d "
@@ -1478,9 +1417,6 @@ async def update_mail_source(
     update_data = payload.model_dump(exclude_unset=True)
     if "method" in update_data and update_data["method"]:
         update_data["method"] = update_data["method"].upper()
-    if update_data.get("enabled") is True:
-        _raise_if_workspace_domains_unverified(db, workspace, action="mail_source.update_enabled")
-
     for field, value in update_data.items():
         setattr(source, field, value)
 
@@ -1545,8 +1481,6 @@ async def toggle_mail_source(
         _auth, db, _selected_workspace_id(selected_workspace)
     )
     source = _get_source_or_404(source_id, db, workspace)
-    if not source.enabled:
-        _raise_if_workspace_domains_unverified(db, workspace, action="mail_source.toggle_enabled")
     source.enabled = not source.enabled
     source.updated_at = datetime.utcnow()
     db.commit()
@@ -2007,8 +1941,6 @@ async def m365_fetch_reports(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="This endpoint is only available for M365_GRAPH sources.",
         )
-    _raise_if_workspace_domains_unverified(db, workspace, action="mail_source.m365_fetch")
-
     results = _fetch_m365_source(source, db, days=days)
     logger.info(
         "Microsoft 365 fetch for source id=%d: processed=%d reports_found=%d",
@@ -2323,7 +2255,6 @@ async def gmail_fetch_reports(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="This endpoint is only available for GMAIL_API sources.",
         )
-    _raise_if_workspace_domains_unverified(db, workspace, action="mail_source.gmail_fetch")
     if not source.gmail_access_token:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
