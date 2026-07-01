@@ -947,6 +947,21 @@ def test_domain_remediation_notification_dispatch_enqueues_webhook_delivery(
     assert details["operator_note"] == "Route this to the webhook queue"
     assert db_session.query(WebhookDelivery).count() == 1
 
+    queue_response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/remediation")
+    assert queue_response.status_code == 200
+    history = queue_response.json()["items"][0]["notification"]["history"]
+    assert [entry["action"] for entry in history[:2]] == [
+        "remediation.notification_dispatch_enqueued",
+        "remediation.notification_lifecycle_recorded",
+    ]
+    assert history[0]["state"] == "delivery_enqueued"
+    assert history[0]["delivery_enqueued"] is True
+    assert history[0]["delivery_count"] == 1
+    assert history[0]["dns_write_attempted"] is False
+    assert history[0]["operator_note"] == "Route this to the webhook queue"
+    assert history[1]["state"] == "acknowledged"
+    assert "deliveries" not in history[0]
+
     duplicate_response = seeded_client.post(
         f"/api/v1/domains/{DOMAIN}/remediation/notifications/dispatch",
         json={

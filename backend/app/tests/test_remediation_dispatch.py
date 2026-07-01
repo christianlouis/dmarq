@@ -1,10 +1,14 @@
+import json
+from datetime import datetime
 from types import SimpleNamespace
 
+from app.models.workspace_access import WorkspaceAuditLog
 from app.services import remediation_dispatch
 from app.services.webhook_events import (
     EVENT_REMEDIATION_APPROVAL_REQUIRED,
     EVENT_REMEDIATION_MANUAL_ACTION_REQUIRED,
 )
+from app.services.workspaces import get_or_create_default_workspace
 
 
 def test_attach_remediation_dispatch_previews_reuses_request_context(monkeypatch):
@@ -34,6 +38,11 @@ def test_attach_remediation_dispatch_previews_reuses_request_context(monkeypatch
         remediation_dispatch,
         "_latest_lifecycle_marker",
         lambda *_args, **_kwargs: {"state": None, "recorded_at": None},
+    )
+    monkeypatch.setattr(
+        remediation_dispatch,
+        "_notification_histories",
+        lambda *_args, **_kwargs: {},
     )
 
     queue = {
@@ -91,6 +100,20 @@ def test_attach_remediation_dispatch_previews_adds_dashboard_summary(monkeypatch
         fake_enabled_webhook_endpoints,
     )
     monkeypatch.setattr(remediation_dispatch, "_latest_lifecycle_marker", fake_lifecycle)
+    monkeypatch.setattr(
+        remediation_dispatch,
+        "_notification_histories",
+        lambda *_args, **_kwargs: {
+            "dns:dmarc-missing": [
+                {
+                    "action": "remediation.notification_lifecycle_recorded",
+                    "state": "acknowledged",
+                    "created_at": "2026-07-01T08:00:00",
+                }
+            ],
+            "health:spf-hardening": [],
+        },
+    )
 
     queue = {
         "domain": "example.com",
@@ -145,6 +168,87 @@ def test_attach_remediation_dispatch_previews_skips_empty_queues(monkeypatch):
         "dispatch_awaiting_acknowledgement": 0,
         "dispatch_webhook_routes": 0,
     }
+
+
+def test_notification_histories_return_sanitized_recent_audit_events(db_session):
+    workspace = get_or_create_default_workspace(db_session)
+    db_session.add_all(
+        [
+            WorkspaceAuditLog(
+                workspace_id=workspace.id,
+                actor_type="user",
+                actor_id="operator-1",
+                action="remediation.notification_lifecycle_recorded",
+                entity_type="remediation_notification",
+                entity_id="dns:dmarc-missing",
+                entity_name="example.com",
+                details=json.dumps(
+                    {
+                        "lifecycle_state": "acknowledged",
+                        "operator_note": "Reviewed with DNS owner",
+                        "delivery_enqueued": False,
+                        "dns_write_attempted": False,
+                    }
+                ),
+                created_at=datetime(2026, 7, 1, 8, 0, 0),
+            ),
+            WorkspaceAuditLog(
+                workspace_id=workspace.id,
+                actor_type="user",
+                actor_id="operator-1",
+                action="remediation.notification_dispatch_enqueued",
+                entity_type="remediation_notification",
+                entity_id="dns:dmarc-missing",
+                entity_name="example.com",
+                details=json.dumps(
+                    {
+                        "operator_note": "Route this to security",
+                        "delivery_enqueued": True,
+                        "delivery_count": "not-a-number",
+                        "deliveries": [{"secret": "do-not-return"}],
+                        "dns_write_attempted": False,
+                        "sent": False,
+                    }
+                ),
+                created_at=datetime(2026, 7, 1, 9, 0, 0),
+            ),
+            WorkspaceAuditLog(
+                workspace_id=workspace.id,
+                actor_type="system",
+                actor_id="legacy",
+                action="remediation.notification_lifecycle_recorded",
+                entity_type="remediation_notification",
+                entity_id="dns:dmarc-missing",
+                entity_name="example.com",
+                details="{broken-json",
+                created_at=datetime(2026, 7, 1, 10, 0, 0),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    histories = remediation_dispatch._notification_histories(
+        db_session,
+        workspace=workspace,
+        domain="example.com",
+        item_ids=["dns:dmarc-missing"],
+    )
+
+    history = histories["dns:dmarc-missing"]
+    assert [entry["action"] for entry in history] == [
+        "remediation.notification_dispatch_enqueued",
+        "remediation.notification_lifecycle_recorded",
+    ]
+    assert history[0]["label"] == "Dispatch enqueued"
+    assert history[0]["state"] == "delivery_enqueued"
+    assert history[0]["delivery_count"] == 0
+    assert history[0]["operator_note"] == "Route this to security"
+    assert history[0]["sent"] is False
+    assert history[0]["dns_write_attempted"] is False
+    assert "deliveries" not in history[0]
+    assert "actor_id" not in history[0]
+    assert history[1]["state"] == "acknowledged"
+    assert history[1]["operator_note"] == "Reviewed with DNS owner"
 
 
 def test_build_remediation_dispatch_preview_fetches_context_when_not_preloaded(monkeypatch):

@@ -674,6 +674,14 @@ The queue `summary` also exposes dispatch readiness counters, including
 dashboards can separate immediately actionable notifications from items blocked
 by settings, routing, or operator acknowledgement.
 
+Each notification also includes a compact `history` array derived from
+workspace audit events for the current queue item. The history lists recent
+lifecycle markers and explicit dispatch enqueue events with timestamp, actor
+type, operator note, delivery count, and safety flags such as `sent`,
+`delivery_enqueued`, and `dns_write_attempted`. It omits webhook secrets and
+full delivery payloads; use the webhook delivery APIs for transport-level
+troubleshooting.
+
 `POST /domains/{domain_id}/remediation/notifications/audit` records an
 operator lifecycle marker for one current remediation item. The request accepts
 `item_id`, `lifecycle_state`, and optional `event`, `dedupe_key`, and `note`.
