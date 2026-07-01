@@ -136,11 +136,11 @@ async def sign_in(
 
     Logto keeps its SDK-backed PKCE storage.  Generic OIDC/AuthentiK uses a
     signed state cookie.  Trusted proxy mode does not own the upstream sign-in
-    flow, so this route simply returns to the requested page.
+    flow, so this route returns to a fixed local page.
     """
     provider_name = _active_auth_provider()
     if provider_name == "trusted_proxy":
-        return RedirectResponse(url=_safe_next(next), status_code=302)
+        return RedirectResponse(url="/", status_code=302)
 
     if provider_name in {"oidc", "authentik"}:
         provider = configured_oidc_provider(settings)

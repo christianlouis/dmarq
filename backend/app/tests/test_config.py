@@ -283,6 +283,21 @@ class TestProductionStartupSettings:
 
         assert any("AUTH_DISABLED=true" in error for error in result.errors)
 
+    def test_production_startup_rejects_auth_mode_disabled_without_override(self):
+        from app.core.startup_checks import validate_startup_configuration
+
+        settings = Settings(
+            ENVIRONMENT="production",
+            SECRET_KEY="s" * 32,
+            AUTH_MODE="disabled",
+            DATABASE_URL="postgresql://dmarq:password@db/dmarq",
+        )
+
+        result = validate_startup_configuration(settings)
+
+        assert result.ok is False
+        assert any("AUTH_MODE=disabled" in error for error in result.errors)
+
     def test_production_startup_allows_auth_disabled_with_explicit_override(self):
         from app.core.startup_checks import validate_startup_configuration
 

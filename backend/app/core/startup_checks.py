@@ -43,9 +43,12 @@ def validate_startup_configuration(settings: Settings) -> StartupCheckResult:
     if not settings.is_production:
         return StartupCheckResult(errors=(), warnings=())
 
-    if settings.AUTH_DISABLED and not settings.ALLOW_AUTH_DISABLED_IN_PRODUCTION:
+    auth_provider = getattr(settings, "active_auth_provider", "unconfigured")
+    auth_disabled = settings.AUTH_DISABLED or auth_provider == "disabled"
+
+    if auth_disabled and not settings.ALLOW_AUTH_DISABLED_IN_PRODUCTION:
         errors.append(
-            "AUTH_DISABLED=true is not allowed in production unless "
+            "AUTH_DISABLED=true or AUTH_MODE=disabled is not allowed in production unless "
             "ALLOW_AUTH_DISABLED_IN_PRODUCTION=true is also set."
         )
 
@@ -67,7 +70,7 @@ def validate_startup_configuration(settings: Settings) -> StartupCheckResult:
             "ALLOW_OIDC_SKIP_SSL_VERIFY_IN_PRODUCTION=true is also set."
         )
 
-    if not settings.AUTH_DISABLED and not settings.ADMIN_API_KEY and not settings.auth_configured:
+    if not auth_disabled and not settings.ADMIN_API_KEY and not settings.auth_configured:
         errors.append(
             "Production startup requires an authentication path or ADMIN_API_KEY. "
             "Configure Logto, Authentik/OIDC, trusted proxy auth, or set ADMIN_API_KEY."
