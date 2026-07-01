@@ -659,8 +659,12 @@ read-only notification routing metadata. DNS items that have a concrete safe
 TXT/CNAME provider write are marked `approval_ready` and point to the same
 explicit preview/apply endpoint used by the DNS change-plan UI. Notification
 metadata includes the event name, channel, dedupe key, reason, and next state
-transition that an operator workflow can use. Each item also includes a
-sanitized `payload_preview` using schema
+transition that an operator workflow can use. Each notification also includes a
+read-only `dispatch` preview showing whether the item would be eligible for a
+future dispatch step, which channel would be used, whether a previewed or
+acknowledged lifecycle marker is still required, how many enabled webhook
+endpoints match the event, and why dispatch is currently blocked. Each item
+also includes a sanitized `payload_preview` using schema
 `dmarq.remediation.notification.v1`; it is the deterministic data shape a
 future webhook, ticketing, or chatops delivery would receive. The endpoint does
 not perform DNS writes, enqueue webhook deliveries, or send notifications.
@@ -673,6 +677,18 @@ Supported lifecycle states are `previewed`, `acknowledged`, `snoozed`,
 match the current queue item's notification metadata. The response includes the
 sanitized workspace audit row. This endpoint is deliberately audit-only: it
 does not enqueue webhook deliveries, send notifications, or attempt DNS writes.
+
+The remediation dispatch preview is controlled by notification settings and is
+disabled by default:
+
+- `notifications.remediation_dispatch_enabled`
+- `notifications.remediation_dispatch_channel`
+- `notifications.remediation_dispatch_require_acknowledgement`
+- `notifications.remediation_dispatch_events`
+
+In this release slice, `webhook` is the only supported dispatch channel. Even
+when the preview reports `eligible=true`, DMARQ only reports readiness and does
+not enqueue delivery rows until a future explicit dispatch endpoint is added.
 
 #### Get Posture Dashboard
 

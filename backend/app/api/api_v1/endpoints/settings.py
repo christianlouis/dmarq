@@ -286,6 +286,38 @@ SETTING_DEFAULTS: List[Dict[str, Any]] = [
         "value_type": "string",
         "category": "notifications",
     },
+    {
+        "key": "notifications.remediation_dispatch_enabled",
+        "value": "false",
+        "description": "Allow human-reviewed remediation notifications to become dispatch-eligible",
+        "value_type": "boolean",
+        "category": "notifications",
+    },
+    {
+        "key": "notifications.remediation_dispatch_channel",
+        "value": "webhook",
+        "description": "Remediation notification dispatch channel; webhook is currently supported",
+        "value_type": "string",
+        "category": "notifications",
+    },
+    {
+        "key": "notifications.remediation_dispatch_require_acknowledgement",
+        "value": "true",
+        "description": "Require previewed or acknowledged audit state before remediation dispatch",
+        "value_type": "boolean",
+        "category": "notifications",
+    },
+    {
+        "key": "notifications.remediation_dispatch_events",
+        "value": (
+            "dmarq.remediation.approval_required,"
+            "dmarq.remediation.manual_action_required,"
+            "dmarq.remediation.investigation_required"
+        ),
+        "description": "Comma-separated remediation events eligible for future dispatch",
+        "value_type": "string",
+        "category": "notifications",
+    },
     # ── Optional AI / MCP ───────────────────────────────────────────────────
     {
         "key": "ai.enabled",

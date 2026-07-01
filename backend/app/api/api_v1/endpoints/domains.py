@@ -75,6 +75,7 @@ from app.services.organizations import (
     OrganizationPlanLimitError,
     require_organization_plan_limit,
 )
+from app.services.remediation_dispatch import attach_remediation_dispatch_previews
 from app.services.remediation_queue import build_remediation_queue
 from app.services.report_persistence import (
     hydrate_report_store_from_db,
@@ -826,6 +827,7 @@ class RemediationNotification(BaseModel):
     reason: str
     next_transition: str
     payload_preview: Dict[str, Any] = Field(default_factory=dict)
+    dispatch: Dict[str, Any] = Field(default_factory=dict)
 
 
 class RemediationQueueItem(BaseModel):
@@ -3641,12 +3643,13 @@ async def get_domain_remediation_queue(
         db,
         selected_workspace_id=parse_selected_workspace_id(selected_workspace),
     )
-    return await _build_domain_remediation_queue_for_workspace(
+    queue = await _build_domain_remediation_queue_for_workspace(
         db,
         workspace=workspace,
         domain_id=domain_id,
         refresh=refresh,
     )
+    return attach_remediation_dispatch_previews(db, workspace=workspace, queue=queue)
 
 
 @router.post(
@@ -3684,6 +3687,7 @@ async def audit_domain_remediation_notification(
         domain_id=domain_id,
         refresh=refresh,
     )
+    attach_remediation_dispatch_previews(db, workspace=workspace, queue=queue)
     item = next(
         (
             candidate

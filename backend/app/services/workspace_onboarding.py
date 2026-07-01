@@ -45,6 +45,10 @@ SAFE_NOTIFICATION_DEFAULTS = {
     "notifications.summary_weekly_enabled",
     "notifications.summary_send_hour_utc",
     "notifications.summary_weekday_utc",
+    "notifications.remediation_dispatch_enabled",
+    "notifications.remediation_dispatch_channel",
+    "notifications.remediation_dispatch_require_acknowledgement",
+    "notifications.remediation_dispatch_events",
 }
 
 NOTIFICATION_SETTING_META = {
@@ -62,6 +66,13 @@ NOTIFICATION_SETTING_META = {
     "notifications.summary_weekly_enabled": ("Send weekly DMARC summaries", "boolean"),
     "notifications.summary_send_hour_utc": ("UTC hour for scheduled summaries", "integer"),
     "notifications.summary_weekday_utc": ("UTC weekday for weekly summaries", "integer"),
+    "notifications.remediation_dispatch_enabled": ("Enable remediation dispatch", "boolean"),
+    "notifications.remediation_dispatch_channel": ("Remediation dispatch channel", "string"),
+    "notifications.remediation_dispatch_require_acknowledgement": (
+        "Require remediation lifecycle acknowledgement",
+        "boolean",
+    ),
+    "notifications.remediation_dispatch_events": ("Eligible remediation events", "string"),
 }
 
 WORKSPACE_ONBOARDING_TEMPLATES: List[Dict[str, Any]] = [

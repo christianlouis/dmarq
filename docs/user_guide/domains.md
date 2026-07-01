@@ -92,6 +92,13 @@ queue does not send a notification. API clients also receive a sanitized
 `payload_preview` for each item so ticketing, webhook, and chatops routes can
 be tested before delivery automation is enabled.
 
+The same notification block includes a dispatch readiness preview. It explains
+whether remediation dispatch is enabled, whether the event is configured, if a
+previewed or acknowledged audit marker is still required, and whether an
+enabled webhook endpoint is subscribed to the event. This is a readiness check
+only; DMARQ does not enqueue webhook deliveries or send notifications from the
+queue view.
+
 ### Source Intelligence
 
 The domain detail page groups sending sources into coarse regions and networks
@@ -141,6 +148,14 @@ written to the workspace audit log with the sanitized notification preview, but
 they do not send notifications, enqueue webhooks, or touch DNS. This gives
 operators an auditable lifecycle before any automated remediation loop is
 enabled.
+
+Dispatch remains opt-in through notification settings:
+`notifications.remediation_dispatch_enabled`,
+`notifications.remediation_dispatch_channel`,
+`notifications.remediation_dispatch_require_acknowledgement`, and
+`notifications.remediation_dispatch_events`. The current supported channel is
+`webhook`; enabling the settings only makes queue items dispatch-eligible for a
+future explicit dispatch step.
 
 If an operator selects a different provider than the nameserver-detected
 provider, DMARQ blocks the preview/apply request by default. The mismatch can be
