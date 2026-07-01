@@ -1556,6 +1556,32 @@ def _domain_exists(db: Session, store: ReportStore, domain_name: str, workspace=
     return domain_name in store.get_domains()
 
 
+def _require_verified_domain_for_dns_write(
+    db: Session, workspace: Workspace, domain_name: str
+) -> None:
+    """Require explicit DNS ownership proof before mutating provider DNS."""
+    domain = workspace_domain_query(db, workspace).filter(Domain.name == domain_name).first()
+    if domain is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Add this domain to the workspace and verify ownership before applying live "
+                "DNS changes. You can still preview the proposed DNS repair first."
+            ),
+        )
+    if not domain.verified:
+        proof_name = _ownership_record_name(domain.name)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Verify domain ownership before applying live DNS changes. Publish the "
+                f"{proof_name} TXT proof shown on the domain ownership page, use Check "
+                "ownership after DNS propagation, then retry this repair. DNS previews remain "
+                "available before verification."
+            ),
+        )
+
+
 def _stored_domain_exists(db: Session, domain_id: str) -> bool:
     query = db.query(Domain.id)
     if domain_id.isdigit() and query.filter(Domain.id == int(domain_id)).first() is not None:
@@ -3813,6 +3839,7 @@ async def apply_domain_dns_change_plan(
                 ttl=payload.ttl,
             )
         else:
+            _require_verified_domain_for_dns_write(db, workspace, resolved_domain)
             result = await apply_dns_write(
                 db,
                 workspace=workspace,
