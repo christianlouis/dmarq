@@ -925,6 +925,31 @@ def test_get_report_by_id_includes_source_intelligence_and_reputation(
     assert record["reputation"]["listings"] == ["Example DNSBL"]
 
 
+def test_get_report_by_id_continues_when_reputation_enrichment_fails(
+    authed_client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    workspace = get_or_create_default_workspace(db_session)
+    _persist_parsed_report(
+        db_session,
+        _parsed_report(domain="example.com", report_id="source-intel-fallback-report"),
+        workspace_id=workspace.id,
+    )
+
+    async def failing_reputation(*_args, **_kwargs):
+        raise RuntimeError("provider unavailable")
+
+    monkeypatch.setattr(reports_endpoint, "build_source_reputation_cached", failing_reputation)
+
+    response = authed_client.get("/api/v1/reports/source-intel-fallback-report")
+
+    assert response.status_code == 200
+    record = response.json()["records"][0]
+    assert record["source_details"]["sender"]
+    assert record["reputation"] is None
+
+
 def test_get_report_by_id_not_found(authed_client: TestClient):
     """GET /api/v1/reports/{report_id} returns 404 when report does not exist."""
     response = authed_client.get("/api/v1/reports/no-such-report-id")

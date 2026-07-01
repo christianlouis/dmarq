@@ -1591,6 +1591,34 @@ async def test_cloudflare_oauth_exchange_rejects_missing_access_token(
         )
 
 
+@pytest.mark.asyncio
+async def test_cloudflare_oauth_exchange_wraps_http_errors(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(cloudflare_oauth, "get_settings", _cloudflare_oauth_settings)
+
+    class FakeAsyncClient:
+        def __init__(self, *, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, *, data):
+            raise cloudflare_oauth.httpx.RequestError("network unavailable")
+
+    monkeypatch.setattr(cloudflare_oauth.httpx, "AsyncClient", FakeAsyncClient)
+
+    with pytest.raises(LookupError, match="token exchange failed"):
+        await cloudflare_oauth.exchange_cloudflare_oauth_code(
+            code="oauth-code",
+            redirect_uri="https://app.example.test/api/v1/domains/cloudflare/oauth/callback",
+        )
+
+
 def test_persist_cloudflare_oauth_tokens_stores_encrypted_provider_token(
     db_session: Session,
     monkeypatch: pytest.MonkeyPatch,
@@ -1622,6 +1650,29 @@ def test_persist_cloudflare_oauth_tokens_stores_encrypted_provider_token(
     assert settings["cloudflare.auth_mode"] == "oauth"
     assert settings["cloudflare.oauth_scopes"] == "zone.read dns.read"
     assert settings["cloudflare.oauth_connected_at"]
+
+
+def test_persist_cloudflare_oauth_tokens_requires_access_token(
+    db_session: Session,
+):
+    with pytest.raises(LookupError, match="did not return an access token"):
+        cloudflare_oauth.persist_cloudflare_oauth_tokens(db_session, {})
+
+
+def test_persist_cloudflare_oauth_tokens_defaults_to_configured_scopes(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(cloudflare_oauth, "encrypt_secret", _encrypted_secret)
+    monkeypatch.setattr(cloudflare_oauth, "get_settings", _cloudflare_oauth_zone_read_settings)
+
+    cloudflare_oauth.persist_cloudflare_oauth_tokens(
+        db_session,
+        {"access_token": "provider-token"},
+    )
+
+    scope = db_session.query(Setting).filter(Setting.key == "cloudflare.oauth_scopes").first()
+    assert scope.value == "zone.read"
 
 
 def test_cloudflare_oauth_authorize_url_endpoint_returns_redirect(
@@ -1677,6 +1728,21 @@ def test_cloudflare_oauth_callback_requires_code_and_state(
 
     assert response.status_code == 400
     assert "Cloudflare connection failed" in response.text
+
+
+def test_cloudflare_oauth_callback_returns_failure_for_invalid_state(
+    authed_client: TestClient,
+):
+    with patch(
+        "app.api.api_v1.endpoints.domains.decode_cloudflare_oauth_state",
+        side_effect=LookupError("Invalid Cloudflare OAuth state."),
+    ):
+        response = authed_client.get(
+            "/api/v1/domains/cloudflare/oauth/callback?code=oauth-code&state=bad-state"
+        )
+
+    assert response.status_code == 400
+    assert "retry after checking the connector settings" in response.text
 
 
 def test_cloudflare_oauth_callback_stores_token_and_redirects(
@@ -1792,6 +1858,42 @@ async def test_verify_cloudflare_domain_ownership_marks_domain_verified(
     assert result["zone_id"] == "zone-1"
     assert result["account_name"] == "Example Account"
     assert domain.verified is True
+
+
+@pytest.mark.asyncio
+async def test_verify_cloudflare_domain_ownership_rejects_missing_zone(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(
+        cloudflare_dns,
+        "build_cloudflare_provider",
+        lambda _db: FakeCloudflareProvider(zones=[]),
+    )
+
+    with pytest.raises(LookupError, match="No Cloudflare zone visible"):
+        await cloudflare_dns.verify_cloudflare_domain_ownership(
+            db_session,
+            domain_name=DOMAIN,
+        )
+
+
+@pytest.mark.asyncio
+async def test_verify_cloudflare_domain_ownership_requires_monitored_domain(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(
+        cloudflare_dns,
+        "build_cloudflare_provider",
+        lambda _db: FakeCloudflareProvider(zones=[{"id": "zone-1", "name": DOMAIN}]),
+    )
+
+    with pytest.raises(LookupError, match="is not monitored"):
+        await cloudflare_dns.verify_cloudflare_domain_ownership(
+            db_session,
+            domain_name=DOMAIN,
+        )
 
 
 def test_cloudflare_dns_analysis_endpoint_persists_history(
