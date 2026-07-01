@@ -78,7 +78,10 @@ def _dns_item(
     available_write_providers: List[str],
     recommended_provider: Optional[str],
 ) -> Dict[str, Any]:
-    automation_ready = _automation_eligible(plan, available_write_providers)
+    automation_ready = bool(recommended_provider) and _automation_eligible(
+        plan,
+        available_write_providers,
+    )
     severity = DNS_SEVERITY.get(str(plan.get("severity") or "info"), "low")
     steps = list(plan.get("manual_steps") or [])
     evidence = _evidence_from_values(plan.get("current_values") or [], label="current_value")
