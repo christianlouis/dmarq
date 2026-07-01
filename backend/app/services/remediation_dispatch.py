@@ -99,6 +99,13 @@ def _audit_details(row: WorkspaceAuditLog) -> Dict[str, Any]:
     return details if isinstance(details, dict) else {}
 
 
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _history_entry(row: WorkspaceAuditLog) -> Optional[Dict[str, Any]]:
     details = _audit_details(row)
     created_at = row.created_at.isoformat() if isinstance(row.created_at, datetime) else None
@@ -119,10 +126,9 @@ def _history_entry(row: WorkspaceAuditLog) -> Optional[Dict[str, Any]]:
         "label": label,
         "created_at": created_at,
         "actor_type": row.actor_type,
-        "actor_id": row.actor_id,
         "operator_note": details.get("operator_note"),
         "delivery_enqueued": bool(details.get("delivery_enqueued")),
-        "delivery_count": int(details.get("delivery_count") or 0),
+        "delivery_count": _safe_int(details.get("delivery_count")),
         "dns_write_attempted": bool(details.get("dns_write_attempted")),
         "sent": bool(details.get("sent")),
     }
@@ -139,6 +145,7 @@ def _notification_histories(
     ids = [item_id for item_id in {str(item_id or "") for item_id in item_ids} if item_id]
     if not ids:
         return {}
+    row_cap = max(len(ids) * limit_per_item * 3, limit_per_item)
     rows = (
         db.query(WorkspaceAuditLog)
         .filter(
@@ -153,6 +160,7 @@ def _notification_histories(
             WorkspaceAuditLog.created_at.desc(),
             WorkspaceAuditLog.id.desc(),
         )
+        .limit(row_cap)
         .all()
     )
     histories: Dict[str, List[Dict[str, Any]]] = {item_id: [] for item_id in ids}
