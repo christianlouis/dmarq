@@ -879,7 +879,9 @@ class TestMailSourcesAPIAuthed:
         assert blocked.status_code == 409
         detail = blocked.json()["detail"]
         assert detail["code"] == "domain_verification_required"
-        assert detail["summary"].startswith("DMARQ blocks production mail-source fetches")
+        assert detail["summary"].startswith(
+            "DMARQ blocks production mail-source fetches until every active"
+        )
         assert detail["next_steps"][0] == "Open Domains and verify ownership for: example.com."
         assert {"label": "Domains", "href": "/domains"} in detail["links"]
         assert detail["unverified_domains"] == ["example.com"]
