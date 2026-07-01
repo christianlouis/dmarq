@@ -5618,7 +5618,10 @@ async def get_domain_sources(
         )
         reputations_by_ip = source_reputation_by_ip(reputation_result)
     except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.info("Source reputation enrichment failed for %s: %s", domain_id, exc)
+        logger.info(
+            "Source reputation enrichment failed for domain sources: %s",
+            type(exc).__name__,
+        )
 
     for source, hostname, sender in source_context:
         ip = source.get("source_ip", "unknown")

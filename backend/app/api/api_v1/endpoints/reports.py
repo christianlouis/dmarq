@@ -12,6 +12,7 @@ from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.domain import Domain
 from app.services.dmarc_parser import DMARCParser
+from app.services.dns_resolver import get_default_provider
 from app.services.organizations import OrganizationPlanLimitError
 from app.services.report_persistence import (
     delete_persisted_report,
@@ -20,7 +21,6 @@ from app.services.report_persistence import (
     save_parsed_report,
 )
 from app.services.report_store import ReportStore
-from app.services.dns_resolver import get_default_provider
 from app.services.sender_intelligence import identify_sender, source_geo_for
 from app.services.source_reputation import (
     SourceReputation,
@@ -833,7 +833,10 @@ async def get_report_by_id(
         )
         reputations_by_ip = source_reputation_by_ip(reputation_result)
     except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.info("Report source reputation enrichment failed for %s: %s", report_id, exc)
+        logger.info(
+            "Report source reputation enrichment failed for report detail: %s",
+            type(exc).__name__,
+        )
 
     # Normalize records
     record_details = []
