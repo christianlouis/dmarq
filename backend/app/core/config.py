@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     CLOUDFLARE_OAUTH_SCOPES: str = "zone.read dns.read"
     HETZNER_DNS_API_TOKEN: Optional[str] = None
     HETZNER_API_TOKEN: Optional[str] = None
+    LINODE_API_TOKEN: Optional[str] = None
+    LINODE_TOKEN: Optional[str] = None
     AWS_PROFILE: Optional[str] = None
     AWS_REGION: Optional[str] = None
     DMARQ_ROUTE53_PROFILE: Optional[str] = None

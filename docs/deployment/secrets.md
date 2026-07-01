@@ -19,6 +19,8 @@ Store these values in a 1Password Environment for each deployment target:
 | `OIDC_CLIENT_SECRET` | Secret | Required when generic OIDC authentication is enabled. |
 | `CLOUDFLARE_API_TOKEN` | Secret | Optional DNS inspection/integration token. |
 | `CLOUDFLARE_OAUTH_CLIENT_SECRET` | Secret | Optional Cloudflare OAuth connector secret for one-click zone import and ownership verification. |
+| `HETZNER_DNS_API_TOKEN` | Secret | Optional read-only Hetzner DNS zone import token. |
+| `LINODE_API_TOKEN` | Secret | Optional read-only Linode DNS domain import token. |
 | `FIRST_SUPERUSER_PASSWORD` | Secret | Only needed for bootstrap flows that create an initial local admin. |
 
 Non-sensitive values, such as `IMAP_SERVER`, `IMAP_USERNAME`, `LOGTO_ENDPOINT`,
