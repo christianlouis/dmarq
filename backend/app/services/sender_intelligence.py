@@ -471,7 +471,14 @@ def build_source_intelligence(
             "regions": [],
             "anomalies": [],
             "anomalies_by_ip": {},
-            "summary": {"regions": 0, "anomalies": 0, "critical": 0, "warnings": 0},
+            "summary": {
+                "regions": 0,
+                "sources": 0,
+                "messages": 0,
+                "anomalies": 0,
+                "critical": 0,
+                "warnings": 0,
+            },
         }
 
     latest_ts = max((row.get("_timestamp") or 0 for row in report_rows), default=0)
@@ -514,6 +521,8 @@ def build_source_intelligence(
         "anomalies_by_ip": {ip: rows[:5] for ip, rows in anomalies_by_ip.items()},
         "summary": {
             "regions": len(regions),
+            "sources": len(source_rows),
+            "messages": sum(int(source.get("count") or 0) for source in source_rows),
             "anomalies": len(anomalies),
             "critical": sum(1 for row in anomalies if row["severity"] == "error"),
             "warnings": sum(1 for row in anomalies if row["severity"] == "warning"),

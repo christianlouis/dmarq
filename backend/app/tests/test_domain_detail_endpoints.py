@@ -204,6 +204,49 @@ def test_delete_domain_uses_workspace_scoped_domain_cleanup(
     assert ReportStore.get_instance().get_domains() == []
 
 
+def test_domain_ownership_endpoint_returns_dns_proof(
+    seeded_client: TestClient,
+    db_session,
+):
+    """Domain detail pages can show the TXT proof needed for ownership."""
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/ownership")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["domain"] == DOMAIN
+    assert data["verified"] is False
+    assert data["proof_record_name"] == f"_dmarq-verify.{DOMAIN}"
+    assert data["proof_record_type"] == "TXT"
+    assert data["proof_record_value"].startswith("dmarq-verify=")
+    assert "Report mailbox access is enough" in data["proof_reason"]
+    assert db_session.query(Domain).filter(Domain.name == DOMAIN).one().verification_token
+
+
+def test_domain_ownership_verify_marks_matching_txt_verified(
+    seeded_client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    """A matching live TXT proof marks the authorized workspace domain verified."""
+    proof = seeded_client.get(f"/api/v1/domains/{DOMAIN}/ownership").json()
+
+    class FakeProvider:
+        async def lookup_txt(self, name):
+            assert name == proof["proof_record_name"]
+            return [proof["proof_record_value"]]
+
+    monkeypatch.setattr(domains_endpoint, "get_default_provider", lambda db: FakeProvider())
+
+    response = seeded_client.post(f"/api/v1/domains/{DOMAIN}/ownership/verify")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["matched"] is True
+    assert data["verified"] is True
+    assert proof["proof_record_value"] in data["observed_values"]
+    assert db_session.query(Domain).filter(Domain.name == DOMAIN).one().verified is True
+
+
 def test_get_domain_reports_policy_dict_extracted(seeded_client: TestClient):
     """When the stored policy is a dict, the 'p' value should be surfaced."""
     response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/reports")
@@ -2274,6 +2317,8 @@ def test_get_domain_source_intelligence_returns_regions_and_anomalies(
     data = response.json()
     assert data["domain"] == DOMAIN
     assert data["summary"]["regions"] >= 1
+    assert data["summary"]["sources"] >= 1
+    assert data["summary"]["messages"] >= 10
     assert any(region["message_count"] == 10 for region in data["regions"])
     assert any(
         anomaly["type"] == "new_sender" and anomaly["source_ip"] == "209.85.220.1"

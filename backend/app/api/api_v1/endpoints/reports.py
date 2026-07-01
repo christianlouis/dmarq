@@ -2,7 +2,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -614,6 +614,9 @@ class ReportRecordDetail(BaseModel):
     header_from: str
     spf: Optional[List[Dict[str, Any]]] = None
     dkim: Optional[List[Dict[str, Any]]] = None
+    review_status: str = "pass"
+    failure_reasons: List[str] = Field(default_factory=list)
+    next_steps: List[str] = Field(default_factory=list)
 
 
 class ReportPolicyDetail(BaseModel):
@@ -647,6 +650,43 @@ class ReportDetail(BaseModel):
     policy: ReportPolicyDetail
     records: List[ReportRecordDetail]
     summary: ReportSummaryDetail
+
+
+def _record_review_guidance(record: Dict[str, Any]) -> Dict[str, Any]:
+    """Return evidence-first operator guidance for one aggregate report row."""
+    disposition = str(record.get("disposition") or "none").lower()
+    dkim_result = str(record.get("dkim_result") or "").lower()
+    spf_result = str(record.get("spf_result") or "").lower()
+    header_from = str(record.get("header_from") or "").lower()
+    source_ip = str(record.get("source_ip") or "this source")
+
+    reasons: List[str] = []
+    steps: List[str] = []
+    if disposition in {"reject", "quarantine"}:
+        reasons.append(f"Receiver applied DMARC disposition '{disposition}'.")
+    if dkim_result and dkim_result != "pass":
+        reasons.append("DKIM did not pass for this source.")
+        steps.append("Check the DKIM selector in this report against the sender's DNS record.")
+    if spf_result and spf_result != "pass":
+        reasons.append("SPF did not pass for this source.")
+        steps.append("Confirm whether this IP is authorized by the domain's SPF policy.")
+    if header_from and "." in header_from:
+        steps.append(f"Confirm that {header_from} is an intended Header From domain.")
+
+    if not reasons:
+        return {
+            "review_status": "pass",
+            "failure_reasons": [],
+            "next_steps": [],
+        }
+
+    steps.append(f"Open the domain sending-source view and review {source_ip} across reports.")
+    steps.append("Only change DNS after confirming whether this is a legitimate sender.")
+    return {
+        "review_status": "needs_review",
+        "failure_reasons": reasons,
+        "next_steps": list(dict.fromkeys(steps)),
+    }
 
 
 @router.get("/{report_id}", response_model=ReportDetail)
@@ -687,6 +727,7 @@ async def get_report_by_id(
     # Normalize records
     record_details = []
     for rec in report.get("records", []):
+        guidance = _record_review_guidance(rec)
         record_details.append(
             ReportRecordDetail(
                 source_ip=rec.get("source_ip", ""),
@@ -697,6 +738,7 @@ async def get_report_by_id(
                 header_from=rec.get("header_from", ""),
                 spf=rec.get("spf") if isinstance(rec.get("spf"), list) else None,
                 dkim=rec.get("dkim") if isinstance(rec.get("dkim"), list) else None,
+                **guidance,
             )
         )
 

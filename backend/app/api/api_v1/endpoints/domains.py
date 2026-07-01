@@ -5,6 +5,7 @@ import io
 import ipaddress
 import json
 import logging
+import secrets
 from dataclasses import asdict
 from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -195,6 +196,26 @@ class DomainStatsResponse(BaseModel):
     totalEmails: int
     failedEmails: int
     reportCount: int
+
+
+class DomainOwnershipResponse(BaseModel):
+    """Domain ownership proof state and DNS instructions."""
+
+    domain: str
+    verified: bool
+    proof_record_name: str
+    proof_record_type: str = "TXT"
+    proof_record_value: str
+    proof_reason: str
+    next_steps: List[str] = Field(default_factory=list)
+
+
+class DomainOwnershipVerifyResponse(DomainOwnershipResponse):
+    """Result of a live ownership proof check."""
+
+    checked: bool = True
+    matched: bool
+    observed_values: List[str] = Field(default_factory=list)
 
 
 class MigrationReadinessItem(BaseModel):
@@ -1365,6 +1386,44 @@ def _get_selectors_from_reports(store: "ReportStore", domain: str) -> List[str]:
                 if sel and sel not in selectors:
                     selectors.append(sel)
     return selectors
+
+
+def _ownership_record_name(domain: str) -> str:
+    return f"_dmarq-verify.{domain}"
+
+
+def _ownership_record_value(token: str) -> str:
+    return f"dmarq-verify={token}"
+
+
+def _ensure_domain_verification_token(db: Session, domain: Domain) -> str:
+    token = str(domain.verification_token or "").strip()
+    if token:
+        return token
+    token = secrets.token_urlsafe(24)
+    domain.verification_token = token
+    db.commit()
+    db.refresh(domain)
+    return token
+
+
+def _domain_ownership_response(domain: Domain, token: str) -> DomainOwnershipResponse:
+    return DomainOwnershipResponse(
+        domain=domain.name,
+        verified=bool(domain.verified),
+        proof_record_name=_ownership_record_name(domain.name),
+        proof_record_value=_ownership_record_value(token),
+        proof_reason=(
+            "Report mailbox access is enough to ingest and view DMARC reports. "
+            "DNS ownership proof is required before DMARQ treats the domain as verified "
+            "for DNS writes, one-click repair, and trusted ownership workflows."
+        ),
+        next_steps=[
+            "Publish the TXT proof record in the domain's DNS zone.",
+            "Wait for DNS propagation, then use Check ownership on this page.",
+            "Connect the DNS provider when you want DMARQ to preview or apply approved repairs.",
+        ],
+    )
 
 
 def _get_domain_selectors_from_db(db: Session, domain_name: str) -> List[str]:
@@ -3115,6 +3174,73 @@ async def get_domain_stats(
         totalEmails=total_count,
         failedEmails=failed_count,
         reportCount=reports_processed,
+    )
+
+
+@router.get("/{domain_id}/ownership", response_model=DomainOwnershipResponse)
+async def get_domain_ownership(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
+    """Return ownership proof instructions for a monitored domain."""
+    workspace = _authorized_domain_read_workspace(
+        _auth,
+        db,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
+    )
+    domain_name = normalize_domain_name(domain_id)
+    domain = workspace_domain_query(db, workspace).filter(Domain.name == domain_name).first()
+    if domain is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Domain not found",
+        )
+    token = _ensure_domain_verification_token(db, domain)
+    return _domain_ownership_response(domain, token)
+
+
+@router.post("/{domain_id}/ownership/verify", response_model=DomainOwnershipVerifyResponse)
+async def verify_domain_ownership(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
+    """Check live DNS for the domain ownership TXT proof."""
+    workspace = _authorized_domain_workspace(
+        _auth,
+        db,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
+    )
+    domain_name = normalize_domain_name(domain_id)
+    domain = workspace_domain_query(db, workspace).filter(Domain.name == domain_name).first()
+    if domain is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Domain not found",
+        )
+    token = _ensure_domain_verification_token(db, domain)
+    expected = _ownership_record_value(token)
+    record_name = _ownership_record_name(domain.name)
+    try:
+        observed = await get_default_provider(db).lookup_txt(record_name)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        observed = []
+        logger.info("Domain ownership TXT lookup failed for %s: %s", record_name, exc)
+
+    matched = expected in {str(value).strip() for value in observed}
+    if matched and not domain.verified:
+        domain.verified = True
+        db.commit()
+        db.refresh(domain)
+
+    response = _domain_ownership_response(domain, token)
+    return DomainOwnershipVerifyResponse(
+        **response.model_dump(),
+        matched=matched,
+        observed_values=[str(value) for value in observed],
     )
 
 

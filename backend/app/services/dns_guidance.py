@@ -150,11 +150,11 @@ def _dane_target_record(domain: str, result: DANEResult) -> DNSGuidanceRecord:
         code="target_dane",
         record_type="TLSA",
         name=f"_{result.port}._tcp.{mx_host}",
-        value="3 1 1 <sha256-of-current-mx-certificate-spki>",
+        value="3 1 1 <derive-sha256-spki-from-live-mx-certificate>",
         purpose=(
-            "DANE SMTP TLSA certificate pinning for one MX host. Publish one matching TLSA "
-            "record for every MX host, and only after DNSSEC is correctly signed and the TLSA "
-            "value matches the live MX certificate."
+            "DANE SMTP TLSA certificate pinning for one MX host. The value is not guessable: "
+            "derive one matching TLSA record from each live MX certificate, publish it only "
+            "after DNSSEC is signed and validating, and rotate it with certificate changes."
         ),
         priority="optional",
     )
@@ -276,9 +276,9 @@ def _default_remediation_steps(code: str) -> List[str]:
             "Add a certificate URL if the mailbox providers you care about require it.",
         ],
         "dane_missing": [
-            "Confirm that the domain's DNS zone is signed and validating with DNSSEC.",
-            "For each MX host, derive the intended TLSA value from the live SMTP certificate.",
-            "Publish TLSA records under _25._tcp.<mx-host> and refresh DMARQ DNS lint.",
+            "Confirm that the domain's DNS zone and every MX host zone are signed and validating with DNSSEC.",
+            "For each MX host, fetch the live SMTP STARTTLS certificate and compute the TLSA 3 1 1 SHA-256 SPKI value.",
+            "Publish one TLSA record under _25._tcp.<mx-host> per MX host and refresh DMARQ DNS lint.",
         ],
         "dane_review": [
             "Review every TLSA record shown in evidence for the affected MX hosts.",

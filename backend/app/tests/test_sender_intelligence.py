@@ -186,7 +186,14 @@ def test_build_source_intelligence_handles_no_data():
 
     assert intelligence["regions"] == []
     assert intelligence["anomalies"] == []
-    assert intelligence["summary"] == {"regions": 0, "anomalies": 0, "critical": 0, "warnings": 0}
+    assert intelligence["summary"] == {
+        "regions": 0,
+        "sources": 0,
+        "messages": 0,
+        "anomalies": 0,
+        "critical": 0,
+        "warnings": 0,
+    }
 
 
 def test_build_source_intelligence_accepts_iso_report_dates():
