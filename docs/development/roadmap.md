@@ -109,7 +109,9 @@ The main open strategic issues are:
   parity tracker for DMARC monitoring platforms.
 - [Issue #310](https://github.com/christianlouis/dmarq/issues/310): DANE, ARC,
   and ARF competitive protocol coverage. The first shipped slice is passive
-  DANE/TLSA posture; ARC and deeper ARF work remain separate design slices.
+  DANE/TLSA posture with live STARTTLS SPKI hash suggestions for TLSA `3 1 1`
+  records when MX access succeeds; ARC and deeper ARF work remain separate
+  design slices.
 - [Issue #384](https://github.com/christianlouis/dmarq/issues/384): autonomous
   mail health remediation loop with human approval.
 - [Issue #385](https://github.com/christianlouis/dmarq/issues/385): sender IP

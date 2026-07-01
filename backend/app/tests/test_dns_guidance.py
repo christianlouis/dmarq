@@ -1,7 +1,7 @@
 import pytest
 
 from app.services.bimi import BIMIResult
-from app.services.dane import DANEResult
+from app.services.dane import DANEResult, TLSASuggestion
 from app.services.dns_guidance import build_dns_guidance
 from app.services.dns_resolver import BaseDNSProvider, DomainDNSResult
 from app.services.mta_sts import MTAStsResult
@@ -130,6 +130,55 @@ async def test_build_dns_guidance_ignores_dane_limitation_notice_for_pass_status
     )
 
     assert "dane_review" not in {finding.code for finding in guidance.findings}
+
+
+@pytest.mark.asyncio
+async def test_build_dns_guidance_uses_live_tlsa_suggestion_as_dane_target():
+    provider = FakeDNSProvider(
+        {
+            "example.com": ["v=spf1 -all"],
+            "_smtp._tls.example.com": ["v=TLSRPTv1; rua=mailto:tls@example.com"],
+        }
+    )
+    dns = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=reject; rua=mailto:dmarc@example.com",
+        spf=True,
+        spf_record="v=spf1 -all",
+        dkim=True,
+        dkim_selectors=["selector1"],
+    )
+    dane = DANEResult(
+        status="fail",
+        port=25,
+        mx_hosts=["mx.example.com"],
+        errors=["No TLSA records were found for MX host(s): mx.example.com"],
+        suggested_records=[
+            TLSASuggestion(
+                query_name="_25._tcp.mail.example.net",
+                mx_host="mx.example.com",
+                record=(
+                    "3 1 1 " "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                ),
+                association_data="a" * 64,
+                status="ready",
+            )
+        ],
+    )
+
+    guidance = await build_dns_guidance(
+        "example.com",
+        provider,
+        dns,
+        MTAStsResult(status="pass"),
+        BIMIResult(status="pass"),
+        dane=dane,
+    )
+
+    target = next(record for record in guidance.target_records if record.code == "target_dane")
+    assert target.name == "_25._tcp.mail.example.net"
+    assert target.value == "3 1 1 " + "a" * 64
+    assert "derived from the live STARTTLS certificate" in target.purpose
 
 
 @pytest.mark.asyncio

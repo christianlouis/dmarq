@@ -74,8 +74,9 @@ Live DNS checks parse DMARC policy records according to RFC 9989:
   for DMARC, SPF, DKIM, MTA-STS, TLS-RPT, BIMI, and passive DANE/TLSA
   readiness. Provider writes are never automatic; safe TXT/CNAME changes
   require an explicit apply request. DANE/TLSA support is currently read-only
-  MX/TLSA syntax and coverage guidance, not DNSSEC chain validation or live SMTP
-  certificate pinning verification.
+  MX/TLSA syntax and coverage guidance with optional live SMTP STARTTLS SPKI
+  hash suggestions when the MX is reachable; DNSSEC chain validation remains
+  operator-confirmed.
 
 ## Preserved Metadata
 

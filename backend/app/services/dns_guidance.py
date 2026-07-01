@@ -145,17 +145,42 @@ def _target_by_code(records: List[DNSGuidanceRecord], code: str) -> DNSGuidanceR
 
 
 def _dane_target_record(domain: str, result: DANEResult) -> DNSGuidanceRecord:
-    mx_host = result.mx_hosts[0] if result.mx_hosts else f"<mx-host>.{domain}"
+    ready_suggestion = next(
+        (
+            suggestion
+            for suggestion in result.suggested_records
+            if suggestion.status == "ready" and suggestion.record
+        ),
+        None,
+    )
+    mx_host = (
+        ready_suggestion.mx_host
+        if ready_suggestion
+        else result.mx_hosts[0] if result.mx_hosts else f"<mx-host>.{domain}"
+    )
+    value = (
+        ready_suggestion.record
+        if ready_suggestion
+        else "3 1 1 <derive-sha256-spki-from-live-mx-certificate>"
+    )
+    purpose = (
+        f"DANE SMTP TLSA value derived from the live STARTTLS certificate for {mx_host}. "
+        "Publish it only after DNSSEC is signed and validating, and rotate it with "
+        "certificate changes."
+        if ready_suggestion
+        else (
+            "DANE SMTP TLSA certificate pinning for one MX host. The value is not "
+            "guessable: derive one matching TLSA record from each live MX certificate, "
+            "publish it only after DNSSEC is signed and validating, and rotate it with "
+            "certificate changes."
+        )
+    )
     return DNSGuidanceRecord(
         code="target_dane",
         record_type="TLSA",
-        name=f"_{result.port}._tcp.{mx_host}",
-        value="3 1 1 <derive-sha256-spki-from-live-mx-certificate>",
-        purpose=(
-            "DANE SMTP TLSA certificate pinning for one MX host. The value is not guessable: "
-            "derive one matching TLSA record from each live MX certificate, publish it only "
-            "after DNSSEC is signed and validating, and rotate it with certificate changes."
-        ),
+        name=ready_suggestion.query_name if ready_suggestion else f"_{result.port}._tcp.{mx_host}",
+        value=value,
+        purpose=purpose,
         priority="optional",
     )
 
@@ -973,6 +998,9 @@ def _actionable_dane_warnings(result: DANEResult) -> List[str]:
         for warning in result.warnings
         if not warning.startswith(
             "DMARQ validates TLSA syntax and MX coverage, but does not yet validate DNSSEC chains"
+        )
+        and not warning.startswith(
+            "DMARQ validates TLSA syntax and MX coverage. When live SMTP access succeeds"
         )
     ]
 
