@@ -966,11 +966,22 @@ def _bimi_findings(
     return findings
 
 
+def _actionable_dane_warnings(result: DANEResult) -> List[str]:
+    return [
+        warning
+        for warning in result.warnings
+        if not warning.startswith(
+            "DMARQ validates TLSA syntax and MX coverage, but does not yet validate DNSSEC chains"
+        )
+    ]
+
+
 def _dane_findings(result: DANEResult, targets: List[DNSGuidanceRecord]) -> List[DNSLintFinding]:
     target = _target_by_code(targets, "target_dane")
-    if result.status == "pass" and not result.warnings:
+    warnings = _actionable_dane_warnings(result)
+    if result.status == "pass" and not warnings:
         return []
-    detail = "; ".join(result.warnings or result.errors or ["No DANE/TLSA records were found."])
+    detail = "; ".join(warnings or result.errors or ["No DANE/TLSA records were found."])
     evidence = [record.record for record in result.records] or result.mx_hosts
     if result.status == "fail":
         return [

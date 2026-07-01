@@ -1,6 +1,7 @@
 import pytest
 
 from app.services.bimi import BIMIResult
+from app.services.dane import DANEResult
 from app.services.dns_guidance import build_dns_guidance
 from app.services.dns_resolver import BaseDNSProvider, DomainDNSResult
 from app.services.mta_sts import MTAStsResult
@@ -92,6 +93,43 @@ async def test_build_dns_guidance_lints_spf_and_tls_rpt_records():
     assert "spf_multiple_records" in codes
     assert "spf_all_too_permissive" in codes
     assert "tls_rpt_rua_missing" in codes
+
+
+@pytest.mark.asyncio
+async def test_build_dns_guidance_ignores_dane_limitation_notice_for_pass_status():
+    provider = FakeDNSProvider(
+        {
+            "example.com": ["v=spf1 -all"],
+            "_smtp._tls.example.com": ["v=TLSRPTv1; rua=mailto:tls@example.com"],
+        }
+    )
+    dns = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=reject; rua=mailto:dmarc@example.com",
+        spf=True,
+        spf_record="v=spf1 -all",
+        dkim=True,
+        dkim_selectors=["selector1"],
+    )
+    dane = DANEResult(
+        status="pass",
+        mx_hosts=["mx.example.com"],
+        warnings=[
+            "DMARQ validates TLSA syntax and MX coverage, but does not yet validate DNSSEC chains "
+            "or compare TLSA hashes with live SMTP certificates."
+        ],
+    )
+
+    guidance = await build_dns_guidance(
+        "example.com",
+        provider,
+        dns,
+        MTAStsResult(status="pass"),
+        BIMIResult(status="pass"),
+        dane=dane,
+    )
+
+    assert "dane_review" not in {finding.code for finding in guidance.findings}
 
 
 @pytest.mark.asyncio
