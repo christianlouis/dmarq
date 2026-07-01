@@ -1,3 +1,4 @@
+import asyncio
 import io
 import zipfile
 from contextlib import contextmanager
@@ -948,6 +949,15 @@ def test_get_report_by_id_continues_when_reputation_enrichment_fails(
     record = response.json()["records"][0]
     assert record["source_details"]["sender"]
     assert record["reputation"] is None
+
+
+def test_safe_ptr_lookup_returns_none_for_invalid_or_failed_lookup():
+    class FailingProvider:
+        async def lookup_ptr(self, _ip):
+            raise RuntimeError("dns unavailable")
+
+    assert asyncio.run(reports_endpoint._safe_ptr_lookup(FailingProvider(), "not-an-ip")) is None
+    assert asyncio.run(reports_endpoint._safe_ptr_lookup(FailingProvider(), "192.0.2.55")) is None
 
 
 def test_get_report_by_id_not_found(authed_client: TestClient):
