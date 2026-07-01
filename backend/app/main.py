@@ -4,7 +4,7 @@ import os
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import Depends, FastAPI, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -956,7 +956,24 @@ def _poll_enabled_sources_for_trigger(days: int) -> list[dict]:
     return results_summary
 
 
-# API endpoint to manually trigger IMAP polling
+# API endpoint to manually trigger mail-source polling
+@app.get("/api/v1/admin/trigger-poll", include_in_schema=False)
+async def trigger_imap_poll_get() -> None:
+    """Explain that manual polling is a POST action when opened directly."""
+    raise HTTPException(
+        status_code=405,
+        detail={
+            "code": "method_not_allowed",
+            "message": "Manual polling must be started with the dashboard button or a POST request.",
+            "next_steps": [
+                "Open the dashboard and use Trigger Poll Now.",
+                "For API usage, send POST /api/v1/admin/trigger-poll with admin authentication.",
+            ],
+        },
+        headers={"Allow": "POST"},
+    )
+
+
 @app.post("/api/v1/admin/trigger-poll")
 async def trigger_imap_poll(
     auth: dict = Depends(require_admin_auth),

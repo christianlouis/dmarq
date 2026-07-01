@@ -351,14 +351,26 @@
             {% call card_header() %}
                 <div class="flex items-center justify-between">
                     {% call card_title() %}IMAP Integration Status{% endcall %}
-                    {% call button_link(href="/api/v1/admin/trigger-poll", variant="outline", size="sm") %}
+                    <button type="button"
+                            class="btn btn-outline btn-sm"
+                            :disabled="triggerPollRunning"
+                            @click="triggerPollNow()">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="m3 2 2 4h8L7 14h2l-4 8 1-6H4l2-8H3z"></path></svg>
-                        Trigger Poll Now
-                    {% endcall %}
+                        <span x-text="triggerPollRunning ? 'Polling...' : 'Trigger Poll Now'"></span>
+                    </button>
                 </div>
             {% endcall %}
             {% call card_content() %}
                 <div class="flex flex-col gap-4">
+                    <div x-show="triggerPollMessage"
+                         x-cloak
+                         role="status"
+                         aria-live="polite"
+                         aria-atomic="true"
+                         class="rounded-md border px-3 py-2 text-sm"
+                         :class="triggerPollStatus === 'error' ? 'border-[#ff6f3c] bg-[#fff2ec] text-[#8a2d0d]' : 'border-[#d7efe8] bg-[#eefaf6] text-[#0f6b4d]'">
+                        <span x-text="triggerPollMessage"></span>
+                    </div>
                     <div class="flex items-center">
                         <span class="w-40 text-sm text-muted-foreground">Status:</span>
                         <span class="inline-flex items-center gap-1.5">
@@ -425,6 +437,9 @@ function dashboardApp() {
         healthSummary: null,
         healthHistory: null,
         selectedDnsDomain: '',
+        triggerPollRunning: false,
+        triggerPollStatus: '',
+        triggerPollMessage: '',
         demoDeployment: null,
         selectedDemoScenarioId: 'single-user-multiple-domains',
         selectedDemoZoomLevel: 'workspace',
@@ -519,6 +534,38 @@ function dashboardApp() {
                 }
             } catch (error) {
                 console.error('Error checking IMAP status:', error);
+            }
+        },
+
+        async triggerPollNow() {
+            this.triggerPollRunning = true;
+            this.triggerPollStatus = '';
+            this.triggerPollMessage = '';
+            try {
+                const response = await fetch('/api/v1/admin/trigger-poll', {
+                    method: 'POST',
+                    headers: { 'Accept': 'application/json' }
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    const detail = data.detail;
+                    const message = typeof detail === 'string'
+                        ? detail
+                        : (detail?.message || data.message || 'Could not trigger polling.');
+                    throw new Error(message);
+                }
+                const count = data.sources_polled || 0;
+                this.triggerPollStatus = 'success';
+                this.triggerPollMessage = count
+                    ? `Polling finished for ${count} source${count === 1 ? '' : 's'}.`
+                    : (data.message || 'No enabled mail sources configured.');
+                await this.getImapStatus();
+                await this.fetchDomainSummary();
+            } catch (error) {
+                this.triggerPollStatus = 'error';
+                this.triggerPollMessage = error.message || 'Could not trigger polling.';
+            } finally {
+                this.triggerPollRunning = false;
             }
         },
         
