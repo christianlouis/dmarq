@@ -60,6 +60,8 @@ def test_attach_remediation_dispatch_previews_reuses_request_context(monkeypatch
     dispatches = [item["notification"]["dispatch"] for item in result["items"]]
     assert [dispatch["webhook_endpoint_count"] for dispatch in dispatches] == [1, 1]
     assert [dispatch["eligible"] for dispatch in dispatches] == [True, True]
+    assert result["summary"]["dispatch_ready"] == 2
+    assert result["summary"]["dispatch_webhook_routes"] == 1
 
 
 def test_attach_remediation_dispatch_previews_adds_dashboard_summary(monkeypatch):
@@ -118,7 +120,6 @@ def test_attach_remediation_dispatch_previews_adds_dashboard_summary(monkeypatch
     assert summary["dispatch_disabled"] == 0
     assert summary["dispatch_awaiting_acknowledgement"] == 1
     assert summary["dispatch_webhook_routes"] == 1
-    assert summary["dispatch_delivery_enqueued"] == 0
 
 
 def test_attach_remediation_dispatch_previews_skips_empty_queues(monkeypatch):
@@ -137,6 +138,13 @@ def test_attach_remediation_dispatch_previews_skips_empty_queues(monkeypatch):
     )
 
     assert result is queue
+    assert result["summary"] == {
+        "dispatch_ready": 0,
+        "dispatch_blocked": 0,
+        "dispatch_disabled": 0,
+        "dispatch_awaiting_acknowledgement": 0,
+        "dispatch_webhook_routes": 0,
+    }
 
 
 def test_build_remediation_dispatch_preview_fetches_context_when_not_preloaded(monkeypatch):

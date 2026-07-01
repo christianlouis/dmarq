@@ -1664,8 +1664,7 @@ function domainDetailsApp(domainId) {
                 dispatch_blocked: 0,
                 dispatch_disabled: 0,
                 dispatch_awaiting_acknowledgement: 0,
-                dispatch_webhook_routes: 0,
-                dispatch_delivery_enqueued: 0
+                dispatch_webhook_routes: 0
             },
             items: []
         },
@@ -1816,7 +1815,7 @@ function domainDetailsApp(domainId) {
                 return `${ready} remediation notification${ready === 1 ? '' : 's'} can be dispatched after review.`;
             }
             if (blocked > 0) {
-                return `${blocked} remediation notification${blocked === 1 ? '' : 's'} need settings, acknowledgement, or routing first.`;
+                return `${blocked} remediation notification${blocked === 1 ? '' : 's'} ${blocked === 1 ? 'needs' : 'need'} settings, acknowledgement, or routing first.`;
             }
             return 'No remediation notifications need operator dispatch.';
         },
@@ -2004,23 +2003,35 @@ function domainDetailsApp(domainId) {
             return 'bg-base-200 text-base-content/70';
         },
 
-        remediationDispatchClass(dispatch) {
-            if (dispatch?.delivery_enqueued) return 'bg-teal-100 text-teal-700';
-            if (dispatch?.eligible) return 'bg-green-100 text-green-700';
-            if (dispatch?.enabled) return 'bg-yellow-100 text-yellow-800';
-            return 'bg-base-200 text-base-content/70';
-        },
-
-        remediationDispatchLabel(dispatch) {
-            if (dispatch?.delivery_enqueued) return 'delivery queued';
+        remediationDispatchStatus(dispatch) {
+            if (dispatch?.delivery_enqueued) return 'delivery_enqueued';
             if (dispatch?.eligible) return 'ready';
             if (dispatch?.enabled) return 'blocked';
             return 'disabled';
         },
 
+        remediationDispatchClass(dispatch) {
+            return {
+                delivery_enqueued: 'bg-teal-100 text-teal-700',
+                ready: 'bg-green-100 text-green-700',
+                blocked: 'bg-yellow-100 text-yellow-800',
+                disabled: 'bg-base-200 text-base-content/70'
+            }[this.remediationDispatchStatus(dispatch)];
+        },
+
+        remediationDispatchLabel(dispatch) {
+            return {
+                delivery_enqueued: 'delivery queued',
+                ready: 'ready',
+                blocked: 'blocked',
+                disabled: 'disabled'
+            }[this.remediationDispatchStatus(dispatch)];
+        },
+
         remediationDispatchNextStep(dispatch) {
-            if (dispatch?.delivery_enqueued) return 'Delivery has been queued for the configured webhook route.';
-            if (dispatch?.eligible) return 'Review the payload preview and explicitly dispatch when the operator is ready.';
+            const status = this.remediationDispatchStatus(dispatch);
+            if (status === 'delivery_enqueued') return 'Delivery has been queued for the configured webhook route.';
+            if (status === 'ready') return 'Review the payload preview and explicitly dispatch when the operator is ready.';
             const nextStep = (dispatch?.next_steps || [])[0];
             return nextStep || 'Review notification settings before dispatching this remediation item.';
         },
@@ -2231,8 +2242,7 @@ function domainDetailsApp(domainId) {
                     dispatch_blocked: 0,
                     dispatch_disabled: 0,
                     dispatch_awaiting_acknowledgement: 0,
-                    dispatch_webhook_routes: 0,
-                    dispatch_delivery_enqueued: 0
+                    dispatch_webhook_routes: 0
                 },
                 items: []
             };

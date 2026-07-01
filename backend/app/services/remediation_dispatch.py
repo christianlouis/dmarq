@@ -113,6 +113,23 @@ def _webhook_event_counts(
     }
 
 
+def _endpoint_route_key(endpoint: WebhookEndpoint) -> str:
+    return str(getattr(endpoint, "id", None) or getattr(endpoint, "url", None) or id(endpoint))
+
+
+def _webhook_event_route_keys(
+    endpoints: Sequence[WebhookEndpoint], event_types: Iterable[str]
+) -> Dict[str, Set[str]]:
+    return {
+        event_type: {
+            _endpoint_route_key(endpoint)
+            for endpoint in endpoints
+            if endpoint_matches_event(endpoint, event_type)
+        }
+        for event_type in set(event_types)
+    }
+
+
 def build_remediation_dispatch_preview(
     db: Session,
     *,
@@ -197,6 +214,7 @@ def attach_remediation_dispatch_previews(
     domain = str(queue.get("domain") or "")
     items = list(queue.get("items", []))
     if not items:
+        _attach_dispatch_summary(queue, items)
         return queue
     settings = _settings(db)
     configured_events = _configured_events(settings.get(DISPATCH_EVENTS_KEY, ""))
@@ -206,6 +224,10 @@ def attach_remediation_dispatch_previews(
     }
     endpoints = _enabled_webhook_endpoints(db, workspace=workspace)
     webhook_event_counts = _webhook_event_counts(
+        endpoints,
+        configured_events | event_types,
+    )
+    webhook_event_route_keys = _webhook_event_route_keys(
         endpoints,
         configured_events | event_types,
     )
@@ -219,18 +241,28 @@ def attach_remediation_dispatch_previews(
             settings=settings,
             webhook_event_counts=webhook_event_counts,
         )
-    _attach_dispatch_summary(queue, items)
+    _attach_dispatch_summary(
+        queue,
+        items,
+        webhook_event_route_keys=webhook_event_route_keys,
+    )
     return queue
 
 
-def _attach_dispatch_summary(queue: Dict[str, Any], items: Sequence[Dict[str, Any]]) -> None:
+def _attach_dispatch_summary(
+    queue: Dict[str, Any],
+    items: Sequence[Dict[str, Any]],
+    *,
+    webhook_event_route_keys: Optional[Dict[str, Set[str]]] = None,
+) -> None:
     """Expose queue-level dispatch readiness counters for dashboards."""
     summary = dict(queue.get("summary") or {})
-    dispatches = [
-        (item.get("notification") or {}).get("dispatch") or {}
+    notifications = [
+        item.get("notification") or {}
         for item in items
         if (item.get("notification") or {}).get("dispatch") is not None
     ]
+    dispatches = [notification.get("dispatch") or {} for notification in notifications]
     blocked = [dispatch for dispatch in dispatches if dispatch.get("blocked_reasons")]
     awaiting_ack = [
         dispatch
@@ -238,18 +270,18 @@ def _attach_dispatch_summary(queue: Dict[str, Any], items: Sequence[Dict[str, An
         if dispatch.get("requires_lifecycle_acknowledgement")
         and dispatch.get("lifecycle_state") not in ACKNOWLEDGED_LIFECYCLE_STATES
     ]
+    route_keys: Set[str] = set()
+    if webhook_event_route_keys:
+        for notification in notifications:
+            event_type = str(notification.get("event") or "")
+            route_keys.update(webhook_event_route_keys.get(event_type, set()))
     summary.update(
         {
             "dispatch_ready": sum(1 for dispatch in dispatches if dispatch.get("eligible")),
             "dispatch_blocked": len(blocked),
             "dispatch_disabled": sum(1 for dispatch in dispatches if not dispatch.get("enabled")),
             "dispatch_awaiting_acknowledgement": len(awaiting_ack),
-            "dispatch_webhook_routes": sum(
-                int(dispatch.get("webhook_endpoint_count") or 0) for dispatch in dispatches
-            ),
-            "dispatch_delivery_enqueued": sum(
-                1 for dispatch in dispatches if dispatch.get("delivery_enqueued")
-            ),
+            "dispatch_webhook_routes": len(route_keys),
         }
     )
     queue["summary"] = summary
