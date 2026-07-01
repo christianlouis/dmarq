@@ -855,6 +855,185 @@ def test_domain_remediation_dispatch_preview_reports_blockers_for_unsupported_ro
     assert "Set notifications.remediation_dispatch_channel=webhook." in dispatch["next_steps"]
 
 
+def test_domain_remediation_notification_dispatch_enqueues_webhook_delivery(
+    seeded_client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    """Explicit dispatch approval queues webhook delivery state without DNS writes."""
+    _stub_approval_ready_remediation(monkeypatch)
+    workspace = get_or_create_default_workspace(db_session)
+    db_session.add_all(
+        [
+            Setting(
+                key="notifications.remediation_dispatch_enabled",
+                value="true",
+                description="Enable remediation dispatch",
+                value_type="boolean",
+                category="notifications",
+            ),
+            Setting(
+                key="notifications.remediation_dispatch_channel",
+                value="webhook",
+                description="Route remediation dispatch through webhooks",
+                value_type="string",
+                category="notifications",
+            ),
+            Setting(
+                key="notifications.remediation_dispatch_events",
+                value=EVENT_REMEDIATION_APPROVAL_REQUIRED,
+                description="Eligible remediation events",
+                value_type="string",
+                category="notifications",
+            ),
+            Setting(
+                key="notifications.remediation_dispatch_require_acknowledgement",
+                value="true",
+                description="Require remediation acknowledgement",
+                value_type="boolean",
+                category="notifications",
+            ),
+        ]
+    )
+    db_session.commit()
+    create_webhook_endpoint(
+        db_session,
+        workspace_id=workspace.id,
+        name="Security operations",
+        url="https://hooks.example.test/remediation",
+        secret="remediation-secret-value",
+        event_types=[EVENT_REMEDIATION_APPROVAL_REQUIRED],
+    )
+
+    audit_response = seeded_client.post(
+        f"/api/v1/domains/{DOMAIN}/remediation/notifications/audit",
+        json={
+            "item_id": "dns:dmarc-missing",
+            "event": EVENT_REMEDIATION_APPROVAL_REQUIRED,
+            "lifecycle_state": "acknowledged",
+        },
+    )
+    assert audit_response.status_code == 200
+
+    response = seeded_client.post(
+        f"/api/v1/domains/{DOMAIN}/remediation/notifications/dispatch",
+        json={
+            "item_id": "dns:dmarc-missing",
+            "confirm": True,
+            "event": EVENT_REMEDIATION_APPROVAL_REQUIRED,
+            "dedupe_key": f"dmarq:remediation:{DOMAIN}:dns:dmarc-missing",
+            "note": "Route this to the webhook queue",
+        },
+        headers={"X-Forwarded-For": "203.0.113.45"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["domain"] == DOMAIN
+    assert data["item_id"] == "dns:dmarc-missing"
+    assert data["delivery_enqueued"] is True
+    assert data["delivery_count"] == 1
+    assert data["dispatch"]["eligible"] is True
+    assert data["dispatch"]["delivery_enqueued"] is True
+    assert data["deliveries"][0]["event_type"] == EVENT_REMEDIATION_APPROVAL_REQUIRED
+    assert data["deliveries"][0]["status"] == "pending"
+    assert data["audit"]["action"] == "remediation.notification_dispatch_enqueued"
+    assert data["audit"]["ip_address"] == "203.0.113.45"
+    details = data["audit"]["details"]
+    assert details["sent"] is False
+    assert details["delivery_enqueued"] is True
+    assert details["delivery_count"] == 1
+    assert details["dns_write_attempted"] is False
+    assert details["operator_note"] == "Route this to the webhook queue"
+    assert db_session.query(WebhookDelivery).count() == 1
+
+    duplicate_response = seeded_client.post(
+        f"/api/v1/domains/{DOMAIN}/remediation/notifications/dispatch",
+        json={
+            "item_id": "dns:dmarc-missing",
+            "confirm": True,
+            "event": EVENT_REMEDIATION_APPROVAL_REQUIRED,
+        },
+    )
+    assert duplicate_response.status_code == 200
+    assert duplicate_response.json()["delivery_count"] == 1
+    assert db_session.query(WebhookDelivery).count() == 1
+
+
+def test_domain_remediation_notification_dispatch_requires_confirmed_readiness(
+    seeded_client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    """Dispatch stays blocked until an operator confirms and readiness is green."""
+    _stub_approval_ready_remediation(monkeypatch)
+    workspace = get_or_create_default_workspace(db_session)
+    db_session.add_all(
+        [
+            Setting(
+                key="notifications.remediation_dispatch_enabled",
+                value="true",
+                description="Enable remediation dispatch",
+                value_type="boolean",
+                category="notifications",
+            ),
+            Setting(
+                key="notifications.remediation_dispatch_channel",
+                value="webhook",
+                description="Route remediation dispatch through webhooks",
+                value_type="string",
+                category="notifications",
+            ),
+            Setting(
+                key="notifications.remediation_dispatch_events",
+                value=EVENT_REMEDIATION_APPROVAL_REQUIRED,
+                description="Eligible remediation events",
+                value_type="string",
+                category="notifications",
+            ),
+            Setting(
+                key="notifications.remediation_dispatch_require_acknowledgement",
+                value="true",
+                description="Require remediation acknowledgement",
+                value_type="boolean",
+                category="notifications",
+            ),
+        ]
+    )
+    db_session.commit()
+    create_webhook_endpoint(
+        db_session,
+        workspace_id=workspace.id,
+        name="Security operations",
+        url="https://hooks.example.test/remediation",
+        secret="remediation-secret-value",
+        event_types=[EVENT_REMEDIATION_APPROVAL_REQUIRED],
+    )
+
+    unconfirmed_response = seeded_client.post(
+        f"/api/v1/domains/{DOMAIN}/remediation/notifications/dispatch",
+        json={
+            "item_id": "dns:dmarc-missing",
+            "confirm": False,
+        },
+    )
+    assert unconfirmed_response.status_code == 400
+    assert "confirm=true" in unconfirmed_response.json()["detail"]
+
+    blocked_response = seeded_client.post(
+        f"/api/v1/domains/{DOMAIN}/remediation/notifications/dispatch",
+        json={
+            "item_id": "dns:dmarc-missing",
+            "confirm": True,
+        },
+    )
+    assert blocked_response.status_code == 409
+    detail = blocked_response.json()["detail"]
+    assert detail["message"] == "Remediation notification is not dispatch-ready."
+    assert "Record a previewed or acknowledged lifecycle marker first." in detail["blocked_reasons"]
+    assert db_session.query(WebhookDelivery).count() == 0
+
+
 def test_domain_remediation_notification_lifecycle_audit_records_sanitized_marker(
     seeded_client: TestClient,
     db_session,

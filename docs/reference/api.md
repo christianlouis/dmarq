@@ -678,6 +678,18 @@ match the current queue item's notification metadata. The response includes the
 sanitized workspace audit row. This endpoint is deliberately audit-only: it
 does not enqueue webhook deliveries, send notifications, or attempt DNS writes.
 
+`POST /domains/{domain_id}/remediation/notifications/dispatch` enqueues
+webhook deliveries for one current remediation item after explicit operator
+approval. The request accepts `item_id`, `confirm=true`, and optional `event`,
+`dedupe_key`, and `note`. If `event` or `dedupe_key` is supplied, it must match
+the current queue item. The item's `dispatch.eligible` preview must already be
+true, which means dispatch is enabled, the event is configured, the channel is
+`webhook`, required lifecycle acknowledgement has been recorded, and at least
+one enabled webhook endpoint matches the event. The response includes persisted
+webhook delivery rows and a sanitized workspace audit row. The endpoint only
+queues notification delivery state; it does not send synchronously and never
+attempts DNS/provider writes.
+
 The remediation dispatch preview is controlled by notification settings and is
 disabled by default:
 
@@ -686,9 +698,10 @@ disabled by default:
 - `notifications.remediation_dispatch_require_acknowledgement`
 - `notifications.remediation_dispatch_events`
 
-In this release slice, `webhook` is the only supported dispatch channel. Even
-when the preview reports `eligible=true`, DMARQ only reports readiness and does
-not enqueue delivery rows until a future explicit dispatch endpoint is added.
+In this release slice, `webhook` is the only supported dispatch channel. The
+queue endpoint remains read-only. Delivery rows are created only by the explicit
+dispatch endpoint with `confirm=true`; DNS/provider writes remain a separate
+operator-approved flow.
 
 #### Get Posture Dashboard
 

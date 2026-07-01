@@ -99,6 +99,13 @@ enabled webhook endpoint is subscribed to the event. This is a readiness check
 only; DMARQ does not enqueue webhook deliveries or send notifications from the
 queue view.
 
+After a remediation notification is previewed or acknowledged, an operator can
+explicitly enqueue the notification through the dispatch API with
+`confirm=true`. Dispatch currently means "create persisted webhook delivery
+rows for configured endpoints"; it does not send from the queue view and does
+not apply DNS changes. The delivery history can then be inspected through the
+webhook delivery state.
+
 ### Source Intelligence
 
 The domain detail page groups sending sources into coarse regions and networks
@@ -154,8 +161,9 @@ Dispatch remains opt-in through notification settings:
 `notifications.remediation_dispatch_channel`,
 `notifications.remediation_dispatch_require_acknowledgement`, and
 `notifications.remediation_dispatch_events`. The current supported channel is
-`webhook`; enabling the settings only makes queue items dispatch-eligible for a
-future explicit dispatch step.
+`webhook`; enabling the settings only makes queue items dispatch-eligible. A
+separate dispatch request with `confirm=true` is still required to create
+delivery rows.
 
 If an operator selects a different provider than the nameserver-detected
 provider, DMARQ blocks the preview/apply request by default. The mismatch can be
