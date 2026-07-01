@@ -10,8 +10,8 @@ from app.services.webhook_events import (
     EVENT_ALERT_RESOLVED,
     EVENT_COMPLIANCE_DROP,
     EVENT_REMEDIATION_APPROVAL_REQUIRED,
-    EVENT_REMEDIATION_INVESTIGATION_REQUIRED,
     EVENT_REMEDIATION_MANUAL_ACTION_REQUIRED,
+    EVENT_REMEDIATION_INVESTIGATION_REQUIRED,
     EVENT_REMEDIATION_SUMMARY,
     EVENT_REPORTS_MISSING,
     EVENT_SENDER_NEW,
@@ -112,7 +112,7 @@ EVENT_WORKFLOW_MAPPINGS: Dict[str, Dict[str, Any]] = {
         "chat_action": "include_in_summary",
         "dedupe_key_template": "{dedupe_key}",
         "summary_template": "DMARQ remediation summary item for {domain}: {title}",
-        "noise_control": "Do not create standalone tickets for summary-only items unless the severity escalates.",
+        "noise_control": "Do not create standalone tickets for summary-only info items; create tickets only when a later remediation event transitions to approval, manual action, or investigation.",
     },
 }
 

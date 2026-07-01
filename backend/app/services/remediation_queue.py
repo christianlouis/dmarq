@@ -4,6 +4,13 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List, Optional, Set
 
+from app.services.webhook_events import (
+    EVENT_REMEDIATION_APPROVAL_REQUIRED,
+    EVENT_REMEDIATION_INVESTIGATION_REQUIRED,
+    EVENT_REMEDIATION_MANUAL_ACTION_REQUIRED,
+    EVENT_REMEDIATION_SUMMARY,
+)
+
 DNS_AUTOMATION_OPERATIONS = {"create", "update"}
 DNS_AUTOMATION_RECORD_TYPES = {"TXT", "CNAME"}
 SEVERITY_RANK = {"critical": 4, "high": 3, "medium": 2, "low": 1, "info": 0}
@@ -95,7 +102,7 @@ def _notification_profile(domain: str, item: Dict[str, Any]) -> Dict[str, Any]:
     if state == "approval_ready":
         return {
             "state": "approval_required",
-            "event": "dmarq.remediation.approval_required",
+            "event": EVENT_REMEDIATION_APPROVAL_REQUIRED,
             "channel": "email_security",
             "dedupe_key": dedupe_key,
             "reason": "Notify an operator that a safe DNS repair is ready for preview.",
@@ -104,7 +111,7 @@ def _notification_profile(domain: str, item: Dict[str, Any]) -> Dict[str, Any]:
     if state == "manual_action" and SEVERITY_RANK.get(severity, 0) >= SEVERITY_RANK["high"]:
         return {
             "state": "action_required",
-            "event": "dmarq.remediation.manual_action_required",
+            "event": EVENT_REMEDIATION_MANUAL_ACTION_REQUIRED,
             "channel": "email_security",
             "dedupe_key": dedupe_key,
             "reason": "Escalate high-impact manual remediation work.",
@@ -113,7 +120,7 @@ def _notification_profile(domain: str, item: Dict[str, Any]) -> Dict[str, Any]:
     if state == "investigate":
         return {
             "state": "investigation_required",
-            "event": "dmarq.remediation.investigation_required",
+            "event": EVENT_REMEDIATION_INVESTIGATION_REQUIRED,
             "channel": "email_security",
             "dedupe_key": dedupe_key,
             "reason": "Ask an operator to confirm whether the sender or finding is legitimate.",
@@ -121,7 +128,7 @@ def _notification_profile(domain: str, item: Dict[str, Any]) -> Dict[str, Any]:
         }
     return {
         "state": "summary_only",
-        "event": "dmarq.remediation.summary",
+        "event": EVENT_REMEDIATION_SUMMARY,
         "channel": "daily_summary" if source == "dns_lint" else "email_security",
         "dedupe_key": dedupe_key,
         "reason": "Include this lower-risk remediation item in summary reporting.",
@@ -144,7 +151,7 @@ def _remediation_notification_payload(domain: str, item: Dict[str, Any]) -> Dict
         "title": str(item.get("title") or ""),
         "detail": str(item.get("detail") or ""),
         "notification_state": str(notification.get("state") or "summary_only"),
-        "event_type": str(notification.get("event") or "dmarq.remediation.summary"),
+        "event_type": str(notification.get("event") or EVENT_REMEDIATION_SUMMARY),
         "channel": str(notification.get("channel") or "email_security"),
         "dedupe_key": str(notification.get("dedupe_key") or ""),
         "reason": str(notification.get("reason") or ""),
@@ -158,9 +165,9 @@ def _remediation_notification_payload(domain: str, item: Dict[str, Any]) -> Dict
         },
         "evidence": [
             {"label": str(row.get("label") or "evidence"), "value": str(row.get("value") or "")}
-            for row in item.get("evidence", [])[:5]
+            for row in item.get("evidence", [])
             if str(row.get("value") or "")
-        ],
+        ][:5],
     }
 
 

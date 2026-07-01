@@ -16,6 +16,8 @@ from app.services.webhook_events import (
     EVENT_ALERT_RESOLVED,
     EVENT_COMPLIANCE_DROP,
     EVENT_REMEDIATION_APPROVAL_REQUIRED,
+    EVENT_REMEDIATION_INVESTIGATION_REQUIRED,
+    EVENT_REMEDIATION_MANUAL_ACTION_REQUIRED,
     EVENT_REMEDIATION_SUMMARY,
 )
 
@@ -46,6 +48,20 @@ def test_ticketing_chatops_bundle_is_versioned_and_complete():
     assert (
         bundle["event_workflow_mappings"][EVENT_REMEDIATION_APPROVAL_REQUIRED]["ticket_action"]
         == "create_or_update"
+    )
+    assert (
+        bundle["event_workflow_mappings"][EVENT_REMEDIATION_MANUAL_ACTION_REQUIRED]["severity"]
+        == "high"
+    )
+    assert (
+        bundle["event_workflow_mappings"][EVENT_REMEDIATION_MANUAL_ACTION_REQUIRED]["chat_action"]
+        == "notify_channel_and_thread"
+    )
+    assert (
+        bundle["event_workflow_mappings"][EVENT_REMEDIATION_INVESTIGATION_REQUIRED][
+            "summary_template"
+        ]
+        == "Investigate DMARQ remediation item for {domain}: {title}"
     )
     assert (
         bundle["event_workflow_mappings"][EVENT_REMEDIATION_SUMMARY]["chat_action"]
