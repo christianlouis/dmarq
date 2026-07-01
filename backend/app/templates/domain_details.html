@@ -1907,14 +1907,38 @@ function domainDetailsApp(domainId) {
             }
         },
 
+        dnsApplyConfirmationText(preview) {
+            const mutation = preview?.mutation || {};
+            const previousValues = mutation.current_values || [];
+            const previousText = previousValues.length ? previousValues.join('\n') : 'None captured by the provider preview.';
+            const proposedText = mutation.content || 'No proposed value available.';
+            const rollbackText = preview?.rollback?.summary || 'Review provider history before reverting this DNS record.';
+            const provider = this.providerName(preview?.provider || mutation.provider || this.dnsWrite.provider);
+            return [
+                'Apply this live DNS change?',
+                '',
+                `Provider: ${provider}`,
+                `Operation: ${mutation.operation || 'unknown'}`,
+                `Record: ${mutation.name || 'unknown'}`,
+                `Type: ${mutation.record_type || 'unknown'}`,
+                `TTL: ${mutation.ttl || 'provider default'}`,
+                '',
+                'Previous value:',
+                previousText,
+                '',
+                'Proposed value:',
+                proposedText,
+                '',
+                `Rollback: ${rollbackText}`,
+                '',
+                'DMARQ will verify the provider readback after apply, but DNS propagation may still take time.'
+            ].join('\n');
+        },
+
         async submitDNSChange(plan, apply) {
             this.dnsWrite.loading = true;
             this.dnsWrite.error = '';
             this.dnsWrite.message = '';
-            if (apply && !window.confirm(`Apply DNS change for ${plan.name}?`)) {
-                this.dnsWrite.loading = false;
-                return;
-            }
             try {
                 const response = await fetch(`/api/v1/domains/${this.domainId}/dns/change-plan/apply`, {
                     method: 'POST',
@@ -1945,9 +1969,11 @@ function domainDetailsApp(domainId) {
                     await this.fetchDNSGuidance();
                     await this.fetchPosture();
                 }
+                return data;
             } catch (error) {
                 this.dnsWrite.error = 'Network error — DNS change could not be prepared';
                 console.error('Error submitting DNS change:', error);
+                return null;
             } finally {
                 this.dnsWrite.loading = false;
             }
@@ -1957,7 +1983,23 @@ function domainDetailsApp(domainId) {
             return this.submitDNSChange(plan, false);
         },
 
-        applyDNSChange(plan) {
+        async applyDNSChange(plan) {
+            const previewProvider = this.canonicalProviderId(this.dnsWrite.preview?.provider);
+            const selectedProvider = this.canonicalProviderId(this.dnsWrite.provider);
+            let preview = this.dnsWrite.preview &&
+                this.dnsWrite.preview.plan_id === plan.plan_id &&
+                previewProvider === selectedProvider
+                ? this.dnsWrite.preview
+                : null;
+            if (!preview) {
+                preview = await this.submitDNSChange(plan, false);
+            }
+            if (!preview?.mutation) {
+                return null;
+            }
+            if (!window.confirm(this.dnsApplyConfirmationText(preview))) {
+                return null;
+            }
             return this.submitDNSChange(plan, true);
         },
 

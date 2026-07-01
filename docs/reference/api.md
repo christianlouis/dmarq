@@ -627,6 +627,9 @@ change plans. This flow does not modify Postmark or DNS records.
 safe TXT/CNAME create/update plans that already have a concrete value. If
 nameserver detection recommends a different provider than the selected provider,
 the request is rejected unless `allow_provider_mismatch=true` is supplied.
+The web UI prepares a provider preview before live apply confirmation and shows
+the exact provider, operation, record name/type, TTL, previous value, proposed
+value, and rollback summary in the final browser confirmation.
 Applied changes are written to the workspace audit log, including provider
 mismatch override details when present, and refresh provider-backed DNS change
 history where the provider supports it. Apply responses also include a
