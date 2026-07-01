@@ -77,6 +77,27 @@ For deployment verification, upgrades, rollback, and routine checks, use the [Op
 | `SESSION_LIFETIME` | Session lifetime in minutes | `1440` (24h) | `60`, `720` |
 | `DEMO_MODE` | Force generated demo reports and demo DNS records for public demo instances. Do not enable on production customer data. | `false` | `true` |
 
+### Sender Reputation Feeds
+
+External sender-IP reputation feeds are disabled by default. Enable them only
+after reviewing each provider's terms, credential model, rate limits, and
+privacy implications. DMARQ never needs these feeds to parse DMARC reports; they
+only enrich observed sending-source evidence.
+
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `SOURCE_REPUTATION_FEEDS_ENABLED` | Enable external reputation feed lookups. Demo mode still disables live external lookups. | `false` | `true` |
+| `SOURCE_REPUTATION_FEEDS` | Comma-separated enabled feed IDs. Supported first IDs are `spamhaus_dqs`, `spamcop_scbl`, and `barracuda_brbl`. | - | `spamhaus_dqs,spamcop_scbl` |
+| `SOURCE_REPUTATION_SPAMHAUS_DQS_ZONE` | Spamhaus DQS query zone assigned to your account. Required before the `spamhaus_dqs` provider becomes active. | - | `example.dq.spamhaus.net` |
+| `SOURCE_REPUTATION_FEED_TIMEOUT_SECONDS` | Per-provider DNSBL lookup timeout. | `2` | `2` |
+| `SOURCE_REPUTATION_FEED_CACHE_SECONDS` | Persistent cache TTL for per-IP feed results. | `86400` | `86400` |
+| `SOURCE_REPUTATION_FEED_MAX_IPS` | Maximum source IPs checked per reputation refresh. | `100` | `250` |
+
+Feed lookups are skipped for private, reserved, loopback, and otherwise
+non-global IP addresses. Feed failures are shown as evidence, but they do not
+create blacklist findings by themselves. A source is treated as listed only when
+a configured provider returns a positive listing response.
+
 ### Demo Mode
 
 Set `DEMO_MODE=true` only for public demo environments such as `demo.dmarq.org`.

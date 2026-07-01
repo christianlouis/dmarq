@@ -12,8 +12,15 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.dns_cache import DNSCache
 from app.services.dns_cache import DEFAULT_DNS_CACHE_TTL_SECONDS
+from app.services.source_reputation_feeds import (
+    IPFeedReputation,
+    ReputationFeedProvider,
+    lookup_sources_reputation_cached,
+    providers_from_settings,
+)
 
 _CACHE_PROVIDER = "source-reputation-v1"
 
@@ -247,6 +254,7 @@ def _source_reputation(
     sender: Optional[Dict[str, Any]],
     anomalies: List[Dict[str, Any]],
     seen: Dict[str, Optional[int]],
+    feed_result: Optional[IPFeedReputation],
     *,
     checked_at: str,
 ) -> SourceReputation:
@@ -277,6 +285,20 @@ def _source_reputation(
         evidence.append(ReputationEvidence("Reputation status", reported, "metadata"))
     elif reported == "clean":
         evidence.append(ReputationEvidence("Reputation status", "clean", "metadata"))
+
+    external_listings = _external_listings(feed_result)
+    if external_listings:
+        risk_score += 45
+        listings.extend(item for item in external_listings if item not in listings)
+        evidence.append(
+            ReputationEvidence(
+                "External reputation feeds",
+                ", ".join(external_listings),
+                "external",
+            )
+        )
+    for item in _external_feed_notes(feed_result):
+        evidence.append(item)
 
     if sender and sender.get("status") in {"unknown", "suspicious"}:
         risk_score += 18 if sender.get("status") == "unknown" else 25
@@ -322,6 +344,32 @@ def _summary_for(status: str, risk_score: int, failed: int) -> str:
     return "No reputation listing evidence is available for this source."
 
 
+def _external_listings(feed_result: Optional[IPFeedReputation]) -> List[str]:
+    if feed_result is None:
+        return []
+    listings: List[str] = []
+    for item in feed_result.evidence:
+        if item.status == "listed":
+            listings.append(item.listing or item.provider_name or item.provider_id)
+    return listings
+
+
+def _external_feed_notes(feed_result: Optional[IPFeedReputation]) -> List[ReputationEvidence]:
+    if feed_result is None:
+        return []
+    notes: List[ReputationEvidence] = []
+    for item in feed_result.evidence:
+        if item.status in {"error", "not_configured"}:
+            notes.append(
+                ReputationEvidence(
+                    f"{item.provider_name} lookup",
+                    item.detail or item.status,
+                    "external",
+                )
+            )
+    return notes
+
+
 def _recommendations(
     status: str,
     listings: List[str],
@@ -355,11 +403,13 @@ def build_source_reputation(
     *,
     senders_by_ip: Optional[Dict[str, Dict[str, Any]]] = None,
     anomalies_by_ip: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+    feed_results_by_ip: Optional[Dict[str, IPFeedReputation]] = None,
 ) -> DomainReputation:
     """Build passive reputation evidence for observed sources."""
     checked_at = _utcnow_iso()
     sender_map = senders_by_ip or {}
     anomaly_map = anomalies_by_ip or {}
+    feed_map = feed_results_by_ip or {}
     seen_windows = _source_seen_windows(reports)
     source_rows = list(sources)
     reputations = [
@@ -368,6 +418,7 @@ def build_source_reputation(
             sender_map.get(str(source.get("source_ip") or source.get("ip") or "unknown")),
             anomaly_map.get(str(source.get("source_ip") or source.get("ip") or "unknown"), []),
             seen_windows.get(str(source.get("source_ip") or source.get("ip") or "unknown"), {}),
+            feed_map.get(str(source.get("source_ip") or source.get("ip") or "unknown")),
             checked_at=checked_at,
         )
         for source in source_rows
@@ -415,15 +466,56 @@ def source_reputation_cache_key(
     *,
     senders_by_ip: Optional[Dict[str, Dict[str, Any]]] = None,
     anomalies_by_ip: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+    feed_results_by_ip: Optional[Dict[str, IPFeedReputation]] = None,
+    feed_providers: Optional[Iterable[ReputationFeedProvider]] = None,
+    feed_max_ips: Optional[int] = None,
     days: int = 30,
 ) -> str:
     """Return a stable cache key for a domain reputation input set."""
+    feed_fingerprint = (
+        _feed_provider_fingerprint(feed_providers, feed_max_ips=feed_max_ips)
+        if feed_providers is not None
+        else _feed_fingerprint(feed_results_by_ip)
+    )
     return (
         f"source-reputation:{int(days)}:"
         f"{_source_fingerprint(sources)}:"
         f"{_report_fingerprint(reports)}:"
-        f"{_context_fingerprint(senders_by_ip, anomalies_by_ip)}"
+        f"{_context_fingerprint(senders_by_ip, anomalies_by_ip)}:"
+        f"{feed_fingerprint}"
     )
+
+
+def _feed_fingerprint(feed_results_by_ip: Optional[Dict[str, IPFeedReputation]]) -> str:
+    payload = json.dumps(
+        {ip: asdict(result) for ip, result in sorted((feed_results_by_ip or {}).items())},
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
+
+
+def _feed_provider_fingerprint(
+    feed_providers: Iterable[ReputationFeedProvider],
+    *,
+    feed_max_ips: Optional[int],
+) -> str:
+    payload = json.dumps(
+        {
+            "max_ips": feed_max_ips,
+            "providers": [
+                {
+                    "provider_id": provider.config.provider_id,
+                    "enabled": provider.config.enabled,
+                    "kind": provider.config.kind,
+                    "query_zone": provider.config.query_zone,
+                    "listing_name": provider.config.listing_name,
+                }
+                for provider in feed_providers
+            ],
+        },
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
 
 
 async def build_source_reputation_cached(
@@ -442,11 +534,15 @@ async def build_source_reputation_cached(
     now = _utcnow_naive()
     source_rows = list(sources)
     report_rows = list(reports)
+    settings = get_settings()
+    feed_providers = providers_from_settings(settings)
     cache_key = source_reputation_cache_key(
         source_rows,
         report_rows,
         senders_by_ip=senders_by_ip,
         anomalies_by_ip=anomalies_by_ip,
+        feed_providers=feed_providers,
+        feed_max_ips=settings.SOURCE_REPUTATION_FEED_MAX_IPS,
         days=days,
     )
     row = (
@@ -461,12 +557,22 @@ async def build_source_reputation_cached(
     if row and not refresh and _is_fresh(row, ttl_seconds, now):
         return _result_from_json(row.result_json), True, row.checked_at
 
+    feed_results_by_ip = await lookup_sources_reputation_cached(
+        db,
+        [str(source.get("source_ip") or source.get("ip") or "unknown") for source in source_rows],
+        feed_providers,
+        ttl_seconds=settings.SOURCE_REPUTATION_FEED_CACHE_SECONDS,
+        max_ips=settings.SOURCE_REPUTATION_FEED_MAX_IPS,
+        refresh=refresh,
+    )
+
     result = build_source_reputation(
         domain,
         report_rows,
         source_rows,
         senders_by_ip=senders_by_ip,
         anomalies_by_ip=anomalies_by_ip,
+        feed_results_by_ip=feed_results_by_ip,
     )
     payload = json.dumps(asdict(result), sort_keys=True, separators=(",", ":"))
     if row is None:

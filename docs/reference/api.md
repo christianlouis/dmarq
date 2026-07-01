@@ -764,13 +764,20 @@ GET /domains/{domain_id}/source-reputation?days=30
 ```
 
 Returns cached, passive sender-IP reputation evidence for observed DMARC
-sources. This first slice does not query external DNSBL services directly; it
-scores existing DMARC evidence, known sender context, demo/provider metadata,
-reserved or malformed IPs, and source-intelligence anomalies. Rows include a
-bounded `risk_score`, `status`, optional listing names, first/last seen
-timestamps when report windows are available, evidence, and safe remediation
-steps. `GET /domains/{domain_id}/sources` embeds the same per-source
-`reputation` object next to sender, geo, anomaly, and SPF/DKIM context.
+sources. By default it scores existing DMARC evidence, known sender context,
+demo/provider metadata, reserved or malformed IPs, and source-intelligence
+anomalies without contacting third-party reputation services.
+
+When explicitly enabled by configuration, DMARQ can enrich this result with
+cached external reputation feed lookups. The first provider registry supports
+Spamhaus DQS, SpamCop SCBL, and Barracuda BRBL. External lookups are opt-in,
+bounded, cached, skipped for non-global IPs, and disabled in demo mode. Rows
+include a bounded `risk_score`, `status`, optional listing names, first/last
+seen timestamps when report windows are available, evidence, and safe
+remediation steps. The response also includes a `feeds` metadata map so UIs can
+show which external providers are available and whether they are active.
+`GET /domains/{domain_id}/sources` embeds the same per-source `reputation`
+object next to sender, geo, anomaly, and SPF/DKIM context.
 
 #### Get Health Score History
 

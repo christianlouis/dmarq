@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 
 from app.services.source_reputation import (
@@ -5,6 +7,7 @@ from app.services.source_reputation import (
     build_source_reputation_cached,
     source_reputation_by_ip,
 )
+from app.services.source_reputation_feeds import FeedLookupEvidence, IPFeedReputation
 
 
 def _report(records):
@@ -66,7 +69,9 @@ def test_build_source_reputation_flags_reported_listed_without_listing_names():
     assert result.summary["highest_risk_score"] >= 45
     assert source.status == "listed"
     assert source.risk_score >= 45
-    assert any(item.label == "Reputation status" and item.value == "listed" for item in source.evidence)
+    assert any(
+        item.label == "Reputation status" and item.value == "listed" for item in source.evidence
+    )
 
 
 def test_build_source_reputation_reports_suspicious_sender_context():
@@ -160,6 +165,44 @@ def test_build_source_reputation_marks_clean_known_source():
     assert result.sources[0].risk_score <= 10
 
 
+def test_build_source_reputation_merges_external_feed_listing():
+    sources = [
+        {
+            "source_ip": "8.8.8.8",
+            "count": 100,
+            "dmarc_fail_count": 0,
+        }
+    ]
+
+    result = build_source_reputation(
+        "example.com",
+        [],
+        sources,
+        feed_results_by_ip={
+            "8.8.8.8": IPFeedReputation(
+                ip="8.8.8.8",
+                listed=True,
+                evidence=[
+                    FeedLookupEvidence(
+                        provider_id="demo_feed",
+                        provider_name="Demo Reputation Feed",
+                        status="listed",
+                        listing="Demo RBL",
+                    )
+                ],
+            )
+        },
+    )
+
+    source = result.sources[0]
+    assert result.status == "listed"
+    assert source.status == "listed"
+    assert "Demo RBL" in source.listings
+    assert source.risk_score >= 45
+    assert any(item.label == "External reputation feeds" for item in source.evidence)
+    assert any("delisting" in item for item in source.recommendations)
+
+
 @pytest.mark.asyncio
 async def test_build_source_reputation_cached_reuses_fresh_result(db_session):
     sources = [
@@ -227,3 +270,61 @@ async def test_build_source_reputation_cached_includes_reports_in_cache_key(db_s
     assert second_cached is False
     assert source_reputation_by_ip(first)["203.0.113.10"].first_seen == 1_700_000_000
     assert source_reputation_by_ip(second)["203.0.113.10"].first_seen == 1_800_000_000
+
+
+@pytest.mark.asyncio
+async def test_build_source_reputation_cached_skips_feed_lookup_on_fresh_domain_cache(
+    db_session,
+    monkeypatch,
+):
+    calls = 0
+    provider = SimpleNamespace(
+        config=SimpleNamespace(
+            provider_id="demo_feed",
+            enabled=True,
+            kind="dnsbl",
+            query_zone="example.test",
+            listing_name="Demo RBL",
+        )
+    )
+
+    async def fake_lookup_sources(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return {}
+
+    monkeypatch.setattr(
+        "app.services.source_reputation.providers_from_settings",
+        lambda _settings: [provider],
+    )
+    monkeypatch.setattr(
+        "app.services.source_reputation.lookup_sources_reputation_cached",
+        fake_lookup_sources,
+    )
+    sources = [
+        {
+            "source_ip": "8.8.8.8",
+            "count": 100,
+            "dmarc_fail_count": 0,
+            "extensions": {"demo:reputation": "clean", "demo:source": "workspace-mail"},
+        }
+    ]
+
+    first, first_cached, _ = await build_source_reputation_cached(
+        db_session,
+        "example.com",
+        [],
+        sources,
+    )
+    second, second_cached, _ = await build_source_reputation_cached(
+        db_session,
+        "example.com",
+        [],
+        sources,
+    )
+
+    assert first.status == "clean"
+    assert second.status == "clean"
+    assert first_cached is False
+    assert second_cached is True
+    assert calls == 1

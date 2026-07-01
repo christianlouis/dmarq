@@ -84,9 +84,11 @@ Completed or substantially delivered:
 - DNS health checks for DMARC/SPF/DKIM plus posture checks for MTA-STS, TLS-RPT,
   BIMI, and passive DANE/TLSA readiness.
 - Passive sender IP reputation scoring from observed report evidence, known
-  sender context, local/demo metadata, reserved-address detection, and source
-  anomalies. External DNSBL and commercial reputation feeds remain modular
-  follow-up work.
+  sender context, local/demo metadata, reserved-address detection, source
+  anomalies, and an opt-in external DNSBL feed registry. Feed lookups are
+  disabled by default, cached, and currently cover Spamhaus DQS, SpamCop SCBL,
+  and Barracuda BRBL as the first provider set. Deeper commercial reputation
+  feed contracts and UI configuration remain follow-up work.
 - Cloudflare read-only inspection, DNS snapshots, and DNS change history.
 - Notifications, alert rules, alert history, and Apprise delivery.
 - API tokens, webhooks, SIEM templates, and ticketing/chatops templates.
