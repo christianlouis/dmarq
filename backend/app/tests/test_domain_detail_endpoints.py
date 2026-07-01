@@ -166,6 +166,29 @@ def test_get_domain_reports_returns_200(seeded_client: TestClient):
     assert "compliance_timeline" in data
 
 
+def test_compliance_timeline_does_not_treat_no_volume_as_perfect_compliance():
+    """Zero-volume report periods must not become 100% compliance points."""
+    store = ReportStore()
+    store.add_report(
+        {
+            **REPORT_DICT_POLICY,
+            "report_id": "rpt-zero-volume",
+            "begin_timestamp": 1597536000,
+            "begin_date": "2020-08-16T00:00:00",
+            "end_date": "2020-08-16T23:59:59",
+            "records": [],
+            "summary": {"total_count": 0, "passed_count": 0, "failed_count": 0},
+        }
+    )
+
+    timeline = domains_endpoint._build_compliance_timeline(store, DOMAIN)
+
+    assert timeline[0].volume == 0
+    assert timeline[0].total == 0
+    assert timeline[0].compliance_rate == 0.0
+    assert timeline[0].failure_rate == 0.0
+
+
 def test_domain_read_stats_selectors_and_search_use_workspace_auth(
     seeded_client: TestClient,
 ):

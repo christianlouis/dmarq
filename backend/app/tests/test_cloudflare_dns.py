@@ -1430,6 +1430,77 @@ def test_cloudflare_import_endpoint_returns_import_summary(authed_client: TestCl
     assert response.json()["imported"] == [DOMAIN]
 
 
+def test_cloudflare_oauth_authorize_url_endpoint_returns_redirect(
+    authed_client: TestClient,
+):
+    with (
+        patch(
+            "app.api.api_v1.endpoints.domains.build_cloudflare_oauth_state",
+            return_value="state-token",
+        ) as state_mock,
+        patch(
+            "app.api.api_v1.endpoints.domains.build_cloudflare_authorization_url",
+            return_value={
+                "authorization_url": "https://dash.cloudflare.com/oauth2/auth?state=state-token",
+                "redirect_uri": "https://app.example.test/api/v1/domains/cloudflare/oauth/callback",
+                "scopes": "zone.read dns.read",
+            },
+        ) as authorize_mock,
+    ):
+        response = authed_client.get(
+            "/api/v1/domains/cloudflare/oauth/authorize-url?return_to=/settings",
+            headers={"x-forwarded-proto": "https", "host": "app.example.test"},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["authorization_url"].startswith("https://dash.cloudflare.com/oauth2/auth")
+    assert data["scopes"] == "zone.read dns.read"
+    state_mock.assert_called_once()
+    authorize_mock.assert_called_once()
+    assert authorize_mock.call_args.kwargs["redirect_uri"] == (
+        "https://app.example.test/api/v1/domains/cloudflare/oauth/callback"
+    )
+
+
+@pytest.mark.asyncio
+async def test_verify_cloudflare_domain_ownership_marks_domain_verified(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    workspace = get_or_create_default_workspace(db_session)
+    domain = Domain(name=DOMAIN, workspace_id=workspace.id, verified=False, active=True)
+    db_session.add(domain)
+    db_session.commit()
+
+    monkeypatch.setattr(
+        cloudflare_dns,
+        "build_cloudflare_provider",
+        lambda _db: FakeCloudflareProvider(
+            zones=[
+                {
+                    "id": "zone-1",
+                    "name": DOMAIN,
+                    "status": "active",
+                    "account": {"name": "Example Account"},
+                }
+            ]
+        ),
+    )
+
+    result = await cloudflare_dns.verify_cloudflare_domain_ownership(
+        db_session,
+        domain_name=DOMAIN,
+        workspace_id=workspace.id,
+    )
+
+    db_session.refresh(domain)
+    assert result["verified"] is True
+    assert result["zone_id"] == "zone-1"
+    assert result["account_name"] == "Example Account"
+    assert domain.verified is True
+
+
 def test_cloudflare_dns_analysis_endpoint_persists_history(
     authed_client: TestClient,
     db_session,

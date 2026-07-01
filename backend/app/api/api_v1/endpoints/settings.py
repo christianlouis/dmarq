@@ -134,6 +134,27 @@ SETTING_DEFAULTS: List[Dict[str, Any]] = [
         "value_type": "string",
         "category": "cloudflare",
     },
+    {
+        "key": "cloudflare.auth_mode",
+        "value": "",
+        "description": "Cloudflare connector authentication mode",
+        "value_type": "string",
+        "category": "cloudflare",
+    },
+    {
+        "key": "cloudflare.oauth_scopes",
+        "value": "",
+        "description": "Granted Cloudflare OAuth scopes",
+        "value_type": "string",
+        "category": "cloudflare",
+    },
+    {
+        "key": "cloudflare.oauth_connected_at",
+        "value": "",
+        "description": "Last successful Cloudflare OAuth connection time",
+        "value_type": "string",
+        "category": "cloudflare",
+    },
     # ── Mail service integrations ───────────────────────────────────────────
     {
         "key": "postmark.account_token",

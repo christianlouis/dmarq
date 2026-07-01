@@ -133,7 +133,7 @@ Live DNS writes stay behind the separate DNS repair approval flow.
 
 | Provider | Zone import | Configuration |
 |----------|-------------|---------------|
-| Cloudflare | Ready | `CLOUDFLARE_API_TOKEN` with Zone/DNS read permissions |
+| Cloudflare | Ready | OAuth client with `zone.read`/`dns.read`, or `CLOUDFLARE_API_TOKEN` with Zone/DNS read permissions |
 | Amazon Route 53 | Ready | boto3/AWS credential chain, `DMARQ_ROUTE53_PROFILE`, or `DMARQ_ROUTE53_ROLE_ARN` with optional `DMARQ_ROUTE53_EXTERNAL_ID` |
 | Hetzner DNS | Ready | `HETZNER_DNS_API_TOKEN` or `HETZNER_API_TOKEN` with DNS zone read access |
 | Akamai Edge DNS/FastDNS | Planned | EdgeGrid DNS credentials, separate from Akamai EAA login |
@@ -265,6 +265,9 @@ operational policy if long-term storage size matters.
 |----------|-------------|---------|---------|
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API token for zone discovery, DNS inspection, and optional approved DNS writes | - | `your_cloudflare_api_token` |
 | `CLOUDFLARE_ZONE_ID` | Optional default Cloudflare Zone ID | - | `your_cloudflare_zone_id` |
+| `CLOUDFLARE_OAUTH_CLIENT_ID` | Optional Cloudflare OAuth client ID for one-click provider connect | - | `your_cloudflare_oauth_client_id` |
+| `CLOUDFLARE_OAUTH_CLIENT_SECRET` | Optional Cloudflare OAuth client secret for one-click provider connect | - | `your_cloudflare_oauth_client_secret` |
+| `CLOUDFLARE_OAUTH_SCOPES` | Cloudflare OAuth scopes requested for read-only zone import and ownership checks | `zone.read dns.read` | `zone.read dns.read` |
 | `HETZNER_DNS_API_TOKEN` | Hetzner Console API token for read-only DNS zone import through `api.hetzner.cloud` | - | `your_hetzner_read_only_api_token` |
 | `HETZNER_API_TOKEN` | Fallback Hetzner token name if you already inject generic Hetzner Cloud credentials | - | `your_hetzner_read_only_api_token` |
 

@@ -162,12 +162,40 @@
         {% call card_header() %}
             {% call card_title() %}Cloudflare Integration{% endcall %}
             {% call card_description() %}
-                Provide a Cloudflare API token and Zone ID to enable automated DNS record management and DoH lookups.
-                Obtain your token from <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" class="underline">Cloudflare API Tokens</a>.
+                Connect Cloudflare to verify domain ownership, import zones, and read DNS records.
+                DNS write access is a separate approval step for future one-click repairs.
             {% endcall %}
         {% endcall %}
         {% call card_content() %}
             <form @submit.prevent="saveCategory('cloudflare')" class="space-y-4">
+                <div class="rounded-lg border border-[#dfdfdf] bg-[#f8f7f4] p-4">
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                            <h3 class="text-sm font-semibold text-[#120d36]">Cloudflare OAuth</h3>
+                            <p class="text-sm text-[#5f5c78]">
+                                <span x-show="cfOAuthStatus.oauth_configured && cfOAuthStatus.connected">Connected with scoped access.</span>
+                                <span x-show="cfOAuthStatus.oauth_configured && !cfOAuthStatus.connected">Ready to connect with read-only zone and DNS access.</span>
+                                <span x-show="!cfOAuthStatus.oauth_configured">Configure Cloudflare OAuth client credentials on the server to enable one-click connect.</span>
+                            </p>
+                            <p class="mt-1 text-xs text-[#5f5c78]" x-show="cfOAuthStatus.scopes">
+                                Granted scopes: <span class="font-mono" x-text="cfOAuthStatus.scopes"></span>
+                            </p>
+                        </div>
+                        <button type="button" class="btn btn-default btn-sm"
+                            :disabled="connectingCloudflare || !cfOAuthStatus.oauth_configured"
+                            @click="connectCloudflare()">
+                            <template x-if="!connectingCloudflare">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
+                                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+                                </svg>
+                            </template>
+                            <template x-if="connectingCloudflare"><span class="loading loading-spinner loading-xs mr-2"></span></template>
+                            Connect Cloudflare
+                        </button>
+                    </div>
+                </div>
                 <div class="form-control w-full">
                     <label class="label"><span class="label-text font-medium">API Token</span></label>
                     <div class="relative">
@@ -182,7 +210,7 @@
                             <svg x-show="showCfToken" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
                         </button>
                     </div>
-                    <label class="label"><span class="label-text-alt text-muted-foreground">Stored securely; leave as-is to keep existing token</span></label>
+                    <label class="label"><span class="label-text-alt text-muted-foreground">Optional fallback. Use Zone:Read and DNS:Read for discovery; add DNS:Edit only when repair is enabled.</span></label>
                 </div>
                 <div class="form-control w-full">
                     <label class="label"><span class="label-text font-medium">Zone ID</span></label>
@@ -1026,6 +1054,14 @@ function settingsApp() {
         configAudit: [],
         loadingCfZones: false,
         importingCfZones: false,
+        connectingCloudflare: false,
+        cfOAuthStatus: {
+            oauth_configured: false,
+            connected: false,
+            auth_mode: null,
+            scopes: null,
+            connected_at: null,
+        },
         cfZones: [],
         showCfToken: false,
         loadingMailServiceDomains: false,
@@ -1083,6 +1119,7 @@ function settingsApp() {
                 await this.loadConfigAudit(false);
                 await this.loadWebhooks(false);
                 await this.loadWebhookDeliveries(false);
+                await this.loadCloudflareOAuthStatus(false);
             } catch (err) {
                 this.showFlash('Error loading settings: ' + err.message, false);
             }
@@ -1334,6 +1371,46 @@ function settingsApp() {
                 this.showFlash('Error discovering Cloudflare zones: ' + err.message, false);
             } finally {
                 this.loadingCfZones = false;
+            }
+        },
+
+        async loadCloudflareOAuthStatus(showMessage = false) {
+            try {
+                const res = await fetch('/api/v1/domains/cloudflare/oauth/status', {
+                    headers: this.workspaceHeaders(),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    if (showMessage) {
+                        this.showFlash('Cloudflare status failed: ' + (data.detail || res.statusText), false);
+                    }
+                    return;
+                }
+                this.cfOAuthStatus = data;
+            } catch (err) {
+                if (showMessage) {
+                    this.showFlash('Error loading Cloudflare status: ' + err.message, false);
+                }
+            }
+        },
+
+        async connectCloudflare() {
+            this.connectingCloudflare = true;
+            try {
+                const res = await fetch('/api/v1/domains/cloudflare/oauth/authorize-url?return_to=/settings', {
+                    headers: this.workspaceHeaders(),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    const detail = typeof data.detail === 'string' ? data.detail : data.detail?.message;
+                    this.showFlash('Cloudflare connect failed: ' + (detail || res.statusText), false);
+                    return;
+                }
+                window.location.href = data.authorization_url;
+            } catch (err) {
+                this.showFlash('Error starting Cloudflare connection: ' + err.message, false);
+            } finally {
+                this.connectingCloudflare = false;
             }
         },
 
