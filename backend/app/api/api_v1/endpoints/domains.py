@@ -1,5 +1,6 @@
 import asyncio
 import csv
+import hashlib
 import io
 import ipaddress
 import json
@@ -86,6 +87,7 @@ from app.services.sender_intelligence import (
     identify_sender,
     source_geo_for,
 )
+from app.services.webhook_events import delivery_to_dict, enqueue_webhook_event
 from app.services.workspace_access import (
     PERMISSION_DOMAINS_WRITE,
     PERMISSION_REPORTS_READ,
@@ -876,6 +878,30 @@ class RemediationNotificationAuditResponse(BaseModel):
     event: str
     dedupe_key: str
     lifecycle_state: str
+    audit: Dict[str, Any]
+
+
+class RemediationNotificationDispatchRequest(BaseModel):
+    """Explicit operator request to enqueue one remediation notification."""
+
+    item_id: str
+    confirm: bool = False
+    event: Optional[str] = None
+    dedupe_key: Optional[str] = None
+    note: Optional[str] = None
+
+
+class RemediationNotificationDispatchResponse(BaseModel):
+    """Persisted webhook delivery state for one approved remediation dispatch."""
+
+    domain: str
+    item_id: str
+    event: str
+    dedupe_key: str
+    delivery_enqueued: bool
+    delivery_count: int
+    deliveries: List[Dict[str, Any]] = Field(default_factory=list)
+    dispatch: Dict[str, Any] = Field(default_factory=dict)
     audit: Dict[str, Any]
 
 
@@ -3755,6 +3781,145 @@ async def audit_domain_remediation_notification(
         "event": event,
         "dedupe_key": dedupe_key,
         "lifecycle_state": lifecycle_state,
+        "audit": audit_log_to_dict(audit_row),
+    }
+
+
+def _remediation_dispatch_idempotency_key(event: str, dedupe_key: str) -> str:
+    """Return a bounded idempotency key for explicit remediation dispatch."""
+    digest = hashlib.sha256(f"{event}:{dedupe_key}".encode("utf-8")).hexdigest()[:32]
+    return f"remediation-dispatch:{digest}"
+
+
+@router.post(
+    "/{domain_id}/remediation/notifications/dispatch",
+    response_model=RemediationNotificationDispatchResponse,
+)
+async def dispatch_domain_remediation_notification(
+    request: Request,
+    payload: RemediationNotificationDispatchRequest,
+    domain_id: str = Path(..., title="The domain ID or name"),
+    refresh: bool = Query(False, title="Refresh cached DNS posture"),
+    selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
+    """Enqueue an explicitly approved remediation notification for webhook delivery."""
+    if not payload.confirm:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Set confirm=true to enqueue remediation notification delivery.",
+        )
+
+    workspace = _authorized_domain_workspace(
+        _auth,
+        db,
+        selected_workspace_id=parse_selected_workspace_id(selected_workspace),
+    )
+    queue = await _build_domain_remediation_queue_for_workspace(
+        db,
+        workspace=workspace,
+        domain_id=domain_id,
+        refresh=refresh,
+    )
+    queue = attach_remediation_dispatch_previews(db, workspace=workspace, queue=queue)
+    item = next(
+        (
+            candidate
+            for candidate in queue.get("items", [])
+            if candidate.get("id") == payload.item_id
+        ),
+        None,
+    )
+    if item is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Remediation item not found",
+        )
+
+    notification = item.get("notification") or {}
+    event = str(notification.get("event") or "")
+    dedupe_key = str(notification.get("dedupe_key") or "")
+    if payload.event is not None and payload.event != event:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Notification event does not match the current remediation item",
+        )
+    if payload.dedupe_key is not None and payload.dedupe_key != dedupe_key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Notification dedupe_key does not match the current remediation item",
+        )
+
+    dispatch_preview = notification.get("dispatch") or {}
+    if not dispatch_preview.get("eligible"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": "Remediation notification is not dispatch-ready.",
+                "blocked_reasons": dispatch_preview.get("blocked_reasons") or [],
+                "next_steps": dispatch_preview.get("next_steps") or [],
+            },
+        )
+
+    notification_payload = notification.get("payload_preview") or {}
+    deliveries = enqueue_webhook_event(
+        db,
+        event_type=event,
+        payload=notification_payload,
+        idempotency_key=_remediation_dispatch_idempotency_key(event, dedupe_key),
+        workspace_id=workspace.id,
+    )
+    delivery_rows = [delivery_to_dict(delivery) for delivery in deliveries]
+    automation = item.get("automation") or {}
+    audit_row = record_workspace_audit_log(
+        db,
+        workspace=workspace,
+        action="remediation.notification_dispatch_enqueued",
+        entity_type="remediation_notification",
+        entity_id=item.get("id"),
+        entity_name=queue.get("domain"),
+        details={
+            "item_id": item.get("id"),
+            "domain": queue.get("domain"),
+            "event": event,
+            "dedupe_key": dedupe_key,
+            "notification_state": notification.get("state"),
+            "notification_channel": notification.get("channel"),
+            "notification_next_transition": notification.get("next_transition"),
+            "source": item.get("source"),
+            "severity": item.get("severity"),
+            "confidence": item.get("confidence"),
+            "automation_eligible": automation.get("eligible"),
+            "automation_provider": automation.get("provider"),
+            "automation_plan_id": automation.get("plan_id"),
+            "payload_preview": notification_payload,
+            "operator_note": payload.note,
+            "sent": False,
+            "delivery_enqueued": bool(delivery_rows),
+            "delivery_count": len(delivery_rows),
+            "deliveries": delivery_rows,
+            "dns_write_attempted": False,
+        },
+        auth_context=_auth,
+        request=request,
+        commit=True,
+    )
+
+    dispatch_response = {
+        **dispatch_preview,
+        "delivery_enqueued": bool(delivery_rows),
+        "delivery_count": len(delivery_rows),
+    }
+    return {
+        "domain": str(queue.get("domain") or domain_id),
+        "item_id": str(item.get("id") or payload.item_id),
+        "event": event,
+        "dedupe_key": dedupe_key,
+        "delivery_enqueued": bool(delivery_rows),
+        "delivery_count": len(delivery_rows),
+        "deliveries": delivery_rows,
+        "dispatch": dispatch_response,
         "audit": audit_log_to_dict(audit_row),
     }
 
