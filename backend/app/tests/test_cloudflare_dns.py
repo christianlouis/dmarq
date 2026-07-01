@@ -26,6 +26,7 @@ from app.services import (
     dns_provider_imports,
     dns_provider_writes,
     hetzner_dns,
+    route53_dns,
 )
 from app.services.cloudflare_dns import analyze_dns_records, sync_dns_record_changes
 from app.services.dns_provider_writes import (
@@ -116,6 +117,35 @@ class FakeHetznerDNSClient:
 
     async def list_zones(self):
         return self.zones
+
+
+class FakeRoute53DNSClient:
+    def __init__(self, *, zones=None, account_name="Amazon Route 53"):
+        self.zones = zones or []
+        self.account_name = account_name
+
+    async def list_zones(self):
+        return self.zones
+
+
+class FakeRoute53Paginator:
+    def __init__(self, pages):
+        self.pages = pages
+
+    def paginate(self):
+        return self.pages
+
+
+class FakeRoute53BotoClient:
+    def __init__(self, *, pages=None, error=None):
+        self.pages = pages or []
+        self.error = error
+
+    def get_paginator(self, name):
+        assert name == "list_hosted_zones"
+        if self.error:
+            raise self.error
+        return FakeRoute53Paginator(self.pages)
 
 
 class FakeHetznerResponse:
@@ -515,6 +545,91 @@ def test_hetzner_dns_credentials_and_build_client(monkeypatch):
         hetzner_dns.build_hetzner_dns_client()
 
 
+def test_route53_dns_client_list_zones_uses_boto3_paginator():
+    boto_client = FakeRoute53BotoClient(
+        pages=[
+            {"HostedZones": [{"Id": "/hostedzone/Z1", "Name": f"{DOMAIN}."}]},
+            {
+                "HostedZones": [
+                    {
+                        "Id": "/hostedzone/Z2",
+                        "Name": "private.example.",
+                        "Config": {"PrivateZone": True},
+                    }
+                ]
+            },
+        ]
+    )
+    client = route53_dns.Route53DNSClient(route53_client=boto_client)
+
+    zones = asyncio.run(client.list_zones())
+
+    assert [route53_dns.Route53DNSClient._zone_id(zone) for zone in zones] == ["Z1", "Z2"]
+    assert route53_dns.Route53DNSClient._zone_name(zones[0]) == DOMAIN
+    assert route53_dns.Route53DNSClient._zone_status(zones[0]) == "public"
+    assert route53_dns.Route53DNSClient._zone_status(zones[1]) == "private"
+
+
+def test_route53_dns_client_maps_provider_errors():
+    client = route53_dns.Route53DNSClient(
+        route53_client=FakeRoute53BotoClient(error=route53_dns.NoCredentialsError())
+    )
+
+    with pytest.raises(LookupError, match="hosted-zone listing failed"):
+        asyncio.run(client.list_zones())
+
+
+def test_route53_dns_credentials_and_build_client(monkeypatch):
+    created_sessions = []
+
+    class FakeSTSClient:
+        def assume_role(self, **kwargs):
+            assert kwargs == {
+                "RoleArn": "arn:aws:iam::123456789012:role/dmarq",
+                "RoleSessionName": route53_dns.ROUTE53_ROLE_SESSION_NAME,
+                "ExternalId": "external-1",
+            }
+            return {
+                "Credentials": {
+                    "AccessKeyId": "akid",
+                    "SecretAccessKey": "secret",
+                    "SessionToken": "session",
+                }
+            }
+
+    class FakeSession:
+        def __init__(self, **kwargs):
+            created_sessions.append(kwargs)
+
+        def client(self, service_name, **kwargs):
+            if service_name == "sts":
+                return FakeSTSClient()
+            assert service_name == "route53"
+            assert kwargs["aws_access_key_id"] == "akid"
+            return FakeRoute53BotoClient()
+
+    monkeypatch.setattr(
+        route53_dns,
+        "get_settings",
+        lambda: SimpleNamespace(
+            AWS_PROFILE="fallback-profile",
+            AWS_REGION="eu-central-1",
+            DMARQ_ROUTE53_PROFILE="route53-profile",
+            DMARQ_ROUTE53_ROLE_ARN="arn:aws:iam::123456789012:role/dmarq",
+            DMARQ_ROUTE53_EXTERNAL_ID="external-1",
+        ),
+    )
+    monkeypatch.setattr(route53_dns, "boto3", SimpleNamespace(Session=FakeSession))
+
+    credentials = route53_dns.get_route53_dns_credentials()
+    client = route53_dns.build_route53_dns_client()
+
+    assert credentials.profile_name == "route53-profile"
+    assert credentials.configured is True
+    assert created_sessions == [{"profile_name": "route53-profile", "region_name": "eu-central-1"}]
+    assert client.account_name == "Route 53 role dmarq"
+
+
 def test_discover_hetzner_zones_marks_imported_and_filters_invalid(db_session):
     workspace = get_or_create_default_workspace(db_session)
     db_session.add(Domain(name=DOMAIN, workspace_id=workspace.id))
@@ -562,6 +677,59 @@ def test_discover_hetzner_zones_scopes_default_workspace_import_state(db_session
 
     with patch("app.services.hetzner_dns.build_hetzner_dns_client", return_value=client):
         zones = asyncio.run(hetzner_dns.discover_hetzner_zones(db_session))
+
+    assert default_workspace.id != other_workspace.id
+    assert zones[0]["imported"] is False
+
+
+def test_discover_route53_zones_marks_imported_and_filters_invalid(db_session):
+    workspace = get_or_create_default_workspace(db_session)
+    db_session.add(Domain(name=DOMAIN, workspace_id=workspace.id))
+    db_session.commit()
+    client = FakeRoute53DNSClient(
+        zones=[
+            {"Id": "/hostedzone/Z1", "Name": f"{DOMAIN}.", "Config": {"PrivateZone": False}},
+            {"Id": "/hostedzone/Z2", "Name": "private.example.", "Config": {"PrivateZone": True}},
+            {"Id": None, "Name": "invalid.example."},
+            {"Id": "/hostedzone/Z3", "Name": ""},
+        ],
+        account_name="route53-profile",
+    )
+
+    with patch("app.services.route53_dns.build_route53_dns_client", return_value=client):
+        zones = asyncio.run(
+            route53_dns.discover_route53_zones(db_session, workspace_id=workspace.id)
+        )
+
+    assert zones == [
+        {
+            "id": "Z1",
+            "name": DOMAIN,
+            "status": "public",
+            "account_name": "route53-profile",
+            "imported": True,
+        },
+        {
+            "id": "Z2",
+            "name": "private.example",
+            "status": "private",
+            "account_name": "route53-profile",
+            "imported": False,
+        },
+    ]
+
+
+def test_discover_route53_zones_scopes_default_workspace_import_state(db_session):
+    default_workspace = get_or_create_default_workspace(db_session)
+    other_workspace = Workspace(slug="route53-other", name="Route53 Other", active=True)
+    db_session.add(other_workspace)
+    db_session.commit()
+    db_session.add(Domain(name=DOMAIN, workspace_id=other_workspace.id))
+    db_session.commit()
+    client = FakeRoute53DNSClient(zones=[{"Id": "/hostedzone/Z1", "Name": f"{DOMAIN}."}])
+
+    with patch("app.services.route53_dns.build_route53_dns_client", return_value=client):
+        zones = asyncio.run(route53_dns.discover_route53_zones(db_session))
 
     assert default_workspace.id != other_workspace.id
     assert zones[0]["imported"] is False
@@ -655,6 +823,94 @@ def test_import_hetzner_domains_reports_globally_existing_domain(db_session):
     assert db_session.query(Domain).filter(Domain.name == DOMAIN).count() == 1
 
 
+def test_import_route53_domains_imports_requested_and_skips_others(db_session):
+    async def fake_discover(_db, workspace_id=None):
+        return [
+            {"id": "Z1", "name": DOMAIN, "imported": False},
+            {"id": "Z2", "name": "skip.example", "imported": False},
+        ]
+
+    with patch("app.services.route53_dns.discover_route53_zones", new=fake_discover):
+        result = asyncio.run(
+            route53_dns.import_route53_domains(
+                db_session,
+                requested_domains=[f"{DOMAIN}."],
+            )
+        )
+
+    assert result["imported"] == [DOMAIN]
+    assert result["existing"] == []
+    assert result["skipped"] == ["skip.example"]
+    imported = db_session.query(Domain).filter(Domain.name == DOMAIN).first()
+    assert imported is not None
+    assert imported.verified is True
+    assert imported.description == "DNS-discovered from Route 53 hosted-zone import"
+
+
+def test_import_route53_domains_treats_global_duplicate_as_existing(db_session):
+    workspace = Workspace(slug="route53-target", name="Route53 Target")
+    db_session.add(workspace)
+    db_session.add(Domain(name=DOMAIN, workspace_id=None))
+    db_session.commit()
+
+    async def fake_discover(_db, workspace_id=None):
+        assert workspace_id == workspace.id
+        return [{"id": "Z1", "name": DOMAIN, "imported": False}]
+
+    with patch("app.services.route53_dns.discover_route53_zones", new=fake_discover):
+        result = asyncio.run(
+            route53_dns.import_route53_domains(
+                db_session,
+                requested_domains=[DOMAIN],
+                workspace_id=workspace.id,
+            )
+        )
+
+    assert result["imported"] == []
+    assert result["existing"] == [DOMAIN]
+    assert db_session.query(Domain).filter(Domain.name == DOMAIN).count() == 1
+
+
+def test_import_route53_domains_empty_selection_imports_nothing(db_session):
+    async def fake_discover(_db, workspace_id=None):
+        return [
+            {"id": "Z1", "name": DOMAIN, "imported": False},
+            {"id": "Z2", "name": "skip.example", "imported": False},
+        ]
+
+    with patch("app.services.route53_dns.discover_route53_zones", new=fake_discover):
+        result = asyncio.run(
+            route53_dns.import_route53_domains(
+                db_session,
+                requested_domains=[],
+            )
+        )
+
+    assert result["imported"] == []
+    assert result["existing"] == []
+    assert sorted(result["skipped"]) == [DOMAIN, "skip.example"]
+    assert db_session.query(Domain).filter(Domain.name.in_([DOMAIN, "skip.example"])).count() == 0
+
+
+def test_import_route53_domains_reports_globally_existing_domain(db_session):
+    other_workspace = Workspace(slug="route53-existing", name="Route53 Existing", active=True)
+    db_session.add(other_workspace)
+    db_session.commit()
+    db_session.add(Domain(name=DOMAIN, workspace_id=other_workspace.id))
+    db_session.commit()
+
+    async def fake_discover(_db, workspace_id=None):
+        return [{"id": "Z1", "name": DOMAIN, "imported": False}]
+
+    with patch("app.services.route53_dns.discover_route53_zones", new=fake_discover):
+        result = asyncio.run(route53_dns.import_route53_domains(db_session))
+
+    assert result["imported"] == []
+    assert result["existing"] == [DOMAIN]
+    assert result["skipped"] == []
+    assert db_session.query(Domain).filter(Domain.name == DOMAIN).count() == 1
+
+
 def test_dns_provider_import_preview_wraps_cloudflare_zones(db_session):
     async def fake_discover(_db, workspace_id=None):
         assert workspace_id == 123
@@ -723,6 +979,36 @@ def test_dns_provider_import_preview_wraps_hetzner_zones(db_session):
     assert "Hetzner DNS zone" in result["zones"][0]["next_action"]
 
 
+def test_dns_provider_import_preview_wraps_route53_zones(db_session):
+    async def fake_discover(_db, workspace_id=None):
+        assert workspace_id == 123
+        return [
+            {
+                "id": "Z1",
+                "name": DOMAIN,
+                "status": "public",
+                "account_name": "route53-profile",
+                "imported": False,
+            }
+        ]
+
+    with patch("app.services.dns_provider_imports.discover_route53_zones", new=fake_discover):
+        result = asyncio.run(
+            dns_provider_imports.preview_dns_provider_import(
+                db_session,
+                provider="route53",
+                workspace_id=123,
+            )
+        )
+
+    assert result["provider"] == "route53"
+    assert result["provider_name"] == "Amazon Route 53"
+    assert result["total_discovered"] == 1
+    assert result["importable_count"] == 1
+    assert result["zones"][0]["domain"] == DOMAIN
+    assert "Amazon Route 53 zone" in result["zones"][0]["next_action"]
+
+
 def test_dns_provider_import_apply_wraps_hetzner_import(db_session):
     async def fake_import(_db, requested_domains=None, workspace_id=None):
         assert requested_domains == [DOMAIN]
@@ -746,6 +1032,32 @@ def test_dns_provider_import_apply_wraps_hetzner_import(db_session):
 
     assert result["provider"] == "hetzner"
     assert result["provider_name"] == "Hetzner DNS"
+    assert result["imported"] == [DOMAIN]
+
+
+def test_dns_provider_import_apply_wraps_route53_import(db_session):
+    async def fake_import(_db, requested_domains=None, workspace_id=None):
+        assert requested_domains == [DOMAIN]
+        assert workspace_id == 456
+        return {
+            "imported": [DOMAIN],
+            "existing": [],
+            "skipped": [],
+            "total_discovered": 1,
+        }
+
+    with patch("app.services.dns_provider_imports.import_route53_domains", new=fake_import):
+        result = asyncio.run(
+            dns_provider_imports.import_dns_provider_domains(
+                db_session,
+                provider="route53",
+                requested_domains=[DOMAIN],
+                workspace_id=456,
+            )
+        )
+
+    assert result["provider"] == "route53"
+    assert result["provider_name"] == "Amazon Route 53"
     assert result["imported"] == [DOMAIN]
 
 
@@ -1066,8 +1378,8 @@ def test_dns_provider_capabilities_mark_cloudflare_import_available(authed_clien
     assert providers["hetzner"]["record_read_status"] == "planned"
     assert providers["hetzner"]["record_write_status"] == "lexicon_available"
     assert "api_token" in providers["hetzner"]["auth_models"]
-    assert providers["route53"]["import_available"] is False
-    assert providers["route53"]["zone_import_status"] == "planned"
+    assert providers["route53"]["import_available"] is True
+    assert providers["route53"]["zone_import_status"] == "ready"
     assert "iam_role_external_id" in providers["route53"]["auth_models"]
 
 

@@ -111,6 +111,19 @@ For ticketing and chatops workflows, use
 Jira and GitHub issue templates, Slack and Microsoft Teams message templates,
 dedupe keys, and recommended ownership/noise-control rules.
 
+## DNS Provider Imports
+
+Use DNS provider imports when you want DMARQ to monitor domains that exist at
+your DNS provider even if no DMARC reports have arrived yet.
+
+- Cloudflare uses a scoped API token with zone/DNS read access.
+- Amazon Route 53 uses the server-side AWS credential chain, a configured AWS
+  profile, or a role ARN plus external ID.
+- Hetzner DNS uses a read-only DNS API token.
+
+The import flow only creates monitored domains in DMARQ. It does not change DNS
+records. DNS repair remains a separate preview-and-approve action.
+
 ## API Access
 
 DMARQ provides an API for integration with other systems:

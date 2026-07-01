@@ -62,7 +62,7 @@ _CONNECTORS: tuple[DNSProviderConnector, ...] = (
         name="Amazon Route 53",
         tier=1,
         auth_models=["iam_role_external_id", "aws_profile", "environment_credentials"],
-        zone_import_status="planned",
+        zone_import_status="ready",
         record_read_status="planned",
         record_write_status="lexicon_available",
         dry_run_supported=True,
@@ -74,10 +74,11 @@ _CONNECTORS: tuple[DNSProviderConnector, ...] = (
             "route53:ChangeResourceRecordSets only when repair is enabled",
         ],
         setup_hint=(
+            "Use the boto3 AWS credential chain for read-only hosted-zone import. "
             "Prefer IAM role assumption with an external ID for hosted deployments; "
-            "static access keys should be limited to self-hosted environments."
+            "static access keys should stay limited to self-hosted environments."
         ),
-        docs_url="https://docs.aws.amazon.com/Route53/latest/APIReference/Welcome.html",
+        docs_url="https://docs.aws.amazon.com/Route53/latest/APIReference/API_ListHostedZones.html",
     ),
     DNSProviderConnector(
         id="akamai-edgedns",
