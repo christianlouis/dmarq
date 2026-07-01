@@ -630,6 +630,16 @@ def test_route53_dns_credentials_and_build_client(monkeypatch):
     assert client.account_name == "Route 53 role dmarq"
 
 
+def test_route53_dns_credentials_detect_full_container_credentials(monkeypatch):
+    monkeypatch.delenv("AWS_ACCESS_KEY_ID", raising=False)
+    monkeypatch.delenv("AWS_WEB_IDENTITY_TOKEN_FILE", raising=False)
+    monkeypatch.delenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", raising=False)
+    monkeypatch.setenv("AWS_CONTAINER_CREDENTIALS_FULL_URI", "http://169.254.170.23/credentials")
+    credentials = route53_dns.Route53DNSCredentials()
+
+    assert credentials.configured is True
+
+
 def test_discover_hetzner_zones_marks_imported_and_filters_invalid(db_session):
     workspace = get_or_create_default_workspace(db_session)
     db_session.add(Domain(name=DOMAIN, workspace_id=workspace.id))
@@ -907,6 +917,22 @@ def test_import_route53_domains_reports_globally_existing_domain(db_session):
 
     assert result["imported"] == []
     assert result["existing"] == [DOMAIN]
+    assert result["skipped"] == []
+    assert db_session.query(Domain).filter(Domain.name == DOMAIN).count() == 1
+
+
+def test_import_route53_domains_deduplicates_hosted_zone_names(db_session):
+    async def fake_discover(_db, workspace_id=None):
+        return [
+            {"id": "Z1", "name": DOMAIN, "imported": False},
+            {"id": "Z2", "name": DOMAIN, "imported": False},
+        ]
+
+    with patch("app.services.route53_dns.discover_route53_zones", new=fake_discover):
+        result = asyncio.run(route53_dns.import_route53_domains(db_session))
+
+    assert result["imported"] == [DOMAIN]
+    assert result["existing"] == []
     assert result["skipped"] == []
     assert db_session.query(Domain).filter(Domain.name == DOMAIN).count() == 1
 
