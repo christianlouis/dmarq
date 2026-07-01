@@ -74,6 +74,7 @@ from app.services.organizations import (
     OrganizationPlanLimitError,
     require_organization_plan_limit,
 )
+from app.services.remediation_queue import build_remediation_queue
 from app.services.report_persistence import (
     hydrate_report_store_from_db,
 )
@@ -787,6 +788,51 @@ class PostureDashboardResponse(BaseModel):
     recommendations: List[DNSHealthRecommendation]
     changes: List[PostureChangeSummary]
     playbooks: List[OperatorPlaybook]
+
+
+class RemediationAutomation(BaseModel):
+    """Automation eligibility for one remediation item."""
+
+    eligible: bool = False
+    requires_approval: bool = True
+    provider: Optional[str] = None
+    plan_id: Optional[str] = None
+    apply_endpoint: Optional[str] = None
+    reason: str = ""
+
+
+class RemediationEvidence(BaseModel):
+    """Evidence attached to one remediation queue item."""
+
+    label: str
+    value: str
+
+
+class RemediationQueueItem(BaseModel):
+    """One prioritized operator action for a domain."""
+
+    id: str
+    source: str
+    state: str
+    severity: str
+    confidence: str
+    title: str
+    detail: str
+    next_steps: List[str] = Field(default_factory=list)
+    evidence: List[RemediationEvidence] = Field(default_factory=list)
+    blast_radius: str
+    prerequisites: List[str] = Field(default_factory=list)
+    expected_health_score_impact: str
+    automation: RemediationAutomation
+
+
+class RemediationQueueResponse(BaseModel):
+    """Prioritized remediation queue for a domain."""
+
+    domain: str
+    status: str
+    summary: Dict[str, int]
+    items: List[RemediationQueueItem]
 
 
 class HealthScoreHistoryPoint(BaseModel):
@@ -3483,6 +3529,44 @@ async def get_domain_posture_dashboard(
         )
     changes = list_dns_record_changes(db, domain_id, limit=10)
     return _build_posture_dashboard(domain_id, health, domain_health, changes)
+
+
+@router.get("/{domain_id}/remediation", response_model=RemediationQueueResponse)
+async def get_domain_remediation_queue(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    refresh: bool = Query(False, title="Refresh cached DNS posture"),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
+    """Return a prioritized, human-reviewed remediation queue for one domain."""
+    workspace = _authorized_domain_read_workspace(_auth, db)
+    store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
+    if not _domain_exists(db, store, domain_id, workspace):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Domain not found",
+        )
+
+    domain_health = await _build_domain_health_grade(
+        db,
+        domain_id,
+        store,
+        refresh=refresh,
+    )
+    guidance = await _build_domain_dns_guidance(db, store, domain_id, refresh=refresh)
+    available_providers = _ready_dns_write_provider_ids()
+    recommended_provider = _recommended_dns_write_provider(
+        guidance.get("dns_provider"),
+        available_providers,
+    )
+    return build_remediation_queue(
+        domain=domain_id,
+        health=domain_health,
+        dns_guidance=guidance,
+        available_write_providers=available_providers,
+        recommended_provider=recommended_provider,
+    )
 
 
 @router.get("/{domain_id}/posture/history", response_model=HealthScoreHistoryResponse)
