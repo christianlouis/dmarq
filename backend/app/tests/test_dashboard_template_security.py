@@ -108,3 +108,12 @@ def test_dashboard_hides_multi_user_demo_mode_controls():
     assert "Provider billing samples" not in template
     assert "/api/v1/operator/demo/multi-user" not in template
     assert "x-html" not in template
+
+
+def test_dashboard_trigger_poll_uses_post_action_not_get_link():
+    template = (Path(__file__).resolve().parents[1] / "templates" / "index.html").read_text()
+
+    assert 'href="/api/v1/admin/trigger-poll"' not in template
+    assert "triggerPollNow()" in template
+    assert "method: 'POST'" in template
+    assert "triggerPollMessage" in template

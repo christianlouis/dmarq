@@ -3974,6 +3974,20 @@ class TestPollAllEnabledSources:
 class TestTriggerPollEndpoint:
     """Tests for the POST /api/v1/admin/trigger-poll endpoint with sources."""
 
+    def test_trigger_poll_get_returns_actionable_method_guidance(self):
+        """Direct browser visits should explain that polling is a POST action."""
+        from app.main import app as main_app
+
+        with TestClient(main_app) as tc:
+            resp = tc.get("/api/v1/admin/trigger-poll")
+
+        assert resp.status_code == 405
+        assert resp.headers["allow"] == "POST"
+        detail = resp.json()["detail"]
+        assert detail["code"] == "method_not_allowed"
+        assert "dashboard button" in detail["message"]
+        assert "POST /api/v1/admin/trigger-poll" in detail["next_steps"][1]
+
     def test_trigger_poll_with_enabled_sources(self):
         """With enabled sources, the endpoint dispatches and returns results."""
         from app.core.security import require_admin_auth
