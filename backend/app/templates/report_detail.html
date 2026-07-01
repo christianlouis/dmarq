@@ -223,8 +223,8 @@
                                     {% call td() %}
                                         <div class="max-w-sm space-y-2">
                                             <span class="inline-flex items-center px-2 py-1 rounded text-xs capitalize"
-                                                  :class="record.review_status === 'needs_review' ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'"
-                                                  x-text="record.review_status === 'needs_review' ? 'Needs review' : 'Pass'"></span>
+                                                  :class="reviewStatusClass(record.review_status)"
+                                                  x-text="reviewStatusLabel(record.review_status)"></span>
                                             <template x-if="record.failure_reasons?.length">
                                                 <ul class="space-y-1 text-xs text-[#5f5c78]">
                                                     <template x-for="reason in record.failure_reasons" :key="reason">
@@ -322,6 +322,16 @@ function reportDetailApp(reportId) {
             if (disposition === 'quarantine') return 'bg-yellow-100 text-yellow-800';
             if (disposition === 'reject') return 'bg-red-100 text-red-800';
             return 'bg-gray-100 text-gray-800';
+        },
+
+        reviewStatusClass(status) {
+            if (status === 'needs_review') return 'bg-yellow-100 text-yellow-800';
+            return 'bg-green-100 text-green-800';
+        },
+
+        reviewStatusLabel(status) {
+            if (status === 'needs_review') return 'Needs review';
+            return 'Pass';
         },
     };
 }

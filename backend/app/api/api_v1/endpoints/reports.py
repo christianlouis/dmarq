@@ -664,6 +664,9 @@ def _record_review_guidance(record: Dict[str, Any]) -> Dict[str, Any]:
     steps: List[str] = []
     if disposition in {"reject", "quarantine"}:
         reasons.append(f"Receiver applied DMARC disposition '{disposition}'.")
+        steps.append(
+            "Check Header From alignment against the authenticated DKIM/SPF domains before changing DNS."
+        )
     if dkim_result and dkim_result != "pass":
         reasons.append("DKIM did not pass for this source.")
         steps.append("Check the DKIM selector in this report against the sender's DNS record.")

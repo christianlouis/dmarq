@@ -830,7 +830,10 @@ def test_get_report_by_id_includes_record_review_guidance(
     assert failed_record["review_status"] == "needs_review"
     assert any("SPF did not pass" in reason for reason in failed_record["failure_reasons"])
     assert any("DKIM did not pass" in reason for reason in failed_record["failure_reasons"])
-    assert "Open the domain sending-source view" in failed_record["next_steps"][-2]
+    assert any(
+        "Open the domain sending-source view" in step for step in failed_record["next_steps"]
+    )
+    assert any("Header From alignment" in step for step in failed_record["next_steps"])
 
 
 def test_get_report_by_id_not_found(authed_client: TestClient):

@@ -276,9 +276,9 @@ def _default_remediation_steps(code: str) -> List[str]:
             "Add a certificate URL if the mailbox providers you care about require it.",
         ],
         "dane_missing": [
-            "Confirm that the domain's DNS zone and every MX host zone are signed and validating with DNSSEC.",
+            "Confirm that the domain's DNS zone and every MX host zone you control are signed and validating with DNSSEC.",
             "For each MX host, fetch the live SMTP STARTTLS certificate and compute the TLSA 3 1 1 SHA-256 SPKI value.",
-            "Publish one TLSA record under _25._tcp.<mx-host> per MX host and refresh DMARQ DNS lint.",
+            "Publish one TLSA record under _25._tcp.<mx-host> per controlled MX host, or confirm your mail provider's DANE/TLSA support for third-party MX hosts, then refresh DMARQ DNS lint.",
         ],
         "dane_review": [
             "Review every TLSA record shown in evidence for the affected MX hosts.",

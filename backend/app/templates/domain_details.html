@@ -1908,7 +1908,10 @@ function domainDetailsApp(domainId) {
                 (total, region) => total + Number(region.source_count || 0),
                 0
             );
-            return Number(summary.sources || regionSources || this.sources.length || 0);
+            if (summary.sources !== null && summary.sources !== undefined) {
+                return Number(summary.sources);
+            }
+            return Number(regionSources || this.sources.length || 0);
         },
 
         get filteredSources() {
@@ -2248,15 +2251,19 @@ function domainDetailsApp(domainId) {
         async deleteDomain() {
             const typed = window.prompt(`Delete ${this.domainId}? Type the domain name to confirm.`);
             if (typed !== this.domainId) return;
-            const response = await fetch(`/api/v1/domains/${encodeURIComponent(this.domainId)}`, {
-                method: 'DELETE'
-            });
-            if (response.status === 204) {
-                window.location.href = '/domains';
-                return;
+            try {
+                const response = await fetch(`/api/v1/domains/${encodeURIComponent(this.domainId)}`, {
+                    method: 'DELETE'
+                });
+                if (response.status === 204) {
+                    window.location.href = '/domains';
+                    return;
+                }
+                const data = await response.json().catch(() => ({}));
+                window.alert(data.detail || 'Domain could not be deleted.');
+            } catch (error) {
+                window.alert(error.message || 'Domain could not be deleted.');
             }
-            const data = await response.json().catch(() => ({}));
-            window.alert(data.detail || 'Domain could not be deleted.');
         },
 
         enableMigrationTools() {

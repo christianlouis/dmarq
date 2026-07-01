@@ -1397,14 +1397,20 @@ def _ownership_record_value(token: str) -> str:
 
 
 def _ensure_domain_verification_token(db: Session, domain: Domain) -> str:
-    token = str(domain.verification_token or "").strip()
+    locked_domain = db.query(Domain).filter(Domain.id == domain.id).with_for_update().one_or_none()
+    if locked_domain is None:
+        db.refresh(domain)
+        locked_domain = domain
+
+    token = str(locked_domain.verification_token or "").strip()
     if token:
         return token
     token = secrets.token_urlsafe(24)
-    domain.verification_token = token
+    locked_domain.verification_token = token
     db.commit()
+    db.refresh(locked_domain)
     db.refresh(domain)
-    return token
+    return str(locked_domain.verification_token or "").strip()
 
 
 def _domain_ownership_response(domain: Domain, token: str) -> DomainOwnershipResponse:
@@ -3226,7 +3232,7 @@ async def verify_domain_ownership(
     record_name = _ownership_record_name(domain.name)
     try:
         observed = await get_default_provider(db).lookup_txt(record_name)
-    except Exception as exc:  # pylint: disable=broad-exception-caught
+    except LookupError as exc:
         observed = []
         logger.info("Domain ownership TXT lookup failed for %s: %s", record_name, exc)
 
