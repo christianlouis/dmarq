@@ -323,7 +323,7 @@ def _raise_if_workspace_domains_unverified(db: Session, workspace, *, action: st
                 "production DMARC reports."
             ),
             "summary": (
-                "DMARQ blocks production mail-source fetches until at least one active "
+                "DMARQ blocks production mail-source fetches until every active "
                 "domain in this workspace is verified. This prevents a mailbox or OAuth "
                 "connection from importing reports for domains the workspace has not "
                 "proven it controls."
