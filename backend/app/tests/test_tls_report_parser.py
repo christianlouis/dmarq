@@ -7,7 +7,6 @@ import pytest
 
 from app.services.tls_report_parser import TLSReportParser
 
-
 SAMPLE_TLS_REPORT = {
     "organization-name": "Example Reporter",
     "date-range": {
@@ -77,6 +76,20 @@ def test_parse_tls_report_zip():
     parsed = TLSReportParser.parse_file(archive.getvalue(), "tls-report.zip")
 
     assert parsed["policies"][0]["policy_domain"] == "example.com"
+
+
+def test_parse_tls_report_rejects_zip_without_json_file():
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zip_file:
+        zip_file.writestr("nested/readme.txt", "not a TLS report")
+
+    with pytest.raises(ValueError, match="Could not extract JSON content"):
+        TLSReportParser.parse_file(archive.getvalue(), "tls-report.zip")
+
+
+def test_parse_tls_report_rejects_bad_zip_file():
+    with pytest.raises(ValueError, match="Could not extract JSON content"):
+        TLSReportParser.parse_file(b"not a zip file", "tls-report.zip")
 
 
 def test_parse_tls_report_generates_stable_id_when_missing():
