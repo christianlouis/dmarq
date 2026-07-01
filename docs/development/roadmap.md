@@ -152,6 +152,12 @@ Exit criteria:
 Goal: make DMARQ fit into the places where operators already manage domains,
 DNS, mail delivery, hosting, tickets, and customer accounts.
 
+The detailed product boundary for each integration class lives in the
+[Ecosystem Integration Matrix](../reference/ecosystem-integrations.md). That
+matrix is the source of truth for why an integration exists, when users should
+connect it, required credentials and scopes, read/write capability, and the
+human-approval requirement.
+
 Integration categories:
 
 | Ecosystem | Why it matters | First useful behavior | Write boundary |

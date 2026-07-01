@@ -204,6 +204,9 @@ The current roadmap is organized around:
 - **Localized guidance, starting with German as the first non-English target**
 
 See the full [Roadmap](docs/development/roadmap.md) and [Milestones](docs/milestones.md).
+The [Ecosystem Integration Matrix](docs/reference/ecosystem-integrations.md)
+tracks where DNS providers, mail services, hosting panels, report intake,
+ticketing/chatops, SIEM, identity, and automation belong in the product.
 
 ---
 

@@ -42,6 +42,7 @@ nav:
   - Technical Reference:
     - API Reference: reference/api.md
     - Cloudflare Email Worker Webhook: cloudflare-email-worker-inbound-webhook.md
+    - Ecosystem Integration Matrix: reference/ecosystem-integrations.md
     - Provider Integrations: reference/provider-integrations.md
     - SIEM Integrations: reference/siem-integrations.md
     - Ticketing and Chatops: reference/ticketing-chatops-integrations.md
