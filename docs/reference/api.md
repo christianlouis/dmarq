@@ -678,8 +678,8 @@ match the current queue item's notification metadata. The response includes the
 sanitized workspace audit row. This endpoint is deliberately audit-only: it
 does not enqueue webhook deliveries, send notifications, or attempt DNS writes.
 
-`POST /domains/{domain_id}/remediation/notifications/dispatch` enqueues a
-webhook delivery for one current remediation item after explicit operator
+`POST /domains/{domain_id}/remediation/notifications/dispatch` enqueues
+webhook deliveries for one current remediation item after explicit operator
 approval. The request accepts `item_id`, `confirm=true`, and optional `event`,
 `dedupe_key`, and `note`. If `event` or `dedupe_key` is supplied, it must match
 the current queue item. The item's `dispatch.eligible` preview must already be
