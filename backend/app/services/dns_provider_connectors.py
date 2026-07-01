@@ -105,8 +105,8 @@ _CONNECTORS: tuple[DNSProviderConnector, ...] = (
         name="Hetzner DNS",
         tier=1,
         auth_models=["api_token", "lexicon_environment"],
-        zone_import_status="planned",
-        record_read_status="planned",
+        zone_import_status="ready",
+        record_read_status="ready",
         record_write_status="lexicon_available",
         dry_run_supported=True,
         verification_supported=False,
@@ -116,10 +116,10 @@ _CONNECTORS: tuple[DNSProviderConnector, ...] = (
             "DNS record write access only when repair is enabled",
         ],
         setup_hint=(
-            "Use a scoped Hetzner DNS API token; keep the connection read-only until "
-            "you explicitly want provider-approved repair actions."
+            "Use a read-only Hetzner Console API token for zone import and DNS context; "
+            "keep write credentials separate until you explicitly enable approved repair actions."
         ),
-        docs_url="https://www.hetzner.com/dns/",
+        docs_url="https://docs.hetzner.cloud/reference/cloud#dns",
     ),
     DNSProviderConnector(
         id="linode",

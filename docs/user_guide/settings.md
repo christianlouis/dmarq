@@ -143,8 +143,9 @@ DNS records, detect missing or malformed DMARC/SPF/DKIM entries, record DNS
 additions, modifications, or removals over time, and apply explicitly approved
 TXT/CNAME remediation plans.
 
-The DNS-zone import workflow is provider-shaped. Cloudflare is supported first,
-with the API path designed for additional DNS providers.
+The DNS-zone import workflow is provider-shaped. Cloudflare and Hetzner DNS can
+import zones before reports arrive; Hetzner import uses a read-only Hetzner
+Console API token from `HETZNER_DNS_API_TOKEN`.
 
 DMARQ never performs background DNS edits. A write-capable token only enables
 operator-approved actions from the DNS change plan UI, and each applied change

@@ -245,6 +245,8 @@ operational policy if long-term storage size matters.
 |----------|-------------|---------|---------|
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API token for zone discovery, DNS inspection, and optional approved DNS writes | - | `your_cloudflare_api_token` |
 | `CLOUDFLARE_ZONE_ID` | Optional default Cloudflare Zone ID | - | `your_cloudflare_zone_id` |
+| `HETZNER_DNS_API_TOKEN` | Hetzner Console API token for read-only DNS zone import through `api.hetzner.cloud` | - | `your_hetzner_read_only_api_token` |
+| `HETZNER_API_TOKEN` | Fallback Hetzner token name if you already inject generic Hetzner Cloud credentials | - | `your_hetzner_read_only_api_token` |
 | `POSTMARK_ACCOUNT_TOKEN` | Optional Postmark account token for read-only sender-domain discovery | - | `your_postmark_account_token` |
 | `WEBHOOK_SECRET` | Required secret for inbound email worker webhooks | - | `openssl rand -hex 32` |
 
@@ -258,6 +260,8 @@ The integration exposes these operational routes:
 | --- | --- |
 | `GET /api/v1/domains/dns/import/cloudflare/preview` | Preview zones visible to the connected Cloudflare token without creating rows. |
 | `POST /api/v1/domains/dns/import/cloudflare` | Import selected Cloudflare zones as monitored domains before reports arrive. |
+| `GET /api/v1/domains/dns/import/hetzner/preview` | Preview zones visible to the configured Hetzner read-only token without creating rows. |
+| `POST /api/v1/domains/dns/import/hetzner` | Import selected Hetzner DNS zones as monitored domains before reports arrive. |
 | `GET /api/v1/domains/cloudflare/discover` | List available zones. |
 | `POST /api/v1/domains/cloudflare/import` | Create monitored domain rows from zones. |
 | `GET /api/v1/domains/{domain}/dns/cloudflare` | Inspect managed DNS records, return DMARC/SPF/DKIM suggestions, and record detected DNS changes. |
@@ -287,11 +291,12 @@ normal DNS lint and change-plan responses. DMARQ does not modify Postmark or DNS
 records in this workflow; DNS writes still require an explicit confirmed action
 through a configured DNS provider connector.
 
-Cloudflare is implemented natively and is the first provider with ready
-DNS-zone import, record readback, dry-run, approved apply, verification, and
-rollback evidence. `GET /api/v1/domains/dns/providers` exposes the broader
-connector registry so operators can see which providers are ready, planned, or
-Lexicon-backed before wiring credentials.
+Cloudflare is implemented natively and supports DNS-zone import, record
+readback, dry-run, approved apply, verification, and rollback evidence. Hetzner
+DNS supports read-only zone import via Hetzner Console API tokens. `GET
+/api/v1/domains/dns/providers` exposes the broader connector registry so
+operators can see which providers are ready, planned, or Lexicon-backed before
+wiring credentials.
 
 Tier 1 connector metadata currently covers:
 
@@ -301,8 +306,8 @@ Tier 1 connector metadata currently covers:
   with external ID for hosted deployments.
 - Akamai Edge DNS / FastDNS: planned EdgeGrid-backed DNS connector. Akamai EAA
   is an access/SSO frontdoor option and does not replace the Edge DNS connector.
-- Hetzner DNS: planned zone import/read path; Lexicon-backed write path where
-  the runtime and credentials are available.
+- Hetzner DNS: read-only zone import/read path using `HETZNER_DNS_API_TOKEN`;
+  Lexicon-backed write path where the runtime and credentials are available.
 - Linode DNS: planned zone import/read path; Lexicon-backed write path where
   the runtime and credentials are available.
 

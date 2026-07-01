@@ -638,9 +638,9 @@ actually available today. Use `GET /domains/dns/import/{provider}/preview` to
 list DNS zones visible to a connected provider without creating anything. Use
 `POST /domains/dns/import/{provider}` with an optional `domains` array to import
 selected zones as monitored DMARQ domains before reports have arrived.
-Cloudflare is currently the only ready DNS-zone import provider; Route 53,
-Akamai Edge DNS/FastDNS, Hetzner, and Linode are exposed as connector roadmap
-metadata until their read/import implementations land. The legacy
+Cloudflare and Hetzner DNS currently support ready DNS-zone import. Route 53,
+Akamai Edge DNS/FastDNS, and Linode are exposed as connector roadmap metadata
+until their read/import implementations land. The legacy
 `/domains/cloudflare/discover` and `/domains/cloudflare/import` endpoints remain
 available for compatibility.
 
