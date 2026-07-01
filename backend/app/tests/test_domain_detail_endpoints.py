@@ -714,7 +714,6 @@ def test_domain_remediation_queue_falls_back_for_legacy_report_domains(
     monkeypatch,
 ):
     """Domain remediation uses scoped hydration before legacy report-only fallback."""
-    store = ReportStore.get_instance()
     hydrate_calls = []
 
     def fake_hydrate(db, store_arg, workspace_id=None):
@@ -755,6 +754,55 @@ def test_domain_remediation_queue_falls_back_for_legacy_report_domains(
     assert len(hydrate_calls) == 2
     assert hydrate_calls[0] is not None
     assert hydrate_calls[1] is None
+    assert response.json()["domain"] == DOMAIN
+
+
+def test_domain_remediation_queue_accepts_numeric_domain_id(
+    seeded_client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    """Domain remediation resolves numeric path IDs to the authorized domain name."""
+    domain = db_session.query(Domain).filter(Domain.name == DOMAIN).one()
+    hydrate_calls = []
+    seen_domains = []
+
+    def fake_hydrate(db, store_arg, workspace_id=None):
+        hydrate_calls.append(workspace_id)
+        return 1
+
+    async def fake_domain_grade(db, domain_id, store_arg, refresh=False):
+        seen_domains.append(domain_id)
+        return {
+            "domain": domain_id,
+            "score": 100,
+            "grade": "A",
+            "status": "healthy",
+            "factors": {},
+            "actions": [],
+        }
+
+    async def fake_dns_guidance(db, store_arg, domain_id, refresh=False):
+        seen_domains.append(domain_id)
+        return {
+            "domain": domain_id,
+            "status": "healthy",
+            "dns_provider": None,
+            "findings": [],
+            "change_plans": [],
+        }
+
+    monkeypatch.setattr(domains_endpoint, "hydrate_report_store_from_db", fake_hydrate)
+    monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_domain_grade)
+    monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", fake_dns_guidance)
+    monkeypatch.setattr(domains_endpoint, "_ready_dns_write_provider_ids", lambda: [])
+
+    response = seeded_client.get(f"/api/v1/domains/{domain.id}/remediation")
+
+    assert response.status_code == 200
+    assert len(hydrate_calls) == 1
+    assert hydrate_calls[0] is not None
+    assert seen_domains == [DOMAIN, DOMAIN]
     assert response.json()["domain"] == DOMAIN
 
 
