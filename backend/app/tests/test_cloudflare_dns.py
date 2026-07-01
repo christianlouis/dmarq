@@ -1284,6 +1284,54 @@ def test_dns_change_plan_apply_reports_unverified_provider_readback(
     assert audit_details["verification"]["verified"] is False
 
 
+def test_dns_change_plan_apply_simulates_confirmed_write_in_demo_mode(
+    authed_client: TestClient,
+    db_session,
+):
+    db_session.add(Domain(name=DOMAIN))
+    db_session.commit()
+    plan = _dns_plan(operation="update")
+    plan["current_values"] = ["v=DMARC1; p=none"]
+
+    class DemoSettings:
+        DEMO_MODE = True
+
+    with (
+        patch(
+            "app.api.api_v1.endpoints.domains._build_domain_dns_guidance",
+            new=AsyncMock(return_value=_dns_guidance_with_plan(plan)),
+        ),
+        patch("app.api.api_v1.endpoints.domains.get_settings", return_value=DemoSettings()),
+        patch("app.services.dns_provider_writes.build_dns_write_provider") as build_provider,
+    ):
+        response = authed_client.post(
+            f"/api/v1/domains/{DOMAIN}/dns/change-plan/apply",
+            json={
+                "plan_id": plan["plan_id"],
+                "provider": "cloudflare",
+                "dry_run": False,
+                "confirm": True,
+            },
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["applied"] is True
+    assert data["dry_run"] is False
+    assert data["provider_result"]["mode"] == "demo"
+    assert data["mutation"]["zone_id"] == "demo-zone"
+    assert data["mutation"]["current_values"] == ["v=DMARC1; p=none"]
+    assert data["verification"]["status"] == "verified"
+    assert data["verification"]["verified"] is True
+    assert "No live DNS was changed" in data["verification"]["message"]
+    assert data["rollback"]["previous_values"] == ["v=DMARC1; p=none"]
+    build_provider.assert_not_called()
+    audit_details = json.loads(db_session.query(WorkspaceAuditLog).one().details)
+    assert audit_details["applied"] is True
+    assert audit_details["verification"]["status"] == "verified"
+    assert audit_details["rollback"]["previous_values"] == ["v=DMARC1; p=none"]
+
+
 def test_dns_change_plan_apply_allows_explicit_provider_mismatch_override_and_audits(
     authed_client: TestClient,
     db_session,

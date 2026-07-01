@@ -42,6 +42,7 @@ from app.services.dns_provider_writes import (
     normalize_provider_id,
     preview_dns_write,
     provider_capabilities,
+    simulate_demo_dns_write,
 )
 from app.services.dns_resolver import (
     DomainDNSResult,
@@ -3362,15 +3363,24 @@ async def apply_domain_dns_change_plan(
                 )
             return result_payload
 
-        result = await apply_dns_write(
-            db,
-            workspace=workspace,
-            domain=resolved_domain,
-            plan=plan,
-            provider_id=payload.provider,
-            value_override=payload.value,
-            ttl=payload.ttl,
-        )
+        if get_settings().DEMO_MODE:
+            result = simulate_demo_dns_write(
+                domain=resolved_domain,
+                plan=plan,
+                provider_id=payload.provider,
+                value_override=payload.value,
+                ttl=payload.ttl,
+            )
+        else:
+            result = await apply_dns_write(
+                db,
+                workspace=workspace,
+                domain=resolved_domain,
+                plan=plan,
+                provider_id=payload.provider,
+                value_override=payload.value,
+                ttl=payload.ttl,
+            )
     except DNSProviderWriteError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

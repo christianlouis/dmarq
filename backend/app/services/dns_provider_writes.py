@@ -548,6 +548,61 @@ def build_dns_write_provider(provider_id: str) -> DNSWriteProvider:
     raise DNSProviderWriteError(f"Unsupported DNS provider: {provider_id}")
 
 
+def simulate_demo_dns_write(
+    *,
+    domain: str,
+    plan: Dict[str, Any],
+    provider_id: str,
+    value_override: Optional[str] = None,
+    ttl: int = 1,
+) -> DNSWriteResult:
+    """Return a confirmed demo apply result without touching a DNS provider."""
+    _validate_plan_for_automation(plan)
+    content = _plan_value(plan, value_override)
+    provider = normalize_provider_id(provider_id)
+    record_type = str(plan.get("record_type") or "").upper()
+    name = str(plan.get("name") or "").strip()
+    operation = str(plan.get("operation") or "").lower()
+    mutation = DNSWriteMutation(
+        operation=operation,
+        record_type=record_type,
+        name=name,
+        content=content,
+        ttl=ttl,
+        provider=provider,
+        zone_id="demo-zone",
+        zone_name=domain,
+        record_id=f"demo-{record_type.lower()}-{name}" if operation == "update" else None,
+        current_values=list(plan.get("current_values") or []),
+    )
+    return DNSWriteResult(
+        provider=provider,
+        dry_run=False,
+        applied=True,
+        mutation=mutation,
+        provider_result={
+            "id": mutation.record_id or f"demo-created-{record_type.lower()}-{name}",
+            "mode": "demo",
+            "message": "Demo mode simulated the provider apply; no live DNS was changed.",
+        },
+        changes=[
+            {
+                "type": "demo_apply",
+                "message": "Demo mode simulated the DNS repair and did not contact a provider.",
+            }
+        ],
+        verification=DNSWriteVerification(
+            status="verified",
+            verified=True,
+            checked_values=[content],
+            message=(
+                "Demo mode simulated provider readback for the proposed DNS value. "
+                "No live DNS was changed."
+            ),
+        ),
+    )
+
+
 async def preview_dns_write(
     db: Session,
     *,
