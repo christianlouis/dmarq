@@ -55,6 +55,7 @@ nav:
     - Testing: development/testing.md
     - CI/CD Pipeline: development/ci-cd.md
     - Roadmap: development/roadmap.md
+    - Protocol Coverage: development/protocol-coverage.md
     - Agentic Coding: development/agents.md
     - Issue Generation: development/issue_generation.md
   - FAQ: faq.md

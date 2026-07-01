@@ -51,6 +51,7 @@ async def test_build_dns_guidance_returns_typed_findings_and_targets():
         "target_mta_sts",
         "target_tls_rpt",
         "target_bimi",
+        "target_dane",
     }
     plan = next(plan for plan in guidance.change_plans if plan.finding_code == "dmarc_missing")
     assert plan.operation == "create"

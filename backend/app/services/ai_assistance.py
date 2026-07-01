@@ -18,6 +18,7 @@ from app.models.domain import Domain
 from app.models.mail_source import MailSource
 from app.models.setting import Setting
 from app.services.bimi import check_bimi_cached
+from app.services.dane import check_dane_cached
 from app.services.dns_cache import resolve_domain_dns_cached
 from app.services.dns_guidance import build_dns_guidance
 from app.services.dns_resolver import get_default_provider
@@ -368,12 +369,14 @@ async def build_remediation_plan(  # pylint: disable=too-many-locals
     )
     mta_sts_result, _, _ = await check_mta_sts_cached(db, provider, domain, refresh=refresh)
     bimi_result, _, _ = await check_bimi_cached(db, provider, domain, refresh=refresh)
+    dane_result, _, _ = await check_dane_cached(db, provider, domain, refresh=refresh)
     guidance = await build_dns_guidance(
         domain,
         provider,
         dns_result,
         mta_sts_result,
         bimi_result,
+        dane_result,
         monitored_selectors=combined_selectors,
         observed_selectors=report_selectors,
     )

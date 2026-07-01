@@ -24,6 +24,7 @@ from app.models.organization import Entitlement, Organization
 from app.models.report import DMARCReport, ReportRecord
 from app.models.workspace import Workspace
 from app.services.bimi import BIMIResult
+from app.services.dane import DANEResult, TLSARecord
 from app.services.dns_cache import _selectors_key, resolve_domain_dns_cached
 from app.services.dns_provider_detection import detect_dns_provider
 from app.services.dns_resolver import DomainDNSResult
@@ -896,6 +897,54 @@ def test_bimi_endpoint_returns_cached_posture(authed_client: TestClient):
 
 def test_bimi_endpoint_returns_404_for_unknown_domain(authed_client: TestClient):
     response = authed_client.get("/api/v1/domains/unknown.example.com/dns/bimi")
+
+    assert response.status_code == 404
+
+
+def test_dane_endpoint_returns_cached_posture(authed_client: TestClient):
+    """The domain detail page can fetch DANE/TLSA posture with cache metadata."""
+    checked_at = datetime(2026, 5, 23, 12, 0, 0)
+    result = DANEResult(
+        status="pass",
+        port=25,
+        mx_hosts=["mx.example.com"],
+        records=[
+            TLSARecord(
+                query_name="_25._tcp.mx.example.com",
+                mx_host="mx.example.com",
+                record=(
+                    "3 1 1 " "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                ),
+                certificate_usage=3,
+                selector=1,
+                matching_type=1,
+                association_data=(
+                    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                ),
+                valid=True,
+            )
+        ],
+    )
+
+    with patch(
+        "app.api.api_v1.endpoints.domains.check_dane_cached",
+        new=AsyncMock(return_value=(result, True, checked_at)),
+    ):
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns/dane")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "pass"
+    assert data["mx_hosts"] == ["mx.example.com"]
+    assert data["records"][0]["query_name"] == "_25._tcp.mx.example.com"
+    assert data["records"][0]["certificate_usage"] == 3
+    assert data["records"][0]["valid"] is True
+    assert data["cached"] is True
+    assert data["checked_at"] == checked_at.isoformat()
+
+
+def test_dane_endpoint_returns_404_for_unknown_domain(authed_client: TestClient):
+    response = authed_client.get("/api/v1/domains/unknown.example.com/dns/dane")
 
     assert response.status_code == 404
 
