@@ -19,11 +19,17 @@ from fastapi.testclient import TestClient
 
 from app.api.api_v1.endpoints import domains as domains_endpoint
 from app.models.domain import Domain
+from app.models.setting import Setting
+from app.models.webhook import WebhookDelivery
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog
 from app.services import report_persistence
 from app.services.health_score_snapshots import upsert_health_score_snapshot
 from app.services.report_store import ReportStore
+from app.services.webhook_events import (
+    EVENT_REMEDIATION_APPROVAL_REQUIRED,
+    create_webhook_endpoint,
+)
 from app.services.workspaces import get_or_create_default_workspace
 
 # ---------------------------------------------------------------------------
@@ -75,6 +81,52 @@ REPORT_STR_POLICY = {
     "report_id": "rpt-str-policy",
     "policy": "quarantine",
 }
+
+
+def _stub_approval_ready_remediation(monkeypatch):
+    """Stub a deterministic approval-ready remediation queue for example.com."""
+
+    async def fake_domain_grade(db, domain_id, store, refresh=False):
+        return {
+            "domain": domain_id,
+            "score": 72,
+            "grade": "C",
+            "status": "attention",
+            "factors": {"dns_posture": 60},
+            "actions": [],
+        }
+
+    async def fake_dns_guidance(db, store, domain_id, refresh=False):
+        return {
+            "domain": domain_id,
+            "status": "critical",
+            "dns_provider": {"provider_id": "cloudflare"},
+            "findings": [],
+            "change_plans": [
+                {
+                    "plan_id": "dmarc-missing",
+                    "finding_code": "dmarc_missing",
+                    "severity": "error",
+                    "operation": "create",
+                    "record_type": "TXT",
+                    "name": "_dmarc.example.com",
+                    "proposed_value": "v=DMARC1; p=none; rua=mailto:dmarc@example.com",
+                    "current_values": [],
+                    "rationale": "Publish a monitoring DMARC record.",
+                    "expected_health_impact": "High",
+                    "manual_steps": ["Create the TXT record."],
+                }
+            ],
+        }
+
+    monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_domain_grade)
+    monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", fake_dns_guidance)
+    monkeypatch.setattr(domains_endpoint, "_ready_dns_write_provider_ids", lambda: ["cloudflare"])
+    monkeypatch.setattr(
+        domains_endpoint,
+        "_recommended_dns_write_provider",
+        lambda dns_provider, available_providers: "cloudflare",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -662,10 +714,145 @@ def test_domain_remediation_queue_groups_dns_and_health_actions(
     assert data["items"][0]["id"] == "dns:dmarc-missing"
     assert data["items"][0]["automation"]["eligible"] is True
     assert data["items"][0]["automation"]["provider"] == "cloudflare"
+    dispatch = data["items"][0]["notification"]["dispatch"]
+    assert dispatch["enabled"] is False
+    assert dispatch["eligible"] is False
+    assert dispatch["delivery_enqueued"] is False
+    assert "Remediation dispatch is disabled" in dispatch["blocked_reasons"][0]
     assert [item["id"] for item in data["items"]] == [
         "dns:dmarc-missing",
         "health:low_compliance",
     ]
+
+
+def test_domain_remediation_dispatch_preview_becomes_eligible_without_enqueuing(
+    seeded_client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    """Opt-in remediation dispatch readiness is visible but still read-only."""
+    _stub_approval_ready_remediation(monkeypatch)
+    workspace = get_or_create_default_workspace(db_session)
+    db_session.add_all(
+        [
+            Setting(
+                key="notifications.remediation_dispatch_enabled",
+                value="true",
+                description="Enable remediation dispatch",
+                value_type="boolean",
+                category="notifications",
+            ),
+            Setting(
+                key="notifications.remediation_dispatch_require_acknowledgement",
+                value="true",
+                description="Require remediation acknowledgement",
+                value_type="boolean",
+                category="notifications",
+            ),
+        ]
+    )
+    create_webhook_endpoint(
+        db_session,
+        workspace_id=workspace.id,
+        name="remediation receiver",
+        url="https://receiver.example/remediation",
+        event_types=[EVENT_REMEDIATION_APPROVAL_REQUIRED],
+    )
+    db_session.commit()
+
+    audit_response = seeded_client.post(
+        f"/api/v1/domains/{DOMAIN}/remediation/notifications/audit",
+        json={
+            "item_id": "dns:dmarc-missing",
+            "event": EVENT_REMEDIATION_APPROVAL_REQUIRED,
+            "lifecycle_state": "acknowledged",
+        },
+    )
+    assert audit_response.status_code == 200
+
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/remediation")
+
+    assert response.status_code == 200
+    dispatch = response.json()["items"][0]["notification"]["dispatch"]
+    assert dispatch["enabled"] is True
+    assert dispatch["eligible"] is True
+    assert dispatch["would_enqueue"] is True
+    assert dispatch["delivery_enqueued"] is False
+    assert dispatch["lifecycle_state"] == "acknowledged"
+    assert dispatch["webhook_endpoint_count"] == 1
+    assert dispatch["blocked_reasons"] == []
+    assert db_session.query(WebhookDelivery).count() == 0
+
+
+def test_domain_remediation_dispatch_preview_reports_blockers_for_unsupported_routes(
+    seeded_client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    """Dispatch previews stay blocked for unsupported channels and event routing."""
+    _stub_approval_ready_remediation(monkeypatch)
+    workspace = get_or_create_default_workspace(db_session)
+    db_session.add_all(
+        [
+            Setting(
+                key="notifications.remediation_dispatch_enabled",
+                value="true",
+                description="Enable remediation dispatch",
+                value_type="boolean",
+                category="notifications",
+            ),
+            Setting(
+                key="notifications.remediation_dispatch_channel",
+                value="email",
+                description="Route remediation dispatch through email",
+                value_type="string",
+                category="notifications",
+            ),
+            Setting(
+                key="notifications.remediation_dispatch_events",
+                value="dmarq.domain.health.degraded, not-a-real-event",
+                description="Eligible remediation events",
+                value_type="string",
+                category="notifications",
+            ),
+            Setting(
+                key="notifications.remediation_dispatch_require_acknowledgement",
+                value="true",
+                description="Require remediation acknowledgement",
+                value_type="boolean",
+                category="notifications",
+            ),
+            WorkspaceAuditLog(
+                workspace_id=workspace.id,
+                actor_type="system",
+                actor_id="test-suite",
+                action="remediation.notification_lifecycle_recorded",
+                entity_type="remediation_notification",
+                entity_id="dns:dmarc-missing",
+                entity_name=DOMAIN,
+                details="{broken-json",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/remediation")
+
+    assert response.status_code == 200
+    dispatch = response.json()["items"][0]["notification"]["dispatch"]
+    assert dispatch["enabled"] is True
+    assert dispatch["eligible"] is False
+    assert dispatch["event_enabled"] is False
+    assert dispatch["channel"] == "email"
+    assert dispatch["lifecycle_state"] is None
+    assert dispatch["delivery_enqueued"] is False
+    assert dispatch["blocked_reasons"] == [
+        "This remediation event is not enabled for dispatch.",
+        "Only webhook dispatch is supported in this release slice.",
+        "Record a previewed or acknowledged lifecycle marker first.",
+    ]
+    assert "Add the event to notifications.remediation_dispatch_events." in dispatch["next_steps"]
+    assert "Set notifications.remediation_dispatch_channel=webhook." in dispatch["next_steps"]
 
 
 def test_domain_remediation_notification_lifecycle_audit_records_sanitized_marker(
