@@ -116,6 +116,12 @@ matching connector is available, the change-plan section highlights the
 recommended provider. Each plan also includes safety notes that explain why the
 plan is apply-ready or why it remains manual-only.
 
+The Apply button uses the provider preview as the final confirmation source. If
+there is no current preview for the selected plan, DMARQ prepares one first and
+then asks the operator to confirm the exact provider, operation, record name,
+record type, TTL, previous value, proposed value, and rollback summary before a
+live provider write is submitted.
+
 If an operator selects a different provider than the nameserver-detected
 provider, DMARQ blocks the preview/apply request by default. The mismatch can be
 overridden only with an explicit confirmation that the selected provider
