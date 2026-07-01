@@ -19,7 +19,12 @@ from app.models.setting import Setting
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog
-from app.services import cloudflare_dns, dns_provider_imports, dns_provider_writes
+from app.services import (
+    cloudflare_dns,
+    dns_provider_connectors,
+    dns_provider_imports,
+    dns_provider_writes,
+)
 from app.services.cloudflare_dns import analyze_dns_records, sync_dns_record_changes
 from app.services.dns_provider_writes import (
     CloudflareDNSWriteProvider,
@@ -808,10 +813,20 @@ def test_dns_provider_capabilities_include_cloudflare_and_lexicon(authed_client:
     assert providers["cloudflare"]["mode"] == "native"
     assert "route53" in providers
     assert "googleclouddns" in providers
-    assert providers["akamai_edgedns"]["mode"] == "planned"
-    assert providers["akamai_edgedns"]["name"] == "Akamai Edge DNS / FastDNS"
-    assert providers["akamai_edgedns"]["record_write_status"] == "planned"
-    assert "edgegrid" in providers["akamai_edgedns"]["auth_models"]
+    assert providers["akamai-edgedns"]["mode"] == "planned"
+    assert providers["akamai-edgedns"]["name"] == "Akamai Edge DNS / FastDNS"
+    assert providers["akamai-edgedns"]["record_write_status"] == "planned"
+    assert "edgegrid" in providers["akamai-edgedns"]["auth_models"]
+
+
+def test_dns_provider_connector_metadata_keeps_hyphenated_canonical_id():
+    metadata = dns_provider_connectors.provider_connector_metadata("akamai_edgedns")
+
+    assert metadata is not None
+    assert metadata["id"] == "akamai-edgedns"
+    assert dns_provider_connectors.provider_connector_metadata("fastdns")["id"] == (
+        "akamai-edgedns"
+    )
 
 
 def test_dns_provider_capabilities_report_available_lexicon_runtime():

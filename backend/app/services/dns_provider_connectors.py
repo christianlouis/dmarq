@@ -80,7 +80,7 @@ _CONNECTORS: tuple[DNSProviderConnector, ...] = (
         docs_url="https://docs.aws.amazon.com/Route53/latest/APIReference/Welcome.html",
     ),
     DNSProviderConnector(
-        id="akamai_edgedns",
+        id="akamai-edgedns",
         name="Akamai Edge DNS / FastDNS",
         tier=1,
         auth_models=["edgegrid"],
@@ -154,12 +154,12 @@ def provider_connector_metadata(provider_id: str) -> Optional[Dict[str, Any]]:
     """Return metadata for one connector by normalized provider ID."""
     normalized = provider_id.strip().lower().replace("_", "-")
     aliases = {
-        "akamai-edgedns": "akamai_edgedns",
-        "akamai": "akamai_edgedns",
-        "edgedns": "akamai_edgedns",
-        "fastdns": "akamai_edgedns",
+        "akamai": "akamai-edgedns",
+        "akamai-edgedns": "akamai-edgedns",
+        "edgedns": "akamai-edgedns",
+        "fastdns": "akamai-edgedns",
     }
-    canonical = aliases.get(normalized, normalized.replace("-", "_"))
+    canonical = aliases.get(normalized, normalized)
     for connector in _CONNECTORS:
         if connector.id == canonical:
             return connector.to_dict()
