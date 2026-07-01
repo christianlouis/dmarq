@@ -1304,6 +1304,15 @@ def test_dns_change_plan_apply_simulates_confirmed_write_in_demo_mode(
         patch("app.api.api_v1.endpoints.domains.get_settings", return_value=DemoSettings()),
         patch("app.services.dns_provider_writes.build_dns_write_provider") as build_provider,
     ):
+        preview_response = authed_client.post(
+            f"/api/v1/domains/{DOMAIN}/dns/change-plan/apply",
+            json={
+                "plan_id": plan["plan_id"],
+                "provider": "cloudflare",
+                "dry_run": True,
+                "confirm": False,
+            },
+        )
         response = authed_client.post(
             f"/api/v1/domains/{DOMAIN}/dns/change-plan/apply",
             json={
@@ -1314,6 +1323,13 @@ def test_dns_change_plan_apply_simulates_confirmed_write_in_demo_mode(
             },
         )
 
+    assert preview_response.status_code == 200
+    preview_data = preview_response.json()
+    assert preview_data["applied"] is False
+    assert preview_data["dry_run"] is True
+    assert preview_data["mutation"]["zone_id"] == "demo-zone"
+    assert preview_data["mutation"]["current_values"] == ["v=DMARC1; p=none"]
+    assert preview_data["verification"]["status"] == "not_run"
     assert response.status_code == 200
     data = response.json()
     assert data["applied"] is True

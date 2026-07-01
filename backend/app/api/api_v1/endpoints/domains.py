@@ -42,6 +42,7 @@ from app.services.dns_provider_writes import (
     normalize_provider_id,
     preview_dns_write,
     provider_capabilities,
+    simulate_demo_dns_preview,
     simulate_demo_dns_write,
 )
 from app.services.dns_resolver import (
@@ -3338,14 +3339,23 @@ async def apply_domain_dns_change_plan(
             allow_mismatch=payload.allow_provider_mismatch,
         )
         if payload.dry_run or not payload.confirm:
-            result = await preview_dns_write(
-                db,
-                domain=resolved_domain,
-                plan=plan,
-                provider_id=payload.provider,
-                value_override=payload.value,
-                ttl=payload.ttl,
-            )
+            if get_settings().DEMO_MODE:
+                result = simulate_demo_dns_preview(
+                    domain=resolved_domain,
+                    plan=plan,
+                    provider_id=payload.provider,
+                    value_override=payload.value,
+                    ttl=payload.ttl,
+                )
+            else:
+                result = await preview_dns_write(
+                    db,
+                    domain=resolved_domain,
+                    plan=plan,
+                    provider_id=payload.provider,
+                    value_override=payload.value,
+                    ttl=payload.ttl,
+                )
             result_payload = result.to_dict()
             result_payload["rollback"] = _dns_write_rollback_guidance(plan, result)
             safety_note = _provider_mismatch_safety_note(

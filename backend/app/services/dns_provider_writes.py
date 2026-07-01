@@ -548,6 +548,66 @@ def build_dns_write_provider(provider_id: str) -> DNSWriteProvider:
     raise DNSProviderWriteError(f"Unsupported DNS provider: {provider_id}")
 
 
+def _demo_dns_mutation(
+    *,
+    domain: str,
+    plan: Dict[str, Any],
+    provider_id: str,
+    value_override: Optional[str] = None,
+    ttl: int = 1,
+) -> DNSWriteMutation:
+    """Return a provider-like mutation for demo flows without provider access."""
+    _validate_plan_for_automation(plan)
+    content = _plan_value(plan, value_override)
+    provider = normalize_provider_id(provider_id)
+    record_type = str(plan.get("record_type") or "").upper()
+    name = str(plan.get("name") or "").strip()
+    operation = str(plan.get("operation") or "").lower()
+    demo_record_id = f"demo-{domain}-{record_type.lower()}-{name}"
+    return DNSWriteMutation(
+        operation=operation,
+        record_type=record_type,
+        name=name,
+        content=content,
+        ttl=ttl,
+        provider=provider,
+        zone_id="demo-zone",
+        zone_name=domain,
+        record_id=demo_record_id if operation == "update" else None,
+        current_values=list(plan.get("current_values") or []),
+    )
+
+
+def simulate_demo_dns_preview(
+    *,
+    domain: str,
+    plan: Dict[str, Any],
+    provider_id: str,
+    value_override: Optional[str] = None,
+    ttl: int = 1,
+) -> DNSWriteResult:
+    """Return a demo preview result without touching a DNS provider."""
+    mutation = _demo_dns_mutation(
+        domain=domain,
+        plan=plan,
+        provider_id=provider_id,
+        value_override=value_override,
+        ttl=ttl,
+    )
+    return DNSWriteResult(
+        provider=normalize_provider_id(provider_id),
+        dry_run=True,
+        applied=False,
+        mutation=mutation,
+        changes=[
+            {
+                "type": "demo_preview",
+                "message": "Demo mode simulated the DNS provider preview.",
+            }
+        ],
+    )
+
+
 def simulate_demo_dns_write(
     *,
     domain: str,
@@ -557,31 +617,21 @@ def simulate_demo_dns_write(
     ttl: int = 1,
 ) -> DNSWriteResult:
     """Return a confirmed demo apply result without touching a DNS provider."""
-    _validate_plan_for_automation(plan)
-    content = _plan_value(plan, value_override)
-    provider = normalize_provider_id(provider_id)
-    record_type = str(plan.get("record_type") or "").upper()
-    name = str(plan.get("name") or "").strip()
-    operation = str(plan.get("operation") or "").lower()
-    mutation = DNSWriteMutation(
-        operation=operation,
-        record_type=record_type,
-        name=name,
-        content=content,
+    mutation = _demo_dns_mutation(
+        domain=domain,
+        plan=plan,
+        provider_id=provider_id,
+        value_override=value_override,
         ttl=ttl,
-        provider=provider,
-        zone_id="demo-zone",
-        zone_name=domain,
-        record_id=f"demo-{record_type.lower()}-{name}" if operation == "update" else None,
-        current_values=list(plan.get("current_values") or []),
     )
     return DNSWriteResult(
-        provider=provider,
+        provider=normalize_provider_id(provider_id),
         dry_run=False,
         applied=True,
         mutation=mutation,
         provider_result={
-            "id": mutation.record_id or f"demo-created-{record_type.lower()}-{name}",
+            "id": mutation.record_id
+            or f"demo-created-{domain}-{mutation.record_type.lower()}-{mutation.name}",
             "mode": "demo",
             "message": "Demo mode simulated the provider apply; no live DNS was changed.",
         },
