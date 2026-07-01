@@ -252,6 +252,27 @@ def auth_provider_registry(settings: Settings | None = None) -> list[dict[str, A
     return [option.as_dict(settings) for option in AUTH_PROVIDER_OPTIONS]
 
 
+OIDC_PRESET_DISCRIMINATORS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    "keycloak": (("keycloak",), ("keycloak",)),
+    "entra_id": (
+        ("entra id", "microsoft entra id", "azure ad", "microsoft"),
+        ("login.microsoftonline.com", "sts.windows.net", "microsoftonline.com"),
+    ),
+    "google_workspace": (
+        ("google workspace", "google"),
+        ("accounts.google.com", "google.com"),
+    ),
+}
+
+
+def _generic_oidc_matches_preset(provider: str, settings: Settings) -> bool:
+    """Return True when generic OIDC config explicitly names a known preset."""
+    labels, issuer_fragments = OIDC_PRESET_DISCRIMINATORS.get(provider, ((), ()))
+    provider_label = (settings.OIDC_PROVIDER_LABEL or "").strip().lower()
+    issuer_url = (settings.OIDC_ISSUER_URL or "").strip().lower()
+    return provider_label in labels or any(fragment in issuer_url for fragment in issuer_fragments)
+
+
 def auth_provider_configured(provider: str, settings: Settings | None = None) -> bool:
     """Return True when a provider has enough config to be used."""
     cfg = settings or get_settings()
@@ -266,7 +287,11 @@ def auth_provider_configured(provider: str, settings: Settings | None = None) ->
     if provider == "oidc":
         return cfg.generic_oidc_configured
     if provider in {"keycloak", "entra_id", "google_workspace"}:
-        return cfg.active_auth_provider == "oidc" and cfg.generic_oidc_configured
+        return (
+            cfg.active_auth_provider == "oidc"
+            and cfg.generic_oidc_configured
+            and _generic_oidc_matches_preset(provider, cfg)
+        )
     if provider == "local":
         return bool(cfg.FIRST_SUPERUSER and cfg.FIRST_SUPERUSER_PASSWORD)
     return False

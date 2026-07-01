@@ -231,6 +231,22 @@ class TestExternalAuthProviders:
         assert provider is not None
         assert provider.label == "Keycloak"
 
+    def test_generic_oidc_presets_require_explicit_provider_match(self):
+        settings = Settings(
+            AUTH_MODE="oidc",
+            OIDC_ISSUER_URL="https://idp.example.test/realms/dmarq",
+            OIDC_CLIENT_ID="client-id",
+            OIDC_CLIENT_SECRET="client-secret",
+            OIDC_PROVIDER_LABEL="Keycloak",
+        )
+
+        providers = {entry["provider"]: entry for entry in auth_provider_registry(settings)}
+
+        assert providers["oidc"]["configured"] is True
+        assert providers["keycloak"]["configured"] is True
+        assert providers["entra_id"]["configured"] is False
+        assert providers["google_workspace"]["configured"] is False
+
     def test_oidc_state_round_trip(self):
         settings = Settings(SECRET_KEY="s" * 32)
         token = create_oidc_state("/domains", settings)

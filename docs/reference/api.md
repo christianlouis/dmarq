@@ -12,13 +12,16 @@ administrator session or admin API key.
 the setup UI. It contains provider metadata and configured/active booleans, but
 never returns client secrets. Each provider entry includes its `provider`,
 `label`, `auth_mode`, `status`, deployment model, setup hint, secret field names,
-docs URL, direct-OIDC/trusted-proxy support flags, and configured/active state.
+docs URL, `supports_direct_oidc`, `supports_trusted_proxy`,
+`supports_single_user`, `supports_multi_user`, and configured/active state.
 
-Current ready modes are no-app-auth, Logto, Authentik direct OIDC, generic OIDC,
-and trusted-proxy/AuthentiK Outpost. Keycloak, Microsoft Entra ID, and Google
-Workspace are exposed as generic-OIDC presets. Cloudflare Access and Akamai EAA
-are tracked as trusted-proxy presets and remain separate from DNS provider
-account connectors.
+Current ready providers include `disabled` (`No app auth`), `logto`,
+`authentik` (`Authentik OIDC`), `oidc` (`Generic OIDC`), and
+`trusted_proxy` (`Trusted proxy / Authentik Outpost`). Keycloak, Microsoft
+Entra ID, and Google Workspace are exposed as generic-OIDC presets and only
+report `configured=true` when the generic OIDC settings explicitly match that
+preset. Cloudflare Access and Akamai EAA are tracked as trusted-proxy presets
+and remain separate from DNS provider account connectors.
 
 ### API Keys
 
