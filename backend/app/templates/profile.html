@@ -51,7 +51,7 @@
                     </p>
                 </div>
                 <div>
-                    <span class="font-medium text-base-content/70">Logto ID</span>
+                    <span class="font-medium text-base-content/70">External ID</span>
                     <p class="mt-0.5 font-mono text-xs truncate"
                        x-text="user && user.logto_id ? user.logto_id : '—'"></p>
                 </div>
@@ -62,7 +62,7 @@
                             <span class="badge badge-warning badge-sm">Auth disabled</span>
                         </template>
                         <template x-if="user && !user.auth_disabled">
-                            <span class="badge badge-success badge-sm">Logto OIDC</span>
+                            <span class="badge badge-success badge-sm" x-text="user.auth_provider_label || 'External auth'"></span>
                         </template>
                     </p>
                 </div>
@@ -71,7 +71,7 @@
     {% endcall %}
 
     <!-- Account actions card -->
-    {% if logto_configured and not auth_disabled %}
+    {% if logto_configured and auth_provider == 'logto' and not auth_disabled %}
     {% call card() %}
         {% call card_header() %}
             {% call card_title() %}Account Security{% endcall %}
@@ -135,9 +135,24 @@
         <div>
             <p class="font-semibold">Authentication is disabled</p>
             <p class="text-sm">
-                Password reset and MFA management require Logto to be configured.
+                Password reset and MFA management require an identity provider to be configured.
                 Set <code class="font-mono bg-base-200 px-1 rounded">AUTH_DISABLED=false</code>
-                and configure Logto to enable these features.
+                and configure an identity provider to enable these features.
+            </p>
+        </div>
+    </div>
+    {% elif auth_configured %}
+    <div role="alert" class="alert alert-info">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24"
+             stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20A10 10 0 0012 2z"/>
+        </svg>
+        <div>
+            <p class="font-semibold">Account security is managed by {{ auth_provider_label }}</p>
+            <p class="text-sm">
+                Password reset, MFA, and account recovery remain in your configured
+                identity provider.
             </p>
         </div>
     </div>
@@ -149,9 +164,9 @@
                   d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
         </svg>
         <div>
-            <p class="font-semibold">Logto not configured</p>
+            <p class="font-semibold">Authentication not configured</p>
             <p class="text-sm">
-                Password reset and MFA management require Logto. Visit the
+                Password reset and MFA management require an identity provider. Visit the
                 <a href="/setup" class="link link-warning font-medium">setup page</a>
                 to configure it.
             </p>

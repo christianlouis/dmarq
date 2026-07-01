@@ -26,6 +26,7 @@ from app.models.domain import Domain
 from app.models.mail_source import MailSource
 from app.models.mail_source_backfill import MailSourceBackfillJob
 from app.models.mail_source_import import MailSourceImport
+from app.models.setting import Setting
 from app.services.demo_data import (
     build_demo_mail_source_backfills,
     build_demo_mail_sources,
@@ -59,6 +60,7 @@ _OAUTH_STATE_TTL = timedelta(minutes=10)
 BACKFILL_RETRYABLE_STATUSES = {"failed", "cancelled", "backoff"}
 BACKFILL_CANCELABLE_STATUSES = {"queued", "running", "backoff"}
 BACKFILL_SUPPORTED_METHODS = {"IMAP", "GMAIL_API", "M365_GRAPH"}
+GENERAL_BASE_URL_KEY = "general.base_url"
 
 
 # ---------------------------------------------------------------------------
@@ -237,6 +239,27 @@ def _sanitize_for_log(value: object) -> str:
 def _redact_sensitive_text(value: object) -> str:
     """Remove log-injection characters and redact secret-like diagnostic text."""
     return redact_recovery_text(value)
+
+
+def _setting_value(db: Session, key: str) -> Optional[str]:
+    row = db.query(Setting).filter(Setting.key == key).first()
+    return row.value if row and row.value else None
+
+
+def _public_base_url(request: Request, db: Session) -> str:
+    """Return the externally visible base URL for OAuth redirect URIs."""
+    configured = get_settings().PUBLIC_BASE_URL or _setting_value(db, GENERAL_BASE_URL_KEY)
+    if configured:
+        return configured.rstrip("/")
+
+    base_url = str(request.base_url).rstrip("/")
+    forwarded_proto = (
+        (request.headers.get("x-forwarded-proto") or "").split(",", maxsplit=1)[0].strip()
+    )
+    if forwarded_proto in {"http", "https"} and "://" in base_url:
+        _, rest = base_url.split("://", maxsplit=1)
+        return f"{forwarded_proto}://{rest}".rstrip("/")
+    return base_url
 
 
 def _diagnostic_category(message: str, details: Optional[object] = None) -> str:
@@ -1686,7 +1709,7 @@ async def m365_authorize_url(
             detail="m365_client_id is not configured for this source.",
         )
 
-    base_url = str(request.base_url).rstrip("/")
+    base_url = _public_base_url(request, db)
     redirect_uri = f"{base_url}/api/v1/mail-sources/{source_id}/m365/callback"
     auth_url = MicrosoftGraphClient.build_authorization_url(
         tenant_id=source.m365_tenant_id or "common",
@@ -1801,7 +1824,7 @@ async def m365_oauth_callback(
             status_code=404,
         )
 
-    base_url = str(request.base_url).rstrip("/")
+    base_url = _public_base_url(request, db)
     redirect_uri = f"{base_url}/api/v1/mail-sources/{source_id}/m365/callback"
 
     try:
@@ -2047,7 +2070,7 @@ async def gmail_authorize_url(
         )
 
     # Build a redirect_uri that points back to this server's callback endpoint
-    base_url = str(request.base_url).rstrip("/")
+    base_url = _public_base_url(request, db)
     redirect_uri = f"{base_url}/api/v1/mail-sources/{source_id}/gmail/callback"
 
     auth_url = GmailClient.build_authorization_url(
@@ -2105,7 +2128,7 @@ async def gmail_oauth_callback(
             status_code=404,
         )
 
-    base_url = str(request.base_url).rstrip("/")
+    base_url = _public_base_url(request, db)
     redirect_uri = f"{base_url}/api/v1/mail-sources/{source_id}/gmail/callback"
 
     try:

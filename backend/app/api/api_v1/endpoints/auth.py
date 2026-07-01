@@ -1,11 +1,11 @@
 """
-Authentication endpoints (Logto OIDC).
+Authentication endpoints (Logto, Authentik/OIDC, and trusted proxy).
 
 Routes
 ------
-GET  /sign-in          – Initiate the Logto sign-in flow.
-GET  /callback         – Handle the Logto authorization-code callback.
-GET  /sign-out         – Sign the user out (clears session + redirects to Logto).
+GET  /sign-in          – Initiate the configured sign-in flow.
+GET  /callback         – Handle the configured authorization-code callback.
+GET  /sign-out         – Sign the user out.
 GET  /me               – Return the currently authenticated user's profile.
 GET  /forgot-password  – Redirect to Logto's forgot-password screen (unauthenticated).
 GET  /change-password  – Redirect to Logto Account Center password page (authenticated).
@@ -24,6 +24,16 @@ from fastapi.responses import RedirectResponse
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
+from app.core.auth_providers import (
+    OIDC_STATE_COOKIE,
+    OIDC_STATE_MAX_AGE,
+    build_oidc_authorization_url,
+    configured_oidc_provider,
+    decode_oidc_state,
+    exchange_oidc_callback,
+    sync_external_user,
+    trusted_proxy_claims_from_request,
+)
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.logto import (
@@ -88,6 +98,23 @@ def _logto_not_configured() -> HTTPException:
     )
 
 
+def _auth_not_configured() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail=(
+            "Authentication is not configured. Configure Logto, Authentik/OIDC, "
+            "trusted proxy authentication, or AUTH_DISABLED=true for local use."
+        ),
+    )
+
+
+def _active_auth_provider() -> str:
+    provider = getattr(settings, "active_auth_provider", None)
+    if isinstance(provider, str):
+        return provider
+    return "logto" if getattr(settings, "logto_configured", False) else "unconfigured"
+
+
 def _get_redirect_uri(request: Request) -> str:
     """Build the callback redirect URI, preferring the configured override."""
     if settings.LOGTO_REDIRECT_URI:
@@ -105,14 +132,43 @@ async def sign_in(
     next: Optional[str] = None,
 ) -> RedirectResponse:
     """
-    Initiate the Logto OIDC sign-in flow.
+    Initiate the configured sign-in flow.
 
-    Stores the PKCE sign-in session in a short-lived cookie and redirects the
-    browser to Logto's authorization endpoint.  The optional ``next`` query
-    parameter is persisted in a separate cookie and used to redirect the user
-    to their original page after a successful login.
+    Logto keeps its SDK-backed PKCE storage.  Generic OIDC/AuthentiK uses a
+    signed state cookie.  Trusted proxy mode does not own the upstream sign-in
+    flow, so this route simply returns to the requested page.
     """
-    if not settings.logto_configured:
+    provider_name = _active_auth_provider()
+    if provider_name == "trusted_proxy":
+        return RedirectResponse(url=_safe_next(next), status_code=302)
+
+    if provider_name in {"oidc", "authentik"}:
+        provider = configured_oidc_provider(settings)
+        if provider is None:
+            raise _auth_not_configured()
+        safe = _safe_next(next)
+        try:
+            sign_in_url, state_token = await build_oidc_authorization_url(
+                request,
+                provider,
+                next_url=safe,
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.warning("%s sign-in initialization failed: %s", provider.label, exc)
+            return RedirectResponse(url="/login?error=callback_failed", status_code=302)
+        response = RedirectResponse(url=sign_in_url, status_code=302)
+        response.set_cookie(
+            key=OIDC_STATE_COOKIE,
+            value=state_token,
+            httponly=True,
+            samesite="lax",
+            max_age=OIDC_STATE_MAX_AGE,
+        )
+        return response
+
+    if _active_auth_provider() != "logto" or not settings.logto_configured:
         raise _logto_not_configured()
 
     storage = CookieStorage(request)
@@ -137,19 +193,64 @@ async def sign_in(
     return response
 
 
+async def _handle_external_oidc_callback(
+    request: Request,
+    db: Session,
+) -> RedirectResponse:
+    """Handle the generic OIDC/AuthentiK authorization-code callback."""
+    provider = configured_oidc_provider(settings)
+    if provider is None:
+        raise _auth_not_configured()
+
+    query_state = request.query_params.get("state")
+    cookie_state = request.cookies.get(OIDC_STATE_COOKIE)
+    state_payload = decode_oidc_state(query_state or "", settings)
+    if not query_state or query_state != cookie_state or state_payload is None:
+        return RedirectResponse(url="/login?error=callback_failed", status_code=302)
+
+    code = request.query_params.get("code")
+    if not code:
+        return RedirectResponse(url="/login?error=callback_failed", status_code=302)
+
+    try:
+        claims = await exchange_oidc_callback(request, provider, code=code)
+        user = sync_external_user(claims, db)
+    except HTTPException as exc:
+        logger.warning("%s callback rejected: %s", provider.label, exc.detail)
+        return RedirectResponse(url="/login?error=callback_failed", status_code=302)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.warning("%s callback error: %s", provider.label, exc)
+        return RedirectResponse(url="/login?error=token_error", status_code=302)
+
+    response = RedirectResponse(url=_safe_next(state_payload.get("next")), status_code=302)
+    response.set_cookie(
+        key=SESSION_COOKIE,
+        value=create_session_token(user.id),
+        httponly=True,
+        samesite="lax",
+        max_age=86_400,
+    )
+    response.delete_cookie(key=OIDC_STATE_COOKIE, httponly=True, samesite="lax")
+    logger.info("User id=%d logged in via %s.", user.id, provider.label)
+    return response
+
+
 @router.get("/callback")
 async def callback(
     request: Request,
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
     """
-    Handle the Logto authorization-code callback.
+    Handle the configured authorization-code callback.
 
-    Exchanges the code for tokens, validates the ID token, upserts the local
-    user shadow record, issues the app-level session cookie, and clears the
-    temporary Logto cookies.
+    Exchanges the code for tokens, upserts the local user shadow record, issues
+    the app-level session cookie, and clears temporary provider cookies.
     """
-    if not settings.logto_configured:
+    provider_name = _active_auth_provider()
+    if provider_name in {"oidc", "authentik"}:
+        return await _handle_external_oidc_callback(request, db)
+
+    if provider_name != "logto" or not settings.logto_configured:
         raise _logto_not_configured()
 
     storage = CookieStorage(request)
@@ -199,17 +300,18 @@ async def sign_out(request: Request) -> RedirectResponse:
 
     When ``AUTH_DISABLED=true`` there is nothing to sign out of; redirects to ``/``.
 
-    Otherwise clears the app session cookie and redirects to Logto's end-session
-    endpoint (if available) so that the Logto session is terminated too.
+    Logto deployments use Logto's end-session endpoint when available.  Generic
+    OIDC/AuthentiK and trusted-proxy deployments clear DMARQ's session and
+    return to the login page.
     """
-    if settings.AUTH_DISABLED:
+    if settings.AUTH_DISABLED or _active_auth_provider() == "disabled":
         return RedirectResponse(url="/", status_code=302)
 
     post_logout_url = str(request.base_url).rstrip("/")
 
     # Best-effort: obtain Logto's end-session URL from OIDC metadata.
     end_session_url: Optional[str] = None
-    if settings.logto_configured:
+    if _active_auth_provider() == "logto" and settings.logto_configured:
         try:
             storage = CookieStorage(request)
             client = make_logto_client(storage)
@@ -238,7 +340,7 @@ async def change_password(request: Request) -> RedirectResponse:
     query parameter is appended so that Logto returns the user to the Profile &
     Security page after a successful update.
     """
-    if not settings.logto_configured:
+    if _active_auth_provider() != "logto" or not settings.logto_configured:
         raise _logto_not_configured()
 
     base = str(request.base_url).rstrip("/")
@@ -260,7 +362,7 @@ async def forgot_password(request: Request) -> RedirectResponse:
     This endpoint is kept for unauthenticated / "I forgot my password" use
     cases.  Authenticated users should use ``/change-password`` instead.
     """
-    if not settings.logto_configured:
+    if _active_auth_provider() != "logto" or not settings.logto_configured:
         raise _logto_not_configured()
 
     storage = CookieStorage(request)
@@ -290,7 +392,7 @@ async def manage_mfa(request: Request) -> RedirectResponse:
     query parameter is appended so that Logto returns the user to the Profile &
     Security page after a successful update.
     """
-    if not settings.logto_configured:
+    if _active_auth_provider() != "logto" or not settings.logto_configured:
         raise _logto_not_configured()
 
     base = str(request.base_url).rstrip("/")
@@ -312,7 +414,7 @@ async def account_portal(request: Request) -> RedirectResponse:
     appended so that Logto returns the user to the Profile & Security page
     after a successful update.
     """
-    if not settings.logto_configured:
+    if _active_auth_provider() != "logto" or not settings.logto_configured:
         raise _logto_not_configured()
 
     base = str(request.base_url).rstrip("/")
@@ -334,8 +436,10 @@ async def get_current_user(
     Otherwise reads the ``dmarq_session`` cookie (issued at callback time) and
     looks up the corresponding local ``User`` record.
     """
+    provider_name = _active_auth_provider()
+
     # Auth-disabled: return a synthetic profile so the UI renders correctly.
-    if settings.AUTH_DISABLED:
+    if settings.AUTH_DISABLED or provider_name == "disabled":
         return {
             "id": 0,
             "email": "admin@localhost",
@@ -345,6 +449,23 @@ async def get_current_user(
             "is_superuser": True,
             "logto_id": None,
             "auth_disabled": True,
+            "auth_provider": "disabled",
+            "auth_provider_label": "No authentication",
+        }
+
+    trusted_claims = trusted_proxy_claims_from_request(request, settings)
+    if trusted_claims is not None:
+        return {
+            "id": 0,
+            "email": trusted_claims.email,
+            "full_name": trusted_claims.name,
+            "username": trusted_claims.username,
+            "picture": trusted_claims.picture,
+            "is_superuser": True,
+            "logto_id": f"{trusted_claims.provider}:{trusted_claims.subject}",
+            "auth_disabled": False,
+            "auth_provider": trusted_claims.provider,
+            "auth_provider_label": getattr(settings, "auth_provider_label", "Trusted proxy"),
         }
 
     token = request.cookies.get(SESSION_COOKIE)
@@ -378,4 +499,6 @@ async def get_current_user(
         "picture": user.picture,
         "is_superuser": user.is_superuser,
         "logto_id": user.logto_id,
+        "auth_provider": provider_name,
+        "auth_provider_label": getattr(settings, "auth_provider_label", "Authentication"),
     }

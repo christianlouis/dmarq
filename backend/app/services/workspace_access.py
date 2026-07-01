@@ -120,7 +120,7 @@ def role_for_auth_context(auth_context: dict) -> str:
     authenticated admin context until they are moved to workspace-aware checks.
     """
     auth_type = (auth_context or {}).get("auth_type")
-    if auth_type in {"session", "bearer", "jwt", *PLATFORM_ADMIN_AUTH_TYPES}:
+    if auth_type in {"session", "bearer", "jwt", "trusted_proxy", *PLATFORM_ADMIN_AUTH_TYPES}:
         return ROLE_WORKSPACE_OWNER
     return ROLE_AUDITOR
 
@@ -195,7 +195,7 @@ def role_for_workspace(
 ) -> str:
     """Resolve the caller's effective role for one workspace."""
     auth_type = (auth_context or {}).get("auth_type")
-    if auth_type in {"api_key", "disabled"}:
+    if auth_type in {"api_key", "disabled", "trusted_proxy"}:
         return ROLE_WORKSPACE_OWNER
     if auth_type == "api_token":
         try:

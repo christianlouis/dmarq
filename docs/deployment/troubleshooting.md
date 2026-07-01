@@ -55,18 +55,20 @@ Actions:
 
 Likely causes:
 
-- Logto redirect URL does not match the deployed public URL.
+- Identity-provider redirect URL does not match the deployed public URL.
+- OAuth mail-source redirects are built from an internal `http://` proxy URL instead of the public `https://` URL.
 - `ALLOWED_HOSTS` does not include the public hostname.
 - `SECRET_KEY` changed unexpectedly, invalidating sessions.
-- `AUTH_DISABLED` or `LOGTO_SKIP_SSL_VERIFY` is set incorrectly for the environment.
+- `AUTH_DISABLED`, `LOGTO_SKIP_SSL_VERIFY`, or `OIDC_SKIP_SSL_VERIFY` is set incorrectly for the environment.
 
 Actions:
 
 1. Confirm `ALLOWED_HOSTS` includes the host users open in the browser.
-2. Confirm Logto callback URLs match the DMARQ callback URL exactly.
+2. Confirm Logto, Authentik, or generic OIDC callback URLs match the DMARQ callback URL exactly.
 3. Confirm `SECRET_KEY` is stable across restarts.
 4. Clear browser cookies after intentional auth changes.
-5. Keep `AUTH_DISABLED=false` and `LOGTO_SKIP_SSL_VERIFY=false` in production.
+5. Set `PUBLIC_BASE_URL=https://<your-public-host>` if Gmail, Microsoft 365, or identity-provider callbacks show `http://` behind a proxy.
+6. Keep `AUTH_DISABLED=false`, `LOGTO_SKIP_SSL_VERIFY=false`, and `OIDC_SKIP_SSL_VERIFY=false` in production.
 
 ## Mailbox Test Fails
 
