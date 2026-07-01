@@ -809,6 +809,17 @@ class RemediationEvidence(BaseModel):
     value: str
 
 
+class RemediationNotification(BaseModel):
+    """Read-only notification routing metadata for one remediation item."""
+
+    state: str
+    event: str
+    channel: str
+    dedupe_key: str
+    reason: str
+    next_transition: str
+
+
 class RemediationQueueItem(BaseModel):
     """One prioritized operator action for a domain."""
 
@@ -825,6 +836,7 @@ class RemediationQueueItem(BaseModel):
     prerequisites: List[str] = Field(default_factory=list)
     expected_health_score_impact: str
     automation: RemediationAutomation
+    notification: RemediationNotification
 
 
 class RemediationQueueResponse(BaseModel):

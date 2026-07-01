@@ -85,6 +85,10 @@ as approval-ready, manual, or investigate-only, and include the evidence,
 blast radius, prerequisites, and expected health-score impact. Approval-ready
 DNS items link back to the DNS change-plan review area; they still require an
 operator preview and explicit approval before any provider write is sent.
+Each item also shows a notification profile such as approval required, action
+required, investigation required, or summary only. These labels explain how
+DMARQ would route the item into alerting or ticketing workflows; viewing the
+queue does not send a notification.
 
 ### Source Intelligence
 
