@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.services.cloudflare_dns import discover_cloudflare_zones, import_cloudflare_domains
 from app.services.dns_provider_connectors import provider_connector_registry
 from app.services.dns_provider_writes import normalize_provider_id
+from app.services.hetzner_dns import discover_hetzner_zones, import_hetzner_domains
 
 
 @dataclass
@@ -55,10 +56,13 @@ async def preview_dns_provider_import(
 ) -> Dict[str, Any]:
     """Return importable zones/domains for a DNS provider without creating rows."""
     provider_id = normalize_provider_id(provider)
-    if provider_id != "cloudflare":
+    if provider_id == "cloudflare":
+        zones = await discover_cloudflare_zones(db, workspace_id=workspace_id)
+    elif provider_id == "hetzner":
+        zones = await discover_hetzner_zones(db, workspace_id=workspace_id)
+    else:
         raise LookupError(f"Unsupported DNS provider import: {provider_id}")
 
-    zones = await discover_cloudflare_zones(db, workspace_id=workspace_id)
     items = [
         DNSProviderImportZone(
             provider=provider_id,
@@ -72,7 +76,10 @@ async def preview_dns_provider_import(
             next_action=(
                 "Already monitored in this workspace."
                 if zone.get("imported")
-                else "Import this Cloudflare zone to monitor DNS posture before reports arrive."
+                else (
+                    f"Import this {_provider_name(provider_id)} zone to monitor DNS posture "
+                    "before reports arrive."
+                )
             ),
         ).to_dict()
         for zone in zones
@@ -95,14 +102,21 @@ async def import_dns_provider_domains(
 ) -> Dict[str, Any]:
     """Import selected DNS provider zones as monitored domains."""
     provider_id = normalize_provider_id(provider)
-    if provider_id != "cloudflare":
+    if provider_id == "cloudflare":
+        result = await import_cloudflare_domains(
+            db,
+            requested_domains=requested_domains,
+            workspace_id=workspace_id,
+        )
+    elif provider_id == "hetzner":
+        result = await import_hetzner_domains(
+            db,
+            requested_domains=requested_domains,
+            workspace_id=workspace_id,
+        )
+    else:
         raise LookupError(f"Unsupported DNS provider import: {provider_id}")
 
-    result = await import_cloudflare_domains(
-        db,
-        requested_domains=requested_domains,
-        workspace_id=workspace_id,
-    )
     return {
         "provider": provider_id,
         "provider_name": _provider_name(provider_id),

@@ -53,6 +53,8 @@ class Settings(BaseSettings):
     # Optional Cloudflare Integration
     CLOUDFLARE_API_TOKEN: Optional[str] = None
     CLOUDFLARE_ZONE_ID: Optional[str] = None
+    HETZNER_DNS_API_TOKEN: Optional[str] = None
+    HETZNER_API_TOKEN: Optional[str] = None
     POSTMARK_ACCOUNT_TOKEN: Optional[str] = None
     WEBHOOK_SECRET: Optional[str] = None
 
