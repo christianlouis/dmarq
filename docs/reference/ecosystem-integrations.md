@@ -57,7 +57,7 @@ practical integration path should be:
 7. Allow approved DNS repair only when a scoped DNS provider connector exists
    and the operator confirms the exact change.
 
-### Provider, ISP, MSP, And OEM Deployments
+### Provider, ISP, MSP, and OEM Deployments
 
 Provider deployments need account lifecycle and billing integration before
 fine-grained repair automation. The first practical path should be:
@@ -93,4 +93,3 @@ fine-grained repair automation. The first practical path should be:
   IP reputation and blacklist signals as health inputs.
 - [#387](https://github.com/christianlouis/dmarq/issues/387) should localize
   the operator-facing guidance produced by these integrations.
-
