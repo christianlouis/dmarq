@@ -3687,7 +3687,7 @@ async def audit_domain_remediation_notification(
         domain_id=domain_id,
         refresh=refresh,
     )
-    attach_remediation_dispatch_previews(db, workspace=workspace, queue=queue)
+    queue = attach_remediation_dispatch_previews(db, workspace=workspace, queue=queue)
     item = next(
         (
             candidate
