@@ -134,6 +134,10 @@ the response says the expected value was verified. If verification fails, keep
 the change under review and check provider state, propagation, and whether a
 different authoritative DNS provider manages the zone.
 
+On the public demo, the same flow is simulated. The confirmation, apply result,
+verification message, audit evidence, and rollback guidance are shown, but
+DMARQ does not contact a DNS provider or modify live DNS records.
+
 Provider previews and apply responses also include rollback guidance. For
 updates, DMARQ shows the previous provider value when it was captured; for
 creates, it explains how to remove the created record. Rollback is deliberately
