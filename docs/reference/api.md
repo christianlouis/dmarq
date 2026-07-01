@@ -61,7 +61,7 @@ through the `/public` path and avoid UI-specific payloads.
 | `GET /public/usage` | `reports:read`, `posture:read`, or `mcp:read` | Workspace-level DMARC usage, source, alert, and import counts |
 | `GET /public/domains` | `reports:read` | Domain report and DNS summary list |
 | `GET /public/domains/{domain_id}/reports` | `reports:read` | Recent DMARC aggregate report summaries |
-| `GET /public/domains/{domain_id}/sources` | `reports:read` | Enriched sending sources with sender, geo, anomaly, and fix hints |
+| `GET /public/domains/{domain_id}/sources` | `reports:read` | Enriched sending sources with sender, geo, reputation, anomaly, and fix hints |
 | `GET /public/domains/{domain_id}/source-intelligence` | `reports:read` | Regional source summaries and anomaly hints |
 | `GET /public/domains/{domain_id}/posture` | `posture:read` | Evidence-first posture dashboard payload |
 | `GET /public/domains/{domain_id}/posture/evidence/export` | `posture:read` | Sanitized health score evidence export |
@@ -92,8 +92,8 @@ does not expose mailbox credentials, raw report XML, or alert payloads.
 Public source responses are intended for SIEM, SOC, ISP, MSP, and AI-agent
 consumers that need evidence-linked DMARC sending-source context without
 screen-scraping the dashboard. Source rows include DNS/PTR enrichment when
-available, sender classification, coarse geography, anomaly badges, SPF hints,
-and safe remediation recommendations.
+available, sender classification, coarse geography, passive reputation posture,
+anomaly badges, SPF hints, and safe remediation recommendations.
 
 Public health evidence exports return sanitized posture score history in JSON
 by default, or CSV with `?format=csv`. Public API calls do not capture a fresh
@@ -756,6 +756,21 @@ failures.
 `GET /domains/{domain_id}/sources` also includes per-source `geo` and
 `anomalies` fields so the domain detail page can show the same context next to
 the raw sending-source evidence.
+
+#### Get Source Reputation
+
+```http
+GET /domains/{domain_id}/source-reputation?days=30
+```
+
+Returns cached, passive sender-IP reputation evidence for observed DMARC
+sources. This first slice does not query external DNSBL services directly; it
+scores existing DMARC evidence, known sender context, demo/provider metadata,
+reserved or malformed IPs, and source-intelligence anomalies. Rows include a
+bounded `risk_score`, `status`, optional listing names, first/last seen
+timestamps when report windows are available, evidence, and safe remediation
+steps. `GET /domains/{domain_id}/sources` embeds the same per-source
+`reputation` object next to sender, geo, anomaly, and SPF/DKIM context.
 
 #### Get Health Score History
 

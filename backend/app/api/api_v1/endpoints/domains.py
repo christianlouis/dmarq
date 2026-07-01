@@ -88,6 +88,11 @@ from app.services.sender_intelligence import (
     identify_sender,
     source_geo_for,
 )
+from app.services.source_reputation import (
+    SourceReputation,
+    build_source_reputation_cached,
+    source_reputation_by_ip,
+)
 from app.services.webhook_events import delivery_to_dict, enqueue_webhook_event
 from app.services.workspace_access import (
     PERMISSION_DOMAINS_WRITE,
@@ -1186,6 +1191,29 @@ class SourceRecommendation(BaseModel):
     action: str
 
 
+class SourceReputationEvidence(BaseModel):
+    """Evidence used for sender IP reputation scoring."""
+
+    label: str
+    value: str
+    source: str
+
+
+class SourceReputationResponse(BaseModel):
+    """Passive reputation posture for one observed sending IP."""
+
+    ip: str
+    status: str
+    risk_score: int
+    summary: str
+    listings: List[str] = Field(default_factory=list)
+    evidence: List[SourceReputationEvidence] = Field(default_factory=list)
+    recommendations: List[str] = Field(default_factory=list)
+    first_seen: Optional[int] = None
+    last_seen: Optional[int] = None
+    checked_at: str
+
+
 class SenderIdentity(BaseModel):
     """Recognized sender identity for a sending source."""
 
@@ -1259,6 +1287,7 @@ class SourceEntry(BaseModel):
     sender: SenderIdentity
     geo: SourceGeo
     anomalies: List[SourceAnomaly] = Field(default_factory=list)
+    reputation: Optional[SourceReputationResponse] = None
     spf_fix_hint: Optional[str] = None
     recommendations: List[SourceRecommendation] = Field(default_factory=list)
 
@@ -1285,6 +1314,17 @@ class SourceIntelligenceResponse(BaseModel):
     regions: List[SourceRegionSummary] = Field(default_factory=list)
     anomalies: List[SourceAnomaly] = Field(default_factory=list)
     summary: Dict[str, int] = Field(default_factory=dict)
+
+
+class DomainSourceReputationResponse(BaseModel):
+    """Domain-level sender IP reputation response."""
+
+    domain: str
+    status: str
+    checked_at: str
+    sources: List[SourceReputationResponse] = Field(default_factory=list)
+    summary: Dict[str, int] = Field(default_factory=dict)
+    cached: bool = False
 
 
 class DomainSummaryResponse(BaseModel):
@@ -2063,6 +2103,23 @@ async def _build_domain_health_grade(
     summary = store.get_domain_summary(domain_id)
     live_policy = extract_dmarc_policy(dns.dmarc_record)
     reported_policy = _normalize_reported_policy(summary.get("policy", {}))
+    sources = store.get_domain_sources(domain_id)
+    reports = store.get_domain_reports(domain_id)
+    intelligence = build_source_intelligence(
+        domain_id,
+        reports,
+        sources,
+        period_days=30,
+    )
+    reputation_result, _, _ = await build_source_reputation_cached(
+        db,
+        domain_id,
+        reports,
+        sources,
+        anomalies_by_ip=intelligence.get("anomalies_by_ip", {}),
+        days=30,
+        refresh=refresh,
+    )
     domain_row = {
         "id": domain_id,
         "domain_name": domain_id,
@@ -2077,6 +2134,7 @@ async def _build_domain_health_grade(
         "dkim_status": dns.dkim,
         "dmarc_warnings": dns.dmarc_warnings,
         "dmarc_suggestions": dns.dmarc_suggestions,
+        "source_reputation": asdict(reputation_result),
     }
     return score_domain_health(domain_row)
 
@@ -5024,6 +5082,47 @@ def _policy_not_enforced_recommendation() -> SourceRecommendation:
     )
 
 
+def _source_reputation_response(item: SourceReputation) -> SourceReputationResponse:
+    return SourceReputationResponse(
+        ip=item.ip,
+        status=item.status,
+        risk_score=item.risk_score,
+        summary=item.summary,
+        listings=item.listings,
+        evidence=[
+            SourceReputationEvidence(
+                label=evidence.label,
+                value=evidence.value,
+                source=evidence.source,
+            )
+            for evidence in item.evidence
+        ],
+        recommendations=item.recommendations,
+        first_seen=item.first_seen,
+        last_seen=item.last_seen,
+        checked_at=item.checked_at,
+    )
+
+
+def _reputation_recommendations(item: Optional[SourceReputation]) -> List[SourceRecommendation]:
+    if item is None or item.status in {"clean", "unknown"}:
+        return []
+    severity = "error" if item.status in {"listed", "critical"} else "warning"
+    return [
+        SourceRecommendation(
+            type="source_reputation",
+            severity=severity,
+            title="Review sender IP reputation",
+            detail=item.summary,
+            action=(
+                item.recommendations[0]
+                if item.recommendations
+                else "Confirm this source before authorizing it or tightening DMARC policy."
+            ),
+        )
+    ]
+
+
 async def _safe_ptr_lookup(provider: Any, ip: str, timeout: float = 3.0) -> Optional[str]:
     """Perform a PTR lookup for *ip*, returning ``None`` on any error or timeout."""
     try:
@@ -5058,9 +5157,10 @@ async def get_domain_sources(
         )
 
     sources = store.get_domain_sources(domain_id, days=days)
+    reports = store.get_domain_reports(domain_id)
     intelligence = build_source_intelligence(
         domain_id,
-        store.get_domain_reports(domain_id),
+        reports,
         sources,
         period_days=days,
     )
@@ -5071,15 +5171,34 @@ async def get_domain_sources(
     hostnames = await asyncio.gather(*[_safe_ptr_lookup(provider, ip) for ip in ips])
 
     source_entries = []
+    sender_by_ip: Dict[str, Dict[str, Any]] = {}
+    source_context = []
     for source, hostname in zip(sources, hostnames):
+        ip = source.get("source_ip", "unknown")
+        sender_by_ip[ip] = identify_sender(ip, source, hostname=hostname, domain=domain_id)
+        source_context.append((source, hostname, sender_by_ip[ip]))
+
+    reputation_result, _, _ = await build_source_reputation_cached(
+        db,
+        domain_id,
+        reports,
+        sources,
+        senders_by_ip=sender_by_ip,
+        anomalies_by_ip=anomalies_by_ip,
+        days=days,
+    )
+    reputations_by_ip = source_reputation_by_ip(reputation_result)
+
+    for source, hostname, sender in source_context:
         ip = source.get("source_ip", "unknown")
         spf_result = source.get("spf_result", "unknown")
         dkim_result = source.get("dkim_result", "unknown")
         spf_fix_hint = _spf_fix_hint(ip, spf_result, source.get("spf_fail_count", 0))
-        sender = identify_sender(ip, source, hostname=hostname, domain=domain_id)
         source_anomalies = anomalies_by_ip.get(ip, [])
+        reputation = reputations_by_ip.get(ip)
         recommendations = _source_recommendations(ip, source, hostname, spf_fix_hint, sender)
         recommendations.extend(_anomaly_recommendations(source_anomalies))
+        recommendations.extend(_reputation_recommendations(reputation))
         source_entries.append(
             SourceEntry(
                 ip=ip,
@@ -5100,12 +5219,61 @@ async def get_domain_sources(
                 sender=SenderIdentity(**sender),
                 geo=SourceGeo(**source_geo_for(ip, source)),
                 anomalies=[SourceAnomaly(**anomaly) for anomaly in source_anomalies],
+                reputation=(
+                    _source_reputation_response(reputation) if reputation is not None else None
+                ),
                 spf_fix_hint=spf_fix_hint,
                 recommendations=recommendations,
             )
         )
 
     return DomainSourcesResponse(sources=source_entries)
+
+
+@router.get("/{domain_id}/source-reputation", response_model=DomainSourceReputationResponse)
+async def get_domain_source_reputation(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    days: int = Query(30, ge=1, le=365, title="Number of days to analyze"),
+    refresh: bool = Query(False, title="Refresh cached reputation evidence"),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
+    """Return passive reputation evidence for observed sender IPs."""
+    workspace = _authorized_domain_read_workspace(_auth, db)
+    store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store)
+
+    if not _domain_exists(db, store, domain_id, workspace):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Domain not found",
+        )
+
+    reports = store.get_domain_reports(domain_id)
+    sources = store.get_domain_sources(domain_id, days=days)
+    intelligence = build_source_intelligence(
+        domain_id,
+        reports,
+        sources,
+        period_days=days,
+    )
+    result, cached, _ = await build_source_reputation_cached(
+        db,
+        domain_id,
+        reports,
+        sources,
+        anomalies_by_ip=intelligence.get("anomalies_by_ip", {}),
+        days=days,
+        refresh=refresh,
+    )
+    return DomainSourceReputationResponse(
+        domain=result.domain,
+        status=result.status,
+        checked_at=result.checked_at,
+        sources=[_source_reputation_response(item) for item in result.sources],
+        summary=result.summary,
+        cached=cached,
+    )
 
 
 @router.get("/{domain_id}/source-intelligence", response_model=SourceIntelligenceResponse)
