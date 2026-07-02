@@ -26,6 +26,7 @@ from app.api.api_v1.endpoints.auth import _create_next_cookie
 from app.core.auth_providers import (
     ExternalIdentityClaims,
     OIDCProviderConfig,
+    _normalize_role_claims,
     auth_provider_registry,
     configured_oidc_provider,
     create_oidc_state,
@@ -43,7 +44,10 @@ from app.core.logto import (
     decode_session_token,
     sync_logto_user,
 )
+from app.models.organization import Organization, OrganizationMembership
 from app.models.user import User
+from app.models.workspace import Workspace
+from app.models.workspace_access import WorkspaceMembership
 
 # ── Session token helpers ─────────────────────────────────────────────────────
 
@@ -285,6 +289,66 @@ class TestExternalAuthProviders:
 
         assert exc.value.status_code == 403
 
+    def test_normalize_external_claims_extracts_idp_role_claims(self):
+        claims = normalize_external_claims(
+            "authentik",
+            {
+                "sub": "authentik-user-1",
+                "email": "owner@example.com",
+                "groups": ["dmarq-admins", "billing"],
+                "dmarq_workspace_roles": {
+                    "primary": "workspace_owner",
+                    "secondary": "analyst",
+                    "ignored": "root",
+                },
+                "dmarq_organization_roles": [
+                    {"organization": "customer-one", "role": "organization_owner"},
+                    "customer-two:auditor",
+                    "ignored:root",
+                ],
+            },
+            allowed_domains="example.com",
+        )
+
+        assert claims.groups == ("dmarq-admins", "billing")
+        assert claims.workspace_roles == (
+            ("primary", "workspace_owner"),
+            ("secondary", "analyst"),
+        )
+        assert claims.organization_roles == (
+            ("customer-one", "organization_owner"),
+            ("customer-two", "auditor"),
+        )
+
+    def test_normalize_role_claims_accepts_strings_and_deduplicates_pairs(self):
+        roles = _normalize_role_claims(
+            [
+                "primary:workspace_owner",
+                "primary=workspace_owner",
+                {"slug": "secondary", "role": "analyst"},
+                "missing-separator",
+                {"slug": "", "role": "analyst"},
+                {"slug": "ignored", "role": "root"},
+            ],
+            allowed_roles={"workspace_owner", "analyst"},
+        )
+
+        assert roles == (
+            ("primary", "workspace_owner"),
+            ("secondary", "analyst"),
+        )
+
+    def test_normalize_role_claims_accepts_single_string_claims(self):
+        roles = _normalize_role_claims(
+            "primary:workspace_owner,secondary=analyst,ignored=root",
+            allowed_roles={"workspace_owner", "analyst"},
+        )
+
+        assert roles == (
+            ("primary", "workspace_owner"),
+            ("secondary", "analyst"),
+        )
+
     def test_sync_external_user_uses_provider_scoped_subject(self, db_session):
         user = sync_external_user(
             ExternalIdentityClaims(
@@ -302,6 +366,146 @@ class TestExternalAuthProviders:
         assert user.logto_id == "authentik:authentik-user-1"
         assert user.email == "owner@example.com"
         assert user.full_name == "Owner"
+
+    def test_sync_external_user_applies_workspace_and_org_roles(self, db_session):
+        organization = Organization(slug="customer-one", name="Customer One")
+        workspace = Workspace(slug="primary", name="Primary", organization=organization)
+        db_session.add_all([organization, workspace])
+        db_session.commit()
+
+        user = sync_external_user(
+            ExternalIdentityClaims(
+                provider="authentik",
+                subject="authentik-user-1",
+                email="owner@example.com",
+                name="Owner",
+                workspace_roles=(("primary", "workspace_owner"),),
+                organization_roles=(("customer-one", "organization_owner"),),
+            ),
+            db_session,
+        )
+
+        workspace_membership = (
+            db_session.query(WorkspaceMembership)
+            .filter_by(workspace_id=workspace.id, user_id=user.id)
+            .one()
+        )
+        organization_membership = (
+            db_session.query(OrganizationMembership)
+            .filter_by(organization_id=organization.id, user_id=user.id)
+            .one()
+        )
+
+        assert user.is_superuser is False
+        assert user.workspace_id == workspace.id
+        assert workspace_membership.role == "workspace_owner"
+        assert workspace_membership.active is True
+        assert organization_membership.role == "organization_owner"
+        assert organization_membership.active is True
+
+    def test_sync_external_user_demotes_fallback_superuser_with_role_claims(self, db_session):
+        organization = Organization(slug="customer-one", name="Customer One")
+        workspace = Workspace(slug="primary", name="Primary", organization=organization)
+        user = User(
+            logto_id="authentik:authentik-user-1",
+            email="owner@example.com",
+            is_active=True,
+            is_superuser=True,
+        )
+        db_session.add_all([organization, workspace, user])
+        db_session.commit()
+
+        synced = sync_external_user(
+            ExternalIdentityClaims(
+                provider="authentik",
+                subject="authentik-user-1",
+                email="owner@example.com",
+                workspace_roles=(("primary", "workspace_owner"),),
+            ),
+            db_session,
+        )
+
+        assert synced.id == user.id
+        assert synced.is_superuser is False
+        assert (
+            db_session.query(WorkspaceMembership)
+            .filter_by(workspace_id=workspace.id, user_id=user.id)
+            .one()
+            .role
+            == "workspace_owner"
+        )
+
+    def test_sync_external_user_links_existing_email_and_updates_memberships(self, db_session):
+        organization = Organization(slug="customer-one", name="Customer One")
+        workspace = Workspace(slug="primary", name="Primary", organization=organization)
+        user = User(
+            email="owner@example.com",
+            is_active=True,
+            is_superuser=True,
+        )
+        db_session.add_all([organization, workspace, user])
+        db_session.flush()
+        db_session.add_all(
+            [
+                WorkspaceMembership(
+                    workspace_id=workspace.id,
+                    user_id=user.id,
+                    role="analyst",
+                    active=False,
+                ),
+                OrganizationMembership(
+                    organization_id=organization.id,
+                    user_id=user.id,
+                    role="auditor",
+                    active=False,
+                ),
+            ]
+        )
+        db_session.commit()
+
+        synced = sync_external_user(
+            ExternalIdentityClaims(
+                provider="authentik",
+                subject="authentik-user-1",
+                email="owner@example.com",
+                workspace_roles=(("primary", "workspace_owner"),),
+                organization_roles=(("customer-one", "organization_owner"),),
+            ),
+            db_session,
+        )
+
+        workspace_membership = (
+            db_session.query(WorkspaceMembership)
+            .filter_by(workspace_id=workspace.id, user_id=user.id)
+            .one()
+        )
+        organization_membership = (
+            db_session.query(OrganizationMembership)
+            .filter_by(organization_id=organization.id, user_id=user.id)
+            .one()
+        )
+        assert synced.id == user.id
+        assert synced.logto_id == "authentik:authentik-user-1"
+        assert workspace_membership.role == "workspace_owner"
+        assert workspace_membership.active is True
+        assert organization_membership.role == "organization_owner"
+        assert organization_membership.active is True
+
+    def test_sync_external_user_ignores_unknown_claim_targets(self, db_session):
+        user = sync_external_user(
+            ExternalIdentityClaims(
+                provider="authentik",
+                subject="authentik-user-1",
+                email="owner@example.com",
+                workspace_roles=(("missing", "workspace_owner"),),
+                organization_roles=(("missing-org", "organization_owner"),),
+            ),
+            db_session,
+        )
+
+        assert user.is_superuser is False
+        assert db_session.query(WorkspaceMembership).count() == 0
+        assert db_session.query(OrganizationMembership).count() == 0
 
     def test_trusted_proxy_auth_context_uses_authentik_headers(self):
         settings = Settings(

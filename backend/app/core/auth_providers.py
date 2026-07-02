@@ -14,7 +14,11 @@ from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
+from app.models.organization import Organization, OrganizationMembership
 from app.models.user import User
+from app.models.workspace import Workspace
+from app.models.workspace_access import WorkspaceMembership
+from app.services.workspace_access import ORGANIZATION_ROLE_ALIASES, ROLE_PERMISSIONS
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +53,9 @@ class ExternalIdentityClaims:
     username: Optional[str] = None
     picture: Optional[str] = None
     email_verified: bool = False
+    groups: tuple[str, ...] = ()
+    workspace_roles: tuple[tuple[str, str], ...] = ()
+    organization_roles: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -517,7 +524,201 @@ def normalize_external_claims(
         username=payload.get("preferred_username") or payload.get("username"),
         picture=payload.get("picture"),
         email_verified=bool(payload.get("email_verified", False)),
+        groups=_normalize_string_claims(payload.get("groups") or payload.get("roles")),
+        workspace_roles=_normalize_role_claims(
+            payload.get("dmarq_workspace_roles") or payload.get("workspace_roles"),
+            allowed_roles=set(ROLE_PERMISSIONS),
+        ),
+        organization_roles=_normalize_role_claims(
+            payload.get("dmarq_organization_roles") or payload.get("organization_roles"),
+            allowed_roles=set(ORGANIZATION_ROLE_ALIASES) | set(ROLE_PERMISSIONS),
+        ),
     )
+
+
+def _normalize_string_claims(value: Any) -> tuple[str, ...]:
+    """Return a stable tuple from common IdP string/list claim shapes."""
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        values = value.split(",")
+    elif isinstance(value, (list, tuple, set)):
+        values = value
+    else:
+        return ()
+    normalized = []
+    seen = set()
+    for item in values:
+        text = str(item).strip()
+        key = text.lower()
+        if text and key not in seen:
+            normalized.append(text)
+            seen.add(key)
+    return tuple(normalized)
+
+
+def _normalize_role_value(role: Any, *, allowed_roles: set[str]) -> str:
+    normalized = str(role or "").strip().lower()
+    return normalized if normalized in allowed_roles else ""
+
+
+def _extend_role_pairs_from_sequence(raw_pairs: list[tuple[Any, Any]], values: Any) -> None:
+    for item in values:
+        if isinstance(item, dict):
+            slug = item.get("workspace") or item.get("organization") or item.get("slug")
+            raw_pairs.append((slug, item.get("role")))
+        elif isinstance(item, str):
+            raw_pairs.extend(_split_role_string(item))
+
+
+def _normalize_role_claims(
+    value: Any,
+    *,
+    allowed_roles: set[str],
+) -> tuple[tuple[str, str], ...]:
+    """Normalize provider role claims into ``(slug, role)`` pairs.
+
+    Accepted shapes:
+    - {"workspace-slug": "workspace_owner"}
+    - ["workspace-slug:workspace_owner"]
+    - [{"workspace": "workspace-slug", "role": "workspace_owner"}]
+    - [{"slug": "workspace-slug", "role": "workspace_owner"}]
+    """
+    if value is None:
+        return ()
+
+    raw_pairs: list[tuple[Any, Any]] = []
+    if isinstance(value, dict):
+        raw_pairs.extend(value.items())
+    elif isinstance(value, str):
+        raw_pairs.extend(_split_role_string(value))
+    elif isinstance(value, (list, tuple, set)):
+        _extend_role_pairs_from_sequence(raw_pairs, value)
+
+    normalized: list[tuple[str, str]] = []
+    seen = set()
+    for raw_slug, raw_role in raw_pairs:
+        slug = str(raw_slug or "").strip().lower()
+        role = _normalize_role_value(raw_role, allowed_roles=allowed_roles)
+        if not slug or not role:
+            continue
+        key = (slug, role)
+        if key in seen:
+            continue
+        normalized.append(key)
+        seen.add(key)
+    return tuple(normalized)
+
+
+def _split_role_string(value: str) -> list[tuple[str, str]]:
+    pairs = []
+    for item in value.split(","):
+        if ":" in item:
+            slug, role = item.split(":", 1)
+        elif "=" in item:
+            slug, role = item.split("=", 1)
+        else:
+            continue
+        pairs.append((slug, role))
+    return pairs
+
+
+def _upsert_workspace_membership(
+    db: Session,
+    *,
+    user: User,
+    workspace_slug: str,
+    role: str,
+) -> Optional[WorkspaceMembership]:
+    workspace = (
+        db.query(Workspace)
+        .filter(
+            Workspace.slug == workspace_slug,
+            Workspace.active.is_(True),
+        )
+        .first()
+    )
+    if workspace is None:
+        logger.info(
+            "Ignoring external workspace role for unknown workspace slug=%s user_id=%s",
+            workspace_slug,
+            user.id,
+        )
+        return None
+    membership = (
+        db.query(WorkspaceMembership)
+        .filter(
+            WorkspaceMembership.workspace_id == workspace.id,
+            WorkspaceMembership.user_id == user.id,
+        )
+        .first()
+    )
+    if membership is None:
+        membership = WorkspaceMembership(workspace_id=workspace.id, user_id=user.id, role=role)
+        db.add(membership)
+    else:
+        membership.role = role
+        membership.active = True
+        membership.updated_at = datetime.utcnow()
+    if user.workspace_id is None:
+        user.workspace_id = workspace.id
+    return membership
+
+
+def _upsert_organization_membership(
+    db: Session,
+    *,
+    user: User,
+    organization_slug: str,
+    role: str,
+) -> Optional[OrganizationMembership]:
+    organization = (
+        db.query(Organization)
+        .filter(
+            Organization.slug == organization_slug,
+            Organization.active.is_(True),
+        )
+        .first()
+    )
+    if organization is None:
+        logger.info(
+            "Ignoring external organization role for unknown organization slug=%s user_id=%s",
+            organization_slug,
+            user.id,
+        )
+        return None
+    membership = (
+        db.query(OrganizationMembership)
+        .filter(
+            OrganizationMembership.organization_id == organization.id,
+            OrganizationMembership.user_id == user.id,
+        )
+        .first()
+    )
+    if membership is None:
+        membership = OrganizationMembership(
+            organization_id=organization.id,
+            user_id=user.id,
+            role=role,
+        )
+        db.add(membership)
+    else:
+        membership.role = role
+        membership.active = True
+        membership.updated_at = datetime.utcnow()
+    return membership
+
+
+def _sync_external_memberships(claims: ExternalIdentityClaims, user: User, db: Session) -> None:
+    for workspace_slug, role in claims.workspace_roles:
+        _upsert_workspace_membership(db, user=user, workspace_slug=workspace_slug, role=role)
+    for organization_slug, role in claims.organization_roles:
+        _upsert_organization_membership(
+            db,
+            user=user,
+            organization_slug=organization_slug,
+            role=role,
+        )
 
 
 def sync_external_user(claims: ExternalIdentityClaims, db: Session) -> User:
@@ -534,7 +735,7 @@ def sync_external_user(claims: ExternalIdentityClaims, db: Session) -> User:
             logto_id=identity_id,
             email=claims.email,
             is_active=True,
-            is_superuser=True,
+            is_superuser=not bool(claims.workspace_roles or claims.organization_roles),
             is_verified=claims.email_verified,
         )
         db.add(user)
@@ -544,7 +745,10 @@ def sync_external_user(claims: ExternalIdentityClaims, db: Session) -> User:
     user.full_name = claims.name or user.full_name
     user.username = claims.username or user.username
     user.picture = claims.picture or user.picture
+    if claims.workspace_roles or claims.organization_roles:
+        user.is_superuser = False
     user.updated_at = datetime.utcnow()
+    _sync_external_memberships(claims, user, db)
     db.commit()
     db.refresh(user)
     return user
@@ -576,6 +780,7 @@ def trusted_proxy_claims_from_request(
         name=request.headers.get(cfg.AUTH_TRUSTED_PROXY_NAME_HEADER),
         username=request.headers.get(cfg.AUTH_TRUSTED_PROXY_USERNAME_HEADER),
         email_verified=True,
+        groups=_normalize_string_claims(request.headers.get(cfg.AUTH_TRUSTED_PROXY_GROUPS_HEADER)),
     )
 
 
