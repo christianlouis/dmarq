@@ -84,6 +84,22 @@ def test_identify_sender_keeps_owned_infrastructure_ahead_of_auth_domain_hint():
     assert sender["provider"] == "cklnet.com"
 
 
+def test_identify_sender_requires_owned_infrastructure_label_boundary():
+    sender = identify_sender(
+        "203.0.113.21",
+        {
+            "dmarc_result": "fail",
+            "dmarc_fail_count": 4,
+        },
+        hostname="mx1.evilcklnet.com",
+        domain="cklnet.com",
+    )
+
+    assert sender["id"] == "unknown-sender"
+    assert sender["name"] == "Unknown sender"
+    assert sender["status"] == "unknown"
+
+
 def test_identify_sender_matches_major_email_service_domains():
     cases = [
         ("mailgun", "mailgun.org", "mxa.mailgun.org"),

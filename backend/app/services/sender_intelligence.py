@@ -722,7 +722,9 @@ def _owned_infrastructure(
         return None
     normalized_domain = domain.lower().strip(".")
     normalized_hostname = hostname.lower().strip(".")
-    if not normalized_hostname.endswith(normalized_domain):
+    if normalized_hostname != normalized_domain and not normalized_hostname.endswith(
+        f".{normalized_domain}"
+    ):
         return None
     return {
         "id": "owned-infrastructure",
