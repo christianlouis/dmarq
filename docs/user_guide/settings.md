@@ -120,6 +120,9 @@ your DNS provider even if no DMARC reports have arrived yet.
 - Amazon Route 53 uses the server-side AWS credential chain, a configured AWS
   profile, or a role ARN plus external ID.
 - Hetzner DNS uses a read-only DNS API token.
+- Linode DNS uses a Domains read-only personal access token.
+- Akamai Edge DNS/FastDNS uses EdgeGrid credentials through an `.edgerc`
+  section or the `AKAMAI_*` environment variables.
 
 The import flow only creates monitored domains in DMARQ. It does not change DNS
 records. DNS repair remains a separate preview-and-approve action.
@@ -156,10 +159,14 @@ DNS records, detect missing or malformed DMARC/SPF/DKIM entries, record DNS
 additions, modifications, or removals over time, and apply explicitly approved
 TXT/CNAME remediation plans.
 
-The DNS-zone import workflow is provider-shaped. Cloudflare and Hetzner DNS can
-import zones before reports arrive; Hetzner import uses a read-only Hetzner
-Console API token from `HETZNER_DNS_API_TOKEN` (or the fallback
-`HETZNER_API_TOKEN`).
+The DNS-zone import workflow is provider-shaped. Cloudflare, Route 53, Hetzner
+DNS, Linode DNS, and Akamai Edge DNS/FastDNS can import zones or domains before
+reports arrive. Hetzner import uses a read-only Hetzner Console API token from
+`HETZNER_DNS_API_TOKEN` (or the fallback `HETZNER_API_TOKEN`). Linode import
+uses `LINODE_API_TOKEN` (or `LINODE_TOKEN`). Akamai import uses EdgeGrid
+credentials from `AKAMAI_EDGERC_PATH` or the direct `AKAMAI_HOST`,
+`AKAMAI_CLIENT_TOKEN`, `AKAMAI_CLIENT_SECRET`, and `AKAMAI_ACCESS_TOKEN`
+variables.
 
 DMARQ never performs background DNS edits. A write-capable token only enables
 operator-approved actions from the DNS change plan UI, and each applied change

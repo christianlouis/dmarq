@@ -261,10 +261,24 @@
                             </button>
                         </div>
                     </div>
-                    <p class="rounded-md bg-base-200 px-3 py-2 text-xs text-base-content/70">
-                        <span class="font-semibold" x-text="selectedDnsProviderName()"></span>
-                        <span x-text="selectedDnsProviderHint()"></span>
-                    </p>
+                    <div class="rounded-md bg-base-200 px-3 py-2 text-xs text-base-content/70">
+                        <div>
+                            <span class="font-semibold" x-text="selectedDnsProviderName()"></span>
+                            <span x-text="selectedDnsProviderHint()"></span>
+                        </div>
+                        <div class="mt-1" x-show="selectedDnsProviderAuthHint()">
+                            Auth: <span class="font-medium" x-text="selectedDnsProviderAuthHint()"></span>
+                        </div>
+                        <div class="mt-1" x-show="selectedDnsProviderSetupHint()"
+                             x-text="selectedDnsProviderSetupHint()"></div>
+                        <a class="mt-1 inline-block link"
+                           x-show="selectedDnsProviderDocsUrl()"
+                           :href="selectedDnsProviderDocsUrl()"
+                           target="_blank"
+                           rel="noopener noreferrer">
+                            Provider setup docs
+                        </a>
+                    </div>
                     <template x-if="cfZones.length > 0">
                         <div class="overflow-x-auto rounded-md border border-border">
                             <table class="table table-sm">
@@ -1390,13 +1404,28 @@ function settingsApp() {
         selectedDnsProviderHint() {
             const provider = this.selectedDnsProviderMetadata();
             const status = provider.zone_import_status || (provider.import_available ? 'ready' : 'planned');
-            const permissions = (provider.minimum_permissions || []).slice(0, 2).join(', ');
             if (status !== 'ready') {
                 return ' is tracked in the connector registry, but zone import is not ready yet.';
             }
+            const permissions = (provider.minimum_permissions || []).join('; ');
             return permissions
-                ? ` import uses ${permissions}.`
+                ? ` import requires ${permissions}.`
                 : ' import is available with configured provider credentials.';
+        },
+
+        selectedDnsProviderAuthHint() {
+            const provider = this.selectedDnsProviderMetadata();
+            return (provider.auth_models || [])
+                .map(value => String(value).replaceAll('_', ' '))
+                .join(', ');
+        },
+
+        selectedDnsProviderSetupHint() {
+            return this.selectedDnsProviderMetadata().setup_hint || '';
+        },
+
+        selectedDnsProviderDocsUrl() {
+            return this.selectedDnsProviderMetadata().docs_url || '';
         },
 
         async loadDNSProviders(showMessage = false) {
