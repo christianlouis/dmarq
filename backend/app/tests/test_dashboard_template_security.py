@@ -359,6 +359,13 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     assert "source.geo?.registry" in template
     assert "source.geo?.allocated" in template
     assert "source.geo?.network_source" in template
+    assert "source.first_seen" in template
+    assert "source.last_seen" in template
+    assert "source.active_days" in template
+    assert "source.report_count" in template
+    assert "source.volume_history" in template
+    assert "sourceSeenLabel" in template
+    assert "sourceVolumeBars" in template
     assert "source.reputation?.status" in template
     assert "source.reputation?.risk_score" in template
     assert "source.reputation?.listings" in template

@@ -1,4 +1,5 @@
 import threading
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 
@@ -53,6 +54,14 @@ def _new_source_stats() -> Dict[str, Any]:
         "header_from_domains": [],
         "envelope_from_domains": [],
         "extensions": {},
+        "first_seen": None,
+        "last_seen": None,
+        "active_days": 0,
+        "report_count": 0,
+        "volume_history": [],
+        "_active_dates": set(),
+        "_report_ids": set(),
+        "_volume_by_date": {},
     }
 
 
@@ -71,7 +80,102 @@ def _merge_source_metadata(source: Dict[str, Any], record: Dict[str, Any]) -> No
             source["extensions"][str(key)] = str(value)
 
 
-def _update_source_from_record(source: Dict[str, Any], record: Dict[str, Any]) -> None:
+def _timestamp_from_value(value: Any) -> Optional[int]:
+    """Return a Unix timestamp from common parsed-report date shapes."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, (int, float)):
+        return int(value)
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.isdigit():
+        return int(text)
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        else:
+            parsed = parsed.astimezone(timezone.utc)
+        return int(parsed.timestamp())
+    except ValueError:
+        return None
+
+
+def _report_time_window(report: Dict[str, Any]) -> tuple[Optional[int], Optional[int]]:
+    """Return begin/end timestamps for the observation window represented by a report."""
+    begin = _timestamp_from_value(report.get("begin_timestamp"))
+    if begin is None:
+        begin = _timestamp_from_value(report.get("begin_date"))
+    end = _timestamp_from_value(report.get("end_timestamp"))
+    if end is None:
+        end = _timestamp_from_value(report.get("end_date"))
+    return begin, end
+
+
+def _date_bucket(timestamp: Optional[int]) -> Optional[str]:
+    if timestamp is None:
+        return None
+    return datetime.fromtimestamp(timestamp, tz=timezone.utc).date().isoformat()
+
+
+def _update_source_window(
+    source: Dict[str, Any],
+    record: Dict[str, Any],
+    report: Dict[str, Any],
+    count: int,
+) -> None:
+    begin, end = _report_time_window(report)
+    observed_start = begin if begin is not None else end
+    observed_end = end if end is not None else begin
+
+    if observed_start is not None:
+        current_first = source.get("first_seen")
+        source["first_seen"] = (
+            observed_start if current_first is None else min(int(current_first), observed_start)
+        )
+    if observed_end is not None:
+        current_last = source.get("last_seen")
+        source["last_seen"] = (
+            observed_end if current_last is None else max(int(current_last), observed_end)
+        )
+
+    report_id = str(report.get("report_id") or "").strip()
+    if report_id:
+        source["_report_ids"].add(report_id)
+        source["report_count"] = len(source["_report_ids"])
+
+    bucket = _date_bucket(observed_end)
+    if bucket is None:
+        return
+    source["_active_dates"].add(bucket)
+    source["active_days"] = len(source["_active_dates"])
+    day_stats = source["_volume_by_date"].setdefault(
+        bucket,
+        {"date": bucket, "count": 0, "passed": 0, "failed": 0},
+    )
+    day_stats["count"] += count
+    if record.get("spf_result") == "pass" or record.get("dkim_result") == "pass":
+        day_stats["passed"] += count
+    else:
+        day_stats["failed"] += count
+    source["volume_history"] = [
+        source["_volume_by_date"][date_key] for date_key in sorted(source["_volume_by_date"])
+    ]
+
+
+def _source_public_entry(ip: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "source_ip": ip,
+        **{key: value for key, value in data.items() if not key.startswith("_")},
+    }
+
+
+def _update_source_from_record(
+    source: Dict[str, Any],
+    record: Dict[str, Any],
+    report: Dict[str, Any],
+) -> None:
     count = int(record.get("count") or 0)
     spf_result = record.get("spf_result", "unknown") or "unknown"
     dkim_result = record.get("dkim_result", "unknown") or "unknown"
@@ -116,6 +220,7 @@ def _update_source_from_record(source: Dict[str, Any], record: Dict[str, Any]) -
         source["dmarc_fail_count"],
     )
     source["disposition"] = _dominant_result(disposition_counts)
+    _update_source_window(source, record, report, count)
     _merge_source_metadata(source, record)
 
 
@@ -193,7 +298,7 @@ class ReportStore:
                 source_ip = record.get("source_ip", "unknown")
                 if source_ip not in sources:
                     sources[source_ip] = _new_source_stats()
-                _update_source_from_record(sources[source_ip], record)
+                _update_source_from_record(sources[source_ip], record, report)
 
         total = summary["total_count"]
         summary["compliance_rate"] = (
@@ -320,8 +425,7 @@ class ReportStore:
         # In a future milestone, we'll add date-based filtering
         sources = []
         for ip, data in self.domain_sources[domain].items():
-            source_entry = {"source_ip": ip, **data}
-            sources.append(source_entry)
+            sources.append(_source_public_entry(ip, data))
 
         # Sort sources by count (highest first)
         return sorted(sources, key=lambda s: s["count"], reverse=True)

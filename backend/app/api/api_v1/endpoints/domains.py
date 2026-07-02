@@ -100,17 +100,17 @@ from app.services.sender_intelligence import (
     identify_sender,
     source_geo_for,
 )
+from app.services.source_network import (
+    SourceNetworkIntelligence,
+    lookup_sources_network_cached,
+    merge_network_into_geo,
+)
 from app.services.source_reputation import (
     SourceReputation,
     build_source_reputation_cached,
     source_reputation_by_ip,
 )
 from app.services.source_reputation_feeds import feed_registry
-from app.services.source_network import (
-    SourceNetworkIntelligence,
-    lookup_sources_network_cached,
-    merge_network_into_geo,
-)
 from app.services.webhook_events import delivery_to_dict, enqueue_webhook_event
 from app.services.workspace_access import (
     PERMISSION_DOMAINS_WRITE,
@@ -1404,6 +1404,11 @@ class SourceEntry(BaseModel):
 
     ip: str
     count: int
+    first_seen: Optional[int] = None
+    last_seen: Optional[int] = None
+    active_days: int = 0
+    report_count: int = 0
+    volume_history: List[Dict[str, Any]] = Field(default_factory=list)
     spf: str
     dkim: str
     dmarc: str
@@ -5785,6 +5790,11 @@ async def get_domain_sources(
             SourceEntry(
                 ip=ip,
                 count=source.get("count", 0),
+                first_seen=source.get("first_seen"),
+                last_seen=source.get("last_seen"),
+                active_days=source.get("active_days", 0),
+                report_count=source.get("report_count", 0),
+                volume_history=source.get("volume_history", []),
                 spf=spf_result,
                 dkim=dkim_result,
                 dmarc=source.get("dmarc_result")

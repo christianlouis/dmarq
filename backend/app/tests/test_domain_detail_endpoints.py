@@ -26,12 +26,12 @@ from app.models.workspace_access import WorkspaceAuditLog
 from app.services import report_persistence
 from app.services.health_score_snapshots import upsert_health_score_snapshot
 from app.services.report_store import ReportStore
+from app.services.source_network import SourceNetworkIntelligence
 from app.services.source_reputation import (
     DomainReputation,
     ReputationEvidence,
     SourceReputation,
 )
-from app.services.source_network import SourceNetworkIntelligence
 from app.services.webhook_events import (
     EVENT_REMEDIATION_APPROVAL_REQUIRED,
     create_webhook_endpoint,
@@ -2265,6 +2265,18 @@ def test_get_domain_sources_returns_rollup_counts(authed_client: TestClient):
     assert source["dmarc_pass_count"] == 4
     assert source["dmarc_fail_count"] == 6
     assert source["disposition_counts"] == {"none": 4, "quarantine": 6}
+    assert source["first_seen"] == REPORT_DICT_POLICY["begin_timestamp"]
+    assert source["last_seen"] == REPORT_DICT_POLICY["end_timestamp"]
+    assert source["active_days"] == 1
+    assert source["report_count"] == 1
+    assert source["volume_history"] == [
+        {
+            "date": "2020-08-15",
+            "count": 10,
+            "passed": 4,
+            "failed": 6,
+        }
+    ]
 
 
 def test_get_domain_sources_returns_recommendations(

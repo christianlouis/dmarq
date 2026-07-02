@@ -71,6 +71,21 @@ SENDER_PROFILES: Sequence[SenderProfile] = (
         docs_url="https://docs.aws.amazon.com/ses/latest/dg/send-email-authentication-dkim.html",
     ),
     SenderProfile(
+        id="postmark",
+        name="Postmark",
+        provider="ActiveCampaign Postmark",
+        category="transactional_email",
+        hostname_tokens=("mtasv.net", "postmarkapp.com"),
+        domain_tokens=("mtasv.net", "pm.mtasv.net", "postmarkapp.com"),
+        selector_tokens=("pm", "postmark"),
+        extension_tokens=("postmark",),
+        remediation_hint=(
+            "Verify the sender signature or domain in Postmark, publish the DKIM record, "
+            "and use the custom Return-Path CNAME to pm.mtasv.net for aligned bounces."
+        ),
+        docs_url="https://postmarkapp.com/support/article/910-how-do-i-add-a-custom-return-path",
+    ),
+    SenderProfile(
         id="sendgrid",
         name="SendGrid",
         provider="Twilio SendGrid",
@@ -86,6 +101,51 @@ SENDER_PROFILES: Sequence[SenderProfile] = (
         docs_url="https://docs.sendgrid.com/ui/account-and-settings/how-to-set-up-domain-authentication",
     ),
     SenderProfile(
+        id="mailgun",
+        name="Mailgun",
+        provider="Sinch Mailgun",
+        category="transactional_email",
+        hostname_tokens=("mailgun.org", "mailgun.net"),
+        domain_tokens=("mailgun.org", "mailgun.net"),
+        selector_tokens=("mailgun", "smtpapi"),
+        extension_tokens=("mailgun",),
+        remediation_hint=(
+            "Verify the sending domain in Mailgun, publish the DKIM records, and confirm "
+            "the Mailgun SPF/MX tracking records are aligned before enforcement."
+        ),
+        docs_url="https://help.mailgun.com/hc/en-us/articles/32884702360603-Domain-Verification-Setup-Guide",
+    ),
+    SenderProfile(
+        id="sparkpost",
+        name="SparkPost",
+        provider="Bird SparkPost",
+        category="transactional_email",
+        hostname_tokens=("sparkpostmail.com", "sparkpost.com"),
+        domain_tokens=("sparkpostmail.com", "sparkpost.com"),
+        selector_tokens=("sparkpost", "scph"),
+        extension_tokens=("sparkpost",),
+        remediation_hint=(
+            "Verify the SparkPost sending domain, publish DKIM, and configure a bounce "
+            "domain so SPF and bounce handling are easy to audit."
+        ),
+        docs_url="https://developers.sparkpost.com/api/sending-domains/",
+    ),
+    SenderProfile(
+        id="mailjet",
+        name="Mailjet",
+        provider="Sinch Mailjet",
+        category="transactional_email",
+        hostname_tokens=("mailjet.com", "mailjet.net"),
+        domain_tokens=("spf.mailjet.com", "mailjet.com", "mailjet.net"),
+        selector_tokens=("mailjet",),
+        extension_tokens=("mailjet",),
+        remediation_hint=(
+            "Authenticate the domain in Mailjet and consolidate SPF into one record that "
+            "includes spf.mailjet.com, then verify DKIM alignment."
+        ),
+        docs_url="https://documentation.mailjet.com/hc/en-us/articles/360049641733-Authenticating-Domains-with-SPF-and-DKIM-A-Complete-Guide",
+    ),
+    SenderProfile(
         id="mailchimp",
         name="Mailchimp",
         provider="Intuit Mailchimp",
@@ -99,6 +159,66 @@ SENDER_PROFILES: Sequence[SenderProfile] = (
             "plus the Mailchimp SPF include are published before enforcement."
         ),
         docs_url="https://mailchimp.com/help/set-up-email-domain-authentication/",
+    ),
+    SenderProfile(
+        id="brevo",
+        name="Brevo",
+        provider="Brevo",
+        category="marketing_email",
+        hostname_tokens=("sendinblue.com", "brevo.com", "sender-sib.com", "mailin.fr"),
+        domain_tokens=("sendinblue.com", "brevo.com", "sender-sib.com", "mailin.fr"),
+        selector_tokens=("brevo", "sib", "sendinblue"),
+        extension_tokens=("brevo", "sendinblue"),
+        remediation_hint=(
+            "Authenticate the sending domain in Brevo and rely on aligned DKIM for DMARC; "
+            "review envelope-from alignment before expecting SPF to pass DMARC."
+        ),
+        docs_url="https://help.brevo.com/hc/en-us/articles/12163873383186-Authenticate-your-domain-with-Brevo-Brevo-code-DKIM-DMARC",
+    ),
+    SenderProfile(
+        id="klaviyo",
+        name="Klaviyo",
+        provider="Klaviyo",
+        category="marketing_email",
+        hostname_tokens=("klaviyo.com", "klaviyomail.com"),
+        domain_tokens=("klaviyo.com", "klaviyomail.com"),
+        selector_tokens=("klaviyo", "km1", "km2", "kt1", "kt2", "ks1", "ks2", "kl1", "kl2"),
+        extension_tokens=("klaviyo",),
+        remediation_hint=(
+            "Use Klaviyo's branded sending-domain setup and verify the generated CNAME or "
+            "NS records before treating campaign mail as fully authenticated."
+        ),
+        docs_url="https://help.klaviyo.com/hc/en-us/articles/115000357752",
+    ),
+    SenderProfile(
+        id="hubspot",
+        name="HubSpot",
+        provider="HubSpot",
+        category="marketing_email",
+        hostname_tokens=("hubspotemail.net", "hubspot.com"),
+        domain_tokens=("hubspotemail.net", "hubspot.com"),
+        selector_tokens=("hubspot", "hs"),
+        extension_tokens=("hubspot",),
+        remediation_hint=(
+            "Connect the email sending domain in HubSpot and verify the generated DKIM, "
+            "SPF, and DMARC records before using stronger DMARC policy."
+        ),
+        docs_url="https://knowledge.hubspot.com/marketing-email/manage-email-authentication-in-hubspot",
+    ),
+    SenderProfile(
+        id="constant-contact",
+        name="Constant Contact",
+        provider="Constant Contact",
+        category="marketing_email",
+        hostname_tokens=("ccsend.com", "constantcontact.com"),
+        domain_tokens=("auth.ccsend.com", "ccsend.com", "constantcontact.com"),
+        selector_tokens=("constantcontact", "ctct", "ccsend"),
+        extension_tokens=("constant-contact", "constantcontact"),
+        remediation_hint=(
+            "Self-authenticate the domain in Constant Contact with the generated DKIM "
+            "records, then check DMARC reports for the authenticated domain signature."
+        ),
+        docs_url="https://knowledgebase.constantcontact.com/email-digital-marketing/tutorials/KnowledgeBase/5932-Self-authenticate-your-emails-using-your-own-domain",
     ),
     SenderProfile(
         id="zendesk",
@@ -129,6 +249,21 @@ SENDER_PROFILES: Sequence[SenderProfile] = (
             "confirm DKIM alignment before moving the domain to reject."
         ),
         docs_url="https://docs.stripe.com/email-domain-authentication",
+    ),
+    SenderProfile(
+        id="zoho-mail",
+        name="Zoho Mail",
+        provider="Zoho",
+        category="mailbox_provider",
+        hostname_tokens=("zoho.com", "zohomail.com", "zoho.eu", "zoho.in"),
+        domain_tokens=("zoho.com", "zohomail.com", "zoho.eu", "zoho.in", "one.zoho.com"),
+        selector_tokens=("zoho",),
+        extension_tokens=("zoho",),
+        remediation_hint=(
+            "Verify the domain in Zoho, publish SPF and DKIM from the Zoho admin console, "
+            "and confirm the selected regional Zoho include is present only once."
+        ),
+        docs_url="https://www.zoho.com/mail/help/adminconsole/spf-configuration.html",
     ),
     SenderProfile(
         id="salesforce",

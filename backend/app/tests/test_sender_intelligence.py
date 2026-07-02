@@ -28,6 +28,52 @@ def test_identify_sender_matches_known_provider_from_hostname_and_selector():
     assert "Google Workspace DKIM" in sender["remediation_hint"]
 
 
+def test_identify_sender_matches_postmark_mtasv_domains():
+    source = {
+        "spf_domains": ["pm.mtasv.net"],
+        "dkim_domains": ["example.com"],
+        "dmarc_result": "pass",
+    }
+
+    sender = identify_sender(
+        "203.0.113.88",
+        source,
+        hostname="a1234.smtp-out.mtasv.net",
+        domain="example.com",
+    )
+
+    assert sender["id"] == "postmark"
+    assert sender["name"] == "Postmark"
+    assert sender["status"] == "known"
+    assert "pm.mtasv.net" in sender["remediation_hint"]
+
+
+def test_identify_sender_matches_major_email_service_domains():
+    cases = [
+        ("mailgun", "mailgun.org", "mxa.mailgun.org"),
+        ("sparkpost", "sparkpostmail.com", "mta.sparkpostmail.com"),
+        ("mailjet", "spf.mailjet.com", "mailjet.com"),
+        ("brevo", "sender-sib.com", "kh.d.sender-sib.com"),
+        ("klaviyo", "klaviyomail.com", "send.klaviyomail.com"),
+        ("hubspot", "hubspotemail.net", "smtp.hubspotemail.net"),
+        ("constant-contact", "auth.ccsend.com", "mail.auth.ccsend.com"),
+        ("zoho-mail", "one.zoho.com", "sender.zohomail.com"),
+    ]
+
+    for expected_id, auth_domain, hostname in cases:
+        sender = identify_sender(
+            "203.0.113.90",
+            {
+                "spf_domains": [auth_domain],
+                "dmarc_result": "pass",
+            },
+            hostname=hostname,
+            domain="example.com",
+        )
+        assert sender["id"] == expected_id
+        assert sender["status"] == "known"
+
+
 def test_identify_sender_flags_ambiguous_provider_evidence():
     source = {
         "spf_domains": ["google.com", "stripe.com"],
