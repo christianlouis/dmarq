@@ -9,9 +9,13 @@ DMARC message enforcement or outbound aggregate/failure report generation.
 - [x] Parse RFC 9989 policy records and discover effective DMARC policy with DNS Tree Walk.
 - [x] Parse RFC 9990 aggregate reports while preserving useful optional metadata.
 - [x] Parse inbound RFC 9991 failure reports without retaining message bodies.
+- [x] Preserve passive ARC metadata from inbound failure-report header samples
+      without using ARC as DMARC scoring evidence.
 - [x] Lint external `rua` / `ruf` destinations for required DNS authorization records.
 - [x] Add a first-class DNS lint endpoint with typed findings and stable machine-readable codes.
 - [x] Add DNS-setting generation helpers for DMARC, SPF include/all choices, DKIM selector checks, MTA-STS, TLS-RPT, and BIMI readiness.
+- [x] Add passive DANE/TLSA MX coverage checks and TLSA `3 1 1` suggestions
+      from reachable STARTTLS certificates.
 - [x] Add UI sections that show lint findings next to the current DNS records and suggested target records.
 - [x] Add bulk domain linting and export for managed-domain reviews.
 - [x] Expand aggregate fixture coverage for representative RFC 9990/DMARCbis variants and unknown-but-safe fields.
@@ -29,3 +33,4 @@ DMARC message enforcement or outbound aggregate/failure report generation.
 - Outbound DMARC aggregate report generation.
 - Outbound DMARC failure report generation.
 - Receiver-side failure-report rate limiting.
+- ARC chain validation as a source of DMARC policy override decisions.
