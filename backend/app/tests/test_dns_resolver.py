@@ -81,6 +81,44 @@ def test_detect_dns_provider_maps_azure_nameservers_to_aliasable_provider():
     assert detection.automation_supported is True
 
 
+def test_detect_dns_provider_maps_hetzner_nameservers_to_connector():
+    detection = detect_dns_provider(["ns1.first-ns.de", "robotns2.second-ns.de"])
+
+    assert detection.provider_id == "hetzner"
+    assert detection.provider_name == "Hetzner DNS"
+    assert detection.confidence == "high"
+    assert detection.connector_available is True
+    assert detection.automation_supported is True
+
+
+def test_detect_dns_provider_maps_linode_nameservers_to_connector():
+    detection = detect_dns_provider(["ns1.linode.com", "ns2.linode.com"])
+
+    assert detection.provider_id == "linode"
+    assert detection.provider_name == "Linode DNS"
+    assert detection.confidence == "high"
+    assert detection.connector_available is True
+    assert detection.automation_supported is True
+
+
+def test_detect_dns_provider_maps_akamai_nameservers_to_connector():
+    detection = detect_dns_provider(["a1-66.akam.net", "a11-65.akam.net"])
+
+    assert detection.provider_id == "akamai-edgedns"
+    assert detection.provider_name == "Akamai Edge DNS / FastDNS"
+    assert detection.confidence == "high"
+    assert detection.connector_available is True
+    assert detection.automation_supported is False
+    assert "Connect Akamai Edge DNS / FastDNS" in detection.suggested_action
+
+
+def test_detect_dns_provider_avoids_suffix_marker_false_positives():
+    detection = detect_dns_provider(["ns1.notfirst-ns.de", "ns1.notlinode.com", "ns1.notakam.net"])
+
+    assert detection.provider_id == "custom"
+    assert detection.confidence == "low"
+
+
 def test_detect_dns_provider_degrades_for_unknown_nameservers():
     detection = detect_dns_provider(["ns1.mailhost.example", "ns2.mailhost.example"])
 

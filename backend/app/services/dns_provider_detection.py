@@ -67,9 +67,29 @@ _PROVIDER_PATTERNS: tuple[_ProviderPattern, ...] = (
     _ProviderPattern(
         "hetzner",
         "Hetzner DNS",
-        ("hetzner.com", "hetzner.de"),
+        (
+            "hetzner.com",
+            "hetzner.de",
+            ".first-ns.de",
+            ".second-ns.de",
+            ".second-ns.com",
+        ),
         connector_available=True,
         automation_supported=True,
+    ),
+    _ProviderPattern(
+        "linode",
+        "Linode DNS",
+        (".linode.com",),
+        connector_available=True,
+        automation_supported=True,
+    ),
+    _ProviderPattern(
+        "akamai-edgedns",
+        "Akamai Edge DNS / FastDNS",
+        (".akam.net", ".akadns.net"),
+        connector_available=True,
+        automation_supported=False,
     ),
     _ProviderPattern(
         "namecheap",
