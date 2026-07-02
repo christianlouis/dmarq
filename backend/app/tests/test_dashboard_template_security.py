@@ -254,6 +254,10 @@ def test_settings_exposes_provider_agnostic_dns_import_without_html_injection():
     assert "/api/v1/domains/dns/providers" in template
     assert "discoverDNSProviderZones" in template
     assert "importDNSProviderZones" in template
+    assert "selectedDnsProviderAuthHint" in template
+    assert "selectedDnsProviderSetupHint" in template
+    assert "selectedDnsProviderDocsUrl" in template
+    assert "Provider setup docs" in template
     assert "/api/v1/domains/dns/import/${encodeURIComponent(providerId)}/preview" in template
     assert "/api/v1/domains/dns/import/${encodeURIComponent(providerId)}" in template
     assert "discoverCloudflareZones()" in template
