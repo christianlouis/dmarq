@@ -181,7 +181,7 @@
                                         <div class="mt-3 h-2 overflow-hidden rounded-full bg-[#ebe9e6]">
                                             <div class="h-full rounded-full"
                                                  :class="limitTrackClass(limit)"
-                                                 :style="`width: ${Math.min(limit.usage_percent || 0, 100)}%`"></div>
+                                                 x-effect="$el.style.width = `${Math.min(limit.usage_percent || 0, 100)}%`"></div>
                                         </div>
                                         <p class="mt-2 text-xs text-[#7a4a12]" x-show="limit.message" x-text="limit.message"></p>
                                     </div>

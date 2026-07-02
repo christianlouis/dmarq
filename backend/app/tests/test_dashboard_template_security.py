@@ -36,6 +36,10 @@ def _has_inline_script(markup: str) -> bool:
     return bool(re.search(r"<script\b(?![^>]*\ssrc\s*=)[^>]*>", markup, re.IGNORECASE))
 
 
+def _has_inline_style(markup: str) -> bool:
+    return bool(re.search(r"\s:?style\s*=", markup, re.IGNORECASE))
+
+
 def _template_section_between_markers(template: str, start_marker: str, end_marker: str) -> str:
     start_match = re.search(rf"^[ \t]*{re.escape(start_marker)}", template, re.MULTILINE)
     assert start_match, f"{start_marker!r} marker missing from template"
@@ -214,9 +218,13 @@ def test_dashboard_clears_all_chart_instances():
 
 def test_dashboard_uses_external_page_script_for_csp_migration():
     template = _dashboard_template()
+    styles = _read_project_file("static", "css", "styles.css")
 
     assert 'src="/static/js/chart.umd.min.js"' in template
     assert 'src="/static/js/dashboard-page.js"' in template
+    assert "enforcement-gauge-bg" in template
+    assert ".enforcement-gauge-bg" in styles
+    assert not _has_inline_style(template)
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 
@@ -360,6 +368,8 @@ def test_tls_reports_uses_external_page_script_for_csp_migration():
     assert "/api/v1/tls-reports/summary?" in script
     assert "/api/v1/tls-reports/upload" in script
     assert "Unable to load TLS report summary" in script
+    assert 'x-effect="$el.style.width' in template
+    assert not _has_inline_style(template)
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 
@@ -616,7 +626,9 @@ def test_members_template_uses_membership_api_without_html_injection():
     assert '@change="updateMembership(membership, true)"' not in template
     assert "x-html" not in template
     assert not _has_inline_script(template)
+    assert not _has_inline_style(template)
     assert _has_inline_script('<script data-src="/static/js/members-page.js"></script>')
+    assert _has_inline_style('<div data-style="ok" :style="bad"></div>')
 
 
 def test_base_template_propagates_selected_workspace_context():
