@@ -1399,6 +1399,15 @@ class SourceRegionSummary(BaseModel):
     networks: List[str] = Field(default_factory=list)
 
 
+class SourceVolumeHistoryEntry(BaseModel):
+    """Per-day message volume for a sending source."""
+
+    date: str
+    count: int = 0
+    passed: int = 0
+    failed: int = 0
+
+
 class SourceEntry(BaseModel):
     """Summary of a sending source"""
 
@@ -1408,7 +1417,7 @@ class SourceEntry(BaseModel):
     last_seen: Optional[int] = None
     active_days: int = 0
     report_count: int = 0
-    volume_history: List[Dict[str, Any]] = Field(default_factory=list)
+    volume_history: List[SourceVolumeHistoryEntry] = Field(default_factory=list)
     spf: str
     dkim: str
     dmarc: str

@@ -124,6 +124,7 @@ def _update_source_window(
     record: Dict[str, Any],
     report: Dict[str, Any],
     count: int,
+    dmarc_passed: bool,
 ) -> None:
     begin, end = _report_time_window(report)
     observed_start = begin if begin is not None else end
@@ -155,19 +156,21 @@ def _update_source_window(
         {"date": bucket, "count": 0, "passed": 0, "failed": 0},
     )
     day_stats["count"] += count
-    if record.get("spf_result") == "pass" or record.get("dkim_result") == "pass":
+    if dmarc_passed:
         day_stats["passed"] += count
     else:
         day_stats["failed"] += count
-    source["volume_history"] = [
-        source["_volume_by_date"][date_key] for date_key in sorted(source["_volume_by_date"])
-    ]
 
 
 def _source_public_entry(ip: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    public_entry = {key: value for key, value in data.items() if not key.startswith("_")}
+    volume_by_date = data.get("_volume_by_date") or {}
+    public_entry["volume_history"] = [
+        volume_by_date[date_key] for date_key in sorted(volume_by_date)
+    ]
     return {
         "source_ip": ip,
-        **{key: value for key, value in data.items() if not key.startswith("_")},
+        **public_entry,
     }
 
 
@@ -197,7 +200,8 @@ def _update_source_from_record(
     else:
         source["dkim_unknown_count"] += count
 
-    if spf_result == "pass" or dkim_result == "pass":
+    dmarc_passed = spf_result == "pass" or dkim_result == "pass"
+    if dmarc_passed:
         source["dmarc_pass_count"] += count
     else:
         source["dmarc_fail_count"] += count
@@ -220,7 +224,7 @@ def _update_source_from_record(
         source["dmarc_fail_count"],
     )
     source["disposition"] = _dominant_result(disposition_counts)
-    _update_source_window(source, record, report, count)
+    _update_source_window(source, record, report, count, dmarc_passed)
     _merge_source_metadata(source, record)
 
 

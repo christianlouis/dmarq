@@ -780,9 +780,8 @@ failures.
 `GET /domains/{domain_id}/sources` also includes per-source `geo`,
 `anomalies`, `first_seen`, `last_seen`, `active_days`, `report_count`, and
 `volume_history` fields so the domain detail page can show the same context
-next to the raw sending-source evidence. `volume_history` is a date-keyed
-message-count history for the source IP, including pass/fail counts for the
-report day.
+next to the raw sending-source evidence. `volume_history` is a list of per-day
+`{date, count, passed, failed}` points for the source IP.
 
 #### Get Source Reputation
 

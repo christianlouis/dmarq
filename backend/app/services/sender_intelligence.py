@@ -118,7 +118,7 @@ SENDER_PROFILES: Sequence[SenderProfile] = (
     SenderProfile(
         id="sparkpost",
         name="SparkPost",
-        provider="Bird SparkPost",
+        provider="Bird Email",
         category="transactional_email",
         hostname_tokens=("sparkpostmail.com", "sparkpost.com"),
         domain_tokens=("sparkpostmail.com", "sparkpost.com"),
@@ -182,7 +182,7 @@ SENDER_PROFILES: Sequence[SenderProfile] = (
         category="marketing_email",
         hostname_tokens=("klaviyo.com", "klaviyomail.com"),
         domain_tokens=("klaviyo.com", "klaviyomail.com"),
-        selector_tokens=("klaviyo", "km1", "km2", "kt1", "kt2", "ks1", "ks2", "kl1", "kl2"),
+        selector_tokens=("klaviyo",),
         extension_tokens=("klaviyo",),
         remediation_hint=(
             "Use Klaviyo's branded sending-domain setup and verify the generated CNAME or "
