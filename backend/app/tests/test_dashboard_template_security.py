@@ -1,4 +1,8 @@
+import json
 import re
+import shutil
+import subprocess
+import textwrap
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -42,6 +46,27 @@ def _dashboard_template() -> str:
 
 def _dashboard_script() -> str:
     return _read_project_file("static", "js", "dashboard-page.js")
+
+
+def _run_dashboard_poll_summary(payload: dict[str, object]) -> str:
+    node = shutil.which("node")
+    assert node, "node is required to execute dashboard-page.js behavior tests"
+
+    script_path = Path(__file__).resolve().parents[1] / "static" / "js" / "dashboard-page.js"
+    runner = textwrap.dedent("""
+        const fs = require('fs');
+        const script = fs.readFileSync(process.argv[1], 'utf8');
+        const payload = JSON.parse(process.argv[2]);
+        eval(script);
+        process.stdout.write(dashboardApp().summarizePollResults(payload));
+        """)
+    result = subprocess.run(
+        [node, "-e", runner, str(script_path), json.dumps(payload)],
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+    return result.stdout
 
 
 def _operations_template() -> str:
@@ -559,3 +584,40 @@ def test_dashboard_trigger_poll_uses_post_action_not_get_link():
     assert 'role="status"' in template
     assert 'aria-live="polite"' in template
     assert 'aria-atomic="true"' in template
+
+
+def test_dashboard_poll_summary_reports_source_totals_and_outcomes():
+    summary = _run_dashboard_poll_summary(
+        {
+            "sources_polled": 2,
+            "source_methods": ["GMAIL_API", "M365_GRAPH"],
+            "sources": [
+                {
+                    "processed": 3,
+                    "reports_found": 2,
+                    "forensic_reports_found": 1,
+                    "new_domains": ["example.com", "example.net"],
+                },
+                {
+                    "processed": 1,
+                    "reports_found": 0,
+                    "new_domains": ["example.com", "example.org", "example.edu"],
+                    "skipped": True,
+                    "success": False,
+                },
+            ],
+        }
+    )
+
+    assert summary == (
+        "Polling finished for 2 sources (Gmail API, Microsoft 365); "
+        "4 emails processed; 2 aggregate reports found; 1 forensic report found; "
+        "new domains: example.com, example.net, example.org +1 more; 1 skipped; 1 failed."
+    )
+
+
+def test_dashboard_poll_summary_uses_fallback_message_without_sources():
+    assert (
+        _run_dashboard_poll_summary({"sources_polled": 0, "message": "No mailbox configured."})
+        == "No mailbox configured."
+    )
