@@ -294,6 +294,27 @@ def test_domain_details_exposes_ownership_and_delete_controls_without_html_injec
     assert "x-html" not in template
 
 
+def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
+    template = (
+        Path(__file__).resolve().parents[1] / "templates" / "domain_details.html"
+    ).read_text()
+
+    assert "IP Intelligence" in template
+    assert "PTR unavailable" in template
+    assert "sourceGeoSummary(source)" in template
+    assert "source.geo?.country_code" in template
+    assert "source.geo?.country" in template
+    assert "source.geo?.region" in template
+    assert "source.geo?.asn" in template
+    assert "source.geo?.network" in template
+    assert "source.reputation?.status" in template
+    assert "source.reputation?.risk_score" in template
+    assert "source.reputation?.listings" in template
+    assert "reputationStatusClass" in template
+    assert 'colspan="9"' in template
+    assert "x-html" not in template
+
+
 def test_domain_details_redirects_to_domain_management_after_delete_success():
     template = (
         Path(__file__).resolve().parents[1] / "templates" / "domain_details.html"
