@@ -2138,6 +2138,7 @@ async def test_cloudflare_oauth_exchange_retries_with_basic_auth_after_forbidden
     )
 
     assert token_data["access_token"] == "provider-token"
+    assert len(requests) == 2
     assert requests[0]["data"]["client_id"] == "client-id"
     assert requests[0]["data"]["client_secret"] == "client-secret"
     assert requests[0]["auth"] is None

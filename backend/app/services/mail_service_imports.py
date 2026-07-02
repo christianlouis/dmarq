@@ -12,6 +12,8 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.credential_encryption import decrypt_secret
 from app.models.domain import Domain
+
+# Imported for model registration side effects when this service is loaded directly.
 from app.models.mail_source_import import MailSourceImport  # noqa: F401
 from app.models.setting import Setting
 from app.models.workspace import Workspace
