@@ -1,6 +1,7 @@
 import asyncio
 
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
 from starlette.requests import Request
 
 from app.api.api_v1.endpoints import domains as domains_endpoint
@@ -127,6 +128,60 @@ def test_update_report_only_domain_creates_monitored_domain(
     domain = db_session.query(Domain).filter(Domain.name == report_domain).one()
     assert domain.description == "Persisted from report-only summary"
     assert domain.dkim_selectors == "google,default"
+
+
+def test_update_report_only_domain_insert_race_returns_conflict(
+    authed_client: TestClient, db_session, monkeypatch
+):
+    """Concurrent monitor-domain creation returns a controlled conflict."""
+    report_domain = "raced-report-only.example"
+    report = {
+        "domain": report_domain,
+        "report_id": "report-only-race",
+        "org_name": "Example RUA",
+        "begin_timestamp": 1597449600,
+        "end_timestamp": 1597535999,
+        "policy": "none",
+        "records": [
+            {
+                "source_ip": "192.0.2.10",
+                "count": 1,
+                "disposition": "none",
+                "dkim_result": "pass",
+                "spf_result": "pass",
+                "header_from": report_domain,
+            }
+        ],
+    }
+
+    def fake_hydrate(_db, store, workspace_id=None):
+        del workspace_id
+        store.clear()
+        store.add_report(report)
+        return 1
+
+    def fail_commit():
+        raise IntegrityError("insert domain", {}, Exception("duplicate domain"))
+
+    workspace = domains_endpoint._authorized_domain_workspace(  # pylint: disable=protected-access
+        {"auth_type": "api_key"},
+        db_session,
+    )
+    monkeypatch.setattr(
+        domains_endpoint,
+        "_authorized_domain_workspace",
+        lambda *_args, **_kwargs: workspace,
+    )
+    monkeypatch.setattr(domains_endpoint, "hydrate_report_store_from_db", fake_hydrate)
+    monkeypatch.setattr(db_session, "commit", fail_commit)
+
+    response = authed_client.patch(
+        f"/api/v1/domains/domains/{report_domain}",
+        json={"description": "Race loser"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Domain is already monitored"
 
 
 def test_domain_selectors_map_normalizes_legacy_duplicates(db_session):
