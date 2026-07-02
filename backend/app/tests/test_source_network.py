@@ -4,6 +4,7 @@ from app.services.source_network import (
     SourceNetworkIntelligence,
     lookup_source_network,
     lookup_source_network_cached,
+    lookup_sources_network_cached,
     merge_network_into_geo,
 )
 
@@ -78,6 +79,24 @@ async def test_lookup_source_network_cached_reuses_fresh_result(db_session):
     assert first_checked == second_checked
     assert first.asn == "AS64500"
     assert second.asn == "AS64500"
+    assert provider.queries == ["8.8.8.8.origin.asn.cymru.com"]
+
+
+async def test_lookup_sources_network_cached_filters_invalid_and_non_global_ips(db_session):
+    provider = FakeProvider(
+        [
+            '"15169 | 8.8.8.0/24 | US | arin | 1992-12-01 | GOOGLE, US"',
+        ]
+    )
+
+    results = await lookup_sources_network_cached(
+        db_session,
+        provider,
+        ["unknown", "", None, "10.0.0.1", "192.0.2.10", "8.8.8.8", "8.8.8.8"],
+    )
+
+    assert list(results) == ["8.8.8.8"]
+    assert results["8.8.8.8"].asn == "AS15169"
     assert provider.queries == ["8.8.8.8.origin.asn.cymru.com"]
 
 

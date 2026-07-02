@@ -114,6 +114,19 @@ def _normalize_asn(value: str) -> Optional[str]:
     return text if text.upper().startswith("AS") else f"AS{text}"
 
 
+def _normalize_global_source_ip(value: Any) -> Optional[str]:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        address = ipaddress.ip_address(text)
+    except ValueError:
+        return None
+    if not address.is_global:
+        return None
+    return str(address)
+
+
 def _from_json(value: str) -> SourceNetworkIntelligence:
     data = json.loads(value)
     return SourceNetworkIntelligence(**data)
@@ -259,8 +272,8 @@ async def lookup_sources_network_cached(
     seen: set[str] = set()
     unique_ips: List[str] = []
     for raw_ip in source_ips:
-        ip = str(raw_ip or "").strip()
-        if not ip or ip in seen:
+        ip = _normalize_global_source_ip(raw_ip)
+        if ip is None or ip in seen:
             continue
         seen.add(ip)
         unique_ips.append(ip)
