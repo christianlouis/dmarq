@@ -285,6 +285,12 @@ def test_settings_exposes_provider_agnostic_dns_import_without_html_injection():
     assert "selectedDnsProviderAuthHint" in template
     assert "selectedDnsProviderSetupHint" in template
     assert "selectedDnsProviderDocsUrl" in template
+    assert "resetDnsProviderImportState" in template
+    assert "dnsProviderImportError" in template
+    assert "dnsProviderImportSummary" in template
+    assert "providerErrorDetail" in template
+    assert "returned no importable zones" in template
+    assert "discovery needs attention" in template
     assert "Provider setup docs" in template
     assert "/api/v1/domains/dns/import/${encodeURIComponent(providerId)}/preview" in template
     assert "/api/v1/domains/dns/import/${encodeURIComponent(providerId)}" in template
