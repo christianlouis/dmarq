@@ -2,22 +2,24 @@ import re
 from pathlib import Path
 
 
+def _read_project_file(*parts: str) -> str:
+    return (Path(__file__).resolve().parents[1].joinpath(*parts)).read_text()
+
+
 def _dashboard_template() -> str:
-    return (Path(__file__).resolve().parents[1] / "templates" / "index.html").read_text()
+    return _read_project_file("templates", "index.html")
 
 
 def _dashboard_script() -> str:
-    return (Path(__file__).resolve().parents[1] / "static" / "js" / "dashboard-page.js").read_text()
+    return _read_project_file("static", "js", "dashboard-page.js")
 
 
 def _operations_template() -> str:
-    return (Path(__file__).resolve().parents[1] / "templates" / "operations.html").read_text()
+    return _read_project_file("templates", "operations.html")
 
 
 def _operations_script() -> str:
-    return (
-        Path(__file__).resolve().parents[1] / "static" / "js" / "operations-page.js"
-    ).read_text()
+    return _read_project_file("static", "js", "operations-page.js")
 
 
 def test_dashboard_domain_table_uses_safe_dom_rendering():
