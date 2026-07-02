@@ -7,6 +7,8 @@ function dashboardApp() {
         domains: [],
         healthSummary: null,
         healthHistory: null,
+        dashboardLoading: true,
+        dashboardError: '',
         selectedDnsDomain: '',
         triggerPollRunning: false,
         triggerPollStatus: '',
@@ -141,8 +143,13 @@ function dashboardApp() {
         },
         
         async fetchDomainSummary() {
+            this.dashboardLoading = true;
+            this.dashboardError = '';
             try {
                 const response = await fetch('/api/v1/domains/summary');
+                if (!response.ok) {
+                    throw new Error('Dashboard data could not be loaded. Check the API service and try again.');
+                }
                 const data = await response.json();
                 
                 if (data && data.domains && data.domains.length > 0) {
@@ -172,6 +179,7 @@ function dashboardApp() {
                 }
             } catch (error) {
                 console.error('Error fetching domain summary:', error);
+                this.dashboardError = error.message || 'Dashboard data could not be loaded.';
                 this.domains = [];
                 this.healthSummary = null;
                 this.healthHistory = null;
@@ -180,6 +188,8 @@ function dashboardApp() {
                 this.clearDashboardCharts();
                 this.populateChangeSummary([]);
                 this.populateTopSources([]);
+            } finally {
+                this.dashboardLoading = false;
             }
         },
 

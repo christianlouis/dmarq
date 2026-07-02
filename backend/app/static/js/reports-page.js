@@ -6,7 +6,8 @@ function reportsApp() {
         },
         domains: [],
         reports: [],
-        loading: false,
+        loading: true,
+        error: '',
 
         init() {
             this.fetchReports();
@@ -46,11 +47,18 @@ function reportsApp() {
 
         async fetchReports() {
             this.loading = true;
+            this.error = '';
             try {
                 const response = await fetch('/api/v1/reports');
+                if (!response.ok) {
+                    throw new Error('Reports could not be loaded. Refresh the page or check the import service.');
+                }
                 this.reports = await response.json();
                 this.domains = [...new Set(this.reports.map((report) => report.domain))].sort();
             } catch (error) {
+                this.reports = [];
+                this.domains = [];
+                this.error = error.message || 'Reports could not be loaded.';
                 console.error('Error fetching reports:', error);
             } finally {
                 this.loading = false;

@@ -972,18 +972,20 @@
                     <div>
                         <h3 class="font-semibold mb-1 flex items-center">
                             <span class="mr-2">DMARC Record</span>
-                            <span x-show="dns.dmarc" class="inline-flex h-2 w-2 rounded-full bg-green-500"></span>
-                            <span x-show="!dns.dmarc" class="inline-flex h-2 w-2 rounded-full bg-red-500"></span>
+                            <span x-show="dnsRecordsLoading" class="loading loading-spinner loading-xs"></span>
+                            <span x-show="!dnsRecordsLoading && dns.dmarc" class="inline-flex h-2 w-2 rounded-full bg-green-500"></span>
+                            <span x-show="!dnsRecordsLoading && !dns.dmarc" class="inline-flex h-2 w-2 rounded-full bg-red-500"></span>
                         </h3>
-                        <div class="bg-muted p-2 rounded text-sm overflow-x-auto font-mono" x-text="dns.dmarcRecord || 'No DMARC record found'">-</div>
+                        <div class="bg-muted p-2 rounded text-sm overflow-x-auto font-mono" x-text="dnsRecordsLoading ? 'Checking DMARC record...' : (dns.dmarcRecord || 'No DMARC record found')">-</div>
                     </div>
                     <div>
                         <h3 class="font-semibold mb-1 flex items-center">
                             <span class="mr-2">SPF Record</span>
-                            <span x-show="dns.spf" class="inline-flex h-2 w-2 rounded-full bg-green-500"></span>
-                            <span x-show="!dns.spf" class="inline-flex h-2 w-2 rounded-full bg-red-500"></span>
+                            <span x-show="dnsRecordsLoading" class="loading loading-spinner loading-xs"></span>
+                            <span x-show="!dnsRecordsLoading && dns.spf" class="inline-flex h-2 w-2 rounded-full bg-green-500"></span>
+                            <span x-show="!dnsRecordsLoading && !dns.spf" class="inline-flex h-2 w-2 rounded-full bg-red-500"></span>
                         </h3>
-                        <div class="bg-muted p-2 rounded text-sm overflow-x-auto font-mono" x-text="dns.spfRecord || 'No SPF record found'">-</div>
+                        <div class="bg-muted p-2 rounded text-sm overflow-x-auto font-mono" x-text="dnsRecordsLoading ? 'Checking SPF record...' : (dns.spfRecord || 'No SPF record found')">-</div>
                     </div>
                     <div id="mta-sts-posture">
                         <h3 class="font-semibold mb-1 flex items-center">
@@ -1037,12 +1039,17 @@
                     <div>
                         <h3 class="font-semibold mb-1 flex items-center">
                             <span class="mr-2">DKIM (live check)</span>
-                            <span x-show="dns.dkim" class="inline-flex h-2 w-2 rounded-full bg-green-500"></span>
-                            <span x-show="!dns.dkim" class="inline-flex h-2 w-2 rounded-full bg-red-500"></span>
+                            <span x-show="dnsRecordsLoading" class="loading loading-spinner loading-xs"></span>
+                            <span x-show="!dnsRecordsLoading && dns.dkim" class="inline-flex h-2 w-2 rounded-full bg-green-500"></span>
+                            <span x-show="!dnsRecordsLoading && !dns.dkim" class="inline-flex h-2 w-2 rounded-full bg-red-500"></span>
                         </h3>
                         <div class="bg-muted p-2 rounded text-sm overflow-x-auto font-mono"
                              x-text="dkimLiveText">-</div>
                     </div>
+                    <p x-show="dnsRecordsError"
+                       x-cloak
+                       class="rounded-md border border-[#ffcfbd] bg-[#fff2ec] px-3 py-2 text-sm text-[#8a2d0d]"
+                       x-text="dnsRecordsError"></p>
                     <!-- DKIM Selector Management -->
                     <div class="border rounded-lg p-4">
                         <h3 class="font-semibold mb-3">DKIM Selectors</h3>
@@ -1357,11 +1364,20 @@
                 <div class="grid gap-4 lg:grid-cols-2">
                     <div>
                         <h3 class="mb-3 text-sm font-semibold uppercase tracking-wide text-[#5f5c78]">Top regions</h3>
+                        <template x-if="sourceIntelligence.loading">
+                            <div class="flex items-center gap-2 rounded-md border border-[#e6e3e1] bg-white p-3 text-sm text-muted-foreground" role="status">
+                                <span class="loading loading-spinner loading-sm"></span>
+                                <span>Loading source intelligence...</span>
+                            </div>
+                        </template>
+                        <template x-if="!sourceIntelligence.loading && sourceIntelligence.error">
+                            <p class="rounded-md border border-[#ffcfbd] bg-[#fff2ec] p-3 text-sm text-[#8a2d0d]" x-text="sourceIntelligence.error"></p>
+                        </template>
                         <div class="space-y-3">
-                            <template x-if="!sourceIntelligence.regions.length">
+                            <template x-if="!sourceIntelligence.loading && !sourceIntelligence.error && !sourceIntelligence.regions.length">
                                 <p class="text-sm text-muted-foreground">No region data available for this time period.</p>
                             </template>
-                            <template x-for="region in sourceIntelligence.regions.slice(0, 4)" :key="region.region">
+                            <template x-for="region in (!sourceIntelligence.loading && !sourceIntelligence.error ? sourceIntelligence.regions.slice(0, 4) : [])" :key="region.region">
                                 <div class="rounded-md border border-[#e6e3e1] bg-white p-3">
                                     <div class="flex items-start justify-between gap-3">
                                         <div>
@@ -1385,10 +1401,19 @@
                     <div>
                         <h3 class="mb-3 text-sm font-semibold uppercase tracking-wide text-[#5f5c78]">Actionable anomalies</h3>
                         <div class="space-y-3">
-                            <template x-if="!sourceIntelligence.anomalies.length">
+                            <template x-if="sourceIntelligence.loading">
+                                <div class="flex items-center gap-2 rounded-md border border-[#e6e3e1] bg-white p-3 text-sm text-muted-foreground" role="status">
+                                    <span class="loading loading-spinner loading-sm"></span>
+                                    <span>Checking source changes...</span>
+                                </div>
+                            </template>
+                            <template x-if="!sourceIntelligence.loading && sourceIntelligence.error">
+                                <p class="rounded-md border border-[#ffcfbd] bg-[#fff2ec] p-3 text-sm text-[#8a2d0d]" x-text="sourceIntelligence.error"></p>
+                            </template>
+                            <template x-if="!sourceIntelligence.loading && !sourceIntelligence.error && !sourceIntelligence.anomalies.length">
                                 <p class="text-sm text-muted-foreground">No notable source changes detected.</p>
                             </template>
-                            <template x-for="anomaly in sourceIntelligence.anomalies.slice(0, 4)" :key="anomaly.type + anomaly.source_ip">
+                            <template x-for="anomaly in (!sourceIntelligence.loading && !sourceIntelligence.error ? sourceIntelligence.anomalies.slice(0, 4) : [])" :key="anomaly.type + anomaly.source_ip">
                                 <a :href="anomaly.source_ip ? '#sending-sources' : '#reports'"
                                    class="block rounded-md border border-[#e6e3e1] bg-white p-3 transition hover:border-[#2f9da5] hover:shadow-sm">
                                     <div class="flex items-start gap-2">
@@ -1464,7 +1489,14 @@
                                 </td>
                             </tr>
                         </template>
-                        <template x-for="source in filteredSources" :key="source.ip">
+                        <template x-if="!sourcesLoading && !sourcesError && sources.length > 0 && filteredSources.length === 0">
+                            <tr>
+                                <td colspan="9" class="text-center py-4">
+                                    <div class="text-muted-foreground">No sending sources match this filter.</div>
+                                </td>
+                            </tr>
+                        </template>
+                        <template x-for="source in (!sourcesLoading && !sourcesError ? filteredSources : [])" :key="source.ip">
                             {% call tr() %}
                                 {% call td() %}
                                     <div class="flex flex-col">
@@ -1729,14 +1761,31 @@
                         {% endcall %}
                     {% endcall %}
                     {% call tbody() %}
-                        <template x-if="reports.length === 0">
+                        <template x-if="reportsLoading">
+                            <tr>
+                                <td colspan="6" class="text-center py-4">
+                                    <div class="flex items-center justify-center gap-2 text-muted-foreground" role="status">
+                                        <span class="loading loading-spinner loading-sm"></span>
+                                        <span>Loading recent reports...</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                        <template x-if="!reportsLoading && reportsError">
+                            <tr>
+                                <td colspan="6" class="text-center py-4">
+                                    <div class="text-red-700" x-text="reportsError"></div>
+                                </td>
+                            </tr>
+                        </template>
+                        <template x-if="!reportsLoading && !reportsError && reports.length === 0">
                             <tr>
                                 <td colspan="6" class="text-center py-4">
                                     <div class="text-muted-foreground">No reports available</div>
                                 </td>
                             </tr>
                         </template>
-                        <template x-for="report in reports" :key="report.id">
+                        <template x-for="report in (!reportsLoading && !reportsError ? reports : [])" :key="report.id">
                             {% call tr() %}
                                 {% call td() %}
                                     <span x-text="formatDate(report.begin_date)"></span>
@@ -1794,6 +1843,8 @@ function domainDetailsApp(domainId) {
             nameservers: [],
             dnsProvider: null
         },
+        dnsRecordsLoading: true,
+        dnsRecordsError: '',
         dnsHealth: {
             status: '',
             checks: [],
@@ -1876,13 +1927,17 @@ function domainDetailsApp(domainId) {
         newSelector: '',
         selectorError: '',
         reports: [],
+        reportsLoading: true,
+        reportsError: '',
         sources: [],
         sourcesLoading: false,
         sourcesError: '',
         sourceIntelligence: {
             regions: [],
             anomalies: [],
-            summary: {}
+            summary: {},
+            loading: true,
+            error: ''
         },
         ownership: {
             loading: false,
@@ -2086,6 +2141,7 @@ function domainDetailsApp(domainId) {
         },
 
         get dkimLiveText() {
+            if (this.dnsRecordsLoading) return 'Checking DKIM selectors...';
             if (!this.dns.dkim) return 'No DKIM record found for configured selectors';
             if (this.dns.dkimSelectors && this.dns.dkimSelectors.length > 0) {
                 return 'selectors: ' + this.dns.dkimSelectors.join(', ');
@@ -2098,14 +2154,18 @@ function domainDetailsApp(domainId) {
         },
 
         get dnsProviderName() {
+            if (this.dnsRecordsLoading) return 'Checking DNS provider...';
             return this.detectedDnsProvider?.provider_name || 'Unknown provider';
         },
 
         get dnsProviderConfidence() {
+            if (this.dnsRecordsLoading) return 'checking';
             return this.detectedDnsProvider?.confidence || 'unknown';
         },
 
         get dnsProviderAction() {
+            if (this.dnsRecordsLoading) return 'Looking up authoritative nameservers and authentication records.';
+            if (this.dnsRecordsError) return this.dnsRecordsError;
             return this.detectedDnsProvider?.suggested_action || 'Review nameservers and select the DNS provider manually before making changes.';
         },
 
@@ -2118,6 +2178,7 @@ function domainDetailsApp(domainId) {
         },
 
         get dnsNameserverText() {
+            if (this.dnsRecordsLoading) return 'Checking nameservers...';
             const nameservers = this.dns.nameservers || this.detectedDnsProvider?.evidence || [];
             return nameservers.length ? nameservers.join(', ') : 'No NS evidence available yet';
         },
@@ -2469,15 +2530,23 @@ function domainDetailsApp(domainId) {
         },
 
         async fetchDNSRecords() {
+            this.dnsRecordsLoading = true;
+            this.dnsRecordsError = '';
             try {
                 const response = await fetch(`/api/v1/domains/${this.domainId}/dns`);
-                if (response.ok) {
-                    const data = await response.json();
-                    this.dns = data;
-                    this.syncDetectedDnsProvider();
+                if (!response.ok) {
+                    const data = await response.json().catch(() => ({}));
+                    const detail = typeof data.detail === 'string' ? data.detail : data.detail?.message;
+                    throw new Error(detail || 'DNS records could not be loaded.');
                 }
+                const data = await response.json();
+                this.dns = data;
+                this.syncDetectedDnsProvider();
             } catch (error) {
+                this.dnsRecordsError = error.message || 'DNS records could not be loaded.';
                 console.error('Error fetching DNS records:', error);
+            } finally {
+                this.dnsRecordsLoading = false;
             }
         },
 
@@ -2895,16 +2964,25 @@ function domainDetailsApp(domainId) {
         },
 
         async fetchReports() {
+            this.reportsLoading = true;
+            this.reportsError = '';
             try {
                 const response = await fetch(`/api/v1/domains/${this.domainId}/reports?limit=10`);
-                if (response.ok) {
-                    const data = await response.json();
-                    this.reports = data.reports;
-                    this.lastComplianceTimeline = data.compliance_timeline || [];
-                    this.initComplianceChart(data.compliance_timeline);
+                if (!response.ok) {
+                    const data = await response.json().catch(() => ({}));
+                    const detail = typeof data.detail === 'string' ? data.detail : data.detail?.message;
+                    throw new Error(detail || 'Recent reports could not be loaded.');
                 }
+                const data = await response.json();
+                this.reports = data.reports || [];
+                this.lastComplianceTimeline = data.compliance_timeline || [];
+                this.initComplianceChart(data.compliance_timeline);
             } catch (error) {
+                this.reports = [];
+                this.reportsError = error.message || 'Recent reports could not be loaded.';
                 console.error('Error fetching reports:', error);
+            } finally {
+                this.reportsLoading = false;
             }
         },
 
@@ -2940,13 +3018,32 @@ function domainDetailsApp(domainId) {
         },
 
         async fetchSourceIntelligence() {
+            this.sourceIntelligence.loading = true;
+            this.sourceIntelligence.error = '';
             try {
                 const response = await fetch(`/api/v1/domains/${encodeURIComponent(this.domainId)}/source-intelligence?days=${this.sourceDateWindow()}`);
-                if (response.ok) {
-                    this.sourceIntelligence = await response.json();
+                if (!response.ok) {
+                    const data = await response.json().catch(() => ({}));
+                    const detail = typeof data.detail === 'string' ? data.detail : data.detail?.message;
+                    throw new Error(detail || 'Source intelligence could not be loaded.');
                 }
+                const data = await response.json();
+                this.sourceIntelligence = {
+                    ...data,
+                    loading: false,
+                    error: ''
+                };
             } catch (error) {
+                this.sourceIntelligence = {
+                    regions: [],
+                    anomalies: [],
+                    summary: {},
+                    loading: false,
+                    error: error.message || 'Source intelligence could not be loaded.'
+                };
                 console.error('Error fetching source intelligence:', error);
+            } finally {
+                this.sourceIntelligence.loading = false;
             }
         },
         
