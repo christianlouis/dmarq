@@ -137,10 +137,10 @@ class TestSecurityHeaders:
     def test_csp_report_only_header_appears_when_flag_enabled(self, client: TestClient, monkeypatch):
         """When CSP_REPORT_ONLY is true, the strict target CSP should appear as report-only."""
         monkeypatch.setenv("CSP_REPORT_ONLY", "true")
-        
+
         response = client.get("/mail-sources")
         assert "Content-Security-Policy-Report-Only" in response.headers
-        
+
         csp_ro = response.headers["Content-Security-Policy-Report-Only"]
         assert "'unsafe-inline'" not in csp_ro
         assert "'unsafe-eval'" not in csp_ro
