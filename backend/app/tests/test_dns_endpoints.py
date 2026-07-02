@@ -1576,6 +1576,24 @@ def test_summary_dns_failure_defaults_false(authed_client: TestClient, db_sessio
     assert domain["dkim_status"] is False
 
 
+def test_summary_refresh_dns_exception_defaults_false(authed_client: TestClient, db_session):
+    """Resolver failures during explicit refresh should not block the summary."""
+    _persist_minimal_report(db_session)
+
+    with patch(
+        "app.api.api_v1.endpoints.domains.resolve_domain_dns_cached",
+        new=AsyncMock(side_effect=LookupError("resolver unavailable")),
+    ):
+        response = authed_client.get("/api/v1/domains/summary?refresh=true")
+
+    assert response.status_code == 200
+    domain = response.json()["domains"][0]
+    assert domain["dmarc_status"] is False
+    assert domain["spf_status"] is False
+    assert domain["dkim_status"] is False
+    assert domain["dns_pending"] is False
+
+
 def test_summary_endpoint_uses_manual_selectors(authed_client: TestClient, db_session):
     """Manually configured selectors are forwarded by the summary endpoint."""
     _persist_minimal_report(db_session)
