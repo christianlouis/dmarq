@@ -116,6 +116,12 @@ that evidence is available from reports or cached sender-network enrichment.
 It also flags unusual source behavior, including new senders, new regions,
 source volume spikes, and increased SPF/DKIM alignment failures.
 
+Each sending source also shows when DMARQ first and last observed mail from
+that host, how many distinct report days include the source, and a compact
+recent volume history. Use this to separate current infrastructure from stale
+legacy traffic: a source that last sent yesterday deserves different treatment
+than a one-off sender that appeared three months ago.
+
 Use these findings before editing DNS. A new source is not automatically a
 trusted sender; confirm the service owner first, then update SPF or DKIM only
 when the source is legitimate.
@@ -124,6 +130,14 @@ Reputation evidence is shown separately from network ownership. ASN and BGP
 prefix data explains who appears to operate the sending infrastructure; optional
 reputation feeds can add DNSBL or blacklist evidence when an administrator has
 enabled those providers.
+
+Known sender matching recognizes common provider evidence from DMARC reports,
+reverse DNS, and authentication domains. The built-in profiles include Google
+Workspace, Microsoft 365, Amazon SES, Postmark, SendGrid, Mailgun, SparkPost,
+Mailjet, Mailchimp, Brevo, Klaviyo, HubSpot, Constant Contact, Zendesk, Stripe,
+Zoho, and Salesforce. Treat a match as an investigation shortcut rather than
+proof of ownership: always confirm the service in your own provider account
+before authorizing DNS changes.
 
 ### DNS Guidance
 

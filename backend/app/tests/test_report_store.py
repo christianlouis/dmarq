@@ -137,6 +137,59 @@ class TestReportStore:
         assert source["dmarc_fail_count"] == 2
         assert source["disposition_counts"] == {"none": 7, "quarantine": 3, "reject": 2}
 
+    def test_get_domain_sources_tracks_first_last_seen_and_daily_volume(self):
+        store = ReportStore.get_instance()
+        older = _sample_report("test.com")
+        older.update(
+            {
+                "report_id": "older",
+                "begin_timestamp": 1704067200,
+                "end_timestamp": 1704153599,
+                "records": [
+                    {
+                        "source_ip": "203.0.113.9",
+                        "count": 2,
+                        "disposition": "none",
+                        "dkim_result": "pass",
+                        "spf_result": "pass",
+                        "header_from": "test.com",
+                    }
+                ],
+            }
+        )
+        newer = _sample_report("test.com")
+        newer.update(
+            {
+                "report_id": "newer",
+                "begin_timestamp": 1706745600,
+                "end_timestamp": 1706831999,
+                "records": [
+                    {
+                        "source_ip": "203.0.113.9",
+                        "count": 5,
+                        "disposition": "reject",
+                        "dkim_result": "fail",
+                        "spf_result": "fail",
+                        "header_from": "test.com",
+                    }
+                ],
+            }
+        )
+
+        store.add_report(newer)
+        store.add_report(older)
+
+        source = store.get_domain_sources("test.com")[0]
+        assert source["first_seen"] == 1704067200
+        assert source["last_seen"] == 1706831999
+        assert source["active_days"] == 2
+        assert source["report_count"] == 2
+        assert source["volume_history"] == [
+            {"date": "2024-01-01", "count": 2, "passed": 2, "failed": 0},
+            {"date": "2024-02-01", "count": 5, "passed": 0, "failed": 5},
+        ]
+        assert "_volume_by_date" not in source
+
     def test_get_domain_sources_rolls_up_unknown_auth_results(self):
         store = ReportStore.get_instance()
         report = _sample_report("test.com")

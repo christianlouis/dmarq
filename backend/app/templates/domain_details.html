@@ -1600,7 +1600,32 @@
                                     </div>
                                 {% endcall %}
                                 {% call td() %}
-                                    <span x-text="source.count"></span>
+                                    <div class="min-w-44 space-y-2">
+                                        <div class="font-semibold" x-text="formatLargeNumber(source.count)"></div>
+                                        <div class="space-y-0.5 text-xs text-muted-foreground">
+                                            <div>
+                                                <span>Last sent </span>
+                                                <span x-text="sourceSeenLabel(source.last_seen)"></span>
+                                            </div>
+                                            <div x-show="source.first_seen">
+                                                <span>First seen </span>
+                                                <span x-text="sourceSeenLabel(source.first_seen)"></span>
+                                            </div>
+                                            <div x-show="source.active_days || source.report_count">
+                                                <span x-text="source.active_days ? source.active_days + ' active day' + (source.active_days === 1 ? '' : 's') : ''"></span>
+                                                <span x-show="source.active_days && source.report_count"> · </span>
+                                                <span x-show="source.report_count" x-text="source.report_count + ' report' + (source.report_count === 1 ? '' : 's')"></span>
+                                            </div>
+                                        </div>
+                                        <div class="flex h-8 items-end gap-0.5" x-show="source.volume_history?.length">
+                                            <template x-for="point in sourceVolumeBars(source)" :key="point.date">
+                                                <div class="tooltip flex-1 rounded-t bg-[#2f9da5]"
+                                                     :class="point.failed > 0 ? 'bg-[#ff6f3c]' : 'bg-[#2f9da5]'"
+                                                     :style="'height: ' + point.height + '%'"
+                                                     :data-tip="point.label"></div>
+                                            </template>
+                                        </div>
+                                    </div>
                                 {% endcall %}
                                 {% call td() %}
                                     <template x-if="source.spf === 'pass'">
@@ -2111,6 +2136,8 @@ function domainDetailsApp(domainId) {
                     source.geo?.registry,
                     source.geo?.allocated,
                     source.geo?.network_source,
+                    source.first_seen ? this.sourceSeenLabel(source.first_seen) : '',
+                    source.last_seen ? this.sourceSeenLabel(source.last_seen) : '',
                     source.reputation?.status,
                     source.reputation?.summary,
                     ...(source.reputation?.listings || []),
@@ -2412,6 +2439,35 @@ function domainDetailsApp(domainId) {
         formatLargeNumber(value) {
             const number = Number(value || 0);
             return new Intl.NumberFormat().format(number);
+        },
+
+        sourceSeenLabel(timestamp) {
+            if (!timestamp) return 'never';
+            const date = new Date(Number(timestamp) * 1000);
+            const now = new Date();
+            const diffMs = now.getTime() - date.getTime();
+            const diffDays = Math.floor(diffMs / 86400000);
+            if (Number.isFinite(diffDays) && diffDays >= 0) {
+                if (diffDays === 0) return 'today';
+                if (diffDays === 1) return 'yesterday';
+                if (diffDays < 90) return `${diffDays} days ago`;
+            }
+            return date.toLocaleDateString();
+        },
+
+        sourceVolumeBars(source) {
+            const history = (source.volume_history || []).slice(-14);
+            const max = Math.max(...history.map(point => Number(point.count || 0)), 1);
+            return history.map(point => {
+                const count = Number(point.count || 0);
+                const failed = Number(point.failed || 0);
+                return {
+                    ...point,
+                    failed,
+                    height: Math.max(12, Math.round((count / max) * 100)),
+                    label: `${point.date}: ${this.formatLargeNumber(count)} emails${failed ? ', ' + this.formatLargeNumber(failed) + ' failed' : ''}`,
+                };
+            });
         },
 
         sourceDateWindow() {
