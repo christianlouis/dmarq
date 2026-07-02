@@ -111,7 +111,7 @@ async def _resolve_with_fallback(
         fallback_result = await fallback.check_domain(domain, selectors=selectors)
     except asyncio.CancelledError:
         raise
-    except Exception as exc:  # pragma: no cover - defensive against DNS/network issues
+    except Exception as exc:
         logger.debug(
             "Fallback DNS resolver failed with %s; returning primary DNS result",
             exc.__class__.__name__,
