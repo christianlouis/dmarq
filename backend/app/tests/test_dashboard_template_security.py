@@ -39,6 +39,18 @@ def test_dashboard_exposes_workspace_health_history():
     assert "fetchWorkspaceHealthHistory" in script
 
 
+def test_dashboard_clears_all_chart_instances():
+    script = _dashboard_script()
+    clear_start = script.index("        clearDashboardCharts()")
+    helper_start = script.index("formatLargeNumber(value)", clear_start)
+    clear_body = script[clear_start:helper_start]
+
+    assert "volumeTrendChart.destroy()" in clear_body
+    assert "complianceTrendChart.destroy()" in clear_body
+    assert "healthTrendChart.destroy()" in clear_body
+    assert "this.healthTrendChart = null" in clear_body
+
+
 def test_dashboard_uses_external_page_script_for_csp_migration():
     template = _dashboard_template()
 

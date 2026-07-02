@@ -625,6 +625,10 @@ function dashboardApp() {
                 this.complianceTrendChart.destroy();
                 this.complianceTrendChart = null;
             }
+            if (this.healthTrendChart) {
+                this.healthTrendChart.destroy();
+                this.healthTrendChart = null;
+            }
         },
 
         formatLargeNumber(value) {
