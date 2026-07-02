@@ -205,7 +205,8 @@ def _dns_item(
     if recommended_provider:
         prerequisites.append(f"Use the detected provider path for {recommended_provider}.")
 
-    return {
+    next_steps = steps or [str(plan.get("rationale") or "Review the DNS finding.")]
+    item = {
         "id": f"dns:{plan.get('plan_id') or plan.get('finding_code')}",
         "source": "dns_lint",
         "state": "approval_ready" if automation_ready else "manual_action",
@@ -213,7 +214,7 @@ def _dns_item(
         "confidence": "high" if finding else "medium",
         "title": finding.get("title") if finding else f"Review {plan.get('finding_code')}",
         "detail": finding.get("detail") if finding else str(plan.get("rationale") or ""),
-        "next_steps": steps or [str(plan.get("rationale") or "Review the DNS finding.")],
+        "next_steps": next_steps,
         "evidence": evidence,
         "blast_radius": f"DNS record {plan.get('name')} ({plan.get('record_type')})",
         "prerequisites": prerequisites,
@@ -233,11 +234,13 @@ def _dns_item(
             ),
         },
     }
+    item["action_plan"] = _action_plan_for_item(item)
+    return item
 
 
 def _health_item(domain: str, action: Dict[str, Any]) -> Dict[str, Any]:
     state = "investigate" if action.get("type") == "low_compliance" else "manual_action"
-    return {
+    item = {
         "id": f"health:{action.get('type')}",
         "source": "health_score",
         "state": state,
@@ -261,6 +264,61 @@ def _health_item(domain: str, action: Dict[str, Any]) -> Dict[str, Any]:
             "apply_endpoint": None,
             "reason": "This item needs investigation before a provider change is safe.",
         },
+    }
+    item["action_plan"] = _action_plan_for_item(item)
+    return item
+
+
+def _action_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a compact operator action plan for one remediation queue item."""
+    automation = item.get("automation") or {}
+    source = str(item.get("source") or "remediation")
+    state = str(item.get("state") or "")
+    steps = [str(step) for step in item.get("next_steps") or [] if str(step).strip()]
+    prerequisites = [str(step) for step in item.get("prerequisites") or [] if str(step).strip()]
+
+    if automation.get("eligible"):
+        owner = "Domain DNS operator"
+        completion = "Provider preview is approved, applied, and verified by DMARQ."
+        steps = [
+            "Open the DNS change plan and preview the provider mutation.",
+            "Confirm the zone, record name, old value, new value, and TTL.",
+            "Approve the change, then refresh DNS posture after propagation.",
+        ]
+    elif state == "investigate":
+        owner = "Mail operations owner"
+        completion = "Sender legitimacy is confirmed and the item is resolved or converted into a DNS repair."
+        steps = steps or [
+            "Review the report evidence and sending-source history.",
+            "Confirm whether the sender is legitimate for this domain.",
+            "Authorize the sender with SPF/DKIM only after ownership is clear.",
+        ]
+    elif source == "dns_lint":
+        owner = "Domain DNS operator"
+        completion = "The DNS lint finding is no longer present after refresh."
+        steps = steps or [
+            "Open the DNS guidance section.",
+            "Apply the listed record change in the authoritative DNS provider.",
+            "Refresh DMARQ DNS checks after propagation.",
+        ]
+    else:
+        owner = "Mail operations owner"
+        completion = (
+            "The underlying domain health action no longer appears in the remediation queue."
+        )
+        steps = steps or ["Review the evidence and complete the recommended operator action."]
+
+    return {
+        "owner": owner,
+        "diagnosis": str(item.get("detail") or item.get("title") or "Review this finding."),
+        "prerequisites": prerequisites[:5],
+        "steps": steps[:6],
+        "completion_criteria": completion,
+        "automation_path": (
+            "provider_preview"
+            if automation.get("eligible")
+            else ("investigate" if state == "investigate" else "manual")
+        ),
     }
 
 
