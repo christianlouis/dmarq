@@ -5,6 +5,7 @@ import subprocess
 import textwrap
 from pathlib import Path
 
+import pytest
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 
@@ -50,15 +51,16 @@ def _dashboard_script() -> str:
 
 def _run_dashboard_poll_summary(payload: dict[str, object]) -> str:
     node = shutil.which("node")
-    assert node, "node is required to execute dashboard-page.js behavior tests"
+    if not node:
+        pytest.skip("node is required to execute dashboard-page.js behavior tests")
 
     script_path = Path(__file__).resolve().parents[1] / "static" / "js" / "dashboard-page.js"
     runner = textwrap.dedent("""
         const fs = require('fs');
         const script = fs.readFileSync(process.argv[1], 'utf8');
         const payload = JSON.parse(process.argv[2]);
-        eval(script);
-        process.stdout.write(dashboardApp().summarizePollResults(payload));
+        const dashboardAppFactory = new Function(`${script}\\nreturn dashboardApp;`)();
+        process.stdout.write(dashboardAppFactory().summarizePollResults(payload));
         """)
     result = subprocess.run(
         [node, "-e", runner, str(script_path), json.dumps(payload)],
