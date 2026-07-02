@@ -734,6 +734,81 @@ async def test_dns_cache_refreshes_stale_empty_dns_result(db_session):
 
 
 @pytest.mark.asyncio
+async def test_dns_cache_keeps_recent_positive_evidence_when_lookup_turns_empty(db_session):
+    """Transient resolver misses should not overwrite known-good DNS posture."""
+    healthy = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=reject",
+        spf=True,
+        spf_record="v=spf1 -all",
+        nameservers=["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"],
+        dns_provider=detect_dns_provider(["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"]),
+    )
+    empty = DomainDNSResult(dmarc=False, spf=False, dkim=False)
+    provider = AsyncMock(check_domain=AsyncMock(return_value=empty))
+    db_session.add(
+        DNSCache(
+            domain=DOMAIN,
+            provider=provider.__class__.__name__,
+            selectors_key=_selectors_key([]),
+            result_json=json.dumps(asdict(healthy), sort_keys=True, separators=(",", ":")),
+            checked_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=30),
+        )
+    )
+    db_session.commit()
+
+    result, cached, _checked = await resolve_domain_dns_cached(
+        db_session,
+        provider,
+        DOMAIN,
+        selectors=[],
+    )
+
+    assert cached is True
+    assert result.dmarc is True
+    assert result.spf is True
+    assert result.nameservers == ["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"]
+    assert provider.check_domain.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_dns_cache_allows_old_positive_evidence_to_expire(db_session):
+    """Very old DNS evidence should not mask a persistently empty resolver result."""
+    healthy = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=reject",
+        spf=True,
+        spf_record="v=spf1 -all",
+        nameservers=["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"],
+        dns_provider=detect_dns_provider(["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"]),
+    )
+    empty = DomainDNSResult(dmarc=False, spf=False, dkim=False)
+    provider = AsyncMock(check_domain=AsyncMock(return_value=empty))
+    db_session.add(
+        DNSCache(
+            domain=DOMAIN,
+            provider=provider.__class__.__name__,
+            selectors_key=_selectors_key([]),
+            result_json=json.dumps(asdict(healthy), sort_keys=True, separators=(",", ":")),
+            checked_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=2),
+        )
+    )
+    db_session.commit()
+
+    result, cached, _checked = await resolve_domain_dns_cached(
+        db_session,
+        provider,
+        DOMAIN,
+        selectors=[],
+    )
+
+    assert cached is False
+    assert result.dmarc is False
+    assert result.spf is False
+    assert provider.check_domain.await_count == 1
+
+
+@pytest.mark.asyncio
 async def test_dns_cache_uses_public_fallback_for_empty_primary_result(db_session):
     """A primary resolver with no evidence should not force a false F grade."""
     primary_provider = SystemDNSProvider()
