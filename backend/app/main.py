@@ -41,6 +41,7 @@ from app.services.mail_source_backfill_worker import run_due_mail_source_backfil
 from app.services.microsoft_graph_client import MicrosoftGraphClient
 from app.services.report_persistence import hydrate_report_store_from_db
 from app.services.report_store import ReportStore
+from app.services.release_info import build_release_info
 from app.services.runtime_status import (
     mark_scheduler_cycle_started,
     mark_scheduler_error,
@@ -573,6 +574,7 @@ app = create_app()  # noqa: F811 – intentional rebind; `app` package imported 
 templates_dir = os.path.join(os.path.dirname(__file__), "templates")
 templates = Jinja2Templates(directory=templates_dir)
 templates.env.globals["multi_workspace_ui_enabled"] = settings.MULTI_WORKSPACE_UI_ENABLED
+templates.env.globals["release_info"] = build_release_info(settings)
 
 
 @app.get("/", response_class=HTMLResponse)

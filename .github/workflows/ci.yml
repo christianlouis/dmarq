@@ -271,6 +271,11 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            DMARQ_BUILD_SHA=${{ github.sha }}
+            DMARQ_BUILD_REF=${{ github.ref_name }}
+            DMARQ_BUILD_IMAGE=${{ steps.release_ref.outputs.image }}
+            DMARQ_BUILD_DATE=${{ github.event.head_commit.timestamp }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

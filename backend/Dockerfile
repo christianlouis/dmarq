@@ -2,6 +2,16 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
+ARG DMARQ_BUILD_SHA=""
+ARG DMARQ_BUILD_REF=""
+ARG DMARQ_BUILD_IMAGE=""
+ARG DMARQ_BUILD_DATE=""
+
+ENV DMARQ_BUILD_SHA="${DMARQ_BUILD_SHA}" \
+    DMARQ_BUILD_REF="${DMARQ_BUILD_REF}" \
+    DMARQ_BUILD_IMAGE="${DMARQ_BUILD_IMAGE}" \
+    DMARQ_BUILD_DATE="${DMARQ_BUILD_DATE}"
+
 # Install required system dependencies.
 # The backend does not need privileged mount helpers. Debian 13 currently has
 # no fixed util-linux package for the reported Snyk mount(8) CVEs, so remove
