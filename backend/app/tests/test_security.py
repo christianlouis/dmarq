@@ -4,6 +4,8 @@ Security-focused tests for DMARQ application.
 Covers API key management, domain validation, file upload limits, and XML parsing security.
 """
 
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -133,6 +135,28 @@ class TestSecurityHeaders:
 
         assert "'unsafe-eval'" in csp
         assert "https://cdn.jsdelivr.net" in csp
+
+    def test_base_template_keeps_standard_alpine_until_templates_are_migrated(self):
+        """The CSP build cannot evaluate the remaining inline Alpine expressions yet."""
+        template = Path(__file__).resolve().parents[1] / "templates" / "layouts" / "base.html"
+        body = template.read_text()
+
+        assert "alpinejs@3.x.x/dist/cdn.min.js" in body
+        assert "@alpinejs/csp" not in body
+
+    def test_csp_report_only_header_appears_when_flag_enabled(
+        self, client: TestClient, monkeypatch
+    ):
+        """When CSP_REPORT_ONLY is true, the strict target CSP should appear as report-only."""
+        monkeypatch.setenv("CSP_REPORT_ONLY", "true")
+
+        response = client.get("/mail-sources")
+        assert "Content-Security-Policy-Report-Only" in response.headers
+
+        csp_ro = response.headers["Content-Security-Policy-Report-Only"]
+        assert "'unsafe-inline'" not in csp_ro
+        assert "'unsafe-eval'" not in csp_ro
+        assert "script-src 'self'" in csp_ro
 
 
 class TestXMLParsingSecurity:
