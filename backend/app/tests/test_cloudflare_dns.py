@@ -1962,10 +1962,12 @@ def test_cloudflare_oauth_state_round_trips_and_sanitizes_return_to(
     assert cloudflare_oauth.decode_cloudflare_oauth_state(state) == {
         "workspace_id": 42,
         "return_to": "/settings",
+        "scope_profile": "read_only",
     }
     assert cloudflare_oauth.decode_cloudflare_oauth_state(scheme_relative_state) == {
         "workspace_id": 42,
         "return_to": "/settings",
+        "scope_profile": "read_only",
     }
     with pytest.raises(LookupError, match="Invalid Cloudflare OAuth state"):
         cloudflare_oauth.decode_cloudflare_oauth_state("not-a-valid-token")
@@ -1987,6 +1989,22 @@ def test_cloudflare_oauth_authorization_url_uses_configured_scopes(
     assert "client_id=client-id" in result["authorization_url"]
     assert "scope=zone.read" in result["authorization_url"]
     assert "state=state-token" in result["authorization_url"]
+
+
+def test_cloudflare_oauth_authorization_url_uses_profile_scopes(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(cloudflare_oauth, "get_settings", _cloudflare_oauth_empty_scope_settings)
+
+    result = cloudflare_oauth.build_cloudflare_authorization_url(
+        redirect_uri="https://app.example.test/api/v1/domains/cloudflare/oauth/callback",
+        state="state-token",
+        scope_profile="full_dns_repair",
+    )
+
+    assert result["scope_profile"] == "full_dns_repair"
+    assert result["scopes"] == "zone.read dns.read dns.write"
+    assert "scope=zone.read+dns.read+dns.write" in result["authorization_url"]
 
 
 def test_cloudflare_oauth_config_defaults_to_read_scopes(
@@ -2237,6 +2255,7 @@ def test_persist_cloudflare_oauth_tokens_stores_encrypted_provider_token(
                     "cloudflare.api_token",
                     "cloudflare.auth_mode",
                     "cloudflare.oauth_scopes",
+                    "cloudflare.oauth_scope_profile",
                     "cloudflare.oauth_connected_at",
                 ]
             )
@@ -2247,6 +2266,7 @@ def test_persist_cloudflare_oauth_tokens_stores_encrypted_provider_token(
     assert settings["cloudflare.api_token"] != "provider-token"
     assert settings["cloudflare.auth_mode"] == "oauth"
     assert settings["cloudflare.oauth_scopes"] == "zone.read dns.read"
+    assert settings["cloudflare.oauth_scope_profile"] == "read_only"
     assert settings["cloudflare.oauth_connected_at"]
 
 
@@ -2292,6 +2312,7 @@ def test_persist_cloudflare_oauth_tokens_updates_existing_settings(
     cloudflare_oauth.persist_cloudflare_oauth_tokens(
         db_session,
         {"access_token": "provider-token", "scope": "zone.read"},
+        scope_profile="read_only_radar",
     )
 
     auth_mode = db_session.query(Setting).filter(Setting.key == "cloudflare.auth_mode").one()
@@ -2299,6 +2320,10 @@ def test_persist_cloudflare_oauth_tokens_updates_existing_settings(
     assert auth_mode.category == "cloudflare"
     assert auth_mode.value_type == "string"
     assert auth_mode.description == "Cloudflare connector authentication mode"
+    scope_profile = (
+        db_session.query(Setting).filter(Setting.key == "cloudflare.oauth_scope_profile").one()
+    )
+    assert scope_profile.value == "read_only_radar"
 
 
 def test_cloudflare_oauth_authorize_url_endpoint_returns_redirect(
@@ -2315,6 +2340,7 @@ def test_cloudflare_oauth_authorize_url_endpoint_returns_redirect(
                 "authorization_url": "https://dash.cloudflare.com/oauth2/auth?state=state-token",
                 "redirect_uri": "https://app.example.test/api/v1/domains/cloudflare/oauth/callback",
                 "scopes": "zone.read dns.read",
+                "scope_profile": "read_only",
             },
         ) as authorize_mock,
     ):
@@ -2327,8 +2353,11 @@ def test_cloudflare_oauth_authorize_url_endpoint_returns_redirect(
     data = response.json()
     assert data["authorization_url"].startswith("https://dash.cloudflare.com/oauth2/auth")
     assert data["scopes"] == "zone.read dns.read"
+    assert data["scope_profile"] == "read_only"
     state_mock.assert_called_once()
     authorize_mock.assert_called_once()
+    assert state_mock.call_args.kwargs["scope_profile"] == "read_only"
+    assert authorize_mock.call_args.kwargs["scope_profile"] == "read_only"
     assert authorize_mock.call_args.kwargs["redirect_uri"] == (
         "https://app.example.test/api/v1/domains/cloudflare/oauth/callback"
     )
@@ -2381,7 +2410,11 @@ def test_cloudflare_oauth_callback_stores_token_and_redirects(
     with (
         patch(
             "app.api.api_v1.endpoints.domains.decode_cloudflare_oauth_state",
-            return_value={"workspace_id": workspace.id, "return_to": "/settings/cloudflare"},
+            return_value={
+                "workspace_id": workspace.id,
+                "return_to": "/settings/cloudflare",
+                "scope_profile": "full_dns_repair",
+            },
         ) as decode_mock,
         patch(
             "app.api.api_v1.endpoints.domains.exchange_cloudflare_oauth_code",
@@ -2402,7 +2435,11 @@ def test_cloudflare_oauth_callback_stores_token_and_redirects(
         code="oauth-code",
         redirect_uri="https://app.example.test/api/v1/domains/cloudflare/oauth/callback",
     )
-    persist_mock.assert_called_once_with(db_session, {"access_token": "provider-token"})
+    persist_mock.assert_called_once_with(
+        db_session,
+        {"access_token": "provider-token"},
+        scope_profile="full_dns_repair",
+    )
 
 
 def test_cloudflare_oauth_status_endpoint_reports_connected_token(
@@ -2433,6 +2470,14 @@ def test_cloudflare_oauth_status_endpoint_reports_connected_token(
             value_type="string",
         )
     )
+    db_session.add(
+        Setting(
+            key="cloudflare.oauth_scope_profile",
+            value="read_only_radar",
+            category="cloudflare",
+            value_type="string",
+        )
+    )
     db_session.commit()
 
     with patch("app.api.api_v1.endpoints.domains.cloudflare_oauth_configured", return_value=True):
@@ -2444,6 +2489,8 @@ def test_cloudflare_oauth_status_endpoint_reports_connected_token(
         "connected": True,
         "auth_mode": "oauth",
         "scopes": "zone.read dns.read",
+        "scope_profile": "read_only_radar",
+        "scope_profiles": cloudflare_oauth.cloudflare_scope_profile_metadata(),
         "connected_at": None,
     }
 

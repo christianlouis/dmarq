@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 
 from app.api.api_v1.endpoints import ai as ai_endpoint
 from app.api.api_v1.endpoints import mcp as mcp_endpoint
+from app.api.api_v1.endpoints import settings as settings_endpoint
+from app.core.credential_encryption import decrypt_secret, is_encrypted_secret
 from app.models.alert import AlertHistory
 from app.models.domain import Domain
 from app.models.organization import Entitlement, Organization
@@ -77,8 +79,101 @@ def test_ai_settings_are_seeded(authed_client: TestClient):
     keys = {row["key"] for row in response.json()}
     assert "ai.enabled" in keys
     assert "ai.provider" in keys
+    assert "ai.api_key" in keys
     assert "ai.action_tools_enabled" in keys
     assert "mcp.enabled" in keys
+
+
+def test_ai_provider_profiles_are_exposed_to_settings(authed_client: TestClient):
+    response = authed_client.get("/api/v1/settings/ai/provider-profiles")
+
+    assert response.status_code == 200
+    profiles = {item["id"]: item for item in response.json()}
+    assert {"template", "openai", "litellm", "openai_compatible"}.issubset(profiles)
+    assert profiles["openai"]["requires_api_key"] is True
+    assert profiles["litellm"]["requires_base_url"] is True
+
+
+def test_ai_connection_template_profile_needs_no_secret(authed_client: TestClient):
+    response = authed_client.post(
+        "/api/v1/settings/ai/test",
+        json={"provider": "template"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert response.json()["provider"] == "template"
+
+
+def test_ai_connection_requires_key_for_remote_provider(authed_client: TestClient):
+    response = authed_client.post(
+        "/api/v1/settings/ai/test",
+        json={"provider": "openai", "base_url": "https://api.openai.com/v1"},
+    )
+
+    assert response.status_code == 400
+    assert "API key" in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "http://127.0.0.1:4000/v1",
+        "http://localhost:4000/v1",
+        "http://user:pass@example.com/v1",
+    ],
+)
+def test_ai_connection_rejects_unsafe_model_discovery_urls(
+    authed_client: TestClient,
+    base_url: str,
+):
+    response = authed_client.post(
+        "/api/v1/settings/ai/test",
+        json={"provider": "litellm", "base_url": base_url, "api_key": "sk-test"},
+    )
+
+    assert response.status_code == 400
+    assert "AI base URL" in response.json()["detail"]
+
+
+def test_ai_connection_uses_saved_redacted_secret_and_discovers_models(
+    authed_client: TestClient,
+    db_session: Session,
+):
+    save_response = authed_client.post(
+        "/api/v1/settings/bulk",
+        json={
+            "settings": {
+                "ai.provider": "openai",
+                "ai.remote_base_url": "https://api.openai.com/v1",
+                "ai.api_key": "sk-test",
+            }
+        },
+    )
+    assert save_response.status_code == 200
+    row = db_session.query(Setting).filter(Setting.key == "ai.api_key").one()
+    assert is_encrypted_secret(row.value)
+    assert decrypt_secret(row.value) == "sk-test"
+
+    model_fetch = AsyncMock(return_value=["gpt-4.1-mini", "gpt-4.1"])
+    with patch.object(settings_endpoint, "_fetch_openai_compatible_models", model_fetch):
+        response = authed_client.post(
+            "/api/v1/settings/ai/test",
+            json={
+                "provider": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "**redacted**",
+            },
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["models"] == ["gpt-4.1-mini", "gpt-4.1"]
+    assert data["selected_model"] == "gpt-4.1-mini"
+    model_fetch.assert_awaited_once_with(
+        base_url="https://api.openai.com/v1",
+        api_key="sk-test",
+    )
 
 
 def test_ai_summary_requires_explicit_opt_in(authed_client: TestClient):

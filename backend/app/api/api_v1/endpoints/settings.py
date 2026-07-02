@@ -13,9 +13,13 @@ in the ``settings`` database table.  Settings are organised into categories:
 - ``notifications`` - Future alerting/notification settings.
 """
 
+import ipaddress
 import logging
+import socket
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
+import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -24,6 +28,7 @@ from app.core.credential_encryption import decrypt_secret, encrypt_secret, is_en
 from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.setting import Setting
+from app.services.ai_assistance import AI_DEFAULTS
 from app.services.alert_history import (
     list_alert_config_audit,
     list_alert_history,
@@ -145,6 +150,13 @@ SETTING_DEFAULTS: List[Dict[str, Any]] = [
         "key": "cloudflare.oauth_scopes",
         "value": "",
         "description": "Granted Cloudflare OAuth scopes",
+        "value_type": "string",
+        "category": "cloudflare",
+    },
+    {
+        "key": "cloudflare.oauth_scope_profile",
+        "value": "read_only",
+        "description": "Requested Cloudflare OAuth rights profile",
         "value_type": "string",
         "category": "cloudflare",
     },
@@ -362,6 +374,13 @@ SETTING_DEFAULTS: List[Dict[str, Any]] = [
         "category": "ai",
     },
     {
+        "key": "ai.api_key",
+        "value": "",
+        "description": "Optional API key for OpenAI-compatible AI providers",
+        "value_type": "string",
+        "category": "ai",
+    },
+    {
         "key": "ai.remote_base_url",
         "value": "",
         "description": (
@@ -402,6 +421,7 @@ SETTING_DEFAULTS: List[Dict[str, Any]] = [
 
 # Keys whose values should be redacted in GET responses (treated as secrets)
 _SECRET_KEYS = {
+    "ai.api_key",
     "cloudflare.api_token",
     "postmark.account_token",
     "notifications.apprise_urls",
@@ -603,6 +623,171 @@ class SummaryNotificationResponse(BaseModel):
     notification: Dict[str, Any]
 
 
+class AIProviderProfileResponse(BaseModel):
+    """AI provider profile metadata for the settings UI."""
+
+    id: str
+    name: str
+    description: str
+    default_base_url: str = ""
+    requires_base_url: bool = False
+    requires_api_key: bool = False
+    supports_model_discovery: bool = False
+    default_model: str = ""
+
+
+class AIConnectionTestRequest(BaseModel):
+    """Connection-test payload for an AI provider."""
+
+    provider: Optional[str] = None
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    model: Optional[str] = None
+
+
+class AIConnectionTestResponse(BaseModel):
+    """Sanitized AI provider connection-test response."""
+
+    success: bool
+    provider: str
+    message: str
+    models: List[str] = []
+    selected_model: Optional[str] = None
+
+
+AI_PROVIDER_PROFILES: List[Dict[str, Any]] = [
+    {
+        "id": "template",
+        "name": "Offline template",
+        "description": "Use deterministic local remediation templates. No token or network call.",
+        "default_base_url": "",
+        "requires_base_url": False,
+        "requires_api_key": False,
+        "supports_model_discovery": False,
+        "default_model": "",
+    },
+    {
+        "id": "openai",
+        "name": "OpenAI direct",
+        "description": "Use OpenAI's native OpenAI-compatible API.",
+        "default_base_url": "https://api.openai.com/v1",
+        "requires_base_url": False,
+        "requires_api_key": True,
+        "supports_model_discovery": True,
+        "default_model": "gpt-4.1-mini",
+    },
+    {
+        "id": "litellm",
+        "name": "LiteLLM proxy",
+        "description": "Use your LiteLLM gateway for OpenAI, Anthropic, Gemini, or local models.",
+        "default_base_url": "",
+        "requires_base_url": True,
+        "requires_api_key": True,
+        "supports_model_discovery": True,
+        "default_model": "",
+    },
+    {
+        "id": "openai_compatible",
+        "name": "OpenAI-compatible endpoint",
+        "description": "Use a self-hosted or vendor API that exposes /v1/models.",
+        "default_base_url": "",
+        "requires_base_url": True,
+        "requires_api_key": True,
+        "supports_model_discovery": True,
+        "default_model": "",
+    },
+]
+
+
+def _ai_provider_profile(provider: Optional[str]) -> Dict[str, Any]:
+    normalized = str(provider or "template").strip().lower().replace("-", "_")
+    return next(
+        (profile for profile in AI_PROVIDER_PROFILES if profile["id"] == normalized),
+        AI_PROVIDER_PROFILES[0],
+    )
+
+
+def _setting_plain_or_default(db: Session, key: str) -> str:
+    row = _get_setting(key, db)
+    if row is not None:
+        return _plain_value_for_setting(key, row.value) or ""
+    return str(AI_DEFAULTS.get(key, ""))
+
+
+def _normalize_ai_base_url(provider: str, base_url: str, profile: Dict[str, Any]) -> str:
+    value = (base_url or profile.get("default_base_url") or "").strip().rstrip("/")
+    if provider == "openai" and not value:
+        return "https://api.openai.com/v1"
+    return value
+
+
+def _is_public_address(host: str) -> bool:
+    """Return whether a hostname resolves only to public routable addresses."""
+    try:
+        literal = ipaddress.ip_address(host)
+        addresses = [literal]
+    except ValueError:
+        try:
+            addrinfo = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+        except socket.gaierror as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="AI base URL host could not be resolved.",
+            ) from exc
+        addresses = [ipaddress.ip_address(item[4][0]) for item in addrinfo]
+
+    return all(
+        not (
+            address.is_private
+            or address.is_loopback
+            or address.is_link_local
+            or address.is_multicast
+            or address.is_reserved
+            or address.is_unspecified
+        )
+        for address in addresses
+    )
+
+
+def _validated_ai_base_url(base_url: str) -> str:
+    normalized = base_url.strip().rstrip("/")
+    parsed = urlparse(normalized)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="AI base URL must be an absolute HTTP(S) URL.",
+        )
+    if parsed.username or parsed.password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="AI base URL must not contain credentials.",
+        )
+    if not _is_public_address(parsed.hostname):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "AI base URL must resolve to public addresses. Private, localhost, "
+                "link-local, and reserved targets are blocked for connection tests."
+            ),
+        )
+    return normalized
+
+
+async def _fetch_openai_compatible_models(*, base_url: str, api_key: str) -> List[str]:
+    safe_base_url = _validated_ai_base_url(base_url)
+    headers = {"Authorization": f"Bearer {api_key}"}
+    async with httpx.AsyncClient(base_url=safe_base_url, timeout=10) as client:
+        response = await client.get("/models", headers=headers)
+        response.raise_for_status()
+        payload = response.json()
+    models = []
+    for item in payload.get("data", []):
+        model_id = str(item.get("id") or "").strip()
+        if model_id:
+            models.append(model_id)
+    return sorted(set(models))
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -739,6 +924,85 @@ async def send_notification_summary(
             detail=result,
         )
     return result
+
+
+@router.get("/ai/provider-profiles", response_model=List[AIProviderProfileResponse])
+async def list_ai_provider_profiles(
+    _auth: dict = Depends(require_admin_auth),
+) -> List[AIProviderProfileResponse]:
+    """Return supported AI provider presets without exposing credentials."""
+    return AI_PROVIDER_PROFILES
+
+
+@router.post("/ai/test", response_model=AIConnectionTestResponse)
+async def test_ai_connection(
+    payload: AIConnectionTestRequest,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+) -> AIConnectionTestResponse:
+    """Validate AI provider settings without returning secret material."""
+    _seed_defaults(db)
+    provider = str(payload.provider or _setting_plain_or_default(db, "ai.provider") or "template")
+    provider = provider.strip().lower().replace("-", "_")
+    profile = _ai_provider_profile(provider)
+    provider = profile["id"]
+
+    if provider == "template":
+        return AIConnectionTestResponse(
+            success=True,
+            provider=provider,
+            message="Offline template mode is available. No external AI connection is required.",
+            models=[],
+            selected_model=None,
+        )
+
+    stored_key = _setting_plain_or_default(db, "ai.api_key")
+    api_key = str(payload.api_key or "").strip()
+    if api_key == "**redacted**":
+        api_key = stored_key
+    if not api_key:
+        api_key = stored_key
+    if profile.get("requires_api_key") and not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Add an API key before testing this AI provider.",
+        )
+
+    base_url = _normalize_ai_base_url(
+        provider,
+        str(payload.base_url or _setting_plain_or_default(db, "ai.remote_base_url") or ""),
+        profile,
+    )
+    if profile.get("requires_base_url") and not base_url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Add a provider base URL before testing this AI provider.",
+        )
+
+    selected_model = str(payload.model or _setting_plain_or_default(db, "ai.model") or "").strip()
+    try:
+        models = await _fetch_openai_compatible_models(base_url=base_url, api_key=api_key)
+    except httpx.HTTPStatusError as exc:
+        status_code = getattr(exc.response, "status_code", 0)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"AI provider rejected the connection test with HTTP {status_code}.",
+        ) from exc
+    except (httpx.RequestError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="AI provider connection test failed. Check the base URL and network path.",
+        ) from exc
+
+    if not selected_model and models:
+        selected_model = models[0]
+    return AIConnectionTestResponse(
+        success=True,
+        provider=provider,
+        message="AI provider connection succeeded.",
+        models=models,
+        selected_model=selected_model or None,
+    )
 
 
 @router.get("/{key:path}", response_model=SettingResponse)

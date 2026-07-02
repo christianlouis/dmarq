@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
 
 import httpx
@@ -18,6 +18,7 @@ from app.models.setting import Setting
 CLOUDFLARE_AUTHORIZATION_URL = "https://dash.cloudflare.com/oauth2/auth"
 CLOUDFLARE_TOKEN_URL = "https://api.cloudflare.com/oauth2/token"
 CLOUDFLARE_DEFAULT_READ_SCOPES = "zone.read dns.read"
+CLOUDFLARE_DEFAULT_SCOPE_PROFILE = "read_only"
 _STATE_ALGORITHM = "HS256"
 _STATE_TTL = timedelta(minutes=10)
 
@@ -29,6 +30,69 @@ class CloudflareOAuthConfig:
     client_id: str
     client_secret: str
     scopes: str
+
+
+@dataclass(frozen=True)
+class CloudflareScopeProfile:
+    """User-selectable Cloudflare OAuth rights profile."""
+
+    id: str
+    name: str
+    description: str
+    scopes: str
+    dns_write_enabled: bool = False
+    radar_enabled: bool = False
+    radar_requires_api_token: bool = False
+    warning: Optional[str] = None
+
+
+CLOUDFLARE_SCOPE_PROFILES: Dict[str, CloudflareScopeProfile] = {
+    "read_only": CloudflareScopeProfile(
+        id="read_only",
+        name="Read-only discovery",
+        description="Verify ownership, import zones, and inspect DNS records.",
+        scopes="zone.read dns.read",
+    ),
+    "read_only_radar": CloudflareScopeProfile(
+        id="read_only_radar",
+        name="Read-only + Radar context",
+        description=(
+            "Read DNS zones and enable Cloudflare Radar enrichment when a Radar API token "
+            "is configured server-side."
+        ),
+        scopes="zone.read dns.read",
+        radar_enabled=True,
+        radar_requires_api_token=True,
+        warning=(
+            "Cloudflare Radar API access is not granted by this DNS OAuth scope; configure "
+            "a separate Radar-capable API token on the server for enrichment."
+        ),
+    ),
+    "full_dns_repair": CloudflareScopeProfile(
+        id="full_dns_repair",
+        name="Full DNS repair",
+        description="Read zones and allow human-approved DNS record changes.",
+        scopes="zone.read dns.read dns.write",
+        dns_write_enabled=True,
+        warning="Only use this when you want DMARQ to prepare and apply confirmed DNS repairs.",
+    ),
+}
+
+
+def normalize_cloudflare_scope_profile(profile: Optional[str]) -> str:
+    """Return a supported Cloudflare scope profile id."""
+    value = str(profile or "").strip().lower().replace("-", "_")
+    return value if value in CLOUDFLARE_SCOPE_PROFILES else CLOUDFLARE_DEFAULT_SCOPE_PROFILE
+
+
+def cloudflare_scope_profile_metadata() -> List[Dict[str, Any]]:
+    """Return serializable metadata for the settings UI."""
+    return [asdict(profile) for profile in CLOUDFLARE_SCOPE_PROFILES.values()]
+
+
+def cloudflare_scopes_for_profile(profile: Optional[str]) -> str:
+    """Resolve OAuth scopes for a supported profile."""
+    return CLOUDFLARE_SCOPE_PROFILES[normalize_cloudflare_scope_profile(profile)].scopes
 
 
 def cloudflare_oauth_configured() -> bool:
@@ -67,13 +131,16 @@ def build_cloudflare_oauth_state(
     *,
     workspace_id: int,
     return_to: str = "/settings",
+    scope_profile: Optional[str] = None,
 ) -> str:
     """Return a signed, short-lived state token for Cloudflare OAuth."""
     now = datetime.now(timezone.utc)
+    normalized_profile = normalize_cloudflare_scope_profile(scope_profile)
     token = jwt.encode(
         {
             "workspace_id": int(workspace_id),
             "return_to": _safe_return_to(return_to),
+            "scope_profile": normalized_profile,
             "iat": now,
             "exp": now + _STATE_TTL,
         },
@@ -98,6 +165,7 @@ def decode_cloudflare_oauth_state(state_value: str) -> Dict[str, Any]:
         return {
             "workspace_id": int(payload["workspace_id"]),
             "return_to": _safe_return_to(str(payload.get("return_to") or "/settings")),
+            "scope_profile": normalize_cloudflare_scope_profile(payload.get("scope_profile")),
         }
     except (JWTError, ValueError, KeyError, TypeError) as exc:
         raise LookupError("Invalid Cloudflare OAuth state.") from exc
@@ -107,20 +175,28 @@ def build_cloudflare_authorization_url(
     *,
     redirect_uri: str,
     state: str,
+    scope_profile: Optional[str] = None,
 ) -> Dict[str, str]:
     """Return the Cloudflare authorization URL and request metadata."""
     config = get_cloudflare_oauth_config()
+    normalized_profile = normalize_cloudflare_scope_profile(scope_profile)
+    scopes = (
+        config.scopes
+        if get_settings().CLOUDFLARE_OAUTH_SCOPES
+        else cloudflare_scopes_for_profile(normalized_profile)
+    )
     params = {
         "client_id": config.client_id,
         "response_type": "code",
         "redirect_uri": redirect_uri,
-        "scope": config.scopes,
+        "scope": scopes,
         "state": state,
     }
     return {
         "authorization_url": f"{CLOUDFLARE_AUTHORIZATION_URL}?{urlencode(params)}",
         "redirect_uri": redirect_uri,
-        "scopes": config.scopes,
+        "scopes": scopes,
+        "scope_profile": normalized_profile,
     }
 
 
@@ -196,12 +272,22 @@ def _upsert_setting(
 def persist_cloudflare_oauth_tokens(
     db: Session,
     token_data: Dict[str, Any],
+    *,
+    scope_profile: Optional[str] = None,
 ) -> None:
     """Persist the Cloudflare OAuth access token as the active provider token."""
     access_token = str(token_data.get("access_token") or "").strip()
     if not access_token:
         raise LookupError("Cloudflare OAuth did not return an access token.")
-    scope = str(token_data.get("scope") or get_cloudflare_oauth_config().scopes)
+    normalized_profile = normalize_cloudflare_scope_profile(scope_profile)
+    scope = str(
+        token_data.get("scope")
+        or (
+            get_cloudflare_oauth_config().scopes
+            if get_settings().CLOUDFLARE_OAUTH_SCOPES
+            else cloudflare_scopes_for_profile(normalized_profile)
+        )
+    )
     _upsert_setting(
         db,
         key="cloudflare.api_token",
@@ -219,6 +305,12 @@ def persist_cloudflare_oauth_tokens(
         key="cloudflare.oauth_scopes",
         value=scope,
         description="Granted Cloudflare OAuth scopes",
+    )
+    _upsert_setting(
+        db,
+        key="cloudflare.oauth_scope_profile",
+        value=normalized_profile,
+        description="Requested Cloudflare OAuth rights profile",
     )
     _upsert_setting(
         db,

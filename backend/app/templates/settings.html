@@ -179,6 +179,19 @@
                                 <span x-show="cfOAuthStatus.oauth_configured && !cfOAuthStatus.connected">Ready to connect with read-only zone and DNS access.</span>
                                 <span x-show="!cfOAuthStatus.oauth_configured">Configure Cloudflare OAuth client credentials on the server to enable one-click connect.</span>
                             </p>
+                            <div class="mt-3 grid gap-2 sm:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] sm:items-start">
+                                <select x-model="s['cloudflare.oauth_scope_profile']"
+                                    class="select select-sm select-bordered w-full">
+                                    <template x-for="profile in cfOAuthStatus.scope_profiles || []" :key="profile.id">
+                                        <option :value="profile.id" x-text="profile.name"></option>
+                                    </template>
+                                </select>
+                                <div class="text-xs text-[#5f5c78]">
+                                    <p x-text="(cfOAuthStatus.scope_profiles || []).find(profile => profile.id === (s['cloudflare.oauth_scope_profile'] || cfOAuthStatus.scope_profile || 'read_only'))?.description || 'Choose how much Cloudflare access DMARQ should request.'"></p>
+                                    <p class="mt-1 text-warning" x-show="(cfOAuthStatus.scope_profiles || []).find(profile => profile.id === (s['cloudflare.oauth_scope_profile'] || cfOAuthStatus.scope_profile || 'read_only'))?.warning"
+                                        x-text="(cfOAuthStatus.scope_profiles || []).find(profile => profile.id === (s['cloudflare.oauth_scope_profile'] || cfOAuthStatus.scope_profile || 'read_only'))?.warning"></p>
+                                </div>
+                            </div>
                             <p class="mt-1 text-xs text-[#5f5c78]" x-show="cfOAuthStatus.scopes">
                                 Granted scopes: <span class="font-mono" x-text="cfOAuthStatus.scopes"></span>
                             </p>
@@ -1005,15 +1018,29 @@
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div class="form-control w-full">
                         <label class="label"><span class="label-text font-medium">Provider</span></label>
-                        <select x-model="s['ai.provider']" class="input input-bordered w-full">
-                            <option value="template">Template</option>
-                            <option value="local">Local</option>
-                            <option value="remote">Remote</option>
+                        <select x-model="s['ai.provider']"
+                            @change="onAIProviderChanged()"
+                            class="input input-bordered w-full">
+                            <template x-for="profile in aiProviderProfiles" :key="profile.id">
+                                <option :value="profile.id" x-text="profile.name"></option>
+                            </template>
                         </select>
+                        <label class="label">
+                            <span class="label-text-alt text-muted-foreground" x-text="aiProviderProfile().description"></span>
+                        </label>
                     </div>
                     <div class="form-control w-full">
                         <label class="label"><span class="label-text font-medium">Model</span></label>
-                        <input type="text" x-model="s['ai.model']" class="input input-bordered w-full" placeholder="Optional model name" />
+                        <template x-if="aiModels.length">
+                            <select x-model="s['ai.model']" class="input input-bordered w-full">
+                                <template x-for="model in aiModels" :key="model">
+                                    <option :value="model" x-text="model"></option>
+                                </template>
+                            </select>
+                        </template>
+                        <template x-if="!aiModels.length">
+                            <input type="text" x-model="s['ai.model']" class="input input-bordered w-full" placeholder="Optional model name" />
+                        </template>
                     </div>
                     <div class="form-control w-full">
                         <label class="label"><span class="label-text font-medium">Redaction</span></label>
@@ -1023,10 +1050,43 @@
                         </select>
                     </div>
                 </div>
-                <div class="form-control w-full">
-                    <label class="label"><span class="label-text font-medium">Remote Base URL</span></label>
-                    <input type="url" x-model="s['ai.remote_base_url']" class="input input-bordered w-full" placeholder="https://provider.example/v1" />
-                    <label class="label"><span class="label-text-alt text-muted-foreground">Credentials are not stored here; inject provider secrets through the deployment environment.</span></label>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="form-control w-full">
+                        <label class="label">
+                            <span class="label-text font-medium">Provider Base URL</span>
+                            <span class="label-text-alt" x-show="aiProviderNeedsBaseUrl()">Required</span>
+                        </label>
+                        <input type="url" x-model="s['ai.remote_base_url']" class="input input-bordered w-full" placeholder="https://provider.example/v1" />
+                    </div>
+                    <div class="form-control w-full">
+                        <label class="label">
+                            <span class="label-text font-medium">API Key</span>
+                            <span class="label-text-alt" x-show="aiProviderNeedsApiKey()">Required</span>
+                        </label>
+                        <div class="relative">
+                            <input :type="showAIKey ? 'text' : 'password'"
+                                x-model="s['ai.api_key']"
+                                class="input input-bordered w-full pr-10"
+                                placeholder="Stored encrypted; never shown again" />
+                            <button type="button"
+                                class="absolute right-2 top-3 text-muted-foreground hover:text-foreground"
+                                @click="showAIKey = !showAIKey">
+                                <svg x-show="!showAIKey" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                                <svg x-show="showAIKey" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+                            </button>
+                        </div>
+                        <label class="label"><span class="label-text-alt text-muted-foreground">For self-hosting, environment-injected credentials still work; this field is for managed settings.</span></label>
+                    </div>
+                </div>
+                <div class="rounded-lg border border-border p-3" x-show="aiConnectionResult">
+                    <div class="flex items-start justify-between gap-3">
+                        <div>
+                            <p class="text-sm font-medium" x-text="aiConnectionResult?.success ? 'Connection OK' : 'Connection failed'"></p>
+                            <p class="text-sm text-muted-foreground" x-text="aiConnectionResult?.message"></p>
+                        </div>
+                        <span class="badge" :class="aiConnectionResult?.success ? 'badge-success' : 'badge-error'" x-text="aiConnectionResult?.provider || 'AI'"></span>
+                    </div>
+                    <p class="mt-2 text-xs text-muted-foreground" x-show="aiModels.length" x-text="`${aiModels.length} model${aiModels.length === 1 ? '' : 's'} discovered.`"></p>
                 </div>
                 <div class="form-control">
                     <label class="label cursor-pointer justify-start gap-3">
@@ -1037,7 +1097,14 @@
                         <span class="label-text font-medium">Allow human-confirmed action proposals</span>
                     </label>
                 </div>
-                <div class="flex justify-end">
+                <div class="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                    <button type="button" class="btn btn-outline btn-md" :disabled="testingAIConnection"
+                        @click="testAIConnection()">
+                        <template x-if="!testingAIConnection">
+                            <span>Test Connection</span>
+                        </template>
+                        <template x-if="testingAIConnection"><span class="loading loading-spinner loading-xs mr-2"></span></template>
+                    </button>
                     <button type="submit" class="btn btn-default btn-md" :disabled="saving">
                         <template x-if="!saving">
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
