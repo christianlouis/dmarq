@@ -78,6 +78,7 @@ class Settings(BaseSettings):
     AKAMAI_ACCOUNT_KEY: Optional[str] = None
     POSTMARK_ACCOUNT_TOKEN: Optional[str] = None
     WEBHOOK_SECRET: Optional[str] = None
+    WEBHOOK_MAX_EMAIL_SIZE_MB: int = 25
 
     # Optional sender reputation feed lookups. Disabled by default because many
     # reputation providers require explicit terms, credentials, and volume limits.

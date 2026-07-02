@@ -323,6 +323,7 @@ operational policy if long-term storage size matters.
 |----------|-------------|---------|---------|
 | `POSTMARK_ACCOUNT_TOKEN` | Optional Postmark account token for read-only sender-domain discovery | - | `your_postmark_account_token` |
 | `WEBHOOK_SECRET` | Required secret for inbound email worker webhooks | - | `openssl rand -hex 32` |
+| `WEBHOOK_MAX_EMAIL_SIZE_MB` | Maximum raw RFC 822 email size accepted by inbound report webhooks | `25` | `10`, `50` |
 
 Cloudflare credentials can also be stored from **Settings**. The API token is
 encrypted in the settings table and redacted when settings are read back. Leave

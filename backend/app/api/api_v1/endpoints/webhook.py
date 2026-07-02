@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.redaction import sanitize_for_log
+from app.core.security import require_admin_auth
 from app.services.dmarc_parser import DMARCParser
 from app.services.report_persistence import report_exists, save_parsed_report
 from app.services.report_store import ReportStore
@@ -48,6 +49,24 @@ def _decode_email_header(header: Optional[str]) -> str:
 def _is_dmarc_filename(filename: str) -> bool:
     lower = filename.lower()
     return lower.endswith((".xml", ".zip", ".gz", ".gzip"))
+
+
+def _max_webhook_email_bytes() -> int:
+    settings = get_settings()
+    max_mb = max(int(settings.WEBHOOK_MAX_EMAIL_SIZE_MB or 1), 1)
+    return max_mb * 1024 * 1024
+
+
+def _ensure_email_size(raw_email: bytes) -> None:
+    max_bytes = _max_webhook_email_bytes()
+    if len(raw_email) > max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=(
+                "Webhook email payload is too large. "
+                f"Maximum accepted size is {max_bytes} bytes."
+            ),
+        )
 
 
 def _require_webhook_secret(x_webhook_secret: Optional[str]) -> None:
@@ -133,6 +152,32 @@ def _subject_from_message(msg: email.message.Message, fallback: Optional[str] = 
     return fallback or _decode_email_header(msg.get("Subject"))
 
 
+@router.get("/status")
+async def webhook_status(_auth: dict = Depends(require_admin_auth)) -> Dict[str, Any]:
+    """Return direct email webhook intake readiness without exposing the secret."""
+    settings = get_settings()
+    max_bytes = _max_webhook_email_bytes()
+    return {
+        "configured": bool(settings.WEBHOOK_SECRET),
+        "auth_header": "X-Webhook-Secret",
+        "max_email_size_bytes": max_bytes,
+        "max_email_size_mb": max_bytes // (1024 * 1024),
+        "endpoints": [
+            {
+                "path": "/api/v1/webhook/email",
+                "method": "POST",
+                "payload": "json_base64_rfc822",
+            },
+            {
+                "path": "/api/v1/webhook/email/raw",
+                "method": "POST",
+                "payload": "raw_rfc822",
+            },
+        ],
+        "accepted_attachment_extensions": [".xml", ".zip", ".gz", ".gzip"],
+    }
+
+
 @router.post("/email")
 async def receive_email(
     payload: EmailWebhookPayload,
@@ -149,6 +194,7 @@ async def receive_email(
             detail="raw_email must be valid base64.",
         ) from exc
 
+    _ensure_email_size(raw_email)
     return _handle_raw_email(raw_email, db, subject=payload.subject)
 
 
@@ -160,7 +206,9 @@ async def receive_raw_email(
 ) -> Dict[str, Any]:
     """Receive raw RFC 822 email bytes from an email worker webhook."""
     _require_webhook_secret(x_webhook_secret)
-    return _handle_raw_email(await request.body(), db)
+    raw_email = await request.body()
+    _ensure_email_size(raw_email)
+    return _handle_raw_email(raw_email, db)
 
 
 def _handle_raw_email(
