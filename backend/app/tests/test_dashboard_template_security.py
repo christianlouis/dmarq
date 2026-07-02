@@ -247,6 +247,7 @@ def test_settings_exposes_provider_agnostic_dns_import_without_html_injection():
     template = _settings_template()
 
     assert "DNS Provider Connectors" in template
+    assert 'id="provider-integrations"' in template
     assert "Provider Domain Discovery" in template
     assert "dns-provider-import-select" in template
     assert "loadDNSProviders" in template
@@ -341,6 +342,20 @@ def test_domain_details_exposes_ownership_and_delete_controls_without_html_injec
     assert "Type the domain name to confirm" in template
     assert "sourcesLoading" in template
     assert "sourceEvidenceCount" in template
+    assert "x-html" not in template
+
+
+def test_domain_details_exposes_dns_provider_repair_context_without_html_injection():
+    template = (
+        Path(__file__).resolve().parents[1] / "templates" / "domain_details.html"
+    ).read_text()
+
+    assert "Provider repair readiness" in template
+    assert "providerContextStatusLabel" in template
+    assert "providerContextSummary" in template
+    assert "providerContextSteps" in template
+    assert "providerContextCtaHref" in template
+    assert "/settings#provider-integrations" not in template
     assert "x-html" not in template
 
 
