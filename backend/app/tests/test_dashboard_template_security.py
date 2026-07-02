@@ -163,6 +163,14 @@ def _settings_script() -> str:
     return _read_project_file("static", "js", "settings-page.js")
 
 
+def _domain_details_template() -> str:
+    return _read_project_file("templates", "domain_details.html")
+
+
+def _domain_details_script() -> str:
+    return _read_project_file("static", "js", "domain-details-page.js")
+
+
 def test_dashboard_domain_table_uses_safe_dom_rendering():
     """Domain names and counts come from report data and must not be HTML-rendered."""
     script = _dashboard_script()
@@ -400,22 +408,22 @@ def test_settings_exposes_provider_agnostic_dns_import_without_html_injection():
 
 
 def test_domain_details_exposes_health_history_without_html_injection():
-    template = (
-        Path(__file__).resolve().parents[1] / "templates" / "domain_details.html"
-    ).read_text()
+    template = _domain_details_template()
+    script = _domain_details_script()
 
     assert "Health Score Trend" in template
-    assert "/posture/history?capture_current=false" in template
-    assert "/posture/evidence/export?capture_current=false" in template
-    assert "encodeURIComponent(this.domainId)" in template
+    assert "/posture/history?capture_current=false" in script
+    assert "/posture/evidence/export?capture_current=false" in script
+    assert "encodeURIComponent(this.domainId)" in script
     assert "health-score-chart" in template
     assert "x-html" not in template
+    assert _has_script_src(template, "/static/js/domain-details-page.js")
+    assert not _has_inline_script(template)
 
 
 def test_domain_details_exposes_volume_scale_controls_without_html_injection():
-    template = (
-        Path(__file__).resolve().parents[1] / "templates" / "domain_details.html"
-    ).read_text()
+    template = _domain_details_template()
+    script = _domain_details_script()
 
     assert "Volume scale" in template
     assert 'role="group" aria-label="Volume scale"' in template
@@ -424,38 +432,37 @@ def test_domain_details_exposes_volume_scale_controls_without_html_injection():
     assert ":aria-pressed=\"effectiveVolumeScale() === 'logarithmic'\"" in template
     assert ":aria-pressed=\"effectiveVolumeScale() === 'linear'\"" in template
     assert ':disabled="!hasObservedVolume"' in template
-    assert "dmarq:domain-volume-scale" in template
+    assert "dmarq:domain-volume-scale" in script
     assert "effectiveVolumeScale()" in template
-    assert "const volumeScale =" in template
-    assert "type: volumeScale" in template
-    assert "Messages (log scale)" in template
-    assert "Messages (linear scale)" in template
-    assert "context.parsed.y === null" in template
-    assert "no observed mail volume" in template
+    assert "const volumeScale =" in script
+    assert "type: volumeScale" in script
+    assert "Messages (log scale)" in script
+    assert "Messages (linear scale)" in script
+    assert "context.parsed.y === null" in script
+    assert "no observed mail volume" in script
     assert "x-html" not in template
 
 
 def test_domain_details_exposes_migration_readiness_without_html_injection():
-    template = (
-        Path(__file__).resolve().parents[1] / "templates" / "domain_details.html"
-    ).read_text()
+    template = _domain_details_template()
+    script = _domain_details_script()
 
     assert "Migration Readiness" in template
-    assert "/migration/readiness" in template
+    assert "/migration/readiness" in script
     assert "migration.error" in template
-    assert "Migration readiness could not be loaded." in template
+    assert "Migration readiness could not be loaded." in script
     assert "parallel_reporting_days" in template
     assert "migration.export_links" in template
     assert "migration.checklist" in template
     assert "Migration Parity" in template
-    assert "/migration/parity" in template
+    assert "/migration/parity" in script
     assert "migrationParity.metrics" in template
-    assert "migrationBaseline" in template
+    assert "migrationBaseline" in script
     assert "Historical Export Preview" in template
-    assert "/migration/import/preview" in template
-    assert "loadMigrationImportSample" in template
-    assert "previewMigrationImport" in template
-    assert "applyMigrationPreviewBaseline" in template
+    assert "/migration/import/preview" in script
+    assert "loadMigrationImportSample" in script
+    assert "previewMigrationImport" in script
+    assert "applyMigrationPreviewBaseline" in script
     assert "migrationImport.preview?.sample_rows" in template
     assert "migrationToolsEnabled" in template
     assert "I am migrating data" in template
@@ -463,31 +470,29 @@ def test_domain_details_exposes_migration_readiness_without_html_injection():
 
 
 def test_domain_details_exposes_ownership_and_delete_controls_without_html_injection():
-    template = (
-        Path(__file__).resolve().parents[1] / "templates" / "domain_details.html"
-    ).read_text()
+    template = _domain_details_template()
+    script = _domain_details_script()
 
     assert "Domain Ownership" in template
-    assert "/ownership" in template
-    assert "/ownership/verify" in template
+    assert "/ownership" in script
+    assert "/ownership/verify" in script
     assert "Report mailbox access is enough" not in template
-    assert "deleteDomain()" in template
-    assert "Type the domain name to confirm" in template
+    assert "deleteDomain()" in script
+    assert "Type the domain name to confirm" in script
     assert "sourcesLoading" in template
     assert "sourceEvidenceCount" in template
     assert "x-html" not in template
 
 
 def test_domain_details_exposes_dns_provider_repair_context_without_html_injection():
-    template = (
-        Path(__file__).resolve().parents[1] / "templates" / "domain_details.html"
-    ).read_text()
+    template = _domain_details_template()
+    script = _domain_details_script()
 
     assert "Provider repair readiness" in template
-    assert "providerContextStatusLabel" in template
-    assert "providerContextSummary" in template
-    assert "providerContextSteps" in template
-    assert "providerContextCtaHref" in template
+    assert "providerContextStatusLabel" in script
+    assert "providerContextSummary" in script
+    assert "providerContextSteps" in script
+    assert "providerContextCtaHref" in script
     assert "/settings#provider-integrations" not in template
     assert "x-html" not in template
 
@@ -506,53 +511,51 @@ def test_domain_details_exposes_remediation_action_plans_without_html_injection(
 
 
 def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
-    template = (
-        Path(__file__).resolve().parents[1] / "templates" / "domain_details.html"
-    ).read_text()
+    template = _domain_details_template()
+    script = _domain_details_script()
 
     assert "IP Intelligence" in template
     assert "PTR unavailable" in template
-    assert "sourceGeoSummary(source)" in template
-    assert "String(value).trim().toLowerCase() !== 'unknown'" in template
-    assert "Geo unavailable" in template
+    assert "sourceGeoSummary(source)" in script
+    assert "String(value).trim().toLowerCase() !== 'unknown'" in script
+    assert "Geo unavailable" in script
     assert "source.geo?.country_code" in template
     assert "source.geo?.country" in template
-    assert "source.geo?.region" in template
-    assert "source.geo?.asn" in template
-    assert "source.geo?.network" in template
-    assert "source.geo?.bgp_prefix" in template
-    assert "source.geo?.registry" in template
-    assert "source.geo?.allocated" in template
-    assert "source.geo?.network_source" in template
+    assert "source.geo?.region" in script
+    assert "source.geo?.asn" in script
+    assert "source.geo?.network" in script
+    assert "source.geo?.bgp_prefix" in script
+    assert "source.geo?.registry" in script
+    assert "source.geo?.allocated" in script
+    assert "source.geo?.network_source" in script
     assert "source.first_seen" in template
     assert "source.last_seen" in template
     assert "source.active_days" in template
     assert "source.report_count" in template
     assert "source.volume_history" in template
-    assert "sourceSeenLabel" in template
-    assert "sourceVolumeBars" in template
+    assert "sourceSeenLabel" in script
+    assert "sourceVolumeBars" in script
     assert "source.reputation?.status" in template
     assert "source.reputation?.risk_score" in template
     assert "source.reputation?.listings" in template
-    assert "reputationStatusClass" in template
+    assert "reputationStatusClass" in script
     assert 'colspan="9"' in template
     assert "x-html" not in template
 
 
 def test_domain_details_distinguishes_loading_error_and_empty_states():
-    template = (
-        Path(__file__).resolve().parents[1] / "templates" / "domain_details.html"
-    ).read_text()
+    template = _domain_details_template()
+    script = _domain_details_script()
 
     assert "dnsRecordsLoading" in template
     assert "Checking DMARC record..." in template
-    assert "DNS records could not be loaded." in template
+    assert "DNS records could not be loaded." in script
     assert "reportsLoading" in template
     assert "Loading recent reports..." in template
-    assert "Recent reports could not be loaded." in template
+    assert "Recent reports could not be loaded." in script
     assert "sourceIntelligence.loading" in template
     assert "Loading source intelligence..." in template
-    assert "Source intelligence could not be loaded." in template
+    assert "Source intelligence could not be loaded." in script
     assert "No sending sources match this filter." in template
     assert (
         "(!sourceIntelligence.loading && !sourceIntelligence.error ? sourceIntelligence.regions.slice(0, 4) : [])"
@@ -568,11 +571,9 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
 
 
 def test_domain_details_redirects_to_domain_management_after_delete_success():
-    template = (
-        Path(__file__).resolve().parents[1] / "templates" / "domain_details.html"
-    ).read_text()
+    script = _domain_details_script()
     delete_body = _template_section_between_markers(
-        template, "async deleteDomain()", "enableMigrationTools()"
+        script, "async deleteDomain()", "enableMigrationTools()"
     )
 
     assert "if (response.status === 204)" in delete_body
