@@ -170,29 +170,68 @@ function setupWizardEventListeners() {
         });
         
         // Next button
-        systemForm.addEventListener('submit', (e) => {
+        systemForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             
             // Store values
             const appName = document.getElementById('app-name').value;
             const baseUrl = document.getElementById('base-url').value;
+            const nextButton = document.getElementById('system-next-button');
+            const errorElement = document.getElementById('system-error');
+            const cloudflareTokenInput = document.getElementById('cloudflare-token');
+            const cloudflareZoneInput = document.getElementById('cloudflare-zone');
             
-            localStorage.setItem('setup_app_name', appName);
-            localStorage.setItem('setup_base_url', baseUrl);
-            
+            errorElement.classList.add('hidden');
+            errorElement.textContent = '';
+
+            const payload = {
+                app_name: appName,
+                base_url: baseUrl,
+                cloudflare_enabled: enableCloudflare.checked,
+                cloudflare_api_token: '',
+                cloudflare_zone_id: '',
+            };
+
             if (enableCloudflare.checked) {
-                const cloudflareToken = document.getElementById('cloudflare-token').value;
-                const cloudflareZone = document.getElementById('cloudflare-zone').value;
+                const cloudflareToken = cloudflareTokenInput.value.trim();
+                const cloudflareZone = cloudflareZoneInput.value.trim();
+                if (!cloudflareToken) {
+                    errorElement.textContent = 'Enter a Cloudflare API token or leave Cloudflare disabled for now.';
+                    errorElement.classList.remove('hidden');
+                    return;
+                }
                 
-                // Store only the flag that Cloudflare is enabled
-                // Credentials should be sent directly to backend, never stored client-side
-                localStorage.setItem('setup_cloudflare_enabled', 'true');
-                // TODO: Send cloudflareToken and cloudflareZone to backend API instead of localStorage
-                // For now, these credentials are not persisted client-side for security
+                payload.cloudflare_api_token = cloudflareToken;
+                payload.cloudflare_zone_id = cloudflareZone;
             }
-            
-            // Move to step 3
-            goToStep(3);
+
+            nextButton.disabled = true;
+            nextButton.textContent = 'Saving...';
+
+            try {
+                const response = await fetch('/api/v1/setup/system', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                if (!response.ok) {
+                    const data = await response.json().catch(() => ({ detail: 'System settings could not be saved.' }));
+                    throw new Error(data.detail || 'System settings could not be saved.');
+                }
+
+                if (enableCloudflare.checked) {
+                    cloudflareTokenInput.value = '';
+                }
+
+                // Move to step 3
+                goToStep(3);
+            } catch (error) {
+                errorElement.textContent = error.message || 'System settings could not be saved.';
+                errorElement.classList.remove('hidden');
+            } finally {
+                nextButton.disabled = false;
+                nextButton.textContent = 'Next';
+            }
         });
     }
     

@@ -115,6 +115,30 @@
                             </label>
                         </div>
 
+                        <div class="rounded-lg border border-base-300 bg-base-200/60 p-4">
+                            <label class="flex items-start gap-3">
+                                <input x-model="system.cloudflare_enabled" type="checkbox" class="checkbox checkbox-primary mt-1">
+                                <span>
+                                    <span class="block font-semibold">Connect Cloudflare during setup</span>
+                                    <span class="mt-1 block text-sm leading-6 text-base-content/65">
+                                        Use a scoped Cloudflare API token to verify zone ownership, import domains, and prepare DNS repair previews. The token is sent directly to DMARQ and encrypted at rest.
+                                    </span>
+                                </span>
+                            </label>
+                            <div x-show="system.cloudflare_enabled" class="mt-4 grid gap-4 sm:grid-cols-2">
+                                <label class="form-control">
+                                    <span class="label-text font-medium">Cloudflare API token</span>
+                                    <input x-model.trim="system.cloudflare_api_token" type="password" autocomplete="off" class="input input-bordered" :required="system.cloudflare_enabled">
+                                    <span class="label-text-alt text-base-content/60">Zone read permission is enough for discovery; DNS edit is only needed for approved repairs.</span>
+                                </label>
+                                <label class="form-control">
+                                    <span class="label-text font-medium">Default Zone ID</span>
+                                    <input x-model.trim="system.cloudflare_zone_id" type="text" autocomplete="off" class="input input-bordered">
+                                    <span class="label-text-alt text-base-content/60">Optional. Leave empty when this token can access multiple zones.</span>
+                                </label>
+                            </div>
+                        </div>
+
                         <div class="flex justify-between gap-3">
                             <button type="button" class="btn btn-ghost" @click="currentStep = 1" :disabled="saving">Back</button>
                             <button type="submit" class="btn btn-primary" :disabled="saving">
@@ -253,6 +277,9 @@
             system: {
                 app_name: {{ app_name | tojson }},
                 base_url: window.location.origin,
+                cloudflare_enabled: false,
+                cloudflare_api_token: '',
+                cloudflare_zone_id: '',
             },
             async init() {
                 this.applyTheme();
@@ -310,10 +337,17 @@
             },
             async submitSystem() {
                 this.error = '';
+                if (this.system.cloudflare_enabled && !this.system.cloudflare_api_token) {
+                    this.error = 'Enter a Cloudflare API token or leave Cloudflare disabled for now.';
+                    return;
+                }
                 await this.save('/api/v1/setup/system', this.system, () => {
+                    this.system.cloudflare_api_token = '';
                     this.complete = true;
                     this.currentStep = 3;
-                    this.message = 'Your setup settings have been saved.';
+                    this.message = this.system.cloudflare_enabled
+                        ? 'Your setup settings and Cloudflare connector have been saved.'
+                        : 'Your setup settings have been saved.';
                 });
             },
             async save(url, payload, onSuccess) {

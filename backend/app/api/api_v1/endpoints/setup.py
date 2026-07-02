@@ -5,6 +5,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
+from app.core.credential_encryption import encrypt_secret
 from app.core.database import get_db
 from app.core.security import api_key_header, require_admin_auth, security_bearer
 from app.models.domain import Domain
@@ -26,6 +27,10 @@ SETUP_COMPLETE_KEY = "setup.is_complete"
 SETUP_ADMIN_EMAIL_KEY = "setup.admin_email"
 GENERAL_APP_NAME_KEY = "general.app_name"
 GENERAL_BASE_URL_KEY = "general.base_url"
+CLOUDFLARE_API_TOKEN_KEY = "cloudflare.api_token"
+CLOUDFLARE_ZONE_ID_KEY = "cloudflare.zone_id"
+CLOUDFLARE_AUTH_MODE_KEY = "cloudflare.auth_mode"
+DNS_RESOLVER_KEY = "dns.resolver"
 
 
 def _setting_value(db: Session, key: str) -> Optional[str]:
@@ -112,6 +117,9 @@ class SystemConfigRequest(BaseModel):
 
     app_name: str
     base_url: str
+    cloudflare_enabled: bool = False
+    cloudflare_api_token: Optional[str] = None
+    cloudflare_zone_id: Optional[str] = None
 
 
 async def require_setup_write_auth(
@@ -193,8 +201,18 @@ async def setup_system(
 ):
     """
     Setup system configuration.
-    For Milestone 1, this simply stores the app name in memory.
+    Stores first-run system settings. Optional Cloudflare credentials are
+    written server-side so setup never needs to persist provider tokens in the
+    browser.
     """
+    cloudflare_api_token = (request.cloudflare_api_token or "").strip()
+    cloudflare_zone_id = (request.cloudflare_zone_id or "").strip()
+    if request.cloudflare_enabled and not cloudflare_api_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cloudflare API token is required when Cloudflare integration is enabled.",
+        )
+
     # Store app name
     setup_status["app_name"] = request.app_name
     setup_status["is_setup_complete"] = True
@@ -219,6 +237,35 @@ async def setup_system(
         description="Whether initial setup has been completed",
         value_type="boolean",
     )
+    if request.cloudflare_enabled:
+        _upsert_setting(
+            db,
+            CLOUDFLARE_API_TOKEN_KEY,
+            encrypt_secret(cloudflare_api_token),
+            description="Cloudflare API token for DNS zone discovery and DNS record management",
+            category="cloudflare",
+        )
+        _upsert_setting(
+            db,
+            CLOUDFLARE_ZONE_ID_KEY,
+            cloudflare_zone_id,
+            description="Optional preferred Cloudflare Zone ID for DNS record management",
+            category="cloudflare",
+        )
+        _upsert_setting(
+            db,
+            CLOUDFLARE_AUTH_MODE_KEY,
+            "api_token",
+            description="Cloudflare connector authentication mode",
+            category="cloudflare",
+        )
+        _upsert_setting(
+            db,
+            DNS_RESOLVER_KEY,
+            "cloudflare",
+            description="DNS resolver to use: system or cloudflare",
+            category="dns",
+        )
     db.commit()
 
     return {"message": "System settings saved successfully"}
