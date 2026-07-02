@@ -2,6 +2,8 @@
 
 import asyncio
 import json
+import sys
+import types
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -22,6 +24,7 @@ from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog
 from app.services import (
+    akamai_edgedns,
     cloudflare_dns,
     cloudflare_oauth,
     dns_provider_connectors,
@@ -134,6 +137,14 @@ class FakeRoute53DNSClient:
     def __init__(self, *, zones=None, account_name="Amazon Route 53"):
         self.zones = zones or []
         self.account_name = account_name
+
+    async def list_zones(self):
+        return self.zones
+
+
+class FakeAkamaiEdgeDNSClient:
+    def __init__(self, *, zones=None):
+        self.zones = zones or []
 
     async def list_zones(self):
         return self.zones
@@ -672,6 +683,128 @@ def test_linode_dns_credentials_and_build_client(monkeypatch):
     assert linode_dns.get_linode_dns_credentials().configured is False
     with pytest.raises(LookupError, match="not configured"):
         linode_dns.build_linode_dns_client()
+
+
+def test_akamai_edgedns_client_list_zones_paginates(monkeypatch):
+    class FakeAkamaiResponse:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.payload
+
+    class FakeAkamaiSession:
+        def __init__(self):
+            self.calls = []
+
+        def get(self, url, *, params=None):
+            self.calls.append({"url": url, "params": params})
+            if params["page"] == 1:
+                return FakeAkamaiResponse(
+                    {
+                        "zones": [{"zone": DOMAIN, "type": "PRIMARY", "contractId": "ctr_1"}],
+                        "metadata": {"totalPages": 2},
+                    }
+                )
+            return FakeAkamaiResponse(
+                {
+                    "zones": [
+                        {"zone": "second.example.", "zoneType": "SECONDARY", "groupId": "grp_1"}
+                    ],
+                    "metadata": {"totalPages": 2},
+                }
+            )
+
+    session = FakeAkamaiSession()
+    client = akamai_edgedns.AkamaiEdgeDNSClient(
+        session=session,
+        base_url="https://akab.example.luna.akamaiapis.net/",
+        account_switch_key="A-CCT1234:A-CCT5432",
+    )
+
+    zones = asyncio.run(client.list_zones())
+
+    assert [akamai_edgedns.AkamaiEdgeDNSClient._zone_name(zone) for zone in zones] == [
+        DOMAIN,
+        "second.example",
+    ]
+    assert session.calls[0]["params"]["accountSwitchKey"] == "A-CCT1234:A-CCT5432"
+    assert session.calls[0]["url"].endswith("/config-dns/v2/zones")
+
+
+def test_akamai_edgedns_client_ignores_malformed_zone_payload():
+    class FakeAkamaiSession:
+        def get(self, url, *, params=None):
+            return FakeHetznerResponse({"zones": "not-a-list"})
+
+    client = akamai_edgedns.AkamaiEdgeDNSClient(
+        session=FakeAkamaiSession(),
+        base_url="https://akab.example.luna.akamaiapis.net",
+    )
+
+    assert asyncio.run(client.list_zones()) == []
+
+
+def test_akamai_edgedns_credentials_and_direct_build_client(monkeypatch):
+    class FakeEdgeGridAuth:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    class FakeSession:
+        auth = None
+
+    fake_requests = types.ModuleType("requests")
+    fake_requests.Session = lambda: FakeSession()
+    fake_edgegrid = types.ModuleType("akamai.edgegrid")
+    fake_edgegrid.EdgeGridAuth = FakeEdgeGridAuth
+    fake_edgegrid.EdgeRc = None
+    fake_akamai = types.ModuleType("akamai")
+    fake_akamai.edgegrid = fake_edgegrid
+    monkeypatch.setitem(sys.modules, "requests", fake_requests)
+    monkeypatch.setitem(sys.modules, "akamai", fake_akamai)
+    monkeypatch.setitem(sys.modules, "akamai.edgegrid", fake_edgegrid)
+    monkeypatch.setattr(
+        akamai_edgedns,
+        "get_settings",
+        lambda: SimpleNamespace(
+            AKAMAI_EDGERC_PATH="",
+            AKAMAI_EDGERC_SECTION="default",
+            AKAMAI_HOST="https://akab.example.luna.akamaiapis.net",
+            AKAMAI_CLIENT_TOKEN="client-token",
+            AKAMAI_CLIENT_SECRET="client-secret",
+            AKAMAI_ACCESS_TOKEN="access-token",
+            AKAMAI_ACCOUNT_SWITCH_KEY="switch-key",
+            AKAMAI_ACCOUNT_KEY="",
+        ),
+    )
+
+    credentials = akamai_edgedns.get_akamai_edgedns_credentials()
+    client = akamai_edgedns.build_akamai_edgedns_client()
+
+    assert credentials.configured is True
+    assert client.base_url == "https://akab.example.luna.akamaiapis.net"
+    assert client.account_switch_key == "switch-key"
+
+    monkeypatch.setattr(
+        akamai_edgedns,
+        "get_settings",
+        lambda: SimpleNamespace(
+            AKAMAI_EDGERC_PATH="",
+            AKAMAI_EDGERC_SECTION="default",
+            AKAMAI_HOST="",
+            AKAMAI_CLIENT_TOKEN="",
+            AKAMAI_CLIENT_SECRET="",
+            AKAMAI_ACCESS_TOKEN="",
+            AKAMAI_ACCOUNT_SWITCH_KEY="",
+            AKAMAI_ACCOUNT_KEY="",
+        ),
+    )
+    assert akamai_edgedns.get_akamai_edgedns_credentials().configured is False
+    with pytest.raises(LookupError, match="not configured"):
+        akamai_edgedns.build_akamai_edgedns_client()
 
 
 def test_route53_dns_client_list_zones_uses_boto3_paginator():
@@ -1696,6 +1829,61 @@ def test_dns_provider_capabilities_mark_cloudflare_import_available(authed_clien
     assert providers["linode"]["zone_import_status"] == "ready"
     assert providers["linode"]["record_write_status"] == "lexicon_available"
     assert "personal_access_token" in providers["linode"]["auth_models"]
+    assert providers["akamai-edgedns"]["import_available"] is True
+    assert providers["akamai-edgedns"]["zone_import_status"] == "ready"
+    assert providers["akamai-edgedns"]["record_write_status"] == "planned"
+    assert "edgerc" in providers["akamai-edgedns"]["auth_models"]
+
+
+def test_dns_provider_import_preview_supports_akamai_alias(db_session, monkeypatch):
+    monkeypatch.setattr(
+        akamai_edgedns,
+        "build_akamai_edgedns_client",
+        lambda: FakeAkamaiEdgeDNSClient(
+            zones=[
+                {
+                    "zone": DOMAIN,
+                    "type": "PRIMARY",
+                    "contractId": "ctr_1",
+                    "groupId": "grp_1",
+                }
+            ]
+        ),
+    )
+
+    preview = asyncio.run(
+        dns_provider_imports.preview_dns_provider_import(db_session, provider="fastdns")
+    )
+
+    assert preview["provider"] == "akamai-edgedns"
+    assert preview["provider_name"] == "Akamai Edge DNS / FastDNS"
+    assert preview["zones"][0]["domain"] == DOMAIN
+    assert preview["zones"][0]["account_name"] == "Akamai contract ctr_1 / group grp_1"
+
+
+def test_dns_provider_import_apply_supports_akamai(db_session, monkeypatch):
+    monkeypatch.setattr(
+        akamai_edgedns,
+        "build_akamai_edgedns_client",
+        lambda: FakeAkamaiEdgeDNSClient(
+            zones=[
+                {"zone": DOMAIN, "type": "PRIMARY"},
+                {"zone": "ignored.example", "type": "ALIAS"},
+            ]
+        ),
+    )
+
+    result = asyncio.run(
+        dns_provider_imports.import_dns_provider_domains(
+            db_session,
+            provider="akamai",
+            requested_domains=[DOMAIN],
+        )
+    )
+
+    assert result["provider"] == "akamai-edgedns"
+    assert result["imported"] == [DOMAIN]
+    assert result["skipped"] == ["ignored.example"]
 
 
 def test_cloudflare_import_endpoint_returns_import_summary(authed_client: TestClient):

@@ -68,6 +68,14 @@ class Settings(BaseSettings):
     DMARQ_ROUTE53_PROFILE: Optional[str] = None
     DMARQ_ROUTE53_ROLE_ARN: Optional[str] = None
     DMARQ_ROUTE53_EXTERNAL_ID: Optional[str] = None
+    AKAMAI_EDGERC_PATH: Optional[str] = None
+    AKAMAI_EDGERC_SECTION: str = "default"
+    AKAMAI_HOST: Optional[str] = None
+    AKAMAI_CLIENT_TOKEN: Optional[str] = None
+    AKAMAI_CLIENT_SECRET: Optional[str] = None
+    AKAMAI_ACCESS_TOKEN: Optional[str] = None
+    AKAMAI_ACCOUNT_SWITCH_KEY: Optional[str] = None
+    AKAMAI_ACCOUNT_KEY: Optional[str] = None
     POSTMARK_ACCOUNT_TOKEN: Optional[str] = None
     WEBHOOK_SECRET: Optional[str] = None
 

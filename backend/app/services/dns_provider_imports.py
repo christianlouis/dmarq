@@ -7,6 +7,10 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
+from app.services.akamai_edgedns import (
+    discover_akamai_edgedns_zones,
+    import_akamai_edgedns_domains,
+)
 from app.services.cloudflare_dns import discover_cloudflare_zones, import_cloudflare_domains
 from app.services.dns_provider_connectors import provider_connector_registry
 from app.services.dns_provider_writes import normalize_provider_id
@@ -50,6 +54,17 @@ def _provider_name(provider_id: str) -> str:
     return PROVIDER_NAMES.get(provider_id, provider_id)
 
 
+def _normalize_import_provider_id(provider: str) -> str:
+    provider_id = normalize_provider_id(provider)
+    aliases = {
+        "akamai": "akamai-edgedns",
+        "akamai-edgedns": "akamai-edgedns",
+        "edgedns": "akamai-edgedns",
+        "fastdns": "akamai-edgedns",
+    }
+    return aliases.get(provider_id, provider_id)
+
+
 def _provider_import_item_label(provider_id: str) -> str:
     return "domain" if provider_id == "linode" else "zone"
 
@@ -61,7 +76,7 @@ async def preview_dns_provider_import(
     workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Return importable zones/domains for a DNS provider without creating rows."""
-    provider_id = normalize_provider_id(provider)
+    provider_id = _normalize_import_provider_id(provider)
     if provider_id == "cloudflare":
         zones = await discover_cloudflare_zones(db, workspace_id=workspace_id)
     elif provider_id == "route53":
@@ -70,6 +85,8 @@ async def preview_dns_provider_import(
         zones = await discover_hetzner_zones(db, workspace_id=workspace_id)
     elif provider_id == "linode":
         zones = await discover_linode_domains(db, workspace_id=workspace_id)
+    elif provider_id == "akamai-edgedns":
+        zones = await discover_akamai_edgedns_zones(db, workspace_id=workspace_id)
     else:
         raise LookupError(f"Unsupported DNS provider import: {provider_id}")
 
@@ -112,7 +129,7 @@ async def import_dns_provider_domains(
     workspace_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Import selected DNS provider zones as monitored domains."""
-    provider_id = normalize_provider_id(provider)
+    provider_id = _normalize_import_provider_id(provider)
     if provider_id == "cloudflare":
         result = await import_cloudflare_domains(
             db,
@@ -133,6 +150,12 @@ async def import_dns_provider_domains(
         )
     elif provider_id == "linode":
         result = await import_linode_domains(
+            db,
+            requested_domains=requested_domains,
+            workspace_id=workspace_id,
+        )
+    elif provider_id == "akamai-edgedns":
+        result = await import_akamai_edgedns_domains(
             db,
             requested_domains=requested_domains,
             workspace_id=workspace_id,
