@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from typing import Any, Dict, List, Optional
@@ -25,6 +26,34 @@ def _auth_status_from_counts(pass_count: int, fail_count: int) -> str:
     if fail_count > 0:
         return "fail"
     return "none"
+
+
+@dataclass(frozen=True)
+class _ReportWindow:
+    """Normalized reporting window passed through stats queries."""
+
+    period_days: int
+    start_ts: Optional[int] = None
+    end_ts: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class _DomainStatsContext:
+    """Resolved domain and window context for domain-specific summaries."""
+
+    domain_name: str
+    domain_pk: int
+    window: _ReportWindow
+    workspace_id: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class _DomainStatsTotals:
+    """Aggregate counters used to build a domain statistics response."""
+
+    total_emails: int
+    compliant_emails: int
+    reports_processed: int
 
 
 class StatsSummarizer:
@@ -232,6 +261,7 @@ class StatsSummarizer:
             Dictionary with summary statistics
         """
         period_days = max(1, int(period_days or 30))
+        window = _ReportWindow(period_days=period_days, start_ts=start_ts, end_ts=end_ts)
 
         use_cache = bool(cache_key) or (start_ts is None and end_ts is None)
         if use_cache:
@@ -247,18 +277,16 @@ class StatsSummarizer:
         if domain_id is None:
             stats = self._calculate_global_statistics(
                 db,
-                period_days,
-                start_ts,
-                end_ts,
+                window.period_days,
+                window.start_ts,
+                window.end_ts,
                 workspace_id=workspace_id,
             )
         else:
             stats = self._calculate_domain_statistics(
                 db,
                 domain_id,
-                period_days,
-                start_ts,
-                end_ts,
+                window,
                 workspace_id=workspace_id,
             )
 
@@ -410,9 +438,7 @@ class StatsSummarizer:
         self,
         db: Session,
         domain_id: str,
-        period_days: int = 30,
-        start_ts: Optional[int] = None,
-        end_ts: Optional[int] = None,
+        window: _ReportWindow,
         workspace_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Calculate statistics for a specific domain from the database."""
@@ -420,59 +446,26 @@ class StatsSummarizer:
         if not domain:
             return self._empty_domain_statistics(domain_id)
 
-        total_emails = self._sum_domain_emails(
-            db,
-            domain.id,
-            period_days=period_days,
-            start_ts=start_ts,
-            end_ts=end_ts,
-        )
-        compliant_emails = self._sum_domain_emails(
-            db,
-            domain.id,
-            period_days=period_days,
-            start_ts=start_ts,
-            end_ts=end_ts,
-            compliant_only=True,
-        )
-        reports_processed = self._count_domain_reports(
-            db,
-            domain.id,
-            period_days=period_days,
-            start_ts=start_ts,
-            end_ts=end_ts,
-        )
-        compliance_trend = self._get_compliance_trend(
-            db,
-            domain.id,
-            days=period_days,
-            start_ts=start_ts,
-            end_ts=end_ts,
+        context = _DomainStatsContext(
+            domain_name=domain_id,
+            domain_pk=domain.id,
+            window=window,
             workspace_id=workspace_id,
         )
-        change_summary = self._get_change_summary(
-            db,
-            domain.id,
-            days=period_days,
-            trend=compliance_trend,
-            start_ts=start_ts,
-            end_ts=end_ts,
-            workspace_id=workspace_id,
-        )
+        totals = self._domain_email_totals(db, context)
+        compliance_trend = self._domain_compliance_trend(db, context)
+        change_summary = self._domain_change_summary(db, context, compliance_trend)
 
         return {
-            "domain": domain_id,
-            "total_emails": total_emails,
-            "compliant_emails": compliant_emails,
-            "compliance_rate": self._compliance_rate(total_emails, compliant_emails),
-            "reports_processed": reports_processed,
-            "sources": self._get_domain_sources(
-                db,
-                domain.id,
-                period_days=period_days,
-                start_ts=start_ts,
-                end_ts=end_ts,
+            "domain": context.domain_name,
+            "total_emails": totals.total_emails,
+            "compliant_emails": totals.compliant_emails,
+            "compliance_rate": self._compliance_rate(
+                totals.total_emails,
+                totals.compliant_emails,
             ),
+            "reports_processed": totals.reports_processed,
+            "sources": self._domain_sources(db, context),
             "compliance_trend": compliance_trend,
             "change_summary": change_summary,
         }
@@ -504,9 +497,7 @@ class StatsSummarizer:
         self,
         db: Session,
         domain_pk: int,
-        period_days: int,
-        start_ts: Optional[int] = None,
-        end_ts: Optional[int] = None,
+        window: _ReportWindow,
         compliant_only: bool = False,
     ) -> int:
         query = (
@@ -516,19 +507,83 @@ class StatsSummarizer:
         )
         if compliant_only:
             query = query.filter((ReportRecord.dkim == "pass") | (ReportRecord.spf == "pass"))
-        total = self._apply_report_window(query, period_days, start_ts, end_ts).scalar()
+        total = self._apply_domain_window(query, window).scalar()
         return int(total) if total else 0
 
     def _count_domain_reports(
         self,
         db: Session,
         domain_pk: int,
-        period_days: int,
-        start_ts: Optional[int] = None,
-        end_ts: Optional[int] = None,
+        window: _ReportWindow,
     ) -> int:
         query = db.query(func.count(DMARCReport.id)).filter(DMARCReport.domain_id == domain_pk)
-        return int(self._apply_report_window(query, period_days, start_ts, end_ts).scalar() or 0)
+        return int(self._apply_domain_window(query, window).scalar() or 0)
+
+    def _apply_domain_window(self, query, window: _ReportWindow):
+        return self._apply_report_window(query, window.period_days, window.start_ts, window.end_ts)
+
+    def _domain_email_totals(
+        self,
+        db: Session,
+        context: _DomainStatsContext,
+    ) -> _DomainStatsTotals:
+        return _DomainStatsTotals(
+            total_emails=self._sum_domain_emails(db, context.domain_pk, context.window),
+            compliant_emails=self._sum_domain_emails(
+                db,
+                context.domain_pk,
+                context.window,
+                compliant_only=True,
+            ),
+            reports_processed=self._count_domain_reports(
+                db,
+                context.domain_pk,
+                context.window,
+            ),
+        )
+
+    def _domain_sources(
+        self,
+        db: Session,
+        context: _DomainStatsContext,
+    ) -> List[Dict[str, Any]]:
+        return self._get_domain_sources(
+            db,
+            context.domain_pk,
+            period_days=context.window.period_days,
+            start_ts=context.window.start_ts,
+            end_ts=context.window.end_ts,
+        )
+
+    def _domain_compliance_trend(
+        self,
+        db: Session,
+        context: _DomainStatsContext,
+    ) -> List[Dict[str, Any]]:
+        return self._get_compliance_trend(
+            db,
+            context.domain_pk,
+            days=context.window.period_days,
+            start_ts=context.window.start_ts,
+            end_ts=context.window.end_ts,
+            workspace_id=context.workspace_id,
+        )
+
+    def _domain_change_summary(
+        self,
+        db: Session,
+        context: _DomainStatsContext,
+        compliance_trend: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        return self._get_change_summary(
+            db,
+            context.domain_pk,
+            days=context.window.period_days,
+            trend=compliance_trend,
+            start_ts=context.window.start_ts,
+            end_ts=context.window.end_ts,
+            workspace_id=context.workspace_id,
+        )
 
     def _compliance_rate(self, total_emails: int, compliant_emails: int) -> float:
         if total_emails <= 0:
