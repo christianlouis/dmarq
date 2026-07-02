@@ -1,12 +1,21 @@
+import re
 from pathlib import Path
+
+
+def _dashboard_template() -> str:
+    return (Path(__file__).resolve().parents[1] / "templates" / "index.html").read_text()
+
+
+def _dashboard_script() -> str:
+    return (Path(__file__).resolve().parents[1] / "static" / "js" / "dashboard-page.js").read_text()
 
 
 def test_dashboard_domain_table_uses_safe_dom_rendering():
     """Domain names and counts come from report data and must not be HTML-rendered."""
-    template = (Path(__file__).resolve().parents[1] / "templates" / "index.html").read_text()
-    populate_start = template.index("populateDomainsTable(domains)")
-    helper_start = template.index("createDomainNameCell(domainName)")
-    populate_body = template[populate_start:helper_start]
+    script = _dashboard_script()
+    populate_start = script.index("populateDomainsTable(domains)")
+    helper_start = script.index("createDomainNameCell(domainName)")
+    populate_body = script[populate_start:helper_start]
 
     assert "innerHTML" not in populate_body
     assert ".textContent" in populate_body
@@ -15,18 +24,39 @@ def test_dashboard_domain_table_uses_safe_dom_rendering():
 
 
 def test_dashboard_domain_details_links_are_encoded():
-    template = (Path(__file__).resolve().parents[1] / "templates" / "index.html").read_text()
+    script = _dashboard_script()
 
-    assert "encodeURIComponent(domainId)" in template
+    assert "encodeURIComponent(domainId)" in script
 
 
 def test_dashboard_exposes_workspace_health_history():
-    template = (Path(__file__).resolve().parents[1] / "templates" / "index.html").read_text()
+    template = _dashboard_template()
+    script = _dashboard_script()
 
     assert "Score Trend" in template
     assert "health-trend-chart" in template
-    assert "/api/v1/domains/summary/health/history" in template
-    assert "fetchWorkspaceHealthHistory" in template
+    assert "/api/v1/domains/summary/health/history" in script
+    assert "fetchWorkspaceHealthHistory" in script
+
+
+def test_dashboard_clears_all_chart_instances():
+    script = _dashboard_script()
+    clear_start = script.index("        clearDashboardCharts()")
+    helper_start = script.index("formatLargeNumber(value)", clear_start)
+    clear_body = script[clear_start:helper_start]
+
+    assert "volumeTrendChart.destroy()" in clear_body
+    assert "complianceTrendChart.destroy()" in clear_body
+    assert "healthTrendChart.destroy()" in clear_body
+    assert "this.healthTrendChart = null" in clear_body
+
+
+def test_dashboard_uses_external_page_script_for_csp_migration():
+    template = _dashboard_template()
+
+    assert 'src="/static/js/chart.umd.min.js"' in template
+    assert 'src="/static/js/dashboard-page.js"' in template
+    assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 
 def test_domain_details_exposes_health_history_without_html_injection():
@@ -128,7 +158,7 @@ def test_base_template_propagates_selected_workspace_context():
 
 
 def test_dashboard_hides_multi_user_demo_mode_controls():
-    template = (Path(__file__).resolve().parents[1] / "templates" / "index.html").read_text()
+    template = _dashboard_template()
 
     assert "Deployment Zoom" not in template
     assert "Demo experience" not in template
@@ -143,12 +173,13 @@ def test_dashboard_hides_multi_user_demo_mode_controls():
 
 
 def test_dashboard_trigger_poll_uses_post_action_not_get_link():
-    template = (Path(__file__).resolve().parents[1] / "templates" / "index.html").read_text()
+    template = _dashboard_template()
+    script = _dashboard_script()
 
     assert 'href="/api/v1/admin/trigger-poll"' not in template
     assert "triggerPollNow()" in template
-    assert "method: 'POST'" in template
-    assert "triggerPollMessage" in template
+    assert "method: 'POST'" in script
+    assert "triggerPollMessage" in script
     assert 'role="status"' in template
     assert 'aria-live="polite"' in template
     assert 'aria-atomic="true"' in template
