@@ -182,6 +182,26 @@ def test_get_domain_reports_returns_200(seeded_client: TestClient):
     assert "compliance_timeline" in data
 
 
+def test_domain_stats_and_reports_use_single_domain_persisted_reports(
+    seeded_client: TestClient,
+    monkeypatch,
+):
+    """Stats and recent reports should not hydrate every workspace report."""
+
+    def fail_global_hydration(*args, **kwargs):
+        raise AssertionError("domain detail endpoints should not hydrate all reports")
+
+    monkeypatch.setattr(domains_endpoint, "hydrate_report_store_from_db", fail_global_hydration)
+
+    stats = seeded_client.get(f"/api/v1/domains/{DOMAIN}/stats")
+    reports = seeded_client.get(f"/api/v1/domains/{DOMAIN}/reports")
+
+    assert stats.status_code == 200
+    assert stats.json()["totalEmails"] == 10
+    assert reports.status_code == 200
+    assert reports.json()["reports"][0]["id"] == "rpt-dict-policy"
+
+
 def test_compliance_timeline_does_not_treat_no_volume_as_perfect_compliance():
     """Zero-volume report periods must not become 100% compliance points."""
     store = ReportStore()

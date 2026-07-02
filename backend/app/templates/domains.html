@@ -82,22 +82,22 @@
                                 {% call td() %}
                                     <div class="flex items-center">
                                         <span class="w-2 h-2 rounded-full" 
-                                            :class="domain.dmarc_status ? 'bg-green-500' : 'bg-red-500'"></span>
-                                        <span class="ml-2" x-text="domain.dmarc_policy || 'Not configured'"></span>
+                                            :class="dnsStatusClass(domain, 'dmarc_status')"></span>
+                                        <span class="ml-2" x-text="dmarcStatusText(domain)"></span>
                                     </div>
                                 {% endcall %}
                                 {% call td() %}
                                     <div class="flex items-center">
                                         <span class="w-2 h-2 rounded-full"
-                                            :class="domain.spf_status ? 'bg-green-500' : 'bg-red-500'"></span>
-                                        <span class="ml-2" x-text="domain.spf_status ? 'Configured' : 'Missing'"></span>
+                                            :class="dnsStatusClass(domain, 'spf_status')"></span>
+                                        <span class="ml-2" x-text="genericDnsStatusText(domain, 'spf_status')"></span>
                                     </div>
                                 {% endcall %}
                                 {% call td() %}
                                     <div class="flex items-center">
                                         <span class="w-2 h-2 rounded-full"
-                                            :class="domain.dkim_status ? 'bg-green-500' : 'bg-red-500'"></span>
-                                        <span class="ml-2" x-text="domain.dkim_status ? 'Configured' : 'Missing'"></span>
+                                            :class="dnsStatusClass(domain, 'dkim_status')"></span>
+                                        <span class="ml-2" x-text="genericDnsStatusText(domain, 'dkim_status')"></span>
                                     </div>
                                 {% endcall %}
                                 {% call td("text-right") %}
