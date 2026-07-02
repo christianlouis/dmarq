@@ -2942,6 +2942,74 @@ def _record_health_snapshot_from_posture(
     )
 
 
+def _with_dns_summary_metadata(
+    result: DomainDNSResult,
+    *,
+    cached: bool,
+    checked_at: Optional[datetime],
+    pending: bool,
+) -> DomainDNSResult:
+    result.cached = cached  # type: ignore[attr-defined]
+    result.checked_at = checked_at  # type: ignore[attr-defined]
+    result.pending = pending  # type: ignore[attr-defined]
+    return result
+
+
+def _pending_dns_summary_result() -> DomainDNSResult:
+    return _with_dns_summary_metadata(
+        DomainDNSResult(),
+        cached=False,
+        checked_at=None,
+        pending=True,
+    )
+
+
+async def _resolve_summary_dns_result(
+    db: Session,
+    provider: Any,
+    domain_name: str,
+    selectors: List[str],
+    *,
+    refresh: bool,
+) -> DomainDNSResult:
+    if not refresh:
+        cached_result, cached, checked_at = get_cached_domain_dns_result(
+            db,
+            provider,
+            domain_name,
+            selectors=selectors,
+        )
+        if cached_result is not None:
+            return _with_dns_summary_metadata(
+                cached_result,
+                cached=cached,
+                checked_at=checked_at,
+                pending=False,
+            )
+        return _pending_dns_summary_result()
+
+    try:
+        result, cached, checked_at = await asyncio.wait_for(
+            resolve_domain_dns_cached(
+                db,
+                provider,
+                domain_name,
+                selectors=selectors,
+                refresh=refresh,
+            ),
+            timeout=10.0,
+        )
+        return _with_dns_summary_metadata(
+            result,
+            cached=cached,
+            checked_at=checked_at,
+            pending=False,
+        )
+    except (asyncio.TimeoutError, LookupError, OSError) as exc:
+        logger.warning("DNS check failed for %s: %s", domain_name, exc)
+        return DomainDNSResult()
+
+
 @router.get("/summary", response_model=DomainSummaryResponse)
 async def get_domains_summary(
     refresh: bool = Query(False, title="Refresh cached DNS results"),
@@ -2999,41 +3067,13 @@ async def get_domains_summary(
         else:
             report_selectors = report_selectors_by_domain.get(domain_name, [])
         combined = list(dict.fromkeys(manual_selectors + report_selectors))
-        if not refresh:
-            cached_result, cached, checked_at = get_cached_domain_dns_result(
-                db,
-                provider,
-                domain_name,
-                selectors=combined,
-            )
-            if cached_result is not None:
-                cached_result.cached = cached  # type: ignore[attr-defined]
-                cached_result.checked_at = checked_at  # type: ignore[attr-defined]
-                cached_result.pending = False  # type: ignore[attr-defined]
-                return cached_result
-            pending_result = DomainDNSResult()
-            pending_result.cached = False  # type: ignore[attr-defined]
-            pending_result.checked_at = None  # type: ignore[attr-defined]
-            pending_result.pending = True  # type: ignore[attr-defined]
-            return pending_result
-        try:
-            result, cached, checked_at = await asyncio.wait_for(
-                resolve_domain_dns_cached(
-                    db,
-                    provider,
-                    domain_name,
-                    selectors=combined,
-                    refresh=refresh,
-                ),
-                timeout=10.0,
-            )
-            result.cached = cached  # type: ignore[attr-defined]
-            result.checked_at = checked_at  # type: ignore[attr-defined]
-            result.pending = False  # type: ignore[attr-defined]
-            return result
-        except (asyncio.TimeoutError, LookupError, OSError) as exc:
-            logger.warning("DNS check failed for %s: %s", domain_name, exc)
-            return DomainDNSResult()
+        return await _resolve_summary_dns_result(
+            db,
+            provider,
+            domain_name,
+            combined,
+            refresh=refresh,
+        )
 
     dns_results = []
     for domain_name in domains:
