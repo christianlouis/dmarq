@@ -117,12 +117,14 @@ def test_base_template_propagates_selected_workspace_context():
     template = (
         Path(__file__).resolve().parents[1] / "templates" / "layouts" / "base.html"
     ).read_text()
+    script = (Path(__file__).resolve().parents[1] / "static" / "js" / "base-layout.js").read_text()
 
-    assert "/api/v1/workspaces" in template
-    assert "dmarq.selectedWorkspaceId" in template
-    assert "X-DMARQ-Workspace-ID" in template
-    assert "dmarq:workspace-changed" in template
-    assert "input instanceof URL" in template
+    assert 'src="/static/js/base-layout.js"' in template
+    assert "/api/v1/workspaces" in script
+    assert "dmarq.selectedWorkspaceId" in script
+    assert "X-DMARQ-Workspace-ID" in script
+    assert "dmarq:workspace-changed" in script
+    assert "input instanceof URL" in script
 
 
 def test_dashboard_hides_multi_user_demo_mode_controls():
