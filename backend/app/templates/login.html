@@ -8,7 +8,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Open+Sans:wght@400;500;600&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.24/dist/full.css" rel="stylesheet" type="text/css"/>
+    <link href="/static/css/page-utilities.css" rel="stylesheet" type="text/css"/>
     <script src="/static/js/pages.js"></script>
+    <script defer src="/static/js/login-page.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </head>
 <body class="min-h-screen bg-base-200 flex items-center justify-center font-sans antialiased">
@@ -59,7 +61,7 @@
             {% else %}
 
             <!-- Error banner (shown when ?error= is present) -->
-            <div x-data="{ error: new URLSearchParams(window.location.search).get('error') }"
+            <div x-data="loginErrorBanner()"
                  x-show="error" x-cloak>
                 <div role="alert" class="alert alert-error">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -147,14 +149,5 @@
         &copy; {{ app_name }} – DMARC Monitoring Platform
     </p>
 </div>
-
-<script>
-    // Restore dark-mode preference from localStorage (mirrors base.html logic)
-    (function () {
-        if (localStorage.getItem('darkMode') === 'true') {
-            document.documentElement.setAttribute('data-theme', 'dmarqdark');
-        }
-    })();
-</script>
 </body>
 </html>
