@@ -26,6 +26,7 @@ from app.api.api_v1.endpoints.auth import _create_next_cookie
 from app.core.auth_providers import (
     ExternalIdentityClaims,
     OIDCProviderConfig,
+    _normalize_role_claims,
     auth_provider_registry,
     configured_oidc_provider,
     create_oidc_state,
@@ -317,6 +318,35 @@ class TestExternalAuthProviders:
         assert claims.organization_roles == (
             ("customer-one", "organization_owner"),
             ("customer-two", "auditor"),
+        )
+
+    def test_normalize_role_claims_accepts_strings_and_deduplicates_pairs(self):
+        roles = _normalize_role_claims(
+            [
+                "primary:workspace_owner",
+                "primary=workspace_owner",
+                {"slug": "secondary", "role": "analyst"},
+                "missing-separator",
+                {"slug": "", "role": "analyst"},
+                {"slug": "ignored", "role": "root"},
+            ],
+            allowed_roles={"workspace_owner", "analyst"},
+        )
+
+        assert roles == (
+            ("primary", "workspace_owner"),
+            ("secondary", "analyst"),
+        )
+
+    def test_normalize_role_claims_accepts_single_string_claims(self):
+        roles = _normalize_role_claims(
+            "primary:workspace_owner,secondary=analyst,ignored=root",
+            allowed_roles={"workspace_owner", "analyst"},
+        )
+
+        assert roles == (
+            ("primary", "workspace_owner"),
+            ("secondary", "analyst"),
         )
 
     def test_sync_external_user_uses_provider_scoped_subject(self, db_session):
