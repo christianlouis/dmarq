@@ -1,3 +1,5 @@
+const UPLOAD_TIMEOUT_MS = 30000;
+
 function uploadForm() {
     return {
         files: [],
@@ -62,37 +64,46 @@ function uploadForm() {
             if (this.isUploading) return;
             this.isUploading = true;
 
-            let entry;
-            while ((entry = this.files.find((file) => file.status === 'pending')) !== undefined) {
-                entry.status = 'uploading';
-                entry.message = '';
+            try {
+                let entry;
+                while ((entry = this.files.find((file) => file.status === 'pending')) !== undefined) {
+                    entry.status = 'uploading';
+                    entry.message = '';
 
-                const formData = new FormData();
-                formData.append('file', entry.file);
+                    const formData = new FormData();
+                    formData.append('file', entry.file);
+                    const controller = new AbortController();
+                    const timeoutId = window.setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
 
-                try {
-                    const response = await fetch('/api/v1/reports/upload', {
-                        method: 'POST',
-                        body: formData,
-                    });
-                    const data = await response.json();
+                    try {
+                        const response = await fetch('/api/v1/reports/upload', {
+                            method: 'POST',
+                            body: formData,
+                            signal: controller.signal,
+                        });
+                        const data = await response.json();
 
-                    if (response.ok) {
-                        const records = data.processed_records || 0;
-                        entry.status = 'success';
-                        entry.message = `${records} record${records !== 1 ? 's' : ''} for ${data.domain || 'unknown domain'}`;
-                    } else {
+                        if (response.ok) {
+                            const records = data.processed_records || 0;
+                            entry.status = 'success';
+                            entry.message = `${records} record${records !== 1 ? 's' : ''} for ${data.domain || 'unknown domain'}`;
+                        } else {
+                            entry.status = 'error';
+                            entry.message = data.detail || 'Upload failed';
+                        }
+                    } catch (error) {
                         entry.status = 'error';
-                        entry.message = data.detail || 'Upload failed';
+                        entry.message = error.name === 'AbortError'
+                            ? 'Upload failed: request timed out'
+                            : `Upload failed: ${error.message}`;
+                    } finally {
+                        window.clearTimeout(timeoutId);
                     }
-                } catch (error) {
-                    entry.status = 'error';
-                    entry.message = `Upload failed: ${error.message}`;
                 }
+            } finally {
+                this.isUploading = false;
+                window.dispatchEvent(new CustomEvent('dmarq:refresh-data'));
             }
-
-            this.isUploading = false;
-            window.dispatchEvent(new CustomEvent('dmarq:refresh-data'));
         },
     };
 }
