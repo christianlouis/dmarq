@@ -10,6 +10,16 @@ def _dashboard_script() -> str:
     return (Path(__file__).resolve().parents[1] / "static" / "js" / "dashboard-page.js").read_text()
 
 
+def _operations_template() -> str:
+    return (Path(__file__).resolve().parents[1] / "templates" / "operations.html").read_text()
+
+
+def _operations_script() -> str:
+    return (
+        Path(__file__).resolve().parents[1] / "static" / "js" / "operations-page.js"
+    ).read_text()
+
+
 def test_dashboard_domain_table_uses_safe_dom_rendering():
     """Domain names and counts come from report data and must not be HTML-rendered."""
     script = _dashboard_script()
@@ -56,6 +66,17 @@ def test_dashboard_uses_external_page_script_for_csp_migration():
 
     assert 'src="/static/js/chart.umd.min.js"' in template
     assert 'src="/static/js/dashboard-page.js"' in template
+    assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
+
+
+def test_operations_uses_external_page_script_for_csp_migration():
+    template = _operations_template()
+    script = _operations_script()
+
+    assert 'src="/static/js/operations-page.js"' in template
+    assert "operationsHealth()" in template
+    assert "/api/v1/health/operations" in script
+    assert "Health details could not be loaded." in script
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 
