@@ -8,6 +8,7 @@ from app.services import forensic_parser as forensic_parser_module
 from app.services.forensic_parser import (
     MAX_FORENSIC_REPORT_SIZE,
     ForensicParser,
+    _arc_detail_headers,
     _arc_instance,
     _coerce_text,
     _domain_from_address,
@@ -293,6 +294,14 @@ ARC-Authentication-Results: i=1; mx.forwarder.test; dmarc=fail header.from=forwa
 
 def test_arc_instance_ignores_malformed_instance_values():
     assert _arc_instance("i=not-a-number; mx.example.test; dmarc=pass") == -1
+
+
+def test_arc_instance_ignores_non_instance_segments_and_missing_instance():
+    assert _arc_instance("mx.example.test; dmarc=pass") == -1
+
+
+def test_arc_detail_headers_handles_missing_original_headers():
+    assert _arc_detail_headers(None) == {}
 
 
 def test_is_forensic_report_detects_headers_and_subject_fallbacks():
