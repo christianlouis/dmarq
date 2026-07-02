@@ -86,6 +86,49 @@ function dashboardApp() {
             return (methods || []).map(method => labels[method] || method).join(', ');
         },
 
+        summarizePollResults(data) {
+            const sources = data.sources || [];
+            const count = data.sources_polled || sources.length || 0;
+            if (!count) {
+                return data.message || 'No enabled mail sources configured.';
+            }
+
+            const sourceMethods = this.formatSourceMethods(data.source_methods || []);
+            const methodSuffix = sourceMethods ? ` (${sourceMethods})` : '';
+            const processed = sources.reduce((total, source) => total + (source.processed || 0), 0);
+            const reportsFound = sources.reduce((total, source) => total + (source.reports_found || 0), 0);
+            const forensicFound = sources.reduce(
+                (total, source) => total + (source.forensic_reports_found || 0),
+                0
+            );
+            const newDomains = Array.from(
+                new Set(sources.flatMap(source => source.new_domains || []))
+            );
+            const skipped = sources.filter(source => source.skipped).length;
+            const failed = sources.filter(source => source.success === false).length;
+
+            const parts = [
+                `Polling finished for ${count} source${count === 1 ? '' : 's'}${methodSuffix}`,
+                `${processed} email${processed === 1 ? '' : 's'} processed`,
+                `${reportsFound} aggregate report${reportsFound === 1 ? '' : 's'} found`
+            ];
+            if (forensicFound) {
+                parts.push(`${forensicFound} forensic report${forensicFound === 1 ? '' : 's'} found`);
+            }
+            if (newDomains.length) {
+                const domainPreview = newDomains.slice(0, 3).join(', ');
+                const extra = newDomains.length > 3 ? ` +${newDomains.length - 3} more` : '';
+                parts.push(`new domains: ${domainPreview}${extra}`);
+            }
+            if (skipped) {
+                parts.push(`${skipped} skipped`);
+            }
+            if (failed) {
+                parts.push(`${failed} failed`);
+            }
+            return `${parts.join('; ')}.`;
+        },
+
         async getReportIntakeStatus() {
             try {
                 const response = await fetch('/api/v1/poll-status');
@@ -146,13 +189,8 @@ function dashboardApp() {
                         : (detail?.message || data.message || 'Could not trigger polling.');
                     throw new Error(message);
                 }
-                const count = data.sources_polled || 0;
-                const sourceMethods = this.formatSourceMethods(data.source_methods || []);
-                const methodSuffix = sourceMethods ? ` (${sourceMethods})` : '';
                 this.triggerPollStatus = 'success';
-                this.triggerPollMessage = count
-                    ? `Polling finished for ${count} source${count === 1 ? '' : 's'}${methodSuffix}.`
-                    : (data.message || 'No enabled mail sources configured.');
+                this.triggerPollMessage = this.summarizePollResults(data);
                 await this.getReportIntakeStatus();
                 await this.fetchDomainSummary();
             } catch (error) {

@@ -550,6 +550,11 @@ def test_dashboard_trigger_poll_uses_post_action_not_get_link():
     assert "method: 'POST'" in script
     assert "Report Intake Status" in template
     assert "Gmail API" in script
+    assert "summarizePollResults(data)" in script
+    assert "aggregate report" in script
+    assert "new domains:" in script
+    assert "skipped" in script
+    assert "failed" in script
     assert "triggerPollMessage" in script
     assert 'role="status"' in template
     assert 'aria-live="polite"' in template
