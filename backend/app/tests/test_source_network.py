@@ -1,6 +1,7 @@
 import pytest
 
 from app.services.source_network import (
+    _ASN_NAME_CACHE,
     SourceNetworkIntelligence,
     lookup_source_network,
     lookup_source_network_cached,
@@ -124,6 +125,34 @@ async def test_lookup_source_network_tolerates_asn_name_lookup_failure():
     assert result.as_name is None
     assert result.bgp_prefix == "50.31.205.0/24"
     assert result.error is None
+
+
+async def test_lookup_source_network_reuses_asn_name_lookup_cache():
+    _ASN_NAME_CACHE.pop("AS64502", None)
+    provider = FakeProvider(
+        {
+            "8.8.8.8.origin.asn.cymru.com": [
+                '"64502 | 8.8.8.0/24 | US | arin | 2011-02-03"',
+            ],
+            "4.4.8.8.origin.asn.cymru.com": [
+                '"64502 | 8.8.4.0/24 | US | arin | 2011-02-03"',
+            ],
+            "AS64502.asn.cymru.com": [
+                '"64502 | US | arin | 2002-03-05 | EXAMPLE-AS, US"',
+            ],
+        }
+    )
+
+    first = await lookup_source_network(provider, "8.8.8.8")
+    second = await lookup_source_network(provider, "8.8.4.4")
+
+    assert provider.queries == [
+        "8.8.8.8.origin.asn.cymru.com",
+        "AS64502.asn.cymru.com",
+        "4.4.8.8.origin.asn.cymru.com",
+    ]
+    assert first.as_name == "EXAMPLE-AS, US"
+    assert second.as_name == "EXAMPLE-AS, US"
 
 
 async def test_lookup_source_network_skips_non_global_ip():
