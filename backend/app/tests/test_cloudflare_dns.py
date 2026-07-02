@@ -2036,6 +2036,8 @@ async def test_cloudflare_oauth_exchange_posts_token_request(
     monkeypatch.setattr(cloudflare_oauth, "get_settings", _cloudflare_oauth_settings)
 
     class FakeTokenResponse:
+        status_code = 200
+
         def raise_for_status(self):
             return None
 
@@ -2052,8 +2054,8 @@ async def test_cloudflare_oauth_exchange_posts_token_request(
         async def __aexit__(self, exc_type, exc, tb):
             return False
 
-        async def post(self, url, *, data):
-            requests.append({"url": url, "data": data})
+        async def post(self, url, *, data, auth=None):
+            requests.append({"url": url, "data": data, "auth": auth})
             return FakeTokenResponse()
 
     monkeypatch.setattr(cloudflare_oauth.httpx, "AsyncClient", FakeAsyncClient)
@@ -2076,8 +2078,76 @@ async def test_cloudflare_oauth_exchange_posts_token_request(
                 "client_id": "client-id",
                 "client_secret": "client-secret",
             },
+            "auth": None,
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_oauth_exchange_retries_with_basic_auth_after_forbidden(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    requests = []
+    monkeypatch.setattr(cloudflare_oauth, "get_settings", _cloudflare_oauth_settings)
+
+    class ForbiddenTokenResponse:
+        status_code = 403
+
+        def raise_for_status(self):
+            request = cloudflare_oauth.httpx.Request("POST", cloudflare_oauth.CLOUDFLARE_TOKEN_URL)
+            response = cloudflare_oauth.httpx.Response(403, request=request)
+            raise cloudflare_oauth.httpx.HTTPStatusError(
+                "Forbidden",
+                request=request,
+                response=response,
+            )
+
+        def json(self):
+            return {}
+
+    class SuccessfulTokenResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"access_token": "provider-token", "scope": "zone.read dns.read"}
+
+    class FakeAsyncClient:
+        def __init__(self, *, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, *, data, auth=None):
+            requests.append({"url": url, "data": data, "auth": auth})
+            if len(requests) == 1:
+                return ForbiddenTokenResponse()
+            return SuccessfulTokenResponse()
+
+    monkeypatch.setattr(cloudflare_oauth.httpx, "AsyncClient", FakeAsyncClient)
+
+    token_data = await cloudflare_oauth.exchange_cloudflare_oauth_code(
+        code="oauth-code",
+        redirect_uri="https://app.example.test/api/v1/domains/cloudflare/oauth/callback",
+    )
+
+    assert token_data["access_token"] == "provider-token"
+    assert len(requests) == 2
+    assert requests[0]["data"]["client_id"] == "client-id"
+    assert requests[0]["data"]["client_secret"] == "client-secret"
+    assert requests[0]["auth"] is None
+    assert requests[1]["data"] == {
+        "grant_type": "authorization_code",
+        "code": "oauth-code",
+        "redirect_uri": "https://app.example.test/api/v1/domains/cloudflare/oauth/callback",
+    }
+    assert isinstance(requests[1]["auth"], cloudflare_oauth.httpx.BasicAuth)
 
 
 @pytest.mark.asyncio
@@ -2103,7 +2173,7 @@ async def test_cloudflare_oauth_exchange_rejects_missing_access_token(
         async def __aexit__(self, exc_type, exc, tb):
             return False
 
-        async def post(self, url, *, data):
+        async def post(self, url, *, data, auth=None):
             return FakeTokenResponse()
 
     monkeypatch.setattr(cloudflare_oauth.httpx, "AsyncClient", FakeAsyncClient)
@@ -2131,7 +2201,7 @@ async def test_cloudflare_oauth_exchange_wraps_http_errors(
         async def __aexit__(self, exc_type, exc, tb):
             return False
 
-        async def post(self, url, *, data):
+        async def post(self, url, *, data, auth=None):
             raise cloudflare_oauth.httpx.RequestError("network unavailable")
 
     monkeypatch.setattr(cloudflare_oauth.httpx, "AsyncClient", FakeAsyncClient)

@@ -124,6 +124,14 @@ def build_cloudflare_authorization_url(
     }
 
 
+def _cloudflare_token_request_data(*, code: str, redirect_uri: str) -> Dict[str, str]:
+    return {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": redirect_uri,
+    }
+
+
 async def exchange_cloudflare_oauth_code(
     *,
     code: str,
@@ -136,13 +144,17 @@ async def exchange_cloudflare_oauth_code(
             response = await client.post(
                 CLOUDFLARE_TOKEN_URL,
                 data={
-                    "grant_type": "authorization_code",
-                    "code": code,
-                    "redirect_uri": redirect_uri,
+                    **_cloudflare_token_request_data(code=code, redirect_uri=redirect_uri),
                     "client_id": config.client_id,
                     "client_secret": config.client_secret,
                 },
             )
+            if getattr(response, "status_code", None) in {401, 403}:
+                response = await client.post(
+                    CLOUDFLARE_TOKEN_URL,
+                    data=_cloudflare_token_request_data(code=code, redirect_uri=redirect_uri),
+                    auth=httpx.BasicAuth(config.client_id, config.client_secret),
+                )
             response.raise_for_status()
             data = response.json()
     except (httpx.RequestError, httpx.HTTPStatusError, ValueError) as exc:
