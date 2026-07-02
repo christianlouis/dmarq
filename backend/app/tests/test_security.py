@@ -144,7 +144,9 @@ class TestSecurityHeaders:
 
         assert "alpinejs@3.x.x/dist/cdn.min.js" in body
         assert "@alpinejs/csp" not in body
+        assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", body, re.IGNORECASE)
         assert not re.search(r"<style\b", body, re.IGNORECASE)
+        assert 'src="/static/js/base-layout.js"' in body
         assert 'href="/static/css/page-utilities.css"' in body
 
     @pytest.mark.parametrize("template_name", ["login.html", "setup.html"])
