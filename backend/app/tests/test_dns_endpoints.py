@@ -1597,6 +1597,60 @@ def test_summary_endpoint_uses_manual_selectors(authed_client: TestClient, db_se
     assert "google" in captured_selectors
 
 
+def test_summary_endpoint_uses_database_aggregates_without_hydration(
+    authed_client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    """Production summary reads persisted aggregates instead of rebuilding the report store."""
+    _persist_minimal_report(db_session)
+    captured_selectors = []
+
+    def fail_hydration(*args, **kwargs):
+        raise AssertionError("summary should not hydrate the full report store")
+
+    async def _fake_check_domain(domain, selectors=None):
+        captured_selectors.extend(selectors or [])
+        return MOCK_DNS_RESULT
+
+    monkeypatch.setattr(domains_endpoint, "hydrate_report_store_from_db", fail_hydration)
+
+    with patch(
+        "app.api.api_v1.endpoints.domains.get_default_provider",
+        return_value=AsyncMock(check_domain=_fake_check_domain),
+    ):
+        response = authed_client.get("/api/v1/domains/summary")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total_domains"] == 1
+    assert data["total_emails"] == 5
+    assert data["reports_processed"] == 1
+    assert data["domains"][0]["pass_rate"] == 100.0
+    assert "google" in captured_selectors
+
+
+def test_summary_endpoint_refresh_bypasses_dns_cache(authed_client: TestClient, db_session):
+    """The summary reload action forces DNS recomputation without report-store hydration."""
+    _persist_minimal_report(db_session)
+    provider = AsyncMock(check_domain=AsyncMock(return_value=MOCK_DNS_RESULT))
+
+    with patch(
+        "app.api.api_v1.endpoints.domains.get_default_provider",
+        return_value=provider,
+    ):
+        first = authed_client.get("/api/v1/domains/summary")
+        second = authed_client.get("/api/v1/domains/summary")
+        refreshed = authed_client.get("/api/v1/domains/summary?refresh=true")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert refreshed.status_code == 200
+    assert provider.check_domain.await_count == 2
+    assert second.json()["domains"][0]["dns_cached"] is True
+    assert refreshed.json()["domains"][0]["dns_cached"] is False
+
+
 def test_summary_endpoint_returns_demo_domains_in_demo_mode(
     authed_client: TestClient,
     monkeypatch,

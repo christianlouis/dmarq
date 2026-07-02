@@ -21,9 +21,18 @@
             {% call card_header() %}
                 <div class="flex items-center justify-between">
                     {% call card_title() %}Monitored Domains{% endcall %}
-                    <button type="button" class="btn btn-outline btn-sm" @click="openCreate = true">
-                        <span class="mr-1">+</span> Add Domain
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <button type="button"
+                                class="btn btn-outline btn-sm"
+                                @click="fetchDomains({ refresh: true })"
+                                :disabled="loading || refreshing">
+                            <span x-show="refreshing" class="loading loading-spinner loading-xs"></span>
+                            <span x-text="refreshing ? 'Refreshing...' : 'Reload'"></span>
+                        </button>
+                        <button type="button" class="btn btn-outline btn-sm" @click="openCreate = true">
+                            <span class="mr-1">+</span> Add Domain
+                        </button>
+                    </div>
                 </div>
                 {% call card_description() %}
                     Domains currently being monitored for DMARC compliance

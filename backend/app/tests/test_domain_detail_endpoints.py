@@ -2502,6 +2502,35 @@ def test_get_domain_sources_includes_ip_intelligence_and_reputation(
     assert "source_reputation" in recommendation_types
 
 
+def test_get_domain_sources_refreshes_reputation_cache(
+    seeded_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The detail-page reload path forces reputation evidence refresh for sources."""
+    captured_refresh = []
+
+    async def fake_reputation(*_args, **kwargs):
+        captured_refresh.append(kwargs.get("refresh"))
+        return (
+            DomainReputation(
+                domain=DOMAIN,
+                status="clean",
+                checked_at="2026-07-02T08:00:00Z",
+                summary={"listed": 0, "suspicious": 0, "clean": 1, "unknown": 0},
+                sources=[],
+            ),
+            False,
+            None,
+        )
+
+    monkeypatch.setattr(domains_endpoint, "build_source_reputation_cached", fake_reputation)
+
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources?days=30&refresh=true")
+
+    assert response.status_code == 200
+    assert captured_refresh == [True]
+
+
 def test_source_recommendations_cover_common_cases():
     """Recommendation builder handles the milestone source patterns."""
     cases = [

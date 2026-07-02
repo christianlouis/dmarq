@@ -7,6 +7,8 @@ from starlette.requests import Request
 from app.api.api_v1.endpoints import domains as domains_endpoint
 from app.main import app, members_page, settings
 from app.models.domain import Domain
+from app.models.report import DMARCReport, ReportRecord
+from app.services.workspaces import get_or_create_default_workspace
 
 
 def test_health_check(authed_client: TestClient):
@@ -39,6 +41,68 @@ def test_create_domain_without_reports(authed_client: TestClient):
     assert list_response.status_code == 200
     assert list_response.json()[0]["name"] == "example.com"
     assert list_response.json()[0]["reports_count"] == 0
+
+
+def test_read_domains_uses_database_aggregates_without_full_report_hydration(
+    authed_client: TestClient, db_session, monkeypatch
+):
+    """Domain list reads persisted aggregates without loading every report record into memory."""
+    workspace = get_or_create_default_workspace(db_session)
+    domain = Domain(
+        name="fast-list.example",
+        workspace_id=workspace.id,
+        active=True,
+        dmarc_policy="reject",
+    )
+    db_session.add(domain)
+    db_session.flush()
+    report = DMARCReport(
+        domain_id=domain.id,
+        report_id="fast-list-001",
+        org_name="Example Reporter",
+        begin_date=1_700_000_000,
+        end_date=1_700_086_399,
+        policy="reject",
+    )
+    db_session.add(report)
+    db_session.flush()
+    db_session.add_all(
+        [
+            ReportRecord(
+                report_id=report.id,
+                source_ip="203.0.113.10",
+                count=8,
+                disposition="none",
+                dkim="pass",
+                spf="fail",
+                header_from=domain.name,
+            ),
+            ReportRecord(
+                report_id=report.id,
+                source_ip="203.0.113.11",
+                count=2,
+                disposition="reject",
+                dkim="fail",
+                spf="fail",
+                header_from=domain.name,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    def fail_hydrate(*_args, **_kwargs):
+        raise AssertionError("read_domains should not hydrate the full ReportStore")
+
+    monkeypatch.setattr(domains_endpoint, "hydrate_report_store_from_db", fail_hydrate)
+
+    response = authed_client.get("/api/v1/domains/domains")
+
+    assert response.status_code == 200
+    row = next(item for item in response.json() if item["name"] == "fast-list.example")
+    assert row["policy"] == "reject"
+    assert row["reports_count"] == 1
+    assert row["emails_count"] == 10
+    assert row["compliance_rate"] == 80.0
 
 
 def test_update_domain_metadata_without_reports(authed_client: TestClient):

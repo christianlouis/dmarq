@@ -4,6 +4,7 @@ function domainsApp() {
         openCreate: false,
         openEdit: false,
         loading: true,
+        refreshing: false,
         loadError: '',
         saving: false,
         createError: '',
@@ -23,11 +24,15 @@ function domainsApp() {
             this.fetchDomains();
         },
 
-        async fetchDomains() {
-            this.loading = true;
+        async fetchDomains(options = {}) {
+            const refresh = Boolean(options.refresh);
+            this.loading = !refresh;
+            this.refreshing = refresh;
             this.loadError = '';
             try {
-                const response = await fetch('/api/v1/domains/summary');
+                const response = await fetch(
+                    `/api/v1/domains/summary${refresh ? '?refresh=true' : ''}`
+                );
                 if (!response.ok) {
                     throw new Error('Domains could not be loaded. Refresh the page or check the API service.');
                 }
@@ -53,6 +58,7 @@ function domainsApp() {
                 console.error('Error fetching domains:', error);
             } finally {
                 this.loading = false;
+                this.refreshing = false;
             }
         },
 

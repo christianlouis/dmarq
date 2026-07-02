@@ -2,6 +2,7 @@ import json
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from sqlalchemy import case, distinct, func, or_
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
@@ -341,6 +342,58 @@ def hydrate_report_store_from_db(
     for report in reports:
         store.add_report(persisted_report_to_dict(report))
     return len(reports)
+
+
+def domain_summaries_from_db(
+    db: Session,
+    *,
+    workspace_id: Optional[int] = None,
+) -> Dict[str, Dict[str, Any]]:
+    """Return per-domain report aggregates without hydrating full report rows."""
+    passed_count = func.coalesce(
+        func.sum(
+            case(
+                (
+                    or_(ReportRecord.dkim == "pass", ReportRecord.spf == "pass"),
+                    ReportRecord.count,
+                ),
+                else_=0,
+            )
+        ),
+        0,
+    )
+    total_count = func.coalesce(func.sum(ReportRecord.count), 0)
+    query = (
+        db.query(
+            Domain.name.label("domain_name"),
+            Domain.dmarc_policy.label("policy"),
+            func.count(distinct(DMARCReport.id)).label("reports_processed"),
+            total_count.label("total_count"),
+            passed_count.label("passed_count"),
+        )
+        .outerjoin(DMARCReport, DMARCReport.domain_id == Domain.id)
+        .outerjoin(ReportRecord, ReportRecord.report_id == DMARCReport.id)
+        .filter(Domain.active == True)  # noqa: E712
+        .group_by(Domain.id, Domain.name, Domain.dmarc_policy)
+        .order_by(Domain.name)
+    )
+    if workspace_id is not None:
+        query = query.filter(Domain.workspace_id == workspace_id)
+
+    summaries: Dict[str, Dict[str, Any]] = {}
+    for row in query.all():
+        total = int(row.total_count or 0)
+        passed = int(row.passed_count or 0)
+        failed = max(0, total - passed)
+        summaries[row.domain_name] = {
+            "total_count": total,
+            "passed_count": passed,
+            "failed_count": failed,
+            "reports_processed": int(row.reports_processed or 0),
+            "compliance_rate": round((passed / total) * 100, 1) if total > 0 else 0.0,
+            "policy": row.policy,
+        }
+    return summaries
 
 
 def delete_persisted_report(
