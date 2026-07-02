@@ -68,9 +68,8 @@ Useful follow-up slices:
 Future DANE work can add:
 
 - DNSSEC validation evidence.
-- live SMTP STARTTLS certificate retrieval.
-- TLSA hash comparison against the presented certificate or SPKI.
-- certificate rotation warnings.
+- certificate rotation warnings from repeated read-only checks.
+- richer explanation for stale or mismatched TLSA records.
 
 Those features require network-safety controls and should remain read-only until
 operators explicitly approve any DNS changes.

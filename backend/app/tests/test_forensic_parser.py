@@ -270,8 +270,11 @@ From: Forwarded Sender <sender@forwarder.test>
 To: Receiver <receiver@example.net>
 Subject: Forwarded mail
 ARC-Seal: i=1; a=rsa-sha256; d=forwarder.test; cv=none
+ARC-Seal: i=2; a=rsa-sha256; d=forwarder.test; cv=pass
 ARC-Message-Signature: i=1; a=rsa-sha256; d=forwarder.test
-ARC-Authentication-Results: i=1; mx.forwarder.test; dmarc=fail header.from=forwarder.test smtp.mailfrom=sender@forwarder.test
+ARC-Message-Signature: i=2; a=rsa-sha256; d=forwarder.test
+ARC-Authentication-Results: i=2; mx.forwarder.test; dmarc=fail header.from=forwarder.test smtp.mailfrom=newest@forwarder.test
+ARC-Authentication-Results: i=1; mx.forwarder.test; dmarc=fail header.from=forwarder.test smtp.mailfrom=oldest@forwarder.test
 
 --ruf-boundary--
 """
@@ -282,8 +285,9 @@ ARC-Authentication-Results: i=1; mx.forwarder.test; dmarc=fail header.from=forwa
     assert details["arc_seal_present"] is True
     assert details["arc_message_signature_present"] is True
     assert details["arc_authentication_results_present"] is True
-    assert details["arc_set_count"] == 1
-    assert "se***@forwarder.test" in details["arc_authentication_results"]
+    assert details["arc_set_count"] == 2
+    assert "i=2" in details["arc_authentication_results"]
+    assert "ne***@forwarder.test" in details["arc_authentication_results"]
 
 
 def test_is_forensic_report_detects_headers_and_subject_fallbacks():

@@ -160,10 +160,22 @@ def _arc_detail_headers(
     if auth_headers:
         details["arc_authentication_results_present"] = True
         details["arc_authentication_results"] = _clean(
-            auth_headers[-1],
+            max(auth_headers, key=_arc_instance),
             redaction_policy=redaction_policy,
         )
     return details
+
+
+def _arc_instance(header_value: str) -> int:
+    for item in header_value.split(";"):
+        key, _, value = item.strip().partition("=")
+        if key.lower() != "i":
+            continue
+        try:
+            return int(value.strip())
+        except ValueError:
+            return -1
+    return -1
 
 
 class ForensicParser:
