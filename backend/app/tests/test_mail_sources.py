@@ -5,6 +5,7 @@ Tests for MailSource model and mail-sources API endpoints.
 import asyncio
 import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -578,20 +579,26 @@ def test_mail_source_folder_input_has_no_pattern_validation():
 def test_mail_sources_template_exposes_backfill_progress_controls():
     """The UI should surface queued backfill progress, cancellation, and retry."""
     template = (Path(__file__).resolve().parents[1] / "templates" / "mail_sources.html").read_text()
+    script = (
+        Path(__file__).resolve().parents[1] / "static" / "js" / "mail-sources-page.js"
+    ).read_text()
 
+    assert 'src="/static/js/mail-sources-page.js"' in template
+    assert "mailSourcesApp()" in template
     assert "data-backfill-progress" in template
-    assert "progress_percent" in template
     assert "status_summary" in template
-    assert "can_cancel" in template
-    assert "can_retry" in template
-    assert "/backfills?limit=5" in template
-    assert "/backfills/${job.id}/cancel" in template
-    assert "/backfills/${job.id}/retry" in template
+    assert "progress_percent" in script
+    assert "can_cancel" in script
+    assert "can_retry" in script
+    assert "/backfills?limit=5" in script
+    assert "/backfills/${job.id}/cancel" in script
+    assert "/backfills/${job.id}/retry" in script
     assert "Queue Backfill" in template
+    assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
     assert "canCancelBackfill" in template
     assert "canRetryBackfill" in template
     assert "latestBackfill(source)" in template
-    assert "apiErrorFeedback" in template
+    assert "apiErrorFeedback" in script
     assert "feedback.links" in template
     assert "x-html" not in template
 
