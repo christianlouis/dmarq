@@ -175,23 +175,8 @@
     {% endif %}
 
 </div>
+{% endblock %}
 
-<script>
-    function profileApp() {
-        return {
-            user: null,
-            async init() {
-                try {
-                    const res = await fetch('/api/v1/auth/me');
-                    if (res.ok) {
-                        this.user = await res.json();
-                    }
-                } catch (e) {
-                    console.error('Failed to load user profile:', e);
-                    // ignore – profile info simply won't be shown
-                }
-            },
-        };
-    }
-</script>
+{% block scripts %}
+<script src="/static/js/profile-page.js"></script>
 {% endblock %}
