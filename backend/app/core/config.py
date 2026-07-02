@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     DEMO_MODE: bool = False
     PUBLIC_BASE_URL: Optional[str] = None
+    DMARQ_RELEASE_VERSION: Optional[str] = None
+    DMARQ_BUILD_SHA: Optional[str] = None
+    DMARQ_BUILD_REF: Optional[str] = None
+    DMARQ_BUILD_IMAGE: Optional[str] = None
+    DMARQ_BUILD_DATE: Optional[str] = None
     # Self-hosted installs default to a single workspace. Enable this for SaaS,
     # ISP/MSP, or admin deployments that need explicit workspace switching.
     MULTI_WORKSPACE_UI_ENABLED: bool = False

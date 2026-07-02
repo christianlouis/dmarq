@@ -21,6 +21,34 @@ def test_health_check(authed_client: TestClient):
     assert "version" in data
 
 
+def test_release_info_endpoint_exposes_safe_build_metadata(
+    authed_client: TestClient, monkeypatch
+):
+    """Release metadata is available for support without exposing secrets."""
+    monkeypatch.setenv("DMARQ_BUILD_SHA", "abcdef1234567890")
+    monkeypatch.setenv("DMARQ_BUILD_REF", "main")
+    monkeypatch.setenv("DMARQ_BUILD_IMAGE", "ghcr.io/christianlouis/dmarq:abcdef1")
+    monkeypatch.setenv("DMARQ_BUILD_DATE", "2026-07-03T12:00:00Z")
+
+    from app.core.config import get_settings  # pylint: disable=import-outside-toplevel
+
+    get_settings.cache_clear()
+    try:
+        response = authed_client.get("/api/v1/health/release")
+    finally:
+        get_settings.cache_clear()
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["service"] == "dmarq"
+    assert data["version"]
+    assert data["label"].startswith(f"v{data['version']}")
+    assert data["build"]["short_sha"] == "abcdef123456"
+    assert data["build"]["ref"] == "main"
+    assert data["build"]["image"] == "ghcr.io/christianlouis/dmarq:abcdef1"
+    assert data["changes"]
+
+
 def test_domains_empty(authed_client: TestClient):
     """Test that GET /api/v1/domains/domains returns empty list when no reports uploaded."""
     response = authed_client.get("/api/v1/domains/domains")

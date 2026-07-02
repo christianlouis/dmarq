@@ -3,12 +3,14 @@ from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from app.api.api_v1.endpoints.setup import setup_status
+from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.mail_source import MailSource
 from app.models.mail_source_import import MailSourceImport
 from app.models.report import DMARCReport
 from app.services.mailbox_recovery import import_row_diagnostic, not_configured_guidance
+from app.services.release_info import build_release_info
 from app.services.runtime_status import get_scheduler_status
 
 router = APIRouter()
@@ -22,10 +24,16 @@ async def health_check():
     """
     return {
         "status": "ok",
-        "version": "0.1.0",
+        "version": build_release_info(get_settings())["version"],
         "service": "dmarq",
         "is_setup_complete": setup_status["is_setup_complete"],
     }
+
+
+@router.get("/health/release", status_code=200)
+async def release_info():
+    """Return safe release/build metadata for support and the in-product changelog."""
+    return build_release_info(get_settings())
 
 
 def _iso(value):

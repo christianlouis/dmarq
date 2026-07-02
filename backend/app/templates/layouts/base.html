@@ -41,6 +41,12 @@
                 </span>
                 <span class="text-3xl font-bold tracking-normal">DMARQ</span>
             </a>
+            <button type="button"
+                    class="ml-4 hidden rounded-full border border-white/20 px-2.5 py-1 text-[11px] font-semibold text-white/70 transition hover:border-white/40 hover:bg-white/10 hover:text-white sm:inline-flex"
+                    title="Show release notes"
+                    onclick="document.getElementById('dmarq-release-modal')?.showModal()">
+                {{ release_info.label }}
+            </button>
         </div>
         <div class="flex items-center gap-3">
             {% if multi_workspace_ui_enabled %}
@@ -93,6 +99,14 @@
                             {% endif %}
                             <li><a href="/settings">Settings</a></li>
                             <li>
+                                <button type="button"
+                                        class="justify-between"
+                                        onclick="document.getElementById('dmarq-release-modal')?.showModal()">
+                                    Release
+                                    <span class="badge badge-ghost text-[10px]">{{ release_info.label }}</span>
+                                </button>
+                            </li>
+                            <li>
                                 <a href="/api/v1/auth/sign-out" class="text-error">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
@@ -134,6 +148,12 @@
         <a href="/settings" aria-label="Settings" title="Settings" class="mt-auto rounded-lg p-3 text-white/55 hover:bg-white/10 hover:text-white">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.4 13.5a7.8 7.8 0 0 0 0-3l2-1.5-2-3.5-2.4 1a7.6 7.6 0 0 0-2.6-1.5L14 2h-4l-.4 3a7.6 7.6 0 0 0-2.6 1.5l-2.4-1-2 3.5 2 1.5a7.8 7.8 0 0 0 0 3l-2 1.5 2 3.5 2.4-1a7.6 7.6 0 0 0 2.6 1.5l.4 3h4l.4-3a7.6 7.6 0 0 0 2.6-1.5l2.4 1 2-3.5-2-1.5ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z"/></svg>
         </a>
+        <button type="button"
+                class="max-w-20 truncate rounded-md px-2 py-1 text-[10px] font-semibold text-white/45 hover:bg-white/10 hover:text-white"
+                title="Show release notes"
+                onclick="document.getElementById('dmarq-release-modal')?.showModal()">
+            {{ release_info.label }}
+        </button>
     </aside>
 
     <main class="min-h-screen pt-24 md:ml-24">
@@ -141,6 +161,61 @@
         {% block content %}{% endblock %}
         </div>
     </main>
+
+    <dialog id="dmarq-release-modal" class="modal">
+        <div class="modal-box max-w-xl rounded-lg">
+            <form method="dialog">
+                <button class="btn btn-sm btn-circle btn-ghost absolute right-3 top-3" aria-label="Close">x</button>
+            </form>
+            <div class="space-y-5">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-[#39a0aa]">Current release</p>
+                    <h2 class="mt-1 text-2xl font-bold text-[#07071f]">{{ release_info.label }}</h2>
+                    <dl class="mt-3 grid gap-2 text-sm text-base-content/70 sm:grid-cols-2">
+                        <div>
+                            <dt class="font-semibold text-base-content">Version</dt>
+                            <dd>{{ release_info.version }}</dd>
+                        </div>
+                        <div>
+                            <dt class="font-semibold text-base-content">Build</dt>
+                            <dd>{{ release_info.build.short_sha or 'local' }}</dd>
+                        </div>
+                        {% if release_info.build.ref %}
+                        <div>
+                            <dt class="font-semibold text-base-content">Ref</dt>
+                            <dd class="truncate">{{ release_info.build.ref }}</dd>
+                        </div>
+                        {% endif %}
+                        {% if release_info.build.date %}
+                        <div>
+                            <dt class="font-semibold text-base-content">Built</dt>
+                            <dd>{{ release_info.build.date }}</dd>
+                        </div>
+                        {% endif %}
+                    </dl>
+                </div>
+                <div>
+                    <h3 class="text-sm font-bold uppercase tracking-wide text-base-content/60">What's changed</h3>
+                    <div class="mt-3 space-y-3">
+                        {% for item in release_info.changes %}
+                        <div class="rounded-md border border-base-200 bg-base-100 p-3">
+                            <p class="font-semibold text-base-content">{{ item.title }}</p>
+                            <p class="mt-1 text-sm text-base-content/70">{{ item.description }}</p>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                <div class="modal-action">
+                    <form method="dialog">
+                        <button class="btn btn-primary">Close</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+            <button>close</button>
+        </form>
+    </dialog>
 
     <!-- Scripts -->
     {% block scripts %}{% endblock %}
