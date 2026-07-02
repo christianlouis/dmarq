@@ -231,7 +231,7 @@
                             <label class="sr-only" for="dns-provider-import-select">DNS provider</label>
                             <select id="dns-provider-import-select"
                                 x-model="selectedDnsProvider"
-                                @change="cfZones = []"
+                                @change="resetDnsProviderImportState()"
                                 class="select select-sm select-bordered min-w-44"
                                 :disabled="loadingDnsProviders || loadingCfZones || importingCfZones">
                                 <template x-for="provider in dnsImportProviders()" :key="provider.id">
@@ -249,7 +249,7 @@
                                 <template x-if="loadingCfZones"><span class="loading loading-spinner loading-xs mr-2"></span></template>
                                 Discover
                             </button>
-                            <button type="button" class="btn btn-default btn-sm" :disabled="saving || importingCfZones || cfZones.length === 0" @click="importDNSProviderZones()">
+                            <button type="button" class="btn btn-default btn-sm" :disabled="saving || importingCfZones || importableDnsProviderZoneCount() === 0" @click="importDNSProviderZones()">
                                 <template x-if="!importingCfZones">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
                                         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
@@ -280,6 +280,20 @@
                             Provider setup docs
                         </a>
                     </div>
+                    <template x-if="dnsProviderImportError">
+                        <div class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                            <p class="font-semibold" x-text="`${selectedDnsProviderName()} discovery needs attention`"></p>
+                            <p class="mt-1" x-text="dnsProviderImportError"></p>
+                            <p class="mt-1 text-xs" x-show="selectedDnsProviderSetupHint()" x-text="selectedDnsProviderSetupHint()"></p>
+                        </div>
+                    </template>
+                    <template x-if="dnsProviderImportSummary && !dnsProviderImportError && importableDnsProviderZoneCount() === 0">
+                        <div class="rounded-md border border-border bg-base-100 px-3 py-3 text-sm text-base-content/70">
+                            <p class="font-semibold text-base-content" x-text="`${selectedDnsProviderName()} returned no importable zones`"></p>
+                            <p class="mt-1" x-text="dnsProviderImportSummary"></p>
+                            <p class="mt-1 text-xs" x-show="selectedDnsProviderSetupHint()" x-text="selectedDnsProviderSetupHint()"></p>
+                        </div>
+                    </template>
                     <template x-if="cfZones.length > 0">
                         <div class="overflow-x-auto rounded-md border border-border">
                             <table class="table table-sm">
@@ -1090,6 +1104,8 @@ function settingsApp() {
         selectedDnsProvider: 'cloudflare',
         loadingCfZones: false,
         importingCfZones: false,
+        dnsProviderImportSummary: '',
+        dnsProviderImportError: '',
         connectingCloudflare: false,
         cfOAuthStatus: {
             oauth_configured: false,
@@ -1430,6 +1446,27 @@ function settingsApp() {
             return this.selectedDnsProviderMetadata().docs_url || '';
         },
 
+        resetDnsProviderImportState() {
+            this.cfZones = [];
+            this.dnsProviderImportSummary = '';
+            this.dnsProviderImportError = '';
+        },
+
+        importableDnsProviderZoneCount() {
+            return this.cfZones.filter(zone => !zone.imported).length;
+        },
+
+        providerErrorDetail(data, fallback) {
+            const detail = data?.detail;
+            if (typeof detail === 'string') return detail;
+            if (detail?.message) return detail.message;
+            if (detail?.error) return detail.error;
+            if (Array.isArray(detail)) {
+                return detail.map(item => item?.msg || item?.message || String(item)).join('; ');
+            }
+            return fallback || 'Provider request failed.';
+        },
+
         async loadDNSProviders(showMessage = false) {
             this.loadingDnsProviders = true;
             try {
@@ -1447,6 +1484,7 @@ function settingsApp() {
                 const importProviders = this.dnsImportProviders();
                 if (!importProviders.some(provider => provider.id === this.selectedDnsProvider)) {
                     this.selectedDnsProvider = importProviders[0]?.id || 'cloudflare';
+                    this.resetDnsProviderImportState();
                 }
             } catch (err) {
                 if (showMessage) {
@@ -1461,6 +1499,9 @@ function settingsApp() {
             const providerId = provider || this.selectedDnsProvider || 'cloudflare';
             this.selectedDnsProvider = providerId;
             this.loadingCfZones = true;
+            this.cfZones = [];
+            this.dnsProviderImportSummary = '';
+            this.dnsProviderImportError = '';
             try {
                 if (providerId === 'cloudflare') {
                     await this.saveCategory('cloudflare');
@@ -1470,7 +1511,8 @@ function settingsApp() {
                 });
                 const data = await res.json().catch(() => ({}));
                 if (!res.ok) {
-                    this.showFlash(`${this.selectedDnsProviderName()} discovery failed: ` + (data.detail || res.statusText), false);
+                    this.dnsProviderImportError = this.providerErrorDetail(data, res.statusText);
+                    this.showFlash(`${this.selectedDnsProviderName()} discovery failed: ` + this.dnsProviderImportError, false);
                 } else {
                     this.cfZones = (data.zones || []).map(zone => ({
                         id: `${zone.provider || providerId}:${zone.zone_id || zone.id || zone.domain}`,
@@ -1481,10 +1523,15 @@ function settingsApp() {
                         account_name: zone.account_name,
                         imported: zone.imported,
                     }));
+                    const importableCount = data.importable_count ?? this.cfZones.filter(zone => !zone.imported).length;
+                    this.dnsProviderImportSummary = this.cfZones.length
+                        ? `${importableCount} of ${this.cfZones.length} discovered zones can be imported.`
+                        : 'Check that the connected provider account has zone-list permissions and that the account actually manages DNS zones for this workspace.';
                     this.showFlash(`${this.cfZones.length} ${this.selectedDnsProviderName()} zone${this.cfZones.length === 1 ? '' : 's'} found.`, true);
                 }
             } catch (err) {
-                this.showFlash(`Error discovering ${this.selectedDnsProviderName()} zones: ` + err.message, false);
+                this.dnsProviderImportError = err.message || 'Provider request failed.';
+                this.showFlash(`Error discovering ${this.selectedDnsProviderName()} zones: ` + this.dnsProviderImportError, false);
             } finally {
                 this.loadingCfZones = false;
             }
@@ -1538,6 +1585,7 @@ function settingsApp() {
             const providerId = provider || this.selectedDnsProvider || 'cloudflare';
             this.selectedDnsProvider = providerId;
             this.importingCfZones = true;
+            this.dnsProviderImportError = '';
             try {
                 const domains = this.cfZones.filter(z => !z.imported).map(z => z.name);
                 const res = await fetch(`/api/v1/domains/dns/import/${encodeURIComponent(providerId)}`, {
@@ -1547,7 +1595,8 @@ function settingsApp() {
                 });
                 const data = await res.json().catch(() => ({}));
                 if (!res.ok) {
-                    this.showFlash(`${this.selectedDnsProviderName()} import failed: ` + (data.detail || res.statusText), false);
+                    this.dnsProviderImportError = this.providerErrorDetail(data, res.statusText);
+                    this.showFlash(`${this.selectedDnsProviderName()} import failed: ` + this.dnsProviderImportError, false);
                 } else {
                     await this.discoverDNSProviderZones(providerId);
                     this.showFlash(`${data.imported.length} domain${data.imported.length === 1 ? '' : 's'} imported.`, true);
