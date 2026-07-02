@@ -4014,6 +4014,7 @@ class TestTriggerPollEndpoint:
             mock_result = {
                 "source_id": 1,
                 "name": "Trigger GMAIL",
+                "method": "GMAIL_API",
                 "success": True,
                 "processed": 0,
                 "reports_found": 0,
@@ -4032,6 +4033,9 @@ class TestTriggerPollEndpoint:
             assert resp.status_code == 200
             data = resp.json()
             assert data["days"] == 30
+            assert data["message"] == "Mail-source polling completed."
+            assert data["sources_polled"] == 1
+            assert data["source_methods"] == ["GMAIL_API"]
             assert "sources" in data
             assert len(data["sources"]) == 1
             assert data["sources"][0]["success"] is True
@@ -4039,6 +4043,40 @@ class TestTriggerPollEndpoint:
             assert mock_poll.call_args.kwargs["days"] == 30
         finally:
             main_app.dependency_overrides.clear()
+
+    def test_poll_status_reports_enabled_gmail_sources(self):
+        """The dashboard status endpoint reports Gmail API sources, not just IMAP."""
+        from app.core.security import require_admin_auth
+        from app.main import app as main_app
+
+        async def mock_auth():
+            return {"auth_type": "session"}
+
+        main_app.dependency_overrides[require_admin_auth] = mock_auth
+
+        mock_source = MagicMock()
+        mock_source.method = "GMAIL_API"
+        mock_source.name = "Reports Gmail"
+        mock_source.gmail_email = "dmarc-reports@example.com"
+        mock_source.last_checked = datetime(2026, 7, 2, 12, 0, 0)
+
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.all.return_value = [mock_source]
+
+        try:
+            with TestClient(main_app) as tc:
+                with patch("app.main.SessionLocal", return_value=mock_db):
+                    resp = tc.get("/api/v1/poll-status")
+        finally:
+            main_app.dependency_overrides.clear()
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["enabled_sources"] == 1
+        assert data["sources_by_method"] == {"GMAIL_API": 1}
+        assert data["source_labels"] == ["Gmail API: dmarc-reports@example.com"]
+        assert data["latest_source_check"] == "2026-07-02T12:00:00"
+        assert data["authenticated_by"] == "session"
 
     def test_trigger_poll_with_no_enabled_sources(self):
         """With no enabled sources, the endpoint returns an empty-success response."""

@@ -72,16 +72,25 @@ function dashboardApp() {
             // Fetch domain summary on page load
             this.fetchDomainSummary();
             
-            // Check IMAP status
-            this.getImapStatus();
+            // Check report intake status
+            this.getReportIntakeStatus();
             this.fetchForensicSummary();
         },
         
-        async getImapStatus() {
+        formatSourceMethods(methods) {
+            const labels = {
+                IMAP: 'IMAP',
+                GMAIL_API: 'Gmail API',
+                M365_GRAPH: 'Microsoft 365'
+            };
+            return (methods || []).map(method => labels[method] || method).join(', ');
+        },
+
+        async getReportIntakeStatus() {
             try {
                 const response = await fetch('/api/v1/poll-status');
                 if (!response.ok) {
-                    console.error('Error checking IMAP status:', response.status);
+                    console.error('Error checking report intake status:', response.status);
                     return;
                 }
                 const data = await response.json();
@@ -90,23 +99,33 @@ function dashboardApp() {
                 const statusText = document.getElementById('imap-status-text');
                 const lastCheck = document.getElementById('imap-last-check');
                 
-                if (data.is_running) {
+                if (data.is_running && (data.enabled_sources || 0) > 0) {
                     statusIcon.classList.remove('bg-red-500');
                     statusIcon.classList.add('bg-green-500');
                     statusText.textContent = 'Running';
                 } else {
                     statusIcon.classList.remove('bg-green-500');
                     statusIcon.classList.add('bg-red-500');
-                    statusText.textContent = 'Stopped';
+                    statusText.textContent = (data.enabled_sources || 0) > 0 ? 'Stopped' : 'No enabled sources';
                 }
                 
-                if (data.last_check) {
-                    lastCheck.textContent = new Date(data.last_check).toLocaleString();
+                const lastCheckValue = data.latest_source_check || data.last_check;
+                if (lastCheckValue) {
+                    lastCheck.textContent = new Date(lastCheckValue).toLocaleString();
                 } else {
                     lastCheck.textContent = 'Never';
                 }
+
+                const mailbox = document.getElementById('imap-mailbox');
+                if (mailbox) {
+                    if (data.source_labels && data.source_labels.length) {
+                        mailbox.textContent = data.source_labels.join(', ');
+                    } else {
+                        mailbox.textContent = 'No enabled mail sources configured';
+                    }
+                }
             } catch (error) {
-                console.error('Error checking IMAP status:', error);
+                console.error('Error checking report intake status:', error);
             }
         },
 
@@ -128,11 +147,13 @@ function dashboardApp() {
                     throw new Error(message);
                 }
                 const count = data.sources_polled || 0;
+                const sourceMethods = this.formatSourceMethods(data.source_methods || []);
+                const methodSuffix = sourceMethods ? ` (${sourceMethods})` : '';
                 this.triggerPollStatus = 'success';
                 this.triggerPollMessage = count
-                    ? `Polling finished for ${count} source${count === 1 ? '' : 's'}.`
+                    ? `Polling finished for ${count} source${count === 1 ? '' : 's'}${methodSuffix}.`
                     : (data.message || 'No enabled mail sources configured.');
-                await this.getImapStatus();
+                await this.getReportIntakeStatus();
                 await this.fetchDomainSummary();
             } catch (error) {
                 this.triggerPollStatus = 'error';

@@ -548,6 +548,8 @@ def test_dashboard_trigger_poll_uses_post_action_not_get_link():
     assert 'href="/api/v1/admin/trigger-poll"' not in template
     assert "triggerPollNow()" in template
     assert "method: 'POST'" in script
+    assert "Report Intake Status" in template
+    assert "Gmail API" in script
     assert "triggerPollMessage" in script
     assert 'role="status"' in template
     assert 'aria-live="polite"' in template
