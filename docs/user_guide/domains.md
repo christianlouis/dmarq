@@ -110,14 +110,20 @@ webhook delivery state.
 
 ### Source Intelligence
 
-The domain detail page groups sending sources into coarse regions and networks
-when that information is available from report metadata or demo intelligence.
+The domain detail page groups sending sources into regions, reverse DNS
+hostnames, ASNs, BGP prefixes, registries, and likely network operators when
+that evidence is available from reports or cached sender-network enrichment.
 It also flags unusual source behavior, including new senders, new regions,
 source volume spikes, and increased SPF/DKIM alignment failures.
 
 Use these findings before editing DNS. A new source is not automatically a
 trusted sender; confirm the service owner first, then update SPF or DKIM only
 when the source is legitimate.
+
+Reputation evidence is shown separately from network ownership. ASN and BGP
+prefix data explains who appears to operate the sending infrastructure; optional
+reputation feeds can add DNSBL or blacklist evidence when an administrator has
+enabled those providers.
 
 ### DNS Guidance
 

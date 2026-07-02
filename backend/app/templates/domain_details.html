@@ -1557,7 +1557,23 @@
                                             <template x-if="source.geo?.network">
                                                 <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-medium text-base-content/80" x-text="source.geo.network"></span>
                                             </template>
+                                            <template x-if="source.geo?.bgp_prefix">
+                                                <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-mono font-medium text-base-content/80" x-text="source.geo.bgp_prefix"></span>
+                                            </template>
+                                            <template x-if="source.geo?.registry">
+                                                <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-medium uppercase text-base-content/70" x-text="source.geo.registry"></span>
+                                            </template>
                                         </div>
+                                        <template x-if="source.geo?.allocated || source.geo?.network_source">
+                                            <p class="text-muted-foreground">
+                                                <span x-show="source.geo?.allocated">Allocated <span x-text="source.geo.allocated"></span></span>
+                                                <span x-show="source.geo?.allocated && source.geo?.network_source"> · </span>
+                                                <span x-show="source.geo?.network_source">Network data: <span x-text="source.geo.network_source"></span></span>
+                                            </p>
+                                        </template>
+                                        <template x-if="source.geo?.network_error && !source.geo?.asn && !source.geo?.network">
+                                            <p class="text-muted-foreground" x-text="source.geo.network_error"></p>
+                                        </template>
                                         <div class="flex flex-wrap items-center gap-1.5">
                                             <span
                                                 class="inline-flex items-center rounded-full px-2 py-0.5 font-semibold"
@@ -2091,6 +2107,10 @@ function domainDetailsApp(domainId) {
                     source.geo?.region,
                     source.geo?.asn,
                     source.geo?.network,
+                    source.geo?.bgp_prefix,
+                    source.geo?.registry,
+                    source.geo?.allocated,
+                    source.geo?.network_source,
                     source.reputation?.status,
                     source.reputation?.summary,
                     ...(source.reputation?.listings || []),
@@ -2383,7 +2403,9 @@ function domainDetailsApp(domainId) {
             const region = isKnown(geo.region) ? geo.region : null;
             const country = isKnown(geo.country) ? geo.country : null;
             const network = isKnown(geo.network) ? geo.network : null;
-            const parts = [region, network || country].filter(Boolean);
+            const asn = isKnown(geo.asn) ? geo.asn : null;
+            const prefix = isKnown(geo.bgp_prefix) ? geo.bgp_prefix : null;
+            const parts = [region, country, [asn, network, prefix].filter(Boolean).join(' · ')].filter(Boolean);
             return parts.length ? parts.join(' · ') : 'Geo unavailable';
         },
 

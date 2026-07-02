@@ -87,6 +87,9 @@ class Settings(BaseSettings):
     SOURCE_REPUTATION_FEED_TIMEOUT_SECONDS: float = 2.0
     SOURCE_REPUTATION_FEED_CACHE_SECONDS: int = 86_400
     SOURCE_REPUTATION_FEED_MAX_IPS: int = 100
+    SOURCE_NETWORK_ENRICHMENT_ENABLED: bool = True
+    SOURCE_NETWORK_ENRICHMENT_CACHE_SECONDS: int = 86_400
+    SOURCE_NETWORK_ENRICHMENT_MAX_IPS: int = 100
 
     # Optional Stripe Billing integration. Self-hosted and provider-billed
     # deployments work without these values.
