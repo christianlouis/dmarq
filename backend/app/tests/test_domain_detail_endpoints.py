@@ -26,6 +26,11 @@ from app.models.workspace_access import WorkspaceAuditLog
 from app.services import report_persistence
 from app.services.health_score_snapshots import upsert_health_score_snapshot
 from app.services.report_store import ReportStore
+from app.services.source_reputation import (
+    DomainReputation,
+    ReputationEvidence,
+    SourceReputation,
+)
 from app.services.webhook_events import (
     EVENT_REMEDIATION_APPROVAL_REQUIRED,
     create_webhook_endpoint,
@@ -2370,6 +2375,93 @@ def test_get_domain_sources_includes_geo_and_anomaly_hints(seeded_client: TestCl
     assert any(anomaly["type"] == "new_sender" for anomaly in source["anomalies"])
     recommendation_types = {item["type"] for item in source["recommendations"]}
     assert "anomaly_new_sender" in recommendation_types
+
+
+def test_get_domain_sources_includes_ip_intelligence_and_reputation(
+    seeded_client: TestClient, db_session, monkeypatch: pytest.MonkeyPatch
+):
+    """Source rows include PTR, geo/ASN, and reputation details for UI guidance."""
+
+    source_ip = "193.138.195.141"
+
+    async def fake_ptr_lookup(_provider, ip, timeout=3.0):  # pylint: disable=unused-argument
+        return "smtp.customer.example" if ip == source_ip else None
+
+    async def fake_reputation(*_args, **_kwargs):
+        return (
+            DomainReputation(
+                domain=DOMAIN,
+                status="attention",
+                checked_at="2026-07-02T08:00:00Z",
+                summary={"listed": 1, "suspicious": 0, "clean": 0, "unknown": 0},
+                sources=[
+                    SourceReputation(
+                        ip=source_ip,
+                        status="listed",
+                        risk_score=85,
+                        summary="Observed source is listed by a reputation feed.",
+                        listings=["Spamhaus Zen"],
+                        evidence=[
+                            ReputationEvidence(
+                                label="External feed",
+                                value="Spamhaus Zen",
+                                source="dnsbl",
+                            )
+                        ],
+                        recommendations=[
+                            "Review the listed IP with the named reputation provider.",
+                        ],
+                        checked_at="2026-07-02T08:00:00Z",
+                    )
+                ],
+            ),
+            False,
+            None,
+        )
+
+    monkeypatch.setattr(domains_endpoint, "_safe_ptr_lookup", fake_ptr_lookup)
+    monkeypatch.setattr(domains_endpoint, "build_source_reputation_cached", fake_reputation)
+    workspace = get_or_create_default_workspace(db_session)
+    report = {
+        **REPORT_DICT_POLICY,
+        "report_id": "rpt-source-intelligence",
+        "records": [
+            {
+                "source_ip": source_ip,
+                "count": 20,
+                "disposition": "reject",
+                "dkim_result": "fail",
+                "spf_result": "fail",
+                "header_from": DOMAIN,
+                "extensions": {
+                    "geo:country": "Germany",
+                    "geo:country_code": "DE",
+                    "geo:region": "Europe",
+                    "geo:asn": "AS24940",
+                    "geo:network": "Hetzner Online GmbH",
+                },
+            }
+        ],
+        "summary": {"total_count": 20, "passed_count": 0, "failed_count": 20},
+    }
+    report_persistence.save_parsed_report(db_session, report, workspace_id=workspace.id)
+    db_session.commit()
+
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources?days=30")
+
+    assert response.status_code == 200
+    source = next(item for item in response.json()["sources"] if item["ip"] == source_ip)
+    assert source["hostname"] == "smtp.customer.example"
+    assert source["geo"]["country"] == "Germany"
+    assert source["geo"]["country_code"] == "DE"
+    assert source["geo"]["region"] == "Europe"
+    assert source["geo"]["asn"] == "AS24940"
+    assert source["geo"]["network"] == "Hetzner Online GmbH"
+    assert source["reputation"]["status"] == "listed"
+    assert source["reputation"]["risk_score"] == 85
+    assert source["reputation"]["listings"] == ["Spamhaus Zen"]
+    recommendation_types = {item["type"] for item in source["recommendations"]}
+    assert "source_reputation" in recommendation_types
 
 
 def test_source_recommendations_cover_common_cases():
