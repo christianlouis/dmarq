@@ -23,10 +23,12 @@ from app.models.domain import Domain
 from app.models.report import DMARCReport
 from app.models.setting import Setting
 from app.models.workspace import Workspace
+from app.services.akamai_edgedns import get_akamai_edgedns_credentials
 from app.services.bimi import BIMIResult, check_bimi_cached
 from app.services.cloudflare_dns import (
     analyze_dns_records,
     discover_cloudflare_zones,
+    get_cloudflare_credentials,
     get_zone_for_domain,
     import_cloudflare_domains,
     list_dns_record_changes,
@@ -45,7 +47,10 @@ from app.services.dane import check_dane_cached
 from app.services.demo_data import DEMO_DAYS, build_demo_health_score_history
 from app.services.dns_cache import resolve_domain_dns_cached
 from app.services.dns_guidance import build_dns_guidance
-from app.services.dns_provider_connectors import provider_connector_registry
+from app.services.dns_provider_connectors import (
+    provider_connector_metadata,
+    provider_connector_registry,
+)
 from app.services.dns_provider_imports import (
     import_dns_provider_domains,
     preview_dns_provider_import,
@@ -75,6 +80,8 @@ from app.services.health_score_snapshots import (
     list_workspace_health_score_snapshots,
     upsert_health_score_snapshot,
 )
+from app.services.hetzner_dns import get_hetzner_dns_credentials
+from app.services.linode_dns import get_linode_dns_credentials
 from app.services.mail_service_imports import (
     MailServiceImportError,
     import_mail_service_domains,
@@ -95,6 +102,7 @@ from app.services.report_persistence import (
     hydrate_report_store_from_db,
 )
 from app.services.report_store import ReportStore
+from app.services.route53_dns import get_route53_dns_credentials
 from app.services.sender_intelligence import (
     build_source_intelligence,
     identify_sender,
@@ -409,6 +417,7 @@ class DNSRecordResponse(BaseModel):
     dmarcSuggestions: List[str] = []
     nameservers: List[str] = []
     dnsProvider: Optional[Dict[str, Any]] = None
+    providerContext: Optional[Dict[str, Any]] = None
 
 
 class DNSGuidanceRecordResponse(BaseModel):
@@ -550,6 +559,120 @@ def _detected_dns_provider_id(dns_provider: Optional[Dict[str, Any]]) -> Optiona
     if provider_id in {"", "custom", "unknown"}:
         return None
     return provider_id
+
+
+def _provider_credentials_configured(db: Session, provider_id: Optional[str]) -> bool:
+    """Return whether DMARQ has non-secret connection material for a DNS provider."""
+    normalized = _canonical_dns_provider_id(provider_id)
+    try:
+        if normalized == "cloudflare":
+            return get_cloudflare_credentials(db).configured
+        if normalized == "route53":
+            return get_route53_dns_credentials().configured
+        if normalized == "akamai-edgedns":
+            return get_akamai_edgedns_credentials().configured
+        if normalized == "hetzner":
+            return get_hetzner_dns_credentials().configured
+        if normalized == "linode":
+            return get_linode_dns_credentials().configured
+    except Exception as exc:  # pragma: no cover - defensive, no secret values are exposed.
+        logger.info("DNS provider credential readiness check failed for %s: %s", normalized, exc)
+    return False
+
+
+def _dns_provider_repair_context(
+    db: Session,
+    *,
+    dns_provider: Optional[Dict[str, Any]],
+    nameservers: List[str],
+) -> Dict[str, Any]:
+    """Build read-only provider connection and DNS repair readiness guidance."""
+    provider_id = _detected_dns_provider_id(dns_provider)
+    provider_name = (
+        dns_provider.get("provider_name") if dns_provider else "Unknown DNS provider"
+    ) or "Unknown DNS provider"
+    connector = provider_connector_metadata(provider_id or "") if provider_id else None
+    import_provider_ids = {provider["id"] for provider in supported_import_providers()}
+    write_provider_ids = set(_ready_dns_write_provider_ids())
+    connected = _provider_credentials_configured(db, provider_id)
+    confidence = (dns_provider or {}).get("confidence") or "unknown"
+    can_import = bool(provider_id and provider_id in import_provider_ids and connector)
+    write_connector_ready = bool(provider_id and provider_id in write_provider_ids and connector)
+    can_repair = bool(connected and write_connector_ready)
+
+    if not dns_provider or not nameservers:
+        status = "manual"
+        summary = "DMARQ has not seen authoritative nameserver evidence for this domain yet."
+        cta_label = "Refresh DNS"
+        cta_href = "#dns-records"
+        next_steps = [
+            "Refresh DNS after delegation is visible.",
+            "Use the manual DNS instructions until a provider can be detected.",
+        ]
+    elif not connector:
+        status = "manual"
+        summary = f"{provider_name} was detected, but DMARQ does not have a connector for it yet."
+        cta_label = "Use manual change plan"
+        cta_href = "#dns-guidance"
+        next_steps = [
+            "Review the DNS lint findings and manual change plan.",
+            "Apply changes in the provider console with a human approval step.",
+        ]
+    elif connected and can_repair:
+        status = "connected"
+        summary = (
+            f"{provider_name} is connected. DMARQ can import zones, verify ownership, "
+            "preview safe DNS repairs, and apply approved changes."
+        )
+        cta_label = "Open DNS change plan"
+        cta_href = "#dns-guidance"
+        next_steps = [
+            "Review the DNS lint findings and generated change plans.",
+            "Preview the provider mutation before applying any DNS change.",
+            "Approve only changes whose zone, record name, old value, and new value match intent.",
+        ]
+    elif connected:
+        status = "read_only"
+        summary = (
+            f"{provider_name} is connected for read/import context, but automatic repair is "
+            "not enabled for this provider yet."
+        )
+        cta_label = "Import provider zones"
+        cta_href = "/settings#provider-integrations"
+        next_steps = [
+            "Import visible provider zones to monitor DNS posture before reports arrive.",
+            "Use manual DNS changes until write support is available for this connector.",
+        ]
+    else:
+        status = "connect"
+        summary = (
+            f"{provider_name} appears authoritative for this domain. Connect it to verify "
+            "ownership, import zones, and unlock provider-aware repair previews."
+        )
+        cta_label = f"Connect {provider_name}"
+        cta_href = "/settings#provider-integrations"
+        next_steps = [
+            "Connect the provider with read-only zone and DNS permissions first.",
+            "Import the zone so DMARQ can confirm account-level ownership.",
+            "Add write scope only when you want human-approved one-click DNS repair.",
+        ]
+
+    return {
+        "status": status,
+        "detected_provider_id": provider_id,
+        "detected_provider_name": provider_name,
+        "confidence": confidence,
+        "connected": connected,
+        "can_import_zones": can_import,
+        "can_preview_repairs": write_connector_ready,
+        "can_apply_repairs": can_repair,
+        "connector": connector,
+        "summary": summary,
+        "cta_label": cta_label,
+        "cta_href": cta_href,
+        "next_steps": next_steps,
+        "nameservers": nameservers,
+    }
 
 
 def _ensure_dns_provider_selection_is_safe(
@@ -3860,6 +3983,11 @@ async def get_domain_dns_records(
         dmarcSuggestions=result.dmarc_suggestions,
         nameservers=result.nameservers,
         dnsProvider=asdict(result.dns_provider) if result.dns_provider else None,
+        providerContext=_dns_provider_repair_context(
+            db,
+            dns_provider=asdict(result.dns_provider) if result.dns_provider else None,
+            nameservers=result.nameservers,
+        ),
     )
 
 

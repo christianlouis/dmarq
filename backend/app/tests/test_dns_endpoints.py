@@ -329,7 +329,10 @@ def test_dns_endpoint_returns_real_data(authed_client: TestClient):
     assert data["checkedAt"] is not None
 
 
-def test_dns_endpoint_returns_dmarc_lint_findings(authed_client: TestClient):
+def test_dns_endpoint_returns_dmarc_lint_findings(
+    authed_client: TestClient,
+    monkeypatch,
+):
     result = DomainDNSResult(
         dmarc=True,
         dmarc_record="v=DMARC1; p=none; rua=mailto:dmarc@reports.example.net",
@@ -342,6 +345,12 @@ def test_dns_endpoint_returns_dmarc_lint_findings(authed_client: TestClient):
         dns_provider=detect_dns_provider(["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"]),
     )
 
+    monkeypatch.setattr(
+        domains_endpoint,
+        "get_cloudflare_credentials",
+        lambda db: SimpleNamespace(configured=False),
+    )
+
     with _mock_dns(result):
         response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns")
 
@@ -352,6 +361,44 @@ def test_dns_endpoint_returns_dmarc_lint_findings(authed_client: TestClient):
     assert data["nameservers"] == ["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"]
     assert data["dnsProvider"]["provider_id"] == "cloudflare"
     assert data["dnsProvider"]["connector_available"] is True
+    assert data["providerContext"]["status"] == "connect"
+    assert data["providerContext"]["detected_provider_id"] == "cloudflare"
+    assert data["providerContext"]["connected"] is False
+    assert data["providerContext"]["can_import_zones"] is True
+    assert data["providerContext"]["can_preview_repairs"] is True
+    assert data["providerContext"]["can_apply_repairs"] is False
+    assert data["providerContext"]["cta_href"] == "/settings#provider-integrations"
+
+
+def test_dns_endpoint_marks_connected_provider_repair_ready(
+    authed_client: TestClient,
+    monkeypatch,
+):
+    result = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=reject; rua=mailto:dmarc@example.com",
+        spf=True,
+        spf_record="v=spf1 include:_spf.example.com -all",
+        dkim=True,
+        dkim_selectors=["google"],
+        nameservers=["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"],
+        dns_provider=detect_dns_provider(["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"]),
+    )
+    monkeypatch.setattr(
+        domains_endpoint,
+        "get_cloudflare_credentials",
+        lambda db: SimpleNamespace(configured=True),
+    )
+
+    with _mock_dns(result):
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns")
+
+    assert response.status_code == 200
+    context = response.json()["providerContext"]
+    assert context["status"] == "connected"
+    assert context["connected"] is True
+    assert context["can_apply_repairs"] is True
+    assert context["cta_href"] == "#dns-guidance"
 
 
 def test_dns_lint_endpoint_returns_typed_findings_and_targets(authed_client: TestClient):
