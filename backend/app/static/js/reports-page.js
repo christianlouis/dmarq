@@ -85,7 +85,7 @@ function reportsApp() {
                 }
             } catch (error) {
                 console.error('Error deleting report:', error);
-                alert('Network error - could not delete report.');
+                alert('Network error — could not delete report.');
             }
         },
     };
