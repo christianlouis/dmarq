@@ -435,6 +435,62 @@ class TestExternalAuthProviders:
             == "workspace_owner"
         )
 
+    def test_sync_external_user_links_existing_email_and_updates_memberships(self, db_session):
+        organization = Organization(slug="customer-one", name="Customer One")
+        workspace = Workspace(slug="primary", name="Primary", organization=organization)
+        user = User(
+            email="owner@example.com",
+            is_active=True,
+            is_superuser=True,
+        )
+        db_session.add_all([organization, workspace, user])
+        db_session.flush()
+        db_session.add_all(
+            [
+                WorkspaceMembership(
+                    workspace_id=workspace.id,
+                    user_id=user.id,
+                    role="analyst",
+                    active=False,
+                ),
+                OrganizationMembership(
+                    organization_id=organization.id,
+                    user_id=user.id,
+                    role="auditor",
+                    active=False,
+                ),
+            ]
+        )
+        db_session.commit()
+
+        synced = sync_external_user(
+            ExternalIdentityClaims(
+                provider="authentik",
+                subject="authentik-user-1",
+                email="owner@example.com",
+                workspace_roles=(("primary", "workspace_owner"),),
+                organization_roles=(("customer-one", "organization_owner"),),
+            ),
+            db_session,
+        )
+
+        workspace_membership = (
+            db_session.query(WorkspaceMembership)
+            .filter_by(workspace_id=workspace.id, user_id=user.id)
+            .one()
+        )
+        organization_membership = (
+            db_session.query(OrganizationMembership)
+            .filter_by(organization_id=organization.id, user_id=user.id)
+            .one()
+        )
+        assert synced.id == user.id
+        assert synced.logto_id == "authentik:authentik-user-1"
+        assert workspace_membership.role == "workspace_owner"
+        assert workspace_membership.active is True
+        assert organization_membership.role == "organization_owner"
+        assert organization_membership.active is True
+
     def test_sync_external_user_ignores_unknown_claim_targets(self, db_session):
         user = sync_external_user(
             ExternalIdentityClaims(
