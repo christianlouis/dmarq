@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import logging
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -15,6 +16,9 @@ from app.models.dns_cache import DNSCache
 
 _CACHE_PROVIDER = "source-network-intelligence-v1"
 _SELECTORS_KEY = "team-cymru-dns-v2"
+_ASN_NAME_CACHE: Dict[str, str] = {}
+
+logger = logging.getLogger(__name__)
 
 COUNTRY_NAMES = {
     "AT": "Austria",
@@ -121,15 +125,42 @@ def _asn_name_query(asn: str) -> str:
     return f"{normalized}.asn.cymru.com"
 
 
-def _as_name_from_cymru_txt(txt_records: Iterable[str]) -> Optional[str]:
+def _iter_cymru_txt_parts(txt_records: Iterable[str]) -> Iterable[List[str]]:
     for record in txt_records:
         cleaned = str(record).strip().strip('"')
         if "|" not in cleaned or cleaned.lower().startswith("as |"):
             continue
-        parts = [part.strip().strip('"') for part in cleaned.split("|")]
+        yield [part.strip().strip('"') for part in cleaned.split("|")]
+
+
+def _as_name_from_cymru_txt(txt_records: Iterable[str]) -> Optional[str]:
+    for parts in _iter_cymru_txt_parts(txt_records):
         if len(parts) >= 5 and parts[4]:
             return parts[4]
     return None
+
+
+async def _lookup_as_name(provider: Any, asn: str) -> Optional[str]:
+    normalized = _normalize_asn(asn)
+    if not normalized:
+        return None
+    if normalized in _ASN_NAME_CACHE:
+        return _ASN_NAME_CACHE[normalized]
+    query = _asn_name_query(normalized)
+    if not query:
+        return None
+    try:
+        as_name = _as_name_from_cymru_txt(await provider.lookup_txt(query))
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.debug(
+            "ASN name lookup failed for %s: %s",
+            normalized,
+            type(exc).__name__,
+        )
+        return None
+    if as_name:
+        _ASN_NAME_CACHE[normalized] = as_name
+    return as_name
 
 
 def _normalize_global_source_ip(value: Any) -> Optional[str]:
@@ -152,11 +183,7 @@ def _from_json(value: str) -> SourceNetworkIntelligence:
 
 def _from_cymru_txt(ip: str, txt_records: Iterable[str]) -> SourceNetworkIntelligence:
     checked_at = _utcnow_iso()
-    for record in txt_records:
-        cleaned = str(record).strip().strip('"')
-        if "|" not in cleaned or cleaned.lower().startswith("as |"):
-            continue
-        parts = [part.strip().strip('"') for part in cleaned.split("|")]
+    for parts in _iter_cymru_txt_parts(txt_records):
         if len(parts) < 5:
             continue
         country_code = parts[2].upper() if parts[2] else None
@@ -215,12 +242,7 @@ async def lookup_source_network(
         )
     result = _from_cymru_txt(ip, records)
     if result.asn and not result.as_name:
-        query = _asn_name_query(result.asn)
-        if query:
-            try:
-                result.as_name = _as_name_from_cymru_txt(await provider.lookup_txt(query))
-            except Exception:  # pylint: disable=broad-exception-caught
-                pass
+        result.as_name = await _lookup_as_name(provider, result.asn)
     return result
 
 

@@ -13,13 +13,16 @@ pytestmark = pytest.mark.anyio
 
 class FakeProvider:
     def __init__(self, records=None):
-        self.records = records or []
+        self.records = [] if records is None else records
         self.queries = []
 
     async def lookup_txt(self, name):
         self.queries.append(name)
         if isinstance(self.records, dict):
-            return self.records.get(name, [])
+            response = self.records.get(name, [])
+            if isinstance(response, Exception):
+                raise response
+            return response
         return self.records
 
 
@@ -98,6 +101,28 @@ async def test_lookup_source_network_uses_origin6_for_ipv6_sources():
     assert result.bgp_prefix == "2a01:4f8::/32"
     assert result.country == "Germany"
     assert result.region == "Europe"
+    assert result.error is None
+
+
+async def test_lookup_source_network_tolerates_asn_name_lookup_failure():
+    provider = FakeProvider(
+        {
+            "203.205.31.50.origin.asn.cymru.com": [
+                '"64501 | 50.31.205.0/24 | US | arin | 2011-02-03"',
+            ],
+            "AS64501.asn.cymru.com": RuntimeError("temporary DNS failure"),
+        }
+    )
+
+    result = await lookup_source_network(provider, "50.31.205.203")
+
+    assert provider.queries == [
+        "203.205.31.50.origin.asn.cymru.com",
+        "AS64501.asn.cymru.com",
+    ]
+    assert result.asn == "AS64501"
+    assert result.as_name is None
+    assert result.bgp_prefix == "50.31.205.0/24"
     assert result.error is None
 
 
