@@ -128,8 +128,9 @@ when the source is legitimate.
 
 Reputation evidence is shown separately from network ownership. ASN and BGP
 prefix data explains who appears to operate the sending infrastructure; optional
-reputation feeds can add DNSBL or blacklist evidence when an administrator has
-enabled those providers.
+reputation feeds can add DNSBL, blocklist, or abuse-confidence evidence when an
+administrator has enabled those providers. A clean Geo/ASN lookup is not the
+same thing as a clean reputation result.
 
 Known sender matching recognizes common provider evidence from DMARC reports,
 reverse DNS, and authentication domains. The built-in profiles include Google

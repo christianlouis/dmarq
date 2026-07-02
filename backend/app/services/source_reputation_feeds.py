@@ -17,6 +17,7 @@ from typing import Dict, Iterable, List, Optional, Protocol, Tuple
 
 import dns.exception
 import dns.resolver
+import httpx
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -35,6 +36,10 @@ class FeedProviderConfig:
     kind: str = "dnsbl"
     enabled: bool = False
     query_zone: Optional[str] = None
+    api_key: Optional[str] = None
+    api_url: Optional[str] = None
+    max_age_days: int = 90
+    listed_threshold: int = 75
     listing_name: Optional[str] = None
     requires_terms: bool = True
     default_enabled: bool = False
@@ -179,6 +184,107 @@ class DNSBLFeedProvider:
         return self._evidence("error", checked_at=checked_at, detail=str(exc))
 
 
+class AbuseIPDBFeedProvider:
+    """AbuseIPDB API-backed abuse confidence provider."""
+
+    def __init__(
+        self,
+        config: FeedProviderConfig,
+        *,
+        timeout_seconds: float = 2.0,
+        client: Optional[httpx.AsyncClient] = None,
+    ) -> None:
+        self.config = config
+        self.timeout_seconds = timeout_seconds
+        self._client = client
+
+    async def lookup_ip(self, ip: str) -> FeedLookupEvidence:
+        checked_at = _utcnow_iso()
+        if not self.config.api_key:
+            return self._evidence(
+                "not_configured",
+                checked_at=checked_at,
+                detail="Provider API key is not configured.",
+            )
+
+        skipped = DNSBLFeedProvider._skip_reason(ip)
+        if skipped:
+            return self._evidence("skipped", checked_at=checked_at, detail=skipped)
+
+        url = self.config.api_url or "https://api.abuseipdb.com/api/v2/check"
+        params = {
+            "ipAddress": ip,
+            "maxAgeInDays": max(1, int(self.config.max_age_days or 90)),
+        }
+        headers = {
+            "Accept": "application/json",
+            "Key": self.config.api_key,
+        }
+        try:
+            if self._client is not None:
+                response = await self._client.get(url, params=params, headers=headers)
+            else:
+                async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+                    response = await client.get(url, params=params, headers=headers)
+            response.raise_for_status()
+            payload = response.json()
+        except (httpx.RequestError, httpx.HTTPStatusError, ValueError) as exc:
+            return self._evidence("error", checked_at=checked_at, detail=str(exc))
+
+        data = payload.get("data") if isinstance(payload, dict) else {}
+        if not isinstance(data, dict):
+            return self._evidence(
+                "error",
+                checked_at=checked_at,
+                detail="Provider returned an unexpected response shape.",
+            )
+
+        score = _int_value(data.get("abuseConfidenceScore"))
+        total_reports = _int_value(data.get("totalReports"))
+        threshold = max(1, min(100, int(self.config.listed_threshold or 75)))
+        detail_parts = [
+            f"abuseConfidenceScore={score}",
+            f"totalReports={total_reports}",
+            f"maxAgeInDays={params['maxAgeInDays']}",
+        ]
+        for label in ("usageType", "isp", "domain", "countryCode"):
+            value = data.get(label)
+            if value:
+                detail_parts.append(f"{label}={value}")
+
+        if score >= threshold:
+            return self._evidence(
+                "listed",
+                checked_at=checked_at,
+                listing=f"AbuseIPDB score {score}",
+                detail=", ".join(detail_parts),
+            )
+        if score > 0 or total_reports > 0:
+            return self._evidence(
+                "suspicious",
+                checked_at=checked_at,
+                detail=", ".join(detail_parts),
+            )
+        return self._evidence("clean", checked_at=checked_at, detail=", ".join(detail_parts))
+
+    def _evidence(
+        self,
+        status: str,
+        *,
+        checked_at: str,
+        listing: Optional[str] = None,
+        detail: Optional[str] = None,
+    ) -> FeedLookupEvidence:
+        return FeedLookupEvidence(
+            provider_id=self.config.provider_id,
+            provider_name=self.config.display_name,
+            status=status,
+            listing=listing,
+            detail=detail,
+            checked_at=checked_at,
+        )
+
+
 class StaticFeedProvider:
     """Deterministic provider for tests and demo fixtures."""
 
@@ -203,12 +309,21 @@ def _split_csv(value: Optional[str]) -> List[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def _int_value(value: object) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def provider_configs_from_settings(settings: Optional[Settings] = None) -> List[FeedProviderConfig]:
     """Return configured external reputation feed providers."""
     settings = settings or get_settings()
     enabled_ids = set(_split_csv(settings.SOURCE_REPUTATION_FEEDS))
     globally_enabled = bool(settings.SOURCE_REPUTATION_FEEDS_ENABLED)
     spamhaus_zone = settings.SOURCE_REPUTATION_SPAMHAUS_DQS_ZONE
+    abusix_zone = settings.SOURCE_REPUTATION_ABUSIX_ZONE
+    abuseipdb_key = settings.SOURCE_REPUTATION_ABUSEIPDB_API_KEY
     provider_rows = [
         FeedProviderConfig(
             provider_id="spamhaus_dqs",
@@ -216,6 +331,14 @@ def provider_configs_from_settings(settings: Optional[Settings] = None) -> List[
             enabled=globally_enabled and "spamhaus_dqs" in enabled_ids and bool(spamhaus_zone),
             query_zone=spamhaus_zone,
             listing_name="Spamhaus DQS",
+            requires_terms=True,
+        ),
+        FeedProviderConfig(
+            provider_id="abusix_mail",
+            display_name="Abusix Mail Intelligence",
+            enabled=globally_enabled and "abusix_mail" in enabled_ids and bool(abusix_zone),
+            query_zone=abusix_zone,
+            listing_name="Abusix Mail Intelligence",
             requires_terms=True,
         ),
         FeedProviderConfig(
@@ -234,6 +357,18 @@ def provider_configs_from_settings(settings: Optional[Settings] = None) -> List[
             listing_name="Barracuda BRBL",
             requires_terms=True,
         ),
+        FeedProviderConfig(
+            provider_id="abuseipdb",
+            display_name="AbuseIPDB",
+            kind="api",
+            enabled=globally_enabled and "abuseipdb" in enabled_ids and bool(abuseipdb_key),
+            api_key=abuseipdb_key,
+            api_url="https://api.abuseipdb.com/api/v2/check",
+            max_age_days=settings.SOURCE_REPUTATION_ABUSEIPDB_MAX_AGE_DAYS,
+            listed_threshold=settings.SOURCE_REPUTATION_ABUSEIPDB_LISTED_THRESHOLD,
+            listing_name="AbuseIPDB",
+            requires_terms=True,
+        ),
     ]
     return provider_rows
 
@@ -243,11 +378,24 @@ def providers_from_settings(settings: Optional[Settings] = None) -> List[Reputat
     settings = settings or get_settings()
     if settings.DEMO_MODE:
         return []
-    return [
-        DNSBLFeedProvider(config, timeout_seconds=settings.SOURCE_REPUTATION_FEED_TIMEOUT_SECONDS)
-        for config in provider_configs_from_settings(settings)
-        if config.enabled
-    ]
+    providers: List[ReputationFeedProvider] = []
+    for config in provider_configs_from_settings(settings):
+        if not config.enabled:
+            continue
+        if config.kind == "api" and config.provider_id == "abuseipdb":
+            providers.append(
+                AbuseIPDBFeedProvider(
+                    config,
+                    timeout_seconds=settings.SOURCE_REPUTATION_FEED_TIMEOUT_SECONDS,
+                )
+            )
+            continue
+        providers.append(
+            DNSBLFeedProvider(
+                config, timeout_seconds=settings.SOURCE_REPUTATION_FEED_TIMEOUT_SECONDS
+            )
+        )
+    return providers
 
 
 def feed_registry(settings: Optional[Settings] = None) -> Dict[str, Dict[str, object]]:
@@ -260,7 +408,7 @@ def feed_registry(settings: Optional[Settings] = None) -> Dict[str, Dict[str, ob
             "enabled": config.enabled,
             "requires_terms": config.requires_terms,
             "default_enabled": config.default_enabled,
-            "configured": bool(config.query_zone),
+            "configured": bool(config.query_zone or config.api_key),
         }
         for config in provider_configs_from_settings(settings)
     }
@@ -272,7 +420,11 @@ def _cache_key(ip: str, providers: Iterable[ReputationFeedProvider]) -> str:
         "providers": [
             {
                 "provider_id": provider.config.provider_id,
+                "kind": provider.config.kind,
                 "query_zone": provider.config.query_zone,
+                "api_url": provider.config.api_url,
+                "max_age_days": provider.config.max_age_days,
+                "listed_threshold": provider.config.listed_threshold,
             }
             for provider in providers
         ],

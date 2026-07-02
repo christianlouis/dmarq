@@ -297,6 +297,10 @@ def _source_reputation(
                 "external",
             )
         )
+    external_suspicious = _external_suspicious_notes(feed_result)
+    if external_suspicious:
+        risk_score += 20
+        evidence.extend(external_suspicious)
     for item in _external_feed_notes(feed_result):
         evidence.append(item)
 
@@ -364,6 +368,22 @@ def _external_feed_notes(feed_result: Optional[IPFeedReputation]) -> List[Reputa
                 ReputationEvidence(
                     f"{item.provider_name} lookup",
                     item.detail or item.status,
+                    "external",
+                )
+            )
+    return notes
+
+
+def _external_suspicious_notes(feed_result: Optional[IPFeedReputation]) -> List[ReputationEvidence]:
+    if feed_result is None:
+        return []
+    notes: List[ReputationEvidence] = []
+    for item in feed_result.evidence:
+        if item.status == "suspicious":
+            notes.append(
+                ReputationEvidence(
+                    f"{item.provider_name} reputation",
+                    item.detail or "Provider returned a non-clean reputation signal.",
                     "external",
                 )
             )

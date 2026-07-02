@@ -196,8 +196,12 @@ only enrich observed sending-source evidence.
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
 | `SOURCE_REPUTATION_FEEDS_ENABLED` | Enable external reputation feed lookups. Demo mode still disables live external lookups. | `false` | `true` |
-| `SOURCE_REPUTATION_FEEDS` | Comma-separated enabled feed IDs. Supported first IDs are `spamhaus_dqs`, `spamcop_scbl`, and `barracuda_brbl`. | - | `spamhaus_dqs,spamcop_scbl` |
+| `SOURCE_REPUTATION_FEEDS` | Comma-separated enabled feed IDs. Supported IDs are `spamhaus_dqs`, `abusix_mail`, `spamcop_scbl`, `barracuda_brbl`, and `abuseipdb`. | - | `spamhaus_dqs,abusix_mail,abuseipdb` |
 | `SOURCE_REPUTATION_SPAMHAUS_DQS_ZONE` | Spamhaus DQS query zone assigned to your account. Required before the `spamhaus_dqs` provider becomes active. | - | `example.dq.spamhaus.net` |
+| `SOURCE_REPUTATION_ABUSIX_ZONE` | Abusix Mail Intelligence DNSBL zone. Review Abusix terms and account requirements before enabling. | `combined.mail.abusix.zone` | `combined.mail.abusix.zone` |
+| `SOURCE_REPUTATION_ABUSEIPDB_API_KEY` | AbuseIPDB API key. Required before the `abuseipdb` provider becomes active. | - | `op://...` |
+| `SOURCE_REPUTATION_ABUSEIPDB_MAX_AGE_DAYS` | AbuseIPDB report history window for each IP check. | `90` | `90` |
+| `SOURCE_REPUTATION_ABUSEIPDB_LISTED_THRESHOLD` | AbuseIPDB abuse confidence score treated as a strong reputation finding. Lower non-zero scores are shown as review context, not as blocklist listings. | `75` | `75` |
 | `SOURCE_REPUTATION_FEED_TIMEOUT_SECONDS` | Per-provider DNSBL lookup timeout. | `2` | `2` |
 | `SOURCE_REPUTATION_FEED_CACHE_SECONDS` | Persistent cache TTL for per-IP feed results. | `86400` | `86400` |
 | `SOURCE_REPUTATION_FEED_MAX_IPS` | Maximum source IPs checked per reputation refresh. | `100` | `250` |

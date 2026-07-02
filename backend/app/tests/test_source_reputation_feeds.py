@@ -1,9 +1,11 @@
 from types import SimpleNamespace
 
 import dns.resolver
+import httpx
 import pytest
 
 from app.services.source_reputation_feeds import (
+    AbuseIPDBFeedProvider,
     DNSBLFeedProvider,
     FeedProviderConfig,
     StaticFeedProvider,
@@ -19,6 +21,10 @@ def _settings(**overrides):
         "SOURCE_REPUTATION_FEEDS_ENABLED": False,
         "SOURCE_REPUTATION_FEEDS": None,
         "SOURCE_REPUTATION_SPAMHAUS_DQS_ZONE": None,
+        "SOURCE_REPUTATION_ABUSIX_ZONE": "combined.mail.abusix.zone",
+        "SOURCE_REPUTATION_ABUSEIPDB_API_KEY": None,
+        "SOURCE_REPUTATION_ABUSEIPDB_MAX_AGE_DAYS": 90,
+        "SOURCE_REPUTATION_ABUSEIPDB_LISTED_THRESHOLD": 75,
         "SOURCE_REPUTATION_FEED_TIMEOUT_SECONDS": 2.0,
         "SOURCE_REPUTATION_FEED_CACHE_SECONDS": 86_400,
         "SOURCE_REPUTATION_FEED_MAX_IPS": 100,
@@ -33,8 +39,10 @@ def test_provider_configs_are_disabled_by_default():
 
     assert {item.provider_id for item in configs} == {
         "spamhaus_dqs",
+        "abusix_mail",
         "spamcop_scbl",
         "barracuda_brbl",
+        "abuseipdb",
     }
     assert all(item.enabled is False for item in configs)
     assert all(item.requires_terms is True for item in configs)
@@ -57,11 +65,42 @@ def test_spamhaus_dqs_requires_configured_query_zone():
     assert with_zone[0].query_zone == "example.dq.spamhaus.net"
 
 
+def test_abusix_uses_default_mail_intelligence_zone():
+    configs = provider_configs_from_settings(
+        _settings(SOURCE_REPUTATION_FEEDS_ENABLED=True, SOURCE_REPUTATION_FEEDS="abusix_mail")
+    )
+    abusix = next(item for item in configs if item.provider_id == "abusix_mail")
+
+    assert abusix.enabled is True
+    assert abusix.query_zone == "combined.mail.abusix.zone"
+
+
+def test_abuseipdb_requires_api_key():
+    without_key = provider_configs_from_settings(
+        _settings(SOURCE_REPUTATION_FEEDS_ENABLED=True, SOURCE_REPUTATION_FEEDS="abuseipdb")
+    )
+    with_key = provider_configs_from_settings(
+        _settings(
+            SOURCE_REPUTATION_FEEDS_ENABLED=True,
+            SOURCE_REPUTATION_FEEDS="abuseipdb",
+            SOURCE_REPUTATION_ABUSEIPDB_API_KEY="secret",
+        )
+    )
+    without_config = next(item for item in without_key if item.provider_id == "abuseipdb")
+    with_config = next(item for item in with_key if item.provider_id == "abuseipdb")
+
+    assert without_config.enabled is False
+    assert with_config.enabled is True
+    assert with_config.kind == "api"
+    assert with_config.api_key == "secret"
+
+
 def test_feed_registry_exposes_safe_metadata_only():
     registry = feed_registry(
         _settings(
             SOURCE_REPUTATION_FEEDS_ENABLED=True,
-            SOURCE_REPUTATION_FEEDS="spamcop_scbl,barracuda_brbl",
+            SOURCE_REPUTATION_FEEDS="spamcop_scbl,barracuda_brbl,abuseipdb",
+            SOURCE_REPUTATION_ABUSEIPDB_API_KEY="secret",
         )
     )
 
@@ -70,8 +109,12 @@ def test_feed_registry_exposes_safe_metadata_only():
     assert registry["spamhaus_dqs"]["enabled"] is False
     assert registry["spamcop_scbl"]["configured"] is True
     assert registry["spamhaus_dqs"]["configured"] is False
+    assert registry["abuseipdb"]["enabled"] is True
+    assert registry["abuseipdb"]["configured"] is True
+    assert registry["abuseipdb"]["kind"] == "api"
     assert "query_zone" not in registry["spamcop_scbl"]
     assert "secret" not in registry["spamcop_scbl"]
+    assert "secret" not in registry["abuseipdb"]
 
 
 class NoNameserversResolver:
@@ -98,6 +141,73 @@ async def test_dnsbl_no_nameservers_reports_provider_error():
 
     assert evidence.status == "error"
     assert "nameserver" in evidence.detail.lower()
+
+
+@pytest.mark.asyncio
+async def test_abuseipdb_high_score_returns_listing():
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["ipAddress"] == "8.8.8.8"
+        assert request.headers["Key"] == "secret"
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "abuseConfidenceScore": 92,
+                    "totalReports": 12,
+                    "usageType": "Data Center/Web Hosting/Transit",
+                    "isp": "Example ISP",
+                    "domain": "example.net",
+                    "countryCode": "US",
+                }
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = AbuseIPDBFeedProvider(
+            FeedProviderConfig(
+                provider_id="abuseipdb",
+                display_name="AbuseIPDB",
+                kind="api",
+                enabled=True,
+                api_key="secret",
+                listed_threshold=75,
+            ),
+            client=client,
+        )
+
+        evidence = await provider.lookup_ip("8.8.8.8")
+
+    assert evidence.status == "listed"
+    assert evidence.listing == "AbuseIPDB score 92"
+    assert "totalReports=12" in evidence.detail
+    assert "isp=Example ISP" in evidence.detail
+
+
+@pytest.mark.asyncio
+async def test_abuseipdb_low_nonzero_score_returns_suspicious_context():
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"data": {"abuseConfidenceScore": 14, "totalReports": 1}},
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = AbuseIPDBFeedProvider(
+            FeedProviderConfig(
+                provider_id="abuseipdb",
+                display_name="AbuseIPDB",
+                kind="api",
+                enabled=True,
+                api_key="secret",
+            ),
+            client=client,
+        )
+
+        evidence = await provider.lookup_ip("8.8.8.8")
+
+    assert evidence.status == "suspicious"
+    assert evidence.listing is None
+    assert "abuseConfidenceScore=14" in evidence.detail
 
 
 @pytest.mark.asyncio
