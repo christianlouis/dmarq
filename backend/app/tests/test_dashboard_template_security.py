@@ -111,6 +111,22 @@ def _profile_script() -> str:
     return _read_project_file("static", "js", "profile-page.js")
 
 
+def _forensic_reports_template() -> str:
+    return _read_project_file("templates", "forensic_reports.html")
+
+
+def _forensic_reports_script() -> str:
+    return _read_project_file("static", "js", "forensic-reports-page.js")
+
+
+def _forensic_report_detail_template() -> str:
+    return _read_project_file("templates", "forensic_report_detail.html")
+
+
+def _forensic_report_detail_script() -> str:
+    return _read_project_file("static", "js", "forensic-report-detail-page.js")
+
+
 def _settings_template() -> str:
     return _read_project_file("templates", "settings.html")
 
@@ -268,6 +284,31 @@ def test_profile_renders_external_page_script_for_csp_migration():
         '<script data-src="/static/js/profile-page.js"></script>',
         "/static/js/profile-page.js",
     )
+
+
+def test_forensic_reports_uses_external_page_script_for_csp_migration():
+    template = _forensic_reports_template()
+    script = _forensic_reports_script()
+
+    assert 'src="/static/js/forensic-reports-page.js"' in template
+    assert "forensicReportsApp()" in template
+    assert "/api/v1/forensics?" in script
+    assert "/api/v1/forensics/analysis?" in script
+    assert "/api/v1/forensics/upload" in script
+    assert "Unable to load forensic reports" in script
+    assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
+
+
+def test_forensic_report_detail_uses_external_page_script_for_csp_migration():
+    template = _forensic_report_detail_template()
+    script = _forensic_report_detail_script()
+
+    assert 'src="/static/js/forensic-report-detail-page.js"' in template
+    assert "forensicReportDetailApp" in template
+    assert "/api/v1/forensics/${this.reportId}" in script
+    assert "Forensic report not found" in script
+    assert "feedbackHeaderEntries" in script
+    assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 
 def test_settings_exposes_provider_agnostic_dns_import_without_html_injection():
