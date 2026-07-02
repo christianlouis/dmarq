@@ -399,6 +399,31 @@ def test_base_template_shows_workspace_controls_when_multi_workspace_enabled():
     assert "Members</a>" in rendered
 
 
+def test_onboarding_template_uses_single_user_setup_story_by_default():
+    rendered = _render_template("onboarding.html", multi_workspace_ui_enabled=False)
+
+    assert "Mail health setup" in rendered
+    assert "Setup path" in rendered
+    assert "Connect Gmail or IMAP" in rendered
+    assert "Apply setup" in rendered
+    assert "One monitored domain with DMARC report and DNS setup tasks." in rendered
+    assert "multiWorkspaceUiEnabled: false" in rendered
+    assert "Account boundary" not in rendered
+    assert "Owner ready" not in rendered
+    assert "Starter plan entitlement records" not in rendered
+
+
+def test_onboarding_template_keeps_workspace_story_for_multi_workspace_mode():
+    rendered = _render_template("onboarding.html", multi_workspace_ui_enabled=True)
+
+    assert "Workspace onboarding" in rendered
+    assert "Account boundary" in rendered
+    assert "Create workspace" in rendered
+    assert "Organization and workspace" in rendered
+    assert "Starter plan entitlement records" in rendered
+    assert "multiWorkspaceUiEnabled: true" in rendered
+
+
 def test_dashboard_hides_multi_user_demo_mode_controls():
     template = _dashboard_template()
 

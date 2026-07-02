@@ -147,8 +147,9 @@ class TestSetupPage:
                 response = test_client.get("/onboarding")
 
         assert response.status_code == 200
-        assert "Workspace onboarding" in response.text
-        assert "workspaceOnboarding()" in response.text
+        assert "Mail health setup" in response.text
+        assert "Apply setup" in response.text
+        assert "workspaceOnboarding({" in response.text
         assert "/api/v1/onboarding/preview" in response.text
         assert "/api/v1/onboarding/apply" in response.text
         assert "draftFields()" in response.text
