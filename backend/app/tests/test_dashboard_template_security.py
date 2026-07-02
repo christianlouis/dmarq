@@ -228,6 +228,29 @@ def test_domain_details_exposes_health_history_without_html_injection():
     assert "x-html" not in template
 
 
+def test_domain_details_exposes_volume_scale_controls_without_html_injection():
+    template = (
+        Path(__file__).resolve().parents[1] / "templates" / "domain_details.html"
+    ).read_text()
+
+    assert "Volume scale" in template
+    assert 'role="group" aria-label="Volume scale"' in template
+    assert "setVolumeScale('logarithmic')" in template
+    assert "setVolumeScale('linear')" in template
+    assert ':aria-pressed="effectiveVolumeScale() === \'logarithmic\'"' in template
+    assert ':aria-pressed="effectiveVolumeScale() === \'linear\'"' in template
+    assert ':disabled="!hasObservedVolume"' in template
+    assert "dmarq:domain-volume-scale" in template
+    assert "effectiveVolumeScale()" in template
+    assert "const volumeScale =" in template
+    assert "type: volumeScale" in template
+    assert "Messages (log scale)" in template
+    assert "Messages (linear scale)" in template
+    assert "context.parsed.y === null" in template
+    assert "no observed mail volume" in template
+    assert "x-html" not in template
+
+
 def test_domain_details_exposes_migration_readiness_without_html_injection():
     template = (
         Path(__file__).resolve().parents[1] / "templates" / "domain_details.html"
