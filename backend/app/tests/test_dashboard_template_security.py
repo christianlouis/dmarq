@@ -585,18 +585,22 @@ def test_report_detail_exposes_record_review_guidance_without_html_injection():
 
 def test_members_template_uses_membership_api_without_html_injection():
     template = (Path(__file__).resolve().parents[1] / "templates" / "members.html").read_text()
+    script = (Path(__file__).resolve().parents[1] / "static" / "js" / "members-page.js").read_text()
 
-    assert "/api/v1/organizations" in template
-    assert "/api/v1/memberships/organizations/" in template
-    assert "/api/v1/memberships/workspaces/" in template
+    assert 'src="/static/js/members-page.js"' in template
+    assert "membershipApp()" in template
+    assert "/api/v1/organizations" in script
+    assert "/api/v1/memberships/organizations/" in script
+    assert "/api/v1/memberships/workspaces/" in script
     assert "Billing & Plan" in template
-    assert "currentBillingOwner().owner" in template
-    assert "planLimitRows()" in template
+    assert "currentBillingOwner().owner" in script
+    assert "planLimitRows()" in script
     assert "invoice_delivery_label" in template
     assert 'x-text="membership.user.email"' in template
     assert '@change="updateMembership(membership, membership.active)"' in template
     assert '@change="updateMembership(membership, true)"' not in template
     assert "x-html" not in template
+    assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 
 def test_base_template_propagates_selected_workspace_context():
