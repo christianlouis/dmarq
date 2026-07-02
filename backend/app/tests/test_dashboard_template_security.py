@@ -17,6 +17,16 @@ def _render_template(name: str, **context: object) -> str:
     return env.get_template(name).render(**context)
 
 
+def _has_script_src(markup: str, src: str) -> bool:
+    return bool(
+        re.search(
+            rf"<script\b(?=[^>]*\ssrc=[\"']{re.escape(src)}[\"'])[^>]*>",
+            markup,
+            re.IGNORECASE,
+        )
+    )
+
+
 def _dashboard_template() -> str:
     return _read_project_file("templates", "index.html")
 
@@ -184,7 +194,11 @@ def test_profile_renders_external_page_script_for_csp_migration():
         logto_configured=False,
     )
 
-    assert '<script src="/static/js/profile-page.js"></script>' in rendered
+    assert _has_script_src(rendered, "/static/js/profile-page.js")
+    assert not _has_script_src(
+        '<script data-src="/static/js/profile-page.js"></script>',
+        "/static/js/profile-page.js",
+    )
 
 
 def test_domain_details_exposes_health_history_without_html_injection():
