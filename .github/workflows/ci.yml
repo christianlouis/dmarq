@@ -220,6 +220,9 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      image: ${{ steps.verify-image.outputs.image }}
+      short_sha: ${{ steps.verify-image.outputs.short_sha }}
 
     steps:
       - name: Checkout code
@@ -262,6 +265,17 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Verify short SHA image tag
+        id: verify-image
+        env:
+          IMAGE_REPOSITORY: ghcr.io/${{ github.repository }}
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          IMAGE="${IMAGE_REPOSITORY}:${SHORT_SHA}"
+          docker buildx imagetools inspect "$IMAGE" >/dev/null
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+
   # ── Stage 4: GitOps – update k8s manifests ───────────────────────────────
   update-k8s-manifest:
     name: Update K8s Manifests
@@ -275,9 +289,9 @@ jobs:
       - name: Compute image tag
         id: tag
         run: |
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          echo "image=ghcr.io/${{ github.repository }}:${SHORT_SHA}" >> "$GITHUB_OUTPUT"
-          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          test -n "${{ needs.docker.outputs.image }}"
+          echo "image=${{ needs.docker.outputs.image }}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${{ needs.docker.outputs.short_sha }}" >> "$GITHUB_OUTPUT"
           echo "image_pattern=^ghcr\\.io/${{ github.repository }}:" >> "$GITHUB_OUTPUT"
 
       - name: Check if GH_PAT is configured and has repo access
