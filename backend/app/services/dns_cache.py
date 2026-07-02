@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from typing import List, Tuple
@@ -13,9 +14,17 @@ from sqlalchemy.orm import Session
 
 from app.models.dns_cache import DNSCache
 from app.services.dns_provider_detection import detection_from_json
-from app.services.dns_resolver import BaseDNSProvider, DomainDNSResult
+from app.services.dns_resolver import (
+    BaseDNSProvider,
+    CloudflareDNSProvider,
+    DomainDNSResult,
+    SystemDNSProvider,
+)
 
 DEFAULT_DNS_CACHE_TTL_SECONDS = 900
+NEGATIVE_DNS_CACHE_TTL_SECONDS = 60
+
+logger = logging.getLogger(__name__)
 
 
 def _utcnow_naive() -> datetime:
@@ -56,6 +65,56 @@ def _is_fresh(row: DNSCache, ttl_seconds: int, now: datetime) -> bool:
     return row.checked_at >= now - timedelta(seconds=ttl_seconds)
 
 
+def _has_dns_evidence(result: DomainDNSResult) -> bool:
+    return any(
+        (
+            result.dmarc,
+            result.dmarc_record,
+            result.spf,
+            result.spf_record,
+            result.dkim,
+            result.dkim_record,
+            result.dkim_selectors,
+            result.nameservers,
+            result.dmarc_policy_domain,
+        )
+    )
+
+
+def _negative_ttl_for_result(result: DomainDNSResult, ttl_seconds: int) -> int:
+    if _has_dns_evidence(result):
+        return ttl_seconds
+    return min(ttl_seconds, NEGATIVE_DNS_CACHE_TTL_SECONDS)
+
+
+async def _resolve_with_fallback(
+    provider: BaseDNSProvider,
+    domain: str,
+    *,
+    selectors: List[str],
+) -> DomainDNSResult:
+    """Resolve DNS, using a public fallback when the primary result has no evidence."""
+    result = await provider.check_domain(domain, selectors=selectors)
+    if _has_dns_evidence(result):
+        return result
+    if not isinstance(provider, (CloudflareDNSProvider, SystemDNSProvider)):
+        return result
+
+    fallback: BaseDNSProvider
+    if isinstance(provider, CloudflareDNSProvider):
+        fallback = SystemDNSProvider()
+    else:
+        fallback = CloudflareDNSProvider()
+
+    try:
+        fallback_result = await fallback.check_domain(domain, selectors=selectors)
+    except Exception as exc:  # pragma: no cover - defensive against DNS/network issues
+        logger.debug("Fallback DNS resolver failed for %s: %s", domain, exc)
+        return result
+
+    return fallback_result if _has_dns_evidence(fallback_result) else result
+
+
 async def resolve_domain_dns_cached(
     db: Session,
     provider: BaseDNSProvider,
@@ -79,10 +138,13 @@ async def resolve_domain_dns_cached(
         .first()
     )
 
-    if row and not refresh and _is_fresh(row, ttl_seconds, now):
-        return _result_from_json(row.result_json), True, row.checked_at
+    if row and not refresh:
+        cached_result = _result_from_json(row.result_json)
+        cache_ttl = _negative_ttl_for_result(cached_result, ttl_seconds)
+        if _is_fresh(row, cache_ttl, now):
+            return cached_result, True, row.checked_at
 
-    result = await provider.check_domain(domain, selectors=selectors)
+    result = await _resolve_with_fallback(provider, domain, selectors=selectors)
     payload = _result_to_json(result)
     if row is None:
         row = DNSCache(
