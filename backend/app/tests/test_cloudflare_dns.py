@@ -563,8 +563,9 @@ def test_hetzner_dns_credentials_and_build_client(monkeypatch):
 def test_linode_dns_client_list_domains_paginates(monkeypatch):
     client = linode_dns.LinodeDNSClient(api_token="token")
 
-    async def fake_get(path, *, params=None):
+    async def fake_get(path, *, params=None, client=None):
         assert path == "/domains"
+        assert client is not None
         assert params["page_size"] == linode_dns.LINODE_PAGE_SIZE
         if params["page"] == 1:
             return {
@@ -641,7 +642,8 @@ def test_linode_dns_client_api_get_maps_invalid_json(monkeypatch):
 def test_linode_dns_client_list_domains_ignores_malformed_payload(monkeypatch):
     client = linode_dns.LinodeDNSClient(api_token="token")
 
-    async def fake_get(path, *, params=None):
+    async def fake_get(path, *, params=None, client=None):
+        assert client is not None
         return {"data": "not-a-list"}
 
     monkeypatch.setattr(client, "_api_get", fake_get)

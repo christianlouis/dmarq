@@ -56,13 +56,19 @@ class LinodeDNSClient:
         path: str,
         *,
         params: Optional[Dict[str, Any]] = None,
+        client: Optional[httpx.AsyncClient] = None,
     ) -> Dict[str, Any]:
         url = f"{self.api_base}{path}"
         try:
-            async with httpx.AsyncClient(timeout=LINODE_API_TIMEOUT) as client:
+            if client is not None:
                 response = await client.get(url, params=params, headers=self._headers())
                 response.raise_for_status()
                 return response.json()
+
+            async with httpx.AsyncClient(timeout=LINODE_API_TIMEOUT) as http_client:
+                response = await http_client.get(url, params=params, headers=self._headers())
+            response.raise_for_status()
+            return response.json()
         except (httpx.RequestError, httpx.HTTPStatusError, httpx.TimeoutException) as exc:
             raise LookupError(f"Linode API request failed for {path}: {exc}") from exc
         except ValueError as exc:
@@ -72,20 +78,22 @@ class LinodeDNSClient:
         """Return DNS domains visible to the configured Linode token."""
         domains: List[Dict[str, Any]] = []
         page = 1
-        while True:
-            data = await self._api_get(
-                "/domains",
-                params={"page": page, "page_size": LINODE_PAGE_SIZE},
-            )
-            result = data.get("data") or []
-            if not isinstance(result, list):
-                return domains
-            domains.extend(result)
+        async with httpx.AsyncClient(timeout=LINODE_API_TIMEOUT) as client:
+            while True:
+                data = await self._api_get(
+                    "/domains",
+                    params={"page": page, "page_size": LINODE_PAGE_SIZE},
+                    client=client,
+                )
+                result = data.get("data") or []
+                if not isinstance(result, list):
+                    return domains
+                domains.extend(result)
 
-            pages = int(data.get("pages") or page)
-            if page >= pages:
-                break
-            page += 1
+                pages = int(data.get("pages") or page)
+                if page >= pages:
+                    break
+                page += 1
         return domains
 
 
