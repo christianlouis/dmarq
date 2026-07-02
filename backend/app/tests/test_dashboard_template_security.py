@@ -2,12 +2,24 @@ import re
 from pathlib import Path
 
 
+def _read_project_file(*parts: str) -> str:
+    return (Path(__file__).resolve().parents[1].joinpath(*parts)).read_text()
+
+
 def _dashboard_template() -> str:
-    return (Path(__file__).resolve().parents[1] / "templates" / "index.html").read_text()
+    return _read_project_file("templates", "index.html")
 
 
 def _dashboard_script() -> str:
-    return (Path(__file__).resolve().parents[1] / "static" / "js" / "dashboard-page.js").read_text()
+    return _read_project_file("static", "js", "dashboard-page.js")
+
+
+def _operations_template() -> str:
+    return _read_project_file("templates", "operations.html")
+
+
+def _operations_script() -> str:
+    return _read_project_file("static", "js", "operations-page.js")
 
 
 def test_dashboard_domain_table_uses_safe_dom_rendering():
@@ -56,6 +68,17 @@ def test_dashboard_uses_external_page_script_for_csp_migration():
 
     assert 'src="/static/js/chart.umd.min.js"' in template
     assert 'src="/static/js/dashboard-page.js"' in template
+    assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
+
+
+def test_operations_uses_external_page_script_for_csp_migration():
+    template = _operations_template()
+    script = _operations_script()
+
+    assert 'src="/static/js/operations-page.js"' in template
+    assert "operationsHealth()" in template
+    assert "/api/v1/health/operations" in script
+    assert "Health details could not be loaded." in script
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 
