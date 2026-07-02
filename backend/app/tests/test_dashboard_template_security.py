@@ -155,6 +155,17 @@ def test_reports_uses_external_page_script_for_csp_migration():
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 
+def test_reports_page_distinguishes_loading_error_and_empty_states():
+    template = _reports_template()
+    script = _reports_script()
+
+    assert "Loading DMARC reports..." in template
+    assert "Reports could not be loaded." in script
+    assert "No reports match this filter." in template
+    assert "x-show=\"!loading && error\"" in template
+    assert "throw new Error('Reports could not be loaded." in script
+
+
 def test_domains_uses_external_page_script_for_csp_migration():
     template = _domains_template()
     script = _domains_script()
@@ -170,6 +181,17 @@ def test_domains_uses_external_page_script_for_csp_migration():
     assert "method: 'PATCH'" in script
     assert "editError" in template
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
+
+
+def test_domains_page_distinguishes_loading_error_and_empty_states():
+    template = _domains_template()
+    script = _domains_script()
+
+    assert "Loading monitored domains..." in template
+    assert "Domains could not be loaded." in script
+    assert "No domains found. Add a domain to get started." in template
+    assert "x-if=\"!loading && loadError\"" in template
+    assert "x-if=\"!loading && !loadError && domains.length === 0\"" in template
 
 
 def test_upload_uses_external_page_script_for_csp_migration():
@@ -317,6 +339,24 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     assert "x-html" not in template
 
 
+def test_domain_details_distinguishes_loading_error_and_empty_states():
+    template = (
+        Path(__file__).resolve().parents[1] / "templates" / "domain_details.html"
+    ).read_text()
+
+    assert "dnsRecordsLoading" in template
+    assert "Checking DMARC record..." in template
+    assert "DNS records could not be loaded." in template
+    assert "reportsLoading" in template
+    assert "Loading recent reports..." in template
+    assert "Recent reports could not be loaded." in template
+    assert "sourceIntelligence.loading" in template
+    assert "Loading source intelligence..." in template
+    assert "Source intelligence could not be loaded." in template
+    assert "No sending sources match this filter." in template
+    assert "x-html" not in template
+
+
 def test_domain_details_redirects_to_domain_management_after_delete_success():
     template = (
         Path(__file__).resolve().parents[1] / "templates" / "domain_details.html"
@@ -412,6 +452,18 @@ def test_dashboard_hides_multi_user_demo_mode_controls():
     assert "Provider billing samples" not in template
     assert "/api/v1/operator/demo/multi-user" not in template
     assert "x-html" not in template
+
+
+def test_dashboard_distinguishes_loading_error_and_empty_states():
+    template = _dashboard_template()
+    script = _dashboard_script()
+
+    assert "Loading dashboard data" in template
+    assert "Dashboard could not be loaded" in template
+    assert "dashboardLoading" in script
+    assert "dashboardError" in script
+    assert "Dashboard data could not be loaded." in script
+    assert 'x-show="!dashboardLoading && !dashboardError && !hasDomainData"' in template
 
 
 def test_dashboard_trigger_poll_uses_post_action_not_get_link():

@@ -3,6 +3,8 @@ function domainsApp() {
         domains: [],
         openCreate: false,
         openEdit: false,
+        loading: true,
+        loadError: '',
         saving: false,
         createError: '',
         editError: '',
@@ -22,30 +24,35 @@ function domainsApp() {
         },
 
         async fetchDomains() {
+            this.loading = true;
+            this.loadError = '';
             try {
                 const response = await fetch('/api/v1/domains/summary');
-                if (response.ok) {
-                    const data = await response.json();
-
-                    this.domains = data.domains.map((domain) => ({
-                        name: domain.domain_name,
-                        dmarc_status: domain.dmarc_status ?? false,
-                        dmarc_policy: domain.dmarc_policy || 'Not configured',
-                        spf_status: domain.spf_status ?? false,
-                        dkim_status: domain.dkim_status ?? false,
-                        reports_count: domain.report_count,
-                        emails_count: domain.total_emails,
-                        compliance_rate: domain.pass_rate,
-                        description: domain.description || '',
-                        dkim_selectors: Array.isArray(domain.dkim_selectors)
-                            ? domain.dkim_selectors
-                            : [],
-                    }));
-                } else {
-                    console.error('Error fetching domains:', response.status);
+                if (!response.ok) {
+                    throw new Error('Domains could not be loaded. Refresh the page or check the API service.');
                 }
+                const data = await response.json();
+
+                this.domains = data.domains.map((domain) => ({
+                    name: domain.domain_name,
+                    dmarc_status: domain.dmarc_status ?? false,
+                    dmarc_policy: domain.dmarc_policy || 'Not configured',
+                    spf_status: domain.spf_status ?? false,
+                    dkim_status: domain.dkim_status ?? false,
+                    reports_count: domain.report_count,
+                    emails_count: domain.total_emails,
+                    compliance_rate: domain.pass_rate,
+                    description: domain.description || '',
+                    dkim_selectors: Array.isArray(domain.dkim_selectors)
+                        ? domain.dkim_selectors
+                        : [],
+                }));
             } catch (error) {
+                this.domains = [];
+                this.loadError = error.message || 'Domains could not be loaded.';
                 console.error('Error fetching domains:', error);
+            } finally {
+                this.loading = false;
             }
         },
 

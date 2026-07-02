@@ -41,7 +41,24 @@
                         {% endcall %}
                     {% endcall %}
                     {% call tbody() %}
-                        <template x-if="domains.length === 0">
+                        <template x-if="loading">
+                            {% call tr() %}
+                                {% call td(colspan="5", class="text-center") %}
+                                    <div class="flex items-center justify-center gap-2 py-4 text-muted-foreground" role="status">
+                                        <span class="loading loading-spinner loading-sm"></span>
+                                        <span>Loading monitored domains...</span>
+                                    </div>
+                                {% endcall %}
+                            {% endcall %}
+                        </template>
+                        <template x-if="!loading && loadError">
+                            {% call tr() %}
+                                {% call td(colspan="5", class="text-center") %}
+                                    <p class="py-4 text-red-700" x-text="loadError"></p>
+                                {% endcall %}
+                            {% endcall %}
+                        </template>
+                        <template x-if="!loading && !loadError && domains.length === 0">
                             {% call tr() %}
                                 {% call td(colspan="5", class="text-center") %}
                                     <p class="py-4 text-muted-foreground">No domains found. Add a domain to get started.</p>
