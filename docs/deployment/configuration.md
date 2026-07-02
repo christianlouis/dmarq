@@ -136,14 +136,19 @@ Live DNS writes stay behind the separate DNS repair approval flow.
 | Cloudflare | Ready | OAuth client with `zone.read`/`dns.read`, or `CLOUDFLARE_API_TOKEN` with Zone/DNS read permissions |
 | Amazon Route 53 | Ready | boto3/AWS credential chain, `DMARQ_ROUTE53_PROFILE`, or `DMARQ_ROUTE53_ROLE_ARN` with optional `DMARQ_ROUTE53_EXTERNAL_ID` |
 | Hetzner DNS | Ready | `HETZNER_DNS_API_TOKEN` or `HETZNER_API_TOKEN` with DNS zone read access |
+| Linode DNS | Ready | `LINODE_API_TOKEN` or `LINODE_TOKEN` with Domains read-only access |
 | Akamai Edge DNS/FastDNS | Planned | EdgeGrid DNS credentials, separate from Akamai EAA login |
-| Linode DNS | Planned | Domains-scoped token |
 
 For Route 53 self-hosted installs, use a local AWS profile or environment
 credentials with `route53:ListHostedZones`. Hosted/provider deployments should
 prefer role assumption with an external ID. Add `route53:ListResourceRecordSets`
 or `route53:ChangeResourceRecordSets` only when future DNS inspection or
 approved repair actions require them.
+
+For Linode self-hosted installs, use a personal access token or OAuth token
+limited to Domains read-only access, such as the Linode `domains:read_only`
+scope or equivalent `domain_viewer` role. Keep write-scoped tokens separate
+until approved DNS repair actions are intentionally enabled.
 
 ### IMAP Settings
 
@@ -270,6 +275,8 @@ operational policy if long-term storage size matters.
 | `CLOUDFLARE_OAUTH_SCOPES` | Cloudflare OAuth scopes requested for read-only zone import and ownership checks | `zone.read dns.read` | `zone.read dns.read` |
 | `HETZNER_DNS_API_TOKEN` | Hetzner Console API token for read-only DNS zone import through `api.hetzner.cloud` | - | `your_hetzner_read_only_api_token` |
 | `HETZNER_API_TOKEN` | Fallback Hetzner token name if you already inject generic Hetzner Cloud credentials | - | `your_hetzner_read_only_api_token` |
+| `LINODE_API_TOKEN` | Linode API token for read-only DNS domain import through `api.linode.com/v4` | - | `your_linode_domains_read_only_token` |
+| `LINODE_TOKEN` | Fallback Linode token name if you already inject generic Linode credentials | - | `your_linode_domains_read_only_token` |
 
 ### Email Service and Webhook Integrations
 
@@ -290,6 +297,8 @@ The integration exposes these operational routes:
 | `POST /api/v1/domains/dns/import/cloudflare` | Import selected Cloudflare zones as monitored domains before reports arrive. |
 | `GET /api/v1/domains/dns/import/hetzner/preview` | Preview zones visible to the configured Hetzner read-only token without creating rows. |
 | `POST /api/v1/domains/dns/import/hetzner` | Import selected Hetzner DNS zones as monitored domains before reports arrive. |
+| `GET /api/v1/domains/dns/import/linode/preview` | Preview domains visible to the configured Linode read-only token without creating rows. |
+| `POST /api/v1/domains/dns/import/linode` | Import selected Linode DNS domains as monitored domains before reports arrive. |
 | `GET /api/v1/domains/cloudflare/discover` | List available zones. |
 | `POST /api/v1/domains/cloudflare/import` | Create monitored domain rows from zones. |
 | `GET /api/v1/domains/{domain}/dns/cloudflare` | Inspect managed DNS records, return DMARC/SPF/DKIM suggestions, and record detected DNS changes. |
@@ -321,7 +330,8 @@ through a configured DNS provider connector.
 
 Cloudflare is implemented natively and supports DNS-zone import, record
 readback, dry-run, approved apply, verification, and rollback evidence. Hetzner
-DNS supports read-only zone import via Hetzner Console API tokens. `GET
+DNS supports read-only zone import via Hetzner Console API tokens. Linode DNS
+supports read-only domain import via a Domains-scoped token. `GET
 /api/v1/domains/dns/providers` exposes the broader connector registry so
 operators can see which providers are ready, planned, or Lexicon-backed before
 wiring credentials.
@@ -329,15 +339,15 @@ wiring credentials.
 Tier 1 connector metadata currently covers:
 
 - Cloudflare: API token, ready for zone import and approved DNS repair.
-- Amazon Route 53: planned zone import/read path; Lexicon-backed write path
+- Amazon Route 53: read-only hosted-zone import; Lexicon-backed write path
   where the runtime and credentials are available. Prefer IAM role assumption
   with external ID for hosted deployments.
 - Akamai Edge DNS / FastDNS: planned EdgeGrid-backed DNS connector. Akamai EAA
   is an access/SSO frontdoor option and does not replace the Edge DNS connector.
 - Hetzner DNS: read-only zone import using `HETZNER_DNS_API_TOKEN`;
   Lexicon-backed write path where the runtime and credentials are available.
-- Linode DNS: planned zone import/read path; Lexicon-backed write path where
-  the runtime and credentials are available.
+- Linode DNS: read-only domain import using `LINODE_API_TOKEN`; Lexicon-backed
+  write path where the runtime and credentials are available.
 
 Additional API-backed providers use DNS-Lexicon where the provider is available
 in the runtime and its credentials are supplied through Lexicon-compatible

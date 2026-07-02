@@ -127,19 +127,19 @@ _CONNECTORS: tuple[DNSProviderConnector, ...] = (
         name="Linode DNS",
         tier=1,
         auth_models=["personal_access_token", "lexicon_environment"],
-        zone_import_status="planned",
+        zone_import_status="ready",
         record_read_status="planned",
         record_write_status="lexicon_available",
         dry_run_supported=True,
         verification_supported=False,
         rollback_supported=True,
         minimum_permissions=[
-            "Domains read access",
+            "Domains read-only access",
             "Domains write access only when repair is enabled",
         ],
         setup_hint=(
-            "Use a Linode token scoped to domains. Linode/Akamai Cloud users can "
-            "connect DNS context separately from application login."
+            "Use a Linode personal access token scoped to read DNS domains. "
+            "Keep write-scoped tokens separate until approved repair actions are enabled."
         ),
         docs_url="https://techdocs.akamai.com/linode-api/reference/get-domains",
     ),

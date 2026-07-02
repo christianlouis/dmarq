@@ -11,6 +11,7 @@ from app.services.cloudflare_dns import discover_cloudflare_zones, import_cloudf
 from app.services.dns_provider_connectors import provider_connector_registry
 from app.services.dns_provider_writes import normalize_provider_id
 from app.services.hetzner_dns import discover_hetzner_zones, import_hetzner_domains
+from app.services.linode_dns import discover_linode_domains, import_linode_domains
 from app.services.route53_dns import discover_route53_zones, import_route53_domains
 
 
@@ -49,6 +50,10 @@ def _provider_name(provider_id: str) -> str:
     return PROVIDER_NAMES.get(provider_id, provider_id)
 
 
+def _provider_import_item_label(provider_id: str) -> str:
+    return "domain" if provider_id == "linode" else "zone"
+
+
 async def preview_dns_provider_import(
     db: Session,
     *,
@@ -63,9 +68,12 @@ async def preview_dns_provider_import(
         zones = await discover_route53_zones(db, workspace_id=workspace_id)
     elif provider_id == "hetzner":
         zones = await discover_hetzner_zones(db, workspace_id=workspace_id)
+    elif provider_id == "linode":
+        zones = await discover_linode_domains(db, workspace_id=workspace_id)
     else:
         raise LookupError(f"Unsupported DNS provider import: {provider_id}")
 
+    item_label = _provider_import_item_label(provider_id)
     items = [
         DNSProviderImportZone(
             provider=provider_id,
@@ -80,7 +88,7 @@ async def preview_dns_provider_import(
                 "Already monitored in this workspace."
                 if zone.get("imported")
                 else (
-                    f"Import this {_provider_name(provider_id)} zone to monitor DNS posture "
+                    f"Import this {_provider_name(provider_id)} {item_label} to monitor DNS posture "
                     "before reports arrive."
                 )
             ),
@@ -119,6 +127,12 @@ async def import_dns_provider_domains(
         )
     elif provider_id == "hetzner":
         result = await import_hetzner_domains(
+            db,
+            requested_domains=requested_domains,
+            workspace_id=workspace_id,
+        )
+    elif provider_id == "linode":
+        result = await import_linode_domains(
             db,
             requested_domains=requested_domains,
             workspace_id=workspace_id,

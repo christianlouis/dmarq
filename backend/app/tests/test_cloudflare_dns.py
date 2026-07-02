@@ -28,6 +28,7 @@ from app.services import (
     dns_provider_imports,
     dns_provider_writes,
     hetzner_dns,
+    linode_dns,
     route53_dns,
 )
 from app.services.cloudflare_dns import analyze_dns_records, sync_dns_record_changes
@@ -121,6 +122,14 @@ class FakeHetznerDNSClient:
         return self.zones
 
 
+class FakeLinodeDNSClient:
+    def __init__(self, *, domains=None):
+        self.domains = domains or []
+
+    async def list_domains(self):
+        return self.domains
+
+
 class FakeRoute53DNSClient:
     def __init__(self, *, zones=None, account_name="Amazon Route 53"):
         self.zones = zones or []
@@ -164,6 +173,10 @@ class FakeHetznerResponse:
         if self.json_error:
             raise ValueError("bad json")
         return self.payload
+
+
+class FakeLinodeResponse(FakeHetznerResponse):
+    pass
 
 
 def test_analyze_dns_records_reports_healthy_auth_records():
@@ -547,6 +560,120 @@ def test_hetzner_dns_credentials_and_build_client(monkeypatch):
         hetzner_dns.build_hetzner_dns_client()
 
 
+def test_linode_dns_client_list_domains_paginates(monkeypatch):
+    client = linode_dns.LinodeDNSClient(api_token="token")
+
+    async def fake_get(path, *, params=None, client=None):
+        assert path == "/domains"
+        assert client is not None
+        assert params["page_size"] == linode_dns.LINODE_PAGE_SIZE
+        if params["page"] == 1:
+            return {
+                "data": [{"id": 1, "domain": DOMAIN}],
+                "pages": 2,
+            }
+        return {
+            "data": [{"id": 2, "domain": "second.example"}],
+            "pages": 2,
+        }
+
+    monkeypatch.setattr(client, "_api_get", fake_get)
+
+    domains = asyncio.run(client.list_domains())
+
+    assert [domain["domain"] for domain in domains] == [DOMAIN, "second.example"]
+
+
+def test_linode_dns_client_headers_api_get_and_error_paths(monkeypatch):
+    requests = []
+
+    class FakeAsyncClient:
+        def __init__(self, *, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url, *, params=None, headers=None):
+            requests.append({"url": url, "params": params, "headers": headers})
+            return FakeLinodeResponse({"data": []})
+
+    monkeypatch.setattr(linode_dns.httpx, "AsyncClient", FakeAsyncClient)
+    client = linode_dns.LinodeDNSClient(api_token="token", api_base="https://example.test/")
+
+    result = asyncio.run(client._api_get("/domains", params={"page": 1}))
+
+    assert result == {"data": []}
+    assert requests == [
+        {
+            "url": "https://example.test/domains",
+            "params": {"page": 1},
+            "headers": {"Authorization": "Bearer token", "Accept": "application/json"},
+        }
+    ]
+    with pytest.raises(LookupError, match="not configured"):
+        linode_dns.LinodeDNSClient(api_token=None)._headers()
+
+
+def test_linode_dns_client_api_get_maps_invalid_json(monkeypatch):
+    class FakeAsyncClient:
+        def __init__(self, *, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url, *, params=None, headers=None):
+            return FakeLinodeResponse(json_error=True)
+
+    monkeypatch.setattr(linode_dns.httpx, "AsyncClient", FakeAsyncClient)
+    client = linode_dns.LinodeDNSClient(api_token="token")
+
+    with pytest.raises(LookupError, match="invalid JSON"):
+        asyncio.run(client._api_get("/domains"))
+
+
+def test_linode_dns_client_list_domains_ignores_malformed_payload(monkeypatch):
+    client = linode_dns.LinodeDNSClient(api_token="token")
+
+    async def fake_get(path, *, params=None, client=None):
+        assert client is not None
+        return {"data": "not-a-list"}
+
+    monkeypatch.setattr(client, "_api_get", fake_get)
+
+    assert asyncio.run(client.list_domains()) == []
+
+
+def test_linode_dns_credentials_and_build_client(monkeypatch):
+    monkeypatch.setattr(
+        linode_dns,
+        "get_settings",
+        lambda: SimpleNamespace(LINODE_API_TOKEN="", LINODE_TOKEN="fallback"),
+    )
+
+    credentials = linode_dns.get_linode_dns_credentials()
+    client = linode_dns.build_linode_dns_client()
+
+    assert credentials.configured is True
+    assert client.api_token == "fallback"
+
+    monkeypatch.setattr(
+        linode_dns,
+        "get_settings",
+        lambda: SimpleNamespace(LINODE_API_TOKEN="", LINODE_TOKEN=""),
+    )
+    assert linode_dns.get_linode_dns_credentials().configured is False
+    with pytest.raises(LookupError, match="not configured"):
+        linode_dns.build_linode_dns_client()
+
+
 def test_route53_dns_client_list_zones_uses_boto3_paginator():
     boto_client = FakeRoute53BotoClient(
         pages=[
@@ -694,6 +821,58 @@ def test_discover_hetzner_zones_scopes_default_workspace_import_state(db_session
     assert zones[0]["imported"] is False
 
 
+def test_discover_linode_domains_marks_imported_and_filters_invalid(db_session):
+    workspace = get_or_create_default_workspace(db_session)
+    db_session.add(Domain(name=DOMAIN, workspace_id=workspace.id))
+    db_session.commit()
+    client = FakeLinodeDNSClient(
+        domains=[
+            {"id": 1, "domain": f"{DOMAIN}.", "type": "master"},
+            {"id": 2, "domain": "New.EXAMPLE", "type": "slave"},
+            {"id": None, "domain": "invalid.example"},
+            {"id": 3, "domain": ""},
+        ]
+    )
+
+    with patch("app.services.linode_dns.build_linode_dns_client", return_value=client):
+        domains = asyncio.run(
+            linode_dns.discover_linode_domains(db_session, workspace_id=workspace.id)
+        )
+
+    assert domains == [
+        {
+            "id": "1",
+            "name": DOMAIN,
+            "status": "master",
+            "account_name": "Linode DNS",
+            "imported": True,
+        },
+        {
+            "id": "2",
+            "name": "new.example",
+            "status": "slave",
+            "account_name": "Linode DNS",
+            "imported": False,
+        },
+    ]
+
+
+def test_discover_linode_domains_scopes_default_workspace_import_state(db_session):
+    default_workspace = get_or_create_default_workspace(db_session)
+    other_workspace = Workspace(slug="linode-other", name="Linode Other", active=True)
+    db_session.add(other_workspace)
+    db_session.commit()
+    db_session.add(Domain(name=DOMAIN, workspace_id=other_workspace.id))
+    db_session.commit()
+    client = FakeLinodeDNSClient(domains=[{"id": 1, "domain": DOMAIN}])
+
+    with patch("app.services.linode_dns.build_linode_dns_client", return_value=client):
+        domains = asyncio.run(linode_dns.discover_linode_domains(db_session))
+
+    assert default_workspace.id != other_workspace.id
+    assert domains[0]["imported"] is False
+
+
 def test_discover_route53_zones_marks_imported_and_filters_invalid(db_session):
     workspace = get_or_create_default_workspace(db_session)
     db_session.add(Domain(name=DOMAIN, workspace_id=workspace.id))
@@ -833,6 +1012,54 @@ def test_import_hetzner_domains_reports_globally_existing_domain(db_session):
     assert result["existing"] == [DOMAIN]
     assert result["skipped"] == []
     assert db_session.query(Domain).filter(Domain.name == DOMAIN).count() == 1
+
+
+def test_import_linode_domains_imports_requested_and_skips_others(db_session):
+    async def fake_discover(_db, workspace_id=None):
+        return [
+            {"id": "1", "name": DOMAIN, "imported": False},
+            {"id": "2", "name": "skip.example", "imported": False},
+        ]
+
+    with patch("app.services.linode_dns.discover_linode_domains", new=fake_discover):
+        result = asyncio.run(
+            linode_dns.import_linode_domains(
+                db_session,
+                requested_domains=[f"{DOMAIN}."],
+            )
+        )
+
+    assert result["imported"] == [DOMAIN]
+    assert result["existing"] == []
+    assert result["skipped"] == ["skip.example"]
+    imported = db_session.query(Domain).filter(Domain.name == DOMAIN).first()
+    assert imported is not None
+    assert imported.verified is True
+    assert imported.description == "DNS-discovered from Linode DNS domain import"
+
+
+def test_import_linode_domains_reports_globally_existing_and_deduplicates(db_session):
+    other_workspace = Workspace(slug="linode-existing", name="Linode Existing", active=True)
+    db_session.add(other_workspace)
+    db_session.commit()
+    db_session.add(Domain(name=DOMAIN, workspace_id=other_workspace.id))
+    db_session.commit()
+
+    async def fake_discover(_db, workspace_id=None):
+        return [
+            {"id": "1", "name": DOMAIN, "imported": False},
+            {"id": "2", "name": DOMAIN, "imported": False},
+            {"id": "3", "name": "new.example", "imported": False},
+        ]
+
+    with patch("app.services.linode_dns.discover_linode_domains", new=fake_discover):
+        result = asyncio.run(linode_dns.import_linode_domains(db_session))
+
+    assert result["imported"] == ["new.example"]
+    assert result["existing"] == [DOMAIN]
+    assert result["skipped"] == []
+    assert db_session.query(Domain).filter(Domain.name == DOMAIN).count() == 1
+    assert db_session.query(Domain).filter(Domain.name == "new.example").count() == 1
 
 
 def test_import_route53_domains_imports_requested_and_skips_others(db_session):
@@ -1007,6 +1234,36 @@ def test_dns_provider_import_preview_wraps_hetzner_zones(db_session):
     assert "Hetzner DNS zone" in result["zones"][0]["next_action"]
 
 
+def test_dns_provider_import_preview_wraps_linode_domains(db_session):
+    async def fake_discover(_db, workspace_id=None):
+        assert workspace_id == 123
+        return [
+            {
+                "id": "1",
+                "name": DOMAIN,
+                "status": "master",
+                "account_name": "Linode DNS",
+                "imported": False,
+            }
+        ]
+
+    with patch("app.services.dns_provider_imports.discover_linode_domains", new=fake_discover):
+        result = asyncio.run(
+            dns_provider_imports.preview_dns_provider_import(
+                db_session,
+                provider="linode",
+                workspace_id=123,
+            )
+        )
+
+    assert result["provider"] == "linode"
+    assert result["provider_name"] == "Linode DNS"
+    assert result["total_discovered"] == 1
+    assert result["importable_count"] == 1
+    assert result["zones"][0]["domain"] == DOMAIN
+    assert "Linode DNS domain" in result["zones"][0]["next_action"]
+
+
 def test_dns_provider_import_preview_wraps_route53_zones(db_session):
     async def fake_discover(_db, workspace_id=None):
         assert workspace_id == 123
@@ -1060,6 +1317,32 @@ def test_dns_provider_import_apply_wraps_hetzner_import(db_session):
 
     assert result["provider"] == "hetzner"
     assert result["provider_name"] == "Hetzner DNS"
+    assert result["imported"] == [DOMAIN]
+
+
+def test_dns_provider_import_apply_wraps_linode_import(db_session):
+    async def fake_import(_db, requested_domains=None, workspace_id=None):
+        assert requested_domains == [DOMAIN]
+        assert workspace_id == 456
+        return {
+            "imported": [DOMAIN],
+            "existing": [],
+            "skipped": [],
+            "total_discovered": 1,
+        }
+
+    with patch("app.services.dns_provider_imports.import_linode_domains", new=fake_import):
+        result = asyncio.run(
+            dns_provider_imports.import_dns_provider_domains(
+                db_session,
+                provider="linode",
+                requested_domains=[DOMAIN],
+                workspace_id=456,
+            )
+        )
+
+    assert result["provider"] == "linode"
+    assert result["provider_name"] == "Linode DNS"
     assert result["imported"] == [DOMAIN]
 
 
@@ -1409,6 +1692,10 @@ def test_dns_provider_capabilities_mark_cloudflare_import_available(authed_clien
     assert providers["route53"]["import_available"] is True
     assert providers["route53"]["zone_import_status"] == "ready"
     assert "iam_role_external_id" in providers["route53"]["auth_models"]
+    assert providers["linode"]["import_available"] is True
+    assert providers["linode"]["zone_import_status"] == "ready"
+    assert providers["linode"]["record_write_status"] == "lexicon_available"
+    assert "personal_access_token" in providers["linode"]["auth_models"]
 
 
 def test_cloudflare_import_endpoint_returns_import_summary(authed_client: TestClient):
