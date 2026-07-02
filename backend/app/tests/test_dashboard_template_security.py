@@ -116,6 +116,9 @@ def test_upload_uses_external_page_script_for_csp_migration():
     assert 'src="/static/js/upload-page.js"' in template
     assert "uploadForm()" in template
     assert "/api/v1/reports/upload" in script
+    assert "AbortController" in script
+    assert "UPLOAD_TIMEOUT_MS" in script
+    assert "this.isUploading = false" in script
     assert "dmarq:refresh-data" in script
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
