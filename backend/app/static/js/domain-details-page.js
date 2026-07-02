@@ -513,7 +513,12 @@ function domainDetailsApp(domainId) {
 
         workspaceHeaders() {
             const headers = this.apiHeaders();
-            const workspaceId = localStorage.getItem('dmarq.selectedWorkspaceId');
+            let workspaceId = null;
+            try {
+                workspaceId = window.localStorage?.getItem('dmarq.selectedWorkspaceId') || null;
+            } catch (error) {
+                workspaceId = null;
+            }
             if (workspaceId) {
                 headers['X-DMARQ-Workspace-ID'] = workspaceId;
             }

@@ -417,8 +417,8 @@ def test_domain_details_exposes_health_history_without_html_injection():
     assert "encodeURIComponent(this.domainId)" in script
     assert "health-score-chart" in template
     assert "x-html" not in template
-    assert 'src="/static/js/domain-details-page.js"' in template
-    assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
+    assert _has_script_src(template, "/static/js/domain-details-page.js")
+    assert not _has_inline_script(template)
 
 
 def test_domain_details_exposes_volume_scale_controls_without_html_injection():
