@@ -50,6 +50,40 @@ def test_identify_sender_matches_postmark_mtasv_domains():
     )
 
 
+def test_identify_sender_does_not_treat_auth_domain_only_as_postmark():
+    sender = identify_sender(
+        "74.6.131.41",
+        {
+            "spf_domains": ["pm.mtasv.net"],
+            "dmarc_result": "pass",
+            "dmarc_fail_count": 0,
+        },
+        hostname="sonic303-2.consmr.mail.bf2.yahoo.com",
+        domain="cklnet.com",
+    )
+
+    assert sender["id"] == "unknown-sender"
+    assert sender["name"] == "Unknown sender"
+    assert sender["status"] == "unknown"
+
+
+def test_identify_sender_keeps_owned_infrastructure_ahead_of_auth_domain_hint():
+    sender = identify_sender(
+        "2a01:4f8:c17:311b::1",
+        {
+            "dkim_domains": ["ab.mtasv.net"],
+            "dmarc_result": "mixed",
+            "dmarc_fail_count": 20,
+        },
+        hostname="mx1.cklnet.com",
+        domain="cklnet.com",
+    )
+
+    assert sender["id"] == "owned-infrastructure"
+    assert sender["name"] == "Owned infrastructure"
+    assert sender["provider"] == "cklnet.com"
+
+
 def test_identify_sender_matches_major_email_service_domains():
     cases = [
         ("mailgun", "mailgun.org", "mxa.mailgun.org"),
@@ -82,6 +116,7 @@ def test_identify_sender_matches_major_email_service_domains():
 def test_identify_sender_flags_ambiguous_provider_evidence():
     source = {
         "spf_domains": ["google.com", "stripe.com"],
+        "dkim_selectors": ["google", "stripe"],
         "dmarc_result": "pass",
     }
 

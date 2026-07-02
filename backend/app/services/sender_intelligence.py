@@ -694,12 +694,12 @@ def _profile_score(
 
     host_matches = _contains_any(host_values, profile.hostname_tokens)
     if host_matches:
-        score += 45
+        score += 60
         evidence.append(f"PTR hostname matched {host_matches[0]}")
 
     domain_matches = _contains_any(domain_values, profile.domain_tokens)
     if domain_matches:
-        score += 30
+        score += 15
         evidence.append(f"Authentication domain matched {domain_matches[0]}")
 
     selector_matches = _contains_any(selector_values, profile.selector_tokens)
@@ -754,6 +754,13 @@ def identify_sender(
     senders are named, ambiguous matches are flagged, and unknown failing
     sources stay visibly distinct from legitimate but misconfigured services.
     """
+    suspicious_hostname = bool(
+        hostname and any(token in hostname.lower() for token in ("unknown", "forwarder"))
+    )
+    owned = None if suspicious_hostname else _owned_infrastructure(domain, hostname)
+    if owned:
+        return owned
+
     profile_matches = []
     for profile in SENDER_PROFILES:
         score, evidence = _profile_score(profile, hostname, source)
@@ -792,13 +799,6 @@ def identify_sender(
             "remediation_hint": best_profile.remediation_hint,
             "docs_url": best_profile.docs_url,
         }
-
-    suspicious_hostname = bool(
-        hostname and any(token in hostname.lower() for token in ("unknown", "forwarder"))
-    )
-    owned = None if suspicious_hostname else _owned_infrastructure(domain, hostname)
-    if owned:
-        return owned
 
     dmarc_failed = (
         int(source.get("dmarc_fail_count", 0) or 0) > 0 or source.get("dmarc_result") == "fail"
