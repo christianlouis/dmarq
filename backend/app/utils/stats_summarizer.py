@@ -527,14 +527,30 @@ class StatsSummarizer:
         db: Session,
         context: _DomainStatsContext,
     ) -> _DomainStatsTotals:
+        totals_query = (
+            db.query(
+                func.coalesce(func.sum(ReportRecord.count), 0).label("total"),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                (ReportRecord.dkim == "pass") | (ReportRecord.spf == "pass"),
+                                ReportRecord.count,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("compliant"),
+            )
+            .join(DMARCReport, ReportRecord.report_id == DMARCReport.id)
+            .filter(DMARCReport.domain_id == context.domain_pk)
+        )
+        row = self._apply_domain_window(totals_query, context.window).first()
+
         return _DomainStatsTotals(
-            total_emails=self._sum_domain_emails(db, context.domain_pk, context.window),
-            compliant_emails=self._sum_domain_emails(
-                db,
-                context.domain_pk,
-                context.window,
-                compliant_only=True,
-            ),
+            total_emails=int(row.total) if row else 0,
+            compliant_emails=int(row.compliant) if row else 0,
             reports_processed=self._count_domain_reports(
                 db,
                 context.domain_pk,
