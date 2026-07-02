@@ -95,7 +95,7 @@
                                 {% endcall %}
                             {% endcall %}
                         </template>
-                        <template x-for="(report, index) in filteredReports" :key="index">
+                        <template x-for="(report, index) in (!loading && !error ? filteredReports : [])" :key="index">
                             {% call tr() %}
                                 {% call td() %}
                                     <div x-text="formatDate(report.end_date)"></div>

@@ -6,7 +6,7 @@ function reportsApp() {
         },
         domains: [],
         reports: [],
-        loading: false,
+        loading: true,
         error: '',
 
         init() {

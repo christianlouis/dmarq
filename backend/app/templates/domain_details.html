@@ -1377,7 +1377,7 @@
                             <template x-if="!sourceIntelligence.loading && !sourceIntelligence.error && !sourceIntelligence.regions.length">
                                 <p class="text-sm text-muted-foreground">No region data available for this time period.</p>
                             </template>
-                            <template x-for="region in sourceIntelligence.regions.slice(0, 4)" :key="region.region">
+                            <template x-for="region in (!sourceIntelligence.loading && !sourceIntelligence.error ? sourceIntelligence.regions.slice(0, 4) : [])" :key="region.region">
                                 <div class="rounded-md border border-[#e6e3e1] bg-white p-3">
                                     <div class="flex items-start justify-between gap-3">
                                         <div>
@@ -1413,7 +1413,7 @@
                             <template x-if="!sourceIntelligence.loading && !sourceIntelligence.error && !sourceIntelligence.anomalies.length">
                                 <p class="text-sm text-muted-foreground">No notable source changes detected.</p>
                             </template>
-                            <template x-for="anomaly in sourceIntelligence.anomalies.slice(0, 4)" :key="anomaly.type + anomaly.source_ip">
+                            <template x-for="anomaly in (!sourceIntelligence.loading && !sourceIntelligence.error ? sourceIntelligence.anomalies.slice(0, 4) : [])" :key="anomaly.type + anomaly.source_ip">
                                 <a :href="anomaly.source_ip ? '#sending-sources' : '#reports'"
                                    class="block rounded-md border border-[#e6e3e1] bg-white p-3 transition hover:border-[#2f9da5] hover:shadow-sm">
                                     <div class="flex items-start gap-2">
@@ -1496,7 +1496,7 @@
                                 </td>
                             </tr>
                         </template>
-                        <template x-for="source in filteredSources" :key="source.ip">
+                        <template x-for="source in (!sourcesLoading && !sourcesError ? filteredSources : [])" :key="source.ip">
                             {% call tr() %}
                                 {% call td() %}
                                     <div class="flex flex-col">
@@ -1785,7 +1785,7 @@
                                 </td>
                             </tr>
                         </template>
-                        <template x-for="report in reports" :key="report.id">
+                        <template x-for="report in (!reportsLoading && !reportsError ? reports : [])" :key="report.id">
                             {% call tr() %}
                                 {% call td() %}
                                     <span x-text="formatDate(report.begin_date)"></span>

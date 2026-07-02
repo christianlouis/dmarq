@@ -162,7 +162,9 @@ def test_reports_page_distinguishes_loading_error_and_empty_states():
     assert "Loading DMARC reports..." in template
     assert "Reports could not be loaded." in script
     assert "No reports match this filter." in template
-    assert "x-show=\"!loading && error\"" in template
+    assert 'x-show="!loading && error"' in template
+    assert "(!loading && !error ? filteredReports : [])" in template
+    assert "loading: true" in script
     assert "throw new Error('Reports could not be loaded." in script
 
 
@@ -190,8 +192,8 @@ def test_domains_page_distinguishes_loading_error_and_empty_states():
     assert "Loading monitored domains..." in template
     assert "Domains could not be loaded." in script
     assert "No domains found. Add a domain to get started." in template
-    assert "x-if=\"!loading && loadError\"" in template
-    assert "x-if=\"!loading && !loadError && domains.length === 0\"" in template
+    assert 'x-if="!loading && loadError"' in template
+    assert 'x-if="!loading && !loadError && domains.length === 0"' in template
 
 
 def test_upload_uses_external_page_script_for_csp_migration():
@@ -354,6 +356,16 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "Loading source intelligence..." in template
     assert "Source intelligence could not be loaded." in template
     assert "No sending sources match this filter." in template
+    assert (
+        "(!sourceIntelligence.loading && !sourceIntelligence.error ? sourceIntelligence.regions.slice(0, 4) : [])"
+        in template
+    )
+    assert (
+        "(!sourceIntelligence.loading && !sourceIntelligence.error ? sourceIntelligence.anomalies.slice(0, 4) : [])"
+        in template
+    )
+    assert "(!sourcesLoading && !sourcesError ? filteredSources : [])" in template
+    assert "(!reportsLoading && !reportsError ? reports : [])" in template
     assert "x-html" not in template
 
 
