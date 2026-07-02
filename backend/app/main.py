@@ -789,6 +789,7 @@ def _trigger_poll_imap_source(source: MailSource, db, days: int = 7) -> dict:
     return {
         "source_id": source.id,
         "name": source.name,
+        "method": "IMAP",
         "success": results["success"],
         "processed": results.get("processed", 0),
         "reports_found": results.get("reports_found", 0),
@@ -830,6 +831,7 @@ def _trigger_poll_gmail_source(source: MailSource, db) -> dict:
     return {
         "source_id": source.id,
         "name": source.name,
+        "method": "GMAIL_API",
         "success": results["success"],
         "processed": results.get("processed", 0),
         "reports_found": results.get("reports_found", 0),
@@ -875,6 +877,7 @@ def _trigger_poll_m365_source(source: MailSource, db, days: int = 7) -> dict:
     return {
         "source_id": source.id,
         "name": source.name,
+        "method": "M365_GRAPH",
         "success": results["success"],
         "processed": results.get("processed", 0),
         "reports_found": results.get("reports_found", 0),
@@ -894,6 +897,7 @@ def _poll_source_for_trigger(source: MailSource, db, days: int = 7) -> dict:  # 
             return {
                 "source_id": source.id,
                 "name": source.name,
+                "method": "GMAIL_API",
                 "skipped": True,
                 "reason": "Gmail account not yet authorised",
             }
@@ -904,6 +908,7 @@ def _poll_source_for_trigger(source: MailSource, db, days: int = 7) -> dict:  # 
             return {
                 "source_id": source.id,
                 "name": source.name,
+                "method": "GMAIL_API",
                 "success": False,
                 "error": "Failed to poll. Check server logs for details.",
             }
@@ -912,6 +917,7 @@ def _poll_source_for_trigger(source: MailSource, db, days: int = 7) -> dict:  # 
             return {
                 "source_id": source.id,
                 "name": source.name,
+                "method": "M365_GRAPH",
                 "skipped": True,
                 "reason": "Microsoft 365 account not yet authorised",
             }
@@ -922,6 +928,7 @@ def _poll_source_for_trigger(source: MailSource, db, days: int = 7) -> dict:  # 
             return {
                 "source_id": source.id,
                 "name": source.name,
+                "method": "M365_GRAPH",
                 "success": False,
                 "error": "Failed to poll. Check server logs for details.",
             }
@@ -933,12 +940,14 @@ def _poll_source_for_trigger(source: MailSource, db, days: int = 7) -> dict:  # 
             return {
                 "source_id": source.id,
                 "name": source.name,
+                "method": "IMAP",
                 "success": False,
                 "error": "Failed to poll. Check server logs for details.",
             }
     return {
         "source_id": source.id,
         "name": source.name,
+        "method": source.method,
         "skipped": True,
         "reason": f"method '{source.method}' not yet implemented",
     }
@@ -985,7 +994,7 @@ async def trigger_imap_poll(
     days: int = Query(7, ge=1, le=365, title="Number of days to fetch for mail sources"),
 ):
     """
-    Manually trigger IMAP polling for all enabled mail sources (admin only).
+    Manually trigger polling for all enabled mail sources (admin only).
 
     Security: Requires either X-API-Key header or Bearer token
     """
@@ -1001,20 +1010,75 @@ async def trigger_imap_poll(
 
     return {
         "success": all(r.get("success", True) for r in results_summary),
+        "message": "Mail-source polling completed.",
         "timestamp": last_check_time.isoformat() if last_check_time else None,
         "days": days,
+        "sources_polled": len(results_summary),
         "sources": results_summary,
+        "source_methods": sorted(
+            {
+                str(result.get("method") or "").upper()
+                for result in results_summary
+                if result.get("method")
+            }
+        ),
         "authenticated_by": auth.get("auth_type"),
     }
 
 
-# API endpoint to check status of IMAP polling (public, read-only)
+def _source_display_label(source: MailSource) -> str:
+    """Return a short, non-secret label for a configured mail source."""
+    method = (source.method or "IMAP").upper()
+    if method == "GMAIL_API":
+        account = source.gmail_email or source.name
+        return f"Gmail API: {account}"
+    if method == "M365_GRAPH":
+        account = source.m365_email or source.m365_mailbox or source.name
+        return f"Microsoft 365: {account}"
+    if method == "IMAP":
+        mailbox = source.username or source.name
+        return f"IMAP: {mailbox}"
+    return f"{method}: {source.name}"
+
+
+def _mail_source_status_summary() -> dict:
+    """Summarize enabled report intake sources without exposing credentials."""
+    db = SessionLocal()
+    try:
+        enabled_sources = (
+            db.query(MailSource).filter(MailSource.enabled == True).all()  # noqa: E712
+        )
+        by_method: dict[str, int] = {}
+        source_labels = []
+        latest_checked = None
+        for source in enabled_sources:
+            method = (source.method or "IMAP").upper()
+            by_method[method] = by_method.get(method, 0) + 1
+            source_labels.append(_source_display_label(source))
+            if source.last_checked and (
+                latest_checked is None or source.last_checked > latest_checked
+            ):
+                latest_checked = source.last_checked
+
+        return {
+            "enabled_sources": len(enabled_sources),
+            "sources_by_method": by_method,
+            "source_labels": source_labels,
+            "latest_source_check": latest_checked.isoformat() if latest_checked else None,
+        }
+    finally:
+        db.close()
+
+
+# API endpoint to check status of report intake polling (public, read-only)
 @app.get("/api/v1/poll-status")
 async def get_poll_status():
     """
-    Get the status of IMAP polling (read-only, no authentication required).
+    Get the status of report intake polling (read-only, no authentication required).
     """
+    source_summary = await run_in_threadpool(_mail_source_status_summary)
     return {
         "is_running": background_task is not None and not background_task.done(),
         "last_check": last_check_time.isoformat() if last_check_time else None,
+        **source_summary,
     }
