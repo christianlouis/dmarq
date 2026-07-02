@@ -249,6 +249,29 @@ def _status_from_risk(risk_score: int, listings: List[str], reported: Optional[s
     return "unknown"
 
 
+def _external_reputation_evidence(
+    feed_result: Optional[IPFeedReputation],
+) -> Tuple[int, List[str], List[ReputationEvidence]]:
+    risk_score = 0
+    evidence: List[ReputationEvidence] = []
+    listings = _external_listings(feed_result)
+    if listings:
+        risk_score += 45
+        evidence.append(
+            ReputationEvidence(
+                "External reputation feeds",
+                ", ".join(listings),
+                "external",
+            )
+        )
+    suspicious_notes = _external_suspicious_notes(feed_result)
+    if suspicious_notes:
+        risk_score += 20
+        evidence.extend(suspicious_notes)
+    evidence.extend(_external_feed_notes(feed_result))
+    return risk_score, listings, evidence
+
+
 def _source_reputation(
     source: Dict[str, Any],
     sender: Optional[Dict[str, Any]],
@@ -286,19 +309,11 @@ def _source_reputation(
     elif reported == "clean":
         evidence.append(ReputationEvidence("Reputation status", "clean", "metadata"))
 
-    external_listings = _external_listings(feed_result)
+    external_risk, external_listings, external_evidence = _external_reputation_evidence(feed_result)
     if external_listings:
-        risk_score += 45
         listings.extend(item for item in external_listings if item not in listings)
-        evidence.append(
-            ReputationEvidence(
-                "External reputation feeds",
-                ", ".join(external_listings),
-                "external",
-            )
-        )
-    for item in _external_feed_notes(feed_result):
-        evidence.append(item)
+    risk_score += external_risk
+    evidence.extend(external_evidence)
 
     if sender and sender.get("status") in {"unknown", "suspicious"}:
         risk_score += 18 if sender.get("status") == "unknown" else 25
@@ -364,6 +379,22 @@ def _external_feed_notes(feed_result: Optional[IPFeedReputation]) -> List[Reputa
                 ReputationEvidence(
                     f"{item.provider_name} lookup",
                     item.detail or item.status,
+                    "external",
+                )
+            )
+    return notes
+
+
+def _external_suspicious_notes(feed_result: Optional[IPFeedReputation]) -> List[ReputationEvidence]:
+    if feed_result is None:
+        return []
+    notes: List[ReputationEvidence] = []
+    for item in feed_result.evidence:
+        if item.status == "suspicious":
+            notes.append(
+                ReputationEvidence(
+                    f"{item.provider_name} reputation",
+                    item.detail or "Provider returned a non-clean reputation signal.",
                     "external",
                 )
             )

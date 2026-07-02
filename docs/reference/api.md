@@ -796,12 +796,15 @@ anomalies without contacting third-party reputation services.
 
 When explicitly enabled by configuration, DMARQ can enrich this result with
 cached external reputation feed lookups. The first provider registry supports
-Spamhaus DQS, SpamCop SCBL, and Barracuda BRBL. External lookups are opt-in,
-bounded, cached, skipped for non-global IPs, and disabled in demo mode. Rows
-include a bounded `risk_score`, `status`, optional listing names, first/last
-seen timestamps when report windows are available, evidence, and safe
-remediation steps. The response also includes a `feeds` metadata map so UIs can
-show which external providers are available and whether they are active.
+Spamhaus DQS, Abusix Mail Intelligence, SpamCop SCBL, Barracuda BRBL, and
+AbuseIPDB. DNSBL providers create listing evidence when they return a positive
+response; AbuseIPDB contributes abuse-confidence context and only becomes a
+strong finding when the configured score threshold is met. External lookups are
+opt-in, bounded, cached, skipped for non-global IPs, and disabled in demo mode.
+Rows include a bounded `risk_score`, `status`, optional listing names,
+first/last seen timestamps when report windows are available, evidence, and
+safe remediation steps. The response also includes a `feeds` metadata map so
+UIs can show which external providers are available and whether they are active.
 `GET /domains/{domain_id}/sources` embeds the same per-source `reputation`
 object next to sender, geo, anomaly, and SPF/DKIM context.
 

@@ -86,9 +86,10 @@ Completed or substantially delivered:
 - Passive sender IP reputation scoring from observed report evidence, known
   sender context, local/demo metadata, reserved-address detection, source
   anomalies, and an opt-in external DNSBL feed registry. Feed lookups are
-  disabled by default, cached, and currently cover Spamhaus DQS, SpamCop SCBL,
-  and Barracuda BRBL as the first provider set. Deeper commercial reputation
-  feed contracts and UI configuration remain follow-up work.
+  disabled by default, cached, and currently cover Spamhaus DQS, Abusix Mail
+  Intelligence, SpamCop SCBL, Barracuda BRBL, and AbuseIPDB as the first
+  provider set. Deeper commercial reputation feed contracts and UI
+  configuration remain follow-up work.
 - Cloudflare read-only inspection, DNS snapshots, and DNS change history.
 - Notifications, alert rules, alert history, and Apprise delivery.
 - API tokens, webhooks, SIEM templates, and ticketing/chatops templates.
@@ -115,9 +116,8 @@ The main open strategic issues are:
 - [Issue #384](https://github.com/christianlouis/dmarq/issues/384): autonomous
   mail health remediation loop with human approval.
 - [Issue #385](https://github.com/christianlouis/dmarq/issues/385): sender IP
-  reputation and blacklist monitoring. The first shipped slice is passive,
-  cached source reputation evidence; external blacklist/reputation feed
-  integrations remain follow-up work.
+  reputation and blacklist monitoring. The first shipped slices provide passive,
+  cached source reputation evidence plus opt-in DNSBL and AbuseIPDB enrichment.
 - [Issue #386](https://github.com/christianlouis/dmarq/issues/386): ecosystem
   integration roadmap.
 - [Issue #387](https://github.com/christianlouis/dmarq/issues/387):
