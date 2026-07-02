@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -108,8 +109,13 @@ async def _resolve_with_fallback(
 
     try:
         fallback_result = await fallback.check_domain(domain, selectors=selectors)
-    except Exception as exc:  # pragma: no cover - defensive against DNS/network issues
-        logger.debug("Fallback DNS resolver failed for %s: %s", domain, exc)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        logger.debug(
+            "Fallback DNS resolver failed with %s; returning primary DNS result",
+            exc.__class__.__name__,
+        )
         return result
 
     return fallback_result if _has_dns_evidence(fallback_result) else result
