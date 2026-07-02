@@ -1560,16 +1560,29 @@
                                             <template x-if="source.geo?.bgp_prefix">
                                                 <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-mono font-medium text-base-content/80" x-text="source.geo.bgp_prefix"></span>
                                             </template>
+                                            <template x-if="source.geo?.city">
+                                                <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-medium text-base-content/80" x-text="source.geo.city"></span>
+                                            </template>
                                             <template x-if="source.geo?.registry">
                                                 <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-medium uppercase text-base-content/70" x-text="source.geo.registry"></span>
                                             </template>
                                         </div>
-                                        <template x-if="source.geo?.allocated || source.geo?.network_source">
+                                        <template x-if="source.geo?.allocated || source.geo?.organization || source.geo?.domain || source.geo?.network_source">
                                             <p class="text-muted-foreground">
                                                 <span x-show="source.geo?.allocated">Allocated <span x-text="source.geo.allocated"></span></span>
-                                                <span x-show="source.geo?.allocated && source.geo?.network_source"> · </span>
+                                                <span x-show="source.geo?.allocated && (source.geo?.organization || source.geo?.domain || source.geo?.network_source)"> · </span>
+                                                <span x-show="source.geo?.organization" x-text="source.geo.organization"></span>
+                                                <span x-show="source.geo?.organization && source.geo?.domain"> · </span>
+                                                <span x-show="source.geo?.domain" x-text="source.geo.domain"></span>
+                                                <span x-show="(source.geo?.organization || source.geo?.domain) && source.geo?.network_source"> · </span>
                                                 <span x-show="source.geo?.network_source">Network data: <span x-text="source.geo.network_source"></span></span>
                                             </p>
+                                        </template>
+                                        <template x-if="source.geo?.radar_url">
+                                            <a class="text-xs font-medium text-primary hover:underline"
+                                               :href="source.geo.radar_url"
+                                               target="_blank"
+                                               rel="noopener noreferrer">Open in Cloudflare Radar</a>
                                         </template>
                                         <template x-if="source.geo?.network_error && !source.geo?.asn && !source.geo?.network">
                                             <p class="text-muted-foreground" x-text="source.geo.network_error"></p>

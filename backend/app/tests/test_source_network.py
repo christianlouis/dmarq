@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 
 from app.services.source_network import (
@@ -155,6 +157,163 @@ async def test_lookup_source_network_reuses_asn_name_lookup_cache():
     assert second.as_name == "EXAMPLE-AS, US"
 
 
+async def test_lookup_source_network_prefers_ipinfo_lite(monkeypatch):
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        @staticmethod
+        def read():
+            return (
+                b'{"ip":"104.245.209.200","network":"104.245.208.0/21",'
+                b'"asn":"AS23352","as_name":"SERVERCENTRAL - DEFT.COM",'
+                b'"as_domain":"deft.com","country_code":"US",'
+                b'"country":"United States","continent":"North America"}'
+            )
+
+    captured = {}
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["authorization"] = request.headers.get("Authorization")
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr(
+        "app.services.source_network.get_settings",
+        lambda: SimpleNamespace(IPINFO_TOKEN="secret-token", IPINFO_TIMEOUT_SECONDS=1.5),
+    )
+    monkeypatch.setattr("app.services.source_network.urlopen", fake_urlopen)
+    provider = FakeProvider()
+
+    result = await lookup_source_network(provider, "104.245.209.200")
+
+    assert provider.queries == []
+    assert captured["url"] == "https://api.ipinfo.io/lite/104.245.209.200"
+    assert captured["authorization"] == "Bearer secret-token"
+    assert captured["timeout"] == 1.5
+    assert result.source == "ipinfo-lite"
+    assert result.asn == "AS23352"
+    assert result.as_name == "SERVERCENTRAL - DEFT.COM"
+    assert result.bgp_prefix == "104.245.208.0/21"
+    assert result.country == "United States"
+    assert result.region == "North America"
+    assert result.error is None
+
+
+async def test_lookup_source_network_uses_ipgeolocation_when_configured(monkeypatch):
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        @staticmethod
+        def read():
+            return (
+                b'{"ip":"104.245.209.200","location":{"continent_name":"North America",'
+                b'"country_code2":"US","country_name":"United States","city":"Chicago",'
+                b'"latitude":"41.87810","longitude":"-87.62980"},'
+                b'"asn":{"as_number":"AS23352","organization":"SERVERCENTRAL - DEFT.COM",'
+                b'"country":"US","route":"104.245.208.0/21"}}'
+            )
+
+    captured = {}
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr(
+        "app.services.source_network.get_settings",
+        lambda: SimpleNamespace(
+            IPINFO_TOKEN=None,
+            IPGEOLOCATION_API_KEY="geo-key",
+            IPGEOLOCATION_TIMEOUT_SECONDS=1.25,
+            CLOUDFLARE_RADAR_API_TOKEN=None,
+            CLOUDFLARE_API_TOKEN=None,
+        ),
+    )
+    monkeypatch.setattr("app.services.source_network.urlopen", fake_urlopen)
+    provider = FakeProvider()
+
+    result = await lookup_source_network(provider, "104.245.209.200")
+
+    assert provider.queries == []
+    assert captured["url"].startswith("https://api.ipgeolocation.io/v3/ipgeo?")
+    assert "apiKey=geo-key" in captured["url"]
+    assert "ip=104.245.209.200" in captured["url"]
+    assert captured["timeout"] == 1.25
+    assert result.source == "ipgeolocation"
+    assert result.asn == "AS23352"
+    assert result.as_name == "SERVERCENTRAL - DEFT.COM"
+    assert result.bgp_prefix == "104.245.208.0/21"
+    assert result.country == "United States"
+    assert result.region == "North America"
+    assert result.city == "Chicago"
+    assert result.radar_url == "https://radar.cloudflare.com/ip/104.245.209.200"
+    assert result.error is None
+
+
+async def test_lookup_source_network_uses_cloudflare_radar_when_configured(monkeypatch):
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        @staticmethod
+        def read():
+            return (
+                b'{"success":true,"result":{"ip":{"asn":"23352","asnLocation":"US",'
+                b'"asnName":"SERVERCENTRAL","asnOrgName":"Deft.com",'
+                b'"ip":"104.245.209.200","ipVersion":"IPv4",'
+                b'"location":"US","locationName":"United States"}}}'
+            )
+
+    captured = {}
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["authorization"] = request.headers.get("Authorization")
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr(
+        "app.services.source_network.get_settings",
+        lambda: SimpleNamespace(
+            IPINFO_TOKEN=None,
+            IPGEOLOCATION_API_KEY=None,
+            CLOUDFLARE_RADAR_API_TOKEN="radar-token",
+            CLOUDFLARE_RADAR_TIMEOUT_SECONDS=1.75,
+        ),
+    )
+    monkeypatch.setattr("app.services.source_network.urlopen", fake_urlopen)
+    provider = FakeProvider()
+
+    result = await lookup_source_network(provider, "104.245.209.200")
+
+    assert provider.queries == []
+    assert captured["url"].startswith("https://api.cloudflare.com/client/v4/radar/entities/ip?")
+    assert "ip=104.245.209.200" in captured["url"]
+    assert captured["authorization"] == "Bearer radar-token"
+    assert captured["timeout"] == 1.75
+    assert result.source == "cloudflare-radar"
+    assert result.asn == "AS23352"
+    assert result.as_name == "Deft.com"
+    assert result.country == "United States"
+    assert result.cloudflare_asn_name == "SERVERCENTRAL"
+    assert result.cloudflare_asn_org_name == "Deft.com"
+    assert result.radar_url == "https://radar.cloudflare.com/ip/104.245.209.200"
+    assert result.error is None
+
+
 async def test_lookup_source_network_skips_non_global_ip():
     provider = FakeProvider()
 
@@ -221,8 +380,12 @@ def test_merge_network_into_geo_preserves_report_metadata_and_adds_prefix():
         country_code="DE",
         country="Germany",
         region="Europe",
+        city="Falkenstein",
         registry="ripencc",
         allocated="2004-02-17",
+        organization="Hetzner Online GmbH",
+        domain="hetzner.com",
+        radar_url="https://radar.cloudflare.com/ip/193.138.195.141",
         source="team-cymru",
         checked_at="2026-07-02T08:00:00Z",
     )
@@ -236,5 +399,9 @@ def test_merge_network_into_geo_preserves_report_metadata_and_adds_prefix():
     assert merged["asn"] == "AS24940"
     assert merged["network"] == "Hetzner Online GmbH"
     assert merged["bgp_prefix"] == "193.138.192.0/19"
+    assert merged["city"] == "Falkenstein"
     assert merged["registry"] == "ripencc"
+    assert merged["organization"] == "Hetzner Online GmbH"
+    assert merged["domain"] == "hetzner.com"
+    assert merged["radar_url"] == "https://radar.cloudflare.com/ip/193.138.195.141"
     assert merged["network_source"] == "team-cymru"

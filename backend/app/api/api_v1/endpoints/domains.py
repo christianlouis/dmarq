@@ -1364,8 +1364,17 @@ class SourceGeo(BaseModel):
     asn: Optional[str] = None
     network: Optional[str] = None
     bgp_prefix: Optional[str] = None
+    city: Optional[str] = None
+    latitude: Optional[str] = None
+    longitude: Optional[str] = None
     registry: Optional[str] = None
     allocated: Optional[str] = None
+    organization: Optional[str] = None
+    domain: Optional[str] = None
+    cloudflare_location: Optional[str] = None
+    cloudflare_asn_name: Optional[str] = None
+    cloudflare_asn_org_name: Optional[str] = None
+    radar_url: Optional[str] = None
     network_source: Optional[str] = None
     network_checked_at: Optional[str] = None
     network_error: Optional[str] = None
