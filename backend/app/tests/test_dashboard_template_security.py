@@ -155,6 +155,10 @@ def _settings_template() -> str:
     return _read_project_file("templates", "settings.html")
 
 
+def _settings_script() -> str:
+    return _read_project_file("static", "js", "settings-page.js")
+
+
 def test_dashboard_domain_table_uses_safe_dom_rendering():
     """Domain names and counts come from report data and must not be HTML-rendered."""
     script = _dashboard_script()
@@ -361,31 +365,34 @@ def test_report_detail_uses_external_page_script_for_csp_migration():
 
 def test_settings_exposes_provider_agnostic_dns_import_without_html_injection():
     template = _settings_template()
+    script = _settings_script()
 
     assert "DNS Provider Connectors" in template
     assert 'id="provider-integrations"' in template
     assert "Provider Domain Discovery" in template
     assert "dns-provider-import-select" in template
-    assert "loadDNSProviders" in template
-    assert "dnsImportProviders()" in template
-    assert "/api/v1/domains/dns/providers" in template
-    assert "discoverDNSProviderZones" in template
-    assert "importDNSProviderZones" in template
-    assert "selectedDnsProviderAuthHint" in template
-    assert "selectedDnsProviderSetupHint" in template
-    assert "selectedDnsProviderDocsUrl" in template
-    assert "resetDnsProviderImportState" in template
+    assert 'src="/static/js/settings-page.js"' in template
+    assert "loadDNSProviders" in script
+    assert "dnsImportProviders()" in script
+    assert "/api/v1/domains/dns/providers" in script
+    assert "discoverDNSProviderZones" in script
+    assert "importDNSProviderZones" in script
+    assert "selectedDnsProviderAuthHint" in script
+    assert "selectedDnsProviderSetupHint" in script
+    assert "selectedDnsProviderDocsUrl" in script
+    assert "resetDnsProviderImportState" in script
     assert "dnsProviderImportError" in template
     assert "dnsProviderImportSummary" in template
-    assert "providerErrorDetail" in template
+    assert "providerErrorDetail" in script
     assert "returned no importable zones" in template
     assert "discovery needs attention" in template
     assert "Provider setup docs" in template
-    assert "/api/v1/domains/dns/import/${encodeURIComponent(providerId)}/preview" in template
-    assert "/api/v1/domains/dns/import/${encodeURIComponent(providerId)}" in template
-    assert "discoverCloudflareZones()" in template
-    assert "importCloudflareZones()" in template
+    assert "/api/v1/domains/dns/import/${encodeURIComponent(providerId)}/preview" in script
+    assert "/api/v1/domains/dns/import/${encodeURIComponent(providerId)}" in script
+    assert "discoverCloudflareZones()" in script
+    assert "importCloudflareZones()" in script
     assert "x-html" not in template
+    assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 
 def test_domain_details_exposes_health_history_without_html_injection():
