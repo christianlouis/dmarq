@@ -48,6 +48,13 @@
                     </a>
                     <a href="#sending-sources" class="btn btn-sm border-0 bg-[#2f9da5] text-white hover:bg-[#272a5f]">Review sources</a>
                     <button type="button"
+                            class="btn btn-outline btn-sm border-[#dfdfdf] text-[#272a5f] hover:border-[#2f9da5] hover:bg-[#f4f3f2]"
+                            :disabled="refreshingPage"
+                            @click="reloadPageData()">
+                        <span x-show="refreshingPage" class="loading loading-spinner loading-xs"></span>
+                        <span x-text="refreshingPage ? 'Refreshing...' : 'Reload data'"></span>
+                    </button>
+                    <button type="button"
                             class="btn btn-outline btn-sm border-[#ff6f3c] text-[#b64218] hover:border-[#ff6f3c] hover:bg-[#fff2ec]"
                             @click="deleteDomain()">
                         Delete domain

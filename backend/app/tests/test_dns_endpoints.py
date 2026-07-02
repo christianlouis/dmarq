@@ -1597,6 +1597,60 @@ def test_summary_endpoint_uses_manual_selectors(authed_client: TestClient, db_se
     assert "google" in captured_selectors
 
 
+def test_summary_endpoint_uses_database_aggregates_without_hydration(
+    authed_client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    """Production summary reads persisted aggregates instead of rebuilding the report store."""
+    _persist_minimal_report(db_session)
+    captured_selectors = []
+
+    def fail_hydration(*args, **kwargs):
+        raise AssertionError("summary should not hydrate the full report store")
+
+    async def _fake_check_domain(domain, selectors=None):
+        captured_selectors.extend(selectors or [])
+        return MOCK_DNS_RESULT
+
+    monkeypatch.setattr(domains_endpoint, "hydrate_report_store_from_db", fail_hydration)
+
+    with patch(
+        "app.api.api_v1.endpoints.domains.get_default_provider",
+        return_value=AsyncMock(check_domain=_fake_check_domain),
+    ):
+        response = authed_client.get("/api/v1/domains/summary")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total_domains"] == 1
+    assert data["total_emails"] == 5
+    assert data["reports_processed"] == 1
+    assert data["domains"][0]["pass_rate"] == 100.0
+    assert "google" in captured_selectors
+
+
+def test_summary_endpoint_refresh_bypasses_dns_cache(authed_client: TestClient, db_session):
+    """The summary reload action forces DNS recomputation without report-store hydration."""
+    _persist_minimal_report(db_session)
+    provider = AsyncMock(check_domain=AsyncMock(return_value=MOCK_DNS_RESULT))
+
+    with patch(
+        "app.api.api_v1.endpoints.domains.get_default_provider",
+        return_value=provider,
+    ):
+        first = authed_client.get("/api/v1/domains/summary")
+        second = authed_client.get("/api/v1/domains/summary")
+        refreshed = authed_client.get("/api/v1/domains/summary?refresh=true")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert refreshed.status_code == 200
+    assert provider.check_domain.await_count == 2
+    assert second.json()["domains"][0]["dns_cached"] is True
+    assert refreshed.json()["domains"][0]["dns_cached"] is False
+
+
 def test_summary_endpoint_returns_demo_domains_in_demo_mode(
     authed_client: TestClient,
     monkeypatch,
@@ -1720,6 +1774,73 @@ def test_selector_map_lookup_chunks_domain_names(db_session, monkeypatch):
         "two.example": ["c"],
         "three.example": ["d"],
     }
+
+
+def test_report_selector_map_handles_empty_and_malformed_details(db_session):
+    """Report selector lookups tolerate malformed persisted DKIM auth details."""
+    assert domains_endpoint._get_report_selectors_map_from_db(db_session, []) == {}
+
+    domain = Domain(name="malformed-report-selectors.example", active=True)
+    db_session.add(domain)
+    db_session.flush()
+    report = DMARCReport(
+        domain_id=domain.id,
+        report_id="malformed-report-selectors",
+        org_name="Selector Org",
+        begin_date=1597449600,
+        end_date=1597535999,
+        policy="none",
+    )
+    db_session.add(report)
+    db_session.flush()
+    db_session.add_all(
+        [
+            ReportRecord(
+                report_id=report.id,
+                source_ip="203.0.113.201",
+                count=1,
+                disposition="none",
+                dkim="pass",
+                spf="pass",
+                dkim_auth_details=json.dumps(["bad", {"selector": "mail"}, {"selector": "mail"}]),
+            ),
+            ReportRecord(
+                report_id=report.id,
+                source_ip="203.0.113.202",
+                count=1,
+                disposition="none",
+                dkim="pass",
+                spf="pass",
+                dkim_auth_details="{",
+            ),
+            ReportRecord(
+                report_id=report.id,
+                source_ip="203.0.113.203",
+                count=1,
+                disposition="none",
+                dkim="pass",
+                spf="pass",
+                dkim_auth_details="{}",
+            ),
+            ReportRecord(
+                report_id=report.id,
+                source_ip="203.0.113.204",
+                count=1,
+                disposition="none",
+                dkim="pass",
+                spf="pass",
+                dkim_auth_details=json.dumps([{"selector": "zeta"}]),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    selectors = domains_endpoint._get_report_selectors_map_from_db(
+        db_session,
+        ["malformed-report-selectors.example", "malformed-report-selectors.example"],
+    )
+
+    assert selectors == {"malformed-report-selectors.example": ["mail", "zeta"]}
 
 
 # ---------------------------------------------------------------------------

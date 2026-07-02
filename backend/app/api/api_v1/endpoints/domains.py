@@ -20,7 +20,7 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.domain import Domain
-from app.models.report import DMARCReport
+from app.models.report import DMARCReport, ReportRecord
 from app.models.setting import Setting
 from app.models.workspace import Workspace
 from app.services.akamai_edgedns import get_akamai_edgedns_credentials
@@ -99,6 +99,8 @@ from app.services.organizations import (
 from app.services.remediation_dispatch import attach_remediation_dispatch_previews
 from app.services.remediation_queue import build_remediation_queue
 from app.services.report_persistence import (
+    domain_summaries_from_db,
+    hydrate_domain_report_store_from_db,
     hydrate_report_store_from_db,
 )
 from app.services.report_store import ReportStore
@@ -1743,6 +1745,54 @@ def _get_domain_selectors_map_from_db(db: Session, domain_names: List[str]) -> D
     return selectors_by_domain
 
 
+def _selectors_from_dkim_auth_details(raw_details: str) -> List[str]:
+    try:
+        details = json.loads(raw_details or "[]")
+    except (TypeError, json.JSONDecodeError):
+        return []
+    if not isinstance(details, list):
+        return []
+    selectors: List[str] = []
+    for detail in details:
+        if not isinstance(detail, dict):
+            continue
+        selector = str(detail.get("selector") or "").strip()
+        if selector and selector not in selectors:
+            selectors.append(selector)
+    return selectors
+
+
+def _get_report_selectors_map_from_db(
+    db: Session,
+    domain_names: List[str],
+    *,
+    workspace_id: Optional[int] = None,
+) -> Dict[str, List[str]]:
+    """Return DKIM selectors observed in persisted report records."""
+    if not domain_names:
+        return {}
+
+    unique_names = list(dict.fromkeys(domain_names))
+    selectors_by_domain: Dict[str, List[str]] = {}
+    for index in range(0, len(unique_names), DOMAIN_SELECTOR_LOOKUP_CHUNK_SIZE):
+        chunk = unique_names[index : index + DOMAIN_SELECTOR_LOOKUP_CHUNK_SIZE]
+        query = (
+            db.query(Domain.name, ReportRecord.dkim_auth_details)
+            .join(DMARCReport, DMARCReport.domain_id == Domain.id)
+            .join(ReportRecord, ReportRecord.report_id == DMARCReport.id)
+            .filter(Domain.name.in_(chunk))
+            .filter(ReportRecord.dkim_auth_details.isnot(None))
+        )
+        if workspace_id is not None:
+            query = query.filter(Domain.workspace_id == workspace_id)
+        for domain_name, raw_details in query.all():
+            domain_selectors = selectors_by_domain.setdefault(domain_name, [])
+            for selector in _selectors_from_dkim_auth_details(raw_details):
+                if selector and selector not in domain_selectors:
+                    domain_selectors.append(selector)
+    return selectors_by_domain
+
+
 def _policy_enforcement_suggestions(
     dmarc_policy: Optional[str],
     summary: Dict[str, Any],
@@ -1869,6 +1919,45 @@ def _resolve_domain_name_for_read(
         status_code=status.HTTP_404_NOT_FOUND,
         detail="Domain not found",
     )
+
+
+def _single_domain_report_store_for_read(
+    db: Session,
+    domain_id: str,
+    workspace: Workspace,
+) -> tuple[str, ReportStore]:
+    """Return a ReportStore containing only the requested domain's persisted reports."""
+    store = ReportStore()
+    domain = workspace_domain_query(db, workspace).filter(Domain.name == domain_id).first()
+    if domain is None and domain_id.isdigit():
+        domain = workspace_domain_query(db, workspace).filter(Domain.id == int(domain_id)).first()
+    if domain is not None and not get_settings().DEMO_MODE:
+        domain_name = str(domain.name)
+        hydrate_domain_report_store_from_db(
+            db,
+            store,
+            domain_name,
+            workspace_id=workspace.id,
+        )
+        return domain_name, store
+
+    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
+    try:
+        domain_name = _resolve_domain_name_for_read(db, store, domain_id, workspace)
+    except HTTPException as exc:
+        if (
+            exc.status_code != status.HTTP_404_NOT_FOUND
+            or _stored_domain_exists(db, domain_id)
+            or not _allows_legacy_report_only_fallback(db)
+        ):
+            raise
+        legacy_store = ReportStore.get_instance()
+        if _domain_exists(db, legacy_store, domain_id, workspace):
+            domain_name = _resolve_domain_name_for_read(db, legacy_store, domain_id, workspace)
+            return domain_name, legacy_store
+        hydrate_report_store_from_db(db, store)
+        domain_name = _resolve_domain_name_for_read(db, store, domain_id, workspace)
+    return domain_name, store
 
 
 def _record_evidence(
@@ -2855,6 +2944,7 @@ def _record_health_snapshot_from_posture(
 
 @router.get("/summary", response_model=DomainSummaryResponse)
 async def get_domains_summary(
+    refresh: bool = Query(False, title="Refresh cached DNS results"),
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
     selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
@@ -2869,20 +2959,31 @@ async def get_domains_summary(
     """
     selected_workspace_id = parse_selected_workspace_id(selected_workspace)
     workspace = _authorized_domain_read_workspace(_auth, db, selected_workspace_id)
-    store = ReportStore()
-    hydrate_report_store_from_db(
-        db,
-        store,
-        workspace_id=workspace.id,
-    )
     demo_mode = get_settings().DEMO_MODE
-    domains = _domain_names_for_summary(
-        db,
-        store,
-        workspace,
-        include_unscoped_report_domains=demo_mode,
-    )
-    summaries = store.get_all_domain_summaries()
+    store: Optional[ReportStore] = None
+    report_selectors_by_domain: Dict[str, List[str]] = {}
+    if demo_mode:
+        store = ReportStore()
+        hydrate_report_store_from_db(
+            db,
+            store,
+            workspace_id=workspace.id,
+        )
+        domains = _domain_names_for_summary(
+            db,
+            store,
+            workspace,
+            include_unscoped_report_domains=True,
+        )
+        summaries = store.get_all_domain_summaries()
+    else:
+        summaries = domain_summaries_from_db(db, workspace_id=workspace.id)
+        domains = list(summaries)
+        report_selectors_by_domain = _get_report_selectors_map_from_db(
+            db,
+            domains,
+            workspace_id=workspace.id,
+        )
 
     # Perform DNS checks for all domains, reusing fresh cached results.
     provider = get_default_provider(db)
@@ -2894,11 +2995,20 @@ async def get_domains_summary(
 
     async def _dns_for_domain(domain_name: str) -> DomainDNSResult:
         manual_selectors = manual_selectors_by_domain.get(domain_name, [])
-        report_selectors = _get_selectors_from_reports(store, domain_name)
+        if demo_mode and store is not None:
+            report_selectors = _get_selectors_from_reports(store, domain_name)
+        else:
+            report_selectors = report_selectors_by_domain.get(domain_name, [])
         combined = list(dict.fromkeys(manual_selectors + report_selectors))
         try:
             result, cached, checked_at = await asyncio.wait_for(
-                resolve_domain_dns_cached(db, provider, domain_name, selectors=combined),
+                resolve_domain_dns_cached(
+                    db,
+                    provider,
+                    domain_name,
+                    selectors=combined,
+                    refresh=refresh,
+                ),
                 timeout=10.0,
             )
             result.cached = cached  # type: ignore[attr-defined]
@@ -3092,15 +3202,19 @@ async def read_domains(
     """
     selected_workspace_id = parse_selected_workspace_id(selected_workspace)
     workspace = _authorized_domain_read_workspace(_auth, db, selected_workspace_id)
-    store = ReportStore()
-    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
-    domains = _domain_names_for_summary(
-        db,
-        store,
-        workspace,
-        include_unscoped_report_domains=False,
-    )
-    summaries = store.get_all_domain_summaries()
+    if get_settings().DEMO_MODE:
+        store = ReportStore()
+        hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
+        domains = _domain_names_for_summary(
+            db,
+            store,
+            workspace,
+            include_unscoped_report_domains=False,
+        )
+        summaries = store.get_all_domain_summaries()
+    else:
+        summaries = domain_summaries_from_db(db, workspace_id=workspace.id)
+        domains = list(summaries)
     stored = {
         domain.name: domain
         for domain in workspace_domain_query(db, workspace).filter(Domain.name.in_(domains)).all()
@@ -5861,6 +5975,7 @@ async def _safe_ptr_lookup(provider: Any, ip: str, timeout: float = 3.0) -> Opti
 async def get_domain_sources(
     domain_id: str = Path(..., title="The domain ID or name"),
     days: int = Query(30, title="Number of days to look back"),
+    refresh: bool = Query(False, title="Refresh cached source reputation evidence"),
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
 ):
@@ -5869,19 +5984,12 @@ async def get_domain_sources(
     and SPF fix hints for sources that fail authentication.
     """
     workspace = _authorized_domain_read_workspace(_auth, db)
-    store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store)
+    domain_name, store = _single_domain_report_store_for_read(db, domain_id, workspace)
 
-    if not _domain_exists(db, store, domain_id, workspace):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Domain not found",
-        )
-
-    sources = store.get_domain_sources(domain_id, days=days)
-    reports = store.get_domain_reports(domain_id)
+    sources = store.get_domain_sources(domain_name, days=days)
+    reports = store.get_domain_reports(domain_name)
     intelligence = build_source_intelligence(
-        domain_id,
+        domain_name,
         reports,
         sources,
         period_days=days,
@@ -5913,19 +6021,20 @@ async def get_domain_sources(
     source_context = []
     for source, hostname in zip(sources, hostnames):
         ip = source.get("source_ip", "unknown")
-        sender_by_ip[ip] = identify_sender(ip, source, hostname=hostname, domain=domain_id)
+        sender_by_ip[ip] = identify_sender(ip, source, hostname=hostname, domain=domain_name)
         source_context.append((source, hostname, sender_by_ip[ip]))
 
     reputations_by_ip = {}
     try:
         reputation_result, _, _ = await build_source_reputation_cached(
             db,
-            domain_id,
+            domain_name,
             reports,
             sources,
             senders_by_ip=sender_by_ip,
             anomalies_by_ip=anomalies_by_ip,
             days=days,
+            refresh=refresh,
         )
         reputations_by_ip = source_reputation_by_ip(reputation_result)
     except Exception as exc:  # pylint: disable=broad-exception-caught
@@ -5992,19 +6101,12 @@ async def get_domain_source_reputation(
 ):
     """Return passive reputation evidence for observed sender IPs."""
     workspace = _authorized_domain_read_workspace(_auth, db)
-    store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
+    domain_name, store = _single_domain_report_store_for_read(db, domain_id, workspace)
 
-    if not _domain_exists(db, store, domain_id, workspace):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Domain not found",
-        )
-
-    reports = store.get_domain_reports(domain_id)
-    sources = store.get_domain_sources(domain_id, days=days)
+    reports = store.get_domain_reports(domain_name)
+    sources = store.get_domain_sources(domain_name, days=days)
     intelligence = build_source_intelligence(
-        domain_id,
+        domain_name,
         reports,
         sources,
         period_days=days,
@@ -6020,7 +6122,7 @@ async def get_domain_source_reputation(
     }
     result, cached, _ = await build_source_reputation_cached(
         db,
-        domain_id,
+        domain_name,
         reports,
         sources,
         senders_by_ip=sender_by_ip,
@@ -6048,19 +6150,12 @@ async def get_domain_source_intelligence(
 ):
     """Return region summaries and source anomaly hints for a domain."""
     workspace = _authorized_domain_read_workspace(_auth, db)
-    store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store)
+    domain_name, store = _single_domain_report_store_for_read(db, domain_id, workspace)
 
-    if not _domain_exists(db, store, domain_id, workspace):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Domain not found",
-        )
-
-    sources = store.get_domain_sources(domain_id, days=days)
+    sources = store.get_domain_sources(domain_name, days=days)
     intelligence = build_source_intelligence(
-        domain_id,
-        store.get_domain_reports(domain_id),
+        domain_name,
+        store.get_domain_reports(domain_name),
         sources,
         period_days=days,
     )

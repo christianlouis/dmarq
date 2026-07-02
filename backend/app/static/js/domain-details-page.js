@@ -188,6 +188,7 @@ function domainDetailsApp(domainId) {
         volumeScale: 'logarithmic',
         hasObservedVolume: false,
         lastComplianceTimeline: [],
+        refreshingPage: false,
 
         init() {
             const storedVolumeScale = this.loadStoredVolumeScale();
@@ -215,6 +216,29 @@ function domainDetailsApp(domainId) {
                 this.fetchSources();
                 this.fetchSourceIntelligence();
             });
+        },
+
+        async reloadPageData() {
+            this.refreshingPage = true;
+            try {
+                await Promise.all([
+                    this.fetchDomainStats(),
+                    this.fetchDNSRecords({ refresh: true }),
+                    this.fetchDNSHealth({ refresh: true }),
+                    this.fetchDNSGuidance({ refresh: true }),
+                    this.fetchPosture({ refresh: true }),
+                    this.fetchRemediationQueue(),
+                    this.fetchHealthHistory(),
+                    this.fetchMtaSts({ refresh: true }),
+                    this.fetchBimi({ refresh: true }),
+                    this.fetchSelectors(),
+                    this.fetchReports(),
+                    this.fetchSources({ refresh: true }),
+                    this.fetchSourceIntelligence()
+                ]);
+            } finally {
+                this.refreshingPage = false;
+            }
         },
 
         loadStoredVolumeScale() {
@@ -790,11 +814,13 @@ function domainDetailsApp(domainId) {
             }
         },
 
-        async fetchDNSRecords() {
+        async fetchDNSRecords(options = {}) {
             this.dnsRecordsLoading = true;
             this.dnsRecordsError = '';
             try {
-                const response = await fetch(`/api/v1/domains/${this.domainId}/dns`);
+                const response = await fetch(
+                    `/api/v1/domains/${this.domainId}/dns${options.refresh ? '?refresh=true' : ''}`
+                );
                 if (!response.ok) {
                     const data = await response.json().catch(() => ({}));
                     const detail = typeof data.detail === 'string' ? data.detail : data.detail?.message;
@@ -811,9 +837,11 @@ function domainDetailsApp(domainId) {
             }
         },
 
-        async fetchDNSHealth() {
+        async fetchDNSHealth(options = {}) {
             try {
-                const response = await fetch(`/api/v1/domains/${this.domainId}/dns/health`);
+                const response = await fetch(
+                    `/api/v1/domains/${this.domainId}/dns/health${options.refresh ? '?refresh=true' : ''}`
+                );
                 if (response.ok) {
                     this.dnsHealth = await response.json();
                 }
@@ -822,9 +850,11 @@ function domainDetailsApp(domainId) {
             }
         },
 
-        async fetchDNSGuidance() {
+        async fetchDNSGuidance(options = {}) {
             try {
-                const response = await fetch(`/api/v1/domains/${this.domainId}/dns/lint`);
+                const response = await fetch(
+                    `/api/v1/domains/${this.domainId}/dns/lint${options.refresh ? '?refresh=true' : ''}`
+                );
                 if (response.ok) {
                     this.dnsGuidance = await response.json();
                     this.syncDetectedDnsProvider();
@@ -948,9 +978,11 @@ function domainDetailsApp(domainId) {
             return this.submitDNSChange(plan, true);
         },
 
-        async fetchPosture() {
+        async fetchPosture(options = {}) {
             try {
-                const response = await fetch(`/api/v1/domains/${this.domainId}/posture`);
+                const response = await fetch(
+                    `/api/v1/domains/${this.domainId}/posture${options.refresh ? '?refresh=true' : ''}`
+                );
                 if (response.ok) {
                     this.posture = await response.json();
                 }
@@ -1138,9 +1170,11 @@ function domainDetailsApp(domainId) {
             return this.fetchMigrationParity();
         },
 
-        async fetchMtaSts() {
+        async fetchMtaSts(options = {}) {
             try {
-                const response = await fetch(`/api/v1/domains/${this.domainId}/dns/mta-sts`);
+                const response = await fetch(
+                    `/api/v1/domains/${this.domainId}/dns/mta-sts${options.refresh ? '?refresh=true' : ''}`
+                );
                 if (response.ok) {
                     this.mtaSts = await response.json();
                 }
@@ -1149,9 +1183,11 @@ function domainDetailsApp(domainId) {
             }
         },
 
-        async fetchBimi() {
+        async fetchBimi(options = {}) {
             try {
-                const response = await fetch(`/api/v1/domains/${this.domainId}/dns/bimi`);
+                const response = await fetch(
+                    `/api/v1/domains/${this.domainId}/dns/bimi${options.refresh ? '?refresh=true' : ''}`
+                );
                 if (response.ok) {
                     this.bimi = await response.json();
                 }
@@ -1257,11 +1293,15 @@ function domainDetailsApp(domainId) {
             }
         },
         
-        async fetchSources() {
+        async fetchSources(options = {}) {
             this.sourcesLoading = true;
             this.sourcesError = '';
             try {
-                const response = await fetch(`/api/v1/domains/${encodeURIComponent(this.domainId)}/sources?days=${this.sourceDateWindow()}`);
+                const params = new URLSearchParams({ days: this.sourceDateWindow() });
+                if (options.refresh) params.set('refresh', 'true');
+                const response = await fetch(
+                    `/api/v1/domains/${encodeURIComponent(this.domainId)}/sources?${params.toString()}`
+                );
                 if (!response.ok) {
                     const data = await response.json().catch(() => ({}));
                     const detail = typeof data.detail === 'string' ? data.detail : data.detail?.message;
