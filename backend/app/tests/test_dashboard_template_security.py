@@ -257,6 +257,22 @@ def test_domain_details_exposes_ownership_and_delete_controls_without_html_injec
     assert "x-html" not in template
 
 
+def test_domain_details_redirects_to_domain_management_after_delete_success():
+    template = (
+        Path(__file__).resolve().parents[1] / "templates" / "domain_details.html"
+    ).read_text()
+    delete_start = template.index("        async deleteDomain()")
+    delete_end = template.index("        enableMigrationTools()", delete_start)
+    delete_body = template[delete_start:delete_end]
+
+    assert "if (response.status === 204)" in delete_body
+    assert "window.location.href = '/domains';" in delete_body
+    assert "return;" in delete_body
+    assert delete_body.index("window.location.href = '/domains';") < delete_body.index(
+        "window.alert(data.detail"
+    )
+
+
 def test_report_detail_exposes_record_review_guidance_without_html_injection():
     template = (
         Path(__file__).resolve().parents[1] / "templates" / "report_detail.html"
