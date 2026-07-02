@@ -1409,7 +1409,7 @@ function settingsApp() {
             }
             const permissions = (provider.minimum_permissions || []).join('; ');
             return permissions
-                ? ` import requires ${permissions}.`
+                ? ` import can use ${permissions}.`
                 : ' import is available with configured provider credentials.';
         },
 
