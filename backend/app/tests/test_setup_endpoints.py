@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.api_v1.endpoints.setup import setup_status
+from app.core.credential_encryption import decrypt_secret, is_encrypted_secret
 from app.core.security import _api_keys, add_api_key
 from app.models.setting import Setting
 
@@ -283,3 +284,53 @@ class TestSetupSystem:
 
         assert response.status_code == 200
         assert setup_status["app_name"] == "Changed"
+
+    def test_system_setup_persists_cloudflare_credentials_server_side(
+        self, client: TestClient, db_session
+    ):
+        response = client.post(
+            "/api/v1/setup/system",
+            json={
+                "app_name": "DMARQ",
+                "base_url": "https://dmarq.example.com",
+                "cloudflare_enabled": True,
+                "cloudflare_api_token": "cf-secret-token",
+                "cloudflare_zone_id": "zone-123",
+            },
+        )
+
+        assert response.status_code == 200
+        rows = {
+            row.key: row.value
+            for row in db_session.query(Setting)
+            .filter(
+                Setting.key.in_(
+                    [
+                        "cloudflare.api_token",
+                        "cloudflare.zone_id",
+                        "cloudflare.auth_mode",
+                        "dns.resolver",
+                    ]
+                )
+            )
+            .all()
+        }
+        assert is_encrypted_secret(rows["cloudflare.api_token"])
+        assert decrypt_secret(rows["cloudflare.api_token"]) == "cf-secret-token"
+        assert rows["cloudflare.zone_id"] == "zone-123"
+        assert rows["cloudflare.auth_mode"] == "api_token"
+        assert rows["dns.resolver"] == "cloudflare"
+
+    def test_system_setup_rejects_enabled_cloudflare_without_token(self, client: TestClient):
+        response = client.post(
+            "/api/v1/setup/system",
+            json={
+                "app_name": "DMARQ",
+                "base_url": "https://dmarq.example.com",
+                "cloudflare_enabled": True,
+                "cloudflare_api_token": " ",
+            },
+        )
+
+        assert response.status_code == 400
+        assert "Cloudflare API token is required" in response.json()["detail"]
