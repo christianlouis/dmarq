@@ -30,6 +30,14 @@ def _reports_script() -> str:
     return _read_project_file("static", "js", "reports-page.js")
 
 
+def _upload_template() -> str:
+    return _read_project_file("templates", "upload.html")
+
+
+def _upload_script() -> str:
+    return _read_project_file("static", "js", "upload-page.js")
+
+
 def test_dashboard_domain_table_uses_safe_dom_rendering():
     """Domain names and counts come from report data and must not be HTML-rendered."""
     script = _dashboard_script()
@@ -98,6 +106,17 @@ def test_reports_uses_external_page_script_for_csp_migration():
     assert "reportsApp()" in template
     assert "/api/v1/reports" in script
     assert "deleteReport(domain, reportId)" in script
+    assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
+
+
+def test_upload_uses_external_page_script_for_csp_migration():
+    template = _upload_template()
+    script = _upload_script()
+
+    assert 'src="/static/js/upload-page.js"' in template
+    assert "uploadForm()" in template
+    assert "/api/v1/reports/upload" in script
+    assert "dmarq:refresh-data" in script
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 
