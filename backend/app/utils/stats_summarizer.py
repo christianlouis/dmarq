@@ -493,23 +493,6 @@ class StatsSummarizer:
             "change_summary": [],
         }
 
-    def _sum_domain_emails(
-        self,
-        db: Session,
-        domain_pk: int,
-        window: _ReportWindow,
-        compliant_only: bool = False,
-    ) -> int:
-        query = (
-            db.query(func.coalesce(func.sum(ReportRecord.count), 0))
-            .join(DMARCReport, ReportRecord.report_id == DMARCReport.id)
-            .filter(DMARCReport.domain_id == domain_pk)
-        )
-        if compliant_only:
-            query = query.filter((ReportRecord.dkim == "pass") | (ReportRecord.spf == "pass"))
-        total = self._apply_domain_window(query, window).scalar()
-        return int(total) if total else 0
-
     def _count_domain_reports(
         self,
         db: Session,
