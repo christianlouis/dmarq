@@ -190,6 +190,27 @@ class TestReportStore:
         ]
         assert "_volume_by_date" not in source
 
+    def test_get_domain_sources_ignores_missing_date_sentinel_timestamps(self):
+        store = ReportStore.get_instance()
+        report = _sample_report("test.com")
+        report.update(
+            {
+                "begin_timestamp": 0,
+                "end_timestamp": 0,
+                "begin_date": "",
+                "end_date": "",
+            }
+        )
+
+        store.add_report(report)
+
+        source = store.get_domain_sources("test.com")[0]
+        assert source["first_seen"] is None
+        assert source["last_seen"] is None
+        assert source["active_days"] == 0
+        assert source["report_count"] == 1
+        assert source["volume_history"] == []
+
     def test_get_domain_sources_rolls_up_unknown_auth_results(self):
         store = ReportStore.get_instance()
         report = _sample_report("test.com")

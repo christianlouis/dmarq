@@ -85,12 +85,14 @@ def _timestamp_from_value(value: Any) -> Optional[int]:
     if value is None or value == "":
         return None
     if isinstance(value, (int, float)):
-        return int(value)
+        timestamp = int(value)
+        return timestamp if timestamp > 0 else None
     text = str(value).strip()
     if not text:
         return None
     if text.isdigit():
-        return int(text)
+        timestamp = int(text)
+        return timestamp if timestamp > 0 else None
     try:
         parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
         if parsed.tzinfo is None:
@@ -121,7 +123,6 @@ def _date_bucket(timestamp: Optional[int]) -> Optional[str]:
 
 def _update_source_window(
     source: Dict[str, Any],
-    record: Dict[str, Any],
     report: Dict[str, Any],
     count: int,
     dmarc_passed: bool,
@@ -224,7 +225,7 @@ def _update_source_from_record(
         source["dmarc_fail_count"],
     )
     source["disposition"] = _dominant_result(disposition_counts)
-    _update_source_window(source, record, report, count, dmarc_passed)
+    _update_source_window(source, report, count, dmarc_passed)
     _merge_source_metadata(source, record)
 
 
