@@ -231,13 +231,13 @@ def test_members_page_route_is_registered():
     assert any(getattr(route, "path", None) == "/members" for route in app.routes)
 
 
-def test_members_page_renders_template():
-    """The membership management page renders the server-side template."""
+def test_members_page_redirects_when_multi_workspace_ui_disabled():
+    """Single-workspace installs should not expose the membership management UI."""
     request = Request({"type": "http", "method": "GET", "path": "/members", "headers": []})
     response = asyncio.run(members_page(request))
 
-    assert response.status_code == 200
-    assert response.template.name == "members.html"
+    assert response.status_code == 303
+    assert response.headers["location"] == "/settings"
 
 
 def test_reports_upload_invalid_extension(authed_client: TestClient):

@@ -6,7 +6,7 @@ from typing import List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
@@ -735,6 +735,8 @@ async def profile_page(request: Request):
 
 @app.get("/members", response_class=HTMLResponse)
 async def members_page(request: Request):
+    if not settings.MULTI_WORKSPACE_UI_ENABLED:
+        return RedirectResponse(url="/settings", status_code=303)
     return templates.TemplateResponse(request, "members.html")
 
 

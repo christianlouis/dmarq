@@ -449,6 +449,7 @@ def test_base_template_propagates_selected_workspace_context():
     assert "withoutWorkspaceContext(input, init)" in script
     assert "headers.delete(workspaceHeaderName)" in script
     assert "dmarq:workspace-changed" in script
+    assert "workspaces.length > 1" in template
     assert "localStorage.removeItem('dmarq.selectedWorkspaceId')" in script
     assert "input instanceof URL" in script
 
