@@ -30,6 +30,14 @@ def _reports_script() -> str:
     return _read_project_file("static", "js", "reports-page.js")
 
 
+def _domains_template() -> str:
+    return _read_project_file("templates", "domains.html")
+
+
+def _domains_script() -> str:
+    return _read_project_file("static", "js", "domains-page.js")
+
+
 def _upload_template() -> str:
     return _read_project_file("templates", "upload.html")
 
@@ -106,6 +114,18 @@ def test_reports_uses_external_page_script_for_csp_migration():
     assert "reportsApp()" in template
     assert "/api/v1/reports" in script
     assert "deleteReport(domain, reportId)" in script
+    assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
+
+
+def test_domains_uses_external_page_script_for_csp_migration():
+    template = _domains_template()
+    script = _domains_script()
+
+    assert 'src="/static/js/domains-page.js"' in template
+    assert "domainsApp()" in template
+    assert "/api/v1/domains/summary" in script
+    assert "/api/v1/domains/domains" in script
+    assert "createDomain()" in script
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 
