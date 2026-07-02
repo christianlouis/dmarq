@@ -972,7 +972,7 @@ def _poll_enabled_sources_for_trigger(days: int) -> list[dict]:
 
 # API endpoint to manually trigger mail-source polling
 @app.get("/api/v1/admin/trigger-poll", include_in_schema=False)
-async def trigger_imap_poll_get() -> None:
+async def trigger_mail_source_poll_get() -> None:
     """Explain that manual polling is a POST action when opened directly."""
     raise HTTPException(
         status_code=405,
@@ -989,7 +989,7 @@ async def trigger_imap_poll_get() -> None:
 
 
 @app.post("/api/v1/admin/trigger-poll")
-async def trigger_imap_poll(
+async def trigger_mail_source_poll(
     auth: dict = Depends(require_admin_auth),
     days: int = Query(7, ge=1, le=365, title="Number of days to fetch for mail sources"),
 ):
@@ -1070,15 +1070,16 @@ def _mail_source_status_summary() -> dict:
         db.close()
 
 
-# API endpoint to check status of report intake polling (public, read-only)
+# API endpoint to check status of report intake polling
 @app.get("/api/v1/poll-status")
-async def get_poll_status():
+async def get_poll_status(auth: dict = Depends(require_admin_auth)):
     """
-    Get the status of report intake polling (read-only, no authentication required).
+    Get the status of report intake polling (admin only).
     """
     source_summary = await run_in_threadpool(_mail_source_status_summary)
     return {
         "is_running": background_task is not None and not background_task.done(),
         "last_check": last_check_time.isoformat() if last_check_time else None,
+        "authenticated_by": auth.get("auth_type"),
         **source_summary,
     }
