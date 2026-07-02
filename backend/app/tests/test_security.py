@@ -4,6 +4,7 @@ Security-focused tests for DMARQ application.
 Covers API key management, domain validation, file upload limits, and XML parsing security.
 """
 
+import re
 from pathlib import Path
 
 import pytest
@@ -143,7 +144,7 @@ class TestSecurityHeaders:
 
         assert "alpinejs@3.x.x/dist/cdn.min.js" in body
         assert "@alpinejs/csp" not in body
-        assert "<style>" not in body
+        assert not re.search(r"<style\b", body, re.IGNORECASE)
         assert 'href="/static/css/page-utilities.css"' in body
 
     @pytest.mark.parametrize("template_name", ["login.html", "setup.html"])
@@ -152,9 +153,10 @@ class TestSecurityHeaders:
         template = Path(__file__).resolve().parents[1] / "templates" / template_name
         body = template.read_text()
 
-        assert "<script>" not in body
-        assert "<style>" not in body
+        assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", body, re.IGNORECASE)
+        assert not re.search(r"<style\b", body, re.IGNORECASE)
         assert f'src="/static/js/{template_name.removesuffix(".html")}-page.js"' in body
+        assert 'href="/static/css/page-utilities.css"' in body
 
     def test_csp_report_only_header_appears_when_flag_enabled(
         self, client: TestClient, monkeypatch
