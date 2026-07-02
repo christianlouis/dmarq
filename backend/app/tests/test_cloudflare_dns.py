@@ -1259,7 +1259,7 @@ def test_dns_provider_import_preview_wraps_linode_domains(db_session):
     assert result["total_discovered"] == 1
     assert result["importable_count"] == 1
     assert result["zones"][0]["domain"] == DOMAIN
-    assert "Linode DNS zone" in result["zones"][0]["next_action"]
+    assert "Linode DNS domain" in result["zones"][0]["next_action"]
 
 
 def test_dns_provider_import_preview_wraps_route53_zones(db_session):

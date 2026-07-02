@@ -50,6 +50,10 @@ def _provider_name(provider_id: str) -> str:
     return PROVIDER_NAMES.get(provider_id, provider_id)
 
 
+def _provider_import_item_label(provider_id: str) -> str:
+    return "domain" if provider_id == "linode" else "zone"
+
+
 async def preview_dns_provider_import(
     db: Session,
     *,
@@ -69,6 +73,7 @@ async def preview_dns_provider_import(
     else:
         raise LookupError(f"Unsupported DNS provider import: {provider_id}")
 
+    item_label = _provider_import_item_label(provider_id)
     items = [
         DNSProviderImportZone(
             provider=provider_id,
@@ -83,7 +88,7 @@ async def preview_dns_provider_import(
                 "Already monitored in this workspace."
                 if zone.get("imported")
                 else (
-                    f"Import this {_provider_name(provider_id)} zone to monitor DNS posture "
+                    f"Import this {_provider_name(provider_id)} {item_label} to monitor DNS posture "
                     "before reports arrive."
                 )
             ),
