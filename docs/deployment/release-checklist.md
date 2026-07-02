@@ -36,9 +36,10 @@ DMARQ releases from the `main` branch through GitHub Actions.
    - `feat!:` or `BREAKING CHANGE` for major releases.
    - `docs:` for documentation-only changes that do not need a new app version.
 2. Watch the Release workflow.
-3. Watch the CI workflow through lint, tests, security scan, CodeQL, Docker build, and preprod manifest update.
-4. If the preprod manifest update fails because the k8s state repo moved during the run, rerun the failed job after confirming the image build succeeded.
-5. Pull tags locally after release automation completes.
+3. Watch the CI workflow through lint, tests, security scan, CodeQL, Docker build, image-tag verification, and preprod manifest update.
+4. Confirm the Docker job verifies the short-SHA image tag before GitOps updates any manifests. The manifest update must use that verified image output instead of recomputing an expected tag.
+5. If the preprod manifest update fails because the k8s state repo moved during the run, rerun the failed job after confirming the image build and short-SHA verification succeeded.
+6. Pull tags locally after release automation completes.
 
 ## Smoke Checks
 
