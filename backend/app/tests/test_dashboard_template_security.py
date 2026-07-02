@@ -111,6 +111,14 @@ def _profile_script() -> str:
     return _read_project_file("static", "js", "profile-page.js")
 
 
+def _onboarding_template() -> str:
+    return _read_project_file("templates", "onboarding.html")
+
+
+def _onboarding_script() -> str:
+    return _read_project_file("static", "js", "onboarding-page.js")
+
+
 def _forensic_reports_template() -> str:
     return _read_project_file("templates", "forensic_reports.html")
 
@@ -633,6 +641,8 @@ def test_base_template_shows_workspace_controls_when_multi_workspace_enabled():
 
 def test_onboarding_template_uses_single_user_setup_story_by_default():
     rendered = _render_template("onboarding.html", multi_workspace_ui_enabled=False)
+    template = _onboarding_template()
+    script = _onboarding_script()
 
     assert "Mail health setup" in rendered
     assert "Setup path" in rendered
@@ -640,6 +650,13 @@ def test_onboarding_template_uses_single_user_setup_story_by_default():
     assert "Apply setup" in rendered
     assert "One monitored domain with DMARC report and DNS setup tasks." in rendered
     assert "multiWorkspaceUiEnabled: false" in rendered
+    assert 'src="/static/js/onboarding-page.js"' in template
+    assert "/api/v1/onboarding/preview" in script
+    assert "/api/v1/onboarding/apply" in script
+    assert "draftFields()" in script
+    assert "normalizeDomain(value)" in script
+    assert "dmarq.selectedWorkspaceId" in script
+    assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
     assert "Account boundary" not in rendered
     assert "Owner ready" not in rendered
     assert "Starter plan entitlement records" not in rendered
