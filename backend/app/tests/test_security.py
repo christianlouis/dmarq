@@ -143,6 +143,18 @@ class TestSecurityHeaders:
 
         assert "alpinejs@3.x.x/dist/cdn.min.js" in body
         assert "@alpinejs/csp" not in body
+        assert "<style>" not in body
+        assert 'href="/static/css/page-utilities.css"' in body
+
+    @pytest.mark.parametrize("template_name", ["login.html", "setup.html"])
+    def test_auth_templates_use_external_page_scripts(self, template_name: str):
+        """Login and setup should not add page-specific inline script blocks."""
+        template = Path(__file__).resolve().parents[1] / "templates" / template_name
+        body = template.read_text()
+
+        assert "<script>" not in body
+        assert "<style>" not in body
+        assert f'src="/static/js/{template_name.removesuffix(".html")}-page.js"' in body
 
     def test_csp_report_only_header_appears_when_flag_enabled(
         self, client: TestClient, monkeypatch
