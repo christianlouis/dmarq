@@ -6,15 +6,16 @@ import pytest
 
 from app.services import forensic_parser as forensic_parser_module
 from app.services.forensic_parser import (
-    ForensicParser,
     MAX_FORENSIC_REPORT_SIZE,
+    ForensicParser,
+    _arc_detail_headers,
+    _arc_instance,
     _coerce_text,
     _domain_from_address,
     _message_part_payload,
     _payload_text,
 )
 from app.services.forensic_redaction import ForensicRedactionPolicy
-
 
 SAMPLE_FORENSIC_EMAIL = b"""\
 From: DMARC Reporter <dmarc-reports@example.net>
@@ -248,9 +249,63 @@ body is ignored
     assert parsed["original_subject"] == "Forwarded failure sample"
 
 
+def test_parse_forensic_email_records_passive_arc_metadata():
+    content = b"""\
+From: DMARC Reporter <dmarc-reports@example.net>
+Subject: DMARC forensic report
+MIME-Version: 1.0
+Content-Type: multipart/report; report-type=feedback-report; boundary="ruf-boundary"
+
+--ruf-boundary
+Content-Type: message/feedback-report
+
+Feedback-Type: auth-failure
+Original-Mail-From: sender@forwarder.test
+Reported-Domain: forwarder.test
+Source-IP: 203.0.113.9
+Auth-Failure: dmarc
+
+--ruf-boundary
+Content-Type: text/rfc822-headers
+
+From: Forwarded Sender <sender@forwarder.test>
+To: Receiver <receiver@example.net>
+Subject: Forwarded mail
+ARC-Seal: i=1; a=rsa-sha256; d=forwarder.test; cv=none
+ARC-Seal: i=2; a=rsa-sha256; d=forwarder.test; cv=pass
+ARC-Message-Signature: i=1; a=rsa-sha256; d=forwarder.test
+ARC-Message-Signature: i=2; a=rsa-sha256; d=forwarder.test
+ARC-Authentication-Results: i=2; mx.forwarder.test; dmarc=fail header.from=forwarder.test smtp.mailfrom=newest@forwarder.test
+ARC-Authentication-Results: i=1; mx.forwarder.test; dmarc=fail header.from=forwarder.test smtp.mailfrom=oldest@forwarder.test
+
+--ruf-boundary--
+"""
+
+    parsed = ForensicParser.parse_bytes(content)
+    details = json.loads(parsed["feedback_headers"])
+
+    assert details["arc_seal_present"] is True
+    assert details["arc_message_signature_present"] is True
+    assert details["arc_authentication_results_present"] is True
+    assert details["arc_set_count"] == 2
+    assert "i=2" in details["arc_authentication_results"]
+    assert "ne***@forwarder.test" in details["arc_authentication_results"]
+
+
+def test_arc_instance_ignores_malformed_instance_values():
+    assert _arc_instance("i=not-a-number; mx.example.test; dmarc=pass") == -1
+
+
+def test_arc_instance_ignores_non_instance_segments_and_missing_instance():
+    assert _arc_instance("mx.example.test; dmarc=pass") == -1
+
+
+def test_arc_detail_headers_handles_missing_original_headers():
+    assert _arc_detail_headers(None) == {}
+
+
 def test_is_forensic_report_detects_headers_and_subject_fallbacks():
-    header_only = email.message_from_bytes(
-        b"""\
+    header_only = email.message_from_bytes(b"""\
 Subject: Delivery report
 MIME-Version: 1.0
 Content-Type: multipart/mixed; boundary="b"
@@ -261,8 +316,7 @@ Content-Type: text/rfc822-headers
 Authentication-Results: mx; dmarc=fail
 
 --b--
-"""
-    )
+""")
     subject_only = email.message_from_bytes(b"Subject: DMARC RUF failure\r\n\r\nbody")
 
     assert ForensicParser.is_forensic_report(header_only) is True
@@ -301,8 +355,7 @@ def test_forensic_parser_helper_fallbacks(monkeypatch):
 
 
 def test_is_forensic_report_detects_feedback_part_without_report_container():
-    msg = email.message_from_bytes(
-        b"""\
+    msg = email.message_from_bytes(b"""\
 Subject: Delivery notice
 MIME-Version: 1.0
 Content-Type: multipart/mixed; boundary="b"
@@ -313,15 +366,13 @@ Content-Type: message/feedback-report
 Feedback-Type: auth-failure
 
 --b--
-"""
-    )
+""")
 
     assert ForensicParser.is_forensic_report(msg) is True
 
 
 def test_is_forensic_report_ignores_non_dmarc_header_parts():
-    msg = email.message_from_bytes(
-        b"""\
+    msg = email.message_from_bytes(b"""\
 Subject: DMARC forensic notice
 MIME-Version: 1.0
 Content-Type: multipart/mixed; boundary="b"
@@ -332,7 +383,6 @@ Content-Type: text/rfc822-headers
 Authentication-Results: mx; spf=pass
 
 --b--
-"""
-    )
+""")
 
     assert ForensicParser.is_forensic_report(msg) is True

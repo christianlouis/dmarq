@@ -13,7 +13,6 @@ from app.services.forensic_redaction import (
     redact_forensic_text,
 )
 
-
 MAX_FORENSIC_REPORT_SIZE = 10 * 1024 * 1024
 
 
@@ -140,6 +139,45 @@ def _feedback_detail_headers(
     return {key: value for key, value in details.items() if value}
 
 
+def _arc_detail_headers(
+    original_headers: Optional[Message],
+    *,
+    redaction_policy: Optional[ForensicRedactionPolicy] = None,
+) -> Dict[str, Any]:
+    """Return passive ARC metadata without treating ARC as DMARC evidence."""
+    if original_headers is None:
+        return {}
+
+    seal_headers = original_headers.get_all("ARC-Seal", [])
+    signature_headers = original_headers.get_all("ARC-Message-Signature", [])
+    auth_headers = original_headers.get_all("ARC-Authentication-Results", [])
+    details: Dict[str, Any] = {}
+    if seal_headers:
+        details["arc_seal_present"] = True
+        details["arc_set_count"] = len(seal_headers)
+    if signature_headers:
+        details["arc_message_signature_present"] = True
+    if auth_headers:
+        details["arc_authentication_results_present"] = True
+        details["arc_authentication_results"] = _clean(
+            max(auth_headers, key=_arc_instance),
+            redaction_policy=redaction_policy,
+        )
+    return details
+
+
+def _arc_instance(header_value: str) -> int:
+    for item in header_value.split(";"):
+        key, _, value = item.strip().partition("=")
+        if key.lower() != "i":
+            continue
+        try:
+            return int(value.strip())
+        except ValueError:
+            return -1
+    return -1
+
+
 class ForensicParser:
     """Parse DMARC forensic/failure report emails without retaining message bodies."""
 
@@ -219,6 +257,7 @@ class ForensicParser:
         arrival_date = _parse_datetime(_header(feedback, "Arrival-Date", redact=False))
 
         details = _feedback_detail_headers(feedback, redaction_policy=redaction_policy)
+        details.update(_arc_detail_headers(original_headers, redaction_policy=redaction_policy))
 
         return {
             "report_id": report_id,

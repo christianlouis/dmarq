@@ -20,6 +20,8 @@ DMARQ consumes inbound DMARC failure reports through its forensic/RUF pipeline. 
 - Original-message metadata supplied as `text/rfc822-headers` or `message/rfc822`; message bodies are not stored.
 - RFC 9991 DMARC failure metadata including `Auth-Failure: dmarc`, `Identity-Alignment`, `Delivery-Result`, `DKIM-Domain`, `DKIM-Identity`, `DKIM-Selector`, `SPF-DNS`, and `Reported-URI`.
 - Canonicalized DKIM header/body fields are treated as sensitive content. DMARQ records presence flags for diagnostics but does not persist their values.
+- ARC headers in the original-message header sample are recorded only as
+  redacted diagnostic metadata. They do not change DMARC pass/fail scoring.
 
 ## Forensic/RUF Privacy Model
 
@@ -38,6 +40,9 @@ DMARQ may persist:
 - RFC 9991 diagnostic metadata such as alignment, DKIM domain, DKIM selector,
   SPF DNS text, and `Reported-URI`.
 - boolean flags that canonicalized DKIM header/body fields were present.
+- passive ARC metadata such as whether ARC-Seal, ARC-Message-Signature, and
+  ARC-Authentication-Results were present, plus redacted ARC authentication
+  result text when available.
 
 DMARQ must not persist:
 
@@ -103,8 +108,10 @@ CSV exports include the most useful aggregate metadata for operators:
 - Unsupported attachments are skipped by IMAP and Gmail import paths and recorded in import details when stats are available.
 - For duplicate detection, DMARQ uses the domain and `report_id` pair. Fixture report IDs must remain unique within a single test import run.
 - RFC 9991 describes report generation duties such as outbound rate limiting and external `ruf` destination verification for Mail Receivers. DMARQ currently implements report-consumer parsing and analysis, not report generation.
-- ARC is tracked as a future message-analysis feature. DMARQ does not currently
-  score ARC chains or treat ARC as a replacement for DMARC alignment evidence.
+- ARC is tracked as message-analysis context. DMARQ records passive ARC
+  metadata from failure-report header samples when present, but does not
+  validate ARC chains or treat ARC as a replacement for DMARC alignment
+  evidence.
 - The product-scope backlog for parser, analyzer, DNS guidance, and DNS linting work is tracked in `docs/development/dmarc-scope-open-items.md`.
 
 ## Fixture Pack
