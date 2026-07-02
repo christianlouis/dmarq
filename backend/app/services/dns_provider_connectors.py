@@ -84,19 +84,19 @@ _CONNECTORS: tuple[DNSProviderConnector, ...] = (
         id="akamai-edgedns",
         name="Akamai Edge DNS / FastDNS",
         tier=1,
-        auth_models=["edgegrid"],
-        zone_import_status="planned",
+        auth_models=["edgegrid", "edgerc"],
+        zone_import_status="ready",
         record_read_status="planned",
         record_write_status="planned",
         dry_run_supported=False,
         verification_supported=False,
         rollback_supported=True,
         minimum_permissions=[
-            "Edge DNS read access",
+            "Edge DNS Zone Record Management read access",
             "Edge DNS edit access only when repair is enabled",
         ],
         setup_hint=(
-            "Use Akamai EdgeGrid credentials for Edge DNS/FastDNS zone access. "
+            "Use Akamai EdgeGrid credentials or an .edgerc section for Edge DNS/FastDNS zone access. "
             "Akamai EAA is an access frontdoor option, not the DNS connector."
         ),
         docs_url="https://techdocs.akamai.com/edge-dns/reference/edge-dns-api",

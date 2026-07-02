@@ -138,7 +138,7 @@ Live DNS writes stay behind the separate DNS repair approval flow.
 | Amazon Route 53 | Ready | boto3/AWS credential chain, `DMARQ_ROUTE53_PROFILE`, or `DMARQ_ROUTE53_ROLE_ARN` with optional `DMARQ_ROUTE53_EXTERNAL_ID` |
 | Hetzner DNS | Ready | `HETZNER_DNS_API_TOKEN` or `HETZNER_API_TOKEN` with DNS zone read access |
 | Linode DNS | Ready | `LINODE_API_TOKEN` or `LINODE_TOKEN` with Domains read-only access |
-| Akamai Edge DNS/FastDNS | Planned | EdgeGrid DNS credentials, separate from Akamai EAA login |
+| Akamai Edge DNS/FastDNS | Ready | EdgeGrid DNS credentials via `.edgerc` or `AKAMAI_*` variables, separate from Akamai EAA login |
 
 For Route 53 self-hosted installs, use a local AWS profile or environment
 credentials with `route53:ListHostedZones`. Hosted/provider deployments should
@@ -150,6 +150,13 @@ For Linode self-hosted installs, use a personal access token or OAuth token
 limited to Domains read-only access, such as the Linode `domains:read_only`
 scope or equivalent `domain_viewer` role. Keep write-scoped tokens separate
 until approved DNS repair actions are intentionally enabled.
+
+For Akamai Edge DNS/FastDNS self-hosted installs, create an Akamai API client
+with DNS Zone Record Management read access. Use an `.edgerc` file where
+possible, or inject `AKAMAI_HOST`, `AKAMAI_CLIENT_TOKEN`,
+`AKAMAI_CLIENT_SECRET`, and `AKAMAI_ACCESS_TOKEN` through your secret manager.
+Use `AKAMAI_ACCOUNT_SWITCH_KEY` only when your Akamai client needs to operate
+against a delegated account.
 
 ### IMAP Settings
 
@@ -278,6 +285,13 @@ operational policy if long-term storage size matters.
 | `HETZNER_API_TOKEN` | Fallback Hetzner token name if you already inject generic Hetzner Cloud credentials | - | `your_hetzner_read_only_api_token` |
 | `LINODE_API_TOKEN` | Linode API token for read-only DNS domain import through `api.linode.com/v4` | - | `your_linode_domains_read_only_token` |
 | `LINODE_TOKEN` | Fallback Linode token name if you already inject generic Linode credentials | - | `your_linode_domains_read_only_token` |
+| `AKAMAI_EDGERC_PATH` | Optional path to an Akamai `.edgerc` file for Edge DNS zone import | - | `/run/secrets/edgerc` |
+| `AKAMAI_EDGERC_SECTION` | `.edgerc` section name to use | `default` | `default` |
+| `AKAMAI_HOST` | Akamai API hostname when not using `.edgerc` | - | `akab-example.luna.akamaiapis.net` |
+| `AKAMAI_CLIENT_TOKEN` | Akamai EdgeGrid client token when not using `.edgerc` | - | `your_akamai_client_token` |
+| `AKAMAI_CLIENT_SECRET` | Akamai EdgeGrid client secret when not using `.edgerc` | - | `your_akamai_client_secret` |
+| `AKAMAI_ACCESS_TOKEN` | Akamai EdgeGrid access token when not using `.edgerc` | - | `your_akamai_access_token` |
+| `AKAMAI_ACCOUNT_SWITCH_KEY` | Optional Akamai account switch key for managed-account access | - | `A-CCT1234:A-CCT5432` |
 
 ### Email Service and Webhook Integrations
 
@@ -300,6 +314,8 @@ The integration exposes these operational routes:
 | `POST /api/v1/domains/dns/import/hetzner` | Import selected Hetzner DNS zones as monitored domains before reports arrive. |
 | `GET /api/v1/domains/dns/import/linode/preview` | Preview domains visible to the configured Linode read-only token without creating rows. |
 | `POST /api/v1/domains/dns/import/linode` | Import selected Linode DNS domains as monitored domains before reports arrive. |
+| `GET /api/v1/domains/dns/import/akamai-edgedns/preview` | Preview zones visible to the configured Akamai EdgeGrid credentials without creating rows. |
+| `POST /api/v1/domains/dns/import/akamai-edgedns` | Import selected Akamai Edge DNS/FastDNS zones as monitored domains before reports arrive. |
 | `GET /api/v1/domains/cloudflare/discover` | List available zones. |
 | `POST /api/v1/domains/cloudflare/import` | Create monitored domain rows from zones. |
 | `GET /api/v1/domains/{domain}/dns/cloudflare` | Inspect managed DNS records, return DMARC/SPF/DKIM suggestions, and record detected DNS changes. |
@@ -332,7 +348,8 @@ through a configured DNS provider connector.
 Cloudflare is implemented natively and supports DNS-zone import, record
 readback, dry-run, approved apply, verification, and rollback evidence. Hetzner
 DNS supports read-only zone import via Hetzner Console API tokens. Linode DNS
-supports read-only domain import via a Domains-scoped token. `GET
+supports read-only domain import via a Domains-scoped token. Akamai Edge
+DNS/FastDNS supports read-only zone import via EdgeGrid credentials. `GET
 /api/v1/domains/dns/providers` exposes the broader connector registry so
 operators can see which providers are ready, planned, or Lexicon-backed before
 wiring credentials.
@@ -343,7 +360,7 @@ Tier 1 connector metadata currently covers:
 - Amazon Route 53: read-only hosted-zone import; Lexicon-backed write path
   where the runtime and credentials are available. Prefer IAM role assumption
   with external ID for hosted deployments.
-- Akamai Edge DNS / FastDNS: planned EdgeGrid-backed DNS connector. Akamai EAA
+- Akamai Edge DNS / FastDNS: read-only EdgeGrid-backed zone import. Akamai EAA
   is an access/SSO frontdoor option and does not replace the Edge DNS connector.
 - Hetzner DNS: read-only zone import using `HETZNER_DNS_API_TOKEN`;
   Lexicon-backed write path where the runtime and credentials are available.

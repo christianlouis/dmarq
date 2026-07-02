@@ -638,10 +638,11 @@ actually available today. Use `GET /domains/dns/import/{provider}/preview` to
 list DNS zones visible to a connected provider without creating anything. Use
 `POST /domains/dns/import/{provider}` with an optional `domains` array to import
 selected zones as monitored DMARQ domains before reports have arrived.
-Cloudflare, Route 53, and Hetzner DNS currently support ready DNS-zone import.
-Route 53 uses the server-side boto3/AWS credential chain and only lists hosted
-zones in this flow. Akamai Edge DNS/FastDNS and Linode are exposed as connector
-roadmap metadata until their read/import implementations land. The legacy
+Cloudflare, Route 53, Hetzner DNS, Linode DNS, and Akamai Edge DNS/FastDNS
+currently support ready DNS-zone import. Route 53 uses the server-side
+boto3/AWS credential chain and only lists hosted zones in this flow. Akamai
+Edge DNS/FastDNS uses EdgeGrid credentials and only lists zones in this flow.
+The legacy
 `/domains/cloudflare/discover` and `/domains/cloudflare/import` endpoints remain
 available for compatibility.
 
