@@ -150,11 +150,7 @@ class TestSetupPage:
         assert "Mail health setup" in response.text
         assert "Apply setup" in response.text
         assert "workspaceOnboarding({" in response.text
-        assert "/api/v1/onboarding/preview" in response.text
-        assert "/api/v1/onboarding/apply" in response.text
-        assert "draftFields()" in response.text
-        assert "normalizeDomain(value)" in response.text
-        assert "dmarq.selectedWorkspaceId" in response.text
+        assert 'src="/static/js/onboarding-page.js"' in response.text
 
 
 class TestSetupAdmin:
