@@ -3,6 +3,7 @@ import re
 import shutil
 import subprocess
 import textwrap
+from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
@@ -34,6 +35,26 @@ def _has_script_src(markup: str, src: str) -> bool:
 
 def _has_inline_script(markup: str) -> bool:
     return bool(re.search(r"<script\b(?![^>]*\ssrc\s*=)[^>]*>", markup, re.IGNORECASE))
+
+
+class _InlineStyleDetector(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.has_inline_style = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        inline_style_attrs = {"style", ":style", "x-bind:style"}
+        if any(name.lower() in inline_style_attrs for name, _value in attrs):
+            self.has_inline_style = True
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.handle_starttag(tag, attrs)
+
+
+def _has_inline_style(markup: str) -> bool:
+    parser = _InlineStyleDetector()
+    parser.feed(markup)
+    return parser.has_inline_style
 
 
 def _template_section_between_markers(template: str, start_marker: str, end_marker: str) -> str:
@@ -214,9 +235,13 @@ def test_dashboard_clears_all_chart_instances():
 
 def test_dashboard_uses_external_page_script_for_csp_migration():
     template = _dashboard_template()
+    styles = _read_project_file("static", "css", "styles.css")
 
     assert 'src="/static/js/chart.umd.min.js"' in template
     assert 'src="/static/js/dashboard-page.js"' in template
+    assert "enforcement-gauge-bg" in template
+    assert ".enforcement-gauge-bg" in styles
+    assert not _has_inline_style(template)
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 
@@ -360,6 +385,8 @@ def test_tls_reports_uses_external_page_script_for_csp_migration():
     assert "/api/v1/tls-reports/summary?" in script
     assert "/api/v1/tls-reports/upload" in script
     assert "Unable to load TLS report summary" in script
+    assert 'x-effect="$el.style.width' in template
+    assert not _has_inline_style(template)
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 
@@ -616,7 +643,12 @@ def test_members_template_uses_membership_api_without_html_injection():
     assert '@change="updateMembership(membership, true)"' not in template
     assert "x-html" not in template
     assert not _has_inline_script(template)
+    assert not _has_inline_style(template)
     assert _has_inline_script('<script data-src="/static/js/members-page.js"></script>')
+    assert not _has_inline_style('<div data-style="ok" x-effect="$el.style.width = width"></div>')
+    assert _has_inline_style('<div data-style="ok" :style="bad"></div>')
+    assert _has_inline_style("<progress x-bind:style=\"{ width: progress + '%' }\" />")
+    assert _has_inline_style("<div x-bind:style=\"{ width: progress + '%' }\"></div>")
 
 
 def test_base_template_propagates_selected_workspace_context():
