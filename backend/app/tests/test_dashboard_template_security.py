@@ -84,6 +84,10 @@ def _profile_script() -> str:
     return _read_project_file("static", "js", "profile-page.js")
 
 
+def _settings_template() -> str:
+    return _read_project_file("templates", "settings.html")
+
+
 def test_dashboard_domain_table_uses_safe_dom_rendering():
     """Domain names and counts come from report data and must not be HTML-rendered."""
     script = _dashboard_script()
@@ -213,6 +217,24 @@ def test_profile_renders_external_page_script_for_csp_migration():
         '<script data-src="/static/js/profile-page.js"></script>',
         "/static/js/profile-page.js",
     )
+
+
+def test_settings_exposes_provider_agnostic_dns_import_without_html_injection():
+    template = _settings_template()
+
+    assert "DNS Provider Connectors" in template
+    assert "Provider Domain Discovery" in template
+    assert "dns-provider-import-select" in template
+    assert "loadDNSProviders" in template
+    assert "dnsImportProviders()" in template
+    assert "/api/v1/domains/dns/providers" in template
+    assert "discoverDNSProviderZones" in template
+    assert "importDNSProviderZones" in template
+    assert "/api/v1/domains/dns/import/${encodeURIComponent(providerId)}/preview" in template
+    assert "/api/v1/domains/dns/import/${encodeURIComponent(providerId)}" in template
+    assert "discoverCloudflareZones()" in template
+    assert "importCloudflareZones()" in template
+    assert "x-html" not in template
 
 
 def test_domain_details_exposes_health_history_without_html_injection():
