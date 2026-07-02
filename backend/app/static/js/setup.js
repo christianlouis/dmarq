@@ -219,13 +219,8 @@ function setupWizardEventListeners() {
                     throw new Error(data.detail || 'System settings could not be saved.');
                 }
 
-                localStorage.setItem('setup_app_name', appName);
-                localStorage.setItem('setup_base_url', baseUrl);
                 if (enableCloudflare.checked) {
-                    localStorage.setItem('setup_cloudflare_enabled', 'true');
                     cloudflareTokenInput.value = '';
-                } else {
-                    localStorage.removeItem('setup_cloudflare_enabled');
                 }
 
                 // Move to step 3
