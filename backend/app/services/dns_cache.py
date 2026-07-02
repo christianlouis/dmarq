@@ -24,6 +24,7 @@ from app.services.dns_resolver import (
 
 DEFAULT_DNS_CACHE_TTL_SECONDS = 900
 NEGATIVE_DNS_CACHE_TTL_SECONDS = 60
+STALE_DNS_EVIDENCE_GRACE_SECONDS = 86_400
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +87,10 @@ def _negative_ttl_for_result(result: DomainDNSResult, ttl_seconds: int) -> int:
     if _has_dns_evidence(result):
         return ttl_seconds
     return min(ttl_seconds, NEGATIVE_DNS_CACHE_TTL_SECONDS)
+
+
+def _within_stale_evidence_grace(row: DNSCache, now: datetime) -> bool:
+    return row.checked_at >= now - timedelta(seconds=STALE_DNS_EVIDENCE_GRACE_SECONDS)
 
 
 async def _resolve_with_fallback(
@@ -151,6 +156,15 @@ async def resolve_domain_dns_cached(
             return cached_result, True, row.checked_at
 
     result = await _resolve_with_fallback(provider, domain, selectors=selectors)
+    if row and _has_dns_evidence(_result_from_json(row.result_json)) and not _has_dns_evidence(result):
+        cached_result = _result_from_json(row.result_json)
+        if _within_stale_evidence_grace(row, now):
+            logger.warning(
+                "DNS resolver returned no evidence; keeping last known DNS evidence for %s",
+                provider_name,
+            )
+            return cached_result, True, row.checked_at
+
     payload = _result_to_json(result)
     if row is None:
         row = DNSCache(
