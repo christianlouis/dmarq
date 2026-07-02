@@ -3,6 +3,7 @@ import re
 import shutil
 import subprocess
 import textwrap
+from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
@@ -36,8 +37,24 @@ def _has_inline_script(markup: str) -> bool:
     return bool(re.search(r"<script\b(?![^>]*\ssrc\s*=)[^>]*>", markup, re.IGNORECASE))
 
 
+class _InlineStyleDetector(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.has_inline_style = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        inline_style_attrs = {"style", ":style", "x-bind:style"}
+        if any(name.lower() in inline_style_attrs for name, _value in attrs):
+            self.has_inline_style = True
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.handle_starttag(tag, attrs)
+
+
 def _has_inline_style(markup: str) -> bool:
-    return bool(re.search(r"\s:?style\s*=", markup, re.IGNORECASE))
+    parser = _InlineStyleDetector()
+    parser.feed(markup)
+    return parser.has_inline_style
 
 
 def _template_section_between_markers(template: str, start_marker: str, end_marker: str) -> str:
@@ -628,7 +645,9 @@ def test_members_template_uses_membership_api_without_html_injection():
     assert not _has_inline_script(template)
     assert not _has_inline_style(template)
     assert _has_inline_script('<script data-src="/static/js/members-page.js"></script>')
+    assert not _has_inline_style('<div data-style="ok" x-effect="$el.style.width = width"></div>')
     assert _has_inline_style('<div data-style="ok" :style="bad"></div>')
+    assert _has_inline_style("<div x-bind:style=\"{ width: progress + '%' }\"></div>")
 
 
 def test_base_template_propagates_selected_workspace_context():
