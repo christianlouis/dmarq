@@ -221,13 +221,7 @@ class AbuseIPDBFeedProvider:
             "Key": self.config.api_key,
         }
         try:
-            if self._client is not None:
-                response = await self._client.get(url, params=params, headers=headers)
-            else:
-                async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
-                    response = await client.get(url, params=params, headers=headers)
-            response.raise_for_status()
-            payload = response.json()
+            payload = await self._fetch_payload(url, params=params, headers=headers)
         except (httpx.RequestError, httpx.HTTPStatusError, ValueError) as exc:
             return self._evidence("error", checked_at=checked_at, detail=str(exc))
 
@@ -266,6 +260,21 @@ class AbuseIPDBFeedProvider:
                 detail=", ".join(detail_parts),
             )
         return self._evidence("clean", checked_at=checked_at, detail=", ".join(detail_parts))
+
+    async def _fetch_payload(
+        self,
+        url: str,
+        *,
+        params: Dict[str, object],
+        headers: Dict[str, str],
+    ) -> object:
+        if self._client is not None:
+            response = await self._client.get(url, params=params, headers=headers)
+        else:
+            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+                response = await client.get(url, params=params, headers=headers)
+        response.raise_for_status()
+        return response.json()
 
     def _evidence(
         self,
