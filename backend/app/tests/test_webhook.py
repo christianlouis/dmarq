@@ -9,7 +9,9 @@ from unittest.mock import patch
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
+from app.api.api_v1.endpoints import webhook
 from app.core.config import get_settings
 from app.models.report import DMARCReport
 
@@ -195,6 +197,23 @@ def test_webhook_rejects_oversized_base64_before_decode(client: TestClient, monk
 
     assert response.status_code == 413
     decode.assert_not_called()
+
+
+def test_webhook_content_length_guard_allows_missing_header():
+    request = Request({"type": "http", "headers": []})
+
+    webhook._ensure_request_content_length(request)
+
+
+def test_webhook_content_length_guard_allows_invalid_header():
+    request = Request(
+        {
+            "type": "http",
+            "headers": [(b"content-length", b"not-a-number")],
+        }
+    )
+
+    webhook._ensure_request_content_length(request)
 
 
 def test_webhook_rejects_oversized_raw_email(client: TestClient, monkeypatch):
