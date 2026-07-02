@@ -17,6 +17,11 @@ from app.services.dmarc_parser import DMARCParser
 from app.utils.domain_validator import validate_domain, validate_domain_config
 
 
+def _script_tags_without_src(body: str) -> list[str]:
+    script_tags = re.findall(r"<script\b[^>]*>", body, re.IGNORECASE)
+    return [tag for tag in script_tags if not re.search(r"\ssrc\s*=", tag, re.IGNORECASE)]
+
+
 class TestAPIKeySecurity:
     """Test API key generation and verification."""
 
@@ -144,7 +149,7 @@ class TestSecurityHeaders:
 
         assert "alpinejs@3.x.x/dist/cdn.min.js" in body
         assert "@alpinejs/csp" not in body
-        assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", body, re.IGNORECASE)
+        assert not _script_tags_without_src(body)
         assert not re.search(r"<style\b", body, re.IGNORECASE)
         assert 'src="/static/js/base-layout.js"' in body
         assert 'href="/static/css/page-utilities.css"' in body
@@ -155,7 +160,7 @@ class TestSecurityHeaders:
         template = Path(__file__).resolve().parents[1] / "templates" / template_name
         body = template.read_text()
 
-        assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", body, re.IGNORECASE)
+        assert not _script_tags_without_src(body)
         assert not re.search(r"<style\b", body, re.IGNORECASE)
         assert f'src="/static/js/{template_name.removesuffix(".html")}-page.js"' in body
         assert 'href="/static/css/page-utilities.css"' in body
