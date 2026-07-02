@@ -103,7 +103,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 "base-uri 'self'",
                 "form-action 'self'",
             ]
-            response.headers["Content-Security-Policy-Report-Only"] = "; ".join(report_only_directives)
+            response.headers["Content-Security-Policy-Report-Only"] = "; ".join(
+                report_only_directives
+            )
 
         # X-Frame-Options: Prevent clickjacking attacks
         # 'DENY' prevents the page from being displayed in a frame
