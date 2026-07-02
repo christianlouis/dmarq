@@ -1,9 +1,20 @@
 import re
 from pathlib import Path
 
+from jinja2 import Environment, FileSystemLoader, select_autoescape
+
 
 def _read_project_file(*parts: str) -> str:
     return (Path(__file__).resolve().parents[1].joinpath(*parts)).read_text()
+
+
+def _render_template(name: str, **context: object) -> str:
+    template_dir = Path(__file__).resolve().parents[1] / "templates"
+    env = Environment(
+        loader=FileSystemLoader(template_dir),
+        autoescape=select_autoescape(("html", "xml")),
+    )
+    return env.get_template(name).render(**context)
 
 
 def _dashboard_template() -> str:
@@ -160,6 +171,20 @@ def test_profile_uses_external_page_script_for_csp_migration():
     assert "/api/v1/auth/me" in script
     assert "Failed to load user profile" in script
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
+
+
+def test_profile_renders_external_page_script_for_csp_migration():
+    rendered = _render_template(
+        "profile.html",
+        app_name="DMARQ",
+        auth_configured=False,
+        auth_disabled=False,
+        auth_provider="logto",
+        auth_provider_label="Logto",
+        logto_configured=False,
+    )
+
+    assert '<script src="/static/js/profile-page.js"></script>' in rendered
 
 
 def test_domain_details_exposes_health_history_without_html_injection():
