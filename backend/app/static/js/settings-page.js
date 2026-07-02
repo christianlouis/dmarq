@@ -4,6 +4,7 @@ function settingsApp() {
         saving: false,
         flashMsg: '',
         flashOk: true,
+        _flashTimer: null,
         testingNotification: false,
         checkingAlerts: false,
         sendingAlerts: false,
@@ -708,7 +709,11 @@ function settingsApp() {
         showFlash(msg, ok) {
             this.flashMsg = msg;
             this.flashOk = ok;
-            setTimeout(() => { this.flashMsg = ''; }, 4000);
+            if (this._flashTimer) clearTimeout(this._flashTimer);
+            this._flashTimer = setTimeout(() => {
+                this.flashMsg = '';
+                this._flashTimer = null;
+            }, 4000);
         },
     };
 }
