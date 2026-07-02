@@ -73,6 +73,30 @@ function domainsApp() {
             this.editDomain = { name: '', description: '', dkim_selectors: '' };
         },
 
+        apiErrorDetail(data, fallback) {
+            const detail = data?.detail;
+            if (typeof detail === 'string') {
+                return detail;
+            }
+            if (Array.isArray(detail)) {
+                return (
+                    detail
+                        .map((item) => item?.msg || item?.message || item?.detail || '')
+                        .filter(Boolean)
+                        .join(', ') || fallback
+                );
+            }
+            if (detail && typeof detail === 'object') {
+                return Object.values(detail)
+                    .map((value) =>
+                        typeof value === 'string' ? value : value?.msg || value?.message || ''
+                    )
+                    .filter(Boolean)
+                    .join(', ');
+            }
+            return fallback;
+        },
+
         async createDomain() {
             this.saving = true;
             this.createError = '';
@@ -92,10 +116,7 @@ function domainsApp() {
                 });
                 if (!response.ok) {
                     const data = await response.json().catch(() => ({}));
-                    const detail =
-                        typeof data.detail === 'string'
-                            ? data.detail
-                            : Object.values(data.detail || {}).join(', ');
+                    const detail = this.apiErrorDetail(data, 'Domain could not be added.');
                     throw new Error(detail || 'Domain could not be added.');
                 }
                 this.closeCreate();
@@ -128,10 +149,7 @@ function domainsApp() {
                 );
                 if (!response.ok) {
                     const data = await response.json().catch(() => ({}));
-                    const detail =
-                        typeof data.detail === 'string'
-                            ? data.detail
-                            : Object.values(data.detail || {}).join(', ');
+                    const detail = this.apiErrorDetail(data, 'Domain could not be updated.');
                     throw new Error(detail || 'Domain could not be updated.');
                 }
                 this.closeEdit();

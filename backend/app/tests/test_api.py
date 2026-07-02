@@ -3,7 +3,9 @@ import asyncio
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
+from app.api.api_v1.endpoints import domains as domains_endpoint
 from app.main import app, members_page
+from app.models.domain import Domain
 
 
 def test_health_check(authed_client: TestClient):
@@ -73,6 +75,69 @@ def test_update_domain_metadata_without_reports(authed_client: TestClient):
     selectors_response = authed_client.get("/api/v1/domains/example.com/selectors")
     assert selectors_response.status_code == 200
     assert selectors_response.json()["selectors"] == ["google", "default"]
+
+
+def test_update_report_only_domain_creates_monitored_domain(
+    authed_client: TestClient, db_session, monkeypatch
+):
+    """PATCH can persist metadata for a domain that only exists in report summaries."""
+    report_domain = "report-only.example"
+    report = {
+        "domain": report_domain,
+        "report_id": "report-only-update",
+        "org_name": "Example RUA",
+        "begin_timestamp": 1597449600,
+        "end_timestamp": 1597535999,
+        "policy": "none",
+        "records": [
+            {
+                "source_ip": "192.0.2.10",
+                "count": 3,
+                "disposition": "none",
+                "dkim_result": "pass",
+                "spf_result": "pass",
+                "header_from": report_domain,
+            }
+        ],
+    }
+
+    def fake_hydrate(_db, store, workspace_id=None):
+        del workspace_id
+        store.clear()
+        store.add_report(report)
+        return 1
+
+    monkeypatch.setattr(domains_endpoint, "hydrate_report_store_from_db", fake_hydrate)
+
+    response = authed_client.patch(
+        f"/api/v1/domains/domains/{report_domain}",
+        json={
+            "description": "Persisted from report-only summary",
+            "dkim_selectors": ["google", "default", "google"],
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["name"] == report_domain
+    assert data["description"] == "Persisted from report-only summary"
+    assert data["reports_count"] == 1
+    assert data["dkim_selectors"] == ["google", "default"]
+
+    domain = db_session.query(Domain).filter(Domain.name == report_domain).one()
+    assert domain.description == "Persisted from report-only summary"
+    assert domain.dkim_selectors == "google,default"
+
+
+def test_domain_selectors_map_normalizes_legacy_duplicates(db_session):
+    """Summary selector lookups return the same normalized selector shape as read APIs."""
+    db_session.add(Domain(name="legacy.example", dkim_selectors=" google,default,google, "))
+    db_session.commit()
+
+    assert domains_endpoint._get_domain_selectors_map_from_db(  # pylint: disable=protected-access
+        db_session,
+        ["legacy.example"],
+    ) == {"legacy.example": ["google", "default"]}
 
 
 def test_create_domain_rejects_duplicates(authed_client: TestClient):
