@@ -46,6 +46,14 @@ def _upload_script() -> str:
     return _read_project_file("static", "js", "upload-page.js")
 
 
+def _profile_template() -> str:
+    return _read_project_file("templates", "profile.html")
+
+
+def _profile_script() -> str:
+    return _read_project_file("static", "js", "profile-page.js")
+
+
 def test_dashboard_domain_table_uses_safe_dom_rendering():
     """Domain names and counts come from report data and must not be HTML-rendered."""
     script = _dashboard_script()
@@ -140,6 +148,17 @@ def test_upload_uses_external_page_script_for_csp_migration():
     assert "UPLOAD_TIMEOUT_MS" in script
     assert "this.isUploading = false" in script
     assert "dmarq:refresh-data" in script
+    assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
+
+
+def test_profile_uses_external_page_script_for_csp_migration():
+    template = _profile_template()
+    script = _profile_script()
+
+    assert 'src="/static/js/profile-page.js"' in template
+    assert "profileApp()" in template
+    assert "/api/v1/auth/me" in script
+    assert "Failed to load user profile" in script
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 
