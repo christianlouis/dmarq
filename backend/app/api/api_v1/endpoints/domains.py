@@ -1570,9 +1570,7 @@ def _get_domain_selectors_map_from_db(db: Session, domain_names: List[str]) -> D
         chunk = unique_names[index : index + DOMAIN_SELECTOR_LOOKUP_CHUNK_SIZE]
         rows = db.query(Domain.name, Domain.dkim_selectors).filter(Domain.name.in_(chunk)).all()
         for name, selectors in rows:
-            selectors_by_domain[name] = [
-                selector.strip() for selector in (selectors or "").split(",") if selector.strip()
-            ]
+            selectors_by_domain[name] = _normalize_domain_selectors((selectors or "").split(","))
     return selectors_by_domain
 
 
@@ -3105,7 +3103,14 @@ async def update_domain(
         selectors = _normalize_domain_selectors(payload.dkim_selectors)
         domain.dkim_selectors = ",".join(selectors) if selectors else None
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Domain is already monitored",
+        ) from exc
     db.refresh(domain)
     record_workspace_audit_log(
         db,
