@@ -27,6 +27,15 @@ def _has_script_src(markup: str, src: str) -> bool:
     )
 
 
+def _template_section_between_markers(template: str, start_marker: str, end_marker: str) -> str:
+    start_match = re.search(rf"^[ \t]*{re.escape(start_marker)}", template, re.MULTILINE)
+    assert start_match, f"{start_marker!r} marker missing from template"
+    section = template[start_match.start() :]
+    end_match = re.search(rf"^[ \t]*{re.escape(end_marker)}", section, re.MULTILINE)
+    assert end_match, f"{end_marker!r} marker missing after {start_marker!r}"
+    return section[: end_match.start()]
+
+
 def _dashboard_template() -> str:
     return _read_project_file("templates", "index.html")
 
@@ -261,16 +270,15 @@ def test_domain_details_redirects_to_domain_management_after_delete_success():
     template = (
         Path(__file__).resolve().parents[1] / "templates" / "domain_details.html"
     ).read_text()
-    delete_start = template.index("        async deleteDomain()")
-    delete_end = template.index("        enableMigrationTools()", delete_start)
-    delete_body = template[delete_start:delete_end]
+    delete_body = _template_section_between_markers(
+        template, "async deleteDomain()", "enableMigrationTools()"
+    )
 
     assert "if (response.status === 204)" in delete_body
-    assert "window.location.href = '/domains';" in delete_body
-    assert "return;" in delete_body
-    assert delete_body.index("window.location.href = '/domains';") < delete_body.index(
-        "window.alert(data.detail"
-    )
+    redirect_idx = delete_body.index("window.location.href = '/domains';")
+    alert_idx = delete_body.index("window.alert(data.detail")
+    assert redirect_idx < alert_idx
+    assert "return;" in delete_body[redirect_idx:alert_idx]
 
 
 def test_report_detail_exposes_record_review_guidance_without_html_injection():
