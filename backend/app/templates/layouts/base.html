@@ -1,5 +1,11 @@
 <!DOCTYPE html>
 {% set multi_workspace_ui_enabled = multi_workspace_ui_enabled | default(false) %}
+{% set release_info = release_info | default({
+    'label': 'vlocal',
+    'version': 'local',
+    'build': {'short_sha': none, 'ref': none, 'date': none},
+    'changes': []
+}) %}
 <html lang="en" data-theme="dmarqlight" data-multi-workspace-ui="{{ 'true' if multi_workspace_ui_enabled else 'false' }}" class="dark:data-theme-dmarqdark">
 <head>
     <meta charset="UTF-8">

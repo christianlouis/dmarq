@@ -25,18 +25,22 @@ def test_release_info_endpoint_exposes_safe_build_metadata(
     authed_client: TestClient, monkeypatch
 ):
     """Release metadata is available for support without exposing secrets."""
-    monkeypatch.setenv("DMARQ_BUILD_SHA", "abcdef1234567890")
-    monkeypatch.setenv("DMARQ_BUILD_REF", "main")
-    monkeypatch.setenv("DMARQ_BUILD_IMAGE", "ghcr.io/christianlouis/dmarq:abcdef1")
-    monkeypatch.setenv("DMARQ_BUILD_DATE", "2026-07-03T12:00:00Z")
+    from app.api.api_v1.endpoints import health as health_endpoint  # pylint: disable=import-outside-toplevel
+    from app.core.config import Settings  # pylint: disable=import-outside-toplevel
 
-    from app.core.config import get_settings  # pylint: disable=import-outside-toplevel
+    monkeypatch.setattr(
+        health_endpoint,
+        "get_settings",
+        lambda: Settings(
+            SECRET_KEY="s" * 32,
+            DMARQ_BUILD_SHA="abcdef1234567890",
+            DMARQ_BUILD_REF="main",
+            DMARQ_BUILD_IMAGE="ghcr.io/christianlouis/dmarq:abcdef1",
+            DMARQ_BUILD_DATE="2026-07-03T12:00:00Z",
+        ),
+    )
 
-    get_settings.cache_clear()
-    try:
-        response = authed_client.get("/api/v1/health/release")
-    finally:
-        get_settings.cache_clear()
+    response = authed_client.get("/api/v1/health/release")
 
     assert response.status_code == 200
     data = response.json()
