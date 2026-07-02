@@ -112,6 +112,13 @@ def test_detect_dns_provider_maps_akamai_nameservers_to_connector():
     assert "Connect Akamai Edge DNS / FastDNS" in detection.suggested_action
 
 
+def test_detect_dns_provider_avoids_suffix_marker_false_positives():
+    detection = detect_dns_provider(["ns1.notfirst-ns.de", "ns1.notlinode.com", "ns1.notakam.net"])
+
+    assert detection.provider_id == "custom"
+    assert detection.confidence == "low"
+
+
 def test_detect_dns_provider_degrades_for_unknown_nameservers():
     detection = detect_dns_provider(["ns1.mailhost.example", "ns2.mailhost.example"])
 
