@@ -5,7 +5,7 @@ from sqlalchemy.exc import IntegrityError
 from starlette.requests import Request
 
 from app.api.api_v1.endpoints import domains as domains_endpoint
-from app.main import app, members_page
+from app.main import app, members_page, settings
 from app.models.domain import Domain
 
 
@@ -231,13 +231,26 @@ def test_members_page_route_is_registered():
     assert any(getattr(route, "path", None) == "/members" for route in app.routes)
 
 
-def test_members_page_redirects_when_multi_workspace_ui_disabled():
+def test_members_page_redirects_when_multi_workspace_ui_disabled(monkeypatch):
     """Single-workspace installs should not expose the membership management UI."""
+    monkeypatch.setattr(settings, "MULTI_WORKSPACE_UI_ENABLED", False)
+
     request = Request({"type": "http", "method": "GET", "path": "/members", "headers": []})
     response = asyncio.run(members_page(request))
 
     assert response.status_code == 303
     assert response.headers["location"] == "/settings"
+
+
+def test_members_page_renders_when_multi_workspace_ui_enabled(monkeypatch):
+    """Multi-workspace installs keep the membership management UI available."""
+    monkeypatch.setattr(settings, "MULTI_WORKSPACE_UI_ENABLED", True)
+
+    request = Request({"type": "http", "method": "GET", "path": "/members", "headers": []})
+    response = asyncio.run(members_page(request))
+
+    assert response.status_code == 200
+    assert response.template.name == "members.html"
 
 
 def test_reports_upload_invalid_extension(authed_client: TestClient):
