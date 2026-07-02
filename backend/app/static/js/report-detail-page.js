@@ -20,7 +20,7 @@ function reportDetailApp(reportId) {
                     this.error = 'Failed to load report. Please try again later.';
                 }
             } catch (err) {
-                this.error = 'Network error - could not load report.';
+                this.error = 'Network error — could not load report.';
                 console.error('Error fetching report:', err);
             } finally {
                 this.loading = false;
@@ -48,12 +48,12 @@ function reportDetailApp(reportId) {
                 }
             } catch (error) {
                 console.error('Error deleting report:', error);
-                alert('Network error - could not delete report.');
+                alert('Network error — could not delete report.');
             }
         },
 
         formatDate(timestamp) {
-            if (!timestamp) return '-';
+            if (!timestamp) return '—';
             return new Date(timestamp * 1000).toLocaleString();
         },
 
@@ -91,8 +91,8 @@ function reportDetailApp(reportId) {
             const country = details.country || 'Unknown country';
             const region = details.region || 'Unknown region';
             const code = details.country_code && details.country_code !== 'ZZ' ? ` (${details.country_code})` : '';
-            const network = [details.asn, details.network, details.bgp_prefix].filter(Boolean).join(' / ');
-            return [region, `${country}${code}`, network].filter(Boolean).join(' / ');
+            const network = [details.asn, details.network, details.bgp_prefix].filter(Boolean).join(' · ');
+            return [region, `${country}${code}`, network].filter(Boolean).join(' · ');
         },
 
         reputationClass(status) {
