@@ -12,9 +12,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.credential_encryption import decrypt_secret
 from app.models.domain import Domain
-
-# Imported for model registration side effects when this service is loaded directly.
-from app.models.mail_source_import import MailSourceImport  # noqa: F401
+from app.models.mail_source_import import MailSourceImport
 from app.models.setting import Setting
 from app.models.workspace import Workspace
 from app.services.organizations import require_organization_plan_limit
@@ -22,6 +20,7 @@ from app.services.workspaces import assign_default_workspace_to_unscoped_rows
 
 POSTMARK_API_BASE = "https://api.postmarkapp.com"
 MAIL_SERVICE_DESCRIPTION_PREFIX = "Mail-service sender domain imported from "
+MODEL_REGISTRATION_IMPORTS = (MailSourceImport,)
 
 
 class MailServiceImportError(RuntimeError):
