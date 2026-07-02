@@ -1310,8 +1310,10 @@ function domainDetailsApp(domainId) {
         
         initComplianceChart(timelineData) {
             if (!timelineData || !timelineData.length) return;
-            
-            const ctx = document.getElementById('compliance-chart').getContext('2d');
+
+            const canvas = document.getElementById('compliance-chart');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
             
             if (this.complianceChart) {
                 this.complianceChart.destroy();
