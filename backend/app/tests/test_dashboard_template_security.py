@@ -127,6 +127,22 @@ def _forensic_report_detail_script() -> str:
     return _read_project_file("static", "js", "forensic-report-detail-page.js")
 
 
+def _tls_reports_template() -> str:
+    return _read_project_file("templates", "tls_reports.html")
+
+
+def _tls_reports_script() -> str:
+    return _read_project_file("static", "js", "tls-reports-page.js")
+
+
+def _report_detail_template() -> str:
+    return _read_project_file("templates", "report_detail.html")
+
+
+def _report_detail_script() -> str:
+    return _read_project_file("static", "js", "report-detail-page.js")
+
+
 def _settings_template() -> str:
     return _read_project_file("templates", "settings.html")
 
@@ -308,6 +324,30 @@ def test_forensic_report_detail_uses_external_page_script_for_csp_migration():
     assert "/api/v1/forensics/${this.reportId}" in script
     assert "Forensic report not found" in script
     assert "feedbackHeaderEntries" in script
+    assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
+
+
+def test_tls_reports_uses_external_page_script_for_csp_migration():
+    template = _tls_reports_template()
+    script = _tls_reports_script()
+
+    assert 'src="/static/js/tls-reports-page.js"' in template
+    assert "tlsReportsApp()" in template
+    assert "/api/v1/tls-reports/summary?" in script
+    assert "/api/v1/tls-reports/upload" in script
+    assert "Unable to load TLS report summary" in script
+    assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
+
+
+def test_report_detail_uses_external_page_script_for_csp_migration():
+    template = _report_detail_template()
+    script = _report_detail_script()
+
+    assert 'src="/static/js/report-detail-page.js"' in template
+    assert "reportDetailApp" in template
+    assert "/api/v1/reports/${encodeURIComponent(this.reportId)}" in script
+    assert "deleteReport(domain, reportId)" in script
+    assert "sourceLocation(record)" in script
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 
