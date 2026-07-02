@@ -1,3 +1,9 @@
 document.addEventListener('alpine:init', () => {
-    // Alpine components will be registered here
+    // components/ui/alert.html
+    Alpine.data('alertComponent', () => ({
+        open: true,
+        close() {
+            this.open = false;
+        }
+    }));
 });
