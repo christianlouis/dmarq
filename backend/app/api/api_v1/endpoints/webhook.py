@@ -4,6 +4,7 @@ import base64
 import email
 import hmac
 import logging
+import math
 from email.header import decode_header
 from typing import Any, Dict, Optional
 
@@ -67,6 +68,42 @@ def _ensure_email_size(raw_email: bytes) -> None:
                 f"Maximum accepted size is {max_bytes} bytes."
             ),
         )
+
+
+def _ensure_base64_email_size(raw_email: str) -> None:
+    max_encoded_bytes = 4 * math.ceil(_max_webhook_email_bytes() / 3)
+    if len(raw_email) > max_encoded_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=(
+                "Webhook email payload is too large. "
+                f"Maximum accepted size is {_max_webhook_email_bytes()} bytes."
+            ),
+        )
+
+
+def _ensure_request_content_length(request: Request) -> None:
+    content_length = request.headers.get("content-length")
+    if not content_length:
+        return
+    try:
+        body_size = int(content_length)
+    except ValueError:
+        return
+    max_bytes = _max_webhook_email_bytes()
+    if body_size > max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=(
+                "Webhook email payload is too large. "
+                f"Maximum accepted size is {max_bytes} bytes."
+            ),
+        )
+
+
+def _api_endpoint_path(path: str) -> str:
+    settings = get_settings()
+    return f"{settings.API_V1_STR.rstrip('/')}/webhook/{path.lstrip('/')}"
 
 
 def _require_webhook_secret(x_webhook_secret: Optional[str]) -> None:
@@ -164,12 +201,12 @@ async def webhook_status(_auth: dict = Depends(require_admin_auth)) -> Dict[str,
         "max_email_size_mb": max_bytes // (1024 * 1024),
         "endpoints": [
             {
-                "path": "/api/v1/webhook/email",
+                "path": _api_endpoint_path("email"),
                 "method": "POST",
                 "payload": "json_base64_rfc822",
             },
             {
-                "path": "/api/v1/webhook/email/raw",
+                "path": _api_endpoint_path("email/raw"),
                 "method": "POST",
                 "payload": "raw_rfc822",
             },
@@ -186,6 +223,7 @@ async def receive_email(
 ) -> Dict[str, Any]:
     """Receive a base64 encoded raw email from an email worker webhook."""
     _require_webhook_secret(x_webhook_secret)
+    _ensure_base64_email_size(payload.raw_email)
     try:
         raw_email = base64.b64decode(payload.raw_email, validate=True)
     except (ValueError, TypeError) as exc:
@@ -206,6 +244,7 @@ async def receive_raw_email(
 ) -> Dict[str, Any]:
     """Receive raw RFC 822 email bytes from an email worker webhook."""
     _require_webhook_secret(x_webhook_secret)
+    _ensure_request_content_length(request)
     raw_email = await request.body()
     _ensure_email_size(raw_email)
     return _handle_raw_email(raw_email, db)

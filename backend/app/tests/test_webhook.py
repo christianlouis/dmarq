@@ -135,6 +135,20 @@ def test_webhook_status_reports_readiness_without_secret(authed_client, monkeypa
     assert "test-webhook-secret" not in response.text
 
 
+def test_webhook_status_uses_configured_api_prefix(authed_client, monkeypatch):
+    _set_webhook_secret(monkeypatch)
+    monkeypatch.setenv("API_V1_STR", "/internal/api")
+    get_settings.cache_clear()
+
+    response = authed_client.get("/api/v1/webhook/status")
+
+    assert response.status_code == 200
+    assert {endpoint["path"] for endpoint in response.json()["endpoints"]} == {
+        "/internal/api/webhook/email",
+        "/internal/api/webhook/email/raw",
+    }
+
+
 def test_webhook_imports_base64_email(client: TestClient, db_session, monkeypatch):
     secret = _set_webhook_secret(monkeypatch)
 
@@ -165,6 +179,22 @@ def test_webhook_rejects_oversized_base64_email(client: TestClient, monkeypatch)
 
     assert response.status_code == 413
     assert "too large" in response.json()["detail"]
+
+
+def test_webhook_rejects_oversized_base64_before_decode(client: TestClient, monkeypatch):
+    secret = _set_webhook_secret(monkeypatch)
+    monkeypatch.setenv("WEBHOOK_MAX_EMAIL_SIZE_MB", "1")
+    get_settings.cache_clear()
+
+    with patch("app.api.api_v1.endpoints.webhook.base64.b64decode") as decode:
+        response = client.post(
+            "/api/v1/webhook/email",
+            headers={"X-Webhook-Secret": secret},
+            json={"raw_email": "A" * (2 * 1024 * 1024)},
+        )
+
+    assert response.status_code == 413
+    decode.assert_not_called()
 
 
 def test_webhook_rejects_oversized_raw_email(client: TestClient, monkeypatch):
