@@ -23,15 +23,15 @@ from app.services.report_persistence import (
 )
 from app.services.report_store import ReportStore
 from app.services.sender_intelligence import identify_sender, source_geo_for
-from app.services.source_reputation import (
-    SourceReputation,
-    build_source_reputation_cached,
-    source_reputation_by_ip,
-)
 from app.services.source_network import (
     SourceNetworkIntelligence,
     lookup_sources_network_cached,
     merge_network_into_geo,
+)
+from app.services.source_reputation import (
+    SourceReputation,
+    build_source_reputation_cached,
+    source_reputation_by_ip,
 )
 from app.services.workspace_access import (
     PERMISSION_REPORTS_READ,
@@ -780,8 +780,17 @@ def _source_details(
         "asn": geo.get("asn"),
         "network": geo.get("network"),
         "bgp_prefix": geo.get("bgp_prefix"),
+        "city": geo.get("city"),
+        "latitude": geo.get("latitude"),
+        "longitude": geo.get("longitude"),
         "registry": geo.get("registry"),
         "allocated": geo.get("allocated"),
+        "organization": geo.get("organization"),
+        "domain": geo.get("domain"),
+        "cloudflare_location": geo.get("cloudflare_location"),
+        "cloudflare_asn_name": geo.get("cloudflare_asn_name"),
+        "cloudflare_asn_org_name": geo.get("cloudflare_asn_org_name"),
+        "radar_url": geo.get("radar_url"),
         "network_source": geo.get("network_source"),
         "network_checked_at": geo.get("network_checked_at"),
         "network_error": geo.get("network_error"),

@@ -209,6 +209,9 @@
                                             <div>
                                                 <span x-text="sourceLocation(record)"></span>
                                             </div>
+                                            <div x-show="record.source_details?.city">
+                                                City: <span x-text="record.source_details.city"></span>
+                                            </div>
                                             <div x-show="record.source_details?.asn || record.source_details?.network">
                                                 <span x-text="record.source_details?.asn || 'ASN unknown'"></span>
                                                 <span x-show="record.source_details?.network"> · </span>
@@ -228,6 +231,16 @@
                                             <div x-show="record.source_details?.network_source">
                                                 Network data: <span x-text="record.source_details.network_source"></span>
                                             </div>
+                                            <div x-show="record.source_details?.organization || record.source_details?.domain">
+                                                <span x-show="record.source_details?.organization" x-text="record.source_details.organization"></span>
+                                                <span x-show="record.source_details?.organization && record.source_details?.domain"> · </span>
+                                                <span x-show="record.source_details?.domain" x-text="record.source_details.domain"></span>
+                                            </div>
+                                            <a x-show="record.source_details?.radar_url"
+                                               :href="record.source_details.radar_url"
+                                               target="_blank"
+                                               rel="noopener noreferrer"
+                                               class="inline-flex text-primary hover:underline">Open in Cloudflare Radar</a>
                                             <div x-show="record.source_details?.network_error && !record.source_details?.asn && !record.source_details?.network"
                                                  x-text="record.source_details.network_error"></div>
                                             <template x-if="record.reputation">

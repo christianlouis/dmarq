@@ -216,13 +216,20 @@ answer "is this IP listed or risky according to a configured provider?"
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
-| `SOURCE_NETWORK_ENRICHMENT_ENABLED` | Enable cached Team Cymru DNS lookups for ASN and BGP prefix metadata. | `true` | `false` |
+| `SOURCE_NETWORK_ENRICHMENT_ENABLED` | Enable cached sender-IP network enrichment for ASN, BGP prefix, location, and operator metadata. | `true` | `false` |
 | `SOURCE_NETWORK_ENRICHMENT_CACHE_SECONDS` | Persistent cache TTL for per-IP network metadata. | `86400` | `604800` |
 | `SOURCE_NETWORK_ENRICHMENT_MAX_IPS` | Maximum unique source IPs enriched per domain/report request. | `100` | `250` |
+| `IPINFO_TOKEN` | Optional IPinfo Lite token. When set, DMARQ uses IPinfo before the Team Cymru DNS fallback. | - | `op://...` |
+| `IPINFO_TIMEOUT_SECONDS` | IPinfo lookup timeout. | `2` | `2` |
+| `IPGEOLOCATION_API_KEY` | Optional IPGeolocation.io API key for additional city, ASN, and organization context. | - | `op://...` |
+| `IPGEOLOCATION_TIMEOUT_SECONDS` | IPGeolocation.io lookup timeout. | `2` | `2` |
+| `CLOUDFLARE_RADAR_API_TOKEN` | Optional read-only Cloudflare API token for `GET /client/v4/radar/entities/ip`. DMARQ also links every enriched IP to Cloudflare Radar. | - | `op://...` |
+| `CLOUDFLARE_RADAR_TIMEOUT_SECONDS` | Cloudflare Radar lookup timeout. | `2` | `2` |
 
 The lookup is read-only and skips private, reserved, loopback, and otherwise
-non-global IP addresses. Disable it for deployments that do not want observed
-source IPs sent to an external DNS-based metadata service.
+non-global IP addresses. Without API keys, DMARQ falls back to Team Cymru DNS
+for ASN and prefix metadata. Disable it for deployments that do not want
+observed source IPs sent to any external metadata service.
 
 ### Demo Mode
 
