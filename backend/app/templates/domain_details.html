@@ -189,10 +189,34 @@
         <section id="compliance-chart-section">
         {% call card() %}
             {% call card_header() %}
-                {% call card_title() %}Compliance Over Time{% endcall %}
-                {% call card_description() %}
-                    Daily DMARC volume, pass rate, and failure rate
-                {% endcall %}
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                        {% call card_title() %}Compliance Over Time{% endcall %}
+                        {% call card_description() %}
+                            Daily DMARC volume, pass rate, and failure rate
+                        {% endcall %}
+                    </div>
+                    <div class="flex items-center gap-2 text-sm" role="group" aria-label="Volume scale">
+                        <span class="text-[#5f5c78]">Volume scale</span>
+                        <div class="join">
+                            <button type="button"
+                                    class="btn btn-xs join-item"
+                                    :class="effectiveVolumeScale() === 'logarithmic' ? 'btn-primary' : 'btn-outline'"
+                                    :aria-pressed="effectiveVolumeScale() === 'logarithmic'"
+                                    :disabled="!hasObservedVolume"
+                                    @click="setVolumeScale('logarithmic')">
+                                Log
+                            </button>
+                            <button type="button"
+                                    class="btn btn-xs join-item"
+                                    :class="effectiveVolumeScale() === 'linear' ? 'btn-primary' : 'btn-outline'"
+                                    :aria-pressed="effectiveVolumeScale() === 'linear'"
+                                    @click="setVolumeScale('linear')">
+                                Linear
+                            </button>
+                        </div>
+                    </div>
+                </div>
             {% endcall %}
             {% call card_content() %}
                 <div class="h-64">
@@ -1884,8 +1908,16 @@ function domainDetailsApp(domainId) {
             exportStartDate: '',
             exportEndDate: ''
         },
+        volumeScale: 'logarithmic',
+        hasObservedVolume: false,
+        lastComplianceTimeline: [],
 
         init() {
+            const storedVolumeScale = this.loadStoredVolumeScale();
+            if (storedVolumeScale === 'linear' || storedVolumeScale === 'logarithmic') {
+                this.volumeScale = storedVolumeScale;
+            }
+
             this.fetchDomainStats();
             this.fetchDomainOwnership();
             this.fetchDNSRecords();
@@ -1906,6 +1938,26 @@ function domainDetailsApp(domainId) {
                 this.fetchSources();
                 this.fetchSourceIntelligence();
             });
+        },
+
+        loadStoredVolumeScale() {
+            try {
+                return window.localStorage?.getItem('dmarq:domain-volume-scale') || null;
+            } catch (error) {
+                return null;
+            }
+        },
+
+        persistVolumeScale(scale) {
+            try {
+                window.localStorage?.setItem('dmarq:domain-volume-scale', scale);
+            } catch (error) {
+                // Private browsing and locked-down environments may reject local storage.
+            }
+        },
+
+        effectiveVolumeScale() {
+            return this.hasObservedVolume && this.volumeScale === 'logarithmic' ? 'logarithmic' : 'linear';
         },
 
         get sourceEvidenceCount() {
@@ -2776,10 +2828,21 @@ function domainDetailsApp(domainId) {
                 if (response.ok) {
                     const data = await response.json();
                     this.reports = data.reports;
+                    this.lastComplianceTimeline = data.compliance_timeline || [];
                     this.initComplianceChart(data.compliance_timeline);
                 }
             } catch (error) {
                 console.error('Error fetching reports:', error);
+            }
+        },
+
+        setVolumeScale(scale) {
+            if (!['linear', 'logarithmic'].includes(scale)) return;
+            if (scale === 'logarithmic' && !this.hasObservedVolume) return;
+            this.volumeScale = scale;
+            this.persistVolumeScale(scale);
+            if (this.lastComplianceTimeline.length) {
+                this.initComplianceChart(this.lastComplianceTimeline);
             }
         },
         
@@ -2832,6 +2895,8 @@ function domainDetailsApp(domainId) {
             const observedRates = [...complianceData, ...failureData]
                 .filter(value => value !== null && Number.isFinite(value));
             const observedVolumes = volumeRawData.filter(value => value > 0 && Number.isFinite(value));
+            this.hasObservedVolume = observedVolumes.length > 0;
+            const volumeScale = this.effectiveVolumeScale();
             
             // Calculate the threshold line data (recommended 98% for policy advancement)
             const thresholdData = Array(labels.length).fill(98);
@@ -2916,9 +2981,9 @@ function domainDetailsApp(domainId) {
                             }
                         },
                         yVolume: {
-                            type: observedVolumes.length ? 'logarithmic' : 'linear',
+                            type: volumeScale,
                             position: 'right',
-                            min: observedVolumes.length ? 1 : 0,
+                            min: volumeScale === 'logarithmic' ? 1 : 0,
                             ticks: {
                                 precision: 0,
                                 callback: function(value) {
@@ -2931,7 +2996,7 @@ function domainDetailsApp(domainId) {
                             },
                             title: {
                                 display: true,
-                                text: observedVolumes.length ? 'Messages (log scale)' : 'Messages',
+                                text: volumeScale === 'logarithmic' ? 'Messages (log scale)' : 'Messages (linear scale)',
                                 font: {
                                     weight: 'bold'
                                 }
