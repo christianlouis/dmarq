@@ -82,7 +82,7 @@ COUNTRY_REGIONS = {
 
 
 @dataclass
-class SourceNetworkIntelligence:
+class SourceNetworkIntelligence:  # pylint: disable=too-many-instance-attributes
     """Network ownership and routing context for one source IP."""
 
     ip: str
@@ -612,7 +612,7 @@ async def lookup_sources_network_cached(
     return results
 
 
-def merge_network_into_geo(
+def merge_network_into_geo(  # noqa: C901 - centralizes source metadata precedence rules.
     geo: Dict[str, Any],
     network: Optional[SourceNetworkIntelligence],
 ) -> Dict[str, Any]:
