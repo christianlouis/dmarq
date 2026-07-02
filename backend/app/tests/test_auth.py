@@ -373,6 +373,38 @@ class TestExternalAuthProviders:
         assert organization_membership.role == "organization_owner"
         assert organization_membership.active is True
 
+    def test_sync_external_user_demotes_fallback_superuser_with_role_claims(self, db_session):
+        organization = Organization(slug="customer-one", name="Customer One")
+        workspace = Workspace(slug="primary", name="Primary", organization=organization)
+        user = User(
+            logto_id="authentik:authentik-user-1",
+            email="owner@example.com",
+            is_active=True,
+            is_superuser=True,
+        )
+        db_session.add_all([organization, workspace, user])
+        db_session.commit()
+
+        synced = sync_external_user(
+            ExternalIdentityClaims(
+                provider="authentik",
+                subject="authentik-user-1",
+                email="owner@example.com",
+                workspace_roles=(("primary", "workspace_owner"),),
+            ),
+            db_session,
+        )
+
+        assert synced.id == user.id
+        assert synced.is_superuser is False
+        assert (
+            db_session.query(WorkspaceMembership)
+            .filter_by(workspace_id=workspace.id, user_id=user.id)
+            .one()
+            .role
+            == "workspace_owner"
+        )
+
     def test_sync_external_user_ignores_unknown_claim_targets(self, db_session):
         user = sync_external_user(
             ExternalIdentityClaims(

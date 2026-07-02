@@ -562,6 +562,15 @@ def _normalize_role_value(role: Any, *, allowed_roles: set[str]) -> str:
     return normalized if normalized in allowed_roles else ""
 
 
+def _extend_role_pairs_from_sequence(raw_pairs: list[tuple[Any, Any]], values: Any) -> None:
+    for item in values:
+        if isinstance(item, dict):
+            slug = item.get("workspace") or item.get("organization") or item.get("slug")
+            raw_pairs.append((slug, item.get("role")))
+        elif isinstance(item, str):
+            raw_pairs.extend(_split_role_string(item))
+
+
 def _normalize_role_claims(
     value: Any,
     *,
@@ -584,12 +593,7 @@ def _normalize_role_claims(
     elif isinstance(value, str):
         raw_pairs.extend(_split_role_string(value))
     elif isinstance(value, (list, tuple, set)):
-        for item in value:
-            if isinstance(item, dict):
-                slug = item.get("workspace") or item.get("organization") or item.get("slug")
-                raw_pairs.append((slug, item.get("role")))
-            elif isinstance(item, str):
-                raw_pairs.extend(_split_role_string(item))
+        _extend_role_pairs_from_sequence(raw_pairs, value)
 
     normalized: list[tuple[str, str]] = []
     seen = set()
@@ -741,6 +745,8 @@ def sync_external_user(claims: ExternalIdentityClaims, db: Session) -> User:
     user.full_name = claims.name or user.full_name
     user.username = claims.username or user.username
     user.picture = claims.picture or user.picture
+    if claims.workspace_roles or claims.organization_roles:
+        user.is_superuser = False
     user.updated_at = datetime.utcnow()
     _sync_external_memberships(claims, user, db)
     db.commit()
