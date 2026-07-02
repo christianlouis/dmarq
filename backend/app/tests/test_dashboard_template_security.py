@@ -22,6 +22,14 @@ def _operations_script() -> str:
     return _read_project_file("static", "js", "operations-page.js")
 
 
+def _reports_template() -> str:
+    return _read_project_file("templates", "reports.html")
+
+
+def _reports_script() -> str:
+    return _read_project_file("static", "js", "reports-page.js")
+
+
 def test_dashboard_domain_table_uses_safe_dom_rendering():
     """Domain names and counts come from report data and must not be HTML-rendered."""
     script = _dashboard_script()
@@ -79,6 +87,17 @@ def test_operations_uses_external_page_script_for_csp_migration():
     assert "operationsHealth()" in template
     assert "/api/v1/health/operations" in script
     assert "Health details could not be loaded." in script
+    assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
+
+
+def test_reports_uses_external_page_script_for_csp_migration():
+    template = _reports_template()
+    script = _reports_script()
+
+    assert 'src="/static/js/reports-page.js"' in template
+    assert "reportsApp()" in template
+    assert "/api/v1/reports" in script
+    assert "deleteReport(domain, reportId)" in script
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 
