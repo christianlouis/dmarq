@@ -69,6 +69,20 @@ class TestBackendCorsOriginsValidator:
         ]
 
 
+class TestWorkspaceUiMode:
+    """Tests for self-hosted versus multi-workspace UI settings."""
+
+    def test_multi_workspace_ui_defaults_to_disabled(self):
+        settings = Settings()
+
+        assert settings.MULTI_WORKSPACE_UI_ENABLED is False
+
+    def test_multi_workspace_ui_can_be_enabled_explicitly(self):
+        settings = Settings(MULTI_WORKSPACE_UI_ENABLED=True)
+
+        assert settings.MULTI_WORKSPACE_UI_ENABLED is True
+
+
 class TestMakeSyncDbUrl:
     """Tests for the _make_sync_db_url() URL normalization helper."""
 

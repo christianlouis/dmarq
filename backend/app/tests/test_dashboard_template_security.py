@@ -344,11 +344,34 @@ def test_base_template_propagates_selected_workspace_context():
     script = (Path(__file__).resolve().parents[1] / "static" / "js" / "base-layout.js").read_text()
 
     assert 'src="/static/js/base-layout.js"' in template
+    assert "data-multi-workspace-ui" in template
+    assert "multiWorkspaceUiEnabled" in template
     assert "/api/v1/workspaces" in script
     assert "dmarq.selectedWorkspaceId" in script
     assert "X-DMARQ-Workspace-ID" in script
     assert "dmarq:workspace-changed" in script
+    assert "localStorage.removeItem('dmarq.selectedWorkspaceId')" in script
     assert "input instanceof URL" in script
+
+
+def test_base_template_hides_workspace_controls_in_single_user_mode():
+    rendered = _render_template("layouts/base.html", multi_workspace_ui_enabled=False)
+
+    assert 'data-multi-workspace-ui="false"' in rendered
+    assert 'id="workspace-switcher"' not in rendered
+    assert 'href="/members"' not in rendered
+    assert 'aria-label="Members"' not in rendered
+    assert "Members</a>" not in rendered
+
+
+def test_base_template_shows_workspace_controls_when_multi_workspace_enabled():
+    rendered = _render_template("layouts/base.html", multi_workspace_ui_enabled=True)
+
+    assert 'data-multi-workspace-ui="true"' in rendered
+    assert 'id="workspace-switcher"' in rendered
+    assert 'href="/members"' in rendered
+    assert 'aria-label="Members"' in rendered
+    assert "Members</a>" in rendered
 
 
 def test_dashboard_hides_multi_user_demo_mode_controls():
