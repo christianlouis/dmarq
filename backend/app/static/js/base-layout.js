@@ -60,8 +60,13 @@ document.addEventListener('alpine:init', () => {
 
 (function attachWorkspaceContextToFetch() {
     const originalFetch = window.fetch;
+    const normalizeWorkspaceId = (workspaceId) => {
+        const trimmed = String(workspaceId || '').trim();
+        return /^[1-9]\d*$/.test(trimmed) ? trimmed : '';
+    };
+
     window.fetch = function dmarqWorkspaceFetch(input, init) {
-        const workspaceId = localStorage.getItem('dmarq.selectedWorkspaceId');
+        const workspaceId = normalizeWorkspaceId(localStorage.getItem('dmarq.selectedWorkspaceId'));
         const url =
             input instanceof URL
                 ? input.toString()
