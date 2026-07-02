@@ -43,6 +43,8 @@ manually outside this flow.
 - `WEBHOOK_SECRET` set in the DMARQ environment. See
   [Configuration](deployment/configuration.md#cloudflare-integration) and
   [Secret Handling with 1Password](deployment/secrets.md).
+- Optional: `WEBHOOK_MAX_EMAIL_SIZE_MB` if your report attachments require a
+  limit other than the 25 MB default.
 - A Cloudflare zone with Email Routing enabled.
 - An Email Worker bound to the DMARC report address.
 
@@ -63,6 +65,7 @@ Both routes require the `X-Webhook-Secret` header. The value must match
 
 | Route | Body | Purpose |
 |-------|------|---------|
+| `GET /api/v1/webhook/status` | Admin-authenticated JSON | Intake readiness, accepted endpoints, and payload limit without exposing the secret |
 | `POST /api/v1/webhook/email` | JSON | Base64-encoded RFC 822 message |
 | `POST /api/v1/webhook/email/raw` | Raw bytes | RFC 822 message as request body |
 
@@ -96,6 +99,7 @@ Send the RFC 822 bytes as the HTTP request body. No JSON wrapper.
 |-----------|-------------|--------|
 | `WEBHOOK_SECRET` unset in DMARQ | `503` | `Webhook ingestion is not configured.` |
 | Missing or wrong `X-Webhook-Secret` | `401` | `Invalid webhook secret.` |
+| Message body larger than `WEBHOOK_MAX_EMAIL_SIZE_MB` | `413` | `Webhook email payload is too large.` |
 | Invalid base64 in `raw_email` | `400` | `raw_email must be valid base64.` |
 | Unparseable email (raw path) | `400` | `Error processing email.` |
 

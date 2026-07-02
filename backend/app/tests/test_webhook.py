@@ -9,7 +9,9 @@ from unittest.mock import patch
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
+from app.api.api_v1.endpoints import webhook
 from app.core.config import get_settings
 from app.models.report import DMARCReport
 
@@ -114,6 +116,41 @@ def test_webhook_rejects_invalid_secret(client: TestClient, monkeypatch):
     assert response.status_code == 401
 
 
+def test_webhook_status_reports_readiness_without_secret(authed_client, monkeypatch):
+    _set_webhook_secret(monkeypatch)
+    monkeypatch.setenv("WEBHOOK_MAX_EMAIL_SIZE_MB", "3")
+    get_settings.cache_clear()
+
+    response = authed_client.get("/api/v1/webhook/status")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["configured"] is True
+    assert data["auth_header"] == "X-Webhook-Secret"
+    assert data["max_email_size_mb"] == 3
+    assert data["max_email_size_bytes"] == 3 * 1024 * 1024
+    assert {endpoint["path"] for endpoint in data["endpoints"]} == {
+        "/api/v1/webhook/email",
+        "/api/v1/webhook/email/raw",
+    }
+    assert ".xml" in data["accepted_attachment_extensions"]
+    assert "test-webhook-secret" not in response.text
+
+
+def test_webhook_status_uses_configured_api_prefix(authed_client, monkeypatch):
+    _set_webhook_secret(monkeypatch)
+    monkeypatch.setenv("API_V1_STR", "/internal/api")
+    get_settings.cache_clear()
+
+    response = authed_client.get("/api/v1/webhook/status")
+
+    assert response.status_code == 200
+    assert {endpoint["path"] for endpoint in response.json()["endpoints"]} == {
+        "/internal/api/webhook/email",
+        "/internal/api/webhook/email/raw",
+    }
+
+
 def test_webhook_imports_base64_email(client: TestClient, db_session, monkeypatch):
     secret = _set_webhook_secret(monkeypatch)
 
@@ -129,6 +166,69 @@ def test_webhook_imports_base64_email(client: TestClient, db_session, monkeypatc
     assert data["reports_found"] == 1
     assert data["imported"] == 1
     assert db_session.query(DMARCReport).count() == 1
+
+
+def test_webhook_rejects_oversized_base64_email(client: TestClient, monkeypatch):
+    secret = _set_webhook_secret(monkeypatch)
+    monkeypatch.setenv("WEBHOOK_MAX_EMAIL_SIZE_MB", "1")
+    get_settings.cache_clear()
+
+    response = client.post(
+        "/api/v1/webhook/email",
+        headers={"X-Webhook-Secret": secret},
+        json={"raw_email": base64.b64encode(b"x" * (1024 * 1024 + 1)).decode("ascii")},
+    )
+
+    assert response.status_code == 413
+    assert "too large" in response.json()["detail"]
+
+
+def test_webhook_rejects_oversized_base64_before_decode(client: TestClient, monkeypatch):
+    secret = _set_webhook_secret(monkeypatch)
+    monkeypatch.setenv("WEBHOOK_MAX_EMAIL_SIZE_MB", "1")
+    get_settings.cache_clear()
+
+    with patch("app.api.api_v1.endpoints.webhook.base64.b64decode") as decode:
+        response = client.post(
+            "/api/v1/webhook/email",
+            headers={"X-Webhook-Secret": secret},
+            json={"raw_email": "A" * (2 * 1024 * 1024)},
+        )
+
+    assert response.status_code == 413
+    decode.assert_not_called()
+
+
+def test_webhook_content_length_guard_allows_missing_header():
+    request = Request({"type": "http", "headers": []})
+
+    webhook._ensure_request_content_length(request)
+
+
+def test_webhook_content_length_guard_allows_invalid_header():
+    request = Request(
+        {
+            "type": "http",
+            "headers": [(b"content-length", b"not-a-number")],
+        }
+    )
+
+    webhook._ensure_request_content_length(request)
+
+
+def test_webhook_rejects_oversized_raw_email(client: TestClient, monkeypatch):
+    secret = _set_webhook_secret(monkeypatch)
+    monkeypatch.setenv("WEBHOOK_MAX_EMAIL_SIZE_MB", "1")
+    get_settings.cache_clear()
+
+    response = client.post(
+        "/api/v1/webhook/email/raw",
+        headers={"X-Webhook-Secret": secret},
+        content=b"x" * (1024 * 1024 + 1),
+    )
+
+    assert response.status_code == 413
+    assert "Maximum accepted size" in response.json()["detail"]
 
 
 def test_webhook_raw_email_marks_duplicate(client: TestClient, monkeypatch):
