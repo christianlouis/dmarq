@@ -12,6 +12,7 @@ Implements various security headers to protect against common web vulnerabilitie
 """
 
 import logging
+import os
 from typing import Callable
 
 from fastapi import Request
@@ -89,6 +90,20 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "form-action 'self'",
         ]
         response.headers["Content-Security-Policy"] = "; ".join(csp_directives)
+
+        if os.environ.get("CSP_REPORT_ONLY", "false").lower() == "true":
+            report_only_directives = [
+                "default-src 'self'",
+                "script-src 'self' https://cdn.tailwindcss.com https://cdn.jsdelivr.net",
+                "style-src 'self' https://fonts.googleapis.com https://cdn.jsdelivr.net",
+                "font-src 'self' https://fonts.gstatic.com",
+                "img-src 'self' data: https:",
+                "connect-src 'self'",
+                "frame-ancestors 'none'",
+                "base-uri 'self'",
+                "form-action 'self'",
+            ]
+            response.headers["Content-Security-Policy-Report-Only"] = "; ".join(report_only_directives)
 
         # X-Frame-Options: Prevent clickjacking attacks
         # 'DENY' prevents the page from being displayed in a frame
