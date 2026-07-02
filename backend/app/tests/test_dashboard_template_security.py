@@ -237,8 +237,8 @@ def test_domain_details_exposes_volume_scale_controls_without_html_injection():
     assert 'role="group" aria-label="Volume scale"' in template
     assert "setVolumeScale('logarithmic')" in template
     assert "setVolumeScale('linear')" in template
-    assert ':aria-pressed="effectiveVolumeScale() === \'logarithmic\'"' in template
-    assert ':aria-pressed="effectiveVolumeScale() === \'linear\'"' in template
+    assert ":aria-pressed=\"effectiveVolumeScale() === 'logarithmic'\"" in template
+    assert ":aria-pressed=\"effectiveVolumeScale() === 'linear'\"" in template
     assert ':disabled="!hasObservedVolume"' in template
     assert "dmarq:domain-volume-scale" in template
     assert "effectiveVolumeScale()" in template
@@ -302,6 +302,8 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     assert "IP Intelligence" in template
     assert "PTR unavailable" in template
     assert "sourceGeoSummary(source)" in template
+    assert "String(value).trim().toLowerCase() !== 'unknown'" in template
+    assert "Geo unavailable" in template
     assert "source.geo?.country_code" in template
     assert "source.geo?.country" in template
     assert "source.geo?.region" in template

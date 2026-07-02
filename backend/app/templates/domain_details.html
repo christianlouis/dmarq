@@ -2318,7 +2318,11 @@ function domainDetailsApp(domainId) {
 
         sourceGeoSummary(source) {
             const geo = source?.geo || {};
-            const parts = [geo.region, geo.network || geo.country].filter(Boolean);
+            const isKnown = (value) => value && String(value).trim().toLowerCase() !== 'unknown';
+            const region = isKnown(geo.region) ? geo.region : null;
+            const country = isKnown(geo.country) ? geo.country : null;
+            const network = isKnown(geo.network) ? geo.network : null;
+            const parts = [region, network || country].filter(Boolean);
             return parts.length ? parts.join(' · ') : 'Geo unavailable';
         },
 
