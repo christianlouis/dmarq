@@ -344,6 +344,33 @@ def hydrate_report_store_from_db(
     return len(reports)
 
 
+def hydrate_domain_report_store_from_db(
+    db: Session,
+    store: Optional[ReportStore],
+    domain_name: str,
+    *,
+    workspace_id: Optional[int] = None,
+) -> int:
+    """Load persisted reports for one domain into a fresh ReportStore."""
+    store = store or ReportStore()
+    store.clear()
+    query = (
+        db.query(DMARCReport)
+        .join(Domain, DMARCReport.domain_id == Domain.id)
+        .options(
+            selectinload(DMARCReport.domain),
+            selectinload(DMARCReport.records),
+        )
+        .filter(Domain.name == domain_name)
+    )
+    if workspace_id is not None:
+        query = query.filter(Domain.workspace_id == workspace_id)
+    reports = query.order_by(DMARCReport.end_date.desc()).all()
+    for report in reports:
+        store.add_report(persisted_report_to_dict(report))
+    return len(reports)
+
+
 def domain_summaries_from_db(
     db: Session,
     *,

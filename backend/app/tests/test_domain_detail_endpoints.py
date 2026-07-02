@@ -2531,6 +2531,72 @@ def test_get_domain_sources_refreshes_reputation_cache(
     assert captured_refresh == [True]
 
 
+def test_source_detail_endpoints_use_single_domain_persisted_reports(
+    authed_client: TestClient,
+    db_session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Source detail endpoints avoid workspace-wide report-store hydration."""
+    workspace = get_or_create_default_workspace(db_session)
+    report_persistence.save_parsed_report(
+        db_session,
+        {
+            **REPORT_DICT_POLICY,
+            "domain": "fast-sources.example",
+            "report_id": "fast-sources-001",
+            "records": [
+                {
+                    "source_ip": "203.0.113.42",
+                    "count": 4,
+                    "disposition": "none",
+                    "dkim_result": "pass",
+                    "spf_result": "pass",
+                    "header_from": "fast-sources.example",
+                }
+            ],
+            "summary": {"total_count": 4, "passed_count": 4, "failed_count": 0},
+        },
+        workspace_id=workspace.id,
+    )
+    db_session.commit()
+
+    def fail_hydrate(*_args, **_kwargs):
+        raise AssertionError("source detail routes should not hydrate the full ReportStore")
+
+    async def fake_ptr_lookup(*_args, **_kwargs):
+        return "mail.fast-sources.example"
+
+    async def fake_reputation(*_args, **_kwargs):
+        return (
+            DomainReputation(
+                domain="fast-sources.example",
+                status="clean",
+                checked_at="2026-07-02T08:00:00Z",
+                summary={"listed": 0, "suspicious": 0, "clean": 1, "unknown": 0},
+                sources=[],
+            ),
+            False,
+            None,
+        )
+
+    monkeypatch.setattr(domains_endpoint, "hydrate_report_store_from_db", fail_hydrate)
+    monkeypatch.setattr(domains_endpoint, "_safe_ptr_lookup", fake_ptr_lookup)
+    monkeypatch.setattr(domains_endpoint, "build_source_reputation_cached", fake_reputation)
+
+    sources = authed_client.get("/api/v1/domains/fast-sources.example/sources?days=30")
+    intelligence = authed_client.get(
+        "/api/v1/domains/fast-sources.example/source-intelligence?days=30"
+    )
+    reputation = authed_client.get("/api/v1/domains/fast-sources.example/source-reputation?days=30")
+
+    assert sources.status_code == 200
+    assert sources.json()["sources"][0]["ip"] == "203.0.113.42"
+    assert intelligence.status_code == 200
+    assert intelligence.json()["summary"]["messages"] == 4
+    assert reputation.status_code == 200
+    assert reputation.json()["domain"] == "fast-sources.example"
+
+
 def test_source_recommendations_cover_common_cases():
     """Recommendation builder handles the milestone source patterns."""
     cases = [

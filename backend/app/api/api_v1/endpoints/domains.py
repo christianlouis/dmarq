@@ -100,6 +100,7 @@ from app.services.remediation_dispatch import attach_remediation_dispatch_previe
 from app.services.remediation_queue import build_remediation_queue
 from app.services.report_persistence import (
     domain_summaries_from_db,
+    hydrate_domain_report_store_from_db,
     hydrate_report_store_from_db,
 )
 from app.services.report_store import ReportStore
@@ -1910,6 +1911,41 @@ def _resolve_domain_name_for_read(
         status_code=status.HTTP_404_NOT_FOUND,
         detail="Domain not found",
     )
+
+
+def _single_domain_report_store_for_read(
+    db: Session,
+    domain_id: str,
+    workspace: Workspace,
+) -> tuple[str, ReportStore]:
+    """Return a ReportStore containing only the requested domain's persisted reports."""
+    store = ReportStore()
+    domain = workspace_domain_query(db, workspace).filter(Domain.name == domain_id).first()
+    if domain is None and domain_id.isdigit():
+        domain = workspace_domain_query(db, workspace).filter(Domain.id == int(domain_id)).first()
+    if domain is not None and not get_settings().DEMO_MODE:
+        domain_name = str(domain.name)
+        hydrate_domain_report_store_from_db(
+            db,
+            store,
+            domain_name,
+            workspace_id=workspace.id,
+        )
+        return domain_name, store
+
+    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
+    try:
+        domain_name = _resolve_domain_name_for_read(db, store, domain_id, workspace)
+    except HTTPException as exc:
+        if (
+            exc.status_code != status.HTTP_404_NOT_FOUND
+            or _stored_domain_exists(db, domain_id)
+            or not _allows_legacy_report_only_fallback(db)
+        ):
+            raise
+        hydrate_report_store_from_db(db, store)
+        domain_name = _resolve_domain_name_for_read(db, store, domain_id, workspace)
+    return domain_name, store
 
 
 def _record_evidence(
@@ -5936,19 +5972,12 @@ async def get_domain_sources(
     and SPF fix hints for sources that fail authentication.
     """
     workspace = _authorized_domain_read_workspace(_auth, db)
-    store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store)
+    domain_name, store = _single_domain_report_store_for_read(db, domain_id, workspace)
 
-    if not _domain_exists(db, store, domain_id, workspace):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Domain not found",
-        )
-
-    sources = store.get_domain_sources(domain_id, days=days)
-    reports = store.get_domain_reports(domain_id)
+    sources = store.get_domain_sources(domain_name, days=days)
+    reports = store.get_domain_reports(domain_name)
     intelligence = build_source_intelligence(
-        domain_id,
+        domain_name,
         reports,
         sources,
         period_days=days,
@@ -5980,14 +6009,14 @@ async def get_domain_sources(
     source_context = []
     for source, hostname in zip(sources, hostnames):
         ip = source.get("source_ip", "unknown")
-        sender_by_ip[ip] = identify_sender(ip, source, hostname=hostname, domain=domain_id)
+        sender_by_ip[ip] = identify_sender(ip, source, hostname=hostname, domain=domain_name)
         source_context.append((source, hostname, sender_by_ip[ip]))
 
     reputations_by_ip = {}
     try:
         reputation_result, _, _ = await build_source_reputation_cached(
             db,
-            domain_id,
+            domain_name,
             reports,
             sources,
             senders_by_ip=sender_by_ip,
@@ -6060,19 +6089,12 @@ async def get_domain_source_reputation(
 ):
     """Return passive reputation evidence for observed sender IPs."""
     workspace = _authorized_domain_read_workspace(_auth, db)
-    store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
+    domain_name, store = _single_domain_report_store_for_read(db, domain_id, workspace)
 
-    if not _domain_exists(db, store, domain_id, workspace):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Domain not found",
-        )
-
-    reports = store.get_domain_reports(domain_id)
-    sources = store.get_domain_sources(domain_id, days=days)
+    reports = store.get_domain_reports(domain_name)
+    sources = store.get_domain_sources(domain_name, days=days)
     intelligence = build_source_intelligence(
-        domain_id,
+        domain_name,
         reports,
         sources,
         period_days=days,
@@ -6088,7 +6110,7 @@ async def get_domain_source_reputation(
     }
     result, cached, _ = await build_source_reputation_cached(
         db,
-        domain_id,
+        domain_name,
         reports,
         sources,
         senders_by_ip=sender_by_ip,
@@ -6116,19 +6138,12 @@ async def get_domain_source_intelligence(
 ):
     """Return region summaries and source anomaly hints for a domain."""
     workspace = _authorized_domain_read_workspace(_auth, db)
-    store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store)
+    domain_name, store = _single_domain_report_store_for_read(db, domain_id, workspace)
 
-    if not _domain_exists(db, store, domain_id, workspace):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Domain not found",
-        )
-
-    sources = store.get_domain_sources(domain_id, days=days)
+    sources = store.get_domain_sources(domain_name, days=days)
     intelligence = build_source_intelligence(
-        domain_id,
-        store.get_domain_reports(domain_id),
+        domain_name,
+        store.get_domain_reports(domain_name),
         sources,
         period_days=days,
     )
