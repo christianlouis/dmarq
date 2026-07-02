@@ -32,6 +32,10 @@ def _has_script_src(markup: str, src: str) -> bool:
     )
 
 
+def _has_inline_script(markup: str) -> bool:
+    return bool(re.search(r"<script\b(?![^>]*\ssrc\s*=)[^>]*>", markup, re.IGNORECASE))
+
+
 def _template_section_between_markers(template: str, start_marker: str, end_marker: str) -> str:
     start_match = re.search(rf"^[ \t]*{re.escape(start_marker)}", template, re.MULTILINE)
     assert start_match, f"{start_marker!r} marker missing from template"
@@ -592,10 +596,16 @@ def test_report_detail_exposes_record_review_guidance_without_html_injection():
 
 def test_members_template_uses_membership_api_without_html_injection():
     template = (Path(__file__).resolve().parents[1] / "templates" / "members.html").read_text()
+    script = (Path(__file__).resolve().parents[1] / "static" / "js" / "members-page.js").read_text()
 
-    assert "/api/v1/organizations" in template
-    assert "/api/v1/memberships/organizations/" in template
-    assert "/api/v1/memberships/workspaces/" in template
+    assert _has_script_src(template, "/static/js/members-page.js")
+    assert "membershipApp()" in template
+    assert "/api/v1/organizations" in script
+    assert "/api/v1/memberships/organizations/" in script
+    assert "/api/v1/memberships/workspaces/" in script
+    assert "/api/v1/organizations" not in template
+    assert "/api/v1/memberships/organizations/" not in template
+    assert "/api/v1/memberships/workspaces/" not in template
     assert "Billing & Plan" in template
     assert "currentBillingOwner().owner" in template
     assert "planLimitRows()" in template
@@ -604,6 +614,8 @@ def test_members_template_uses_membership_api_without_html_injection():
     assert '@change="updateMembership(membership, membership.active)"' in template
     assert '@change="updateMembership(membership, true)"' not in template
     assert "x-html" not in template
+    assert not _has_inline_script(template)
+    assert _has_inline_script('<script data-src="/static/js/members-page.js"></script>')
 
 
 def test_base_template_propagates_selected_workspace_context():
