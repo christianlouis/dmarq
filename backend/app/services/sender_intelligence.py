@@ -697,20 +697,28 @@ def _profile_score(
         score += 60
         evidence.append(f"PTR hostname matched {host_matches[0]}")
 
-    domain_matches = _contains_any(domain_values, profile.domain_tokens)
-    if domain_matches:
-        score += 15
-        evidence.append(f"Authentication domain matched {domain_matches[0]}")
-
-    selector_matches = _contains_any(selector_values, profile.selector_tokens)
-    if selector_matches:
-        score += 20
-        evidence.append(f"DKIM selector matched {selector_matches[0]}")
-
     extension_matches = _contains_any(extension_values, profile.extension_tokens)
     if extension_matches:
         score += 25
         evidence.append(f"Report metadata matched {extension_matches[0]}")
+
+    # Authentication domains and DKIM selectors describe how the message passed
+    # authentication, not necessarily which infrastructure originated it. A
+    # forwarder can preserve a provider DKIM signature while sending from Yahoo,
+    # Microsoft, or self-hosted infrastructure. When PTR exists and does not
+    # match the provider, keep auth-domain/selector matches as weak context only
+    # so they cannot rename the sending host by themselves.
+    allow_auth_evidence = not host_values or bool(host_matches) or bool(extension_matches)
+
+    domain_matches = _contains_any(domain_values, profile.domain_tokens)
+    if domain_matches and allow_auth_evidence:
+        score += 15
+        evidence.append(f"Authentication domain matched {domain_matches[0]}")
+
+    selector_matches = _contains_any(selector_values, profile.selector_tokens)
+    if selector_matches and allow_auth_evidence:
+        score += 20
+        evidence.append(f"DKIM selector matched {selector_matches[0]}")
 
     return min(score, 100), evidence
 

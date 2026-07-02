@@ -1907,8 +1907,10 @@ def test_sources_endpoint_hostname_none_when_no_ptr(authed_client: TestClient):
         assert "hostname" in source
 
 
-def test_sources_endpoint_spf_fix_hint_for_failing_ip(authed_client: TestClient):
-    """A source with spf=fail should receive an spf_fix_hint containing its IP."""
+def test_sources_endpoint_omits_spf_fix_hint_for_unknown_failing_ip(
+    authed_client: TestClient,
+):
+    """Unknown failing sources should not receive copy-paste SPF IP changes."""
     store = ReportStore.get_instance()
     store.add_report(FAILING_SOURCE_REPORT)
 
@@ -1919,7 +1921,7 @@ def test_sources_endpoint_spf_fix_hint_for_failing_ip(authed_client: TestClient)
     sources = response.json()["sources"]
     failing = next((s for s in sources if s["ip"] == "10.0.0.1"), None)
     assert failing is not None
-    assert failing["spf_fix_hint"] == "ip4:10.0.0.1"
+    assert failing["spf_fix_hint"] is None
 
 
 def test_sources_endpoint_no_fix_hint_when_spf_passes(authed_client: TestClient):

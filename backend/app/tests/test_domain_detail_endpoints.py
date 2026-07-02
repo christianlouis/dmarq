@@ -2313,7 +2313,7 @@ def test_get_domain_sources_returns_recommendations(
     assert {"unknown_sender", "full_fail", "policy_not_enforced"}.issubset(recommendation_types)
     assert source["sender"]["name"] == "Unknown sender"
     assert source["sender"]["status"] == "unknown"
-    assert source["spf_fix_hint"] == "ip4:192.0.2.10"
+    assert source["spf_fix_hint"] is None
 
 
 def test_get_domain_sources_returns_sender_identity(
@@ -2700,6 +2700,40 @@ def test_source_recommendations_cover_common_cases():
             )
         )
         assert {item.type for item in recommendations} == expected_types
+
+
+def test_source_recommendations_do_not_suggest_raw_spf_ip_for_unknown_forwarder():
+    """DKIM-preserving forwarders should not produce copy-paste SPF IP changes."""
+    source = {
+        "source_ip": "74.6.131.41",
+        "spf_result": "fail",
+        "dkim_result": "pass",
+        "dmarc_result": "pass",
+        "dmarc_pass_count": 1,
+        "dmarc_fail_count": 0,
+        "disposition": "none",
+    }
+    sender = {
+        "id": "unknown-sender",
+        "name": "Unknown sender",
+        "status": "unknown",
+        "reason": "No known provider profile matched this source.",
+        "remediation_hint": "Identify the business owner before authorizing it.",
+    }
+
+    recommendations = domains_endpoint._source_recommendations(  # pylint: disable=protected-access
+        "74.6.131.41",
+        source,
+        "sonic303-2.consmr.mail.bf2.yahoo.com",
+        "ip4:74.6.131.41",
+        sender,
+    )
+
+    dkim_only = next(item for item in recommendations if item.type == "dkim_only_pass")
+    assert "ip4:74.6.131.41" not in dkim_only.action
+    assert dkim_only.action == (
+        "Authorize this service in SPF, or confirm SPF is intentionally handled elsewhere."
+    )
 
 
 @pytest.mark.asyncio

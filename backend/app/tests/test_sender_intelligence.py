@@ -55,6 +55,8 @@ def test_identify_sender_does_not_treat_auth_domain_only_as_postmark():
         "74.6.131.41",
         {
             "spf_domains": ["pm.mtasv.net"],
+            "dkim_domains": ["pm.mtasv.net"],
+            "dkim_selectors": ["pm"],
             "dmarc_result": "pass",
             "dmarc_fail_count": 0,
         },
