@@ -214,6 +214,22 @@
                                                 <span x-show="record.source_details?.network"> · </span>
                                                 <span x-text="record.source_details?.network || ''"></span>
                                             </div>
+                                            <div class="flex flex-wrap gap-1" x-show="record.source_details?.bgp_prefix || record.source_details?.registry || record.source_details?.allocated">
+                                                <span x-show="record.source_details?.bgp_prefix"
+                                                      class="inline-flex items-center rounded bg-base-200 px-2 py-0.5 font-mono"
+                                                      x-text="record.source_details.bgp_prefix"></span>
+                                                <span x-show="record.source_details?.registry"
+                                                      class="inline-flex items-center rounded bg-base-200 px-2 py-0.5 uppercase"
+                                                      x-text="record.source_details.registry"></span>
+                                                <span x-show="record.source_details?.allocated"
+                                                      class="inline-flex items-center rounded bg-base-200 px-2 py-0.5"
+                                                      x-text="'allocated ' + record.source_details.allocated"></span>
+                                            </div>
+                                            <div x-show="record.source_details?.network_source">
+                                                Network data: <span x-text="record.source_details.network_source"></span>
+                                            </div>
+                                            <div x-show="record.source_details?.network_error && !record.source_details?.asn && !record.source_details?.network"
+                                                 x-text="record.source_details.network_error"></div>
                                             <template x-if="record.reputation">
                                                 <div class="pt-1">
                                                     <span class="inline-flex items-center px-2 py-1 rounded text-xs"
@@ -369,7 +385,8 @@ function reportDetailApp(reportId) {
             const country = details.country || 'Unknown country';
             const region = details.region || 'Unknown region';
             const code = details.country_code && details.country_code !== 'ZZ' ? ` (${details.country_code})` : '';
-            return `${region}, ${country}${code}`;
+            const network = [details.asn, details.network, details.bgp_prefix].filter(Boolean).join(' · ');
+            return [region, `${country}${code}`, network].filter(Boolean).join(' · ');
         },
 
         reputationClass(status) {

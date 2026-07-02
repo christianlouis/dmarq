@@ -4,6 +4,7 @@ import zipfile
 from contextlib import contextmanager
 from datetime import date, datetime
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
@@ -21,11 +22,22 @@ from app.services.organizations import OrganizationPlanLimitError
 from app.services.report_persistence import persisted_report_to_dict, save_parsed_report
 from app.services.report_store import ReportStore
 from app.services.source_reputation import DomainReputation, ReputationEvidence, SourceReputation
+from app.services.source_network import SourceNetworkIntelligence
 from app.services.workspace_access import ROLE_ANALYST
 from app.services.workspaces import get_or_create_default_workspace
 from app.tests.test_data import SAMPLE_XML, load_dmarc_fixture
 
 SAMPLE_RFC9990_XML = load_dmarc_fixture("rfc9990-treewalk-extension.xml")
+
+
+@pytest.fixture(autouse=True)
+def _stub_source_network_enrichment(monkeypatch):
+    """Keep report endpoint tests deterministic unless a test overrides enrichment."""
+
+    async def fake_networks(*_args, **_kwargs):
+        return {}
+
+    monkeypatch.setattr(reports_endpoint, "lookup_sources_network_cached", fake_networks)
 
 
 def _make_zip(xml_content: str) -> bytes:
@@ -863,11 +875,6 @@ def test_get_report_by_id_includes_source_intelligence_and_reputation(
                     "spf_result": "fail",
                     "header_from": "example.com",
                     "extensions": {
-                        "geo:country": "Germany",
-                        "geo:country_code": "DE",
-                        "geo:region": "Europe",
-                        "geo:asn": "AS64555",
-                        "geo:network": "Example Sender Network",
                         "demo:blacklists": "Example DNSBL",
                     },
                 }
@@ -910,8 +917,26 @@ def test_get_report_by_id_includes_source_intelligence_and_reputation(
             None,
         )
 
+    async def fake_networks(*_args, **_kwargs):
+        return {
+            "193.138.195.141": SourceNetworkIntelligence(
+                ip="193.138.195.141",
+                asn="AS24940",
+                as_name="Hetzner Online GmbH",
+                bgp_prefix="193.138.192.0/19",
+                country_code="DE",
+                country="Germany",
+                region="Europe",
+                registry="ripencc",
+                allocated="2004-02-17",
+                source="team-cymru",
+                checked_at="2026-07-02T08:00:00Z",
+            )
+        }
+
     monkeypatch.setattr(reports_endpoint, "_safe_ptr_lookup", fake_ptr_lookup)
     monkeypatch.setattr(reports_endpoint, "build_source_reputation_cached", fake_reputation)
+    monkeypatch.setattr(reports_endpoint, "lookup_sources_network_cached", fake_networks)
 
     response = authed_client.get("/api/v1/reports/source-intel-report")
 
@@ -919,8 +944,12 @@ def test_get_report_by_id_includes_source_intelligence_and_reputation(
     record = response.json()["records"][0]
     assert record["source_details"]["hostname"] == "mail.example-sender.net"
     assert record["source_details"]["country"] == "Germany"
-    assert record["source_details"]["asn"] == "AS64555"
-    assert record["source_details"]["network"] == "Example Sender Network"
+    assert record["source_details"]["asn"] == "AS24940"
+    assert record["source_details"]["network"] == "Hetzner Online GmbH"
+    assert record["source_details"]["bgp_prefix"] == "193.138.192.0/19"
+    assert record["source_details"]["registry"] == "ripencc"
+    assert record["source_details"]["allocated"] == "2004-02-17"
+    assert record["source_details"]["network_source"] == "team-cymru"
     assert record["reputation"]["status"] == "listed"
     assert record["reputation"]["risk_score"] == 82
     assert record["reputation"]["listings"] == ["Example DNSBL"]

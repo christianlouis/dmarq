@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.domain import Domain
@@ -26,6 +27,11 @@ from app.services.source_reputation import (
     SourceReputation,
     build_source_reputation_cached,
     source_reputation_by_ip,
+)
+from app.services.source_network import (
+    SourceNetworkIntelligence,
+    lookup_sources_network_cached,
+    merge_network_into_geo,
 )
 from app.services.workspace_access import (
     PERMISSION_REPORTS_READ,
@@ -762,8 +768,9 @@ def _source_details(
     record: Dict[str, Any],
     hostname: Optional[str],
     sender: Dict[str, Any],
+    network: Optional[SourceNetworkIntelligence] = None,
 ) -> Dict[str, Any]:
-    geo = source_geo_for(ip, record)
+    geo = merge_network_into_geo(source_geo_for(ip, record), network)
     return {
         "hostname": hostname,
         "sender": sender,
@@ -772,6 +779,12 @@ def _source_details(
         "region": geo.get("region"),
         "asn": geo.get("asn"),
         "network": geo.get("network"),
+        "bgp_prefix": geo.get("bgp_prefix"),
+        "registry": geo.get("registry"),
+        "allocated": geo.get("allocated"),
+        "network_source": geo.get("network_source"),
+        "network_checked_at": geo.get("network_checked_at"),
+        "network_error": geo.get("network_error"),
         "geo_source": geo.get("source"),
     }
 
@@ -814,6 +827,7 @@ async def get_report_by_id(
     raw_records = list(report.get("records", []))
     source_rows = [_source_row_from_report_record(rec) for rec in raw_records]
     provider = get_default_provider(db)
+    settings = get_settings()
     ips = [str(row.get("source_ip") or "unknown") for row in source_rows]
     ptr_semaphore = asyncio.Semaphore(20)
 
@@ -822,6 +836,21 @@ async def get_report_by_id(
             return await _safe_ptr_lookup(provider, ip)
 
     hostnames = await asyncio.gather(*[_bounded_ptr_lookup(ip) for ip in ips])
+    networks_by_ip: Dict[str, SourceNetworkIntelligence] = {}
+    if settings.SOURCE_NETWORK_ENRICHMENT_ENABLED:
+        try:
+            networks_by_ip = await lookup_sources_network_cached(
+                db,
+                provider,
+                ips,
+                ttl_seconds=settings.SOURCE_NETWORK_ENRICHMENT_CACHE_SECONDS,
+                max_ips=settings.SOURCE_NETWORK_ENRICHMENT_MAX_IPS,
+            )
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.info(
+                "Report source network enrichment failed for report detail: %s",
+                type(exc).__name__,
+            )
     sender_by_ip = {
         ip: identify_sender(ip, row, hostname=hostname, domain=report.get("domain", ""))
         for ip, row, hostname in zip(ips, source_rows, hostnames, strict=True)
@@ -860,7 +889,13 @@ async def get_report_by_id(
                 header_from=rec.get("header_from", ""),
                 spf=rec.get("spf") if isinstance(rec.get("spf"), list) else None,
                 dkim=rec.get("dkim") if isinstance(rec.get("dkim"), list) else None,
-                source_details=_source_details(ip, rec, hostname, sender_by_ip.get(ip, {})),
+                source_details=_source_details(
+                    ip,
+                    rec,
+                    hostname,
+                    sender_by_ip.get(ip, {}),
+                    networks_by_ip.get(ip),
+                ),
                 reputation=_source_reputation_dict(reputation) if reputation else None,
                 **guidance,
             )

@@ -106,6 +106,11 @@ from app.services.source_reputation import (
     source_reputation_by_ip,
 )
 from app.services.source_reputation_feeds import feed_registry
+from app.services.source_network import (
+    SourceNetworkIntelligence,
+    lookup_sources_network_cached,
+    merge_network_into_geo,
+)
 from app.services.webhook_events import delivery_to_dict, enqueue_webhook_event
 from app.services.workspace_access import (
     PERMISSION_DOMAINS_WRITE,
@@ -1358,6 +1363,12 @@ class SourceGeo(BaseModel):
     region: str
     asn: Optional[str] = None
     network: Optional[str] = None
+    bgp_prefix: Optional[str] = None
+    registry: Optional[str] = None
+    allocated: Optional[str] = None
+    network_source: Optional[str] = None
+    network_checked_at: Optional[str] = None
+    network_error: Optional[str] = None
     source: str
 
 
@@ -5714,9 +5725,25 @@ async def get_domain_sources(
     )
     anomalies_by_ip = intelligence.get("anomalies_by_ip", {})
     provider = get_default_provider(db)
+    settings = get_settings()
 
     ips = [s.get("source_ip", "unknown") for s in sources]
     hostnames = await asyncio.gather(*[_safe_ptr_lookup(provider, ip) for ip in ips])
+    networks_by_ip: Dict[str, SourceNetworkIntelligence] = {}
+    if settings.SOURCE_NETWORK_ENRICHMENT_ENABLED:
+        try:
+            networks_by_ip = await lookup_sources_network_cached(
+                db,
+                provider,
+                ips,
+                ttl_seconds=settings.SOURCE_NETWORK_ENRICHMENT_CACHE_SECONDS,
+                max_ips=settings.SOURCE_NETWORK_ENRICHMENT_MAX_IPS,
+            )
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.info(
+                "Source network enrichment failed for domain sources: %s",
+                type(exc).__name__,
+            )
 
     source_entries = []
     sender_by_ip: Dict[str, Dict[str, Any]] = {}
@@ -5772,7 +5799,9 @@ async def get_domain_sources(
                 disposition_counts=source.get("disposition_counts", {}),
                 hostname=hostname,
                 sender=SenderIdentity(**sender),
-                geo=SourceGeo(**source_geo_for(ip, source)),
+                geo=SourceGeo(
+                    **merge_network_into_geo(source_geo_for(ip, source), networks_by_ip.get(ip))
+                ),
                 anomalies=[SourceAnomaly(**anomaly) for anomaly in source_anomalies],
                 reputation=(
                     _source_reputation_response(reputation) if reputation is not None else None

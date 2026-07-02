@@ -207,6 +207,23 @@ non-global IP addresses. Feed failures are shown as evidence, but they do not
 create blacklist findings by themselves. A source is treated as listed only when
 a configured provider returns a positive listing response.
 
+### Sender Network Enrichment
+
+DMARQ can enrich observed sender IPs with cached ASN, BGP prefix, registry, and
+likely network-operator evidence. This is separate from reputation feeds: network
+enrichment answers "who operates this sending network?", while reputation feeds
+answer "is this IP listed or risky according to a configured provider?"
+
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `SOURCE_NETWORK_ENRICHMENT_ENABLED` | Enable cached Team Cymru DNS lookups for ASN and BGP prefix metadata. | `true` | `false` |
+| `SOURCE_NETWORK_ENRICHMENT_CACHE_SECONDS` | Persistent cache TTL for per-IP network metadata. | `86400` | `604800` |
+| `SOURCE_NETWORK_ENRICHMENT_MAX_IPS` | Maximum unique source IPs enriched per domain/report request. | `100` | `250` |
+
+The lookup is read-only and skips private, reserved, loopback, and otherwise
+non-global IP addresses. Disable it for deployments that do not want observed
+source IPs sent to an external DNS-based metadata service.
+
 ### Demo Mode
 
 Set `DEMO_MODE=true` only for public demo environments such as `demo.dmarq.org`.

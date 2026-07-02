@@ -31,6 +31,7 @@ from app.services.source_reputation import (
     ReputationEvidence,
     SourceReputation,
 )
+from app.services.source_network import SourceNetworkIntelligence
 from app.services.webhook_events import (
     EVENT_REMEDIATION_APPROVAL_REQUIRED,
     create_webhook_endpoint,
@@ -155,6 +156,16 @@ def seeded_client(authed_client: TestClient, db_session):
     db_session.commit()
     ReportStore.get_instance().add_report(REPORT_DICT_POLICY)
     return authed_client
+
+
+@pytest.fixture(autouse=True)
+def _stub_source_network_enrichment(monkeypatch):
+    """Keep domain endpoint tests deterministic unless a test overrides enrichment."""
+
+    async def fake_networks(*_args, **_kwargs):
+        return {}
+
+    monkeypatch.setattr(domains_endpoint, "lookup_sources_network_cached", fake_networks)
 
 
 # ---------------------------------------------------------------------------
@@ -2419,8 +2430,26 @@ def test_get_domain_sources_includes_ip_intelligence_and_reputation(
             None,
         )
 
+    async def fake_networks(*_args, **_kwargs):
+        return {
+            source_ip: SourceNetworkIntelligence(
+                ip=source_ip,
+                asn="AS24940",
+                as_name="Hetzner Online GmbH",
+                bgp_prefix="193.138.192.0/19",
+                country_code="DE",
+                country="Germany",
+                region="Europe",
+                registry="ripencc",
+                allocated="2004-02-17",
+                source="team-cymru",
+                checked_at="2026-07-02T08:00:00Z",
+            )
+        }
+
     monkeypatch.setattr(domains_endpoint, "_safe_ptr_lookup", fake_ptr_lookup)
     monkeypatch.setattr(domains_endpoint, "build_source_reputation_cached", fake_reputation)
+    monkeypatch.setattr(domains_endpoint, "lookup_sources_network_cached", fake_networks)
     workspace = get_or_create_default_workspace(db_session)
     report = {
         **REPORT_DICT_POLICY,
@@ -2433,13 +2462,6 @@ def test_get_domain_sources_includes_ip_intelligence_and_reputation(
                 "dkim_result": "fail",
                 "spf_result": "fail",
                 "header_from": DOMAIN,
-                "extensions": {
-                    "geo:country": "Germany",
-                    "geo:country_code": "DE",
-                    "geo:region": "Europe",
-                    "geo:asn": "AS24940",
-                    "geo:network": "Hetzner Online GmbH",
-                },
             }
         ],
         "summary": {"total_count": 20, "passed_count": 0, "failed_count": 20},
@@ -2457,6 +2479,10 @@ def test_get_domain_sources_includes_ip_intelligence_and_reputation(
     assert source["geo"]["region"] == "Europe"
     assert source["geo"]["asn"] == "AS24940"
     assert source["geo"]["network"] == "Hetzner Online GmbH"
+    assert source["geo"]["bgp_prefix"] == "193.138.192.0/19"
+    assert source["geo"]["registry"] == "ripencc"
+    assert source["geo"]["allocated"] == "2004-02-17"
+    assert source["geo"]["network_source"] == "team-cymru"
     assert source["reputation"]["status"] == "listed"
     assert source["reputation"]["risk_score"] == 85
     assert source["reputation"]["listings"] == ["Spamhaus Zen"]
