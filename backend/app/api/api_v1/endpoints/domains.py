@@ -210,6 +210,7 @@ class DomainResponse(DomainBase):
     reports_count: int = 0
     emails_count: int = 0
     compliance_rate: float = 0.0
+    dkim_selectors: List[str] = Field(default_factory=list)
     mail_service_context: List[Dict[str, Any]] = Field(default_factory=list)
 
 
@@ -217,6 +218,13 @@ class DomainCreate(BaseModel):
     """Payload for creating a monitored domain."""
 
     name: str
+    description: Optional[str] = None
+    dkim_selectors: Optional[List[str]] = None
+
+
+class DomainUpdate(BaseModel):
+    """Payload for updating editable monitored-domain metadata."""
+
     description: Optional[str] = None
     dkim_selectors: Optional[List[str]] = None
 
@@ -1479,6 +1487,26 @@ def _get_selectors_from_reports(store: "ReportStore", domain: str) -> List[str]:
     return selectors
 
 
+def _normalize_domain_selectors(selectors: Optional[List[str]]) -> List[str]:
+    """Normalize user-supplied DKIM selectors while preserving order."""
+    normalized: List[str] = []
+    seen = set()
+    for selector in selectors or []:
+        value = selector.strip() if selector else ""
+        if value and value not in seen:
+            normalized.append(value)
+            seen.add(value)
+    return normalized
+
+
+def _domain_update_fields(payload: BaseModel) -> set[str]:
+    """Return fields explicitly present in a Pydantic v1/v2 payload."""
+    fields = getattr(payload, "model_fields_set", None)
+    if fields is None:
+        fields = getattr(payload, "__fields_set__", set())
+    return set(fields)
+
+
 def _ownership_record_name(domain: str) -> str:
     return f"_dmarq-verify.{domain}"
 
@@ -2692,6 +2720,10 @@ async def get_domains_summary(
     # Perform DNS checks for all domains, reusing fresh cached results.
     provider = get_default_provider(db)
     manual_selectors_by_domain = _get_domain_selectors_map_from_db(db, domains)
+    stored_domains_by_name = {
+        domain.name: domain
+        for domain in workspace_domain_query(db, workspace).filter(Domain.name.in_(domains)).all()
+    }
 
     async def _dns_for_domain(domain_name: str) -> DomainDNSResult:
         manual_selectors = manual_selectors_by_domain.get(domain_name, [])
@@ -2723,6 +2755,7 @@ async def get_domains_summary(
 
     for domain_name, dns in zip(domains, dns_results):
         summary = summaries.get(domain_name, {})
+        stored_domain = stored_domains_by_name.get(domain_name)
         total_emails += summary.get("total_count", 0)
         total_passed += summary.get("passed_count", 0)
         total_reports += summary.get("reports_processed", 0)
@@ -2736,6 +2769,8 @@ async def get_domains_summary(
         domain_row = {
             "id": domain_name,
             "domain_name": domain_name,
+            "description": stored_domain.description if stored_domain else None,
+            "dkim_selectors": manual_selectors_by_domain.get(domain_name, []),
             "total_emails": summary.get("total_count", 0),
             "passed_count": summary.get("passed_count", 0),
             "failed_count": summary.get("failed_count", 0),
@@ -2919,6 +2954,9 @@ async def read_domains(
             reports_count=summary.get("reports_processed", 0),
             emails_count=summary.get("total_count", 0),
             compliance_rate=summary.get("compliance_rate", 0.0),
+            dkim_selectors=_normalize_domain_selectors(
+                (stored_domain.dkim_selectors or "").split(",") if stored_domain else []
+            ),
             mail_service_context=mail_service_context_from_domain(stored_domain),
         )
         result.append(domain_response)
@@ -2957,11 +2995,7 @@ async def create_domain(
         except OrganizationPlanLimitError as exc:
             _raise_plan_limit_error(exc)
 
-    selectors = ",".join(
-        selector.strip()
-        for selector in payload.dkim_selectors or []
-        if selector and selector.strip()
-    )
+    selectors = ",".join(_normalize_domain_selectors(payload.dkim_selectors))
     domain = Domain(
         workspace_id=workspace.id,
         name=name,
@@ -2984,6 +3018,7 @@ async def create_domain(
         name=domain.name,
         description=domain.description,
         policy=domain.dmarc_policy or "unknown",
+        dkim_selectors=_normalize_domain_selectors((domain.dkim_selectors or "").split(",")),
         mail_service_context=mail_service_context_from_domain(domain),
     )
 
@@ -3019,7 +3054,88 @@ async def read_domain(
         reports_count=summary.get("reports_processed", 0),
         emails_count=summary.get("total_count", 0),
         compliance_rate=summary.get("compliance_rate", 0.0),
+        dkim_selectors=_normalize_domain_selectors(
+            (stored_domain.dkim_selectors or "").split(",") if stored_domain else []
+        ),
         mail_service_context=mail_service_context_from_domain(stored_domain),
+    )
+
+
+@router.patch("/domains/{domain_name}", response_model=DomainResponse)
+async def update_domain(
+    payload: DomainUpdate,
+    request: Request,
+    domain_name: str,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
+    """Update editable metadata for a monitored domain."""
+    workspace = _authorized_domain_workspace(_auth, db)
+    name = normalize_domain_name(domain_name)
+    fields = _domain_update_fields(payload)
+    if not fields:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="At least one editable field must be provided",
+        )
+
+    validation = validate_domain_config({"name": name, "description": payload.description or ""})
+    if "description" in fields and not validation["valid"]:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=validation["errors"],
+        )
+
+    store = ReportStore.get_instance()
+    hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
+    existing_domain_names = _domain_names_for_summary(db, store, workspace)
+    domain = workspace_domain_query(db, workspace).filter(Domain.name == name).first()
+    if domain is None and name not in existing_domain_names:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Domain not found",
+        )
+    if domain is None:
+        domain = Domain(name=name, workspace_id=workspace.id, active=True)
+        db.add(domain)
+
+    if "description" in fields:
+        domain.description = payload.description
+    if "dkim_selectors" in fields:
+        selectors = _normalize_domain_selectors(payload.dkim_selectors)
+        domain.dkim_selectors = ",".join(selectors) if selectors else None
+
+    db.commit()
+    db.refresh(domain)
+    record_workspace_audit_log(
+        db,
+        workspace=workspace,
+        action="domain.updated",
+        entity_type="domain",
+        entity_id=domain.id,
+        entity_name=domain.name,
+        details={
+            "updated_fields": sorted(fields),
+            "dkim_selector_count": len(
+                _normalize_domain_selectors((domain.dkim_selectors or "").split(","))
+            ),
+        },
+        auth_context=_auth,
+        request=request,
+        commit=True,
+    )
+
+    summary = store.get_domain_summary(name)
+    policy = _normalize_reported_policy(summary.get("policy"))
+    return DomainResponse(
+        name=domain.name,
+        description=domain.description,
+        policy=policy or domain.dmarc_policy or "unknown",
+        reports_count=summary.get("reports_processed", 0),
+        emails_count=summary.get("total_count", 0),
+        compliance_rate=summary.get("compliance_rate", 0.0),
+        dkim_selectors=_normalize_domain_selectors((domain.dkim_selectors or "").split(",")),
+        mail_service_context=mail_service_context_from_domain(domain),
     )
 
 

@@ -79,9 +79,9 @@
                                         <a :href="'/domains/' + domain.name" class="btn btn-sm btn-outline">
                                             Details
                                         </a>
-                                        {% call button(variant="outline", size="sm") %}
+                                        <button type="button" class="btn btn-outline btn-sm" @click="openEditDialog(domain)">
                                             Edit
-                                        {% endcall %}
+                                        </button>
                                     </div>
                                 {% endcall %}
                             {% endcall %}
@@ -123,6 +123,36 @@
         </div>
         <form method="dialog" class="modal-backdrop">
             <button type="button" @click="closeCreate">close</button>
+        </form>
+    </dialog>
+
+    <dialog class="modal" :open="openEdit">
+        <div class="modal-box max-w-2xl">
+            <h2 class="text-xl font-semibold">Edit monitored domain</h2>
+            <p class="mt-1 text-sm text-base-content/70" x-text="editDomain.name"></p>
+            <form class="mt-5 space-y-4" @submit.prevent="updateDomain">
+                <label class="form-control">
+                    <span class="label-text font-medium">Description</span>
+                    <textarea x-model.trim="editDomain.description" rows="3" class="textarea textarea-bordered" placeholder="Production mail domain"></textarea>
+                </label>
+                <label class="form-control">
+                    <span class="label-text font-medium">DKIM selectors</span>
+                    <input x-model.trim="editDomain.dkim_selectors" type="text" placeholder="default, google, selector1" class="input input-bordered">
+                </label>
+                <div x-show="editError" role="alert" class="alert alert-error py-3">
+                    <span x-text="editError"></span>
+                </div>
+                <div class="modal-action">
+                    <button type="button" class="btn btn-ghost" @click="closeEdit" :disabled="saving">Cancel</button>
+                    <button type="submit" class="btn btn-primary" :disabled="saving">
+                        <span x-show="saving" class="loading loading-spinner loading-xs"></span>
+                        Save changes
+                    </button>
+                </div>
+            </form>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+            <button type="button" @click="closeEdit">close</button>
         </form>
     </dialog>
 </div>

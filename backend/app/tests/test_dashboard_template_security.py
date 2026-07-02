@@ -164,6 +164,11 @@ def test_domains_uses_external_page_script_for_csp_migration():
     assert "/api/v1/domains/summary" in script
     assert "/api/v1/domains/domains" in script
     assert "createDomain()" in script
+    assert "openEditDialog(domain)" in template
+    assert "Edit monitored domain" in template
+    assert "updateDomain()" in script
+    assert "method: 'PATCH'" in script
+    assert "editError" in template
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 

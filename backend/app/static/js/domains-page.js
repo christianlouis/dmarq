@@ -2,9 +2,16 @@ function domainsApp() {
     return {
         domains: [],
         openCreate: false,
+        openEdit: false,
         saving: false,
         createError: '',
+        editError: '',
         newDomain: {
+            name: '',
+            description: '',
+            dkim_selectors: '',
+        },
+        editDomain: {
             name: '',
             description: '',
             dkim_selectors: '',
@@ -29,6 +36,10 @@ function domainsApp() {
                         reports_count: domain.report_count,
                         emails_count: domain.total_emails,
                         compliance_rate: domain.pass_rate,
+                        description: domain.description || '',
+                        dkim_selectors: Array.isArray(domain.dkim_selectors)
+                            ? domain.dkim_selectors
+                            : [],
                     }));
                 } else {
                     console.error('Error fetching domains:', response.status);
@@ -42,6 +53,24 @@ function domainsApp() {
             this.openCreate = false;
             this.createError = '';
             this.newDomain = { name: '', description: '', dkim_selectors: '' };
+        },
+
+        openEditDialog(domain) {
+            this.editError = '';
+            this.editDomain = {
+                name: domain.name,
+                description: domain.description || '',
+                dkim_selectors: Array.isArray(domain.dkim_selectors)
+                    ? domain.dkim_selectors.join(', ')
+                    : '',
+            };
+            this.openEdit = true;
+        },
+
+        closeEdit() {
+            this.openEdit = false;
+            this.editError = '';
+            this.editDomain = { name: '', description: '', dkim_selectors: '' };
         },
 
         async createDomain() {
@@ -73,6 +102,42 @@ function domainsApp() {
                 await this.fetchDomains();
             } catch (error) {
                 this.createError = error.message || 'Domain could not be added.';
+            } finally {
+                this.saving = false;
+            }
+        },
+
+        async updateDomain() {
+            this.saving = true;
+            this.editError = '';
+            try {
+                const selectors = this.editDomain.dkim_selectors
+                    .split(',')
+                    .map((selector) => selector.trim())
+                    .filter(Boolean);
+                const response = await fetch(
+                    `/api/v1/domains/domains/${encodeURIComponent(this.editDomain.name)}`,
+                    {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            description: this.editDomain.description || null,
+                            dkim_selectors: selectors,
+                        }),
+                    }
+                );
+                if (!response.ok) {
+                    const data = await response.json().catch(() => ({}));
+                    const detail =
+                        typeof data.detail === 'string'
+                            ? data.detail
+                            : Object.values(data.detail || {}).join(', ');
+                    throw new Error(detail || 'Domain could not be updated.');
+                }
+                this.closeEdit();
+                await this.fetchDomains();
+            } catch (error) {
+                this.editError = error.message || 'Domain could not be updated.';
             } finally {
                 this.saving = false;
             }
