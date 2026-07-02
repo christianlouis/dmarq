@@ -647,6 +647,7 @@ def test_members_template_uses_membership_api_without_html_injection():
     assert _has_inline_script('<script data-src="/static/js/members-page.js"></script>')
     assert not _has_inline_style('<div data-style="ok" x-effect="$el.style.width = width"></div>')
     assert _has_inline_style('<div data-style="ok" :style="bad"></div>')
+    assert _has_inline_style("<progress x-bind:style=\"{ width: progress + '%' }\" />")
     assert _has_inline_style("<div x-bind:style=\"{ width: progress + '%' }\"></div>")
 
 
