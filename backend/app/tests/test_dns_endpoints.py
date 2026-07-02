@@ -8,7 +8,9 @@ that the endpoints can find the test domain.
 DNS lookups are mocked so no real network calls are made.
 """
 
+import asyncio
 import json
+import logging
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -765,6 +767,64 @@ async def test_dns_cache_uses_public_fallback_for_empty_primary_result(db_sessio
     assert result.dns_provider is not None
     primary_check.assert_awaited_once()
     fallback.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_dns_cache_propagates_fallback_cancellation(db_session):
+    """Request cancellation must not be swallowed by defensive fallback handling."""
+    primary_provider = SystemDNSProvider()
+    primary_check = AsyncMock(return_value=DomainDNSResult(dmarc=False, spf=False, dkim=False))
+    fallback_check = AsyncMock(side_effect=asyncio.CancelledError())
+
+    with (
+        patch.object(primary_provider, "check_domain", new=primary_check),
+        patch(
+            "app.services.dns_cache.CloudflareDNSProvider.check_domain",
+            new=fallback_check,
+        ),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await resolve_domain_dns_cached(
+            db_session,
+            primary_provider,
+            DOMAIN,
+            selectors=[],
+        )
+
+    primary_check.assert_awaited_once()
+    fallback_check.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_dns_cache_fallback_failure_log_omits_user_values(db_session, caplog):
+    """Fallback failure logging should not echo domains or exception messages."""
+    domain = "bad.example\nforged-log-line"
+    primary_provider = SystemDNSProvider()
+    primary_check = AsyncMock(return_value=DomainDNSResult(dmarc=False, spf=False, dkim=False))
+    fallback_check = AsyncMock(side_effect=RuntimeError(f"resolver failed for {domain}"))
+    caplog.set_level(logging.DEBUG, logger="app.services.dns_cache")
+
+    with (
+        patch.object(primary_provider, "check_domain", new=primary_check),
+        patch(
+            "app.services.dns_cache.CloudflareDNSProvider.check_domain",
+            new=fallback_check,
+        ),
+    ):
+        result, cached, _checked = await resolve_domain_dns_cached(
+            db_session,
+            primary_provider,
+            domain,
+            selectors=[],
+        )
+
+    assert cached is False
+    assert result.dmarc is False
+    assert "RuntimeError" in caplog.text
+    assert domain not in caplog.text
+    assert f"resolver failed for {domain}" not in caplog.text
+    primary_check.assert_awaited_once()
+    fallback_check.assert_awaited_once()
 
 
 @pytest.mark.asyncio
