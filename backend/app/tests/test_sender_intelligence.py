@@ -45,7 +45,9 @@ def test_identify_sender_matches_postmark_mtasv_domains():
     assert sender["id"] == "postmark"
     assert sender["name"] == "Postmark"
     assert sender["status"] == "known"
-    assert "pm.mtasv.net" in sender["remediation_hint"]
+    assert sender["docs_url"] == (
+        "https://postmarkapp.com/support/article/910-how-do-i-add-a-custom-return-path"
+    )
 
 
 def test_identify_sender_matches_major_email_service_domains():
@@ -72,6 +74,9 @@ def test_identify_sender_matches_major_email_service_domains():
         )
         assert sender["id"] == expected_id
         assert sender["status"] == "known"
+        assert sender["confidence"] >= 55
+        assert sender["remediation_hint"]
+        assert sender["docs_url"]
 
 
 def test_identify_sender_flags_ambiguous_provider_evidence():
