@@ -1026,6 +1026,17 @@ class RemediationEvidence(BaseModel):
     value: str
 
 
+class RemediationActionPlan(BaseModel):
+    """Operator-facing action plan for one remediation queue item."""
+
+    owner: str
+    diagnosis: str
+    prerequisites: List[str] = Field(default_factory=list)
+    steps: List[str] = Field(default_factory=list)
+    completion_criteria: str
+    automation_path: str
+
+
 class RemediationNotification(BaseModel):
     """Read-only notification routing metadata for one remediation item."""
 
@@ -1055,6 +1066,7 @@ class RemediationQueueItem(BaseModel):
     blast_radius: str
     prerequisites: List[str] = Field(default_factory=list)
     expected_health_score_impact: str
+    action_plan: RemediationActionPlan
     automation: RemediationAutomation
     notification: RemediationNotification
 

@@ -384,6 +384,19 @@ def test_domain_details_exposes_dns_provider_repair_context_without_html_injecti
     assert "x-html" not in template
 
 
+def test_domain_details_exposes_remediation_action_plans_without_html_injection():
+    template = (
+        Path(__file__).resolve().parents[1] / "templates" / "domain_details.html"
+    ).read_text()
+
+    assert "Remediation Queue" in template
+    assert "Action plan" in template
+    assert "item.action_plan.owner" in template
+    assert "item.action_plan.steps" in template
+    assert "item.action_plan.completion_criteria" in template
+    assert "x-html" not in template
+
+
 def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     template = (
         Path(__file__).resolve().parents[1] / "templates" / "domain_details.html"

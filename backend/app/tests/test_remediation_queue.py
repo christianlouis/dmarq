@@ -1,4 +1,7 @@
-from app.services.remediation_queue import _remediation_notification_payload, build_remediation_queue
+from app.services.remediation_queue import (
+    _remediation_notification_payload,
+    build_remediation_queue,
+)
 
 
 def test_remediation_queue_prioritizes_provider_ready_dns_plan():
@@ -76,6 +79,13 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
     assert queue["items"][0]["automation"]["apply_endpoint"] == (
         "/api/v1/domains/example.com/dns/change-plan/apply"
     )
+    assert queue["items"][0]["action_plan"]["owner"] == "Domain DNS operator"
+    assert queue["items"][0]["action_plan"]["automation_path"] == "provider_preview"
+    assert (
+        "preview the provider mutation"
+        in " ".join(queue["items"][0]["action_plan"]["steps"]).lower()
+    )
+    assert queue["items"][0]["action_plan"]["completion_criteria"]
     notification = queue["items"][0]["notification"]
     assert notification == {
         "state": "approval_required",
@@ -162,6 +172,8 @@ def test_remediation_queue_keeps_placeholder_plan_manual():
     assert queue["items"][0]["state"] == "manual_action"
     assert queue["items"][0]["automation"]["eligible"] is False
     assert queue["items"][0]["automation"]["apply_endpoint"] is None
+    assert queue["items"][0]["action_plan"]["automation_path"] == "manual"
+    assert queue["items"][0]["action_plan"]["completion_criteria"]
     assert queue["items"][0]["notification"]["state"] == "summary_only"
     assert queue["items"][0]["notification"]["event"] == "dmarq.remediation.summary"
     assert queue["items"][0]["notification"]["payload_preview"]["event_type"] == (
@@ -240,6 +252,8 @@ def test_remediation_queue_requires_recommended_provider_for_automation():
     assert queue["items"][0]["automation"]["eligible"] is False
     assert queue["items"][0]["automation"]["provider"] is None
     assert queue["items"][0]["automation"]["apply_endpoint"] is None
+    assert queue["items"][0]["action_plan"]["owner"] == "Domain DNS operator"
+    assert queue["items"][0]["action_plan"]["steps"]
     assert queue["items"][0]["notification"]["state"] == "action_required"
     assert queue["items"][0]["notification"]["event"] == (
         "dmarq.remediation.manual_action_required"
