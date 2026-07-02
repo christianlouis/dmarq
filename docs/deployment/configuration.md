@@ -53,6 +53,7 @@ paths.
 | `AUTH_MODE` | Browser authentication mode: `auto`, `disabled`, `logto`, `authentik`, `oidc`, or `trusted_proxy` | `auto` | `authentik` |
 | `AUTH_DISABLED` | Disable authentication entirely. Only use for local development or a separately protected deployment. | `false` | `true`, `false` |
 | `PUBLIC_BASE_URL` | Public URL used when building OAuth callback URLs behind a reverse proxy or ingress | Auto-detected | `https://dmarq.example.com` |
+| `MULTI_WORKSPACE_UI_ENABLED` | Show workspace switching and Members access-control navigation. Keep disabled for self-hosted single-workspace installs. | `false` | `true`, `false` |
 
 #### Logto
 

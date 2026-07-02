@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dmarqlight" class="dark:data-theme-dmarqdark">
+{% set multi_workspace_ui_enabled = multi_workspace_ui_enabled | default(false) %}
+<html lang="en" data-theme="dmarqlight" data-multi-workspace-ui="{{ 'true' if multi_workspace_ui_enabled else 'false' }}" class="dark:data-theme-dmarqdark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -28,7 +29,7 @@
 </head>
 <body class="min-h-screen bg-[#f4f3f2] font-body antialiased text-[#07071f]">
     <header class="fixed inset-x-0 top-0 z-40 flex h-24 items-center bg-[#272a5f] px-5 text-white shadow-sm md:px-10"
-            x-data="userMenu()" x-init="loadUser()">
+            x-data="userMenu({ multiWorkspaceUiEnabled: {{ multi_workspace_ui_enabled | tojson }} })" x-init="loadUser()">
         <div class="flex flex-1 items-center">
             <a href="/" class="inline-flex items-center gap-4" aria-label="DMARQ Dashboard">
                 <span class="grid h-12 w-12 place-items-center bg-[#272a5f]" aria-hidden="true">
@@ -42,6 +43,7 @@
             </a>
         </div>
         <div class="flex items-center gap-3">
+            {% if multi_workspace_ui_enabled %}
             <div class="hidden min-w-48 md:block" x-show="workspaces.length > 0" x-cloak>
                 <label class="sr-only" for="workspace-switcher">Workspace</label>
                 <select id="workspace-switcher"
@@ -55,13 +57,16 @@
                     </template>
                 </select>
             </div>
+            {% endif %}
             <nav class="hidden items-center gap-1 text-sm font-semibold lg:flex" aria-label="Primary">
                 <a href="/" class="rounded-md px-3 py-2 text-white/90 hover:bg-white/10">Dashboard</a>
                 <a href="/domains" class="rounded-md px-3 py-2 text-white/80 hover:bg-white/10">Domains</a>
                 <a href="/reports" class="rounded-md px-3 py-2 text-white/80 hover:bg-white/10">Reports</a>
                 <a href="/forensics" class="rounded-md px-3 py-2 text-white/80 hover:bg-white/10">Forensics</a>
                 <a href="/tls-reports" class="rounded-md px-3 py-2 text-white/80 hover:bg-white/10">TLS</a>
+                {% if multi_workspace_ui_enabled %}
                 <a href="/members" class="rounded-md px-3 py-2 text-white/80 hover:bg-white/10">Members</a>
+                {% endif %}
                 <a href="/onboarding" class="rounded-md px-3 py-2 text-white/80 hover:bg-white/10">Onboarding</a>
             </nav>
             <div>
@@ -83,7 +88,9 @@
                                 <span class="text-xs text-base-content/50 truncate" x-text="user.email" x-show="user.full_name"></span>
                             </li>
                             <li><a href="/profile">Profile &amp; Security</a></li>
+                            {% if multi_workspace_ui_enabled %}
                             <li><a href="/members">Members</a></li>
+                            {% endif %}
                             <li><a href="/settings">Settings</a></li>
                             <li>
                                 <a href="/api/v1/auth/sign-out" class="text-error">
@@ -116,9 +123,11 @@
         <a href="/forensics" aria-label="Forensics" title="Forensics" class="rounded-lg p-3 text-white/55 hover:bg-white/10 hover:text-white">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 4h14v16H5V4Zm3 4v2h8V8H8Zm0 4v2h8v-2H8Zm0 4v2h5v-2H8Z"/></svg>
         </a>
+        {% if multi_workspace_ui_enabled %}
         <a href="/members" aria-label="Members" title="Members" class="rounded-lg p-3 text-white/55 hover:bg-white/10 hover:text-white">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8.5 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm7 1a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM2 19.5C2 15.9 4.9 13 8.5 13S15 15.9 15 19.5V21H2v-1.5Zm12.8 1.5v-1.5c0-2-.7-3.8-1.9-5.2.8-.2 1.7-.3 2.6-.3 3 0 5.5 2.5 5.5 5.5V21h-6.2Z"/></svg>
         </a>
+        {% endif %}
         <a href="/onboarding" aria-label="Onboarding" title="Onboarding" class="rounded-lg p-3 text-white/55 hover:bg-white/10 hover:text-white">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 4h16v4H4V4Zm0 6h7v10H4V10Zm9 0h7v4h-7v-4Zm0 6h7v4h-7v-4Z"/></svg>
         </a>

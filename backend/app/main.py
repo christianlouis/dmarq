@@ -572,6 +572,7 @@ app = create_app()  # noqa: F811 – intentional rebind; `app` package imported 
 # Initialize Jinja2 templates
 templates_dir = os.path.join(os.path.dirname(__file__), "templates")
 templates = Jinja2Templates(directory=templates_dir)
+templates.env.globals["multi_workspace_ui_enabled"] = settings.MULTI_WORKSPACE_UI_ENABLED
 
 
 @app.get("/", response_class=HTMLResponse)
