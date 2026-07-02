@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.models.dns_cache import DNSCache
 
 _CACHE_PROVIDER = "source-network-intelligence-v1"
-_SELECTORS_KEY = "team-cymru-dns-v1"
+_SELECTORS_KEY = "team-cymru-dns-v2"
 
 COUNTRY_NAMES = {
     "AT": "Austria",
@@ -114,6 +114,24 @@ def _normalize_asn(value: str) -> Optional[str]:
     return text if text.upper().startswith("AS") else f"AS{text}"
 
 
+def _asn_name_query(asn: str) -> str:
+    normalized = _normalize_asn(asn)
+    if not normalized:
+        return ""
+    return f"{normalized}.asn.cymru.com"
+
+
+def _as_name_from_cymru_txt(txt_records: Iterable[str]) -> Optional[str]:
+    for record in txt_records:
+        cleaned = str(record).strip().strip('"')
+        if "|" not in cleaned or cleaned.lower().startswith("as |"):
+            continue
+        parts = [part.strip().strip('"') for part in cleaned.split("|")]
+        if len(parts) >= 5 and parts[4]:
+            return parts[4]
+    return None
+
+
 def _normalize_global_source_ip(value: Any) -> Optional[str]:
     text = str(value or "").strip()
     if not text:
@@ -139,7 +157,7 @@ def _from_cymru_txt(ip: str, txt_records: Iterable[str]) -> SourceNetworkIntelli
         if "|" not in cleaned or cleaned.lower().startswith("as |"):
             continue
         parts = [part.strip().strip('"') for part in cleaned.split("|")]
-        if len(parts) < 6:
+        if len(parts) < 5:
             continue
         country_code = parts[2].upper() if parts[2] else None
         return SourceNetworkIntelligence(
@@ -151,7 +169,7 @@ def _from_cymru_txt(ip: str, txt_records: Iterable[str]) -> SourceNetworkIntelli
             region=COUNTRY_REGIONS.get(country_code or ""),
             registry=parts[3].lower() if parts[3] else None,
             allocated=parts[4] or None,
-            as_name=parts[5] or None,
+            as_name=parts[5] if len(parts) >= 6 and parts[5] else None,
             source="team-cymru",
             checked_at=checked_at,
         )
@@ -195,7 +213,15 @@ async def lookup_source_network(
             checked_at=checked_at,
             error=f"ASN lookup failed: {type(exc).__name__}.",
         )
-    return _from_cymru_txt(ip, records)
+    result = _from_cymru_txt(ip, records)
+    if result.asn and not result.as_name:
+        query = _asn_name_query(result.asn)
+        if query:
+            try:
+                result.as_name = _as_name_from_cymru_txt(await provider.lookup_txt(query))
+            except Exception:  # pylint: disable=broad-exception-caught
+                pass
+    return result
 
 
 async def lookup_source_network_cached(

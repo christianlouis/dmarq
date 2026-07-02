@@ -18,6 +18,8 @@ class FakeProvider:
 
     async def lookup_txt(self, name):
         self.queries.append(name)
+        if isinstance(self.records, dict):
+            return self.records.get(name, [])
         return self.records
 
 
@@ -40,6 +42,62 @@ async def test_lookup_source_network_parses_team_cymru_txt():
     assert result.registry == "ripencc"
     assert result.allocated == "2004-02-17"
     assert result.source == "team-cymru"
+    assert result.error is None
+
+
+async def test_lookup_source_network_accepts_team_cymru_dns_without_as_name():
+    provider = FakeProvider(
+        {
+            "203.205.31.50.origin.asn.cymru.com": [
+                '"23352 | 50.31.205.0/24 | US | arin | 2011-02-03"',
+            ],
+            "AS23352.asn.cymru.com": [
+                '"23352 | US | arin | 2002-03-05 | SERVERCENTRAL - DEFT.COM, US"',
+            ],
+        }
+    )
+
+    result = await lookup_source_network(provider, "50.31.205.203")
+
+    assert provider.queries == [
+        "203.205.31.50.origin.asn.cymru.com",
+        "AS23352.asn.cymru.com",
+    ]
+    assert result.asn == "AS23352"
+    assert result.as_name == "SERVERCENTRAL - DEFT.COM, US"
+    assert result.bgp_prefix == "50.31.205.0/24"
+    assert result.country == "United States"
+    assert result.region == "North America"
+    assert result.error is None
+
+
+async def test_lookup_source_network_uses_origin6_for_ipv6_sources():
+    provider = FakeProvider(
+        {
+            (
+                "1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0."
+                "b.1.1.3.7.1.c.0.8.f.4.0.1.0.a.2.origin6.asn.cymru.com"
+            ): ['"24940 | 2a01:4f8::/32 | DE | ripencc | 2007-10-10"'],
+            "AS24940.asn.cymru.com": [
+                '"24940 | DE | ripencc | 2002-06-03 | HETZNER-AS - Hetzner Online GmbH, DE"',
+            ],
+        }
+    )
+
+    result = await lookup_source_network(provider, "2a01:4f8:c17:311b::1")
+
+    assert provider.queries == [
+        (
+            "1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0."
+            "b.1.1.3.7.1.c.0.8.f.4.0.1.0.a.2.origin6.asn.cymru.com"
+        ),
+        "AS24940.asn.cymru.com",
+    ]
+    assert result.asn == "AS24940"
+    assert result.as_name == "HETZNER-AS - Hetzner Online GmbH, DE"
+    assert result.bgp_prefix == "2a01:4f8::/32"
+    assert result.country == "Germany"
+    assert result.region == "Europe"
     assert result.error is None
 
 
