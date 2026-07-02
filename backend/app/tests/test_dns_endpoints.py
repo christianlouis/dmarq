@@ -1776,6 +1776,73 @@ def test_selector_map_lookup_chunks_domain_names(db_session, monkeypatch):
     }
 
 
+def test_report_selector_map_handles_empty_and_malformed_details(db_session):
+    """Report selector lookups tolerate malformed persisted DKIM auth details."""
+    assert domains_endpoint._get_report_selectors_map_from_db(db_session, []) == {}
+
+    domain = Domain(name="malformed-report-selectors.example", active=True)
+    db_session.add(domain)
+    db_session.flush()
+    report = DMARCReport(
+        domain_id=domain.id,
+        report_id="malformed-report-selectors",
+        org_name="Selector Org",
+        begin_date=1597449600,
+        end_date=1597535999,
+        policy="none",
+    )
+    db_session.add(report)
+    db_session.flush()
+    db_session.add_all(
+        [
+            ReportRecord(
+                report_id=report.id,
+                source_ip="203.0.113.201",
+                count=1,
+                disposition="none",
+                dkim="pass",
+                spf="pass",
+                dkim_auth_details=json.dumps(["bad", {"selector": "mail"}, {"selector": "mail"}]),
+            ),
+            ReportRecord(
+                report_id=report.id,
+                source_ip="203.0.113.202",
+                count=1,
+                disposition="none",
+                dkim="pass",
+                spf="pass",
+                dkim_auth_details="{",
+            ),
+            ReportRecord(
+                report_id=report.id,
+                source_ip="203.0.113.203",
+                count=1,
+                disposition="none",
+                dkim="pass",
+                spf="pass",
+                dkim_auth_details="{}",
+            ),
+            ReportRecord(
+                report_id=report.id,
+                source_ip="203.0.113.204",
+                count=1,
+                disposition="none",
+                dkim="pass",
+                spf="pass",
+                dkim_auth_details=json.dumps([{"selector": "zeta"}]),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    selectors = domains_endpoint._get_report_selectors_map_from_db(
+        db_session,
+        ["malformed-report-selectors.example", "malformed-report-selectors.example"],
+    )
+
+    assert selectors == {"malformed-report-selectors.example": ["mail", "zeta"]}
+
+
 # ---------------------------------------------------------------------------
 # GET /api/v1/domains/{domain_id}/sources  (PTR + fix hints)
 # ---------------------------------------------------------------------------

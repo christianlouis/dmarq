@@ -1745,6 +1745,23 @@ def _get_domain_selectors_map_from_db(db: Session, domain_names: List[str]) -> D
     return selectors_by_domain
 
 
+def _selectors_from_dkim_auth_details(raw_details: str) -> List[str]:
+    try:
+        details = json.loads(raw_details or "[]")
+    except (TypeError, json.JSONDecodeError):
+        return []
+    if not isinstance(details, list):
+        return []
+    selectors: List[str] = []
+    for detail in details:
+        if not isinstance(detail, dict):
+            continue
+        selector = str(detail.get("selector") or "").strip()
+        if selector and selector not in selectors:
+            selectors.append(selector)
+    return selectors
+
+
 def _get_report_selectors_map_from_db(
     db: Session,
     domain_names: List[str],
@@ -1769,17 +1786,8 @@ def _get_report_selectors_map_from_db(
         if workspace_id is not None:
             query = query.filter(Domain.workspace_id == workspace_id)
         for domain_name, raw_details in query.all():
-            try:
-                details = json.loads(raw_details or "[]")
-            except (TypeError, json.JSONDecodeError):
-                continue
-            if not isinstance(details, list):
-                continue
             domain_selectors = selectors_by_domain.setdefault(domain_name, [])
-            for detail in details:
-                if not isinstance(detail, dict):
-                    continue
-                selector = str(detail.get("selector") or "").strip()
+            for selector in _selectors_from_dkim_auth_details(raw_details):
                 if selector and selector not in domain_selectors:
                     domain_selectors.append(selector)
     return selectors_by_domain
@@ -1943,6 +1951,10 @@ def _single_domain_report_store_for_read(
             or not _allows_legacy_report_only_fallback(db)
         ):
             raise
+        legacy_store = ReportStore.get_instance()
+        if _domain_exists(db, legacy_store, domain_id, workspace):
+            domain_name = _resolve_domain_name_for_read(db, legacy_store, domain_id, workspace)
+            return domain_name, legacy_store
         hydrate_report_store_from_db(db, store)
         domain_name = _resolve_domain_name_for_read(db, store, domain_id, workspace)
     return domain_name, store

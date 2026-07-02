@@ -1,4 +1,5 @@
 import asyncio
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
@@ -26,6 +27,59 @@ def test_domains_empty(authed_client: TestClient):
     assert response.status_code == 200
     data = response.json()
     assert data == []
+
+
+def test_domains_returns_demo_report_domains_in_demo_mode(
+    authed_client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    """Demo mode keeps domain list reads on the demo ReportStore path."""
+    domain = Domain(name="demo-list.example", active=True)
+    db_session.add(domain)
+    db_session.commit()
+
+    def fake_hydrate(_db, store, workspace_id=None):
+        del workspace_id
+        store.add_report(
+            {
+                "domain": "demo-list.example",
+                "report_id": "demo-list-001",
+                "org_name": "Demo Reporter",
+                "policy": {"p": "none", "sp": "", "pct": "100"},
+                "records": [
+                    {
+                        "source_ip": "192.0.2.20",
+                        "count": 3,
+                        "disposition": "none",
+                        "dkim_result": "pass",
+                        "spf_result": "pass",
+                        "header_from": "demo-list.example",
+                    }
+                ],
+                "summary": {
+                    "total_count": 3,
+                    "passed_count": 3,
+                    "failed_count": 0,
+                    "pass_rate": 100.0,
+                },
+            }
+        )
+        return 1
+
+    monkeypatch.setattr(
+        "app.api.api_v1.endpoints.domains.get_settings",
+        lambda: SimpleNamespace(DEMO_MODE=True),
+    )
+    monkeypatch.setattr(domains_endpoint, "hydrate_report_store_from_db", fake_hydrate)
+
+    response = authed_client.get("/api/v1/domains/domains")
+
+    assert response.status_code == 200
+    row = next(item for item in response.json() if item["name"] == "demo-list.example")
+    assert row["reports_count"] == 1
+    assert row["emails_count"] == 3
+    assert row["compliance_rate"] == 100.0
 
 
 def test_create_domain_without_reports(authed_client: TestClient):

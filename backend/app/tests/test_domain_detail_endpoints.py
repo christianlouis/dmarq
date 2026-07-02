@@ -2357,6 +2357,40 @@ def test_get_domain_sources_returns_sender_identity(
     assert "Google Workspace DKIM" in source["sender"]["remediation_hint"]
 
 
+def test_single_domain_report_store_resolves_numeric_domain_id(db_session):
+    """Single-domain report hydration accepts persisted numeric domain IDs."""
+    workspace = get_or_create_default_workspace(db_session)
+    domain = Domain(name="numeric-source.example", workspace_id=workspace.id, active=True)
+    db_session.add(domain)
+    db_session.commit()
+
+    domain_name, store = domains_endpoint._single_domain_report_store_for_read(
+        db_session,
+        str(domain.id),
+        workspace,
+    )
+
+    assert domain_name == "numeric-source.example"
+    assert store.get_domain_reports(domain_name) == []
+
+
+def test_single_domain_report_store_rejects_missing_domain_when_fallback_disabled(db_session):
+    """Multi-workspace setups must not fall back to legacy report-only global cache."""
+    alpha = Workspace(slug="source-alpha", name="Source Alpha", active=True)
+    beta = Workspace(slug="source-beta", name="Source Beta", active=True)
+    db_session.add_all([alpha, beta])
+    db_session.commit()
+
+    with pytest.raises(domains_endpoint.HTTPException) as exc_info:
+        domains_endpoint._single_domain_report_store_for_read(
+            db_session,
+            "missing-source.example",
+            alpha,
+        )
+
+    assert exc_info.value.status_code == 404
+
+
 def test_get_domain_source_intelligence_returns_regions_and_anomalies(
     seeded_client: TestClient,
 ):
