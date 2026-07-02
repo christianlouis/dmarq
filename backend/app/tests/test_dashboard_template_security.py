@@ -237,8 +237,8 @@ def test_domain_details_exposes_volume_scale_controls_without_html_injection():
     assert 'role="group" aria-label="Volume scale"' in template
     assert "setVolumeScale('logarithmic')" in template
     assert "setVolumeScale('linear')" in template
-    assert ':aria-pressed="effectiveVolumeScale() === \'logarithmic\'"' in template
-    assert ':aria-pressed="effectiveVolumeScale() === \'linear\'"' in template
+    assert ":aria-pressed=\"effectiveVolumeScale() === 'logarithmic'\"" in template
+    assert ":aria-pressed=\"effectiveVolumeScale() === 'linear'\"" in template
     assert ':disabled="!hasObservedVolume"' in template
     assert "dmarq:domain-volume-scale" in template
     assert "effectiveVolumeScale()" in template
@@ -349,6 +349,8 @@ def test_base_template_propagates_selected_workspace_context():
     assert "/api/v1/workspaces" in script
     assert "dmarq.selectedWorkspaceId" in script
     assert "X-DMARQ-Workspace-ID" in script
+    assert "withoutWorkspaceContext(input, init)" in script
+    assert "headers.delete(workspaceHeaderName)" in script
     assert "dmarq:workspace-changed" in script
     assert "localStorage.removeItem('dmarq.selectedWorkspaceId')" in script
     assert "input instanceof URL" in script

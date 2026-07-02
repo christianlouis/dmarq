@@ -80,14 +80,25 @@ document.addEventListener('alpine:init', () => {
     const originalFetch = window.fetch;
     const multiWorkspaceUiEnabled = () =>
         document.documentElement.dataset.multiWorkspaceUi === 'true';
+    const workspaceHeaderName = 'X-DMARQ-Workspace-ID';
     const normalizeWorkspaceId = (workspaceId) => {
         const trimmed = String(workspaceId || '').trim();
         return /^[1-9]\d*$/.test(trimmed) ? trimmed : '';
     };
+    const withoutWorkspaceContext = (input, init) => {
+        const headers = new Headers((init && init.headers) || (input && input.headers) || {});
+        if (!headers.has(workspaceHeaderName)) {
+            return init;
+        }
+        const nextInit = Object.assign({}, init || {});
+        headers.delete(workspaceHeaderName);
+        nextInit.headers = headers;
+        return nextInit;
+    };
 
     window.fetch = function dmarqWorkspaceFetch(input, init) {
         if (!multiWorkspaceUiEnabled()) {
-            return originalFetch(input, init);
+            return originalFetch(input, withoutWorkspaceContext(input, init));
         }
         const workspaceId = normalizeWorkspaceId(localStorage.getItem('dmarq.selectedWorkspaceId'));
         const url =
@@ -103,8 +114,8 @@ document.addEventListener('alpine:init', () => {
         }
         const nextInit = Object.assign({}, init || {});
         const headers = new Headers(nextInit.headers || (input && input.headers) || {});
-        if (!headers.has('X-DMARQ-Workspace-ID')) {
-            headers.set('X-DMARQ-Workspace-ID', workspaceId);
+        if (!headers.has(workspaceHeaderName)) {
+            headers.set(workspaceHeaderName, workspaceId);
         }
         nextInit.headers = headers;
         return originalFetch(input, nextInit);
