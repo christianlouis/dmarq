@@ -2014,6 +2014,10 @@ def test_cloudflare_oauth_config_requires_client_credentials(
         cloudflare_oauth.get_cloudflare_oauth_config()
 
 
+def test_cloudflare_oauth_token_exchange_uses_api_host():
+    assert cloudflare_oauth.CLOUDFLARE_TOKEN_URL == "https://api.cloudflare.com/oauth2/token"
+
+
 def test_cloudflare_oauth_decode_rejects_state_without_workspace(
     monkeypatch: pytest.MonkeyPatch,
 ):

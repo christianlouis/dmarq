@@ -16,7 +16,7 @@ from app.core.credential_encryption import encrypt_secret
 from app.models.setting import Setting
 
 CLOUDFLARE_AUTHORIZATION_URL = "https://dash.cloudflare.com/oauth2/auth"
-CLOUDFLARE_TOKEN_URL = "https://dash.cloudflare.com/oauth2/token"
+CLOUDFLARE_TOKEN_URL = "https://api.cloudflare.com/oauth2/token"
 CLOUDFLARE_DEFAULT_READ_SCOPES = "zone.read dns.read"
 _STATE_ALGORITHM = "HS256"
 _STATE_TTL = timedelta(minutes=10)
