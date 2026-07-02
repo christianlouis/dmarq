@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.credential_encryption import decrypt_secret
 from app.models.domain import Domain
+from app.models.mail_source_import import MailSourceImport  # noqa: F401
 from app.models.setting import Setting
 from app.models.workspace import Workspace
 from app.services.organizations import require_organization_plan_limit
