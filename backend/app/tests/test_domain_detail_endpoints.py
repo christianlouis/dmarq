@@ -2806,6 +2806,76 @@ async def test_safe_ptr_lookup_skips_invalid_ips():
     )
 
 
+@pytest.mark.asyncio
+async def test_source_networks_by_ip_handles_disabled_and_failed_enrichment(
+    db_session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Network enrichment helper falls back to core source data when optional lookups fail."""
+
+    disabled_settings = SimpleNamespace(SOURCE_NETWORK_ENRICHMENT_ENABLED=False)
+    assert (
+        await domains_endpoint._source_networks_by_ip(  # pylint: disable=protected-access
+            db_session, object(), ["203.0.113.7"], disabled_settings
+        )
+        == {}
+    )
+
+    async def failing_network_lookup(*_args, **_kwargs):
+        raise RuntimeError("network provider unavailable")
+
+    monkeypatch.setattr(
+        domains_endpoint,
+        "lookup_sources_network_cached",
+        failing_network_lookup,
+    )
+    enabled_settings = SimpleNamespace(
+        SOURCE_NETWORK_ENRICHMENT_ENABLED=True,
+        SOURCE_NETWORK_ENRICHMENT_CACHE_SECONDS=3600,
+        SOURCE_NETWORK_ENRICHMENT_MAX_IPS=10,
+        SOURCE_NETWORK_ENRICHMENT_DETAIL_TIMEOUT_SECONDS=1.0,
+    )
+
+    assert (
+        await domains_endpoint._source_networks_by_ip(  # pylint: disable=protected-access
+            db_session, object(), ["203.0.113.7"], enabled_settings
+        )
+        == {}
+    )
+
+
+@pytest.mark.asyncio
+async def test_source_reputations_by_ip_handles_failed_enrichment(
+    db_session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Reputation helper falls back to no reputation data when optional lookups fail."""
+
+    async def failing_reputation_lookup(*_args, **_kwargs):
+        raise RuntimeError("reputation provider unavailable")
+
+    monkeypatch.setattr(
+        domains_endpoint,
+        "build_source_reputation_cached",
+        failing_reputation_lookup,
+    )
+
+    assert (
+        await domains_endpoint._source_reputations_by_ip(  # pylint: disable=protected-access
+            db_session,
+            DOMAIN,
+            [],
+            [],
+            {},
+            {},
+            30,
+            False,
+            SimpleNamespace(SOURCE_REPUTATION_DETAIL_TIMEOUT_SECONDS=1.0),
+        )
+        == {}
+    )
+
+
 def test_get_domain_sources_days_param_accepted(seeded_client: TestClient):
     """The 'days' query parameter is accepted without raising a TypeError."""
     response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources?days=7")
