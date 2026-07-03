@@ -863,10 +863,13 @@ def test_domain_details_exposes_ownership_and_delete_controls_without_html_injec
 
     assert "Domain Ownership" in template
     assert "data-domain-detail-reload" in template
+    assert "data-domain-detail-refresh-dns" in template
     assert "data-domain-detail-delete" in template
     assert "data-domain-detail-verify-ownership" in template
     assert "data-domain-detail-verify-cloudflare" in template
     assert "data-domain-detail-reload" in script
+    assert "data-domain-detail-refresh-dns" in script
+    assert "refreshDNSData" in script
     assert "data-domain-detail-delete" in script
     assert "data-domain-detail-verify-ownership" in script
     assert "data-domain-detail-verify-cloudflare" in script
@@ -875,6 +878,7 @@ def test_domain_details_exposes_ownership_and_delete_controls_without_html_injec
     assert "Report mailbox access is enough" not in template
     assert "deleteDomain()" in script
     assert '@click="reloadPageData()"' not in template
+    assert '@click="refreshDNSData()"' not in template
     assert '@click="deleteDomain()"' not in template
     assert '@click="verifyDomainOwnership()"' not in template
     assert '@click="verifyDomainOwnershipCloudflare()"' not in template
