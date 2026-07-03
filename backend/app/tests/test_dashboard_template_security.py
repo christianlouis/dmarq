@@ -586,6 +586,12 @@ def test_report_detail_uses_external_page_script_for_csp_migration():
     assert "data-report-delete" in script
     assert "data-report-retry-load" in template
     assert "data-report-retry-load" in script
+    assert "data-report-refresh-reputation" in template
+    assert "data-report-refresh-reputation" in script
+    assert "refresh_reputation=true" in script
+    assert "reputationRefreshing" in template
+    assert "reputationRefreshError" in template
+    assert "if (!refreshReputation) {\n                        this.reputationRefreshError = '';" in script
     assert "bindPageControls()" in script
     assert "event.target instanceof Element" in script
     assert "/api/v1/reports/${encodeURIComponent(this.reportId)}" in script
@@ -598,6 +604,7 @@ def test_report_detail_uses_external_page_script_for_csp_migration():
     assert "this.report = null;" in script
     assert "record.reputation.feed_status" in template
     assert "record.reputation.feed_summary" in template
+    assert "Use Recalculate reputation" in template
     assert "reputationFeedClass" in script
     assert "reputationLabel" in script
     assert "reputationEvidencePreview" in script
@@ -974,6 +981,11 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     assert "source.active_days" in template
     assert "source.report_count" in template
     assert "source.volume_history" in template
+    assert "data-domain-detail-refresh-reputation" in template
+    assert "data-domain-detail-refresh-reputation" in script
+    assert "refreshSourceReputation" in script
+    assert "sourceReputationRefreshing" in template
+    assert "sourceReputationRefreshError" in template
     assert "sourceSeenLabel" in script
     assert "sourceVolumeBars" in script
     assert "source.reputation.status" in template
@@ -985,7 +997,7 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     assert "reputationFeedClass" in script
     assert "reputationLabel" in script
     assert "reputationEvidencePreview" in script
-    assert "Reputation has not been calculated for this source yet." in template
+    assert "Use Refresh reputation" in template
     assert 'colspan="9"' in template
     assert "x-effect=\"$el.style.height = point.height + '%'" in template
     assert "x-html" not in template
