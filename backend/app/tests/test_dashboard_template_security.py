@@ -547,14 +547,16 @@ def test_report_detail_uses_external_page_script_for_csp_migration():
     assert '@click="deleteReport' not in template
     assert "data-report-delete" in template
     assert "data-report-delete" in script
-    assert "bindDeleteControls()" in script
+    assert "data-report-retry-load" in template
+    assert "data-report-retry-load" in script
+    assert "bindPageControls()" in script
     assert "event.target instanceof Element" in script
     assert "/api/v1/reports/${encodeURIComponent(this.reportId)}" in script
     assert "deleteReport(domain, reportId)" in script
     assert "sourceLocation(record)" in script
     assert 'x-data="reportDetailApp' in template
     assert "x-cloak" in template
-    assert '@click="fetchReport()"' in template
+    assert '@click="fetchReport()"' not in template
     assert "this.loading = true;" in script
     assert "this.report = null;" in script
     assert "record.reputation.feed_status" in template
