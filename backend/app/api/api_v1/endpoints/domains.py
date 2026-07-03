@@ -3606,7 +3606,6 @@ async def get_dns_provider_capabilities(
     for provider in capabilities:
         credentials_configured = _provider_credentials_configured(db, provider["id"])
         import_available = provider["id"] in import_provider_ids
-        status = provider.get("status")
         seen_provider_ids.add(provider["id"])
         provider_rows.append(
             {
@@ -3616,9 +3615,7 @@ async def get_dns_provider_capabilities(
                 "connection_status": (
                     "connected"
                     if credentials_configured
-                    else (
-                        "needs_credentials" if import_available or status == "ready" else "planned"
-                    )
+                    else ("needs_credentials" if import_available else "planned")
                 ),
                 "connection_hint": (
                     "Credentials are configured. Discovery can run without exposing token material."
