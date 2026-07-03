@@ -1036,6 +1036,33 @@ def test_get_report_by_id_continues_when_reputation_enrichment_fails(
     assert record["reputation"] is None
 
 
+def test_get_report_by_id_surfaces_refresh_reputation_failure(
+    authed_client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    workspace = get_or_create_default_workspace(db_session)
+    _persist_parsed_report(
+        db_session,
+        _parsed_report(domain="example.com", report_id="source-intel-refresh-failure"),
+        workspace_id=workspace.id,
+    )
+
+    async def failing_reputation(*_args, **_kwargs):
+        raise RuntimeError("provider unavailable")
+
+    async def fake_ptr_lookup(_provider, _ip, timeout=3.0):  # pylint: disable=unused-argument
+        return None
+
+    monkeypatch.setattr(reports_endpoint, "_safe_ptr_lookup", fake_ptr_lookup)
+    monkeypatch.setattr(reports_endpoint, "build_source_reputation_cached", failing_reputation)
+
+    response = authed_client.get("/api/v1/reports/source-intel-refresh-failure?refresh_reputation=true")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Source reputation could not be refreshed."
+
+
 def test_safe_ptr_lookup_returns_none_for_invalid_or_failed_lookup():
     class FailingProvider:
         async def lookup_ptr(self, _ip):
