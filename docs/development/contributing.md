@@ -16,6 +16,26 @@ There are many ways to contribute to DMARQ:
 - **Improving docs**: Help make our documentation more comprehensive
 - **Translation**: Help translate the interface into other languages
 
+## Translation Contributions
+
+DMARQ keeps English as the source and fallback language. German is the first
+non-English target for operator-facing remediation guidance; additional
+languages should start with high-value DMARC, SPF, and DKIM guidance before
+general UI copy.
+
+When contributing translations:
+
+- Translate operator-facing explanations, severity wording, next steps, and
+  remediation checklists.
+- Keep DNS record names, protocol tags, provider values, and examples such as
+  `v=DMARC1`, `v=spf1`, `rua=`, `DKIM`, `TXT`, `CNAME`, and hostnames unchanged.
+- Preserve safety wording around human approval, DNS propagation, and provider
+  verification.
+- Add or update tests that prove missing translations fall back to English and
+  that DNS/provider-specific values are interpolated unchanged.
+- Prefer short, direct language that an email or DNS operator can act on during
+  an incident.
+
 ## Development Environment Setup
 
 ### Prerequisites

@@ -620,6 +620,12 @@ selectors. The bulk endpoint returns the same payload shape per monitored
 domain, and the export endpoint returns the finding list as CSV for
 managed-domain reviews.
 
+Use `?locale=de` to request German operator-facing remediation steps. If a
+translation is missing, DMARQ falls back to the English source text and keeps
+DNS record values, hostnames, and protocol tags unchanged. Self-hosted
+instances can set `DMARQ_DEFAULT_LOCALE` or `LANGUAGE` to choose the default
+guidance language.
+
 The single-domain lint payload also includes `change_plans`. The dedicated
 `/dns/change-plan` endpoint returns the same operator-facing plans with
 proposed DNS records, captured current values, risk notes, rollback notes,

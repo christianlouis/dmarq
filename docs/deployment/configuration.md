@@ -195,7 +195,8 @@ against a delegated account.
 |----------|-------------|---------|---------|
 | `APP_NAME` | Custom instance name | `DMARQ` | `Company DMARC Monitor` |
 | `TIMEZONE` | Application timezone | `UTC` | `America/New_York`, `Europe/London` |
-| `LANGUAGE` | Default language | `en` | `en`, `fr`, `es` |
+| `LANGUAGE` | Default language for operator-facing guidance | `en` | `en`, `de` |
+| `DMARQ_DEFAULT_LOCALE` | Optional override for localized guidance; falls back to `LANGUAGE` | - | `de` |
 | `REPORTS_PER_PAGE` | Reports to show per page | `25` | `10`, `50`, `100` |
 | `MAX_UPLOAD_SIZE` | Maximum file upload size (MB) | `10` | `20`, `50` |
 | `SESSION_LIFETIME` | Session lifetime in minutes | `1440` (24h) | `60`, `720` |

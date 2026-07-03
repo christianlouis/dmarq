@@ -459,6 +459,39 @@ def test_dns_lint_endpoint_returns_typed_findings_and_targets(authed_client: Tes
     assert change_plan["manual_steps"]
 
 
+def test_dns_lint_endpoint_accepts_locale_for_operator_guidance(authed_client: TestClient):
+    result = DomainDNSResult(
+        dmarc=False,
+        spf=False,
+        dkim=False,
+        selectors_checked=["selector1"],
+        nameservers=["ns1.digitalocean.com", "ns2.digitalocean.com"],
+        dns_provider=detect_dns_provider(["ns1.digitalocean.com", "ns2.digitalocean.com"]),
+    )
+    mta_sts = MTAStsResult(status="pass")
+    bimi = BIMIResult(status="pass")
+
+    with (
+        _mock_dns(result),
+        patch(
+            "app.api.api_v1.endpoints.domains.check_mta_sts_cached",
+            new=AsyncMock(return_value=(mta_sts, False, None)),
+        ),
+        patch(
+            "app.api.api_v1.endpoints.domains.check_bimi_cached",
+            new=AsyncMock(return_value=(bimi, False, None)),
+        ),
+    ):
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns/lint?locale=de")
+
+    assert response.status_code == 200
+    findings = {finding["code"]: finding for finding in response.json()["findings"]}
+    assert "Oeffne die DNS-Zone" in findings["dmarc_missing"]["remediation_steps"][0]
+    assert "Veroeffentliche genau einen TXT-Record" in (
+        findings["spf_missing"]["remediation_steps"][1]
+    )
+
+
 def test_dns_change_plan_endpoint_returns_apply_gated_plans(authed_client: TestClient):
     result = DomainDNSResult(
         dmarc=False,

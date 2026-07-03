@@ -66,6 +66,65 @@ async def test_build_dns_guidance_returns_typed_findings_and_targets():
 
 
 @pytest.mark.asyncio
+async def test_build_dns_guidance_localizes_high_value_remediation_steps_to_german():
+    provider = FakeDNSProvider({})
+    dns = DomainDNSResult(
+        dmarc=False,
+        spf=False,
+        dkim=False,
+        selectors_checked=["selector1"],
+    )
+    mta_sts = MTAStsResult(status="pass")
+    bimi = BIMIResult(status="pass")
+
+    guidance = await build_dns_guidance(
+        "example.com",
+        provider,
+        dns,
+        mta_sts,
+        bimi,
+        locale="de-DE",
+    )
+
+    findings = {finding.code: finding for finding in guidance.findings}
+    assert "Oeffne die DNS-Zone" in findings["dmarc_missing"].remediation_steps[0]
+    assert "Veroeffentliche genau einen TXT-Record" in findings["spf_missing"].remediation_steps[1]
+    assert "Domain-Authentifizierung" in " ".join(
+        findings["dkim_selector_missing"].remediation_steps
+    )
+
+
+@pytest.mark.asyncio
+async def test_build_dns_guidance_falls_back_to_english_for_missing_translation():
+    provider = FakeDNSProvider({"example.com": ["v=spf1 -all"]})
+    dns = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=reject; rua=mailto:dmarc@example.com",
+        spf=True,
+        spf_record="v=spf1 -all",
+        dkim=True,
+        dkim_selectors=["selector1"],
+        dmarc_warnings=["Unsupported fo tag."],
+    )
+    mta_sts = MTAStsResult(status="pass")
+    bimi = BIMIResult(status="pass")
+
+    guidance = await build_dns_guidance(
+        "example.com",
+        provider,
+        dns,
+        mta_sts,
+        bimi,
+        locale="de",
+    )
+
+    warning = next(
+        finding for finding in guidance.findings if finding.code == "dmarc_failure_option_invalid"
+    )
+    assert warning.remediation_steps[0] == "Open the linked DNS or report evidence in DMARQ."
+
+
+@pytest.mark.asyncio
 async def test_build_dns_guidance_lints_spf_and_tls_rpt_records():
     provider = FakeDNSProvider(
         {
@@ -228,6 +287,10 @@ async def test_build_dns_guidance_classifies_dmarc_warning_codes():
     assert "dmarc_monitoring_policy" in codes
     assert "spf_all_neutral" in codes
     assert "bimi_dmarc_not_enforced" in codes
+    monitoring = next(
+        finding for finding in guidance.findings if finding.code == "dmarc_monitoring_policy"
+    )
+    assert monitoring.remediation_steps[0].startswith("Review DMARQ report evidence")
 
 
 @pytest.mark.asyncio
