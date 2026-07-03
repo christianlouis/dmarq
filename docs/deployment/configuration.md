@@ -38,8 +38,8 @@ For deployment verification, upgrades, rollback, and routine checks, use the [Op
 | `DEBUG` | Enable debug mode | `false` | `true`, `false` |
 | `LOG_LEVEL` | Application logging level | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `CORS_ORIGINS` | Allowed CORS origins | `http://localhost:8000` | `https://dmarq.example.com` |
-| `CSP_REPORT_ONLY` | Emit the strict target Content Security Policy as report-only while keeping the compatibility policy enforced. Use this first to validate browser behavior before enforcing strict CSP. | `false` | `true` |
-| `CSP_ENFORCE_STRICT` | Enforce the strict target CSP without `unsafe-inline` or `unsafe-eval`. Enable only after validating the UI runtime with report-only mode. | `false` | `true` |
+| `CSP_REPORT_ONLY` | Emit the strict target Content Security Policy as report-only while keeping the compatibility policy enforced. Use this first to validate browser behavior before enforcing strict CSP. | `false` | `true`, `false` |
+| `CSP_ENFORCE_STRICT` | Enforce the strict target CSP without `unsafe-inline` or `unsafe-eval`. Enable only after validating the UI runtime with report-only mode. | `false` | `true`, `false` |
 
 ### Logto Authentication Settings
 
