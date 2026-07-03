@@ -151,7 +151,8 @@ async def test_dnsbl_ipv6_sources_are_skipped_without_exception():
             display_name="Demo Reputation Feed",
             enabled=True,
             query_zone="example.test",
-        )
+        ),
+        resolver=NoNameserversResolver(),
     )
 
     evidence = await provider.lookup_ip("2a01:4f8:c17:311b::1")
