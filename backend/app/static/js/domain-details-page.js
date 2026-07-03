@@ -400,11 +400,7 @@ function domainDetailsApp(domainId) {
                 this.fetchDNSRecords({ refresh: true, preserveEvidenceOnFailure: true }),
                 this.fetchDNSHealth({ refresh: true }),
                 this.fetchDNSGuidance({ refresh: true }),
-                this.fetchPosture({ refresh: true }),
-                this.fetchRemediationQueue(),
-                this.fetchMtaSts({ refresh: true }),
-                this.fetchBimi({ refresh: true }),
-                this.fetchSelectors()
+                this.fetchPosture({ refresh: true })
             ]);
         },
 

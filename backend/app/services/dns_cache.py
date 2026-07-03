@@ -121,20 +121,20 @@ def _latest_stale_evidence_row(
     now: datetime,
     excluded_selectors_key: str,
 ) -> Optional[DNSCache]:
+    grace_cutoff = now - timedelta(seconds=STALE_DNS_EVIDENCE_GRACE_SECONDS)
     rows = (
         db.query(DNSCache)
         .filter(
             DNSCache.domain == domain,
             DNSCache.provider == provider_name,
             DNSCache.selectors_key != excluded_selectors_key,
+            DNSCache.checked_at >= grace_cutoff,
         )
         .order_by(DNSCache.checked_at.desc())
         .limit(25)
         .all()
     )
     for candidate in rows:
-        if not _within_stale_evidence_grace(candidate, now):
-            continue
         try:
             if _has_dns_evidence(_result_from_json(candidate.result_json)):
                 return candidate
@@ -167,7 +167,9 @@ def _best_stale_cached_evidence(
     return _stale_cached_evidence(fallback_row, now=now, lookup_error=lookup_error)
 
 
-def _lookup_failure_result(error_type: str, now: datetime) -> Tuple[DomainDNSResult, bool, datetime]:
+def _lookup_failure_result(
+    error_type: str, now: datetime
+) -> Tuple[DomainDNSResult, bool, datetime]:
     return (
         DomainDNSResult(
             lookup_status="failed",
@@ -249,9 +251,7 @@ def _fallback_candidates(provider: BaseDNSProvider) -> List[BaseDNSProvider]:
         GoogleDNSProvider,
     ]
     provider_types = [provider.__class__] + [
-        fallback_type
-        for fallback_type in fallback_types
-        if not isinstance(provider, fallback_type)
+        fallback_type for fallback_type in fallback_types if not isinstance(provider, fallback_type)
     ]
     return [
         provider if index == 0 else provider_type()
@@ -366,8 +366,7 @@ async def _resolve_with_fallback(  # noqa: C901
         return empty_result
 
     raise LookupError(
-        "All DNS resolvers failed: "
-        + ", ".join(resolver_errors or ["no resolver attempted"])
+        "All DNS resolvers failed: " + ", ".join(resolver_errors or ["no resolver attempted"])
     )
 
 
