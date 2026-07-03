@@ -10,7 +10,29 @@ function reportsApp() {
         error: '',
 
         init() {
+            this.bindDeleteControls();
             this.fetchReports();
+        },
+
+        bindDeleteControls() {
+            const root = this.$root || document;
+            if (root.dataset?.reportDeleteBound === 'true') {
+                return;
+            }
+            if (root.dataset) {
+                root.dataset.reportDeleteBound = 'true';
+            }
+            root.addEventListener('click', (event) => {
+                const button = event.target.closest('[data-report-delete]');
+                if (!button || !root.contains(button)) {
+                    return;
+                }
+                const domain = button.dataset.reportDomain || '';
+                const reportId = button.dataset.reportId || '';
+                if (domain && reportId) {
+                    this.deleteReport(domain, reportId);
+                }
+            });
         },
 
         get filteredReports() {
