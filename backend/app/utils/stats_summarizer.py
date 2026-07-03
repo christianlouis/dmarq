@@ -589,6 +589,31 @@ class StatsSummarizer:
             return 0.0
         return round((compliant_emails / total_emails) * 100, 1)
 
+    @staticmethod
+    def _source_rollup_from_row(row) -> Dict[str, Any]:
+        """Return the API source rollup shape shared by global and domain stats."""
+        total_count = int(row.total_count or 0)
+        spf_pass_count = int(row.spf_pass_count or 0)
+        spf_fail_count = int(row.spf_fail_count or 0)
+        dkim_pass_count = int(row.dkim_pass_count or 0)
+        dkim_fail_count = int(row.dkim_fail_count or 0)
+        dmarc_pass_count = int(row.dmarc_pass_count or 0)
+        dmarc_fail_count = max(0, total_count - dmarc_pass_count)
+
+        return {
+            "ip": row.source_ip,
+            "count": total_count,
+            "spf_pass_count": spf_pass_count,
+            "spf_fail_count": spf_fail_count,
+            "dkim_pass_count": dkim_pass_count,
+            "dkim_fail_count": dkim_fail_count,
+            "dmarc_pass_count": dmarc_pass_count,
+            "dmarc_fail_count": dmarc_fail_count,
+            "spf": _auth_status_from_counts(spf_pass_count, spf_fail_count),
+            "dkim": _auth_status_from_counts(dkim_pass_count, dkim_fail_count),
+            "dmarc": _auth_status_from_counts(dmarc_pass_count, dmarc_fail_count),
+        }
+
     def _get_top_sources(
         self,
         db: Session,
@@ -636,29 +661,7 @@ class StatsSummarizer:
             .all()
         )
 
-        return [
-            {
-                "ip": row.source_ip,
-                "count": int(row.total_count),
-                "spf_pass_count": int(row.spf_pass_count or 0),
-                "spf_fail_count": int(row.spf_fail_count or 0),
-                "dkim_pass_count": int(row.dkim_pass_count or 0),
-                "dkim_fail_count": int(row.dkim_fail_count or 0),
-                "dmarc_pass_count": int(row.dmarc_pass_count or 0),
-                "dmarc_fail_count": int(row.total_count) - int(row.dmarc_pass_count or 0),
-                "spf": _auth_status_from_counts(
-                    int(row.spf_pass_count or 0), int(row.spf_fail_count or 0)
-                ),
-                "dkim": _auth_status_from_counts(
-                    int(row.dkim_pass_count or 0), int(row.dkim_fail_count or 0)
-                ),
-                "dmarc": _auth_status_from_counts(
-                    int(row.dmarc_pass_count or 0),
-                    int(row.total_count) - int(row.dmarc_pass_count or 0),
-                ),
-            }
-            for row in results
-        ]
+        return [self._source_rollup_from_row(row) for row in results]
 
     def _get_domain_sources(
         self,
@@ -707,29 +710,7 @@ class StatsSummarizer:
             .all()
         )
 
-        return [
-            {
-                "ip": row.source_ip,
-                "count": int(row.total_count),
-                "spf_pass_count": int(row.spf_pass_count or 0),
-                "spf_fail_count": int(row.spf_fail_count or 0),
-                "dkim_pass_count": int(row.dkim_pass_count or 0),
-                "dkim_fail_count": int(row.dkim_fail_count or 0),
-                "dmarc_pass_count": int(row.dmarc_pass_count or 0),
-                "dmarc_fail_count": int(row.total_count) - int(row.dmarc_pass_count or 0),
-                "spf": _auth_status_from_counts(
-                    int(row.spf_pass_count or 0), int(row.spf_fail_count or 0)
-                ),
-                "dkim": _auth_status_from_counts(
-                    int(row.dkim_pass_count or 0), int(row.dkim_fail_count or 0)
-                ),
-                "dmarc": _auth_status_from_counts(
-                    int(row.dmarc_pass_count or 0),
-                    int(row.total_count) - int(row.dmarc_pass_count or 0),
-                ),
-            }
-            for row in results
-        ]
+        return [self._source_rollup_from_row(row) for row in results]
 
     def _get_compliance_trend(
         self,
