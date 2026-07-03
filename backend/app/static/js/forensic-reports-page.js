@@ -30,12 +30,18 @@ function forensicReportsApp() {
             }
 
             root.addEventListener('click', (event) => {
+                if (!(event.target instanceof Element)) {
+                    return;
+                }
                 const resetButton = event.target.closest('[data-forensic-reset]');
                 if (resetButton && root.contains(resetButton)) {
                     this.resetFilters();
                 }
             });
             root.addEventListener('change', (event) => {
+                if (!(event.target instanceof Element)) {
+                    return;
+                }
                 const domainFilter = event.target.closest('[data-forensic-domain-filter]');
                 if (domainFilter && root.contains(domainFilter)) {
                     this.filters.domain = domainFilter.value;
@@ -60,6 +66,9 @@ function forensicReportsApp() {
                 }
             });
             root.addEventListener('submit', (event) => {
+                if (!(event.target instanceof Element)) {
+                    return;
+                }
                 const form = event.target.closest('[data-forensic-upload-form]');
                 if (form && root.contains(form)) {
                     event.preventDefault();

@@ -30,12 +30,18 @@ function tlsReportsApp() {
             }
 
             root.addEventListener('click', (event) => {
+                if (!(event.target instanceof Element)) {
+                    return;
+                }
                 const refreshButton = event.target.closest('[data-tls-refresh]');
                 if (refreshButton && root.contains(refreshButton)) {
                     this.refresh();
                 }
             });
             root.addEventListener('change', (event) => {
+                if (!(event.target instanceof Element)) {
+                    return;
+                }
                 const daysFilter = event.target.closest('[data-tls-days-filter]');
                 if (daysFilter && root.contains(daysFilter)) {
                     this.filters.days = daysFilter.value;
@@ -48,6 +54,9 @@ function tlsReportsApp() {
                 }
             });
             root.addEventListener('input', (event) => {
+                if (!(event.target instanceof Element)) {
+                    return;
+                }
                 const domainFilter = event.target.closest('[data-tls-domain-filter]');
                 if (domainFilter && root.contains(domainFilter)) {
                     this.filters.domain = domainFilter.value;
@@ -56,6 +65,9 @@ function tlsReportsApp() {
                 }
             });
             root.addEventListener('submit', (event) => {
+                if (!(event.target instanceof Element)) {
+                    return;
+                }
                 const form = event.target.closest('[data-tls-upload-form]');
                 if (form && root.contains(form)) {
                     event.preventDefault();
