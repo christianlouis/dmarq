@@ -4,6 +4,8 @@ Tests for the /api/v1/setup endpoints.
 Covers initial setup status, admin user setup, and system configuration.
 """
 
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -90,13 +92,24 @@ class TestSetupPage:
 
         with TestClient(main_app) as test_client:
             response = test_client.get("/setup")
+        script = (
+            Path(__file__).resolve().parents[1] / "static" / "js" / "setup-page.js"
+        ).read_text()
 
         assert response.status_code == 200
         assert "First-run setup" in response.text
-        assert '@submit.prevent="submitAdmin"' in response.text
-        assert '@submit.prevent="submitSystem"' in response.text
+        assert '@submit.prevent="submitAdmin"' not in response.text
+        assert '@submit.prevent="submitSystem"' not in response.text
+        assert 'x-init="init()"' not in response.text
+        assert "data-setup-admin-form" in response.text
+        assert "data-setup-system-form" in response.text
+        assert "data-setup-back" in response.text
         assert 'data-app-name="DMARQ"' in response.text
         assert 'src="/static/js/setup-page.js"' in response.text
+        assert "bindControls()" in script
+        assert "data-setup-admin-form" in script
+        assert "data-setup-system-form" in script
+        assert "data-setup-back" in script
         assert "/static/js/setup.js" not in response.text
         assert "/onboarding" not in response.text
 

@@ -18,7 +18,7 @@
     <link href="/static/css/page-utilities.css" rel="stylesheet" type="text/css"/>
 </head>
 <body class="min-h-screen bg-base-200 font-sans antialiased">
-<div class="min-h-screen" x-data="setupWizard()" x-init="init()" x-cloak data-app-name="{{ app_name }}">
+<div class="min-h-screen" x-data="setupWizard()" x-cloak data-app-name="{{ app_name }}" data-setup-wizard>
     <header class="border-b border-base-300 bg-base-100">
         <div class="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
             <a href="/" class="inline-flex items-center gap-3">
@@ -67,7 +67,7 @@
                         <span x-text="error"></span>
                     </div>
 
-                    <form x-show="!statusLoading && currentStep === 1" @submit.prevent="submitAdmin" class="space-y-5">
+                    <form x-show="!statusLoading && currentStep === 1" class="space-y-5" data-setup-admin-form>
                         <div>
                             <h2 class="text-xl font-semibold">Admin contact</h2>
                             <p class="mt-1 text-sm text-base-content/60">This contact is saved with the setup record.</p>
@@ -100,7 +100,7 @@
                         </div>
                     </form>
 
-                    <form x-show="!statusLoading && currentStep === 2" @submit.prevent="submitSystem" class="space-y-5">
+                    <form x-show="!statusLoading && currentStep === 2" class="space-y-5" data-setup-system-form>
                         <div>
                             <h2 class="text-xl font-semibold">System settings</h2>
                             <p class="mt-1 text-sm text-base-content/60">These values are stored in the application settings.</p>
@@ -142,7 +142,7 @@
                         </div>
 
                         <div class="flex justify-between gap-3">
-                            <button type="button" class="btn btn-ghost" @click="currentStep = 1" :disabled="saving">Back</button>
+                            <button type="button" class="btn btn-ghost" :disabled="saving" data-setup-back>Back</button>
                             <button type="submit" class="btn btn-primary" :disabled="saving">
                                 <span x-show="saving" class="loading loading-spinner loading-xs"></span>
                                 Finish setup
