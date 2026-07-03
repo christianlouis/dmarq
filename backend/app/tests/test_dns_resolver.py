@@ -5,6 +5,7 @@ DNS network I/O is mocked at the ``lookup_txt`` level so no real DNS queries
 are made during testing.
 """
 
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -439,6 +440,47 @@ async def test_check_dkim_found_multiple_selectors():
     assert "mail" in selectors
     assert len(selectors) == 2
     assert record is not None  # record of the first match
+
+
+@pytest.mark.asyncio
+async def test_check_dkim_queries_selectors_in_parallel_and_preserves_priority():
+    """Slow selector guesses should not serialize the whole DNS refresh."""
+
+    class SlowSelectorProvider(BaseDNSProvider):
+        def __init__(self):
+            self.started = 0
+            self.release = asyncio.Event()
+
+        async def lookup_txt(self, name: str):
+            self.started += 1
+            await self.release.wait()
+            if name == "manual._domainkey.example.com":
+                return ["v=DKIM1; k=rsa; p=MANUAL"]
+            if name == "common._domainkey.example.com":
+                return ["v=DKIM1; k=rsa; p=COMMON"]
+            raise LookupError("NXDOMAIN")
+
+    provider = SlowSelectorProvider()
+    task = asyncio.create_task(provider.check_dkim("example.com", ["manual", "common"]))
+
+    try:
+        for _attempt in range(20):
+            if provider.started == 2:
+                break
+            await asyncio.sleep(0)
+
+        assert provider.started == 2
+        provider.release.set()
+
+        found, selectors, record = await task
+    finally:
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    assert found is True
+    assert selectors == ["manual", "common"]
+    assert record == "v=DKIM1; k=rsa; p=MANUAL"
 
 
 @pytest.mark.asyncio

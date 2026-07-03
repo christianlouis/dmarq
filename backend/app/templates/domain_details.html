@@ -1086,8 +1086,8 @@
                             <span class="mr-2">DMARC Record</span>
                             <span x-show="dnsRecordsLoading" class="loading loading-spinner loading-xs"></span>
                             <span x-show="!dnsRecordsLoading && dns.dmarc" class="inline-flex h-2 w-2 rounded-full bg-green-500"></span>
-                            <span x-show="!dnsRecordsLoading && dnsLookupFailed" class="inline-flex h-2 w-2 rounded-full bg-yellow-500"></span>
-                            <span x-show="!dnsRecordsLoading && !dnsLookupFailed && !dns.dmarc" class="inline-flex h-2 w-2 rounded-full bg-red-500"></span>
+                            <span x-show="!dnsRecordsLoading && dnsEvidenceUnavailable" class="inline-flex h-2 w-2 rounded-full bg-yellow-500"></span>
+                            <span x-show="!dnsRecordsLoading && !dnsEvidenceUnavailable && !dns.dmarc" class="inline-flex h-2 w-2 rounded-full bg-red-500"></span>
                         </h3>
                         <div class="bg-muted p-2 rounded text-sm overflow-x-auto font-mono" x-text="dnsRecordText(dns.dmarcRecord, 'No DMARC record found', 'Checking DMARC record...')">-</div>
                     </div>
@@ -1096,8 +1096,8 @@
                             <span class="mr-2">SPF Record</span>
                             <span x-show="dnsRecordsLoading" class="loading loading-spinner loading-xs"></span>
                             <span x-show="!dnsRecordsLoading && dns.spf" class="inline-flex h-2 w-2 rounded-full bg-green-500"></span>
-                            <span x-show="!dnsRecordsLoading && dnsLookupFailed" class="inline-flex h-2 w-2 rounded-full bg-yellow-500"></span>
-                            <span x-show="!dnsRecordsLoading && !dnsLookupFailed && !dns.spf" class="inline-flex h-2 w-2 rounded-full bg-red-500"></span>
+                            <span x-show="!dnsRecordsLoading && dnsEvidenceUnavailable" class="inline-flex h-2 w-2 rounded-full bg-yellow-500"></span>
+                            <span x-show="!dnsRecordsLoading && !dnsEvidenceUnavailable && !dns.spf" class="inline-flex h-2 w-2 rounded-full bg-red-500"></span>
                         </h3>
                         <div class="bg-muted p-2 rounded text-sm overflow-x-auto font-mono" x-text="dnsRecordText(dns.spfRecord, 'No SPF record found', 'Checking SPF record...')">-</div>
                     </div>
@@ -1155,7 +1155,8 @@
                             <span class="mr-2">DKIM (live check)</span>
                             <span x-show="dnsRecordsLoading" class="loading loading-spinner loading-xs"></span>
                             <span x-show="!dnsRecordsLoading && dns.dkim" class="inline-flex h-2 w-2 rounded-full bg-green-500"></span>
-                            <span x-show="!dnsRecordsLoading && !dns.dkim" class="inline-flex h-2 w-2 rounded-full bg-red-500"></span>
+                            <span x-show="!dnsRecordsLoading && dnsEvidenceUnavailable" class="inline-flex h-2 w-2 rounded-full bg-yellow-500"></span>
+                            <span x-show="!dnsRecordsLoading && !dnsEvidenceUnavailable && !dns.dkim" class="inline-flex h-2 w-2 rounded-full bg-red-500"></span>
                         </h3>
                         <div class="bg-muted p-2 rounded text-sm overflow-x-auto font-mono"
                              x-text="dkimLiveText">-</div>
