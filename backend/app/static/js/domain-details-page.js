@@ -80,6 +80,13 @@ function domainDetailsApp(domainId) {
             },
             items: []
         },
+        remediationAction: {
+            itemId: '',
+            action: '',
+            loading: false,
+            message: '',
+            error: ''
+        },
         mtaSts: {
             status: '',
             dns_record: '',
@@ -636,6 +643,24 @@ function domainDetailsApp(domainId) {
             return headers;
         },
 
+        apiErrorDetail(data, fallback) {
+            const detail = data?.detail;
+            if (typeof detail === 'string') {
+                return detail;
+            }
+            if (detail?.message) {
+                return detail.message;
+            }
+            if (Array.isArray(detail)) {
+                const message = detail
+                    .map(item => item?.msg || item?.message || item?.detail || '')
+                    .filter(Boolean)
+                    .join(', ');
+                return message || fallback;
+            }
+            return fallback;
+        },
+
         recommendationSeverityClass(severity) {
             if (severity === 'error') return 'bg-red-500';
             if (severity === 'warning') return 'bg-yellow-500';
@@ -694,6 +719,22 @@ function domainDetailsApp(domainId) {
             if (status === 'ready') return 'Review the payload preview and explicitly dispatch when the operator is ready.';
             const nextStep = (dispatch?.next_steps || [])[0];
             return nextStep || 'Review notification settings before dispatching this remediation item.';
+        },
+
+        remediationActionBusy(item, action = '') {
+            if (!this.remediationAction.loading) return false;
+            if (this.remediationAction.itemId !== item?.id) return false;
+            return !action || this.remediationAction.action === action;
+        },
+
+        remediationActionMessage(item) {
+            if (this.remediationAction.itemId !== item?.id) return '';
+            return this.remediationAction.message || this.remediationAction.error || '';
+        },
+
+        remediationActionMessageClass(item) {
+            if (this.remediationAction.itemId !== item?.id) return 'text-[#5f5c78]';
+            return this.remediationAction.error ? 'text-red-700' : 'text-green-700';
         },
 
         remediationHistoryDotClass(entry) {
@@ -1152,6 +1193,124 @@ function domainDetailsApp(domainId) {
             } catch (error) {
                 console.error('Error fetching remediation queue:', error);
                 this.resetRemediationQueue();
+            }
+        },
+
+        async recordRemediationLifecycle(item, lifecycleState) {
+            const notification = item?.notification || {};
+            if (!item?.id || !notification.event || !notification.dedupe_key) {
+                this.remediationAction = {
+                    itemId: item?.id || '',
+                    action: lifecycleState,
+                    loading: false,
+                    message: '',
+                    error: 'This remediation item does not have notification metadata.'
+                };
+                return;
+            }
+            this.remediationAction = {
+                itemId: item.id,
+                action: lifecycleState,
+                loading: true,
+                message: '',
+                error: ''
+            };
+            try {
+                const response = await fetch(
+                    `/api/v1/domains/${encodeURIComponent(this.domainId)}/remediation/notifications/audit`,
+                    {
+                        method: 'POST',
+                        headers: this.workspaceHeaders(),
+                        body: JSON.stringify({
+                            item_id: item.id,
+                            lifecycle_state: lifecycleState,
+                            event: notification.event,
+                            dedupe_key: notification.dedupe_key
+                        })
+                    }
+                );
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    throw new Error(this.apiErrorDetail(data, 'Remediation lifecycle marker could not be recorded.'));
+                }
+                this.remediationAction = {
+                    itemId: item.id,
+                    action: lifecycleState,
+                    loading: false,
+                    message: `Marked ${lifecycleState.replaceAll('_', ' ')}. No DNS changes were made.`,
+                    error: ''
+                };
+                await this.fetchRemediationQueue();
+            } catch (error) {
+                this.remediationAction = {
+                    itemId: item.id,
+                    action: lifecycleState,
+                    loading: false,
+                    message: '',
+                    error: error.message || 'Remediation lifecycle marker could not be recorded.'
+                };
+                console.error('Error recording remediation lifecycle marker:', error);
+            }
+        },
+
+        async dispatchRemediationNotification(item) {
+            const notification = item?.notification || {};
+            const dispatch = notification.dispatch || {};
+            if (!dispatch.eligible) {
+                this.remediationAction = {
+                    itemId: item?.id || '',
+                    action: 'dispatch',
+                    loading: false,
+                    message: '',
+                    error: this.remediationDispatchNextStep(dispatch)
+                };
+                return;
+            }
+            if (!window.confirm('Dispatch this remediation notification to the configured webhook route? This does not make DNS changes.')) {
+                return;
+            }
+            this.remediationAction = {
+                itemId: item.id,
+                action: 'dispatch',
+                loading: true,
+                message: '',
+                error: ''
+            };
+            try {
+                const response = await fetch(
+                    `/api/v1/domains/${encodeURIComponent(this.domainId)}/remediation/notifications/dispatch`,
+                    {
+                        method: 'POST',
+                        headers: this.workspaceHeaders(),
+                        body: JSON.stringify({
+                            item_id: item.id,
+                            confirm: true,
+                            event: notification.event,
+                            dedupe_key: notification.dedupe_key
+                        })
+                    }
+                );
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    throw new Error(this.apiErrorDetail(data, 'Remediation notification could not be dispatched.'));
+                }
+                this.remediationAction = {
+                    itemId: item.id,
+                    action: 'dispatch',
+                    loading: false,
+                    message: `Dispatch queued for ${data.delivery_count || 0} webhook route${data.delivery_count === 1 ? '' : 's'}. No DNS changes were made.`,
+                    error: ''
+                };
+                await this.fetchRemediationQueue();
+            } catch (error) {
+                this.remediationAction = {
+                    itemId: item.id,
+                    action: 'dispatch',
+                    loading: false,
+                    message: '',
+                    error: error.message || 'Remediation notification could not be dispatched.'
+                };
+                console.error('Error dispatching remediation notification:', error);
             }
         },
 

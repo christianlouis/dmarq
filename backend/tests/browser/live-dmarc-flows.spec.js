@@ -322,6 +322,24 @@ async function installApiMocks(page) {
   await page.route('**/api/v1/**', async (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
+    const method = route.request().method();
+
+    if (method === 'POST' && path === '/api/v1/domains/cklnet.com/remediation/notifications/audit') {
+      await route.fulfill(
+        json({
+          domain: 'cklnet.com',
+          item_id: 'manual-dkim-review',
+          event: 'dmarq.remediation.manual_action_required',
+          dedupe_key: 'dmarq:remediation:cklnet.com:manual-dkim-review',
+          lifecycle_state: 'previewed',
+          audit: {
+            action: 'remediation.notification_lifecycle_recorded',
+            details: { dns_write_attempted: false },
+          },
+        })
+      );
+      return;
+    }
 
     const responses = {
       '/api/v1/domains/summary': domainSummary,
@@ -389,8 +407,50 @@ async function installApiMocks(page) {
       },
       '/api/v1/domains/cklnet.com/remediation': {
         status: 'ready',
-        summary: { total: 1, approval_ready: 0, manual_action: 1, investigate: 0, informational: 0 },
-        items: [],
+        summary: {
+          total: 1,
+          approval_ready: 0,
+          manual_action: 1,
+          investigate: 0,
+          informational: 0,
+          dispatch_ready: 0,
+          dispatch_blocked: 1,
+          dispatch_disabled: 0,
+          dispatch_awaiting_acknowledgement: 1,
+          dispatch_webhook_routes: 0,
+        },
+        items: [
+          {
+            id: 'manual-dkim-review',
+            title: 'Review owned infrastructure DKIM',
+            detail: 'mx1.cklnet.com is passing through SPF but DKIM is not reliably aligned.',
+            state: 'manual_action',
+            severity: 'medium',
+            source: 'source_intelligence',
+            next_steps: ['Enable DKIM signing on the owned mail host.'],
+            blast_radius: 'single source',
+            expected_health_score_impact: '+5',
+            evidence: [{ label: 'source', value: 'mx1.cklnet.com' }],
+            action_plan: {
+              owner: 'mail operator',
+              diagnosis: 'Owned infrastructure needs DKIM signing review.',
+              steps: ['Check the selector', 'Publish DKIM DNS if needed'],
+              completion_criteria: 'DKIM passes on the next aggregate report.',
+            },
+            notification: {
+              state: 'action_required',
+              event: 'dmarq.remediation.manual_action_required',
+              dedupe_key: 'dmarq:remediation:cklnet.com:manual-dkim-review',
+              dispatch: {
+                enabled: true,
+                eligible: false,
+                blocked_reasons: ['Record a previewed or acknowledged remediation notification audit marker.'],
+                next_steps: ['Record a previewed or acknowledged remediation notification audit marker.'],
+              },
+              history: [],
+            },
+          },
+        ],
       },
       '/api/v1/domains/cklnet.com/posture/history': healthHistory,
       '/api/v1/domains/cklnet.com/dns/mta-sts': {
@@ -477,6 +537,9 @@ test('domain detail shows cached DNS evidence and sender reputation context', as
   await expect(page.getByText('Owned infrastructure').first()).toBeVisible();
   await expect(page.getByText('Reputation clean').first()).toBeVisible();
   await expect(page.getByText('Reputation not checked').first()).toBeVisible();
+  await expect(page.getByText('Review owned infrastructure DKIM')).toBeVisible();
+  await page.getByRole('button', { name: 'Reviewed' }).click();
+  await expect(page.getByText('Marked previewed. No DNS changes were made.')).toBeVisible();
   await expect(page.getByText('Sending sources could not be loaded.')).not.toBeVisible();
   await expect(page.getByText('No data available for this time period')).not.toBeVisible();
 });

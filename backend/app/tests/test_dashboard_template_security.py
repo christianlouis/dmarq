@@ -681,12 +681,25 @@ def test_domain_details_exposes_remediation_action_plans_without_html_injection(
     template = (
         Path(__file__).resolve().parents[1] / "templates" / "domain_details.html"
     ).read_text()
+    script = _domain_details_script()
 
     assert "Remediation Queue" in template
     assert "Action plan" in template
     assert "item.action_plan.owner" in template
     assert "item.action_plan.steps" in template
     assert "item.action_plan.completion_criteria" in template
+    assert "Notification dispatch" in template
+    assert "Reviewed" in template
+    assert "Acknowledge" in template
+    assert "Resolve" in template
+    assert "Dispatch" in template
+    assert "recordRemediationLifecycle(item, 'previewed')" in template
+    assert "recordRemediationLifecycle(item, 'acknowledged')" in template
+    assert "recordRemediationLifecycle(item, 'resolved')" in template
+    assert "dispatchRemediationNotification(item)" in template
+    assert "/remediation/notifications/audit" in script
+    assert "/remediation/notifications/dispatch" in script
+    assert "No DNS changes were made" in script
     assert "x-html" not in template
 
 
