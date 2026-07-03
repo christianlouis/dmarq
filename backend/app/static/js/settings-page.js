@@ -617,7 +617,27 @@ function settingsApp() {
                     this.showFlash('Cloudflare connect failed: ' + (detail || res.statusText), false);
                     return;
                 }
-                window.location.href = data.authorization_url;
+                const popup = window.open(
+                    data.authorization_url,
+                    'dmarq-cloudflare-oauth',
+                    'width=760,height=840,noopener,noreferrer'
+                );
+                if (!popup) {
+                    window.location.href = data.authorization_url;
+                    return;
+                }
+                popup.opener = null;
+                const poll = window.setInterval(async () => {
+                    if (popup.closed) {
+                        window.clearInterval(poll);
+                        try {
+                            await this.loadCloudflareOAuthStatus(true);
+                            await this.loadDNSProviders(false);
+                        } catch (err) {
+                            this.showFlash('Cloudflare status refresh failed: ' + err.message, false);
+                        }
+                    }
+                }, 1000);
             } catch (err) {
                 this.showFlash('Error starting Cloudflare connection: ' + err.message, false);
             } finally {

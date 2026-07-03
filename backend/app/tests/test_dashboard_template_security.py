@@ -207,6 +207,17 @@ def _settings_script() -> str:
     return _read_project_file("static", "js", "settings-page.js")
 
 
+def test_settings_cloudflare_oauth_uses_popup_with_full_window_fallback():
+    script = _settings_script()
+
+    assert "window.open(" in script
+    assert "'dmarq-cloudflare-oauth'" in script
+    assert "noopener,noreferrer" in script
+    assert "window.location.href = data.authorization_url" in script
+    assert "loadCloudflareOAuthStatus(true)" in script
+    assert "Cloudflare status refresh failed:" in script
+
+
 def _domain_details_template() -> str:
     return _read_project_file("templates", "domain_details.html")
 

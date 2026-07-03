@@ -57,10 +57,11 @@ CLOUDFLARE_SCOPE_PROFILES: Dict[str, CloudflareScopeProfile] = {
         id="read_only_radar",
         name="Read-only + Radar context",
         description=("Read DNS zones and request Cloudflare Radar read access for IP enrichment."),
-        scopes="zone.read dns.read radar.read user.read",
+        scopes="zone.read dns.read radar.read",
         radar_enabled=True,
         warning=(
-            "Includes Account Radar Read plus User Details Read for Cloudflare Radar " "IP lookups."
+            "Includes Account Radar Read for Cloudflare Radar IP lookups. The Cloudflare "
+            "OAuth client must allow radar.read."
         ),
     ),
     "full_dns_repair": CloudflareScopeProfile(
@@ -70,12 +71,13 @@ CLOUDFLARE_SCOPE_PROFILES: Dict[str, CloudflareScopeProfile] = {
             "Read zones, allow human-approved DNS record changes, and request "
             "Cloudflare Radar IP enrichment access."
         ),
-        scopes="zone.read dns.read dns.write radar.read user.read",
+        scopes="zone.read dns.read dns.write radar.read",
         dns_write_enabled=True,
         radar_enabled=True,
         warning=(
             "Only use this when you want DMARQ to prepare/apply confirmed DNS repairs "
-            "and enrich sending IPs with Cloudflare Radar."
+            "and enrich sending IPs with Cloudflare Radar. The Cloudflare OAuth client "
+            "must allow dns.write and radar.read."
         ),
     ),
 }

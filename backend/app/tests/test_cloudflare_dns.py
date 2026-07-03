@@ -2064,8 +2064,8 @@ def test_cloudflare_oauth_authorization_url_profile_overrides_configured_scopes(
     )
 
     assert result["scope_profile"] == "full_dns_repair"
-    assert result["scopes"] == "zone.read dns.read dns.write radar.read user.read"
-    assert "scope=zone.read+dns.read+dns.write+radar.read+user.read" in result["authorization_url"]
+    assert result["scopes"] == "zone.read dns.read dns.write radar.read"
+    assert "scope=zone.read+dns.read+dns.write+radar.read" in result["authorization_url"]
 
 
 def test_cloudflare_oauth_authorization_url_uses_profile_scopes(
@@ -2080,8 +2080,8 @@ def test_cloudflare_oauth_authorization_url_uses_profile_scopes(
     )
 
     assert result["scope_profile"] == "full_dns_repair"
-    assert result["scopes"] == "zone.read dns.read dns.write radar.read user.read"
-    assert "scope=zone.read+dns.read+dns.write+radar.read+user.read" in result["authorization_url"]
+    assert result["scopes"] == "zone.read dns.read dns.write radar.read"
+    assert "scope=zone.read+dns.read+dns.write+radar.read" in result["authorization_url"]
 
 
 def test_cloudflare_oauth_config_defaults_to_read_scopes(
@@ -2101,12 +2101,12 @@ def test_cloudflare_oauth_scope_profile_metadata_marks_full_dns_radar_enabled():
     }
 
     full_profile = profiles["full_dns_repair"]
-    assert full_profile["scopes"] == "zone.read dns.read dns.write radar.read user.read"
+    assert full_profile["scopes"] == "zone.read dns.read dns.write radar.read"
     assert full_profile["dns_write_enabled"] is True
     assert full_profile["radar_enabled"] is True
 
     radar_profile = profiles["read_only_radar"]
-    assert radar_profile["scopes"] == "zone.read dns.read radar.read user.read"
+    assert radar_profile["scopes"] == "zone.read dns.read radar.read"
     assert radar_profile["dns_write_enabled"] is False
     assert radar_profile["radar_enabled"] is True
 
@@ -2384,7 +2384,7 @@ def test_persist_cloudflare_oauth_tokens_defaults_to_profile_scopes(
     )
 
     scope = db_session.query(Setting).filter(Setting.key == "cloudflare.oauth_scopes").first()
-    assert scope.value == "zone.read dns.read dns.write radar.read user.read"
+    assert scope.value == "zone.read dns.read dns.write radar.read"
 
 
 def test_persist_cloudflare_oauth_tokens_updates_existing_settings(
@@ -2477,6 +2477,25 @@ def test_cloudflare_oauth_callback_requires_code_and_state(
 
     assert response.status_code == 400
     assert "Cloudflare connection failed" in response.text
+    assert "window or tab" in response.text
+
+
+def test_cloudflare_oauth_callback_explains_invalid_scope(
+    authed_client: TestClient,
+):
+    response = authed_client.get(
+        "/api/v1/domains/cloudflare/oauth/callback"
+        "?error=invalid_scope"
+        "&error_description=The+OAuth+client+cannot+request+radar.read"
+        "&state=state-token"
+    )
+
+    assert response.status_code == 400
+    assert "Cloudflare error:" in response.text
+    assert "invalid_scope" in response.text
+    assert "cannot request radar.read" in response.text
+    assert "Choose a lower rights profile" in response.text
+    assert "window or tab" in response.text
 
 
 def test_cloudflare_oauth_callback_returns_failure_for_invalid_state(
@@ -2492,6 +2511,7 @@ def test_cloudflare_oauth_callback_returns_failure_for_invalid_state(
 
     assert response.status_code == 400
     assert "retry after checking the connector settings" in response.text
+    assert "window or tab" in response.text
 
 
 def test_cloudflare_oauth_callback_stores_token_and_redirects(

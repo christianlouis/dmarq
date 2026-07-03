@@ -1,6 +1,7 @@
 import asyncio
 import csv
 import hashlib
+import html
 import io
 import ipaddress
 import json
@@ -5164,13 +5165,28 @@ async def cloudflare_oauth_callback(
     from fastapi.responses import HTMLResponse, RedirectResponse
 
     error = request.query_params.get("error")
+    error_description = request.query_params.get("error_description")
     code = request.query_params.get("code")
     state_value = request.query_params.get("state")
     if error or not code or not state_value:
+        details = ""
+        if error:
+            safe_error = html.escape(error)
+            safe_description = html.escape(error_description or "")
+            details = f"<p><strong>Cloudflare error:</strong> {safe_error}</p>"
+            if safe_description:
+                details += f"<p>{safe_description}</p>"
+            if error == "invalid_scope":
+                details += (
+                    "<p>The selected rights profile requests a scope that this Cloudflare "
+                    "OAuth client is not allowed to request. Choose a lower rights profile "
+                    "or update the allowed scopes on the Cloudflare OAuth client.</p>"
+                )
         return HTMLResponse(
             content=(
                 "<html><body><p>Cloudflare connection failed. "
-                "Please close this window and try again from DMARQ settings.</p></body></html>"
+                "Please close this window or tab and try again from DMARQ settings.</p>"
+                f"{details}</body></html>"
             ),
             status_code=400,
         )
@@ -5193,7 +5209,7 @@ async def cloudflare_oauth_callback(
         return HTMLResponse(
             content=(
                 "<html><body><p>Cloudflare connection failed. "
-                "Please close this window and retry after checking the connector settings."
+                "Please close this window or tab and retry after checking the connector settings."
                 "</p></body></html>"
             ),
             status_code=400,
