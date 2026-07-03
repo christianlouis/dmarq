@@ -600,6 +600,7 @@ def test_settings_exposes_provider_agnostic_dns_import_without_html_injection():
     template = _settings_template()
     script = _settings_script()
 
+    assert "data-settings-page" in template
     assert "DNS Provider Connectors" in template
     assert 'id="provider-integrations"' in template
     assert "Provider Domain Discovery" in template
@@ -618,6 +619,23 @@ def test_settings_exposes_provider_agnostic_dns_import_without_html_injection():
     assert "selectedDnsProviderConnectionHint" in script
     assert "selectedDnsProviderConnectionClass" in script
     assert "resetDnsProviderImportState" in script
+    assert "bindProviderControls" in script
+    assert "data-settings-cloudflare-connect" in template
+    assert "data-settings-toggle-cf-token" in template
+    assert "data-settings-dns-provider-select" in template
+    assert "data-settings-discover-dns-zones" in template
+    assert "data-settings-import-dns-zones" in template
+    assert "data-settings-toggle-postmark-token" in template
+    assert "data-settings-discover-mail-domains" in template
+    assert "data-settings-import-mail-domains" in template
+    assert '@click="connectCloudflare()"' not in template
+    assert '@click="showCfToken = !showCfToken"' not in template
+    assert '@change="resetDnsProviderImportState()"' not in template
+    assert '@click="discoverDNSProviderZones()"' not in template
+    assert '@click="importDNSProviderZones()"' not in template
+    assert '@click="showPostmarkToken = !showPostmarkToken"' not in template
+    assert '@click="discoverMailServiceDomains()"' not in template
+    assert '@click="importMailServiceDomains()"' not in template
     assert "dnsProviderImportError" in template
     assert "dnsProviderImportSummary" in template
     assert "selectedDnsProviderConnectionLabel()" in template
