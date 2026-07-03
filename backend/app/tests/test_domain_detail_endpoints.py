@@ -8,6 +8,7 @@ the Pydantic response models, including the policy-dict extraction and
 the use of begin_timestamp/end_timestamp integers for date fields.
 """
 
+import asyncio
 import csv
 import json
 from datetime import date
@@ -2554,6 +2555,29 @@ def test_get_domain_sources_includes_ip_intelligence_and_reputation(
     assert source["reputation"]["listings"] == ["Spamhaus Zen"]
     recommendation_types = {item["type"] for item in source["recommendations"]}
     assert "source_reputation" in recommendation_types
+
+
+def test_get_domain_sources_continues_when_enrichment_times_out(
+    seeded_client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Slow enrichment providers must not block the sending-source table."""
+
+    async def timeout_networks(*_args, **_kwargs):
+        raise asyncio.TimeoutError
+
+    async def timeout_reputation(*_args, **_kwargs):
+        raise asyncio.TimeoutError
+
+    monkeypatch.setattr(domains_endpoint, "lookup_sources_network_cached", timeout_networks)
+    monkeypatch.setattr(domains_endpoint, "build_source_reputation_cached", timeout_reputation)
+
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources?days=30")
+
+    assert response.status_code == 200
+    sources = response.json()["sources"]
+    assert sources
+    assert all("ip" in source for source in sources)
+    assert all(source["reputation"] is None for source in sources)
 
 
 def test_get_domain_sources_refreshes_reputation_cache(

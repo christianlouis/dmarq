@@ -6179,13 +6179,21 @@ async def get_domain_sources(
     networks_by_ip: Dict[str, SourceNetworkIntelligence] = {}
     if settings.SOURCE_NETWORK_ENRICHMENT_ENABLED:
         try:
-            networks_by_ip = await lookup_sources_network_cached(
-                db,
-                provider,
-                ips,
-                ttl_seconds=settings.SOURCE_NETWORK_ENRICHMENT_CACHE_SECONDS,
-                max_ips=settings.SOURCE_NETWORK_ENRICHMENT_MAX_IPS,
+            networks_by_ip = await asyncio.wait_for(
+                lookup_sources_network_cached(
+                    db,
+                    provider,
+                    ips,
+                    ttl_seconds=settings.SOURCE_NETWORK_ENRICHMENT_CACHE_SECONDS,
+                    max_ips=settings.SOURCE_NETWORK_ENRICHMENT_MAX_IPS,
+                ),
+                timeout=max(
+                    0.5,
+                    float(settings.SOURCE_NETWORK_ENRICHMENT_DETAIL_TIMEOUT_SECONDS),
+                ),
             )
+        except asyncio.TimeoutError:
+            logger.info("Source network enrichment timed out for domain sources")
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.info(
                 "Source network enrichment failed for domain sources: %s",
@@ -6202,17 +6210,26 @@ async def get_domain_sources(
 
     reputations_by_ip = {}
     try:
-        reputation_result, _, _ = await build_source_reputation_cached(
-            db,
-            domain_name,
-            reports,
-            sources,
-            senders_by_ip=sender_by_ip,
-            anomalies_by_ip=anomalies_by_ip,
-            days=days,
-            refresh=refresh,
+        reputation_result, _, _ = await asyncio.wait_for(
+            build_source_reputation_cached(
+                db,
+                domain_name,
+                reports,
+                sources,
+                senders_by_ip=sender_by_ip,
+                anomalies_by_ip=anomalies_by_ip,
+                days=days,
+                refresh=refresh,
+            ),
+            timeout=max(
+                0.5,
+                float(settings.SOURCE_REPUTATION_DETAIL_TIMEOUT_SECONDS)
+                * (2 if refresh else 1),
+            ),
         )
         reputations_by_ip = source_reputation_by_ip(reputation_result)
+    except asyncio.TimeoutError:
+        logger.info("Source reputation enrichment timed out for domain sources")
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.info(
             "Source reputation enrichment failed for domain sources: %s",

@@ -196,26 +196,63 @@ function domainDetailsApp(domainId) {
                 this.volumeScale = storedVolumeScale;
             }
 
-            this.fetchDomainStats();
-            this.fetchDomainOwnership();
-            this.fetchDNSRecords();
-            this.fetchDNSHealth();
-            this.fetchDNSGuidance();
-            this.fetchDNSProviders();
-            this.fetchPosture();
-            this.fetchRemediationQueue();
-            this.fetchHealthHistory();
-            this.fetchMtaSts();
-            this.fetchBimi();
-            this.fetchSelectors();
-            this.fetchReports();
-            this.fetchSources();
-            this.fetchSourceIntelligence();
+            this.loadInitialData();
 
             this.$watch('filters.dateRange', () => {
                 this.fetchSources();
                 this.fetchSourceIntelligence();
             });
+        },
+
+        async loadInitialData() {
+            await Promise.allSettled([
+                this.fetchDomainStats(),
+                this.fetchReports()
+            ]);
+
+            Promise.allSettled([
+                this.fetchSources(),
+                this.fetchSourceIntelligence()
+            ]);
+
+            window.setTimeout(() => {
+                Promise.allSettled([
+                    this.fetchDomainOwnership(),
+                    this.fetchDNSRecords(),
+                    this.fetchDNSHealth(),
+                    this.fetchDNSGuidance(),
+                    this.fetchDNSProviders(),
+                    this.fetchSelectors()
+                ]);
+            }, 250);
+
+            window.setTimeout(() => {
+                Promise.allSettled([
+                    this.fetchPosture(),
+                    this.fetchRemediationQueue(),
+                    this.fetchHealthHistory(),
+                    this.fetchMtaSts(),
+                    this.fetchBimi()
+                ]);
+            }, 750);
+        },
+
+        async fetchWithTimeout(url, options = {}, timeoutMs = 12000) {
+            const controller = new AbortController();
+            const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+            try {
+                return await fetch(url, {
+                    ...options,
+                    signal: controller.signal
+                });
+            } catch (error) {
+                if (error?.name === 'AbortError') {
+                    throw new Error('The request timed out. Reload data or try again in a moment.');
+                }
+                throw error;
+            } finally {
+                window.clearTimeout(timeout);
+            }
         },
 
         async reloadPageData() {
@@ -818,8 +855,10 @@ function domainDetailsApp(domainId) {
             this.dnsRecordsLoading = true;
             this.dnsRecordsError = '';
             try {
-                const response = await fetch(
-                    `/api/v1/domains/${this.domainId}/dns${options.refresh ? '?refresh=true' : ''}`
+                const response = await this.fetchWithTimeout(
+                    `/api/v1/domains/${this.domainId}/dns${options.refresh ? '?refresh=true' : ''}`,
+                    {},
+                    options.refresh ? 20000 : 10000
                 );
                 if (!response.ok) {
                     const data = await response.json().catch(() => ({}));
@@ -1264,7 +1303,11 @@ function domainDetailsApp(domainId) {
             this.reportsLoading = true;
             this.reportsError = '';
             try {
-                const response = await fetch(`/api/v1/domains/${this.domainId}/reports?limit=10`);
+                const response = await this.fetchWithTimeout(
+                    `/api/v1/domains/${this.domainId}/reports?limit=10`,
+                    {},
+                    10000
+                );
                 if (!response.ok) {
                     const data = await response.json().catch(() => ({}));
                     const detail = typeof data.detail === 'string' ? data.detail : data.detail?.message;
@@ -1299,8 +1342,10 @@ function domainDetailsApp(domainId) {
             try {
                 const params = new URLSearchParams({ days: this.sourceDateWindow() });
                 if (options.refresh) params.set('refresh', 'true');
-                const response = await fetch(
-                    `/api/v1/domains/${encodeURIComponent(this.domainId)}/sources?${params.toString()}`
+                const response = await this.fetchWithTimeout(
+                    `/api/v1/domains/${encodeURIComponent(this.domainId)}/sources?${params.toString()}`,
+                    {},
+                    options.refresh ? 25000 : 12000
                 );
                 if (!response.ok) {
                     const data = await response.json().catch(() => ({}));
@@ -1322,7 +1367,11 @@ function domainDetailsApp(domainId) {
             this.sourceIntelligence.loading = true;
             this.sourceIntelligence.error = '';
             try {
-                const response = await fetch(`/api/v1/domains/${encodeURIComponent(this.domainId)}/source-intelligence?days=${this.sourceDateWindow()}`);
+                const response = await this.fetchWithTimeout(
+                    `/api/v1/domains/${encodeURIComponent(this.domainId)}/source-intelligence?days=${this.sourceDateWindow()}`,
+                    {},
+                    10000
+                );
                 if (!response.ok) {
                     const data = await response.json().catch(() => ({}));
                     const detail = typeof data.detail === 'string' ? data.detail : data.detail?.message;
