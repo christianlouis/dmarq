@@ -664,7 +664,7 @@ def test_mail_sources_list_actions_are_bound_from_external_script():
     template = _mail_sources_template()
     script = _mail_sources_script()
 
-    assert 'src="/static/js/mail-sources-page.js"' in template
+    assert _has_script_src(template, "/static/js/mail-sources-page.js")
     assert "data-mail-sources-page" in template
     assert "data-mail-source-add" in template
     assert "data-mail-source-toggle" in template
@@ -680,10 +680,13 @@ def test_mail_sources_list_actions_are_bound_from_external_script():
     assert "data-mail-source-backfill-retry" in template
     assert "data-mail-source-backfill-close" in template
     assert "data-mail-source-backfill-run" in template
+    assert "data-mail-source-backfill-modal" in template
     assert "data-backfill-days" in template
     assert "bindPageControls" in script
     assert "sourceById" in script
     assert "data-mail-source-toggle" in script
+    assert "event.key !== 'Escape'" in script
+    assert "data-mail-source-backfill-modal" in script
     assert 'x-on:click="openAddForm()"' not in template
     assert 'x-on:change="toggleSource(source.id)"' not in template
     assert 'x-on:click="openEditForm(source)"' not in template
@@ -699,6 +702,7 @@ def test_mail_sources_list_actions_are_bound_from_external_script():
     assert 'x-on:click="backfillDays = 30"' not in template
     assert 'x-on:click="backfillDays = 90"' not in template
     assert 'x-on:click="runBackfill()"' not in template
+    assert 'x-on:keydown.escape.window="closeBackfill()"' not in template
     assert "x-html" not in template
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 

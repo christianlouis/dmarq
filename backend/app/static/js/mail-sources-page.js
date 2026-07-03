@@ -119,6 +119,16 @@ function mailSourcesApp() {
                     this.toggleSource(source.id);
                 }
             });
+            window.addEventListener('keydown', event => {
+                if (event.key !== 'Escape' || !this.backfillSource) {
+                    return;
+                }
+                if (!this.$root.querySelector('[data-mail-source-backfill-modal]')) {
+                    return;
+                }
+                event.preventDefault();
+                this.closeBackfill();
+            });
         },
 
         sourceById(id) {
