@@ -678,9 +678,7 @@ def test_domain_details_exposes_dns_provider_repair_context_without_html_injecti
 
 
 def test_domain_details_exposes_remediation_action_plans_without_html_injection():
-    template = (
-        Path(__file__).resolve().parents[1] / "templates" / "domain_details.html"
-    ).read_text()
+    template = _domain_details_template()
     script = _domain_details_script()
 
     assert "Remediation Queue" in template
