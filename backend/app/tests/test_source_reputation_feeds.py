@@ -144,6 +144,23 @@ async def test_dnsbl_no_nameservers_reports_provider_error():
 
 
 @pytest.mark.asyncio
+async def test_dnsbl_ipv6_sources_are_skipped_without_exception():
+    provider = DNSBLFeedProvider(
+        FeedProviderConfig(
+            provider_id="demo_feed",
+            display_name="Demo Reputation Feed",
+            enabled=True,
+            query_zone="example.test",
+        )
+    )
+
+    evidence = await provider.lookup_ip("2a01:4f8:c17:311b::1")
+
+    assert evidence.status == "skipped"
+    assert "IPv4 sources only" in (evidence.detail or "")
+
+
+@pytest.mark.asyncio
 async def test_abuseipdb_high_score_returns_listing():
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.params["ipAddress"] == "8.8.8.8"

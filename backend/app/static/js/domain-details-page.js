@@ -1087,7 +1087,7 @@ function domainDetailsApp(domainId) {
                 const response = await this.fetchWithTimeout(
                     `/api/v1/domains/${this.domainId}/dns${options.refresh ? '?refresh=true' : ''}`,
                     {},
-                    options.refresh ? 20000 : 10000
+                    options.refresh ? 60000 : 45000
                 );
                 if (!response.ok) {
                     const data = await response.json().catch(() => ({}));
@@ -1692,7 +1692,7 @@ function domainDetailsApp(domainId) {
                 const response = await this.fetchWithTimeout(
                     `/api/v1/domains/${encodeURIComponent(this.domainId)}/sources?${params.toString()}`,
                     {},
-                    options.refresh ? 25000 : 12000
+                    options.refresh ? 60000 : 45000
                 );
                 if (!response.ok) {
                     const data = await response.json().catch(() => ({}));

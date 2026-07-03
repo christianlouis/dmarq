@@ -119,7 +119,10 @@ class DNSBLFeedProvider:
         if skipped:
             return self._evidence("skipped", checked_at=checked_at, detail=skipped)
 
-        query_name = f"{_reverse_ip(ip)}.{self.config.query_zone.strip('.')}"
+        try:
+            query_name = f"{_reverse_ip(ip)}.{self.config.query_zone.strip('.')}"
+        except ValueError as exc:
+            return self._evidence("skipped", checked_at=checked_at, detail=str(exc))
         try:
             answers = await asyncio.to_thread(self._resolver.resolve, query_name, "A")
         except dns.exception.DNSException as exc:
