@@ -50,7 +50,7 @@
             <button type="button"
                     class="ml-4 hidden rounded-full border border-white/20 px-2.5 py-1 text-[11px] font-semibold text-white/70 transition hover:border-white/40 hover:bg-white/10 hover:text-white sm:inline-flex"
                     title="Show release notes"
-                    onclick="document.getElementById('dmarq-release-modal')?.showModal()">
+                    data-release-modal-trigger>
                 {{ release_info.label }}
             </button>
         </div>
@@ -107,7 +107,7 @@
                             <li>
                                 <button type="button"
                                         class="justify-between"
-                                        onclick="document.getElementById('dmarq-release-modal')?.showModal()">
+                                        data-release-modal-trigger>
                                     Release
                                     <span class="badge badge-ghost text-[10px]">{{ release_info.label }}</span>
                                 </button>
@@ -157,7 +157,7 @@
         <button type="button"
                 class="max-w-20 truncate rounded-md px-2 py-1 text-[10px] font-semibold text-white/45 hover:bg-white/10 hover:text-white"
                 title="Show release notes"
-                onclick="document.getElementById('dmarq-release-modal')?.showModal()">
+                data-release-modal-trigger>
             {{ release_info.label }}
         </button>
     </aside>

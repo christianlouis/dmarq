@@ -675,6 +675,13 @@ def test_base_template_propagates_selected_workspace_context():
     assert "workspaces.length > 1" in template
     assert "localStorage.removeItem('dmarq.selectedWorkspaceId')" in script
     assert "input instanceof URL" in script
+    assert "onclick=" not in template
+    assert "data-release-modal-trigger" in template
+    assert "bindReleaseModalTriggers" in script
+    assert "dmarq-release-modal" in script
+    assert "event.target" in script
+    assert "target instanceof Element" in script
+    assert "!modal.open" in script
 
 
 def test_base_template_hides_workspace_controls_in_single_user_mode():
