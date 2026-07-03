@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -40,6 +41,8 @@ class OIDCProviderConfig:
     skip_ssl_verify: bool
     allowed_emails: Optional[str] = None
     allowed_domains: Optional[str] = None
+    group_workspace_role_map: Optional[str] = None
+    group_organization_role_map: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -349,6 +352,12 @@ def configured_oidc_provider(settings: Settings | None = None) -> Optional[OIDCP
             skip_ssl_verify=cfg.OIDC_SKIP_SSL_VERIFY,
             allowed_emails=cfg.AUTHENTIK_ALLOWED_EMAILS or cfg.OIDC_ALLOWED_EMAILS,
             allowed_domains=cfg.AUTHENTIK_ALLOWED_DOMAINS or cfg.OIDC_ALLOWED_DOMAINS,
+            group_workspace_role_map=(
+                cfg.AUTHENTIK_GROUP_WORKSPACE_ROLE_MAP or cfg.OIDC_GROUP_WORKSPACE_ROLE_MAP
+            ),
+            group_organization_role_map=(
+                cfg.AUTHENTIK_GROUP_ORGANIZATION_ROLE_MAP or cfg.OIDC_GROUP_ORGANIZATION_ROLE_MAP
+            ),
         )
     if provider == "oidc":
         if not cfg.OIDC_ISSUER_URL or not cfg.OIDC_CLIENT_ID or not cfg.OIDC_CLIENT_SECRET:
@@ -364,6 +373,8 @@ def configured_oidc_provider(settings: Settings | None = None) -> Optional[OIDCP
             skip_ssl_verify=cfg.OIDC_SKIP_SSL_VERIFY,
             allowed_emails=cfg.OIDC_ALLOWED_EMAILS,
             allowed_domains=cfg.OIDC_ALLOWED_DOMAINS,
+            group_workspace_role_map=cfg.OIDC_GROUP_WORKSPACE_ROLE_MAP,
+            group_organization_role_map=cfg.OIDC_GROUP_ORGANIZATION_ROLE_MAP,
         )
     return None
 
@@ -493,6 +504,8 @@ async def exchange_oidc_callback(
         claims_payload,
         allowed_emails=provider.allowed_emails,
         allowed_domains=provider.allowed_domains,
+        group_workspace_role_map=provider.group_workspace_role_map,
+        group_organization_role_map=provider.group_organization_role_map,
     )
 
 
@@ -502,6 +515,8 @@ def normalize_external_claims(
     *,
     allowed_emails: Optional[str] = None,
     allowed_domains: Optional[str] = None,
+    group_workspace_role_map: Optional[str] = None,
+    group_organization_role_map: Optional[str] = None,
 ) -> ExternalIdentityClaims:
     """Normalize provider-specific claim JSON into the DMARQ user shape."""
     subject = str(payload.get("sub") or payload.get("uid") or "").strip()
@@ -516,6 +531,29 @@ def normalize_external_claims(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Authenticated identity is not allowed to access this DMARQ instance.",
         )
+    groups = _normalize_string_claims(payload.get("groups") or payload.get("roles"))
+    workspace_roles = _merge_role_pairs(
+        _normalize_role_claims(
+            payload.get("dmarq_workspace_roles") or payload.get("workspace_roles"),
+            allowed_roles=set(ROLE_PERMISSIONS),
+        ),
+        _role_pairs_from_group_map(
+            groups,
+            group_workspace_role_map,
+            allowed_roles=set(ROLE_PERMISSIONS),
+        ),
+    )
+    organization_roles = _merge_role_pairs(
+        _normalize_role_claims(
+            payload.get("dmarq_organization_roles") or payload.get("organization_roles"),
+            allowed_roles=set(ORGANIZATION_ROLE_ALIASES) | set(ROLE_PERMISSIONS),
+        ),
+        _role_pairs_from_group_map(
+            groups,
+            group_organization_role_map,
+            allowed_roles=set(ORGANIZATION_ROLE_ALIASES) | set(ROLE_PERMISSIONS),
+        ),
+    )
     return ExternalIdentityClaims(
         provider=provider,
         subject=subject,
@@ -524,15 +562,9 @@ def normalize_external_claims(
         username=payload.get("preferred_username") or payload.get("username"),
         picture=payload.get("picture"),
         email_verified=bool(payload.get("email_verified", False)),
-        groups=_normalize_string_claims(payload.get("groups") or payload.get("roles")),
-        workspace_roles=_normalize_role_claims(
-            payload.get("dmarq_workspace_roles") or payload.get("workspace_roles"),
-            allowed_roles=set(ROLE_PERMISSIONS),
-        ),
-        organization_roles=_normalize_role_claims(
-            payload.get("dmarq_organization_roles") or payload.get("organization_roles"),
-            allowed_roles=set(ORGANIZATION_ROLE_ALIASES) | set(ROLE_PERMISSIONS),
-        ),
+        groups=groups,
+        workspace_roles=workspace_roles,
+        organization_roles=organization_roles,
     )
 
 
@@ -560,6 +592,62 @@ def _normalize_string_claims(value: Any) -> tuple[str, ...]:
 def _normalize_role_value(role: Any, *, allowed_roles: set[str]) -> str:
     normalized = str(role or "").strip().lower()
     return normalized if normalized in allowed_roles else ""
+
+
+def _merge_role_pairs(*role_sets: tuple[tuple[str, str], ...]) -> tuple[tuple[str, str], ...]:
+    normalized: list[tuple[str, str]] = []
+    seen = set()
+    for role_set in role_sets:
+        for slug, role in role_set:
+            if slug in seen:
+                continue
+            normalized.append((slug, role))
+            seen.add(slug)
+    return tuple(normalized)
+
+
+def _role_pairs_from_group_map(
+    groups: tuple[str, ...],
+    mapping: Optional[str],
+    *,
+    allowed_roles: set[str],
+) -> tuple[tuple[str, str], ...]:
+    """Return role pairs granted by configured IdP group mappings.
+
+    Mapping syntax is a comma- or semicolon-separated list of
+    ``group-name=target-slug:role`` entries. Repeating a group grants multiple
+    target roles.
+    """
+    if not groups or not mapping:
+        return ()
+
+    group_keys = {group.strip().lower() for group in groups if group.strip()}
+    mapped_pairs: list[tuple[str, str]] = []
+    for index, entry in enumerate(re.split(r"[,;]", mapping), start=1):
+        if "=" not in entry:
+            logger.warning("Ignoring malformed group-role mapping entry at position=%d", index)
+            continue
+        group, assignment = entry.split("=", 1)
+        if group.strip().lower() not in group_keys:
+            continue
+        parsed_any = False
+        for slug, role in _split_role_string(assignment):
+            parsed_any = True
+            normalized_role = _normalize_role_value(role, allowed_roles=allowed_roles)
+            normalized_slug = slug.strip().lower()
+            if normalized_slug and normalized_role:
+                mapped_pairs.append((normalized_slug, normalized_role))
+            else:
+                logger.warning(
+                    "Ignoring group-role mapping entry with invalid target at position=%d",
+                    index,
+                )
+        if not parsed_any:
+            logger.warning(
+                "Ignoring group-role mapping entry without a target at position=%d",
+                index,
+            )
+    return _merge_role_pairs(tuple(mapped_pairs))
 
 
 def _extend_role_pairs_from_sequence(raw_pairs: list[tuple[Any, Any]], values: Any) -> None:
@@ -640,8 +728,7 @@ def _upsert_workspace_membership(
     )
     if workspace is None:
         logger.info(
-            "Ignoring external workspace role for unknown workspace slug=%s user_id=%s",
-            workspace_slug,
+            "Ignoring external workspace role for unknown workspace user_id=%s",
             user.id,
         )
         return None
@@ -682,8 +769,7 @@ def _upsert_organization_membership(
     )
     if organization is None:
         logger.info(
-            "Ignoring external organization role for unknown organization slug=%s user_id=%s",
-            organization_slug,
+            "Ignoring external organization role for unknown organization user_id=%s",
             user.id,
         )
         return None
@@ -729,7 +815,7 @@ def sync_external_user(claims: ExternalIdentityClaims, db: Session) -> User:
         user = db.query(User).filter(User.email == claims.email).first()
         if user is not None:
             user.logto_id = identity_id
-            logger.info("Linked user id=%d (%s) to %s", user.id, claims.email, identity_id)
+            logger.info("Linked user id=%d to external provider=%s", user.id, claims.provider)
     if user is None:
         user = User(
             logto_id=identity_id,
@@ -740,7 +826,7 @@ def sync_external_user(claims: ExternalIdentityClaims, db: Session) -> User:
         )
         db.add(user)
         db.flush()
-        logger.info("Created user id=%d from %s", user.id, identity_id)
+        logger.info("Created user id=%d from external provider=%s", user.id, claims.provider)
 
     user.full_name = claims.name or user.full_name
     user.username = claims.username or user.username
@@ -773,6 +859,7 @@ def trusted_proxy_claims_from_request(
     ):
         return None
     provider = (cfg.AUTH_TRUSTED_PROXY_PROVIDER or "trusted_proxy").strip().lower()
+    groups = _normalize_string_claims(request.headers.get(cfg.AUTH_TRUSTED_PROXY_GROUPS_HEADER))
     return ExternalIdentityClaims(
         provider=provider,
         subject=subject or email,
@@ -780,7 +867,17 @@ def trusted_proxy_claims_from_request(
         name=request.headers.get(cfg.AUTH_TRUSTED_PROXY_NAME_HEADER),
         username=request.headers.get(cfg.AUTH_TRUSTED_PROXY_USERNAME_HEADER),
         email_verified=True,
-        groups=_normalize_string_claims(request.headers.get(cfg.AUTH_TRUSTED_PROXY_GROUPS_HEADER)),
+        groups=groups,
+        workspace_roles=_role_pairs_from_group_map(
+            groups,
+            cfg.AUTH_TRUSTED_PROXY_GROUP_WORKSPACE_ROLE_MAP,
+            allowed_roles=set(ROLE_PERMISSIONS),
+        ),
+        organization_roles=_role_pairs_from_group_map(
+            groups,
+            cfg.AUTH_TRUSTED_PROXY_GROUP_ORGANIZATION_ROLE_MAP,
+            allowed_roles=set(ORGANIZATION_ROLE_ALIASES) | set(ROLE_PERMISSIONS),
+        ),
     )
 
 

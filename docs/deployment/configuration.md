@@ -81,6 +81,8 @@ Create an Authentik OAuth2/OpenID provider and register DMARQ's callback URL:
 | `AUTHENTIK_REDIRECT_URI` | Optional callback URL override | Auto-detected | `https://dmarq.example.com/api/v1/auth/callback` |
 | `AUTHENTIK_ALLOWED_EMAILS` | Optional comma-separated email allowlist | - | `admin@example.com` |
 | `AUTHENTIK_ALLOWED_DOMAINS` | Optional comma-separated email-domain allowlist | - | `example.com,example.org` |
+| `AUTHENTIK_GROUP_WORKSPACE_ROLE_MAP` | Optional Authentik group to DMARQ workspace role mapping. Use comma- or semicolon-separated `group=workspace-slug:role` entries. | - | `dmarq-admins=primary:workspace_owner` |
+| `AUTHENTIK_GROUP_ORGANIZATION_ROLE_MAP` | Optional Authentik group to DMARQ organization role mapping. Use comma- or semicolon-separated `group=organization-slug:role` entries. | - | `dmarq-admins=customer-one:organization_owner` |
 
 #### Generic OIDC
 
@@ -97,12 +99,21 @@ other OIDC-capable providers.
 | `OIDC_PROVIDER_LABEL` | UI label for the sign-in provider | `OpenID Connect` | `Keycloak` |
 | `OIDC_ALLOWED_EMAILS` | Optional comma-separated email allowlist | - | `admin@example.com` |
 | `OIDC_ALLOWED_DOMAINS` | Optional comma-separated email-domain allowlist | - | `example.com` |
+| `OIDC_GROUP_WORKSPACE_ROLE_MAP` | Optional IdP group to DMARQ workspace role mapping. Use comma- or semicolon-separated `group=workspace-slug:role` entries. | - | `dmarq-admins=primary:workspace_owner` |
+| `OIDC_GROUP_ORGANIZATION_ROLE_MAP` | Optional IdP group to DMARQ organization role mapping. Use comma- or semicolon-separated `group=organization-slug:role` entries. | - | `dmarq-admins=customer-one:organization_owner` |
 | `OIDC_SKIP_SSL_VERIFY` | Disable TLS verification for provider requests. Do not use in production unless explicitly allowed. | `false` | `true`, `false` |
 
 Presets such as Keycloak, Microsoft Entra ID, and Google Workspace do not need
 bespoke DMARQ code paths. Use `AUTH_MODE=oidc`, set `OIDC_PROVIDER_LABEL` to
 the provider name, and restrict single-user/self-hosted installs with
 `OIDC_ALLOWED_EMAILS` or `OIDC_ALLOWED_DOMAINS`.
+
+For team, ISP, or provider deployments, map IdP groups to existing local DMARQ
+workspace and organization slugs. DMARQ still keeps canonical users,
+workspaces, memberships, and audit logs locally; the IdP only proves identity
+and optionally grants roles through explicit mappings. Direct claims named
+`dmarq_workspace_roles` or `dmarq_organization_roles` can still be used when an
+IdP can emit them, and group mappings supplement those direct claims.
 
 #### Authentik Outpost / Trusted Proxy
 
@@ -121,6 +132,8 @@ owner.
 | `AUTH_TRUSTED_PROXY_USERNAME_HEADER` | Header containing username | `X-Authentik-Username` | `X-Authentik-Username` |
 | `AUTH_TRUSTED_PROXY_ALLOWED_EMAILS` | Optional comma-separated email allowlist | - | `admin@example.com` |
 | `AUTH_TRUSTED_PROXY_ALLOWED_DOMAINS` | Optional comma-separated domain allowlist | - | `example.com` |
+| `AUTH_TRUSTED_PROXY_GROUP_WORKSPACE_ROLE_MAP` | Optional trusted-proxy group to DMARQ workspace role mapping. Use comma- or semicolon-separated `group=workspace-slug:role` entries. | - | `dmarq-admins=primary:workspace_owner` |
+| `AUTH_TRUSTED_PROXY_GROUP_ORGANIZATION_ROLE_MAP` | Optional trusted-proxy group to DMARQ organization role mapping. Use comma- or semicolon-separated `group=organization-slug:role` entries. | - | `dmarq-admins=customer-one:organization_owner` |
 
 Cloudflare Access and Akamai EAA are tracked as trusted-proxy presets, not DNS
 provider account connectors. Use them only when they are the sole path to

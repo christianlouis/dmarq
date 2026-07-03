@@ -16,6 +16,7 @@ Logto SDK calls are mocked so no live Logto instance is needed.
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -34,6 +35,7 @@ from app.core.auth_providers import (
     exchange_oidc_callback,
     normalize_external_claims,
     sync_external_user,
+    trusted_proxy_claims_from_request,
     trusted_proxy_auth_context,
 )
 from app.core.config import Settings, get_settings
@@ -210,6 +212,8 @@ class TestExternalAuthProviders:
             AUTHENTIK_ISSUER_URL="https://idp.example.test/application/o/dmarq",
             AUTHENTIK_CLIENT_ID="client-id",
             AUTHENTIK_CLIENT_SECRET="client-secret",
+            AUTHENTIK_GROUP_WORKSPACE_ROLE_MAP="dmarq-admins=primary:workspace_owner",
+            AUTHENTIK_GROUP_ORGANIZATION_ROLE_MAP="dmarq-admins=customer-one:organization_owner",
         )
 
         provider = configured_oidc_provider(settings)
@@ -219,6 +223,10 @@ class TestExternalAuthProviders:
         assert provider.provider == "authentik"
         assert provider.label == "Authentik"
         assert provider.issuer_url == "https://idp.example.test/application/o/dmarq"
+        assert provider.group_workspace_role_map == "dmarq-admins=primary:workspace_owner"
+        assert (
+            provider.group_organization_role_map == "dmarq-admins=customer-one:organization_owner"
+        )
 
     def test_generic_oidc_config_selects_provider_label(self):
         settings = Settings(
@@ -320,6 +328,82 @@ class TestExternalAuthProviders:
             ("customer-two", "auditor"),
         )
 
+    def test_normalize_external_claims_applies_group_role_mappings(self):
+        claims = normalize_external_claims(
+            "authentik",
+            {
+                "sub": "authentik-user-1",
+                "email": "owner@example.com",
+                "groups": ["DMARQ-Admins", "billing"],
+                "dmarq_workspace_roles": {"primary": "workspace_owner"},
+            },
+            allowed_domains="example.com",
+            group_workspace_role_map=(
+                "dmarq-admins=primary:workspace_owner,"
+                "billing=secondary:analyst,"
+                "ignored=primary:workspace_owner,"
+                "billing=bad:root"
+            ),
+            group_organization_role_map="dmarq-admins=customer-one:organization_owner",
+        )
+
+        assert claims.groups == ("DMARQ-Admins", "billing")
+        assert claims.workspace_roles == (
+            ("primary", "workspace_owner"),
+            ("secondary", "analyst"),
+        )
+        assert claims.organization_roles == (("customer-one", "organization_owner"),)
+
+    def test_normalize_external_claims_preserves_explicit_role_precedence(self):
+        claims = normalize_external_claims(
+            "authentik",
+            {
+                "sub": "authentik-user-1",
+                "email": "owner@example.com",
+                "groups": ["dmarq-admins", "auditors"],
+                "dmarq_workspace_roles": {"primary": "analyst"},
+                "dmarq_organization_roles": {"customer-one": "auditor"},
+            },
+            allowed_domains="example.com",
+            group_workspace_role_map=(
+                "dmarq-admins=primary:workspace_owner," "auditors=secondary:analyst"
+            ),
+            group_organization_role_map=(
+                "dmarq-admins=customer-one:organization_owner," "auditors=customer-two:auditor"
+            ),
+        )
+
+        assert claims.workspace_roles == (
+            ("primary", "analyst"),
+            ("secondary", "analyst"),
+        )
+        assert claims.organization_roles == (
+            ("customer-one", "auditor"),
+            ("customer-two", "auditor"),
+        )
+
+    def test_normalize_external_claims_logs_invalid_group_role_mappings(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="app.core.auth_providers"):
+            claims = normalize_external_claims(
+                "authentik",
+                {
+                    "sub": "authentik-user-1",
+                    "email": "owner@example.com",
+                    "groups": ["dmarq-admins"],
+                },
+                allowed_domains="example.com",
+                group_workspace_role_map=(
+                    "malformed-entry," "dmarq-admins=primary:root," "dmarq-admins=missing-separator"
+                ),
+            )
+
+        assert claims.workspace_roles == ()
+        assert "malformed group-role mapping entry at position=1" in caplog.text
+        assert "invalid target at position=2" in caplog.text
+        assert "without a target at position=3" in caplog.text
+        assert "primary:root" not in caplog.text
+        assert "owner@example.com" not in caplog.text
+
     def test_normalize_role_claims_accepts_strings_and_deduplicates_pairs(self):
         roles = _normalize_role_claims(
             [
@@ -402,6 +486,39 @@ class TestExternalAuthProviders:
         assert workspace_membership.active is True
         assert organization_membership.role == "organization_owner"
         assert organization_membership.active is True
+
+    def test_sync_external_user_applies_group_mapped_roles(self, db_session):
+        organization = Organization(slug="customer-one", name="Customer One")
+        workspace = Workspace(slug="primary", name="Primary", organization=organization)
+        db_session.add_all([organization, workspace])
+        db_session.commit()
+
+        claims = normalize_external_claims(
+            "authentik",
+            {
+                "sub": "authentik-user-1",
+                "email": "owner@example.com",
+                "groups": ["dmarq-admins"],
+            },
+            group_workspace_role_map="dmarq-admins=primary:workspace_owner",
+            group_organization_role_map="dmarq-admins=customer-one:organization_owner",
+        )
+        user = sync_external_user(claims, db_session)
+
+        assert (
+            db_session.query(WorkspaceMembership)
+            .filter_by(workspace_id=workspace.id, user_id=user.id)
+            .one()
+            .role
+            == "workspace_owner"
+        )
+        assert (
+            db_session.query(OrganizationMembership)
+            .filter_by(organization_id=organization.id, user_id=user.id)
+            .one()
+            .role
+            == "organization_owner"
+        )
 
     def test_sync_external_user_demotes_fallback_superuser_with_role_claims(self, db_session):
         organization = Organization(slug="customer-one", name="Customer One")
@@ -530,6 +647,29 @@ class TestExternalAuthProviders:
             "name": "Owner",
             "username": "owner",
         }
+
+    def test_trusted_proxy_claims_apply_group_role_mappings(self):
+        settings = Settings(
+            AUTH_MODE="trusted_proxy",
+            AUTH_TRUSTED_PROXY_ALLOWED_DOMAINS="example.com",
+            AUTH_TRUSTED_PROXY_GROUP_WORKSPACE_ROLE_MAP="dmarq-admins=primary:workspace_owner",
+            AUTH_TRUSTED_PROXY_GROUP_ORGANIZATION_ROLE_MAP=(
+                "dmarq-admins=customer-one:organization_owner"
+            ),
+        )
+        request = MagicMock()
+        request.headers = {
+            "X-Authentik-Email": "owner@example.com",
+            "X-Authentik-Uid": "authentik-user-1",
+            "X-Authentik-Groups": "dmarq-admins,other",
+        }
+
+        claims = trusted_proxy_claims_from_request(request, settings)
+
+        assert claims is not None
+        assert claims.groups == ("dmarq-admins", "other")
+        assert claims.workspace_roles == (("primary", "workspace_owner"),)
+        assert claims.organization_roles == (("customer-one", "organization_owner"),)
 
     @pytest.mark.asyncio
     async def test_oidc_callback_rejects_unverified_id_token_without_userinfo(self):
