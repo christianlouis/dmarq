@@ -8,7 +8,7 @@ import json
 import logging
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -156,7 +156,11 @@ async def resolve_domain_dns_cached(
             return cached_result, True, row.checked_at
 
     result = await _resolve_with_fallback(provider, domain, selectors=selectors)
-    if row and _has_dns_evidence(_result_from_json(row.result_json)) and not _has_dns_evidence(result):
+    if (
+        row
+        and _has_dns_evidence(_result_from_json(row.result_json))
+        and not _has_dns_evidence(result)
+    ):
         cached_result = _result_from_json(row.result_json)
         if _within_stale_evidence_grace(row, now):
             logger.warning(
@@ -200,3 +204,25 @@ async def resolve_domain_dns_cached(
 
     db.refresh(row)
     return result, False, row.checked_at
+
+
+def get_cached_domain_dns_result(
+    db: Session,
+    provider: BaseDNSProvider,
+    domain: str,
+    *,
+    selectors: List[str],
+) -> Tuple[Optional[DomainDNSResult], bool, Optional[datetime]]:
+    """Return the latest cached DNS result without performing network lookups."""
+    row = (
+        db.query(DNSCache)
+        .filter(
+            DNSCache.domain == domain,
+            DNSCache.provider == provider.__class__.__name__,
+            DNSCache.selectors_key == _selectors_key(selectors),
+        )
+        .first()
+    )
+    if row is None:
+        return None, False, None
+    return _result_from_json(row.result_json), True, row.checked_at

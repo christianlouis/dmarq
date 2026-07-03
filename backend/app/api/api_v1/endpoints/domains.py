@@ -45,7 +45,7 @@ from app.services.cloudflare_oauth import (
 )
 from app.services.dane import check_dane_cached
 from app.services.demo_data import DEMO_DAYS, build_demo_health_score_history
-from app.services.dns_cache import resolve_domain_dns_cached
+from app.services.dns_cache import get_cached_domain_dns_result, resolve_domain_dns_cached
 from app.services.dns_guidance import build_dns_guidance
 from app.services.dns_provider_connectors import (
     provider_connector_metadata,
@@ -2942,6 +2942,74 @@ def _record_health_snapshot_from_posture(
     )
 
 
+def _with_dns_summary_metadata(
+    result: DomainDNSResult,
+    *,
+    cached: bool,
+    checked_at: Optional[datetime],
+    pending: bool,
+) -> DomainDNSResult:
+    result.cached = cached  # type: ignore[attr-defined]
+    result.checked_at = checked_at  # type: ignore[attr-defined]
+    result.pending = pending  # type: ignore[attr-defined]
+    return result
+
+
+def _pending_dns_summary_result() -> DomainDNSResult:
+    return _with_dns_summary_metadata(
+        DomainDNSResult(),
+        cached=False,
+        checked_at=None,
+        pending=True,
+    )
+
+
+async def _resolve_summary_dns_result(
+    db: Session,
+    provider: Any,
+    domain_name: str,
+    selectors: List[str],
+    *,
+    refresh: bool,
+) -> DomainDNSResult:
+    if not refresh:
+        cached_result, cached, checked_at = get_cached_domain_dns_result(
+            db,
+            provider,
+            domain_name,
+            selectors=selectors,
+        )
+        if cached_result is not None:
+            return _with_dns_summary_metadata(
+                cached_result,
+                cached=cached,
+                checked_at=checked_at,
+                pending=False,
+            )
+        return _pending_dns_summary_result()
+
+    try:
+        result, cached, checked_at = await asyncio.wait_for(
+            resolve_domain_dns_cached(
+                db,
+                provider,
+                domain_name,
+                selectors=selectors,
+                refresh=refresh,
+            ),
+            timeout=10.0,
+        )
+        return _with_dns_summary_metadata(
+            result,
+            cached=cached,
+            checked_at=checked_at,
+            pending=False,
+        )
+    except (asyncio.TimeoutError, LookupError, OSError) as exc:
+        logger.warning("DNS check failed for %s: %s", domain_name, exc)
+        return DomainDNSResult()
+
+
 @router.get("/summary", response_model=DomainSummaryResponse)
 async def get_domains_summary(
     refresh: bool = Query(False, title="Refresh cached DNS results"),
@@ -2952,10 +3020,9 @@ async def get_domains_summary(
     """
     Get summary statistics for all domains, formatted for the dashboard.
 
-    Performs cached DNS lookups for each domain and includes the results
-    (DMARC/SPF/DKIM status and live DMARC policy) in the per-domain entries.
-    A per-domain timeout of 10 s prevents slow DNS responses from blocking the
-    page load.
+    Returns report and domain statistics quickly. By default DNS status is read
+    from cache only so the domain list is not blocked by live resolver calls.
+    Use refresh=true from the UI reload action to force live DNS recomputation.
     """
     selected_workspace_id = parse_selected_workspace_id(selected_workspace)
     workspace = _authorized_domain_read_workspace(_auth, db, selected_workspace_id)
@@ -3000,23 +3067,13 @@ async def get_domains_summary(
         else:
             report_selectors = report_selectors_by_domain.get(domain_name, [])
         combined = list(dict.fromkeys(manual_selectors + report_selectors))
-        try:
-            result, cached, checked_at = await asyncio.wait_for(
-                resolve_domain_dns_cached(
-                    db,
-                    provider,
-                    domain_name,
-                    selectors=combined,
-                    refresh=refresh,
-                ),
-                timeout=10.0,
-            )
-            result.cached = cached  # type: ignore[attr-defined]
-            result.checked_at = checked_at  # type: ignore[attr-defined]
-            return result
-        except (asyncio.TimeoutError, LookupError, OSError) as exc:
-            logger.warning("DNS check failed for %s: %s", domain_name, exc)
-            return DomainDNSResult()
+        return await _resolve_summary_dns_result(
+            db,
+            provider,
+            domain_name,
+            combined,
+            refresh=refresh,
+        )
 
     dns_results = []
     for domain_name in domains:
@@ -3041,6 +3098,7 @@ async def get_domains_summary(
         live_policy = extract_dmarc_policy(dns.dmarc_record)
         reported_policy = _normalize_reported_policy(summary.get("policy", {}))
         dmarc_policy = live_policy or reported_policy or "none"
+        dns_pending = bool(getattr(dns, "pending", False))
 
         # Format domain data for frontend
         domain_row = {
@@ -3058,6 +3116,7 @@ async def get_domains_summary(
             "dmarc_policy": dmarc_policy,
             "spf_status": dns.spf,
             "dkim_status": dns.dkim,
+            "dns_pending": dns_pending,
             "dns_cached": getattr(dns, "cached", False),
             "dns_checked_at": (
                 getattr(dns, "checked_at", None).isoformat()
@@ -3716,17 +3775,8 @@ async def get_domain_stats(
     Get detailed statistics for a specific domain
     """
     workspace = _authorized_domain_read_workspace(_auth, db)
-    store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store)
-    domains = _domain_names_for_summary(db, store, workspace)
-
-    if domain_id not in domains:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Domain not found",
-        )
-
-    summary = store.get_domain_summary(domain_id)
+    domain_name, store = _single_domain_report_store_for_read(db, domain_id, workspace)
+    summary = store.get_domain_summary(domain_name)
     total_count = summary.get("total_count", 0)
     passed_count = summary.get("passed_count", 0)
     failed_count = total_count - passed_count
@@ -5182,17 +5232,10 @@ async def get_domain_reports(
     Get recent DMARC reports for a specific domain, along with compliance timeline
     """
     workspace = _authorized_domain_read_workspace(_auth, db)
-    store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store)
-
-    if not _domain_exists(db, store, domain_id, workspace):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Domain not found",
-        )
+    domain_name, store = _single_domain_report_store_for_read(db, domain_id, workspace)
 
     # Get reports for this domain
-    reports = store.get_domain_reports(domain_id, limit=limit)
+    reports = store.get_domain_reports(domain_name, limit=limit)
 
     # Generate report entries
     report_entries = []
@@ -5214,7 +5257,7 @@ async def get_domain_reports(
         )
 
     # Build compliance timeline from actual report data
-    timeline = _build_compliance_timeline(store, domain_id)
+    timeline = _build_compliance_timeline(store, domain_name)
 
     return DomainReportsResponse(reports=report_entries, compliance_timeline=timeline)
 

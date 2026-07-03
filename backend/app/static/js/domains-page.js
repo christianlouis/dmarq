@@ -44,6 +44,9 @@ function domainsApp() {
                     dmarc_policy: domain.dmarc_policy || 'Not configured',
                     spf_status: domain.spf_status ?? false,
                     dkim_status: domain.dkim_status ?? false,
+                    dns_pending: Boolean(domain.dns_pending),
+                    dns_cached: Boolean(domain.dns_cached),
+                    dns_checked_at: domain.dns_checked_at || null,
                     reports_count: domain.report_count,
                     emails_count: domain.total_emails,
                     compliance_rate: domain.pass_rate,
@@ -172,6 +175,21 @@ function domainsApp() {
             } finally {
                 this.saving = false;
             }
+        },
+
+        dnsStatusClass(domain, key) {
+            if (domain.dns_pending) return 'bg-gray-400';
+            return domain[key] ? 'bg-green-500' : 'bg-red-500';
+        },
+
+        dmarcStatusText(domain) {
+            if (domain.dns_pending) return 'Pending DNS refresh';
+            return domain.dmarc_policy || 'Not configured';
+        },
+
+        genericDnsStatusText(domain, key) {
+            if (domain.dns_pending) return 'Pending';
+            return domain[key] ? 'Configured' : 'Missing';
         },
     };
 }
