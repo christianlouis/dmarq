@@ -190,11 +190,11 @@ def _dns_evidence_actions(
         )
     if dns_lookup_failed:
         evidence = [
-            *provenance,
             {
                 "label": "lookup_error",
                 "value": str(domain.get("dns_lookup_error") or "lookup failed"),
             },
+            *provenance,
         ]
         actions.append(
             _action(
@@ -286,9 +286,9 @@ def _compliance_action(
         score_impact=18 if pass_rate < 75 else 10,
         domain=domain_name,
         evidence=[
-            *provenance,
             {"label": "pass_rate", "value": f"{pass_rate:.1f}%"},
             {"label": "failed", "value": str(domain.get("failed_count") or 0)},
+            *provenance,
         ],
     )
 

@@ -35,6 +35,7 @@ from app.services.dns_resolver import DomainDNSResult, SystemDNSProvider
 from app.services.mta_sts import MTAStsResult
 from app.services.report_persistence import save_parsed_report
 from app.services.report_store import ReportStore
+from app.services.source_reputation import DomainReputation
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1815,6 +1816,42 @@ def test_summary_dns_evidence_source_uses_any_live_dns_evidence(
     domain = response.json()["domains"][0]
     assert domain["dmarc_policy_source"] == "report"
     assert domain["dns_evidence_source"] == "live_dns"
+
+
+@pytest.mark.asyncio
+async def test_domain_health_grade_treats_pending_dns_as_unavailable(db_session):
+    """Domain detail health should match summary behavior while DNS is pending."""
+    _persist_minimal_report(db_session)
+    pending_dns = DomainDNSResult(lookup_status="pending")
+    pending_dns.pending = True  # type: ignore[attr-defined]
+    reputation = DomainReputation(
+        domain=DOMAIN,
+        status="clean",
+        checked_at="2026-07-03T15:00:00Z",
+        summary={"total_sources": 0, "highest_risk_score": 0},
+    )
+
+    with (
+        patch(
+            "app.api.api_v1.endpoints.domains.resolve_domain_dns_cached",
+            new=AsyncMock(return_value=(pending_dns, False, None)),
+        ),
+        patch(
+            "app.api.api_v1.endpoints.domains.build_source_reputation_cached",
+            new=AsyncMock(return_value=(reputation, False, None)),
+        ),
+    ):
+        health = await domains_endpoint._build_domain_health_grade(  # pylint: disable=protected-access
+            db_session,
+            DOMAIN,
+            ReportStore.get_instance(),
+        )
+
+    action_types = [action["type"] for action in health["actions"]]
+    assert "dns_evidence_pending" in action_types
+    assert "missing_dmarc" not in action_types
+    assert "missing_spf" not in action_types
+    assert "missing_dkim" not in action_types
 
 
 def test_summary_endpoint_uses_manual_selectors(authed_client: TestClient, db_session):

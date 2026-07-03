@@ -2628,6 +2628,8 @@ async def _build_domain_health_grade(
         reported_policy=reported_policy,
     )
     dns_evidence_source = _dns_evidence_source(dns)
+    dns_pending = bool(getattr(dns, "pending", False))
+    dns_lookup_status = _dns_lookup_status(dns)
     domain_row = {
         "id": domain_id,
         "domain_name": domain_id,
@@ -2642,8 +2644,9 @@ async def _build_domain_health_grade(
         "dns_evidence_source": dns_evidence_source,
         "spf_status": dns.spf,
         "dkim_status": dns.dkim,
-        "dns_lookup_status": dns.lookup_status,
-        "dns_lookup_failed": dns.lookup_status == "failed",
+        "dns_pending": dns_pending,
+        "dns_lookup_status": dns_lookup_status,
+        "dns_lookup_failed": dns_lookup_status == "failed",
         "dns_lookup_error": dns.lookup_error,
         "dmarc_warnings": dns.dmarc_warnings,
         "dmarc_suggestions": dns.dmarc_suggestions,

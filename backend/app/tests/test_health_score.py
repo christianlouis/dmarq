@@ -44,14 +44,22 @@ def test_low_compliance_and_missing_dns_create_prioritized_actions():
             "spf_status": False,
             "dkim_status": True,
             "dmarc_policy": "missing",
+            "dmarc_policy_source": "default",
+            "dns_evidence_source": "live_dns",
+            "dns_lookup_status": "ok",
             "dmarc_warnings": [],
         }
     )
 
     action_types = [action["type"] for action in health["actions"]]
+    compliance_action = next(action for action in health["actions"] if action["type"] == "low_compliance")
 
     assert health["grade"] == "F"
     assert action_types[:2] == ["missing_dmarc", "low_compliance"]
+    assert [item["label"] for item in compliance_action["evidence"][:2]] == [
+        "pass_rate",
+        "failed",
+    ]
     assert "missing_spf" in action_types
 
 
@@ -109,6 +117,7 @@ def test_dns_lookup_failure_preserves_report_policy_and_avoids_missing_dns_actio
     assert health["factors"]["dns_posture"] == 65.0
     assert health["grade"] != "F"
     assert "dns_evidence_unavailable" in action_types
+    assert dns_action["evidence"][0]["label"] == "lookup_error"
     assert evidence["dns_evidence"] == "DNS lookup failed"
     assert evidence["policy_source"] == "DMARC report policy"
     assert evidence["policy"] == "p=reject"
