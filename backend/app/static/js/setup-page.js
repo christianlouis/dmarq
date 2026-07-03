@@ -29,6 +29,7 @@ function setupWizard() {
             cloudflare_zone_id: '',
         },
         async init() {
+            this.bindControls();
             this.applyTheme();
             try {
                 const response = await fetch('/api/v1/setup/status');
@@ -48,6 +49,39 @@ function setupWizard() {
             } finally {
                 this.statusLoading = false;
             }
+        },
+        bindControls() {
+            if (typeof document === 'undefined') return;
+            const hasElement = typeof Element !== 'undefined';
+            const root = hasElement && this.$root instanceof Element
+                ? this.$root
+                : document.querySelector('[data-setup-wizard]');
+            if (!root || root.dataset.setupControlsBound === 'true') return;
+            root.dataset.setupControlsBound = 'true';
+
+            root.addEventListener('submit', (event) => {
+                if (!hasElement || !(event.target instanceof Element)) return;
+                const adminForm = event.target.closest('[data-setup-admin-form]');
+                if (adminForm && root.contains(adminForm)) {
+                    event.preventDefault();
+                    this.submitAdmin();
+                    return;
+                }
+
+                const systemForm = event.target.closest('[data-setup-system-form]');
+                if (systemForm && root.contains(systemForm)) {
+                    event.preventDefault();
+                    this.submitSystem();
+                }
+            });
+
+            root.addEventListener('click', (event) => {
+                if (!hasElement || !(event.target instanceof Element)) return;
+                const backButton = event.target.closest('[data-setup-back]');
+                if (backButton && root.contains(backButton)) {
+                    this.currentStep = 1;
+                }
+            });
         },
         applyTheme() {
             if (localStorage.getItem('darkMode') === 'true') {
