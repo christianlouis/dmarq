@@ -406,6 +406,37 @@
                                         <template x-if="(item.notification.dispatch.blocked_reasons || []).length">
                                             <p class="mt-1 text-xs text-[#5f5c78]" x-text="item.notification.dispatch.blocked_reasons[0]"></p>
                                         </template>
+                                        <div class="mt-3 flex flex-wrap gap-2">
+                                            <button type="button"
+                                                    class="btn btn-xs btn-outline"
+                                                    :disabled="remediationActionBusy(item)"
+                                                    @click="recordRemediationLifecycle(item, 'previewed')">
+                                                Reviewed
+                                            </button>
+                                            <button type="button"
+                                                    class="btn btn-xs btn-outline"
+                                                    :disabled="remediationActionBusy(item)"
+                                                    @click="recordRemediationLifecycle(item, 'acknowledged')">
+                                                Acknowledge
+                                            </button>
+                                            <button type="button"
+                                                    class="btn btn-xs btn-outline"
+                                                    :disabled="remediationActionBusy(item)"
+                                                    @click="recordRemediationLifecycle(item, 'resolved')">
+                                                Resolve
+                                            </button>
+                                            <button type="button"
+                                                    class="btn btn-xs btn-primary"
+                                                    :disabled="remediationActionBusy(item) || !item.notification.dispatch.eligible"
+                                                    @click="dispatchRemediationNotification(item)">
+                                                <span x-show="remediationActionBusy(item, 'dispatch')" class="loading loading-spinner loading-xs"></span>
+                                                Dispatch
+                                            </button>
+                                        </div>
+                                        <p x-show="remediationActionMessage(item)"
+                                           class="mt-2 text-xs font-semibold"
+                                           :class="remediationActionMessageClass(item)"
+                                           x-text="remediationActionMessage(item)"></p>
                                         <template x-if="(item.notification.history || []).length">
                                             <div class="mt-3 border-t border-[#e6e3e1] pt-3">
                                                 <p class="text-xs font-semibold uppercase text-[#5f5c78]">Recent operator history</p>
