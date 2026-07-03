@@ -620,13 +620,13 @@ function settingsApp() {
                 const popup = window.open(
                     data.authorization_url,
                     'dmarq-cloudflare-oauth',
-                    'width=760,height=840,noopener,noreferrer'
+                    // Keep a popup handle so Settings can refresh status after OAuth closes.
+                    'width=760,height=840,popup=yes'
                 );
                 if (!popup) {
                     window.location.href = data.authorization_url;
                     return;
                 }
-                popup.opener = null;
                 const poll = window.setInterval(async () => {
                     if (popup.closed) {
                         window.clearInterval(poll);
