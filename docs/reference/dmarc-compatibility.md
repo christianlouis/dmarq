@@ -2,6 +2,24 @@
 
 DMARQ imports DMARC aggregate reports from direct uploads, IMAP attachments, Gmail API attachments, and the Cloudflare Email Worker webhook. Compatibility is locked by the fixture pack in `backend/app/tests/fixtures/dmarc_aggregate`.
 
+## Protocol Coverage Boundary
+
+DMARQ is a report consumer and DNS posture assistant. It parses standards-based
+reports, stores privacy-preserving evidence, and helps operators repair their
+own sending posture. It is not a mail receiver, outbound report generator, or
+mail gateway.
+
+| Protocol or signal | DMARQ support level | Boundary |
+| --- | --- | --- |
+| DMARC aggregate/RUA | Supported | Parse, persist, analyze, export, and visualize inbound aggregate reports. |
+| DMARC failure reports via RUF using ARF | Supported as inbound evidence | Parse inbound `multipart/report` and `message/feedback-report` metadata for operators who receive RUF failure reports in ARF format. DMARQ does not generate outbound ARF/RUF reports. |
+| SMTP TLS reports / TLS-RPT | Supported | Parse inbound TLS report data and surface posture/failure evidence. |
+| MTA-STS | Supported read-only posture | Check TXT and HTTPS policy presence, syntax, and enforcement mode. |
+| BIMI | Supported read-only posture | Check default selector and DMARC prerequisites. |
+| DANE/TLSA for MX hosts | Best-effort read-only guidance | Check TLSA syntax and bounded MX coverage, and suggest `3 1 1` SPKI hashes when capped live SMTP STARTTLS probing can reach an MX host. DMARQ does not manage DNSSEC validation state. |
+| ARC | Passive diagnostic context only | Record redacted ARC header presence from failure-report samples when present. DMARQ does not validate ARC chains and does not use ARC to override DMARC alignment. |
+| DNS provider writes | Human-approved only | Low-risk TXT/CNAME changes can be previewed and applied through supported providers after explicit operator confirmation. |
+
 ## Supported Aggregate Inputs
 
 - Plain XML files with a `.xml` extension.
@@ -78,10 +96,10 @@ Live DNS checks parse DMARC policy records according to RFC 9989:
 - Typed DNS guidance endpoints expose stable finding codes and target records
   for DMARC, SPF, DKIM, MTA-STS, TLS-RPT, BIMI, and passive DANE/TLSA
   readiness. Provider writes are never automatic; safe TXT/CNAME changes
-  require an explicit apply request. DANE/TLSA support is currently read-only
-  MX/TLSA syntax and coverage guidance with optional live SMTP STARTTLS SPKI
-  hash suggestions when the MX is reachable; DNSSEC chain validation remains
-  operator-confirmed.
+  require an explicit apply request. DANE/TLSA support is currently best-effort,
+  read-only MX/TLSA syntax and bounded coverage guidance with optional capped
+  live SMTP STARTTLS SPKI hash suggestions when an MX host is reachable; DNSSEC
+  chain validation remains operator-confirmed.
 
 ## Preserved Metadata
 
