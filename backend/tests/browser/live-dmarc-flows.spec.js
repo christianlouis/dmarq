@@ -546,9 +546,18 @@ test('domain list loads domain rows and keeps edit action wired', async ({ page 
   await expect(page.getByRole('cell', { name: 'dmarq.org' })).toBeVisible();
   await expect(page.getByText('No domains found. Add a domain to get started.')).not.toBeVisible();
 
+  await page.getByRole('button', { name: '+ Add Domain' }).click();
+  await expect(page.getByRole('heading', { name: 'Add monitored domain' })).toBeVisible();
+  await expect(page.locator('[data-domain-create-dialog]')).toHaveJSProperty('open', true);
+  await page.locator('[data-domain-create-close]').first().click();
+  await expect(page.locator('[data-domain-create-dialog]')).toHaveJSProperty('open', false);
+
   await page.getByRole('button', { name: 'Edit' }).first().click();
   await expect(page.getByRole('heading', { name: 'Edit monitored domain' })).toBeVisible();
+  await expect(page.locator('[data-domain-edit-dialog]')).toHaveJSProperty('open', true);
   await expect(page.getByRole('dialog').getByText('cklnet.com')).toBeVisible();
+  await page.locator('[data-domain-edit-close]').first().click();
+  await expect(page.locator('[data-domain-edit-dialog]')).toHaveJSProperty('open', false);
 });
 
 test('upload page keeps queue controls wired without inline handlers', async ({ page }) => {

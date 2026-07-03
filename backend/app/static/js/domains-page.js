@@ -67,6 +67,25 @@ function domainsApp() {
                     this.openEditDialog(domain);
                 }
             });
+
+            root.querySelectorAll('[data-domain-create-close]').forEach((button) => {
+                button.addEventListener('click', () => {
+                    this.closeCreate();
+                });
+            });
+            root.querySelectorAll('[data-domain-edit-close]').forEach((button) => {
+                button.addEventListener('click', () => {
+                    this.closeEdit();
+                });
+            });
+            root.querySelector('[data-domain-create-form]')?.addEventListener('submit', (event) => {
+                event.preventDefault();
+                this.createDomain();
+            });
+            root.querySelector('[data-domain-edit-form]')?.addEventListener('submit', (event) => {
+                event.preventDefault();
+                this.updateDomain();
+            });
         },
 
         async fetchDomains(options = {}) {
