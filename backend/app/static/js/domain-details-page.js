@@ -116,6 +116,8 @@ function domainDetailsApp(domainId) {
         sources: [],
         sourcesLoading: false,
         sourcesError: '',
+        sourceReputationRefreshing: false,
+        sourceReputationRefreshError: '',
         sourceIntelligence: {
             regions: [],
             anomalies: [],
@@ -231,6 +233,9 @@ function domainDetailsApp(domainId) {
                 } else if (button.matches('[data-domain-detail-refresh-dns]')) {
                     event.preventDefault();
                     this.refreshDNSData();
+                } else if (button.matches('[data-domain-detail-refresh-reputation]')) {
+                    event.preventDefault();
+                    this.refreshSourceReputation();
                 } else if (button.matches('[data-domain-detail-delete]')) {
                     event.preventDefault();
                     this.deleteDomain();
@@ -402,6 +407,18 @@ function domainDetailsApp(domainId) {
                 this.fetchDNSGuidance({ refresh: true }),
                 this.fetchPosture({ refresh: true })
             ]);
+        },
+
+        async refreshSourceReputation() {
+            this.sourceReputationRefreshing = true;
+            this.sourceReputationRefreshError = '';
+            try {
+                await this.fetchSources({ refresh: true, preserveOnFailure: true });
+            } catch (error) {
+                this.sourceReputationRefreshError = error.message || 'Source reputation could not be refreshed.';
+            } finally {
+                this.sourceReputationRefreshing = false;
+            }
         },
 
         loadStoredVolumeScale() {
@@ -1724,7 +1741,12 @@ function domainDetailsApp(domainId) {
                 const data = await response.json();
                 this.sources = data.sources || [];
             } catch (error) {
-                this.sources = [];
+                if (!options.preserveOnFailure) {
+                    this.sources = [];
+                }
+                if (options.preserveOnFailure) {
+                    this.sourceReputationRefreshError = error.message || 'Source reputation could not be refreshed.';
+                }
                 this.sourcesError = error.message || 'Sending sources could not be loaded.';
                 console.error('Error fetching sources:', error);
             } finally {

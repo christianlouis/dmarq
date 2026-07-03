@@ -6,6 +6,7 @@ from app.services.source_reputation import (
     build_source_reputation,
     build_source_reputation_cached,
     reputation_presentation,
+    source_reputation_cache_key,
     source_reputation_by_ip,
 )
 from app.services.source_reputation_feeds import FeedLookupEvidence, IPFeedReputation
@@ -373,6 +374,48 @@ async def test_build_source_reputation_cached_includes_reports_in_cache_key(db_s
     assert second_cached is False
     assert source_reputation_by_ip(first)["203.0.113.10"].first_seen == 1_700_000_000
     assert source_reputation_by_ip(second)["203.0.113.10"].first_seen == 1_800_000_000
+
+
+def test_source_reputation_cache_key_fits_dns_cache_selector_column():
+    """Real source context still fits the shared DNS cache selector column."""
+    sources = [
+        {
+            "source_ip": f"203.0.113.{index}",
+            "count": index + 1,
+            "dmarc_fail_count": index % 3,
+            "extensions": {"demo:source": f"sender-{index}", "demo:reputation": "clean"},
+        }
+        for index in range(20)
+    ]
+    reports = [
+        {
+            "domain": "example.com",
+            "begin_date": 1_800_000_000 + index * 86_400,
+            "end_date": 1_800_086_400 + index * 86_400,
+            "records": [{"source_ip": source["source_ip"]} for source in sources],
+        }
+        for index in range(4)
+    ]
+
+    key = source_reputation_cache_key(
+        sources,
+        reports,
+        senders_by_ip={
+            source["source_ip"]: {
+                "id": "provider-with-a-long-name",
+                "name": "Provider With Long Name",
+                "confidence": 95,
+            }
+            for source in sources
+        },
+        anomalies_by_ip={
+            source["source_ip"]: [{"type": "volume_spike", "severity": "medium"}]
+            for source in sources
+        },
+        days=90,
+    )
+
+    assert len(key) == 64
 
 
 @pytest.mark.asyncio

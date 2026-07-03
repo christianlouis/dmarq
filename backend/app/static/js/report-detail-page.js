@@ -4,6 +4,8 @@ function reportDetailApp(reportId) {
         report: null,
         loading: true,
         error: null,
+        reputationRefreshing: false,
+        reputationRefreshError: '',
 
         async init() {
             this.bindPageControls();
@@ -28,6 +30,12 @@ function reportDetailApp(reportId) {
                     return;
                 }
 
+                const refreshReputationButton = event.target.closest('[data-report-refresh-reputation]');
+                if (refreshReputationButton && root.contains(refreshReputationButton)) {
+                    this.fetchReport({ refreshReputation: true });
+                    return;
+                }
+
                 const button = event.target.closest('[data-report-delete]');
                 if (!button || !root.contains(button)) {
                     return;
@@ -40,26 +48,49 @@ function reportDetailApp(reportId) {
             });
         },
 
-        async fetchReport() {
-            this.loading = true;
-            this.error = null;
+        async fetchReport(options = {}) {
+            const refreshReputation = Boolean(options.refreshReputation);
+            if (refreshReputation) {
+                this.reputationRefreshing = true;
+                this.reputationRefreshError = '';
+            } else {
+                this.loading = true;
+                this.error = null;
+            }
             try {
-                const response = await fetch(`/api/v1/reports/${encodeURIComponent(this.reportId)}`);
+                const query = refreshReputation ? '?refresh_reputation=true' : '';
+                const response = await fetch(`/api/v1/reports/${encodeURIComponent(this.reportId)}${query}`);
                 if (response.ok) {
                     this.report = await response.json();
                 } else if (response.status === 404) {
-                    this.report = null;
-                    this.error = `Report '${this.reportId}' was not found. It may have been deleted or may not exist.`;
+                    if (!refreshReputation) {
+                        this.report = null;
+                        this.error = `Report '${this.reportId}' was not found. It may have been deleted or may not exist.`;
+                    } else {
+                        this.reputationRefreshError = `Report '${this.reportId}' was not found.`;
+                    }
                 } else {
-                    this.report = null;
-                    this.error = 'Failed to load report. Please try again later.';
+                    if (!refreshReputation) {
+                        this.report = null;
+                        this.error = 'Failed to load report. Please try again later.';
+                    } else {
+                        this.reputationRefreshError = 'Reputation could not be refreshed. Please try again later.';
+                    }
                 }
             } catch (err) {
-                this.report = null;
-                this.error = 'Network error — could not load report.';
+                if (!refreshReputation) {
+                    this.report = null;
+                    this.error = 'Network error — could not load report.';
+                } else {
+                    this.reputationRefreshError = 'Network error — reputation could not be refreshed.';
+                }
                 console.error('Error fetching report:', err);
             } finally {
-                this.loading = false;
+                if (refreshReputation) {
+                    this.reputationRefreshing = false;
+                } else {
+                    this.loading = false;
+                }
             }
         },
 

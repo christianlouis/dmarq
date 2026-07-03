@@ -1555,9 +1555,14 @@
         <section id="sending-sources">
         {% call card() %}
             {% call card_header() %}
-                <div class="flex items-center justify-between">
-                    {% call card_title() %}Sending Sources{% endcall %}
-                    <div class="space-x-2">
+                <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                        {% call card_title() %}Sending Sources{% endcall %}
+                        {% call card_description() %}
+                            IP addresses and servers sending email as this domain
+                        {% endcall %}
+                    </div>
+                    <div class="flex flex-wrap gap-2">
                         <select x-model="filters.dateRange" class="select select-sm select-bordered">
                             <option value="7">Last 7 days</option>
                             <option value="30">Last 30 days</option>
@@ -1570,13 +1575,21 @@
                             placeholder="Filter sources..." 
                             class="input input-sm input-bordered max-w-xs"
                         >
+                        <button type="button"
+                                class="btn btn-sm btn-default"
+                                data-domain-detail-refresh-reputation
+                                :disabled="sourceReputationRefreshing || sourcesLoading">
+                            <span x-show="sourceReputationRefreshing" class="loading loading-spinner loading-xs"></span>
+                            <span x-text="sourceReputationRefreshing ? 'Refreshing reputation...' : 'Refresh reputation'"></span>
+                        </button>
                     </div>
                 </div>
-                {% call card_description() %}
-                    IP addresses and servers sending email as this domain
-                {% endcall %}
             {% endcall %}
             {% call card_content() %}
+                <p x-show="sourceReputationRefreshError"
+                   x-cloak
+                   class="mb-4 rounded-md border border-[#ffcfbd] bg-[#fff2ec] px-3 py-2 text-sm text-[#8a2d0d]"
+                   x-text="sourceReputationRefreshError"></p>
                 {% call table() %}
                     {% call thead() %}
                         {% call tr() %}
@@ -1740,7 +1753,7 @@
                                             </div>
                                         </template>
                                         <template x-if="!source.reputation">
-                                            <p class="text-muted-foreground">Reputation has not been calculated for this source yet.</p>
+                                            <p class="text-muted-foreground">Reputation has not been calculated for this source yet. Use Refresh reputation to recalculate cached IP evidence.</p>
                                         </template>
                                         <template x-if="!source.geo?.asn && !source.geo?.network && !source.reputation">
                                             <p class="text-muted-foreground">No ASN or reputation evidence available yet.</p>

@@ -958,6 +958,55 @@ def test_get_report_by_id_includes_source_intelligence_and_reputation(
     assert record["reputation"]["listings"] == ["Example DNSBL"]
 
 
+def test_get_report_by_id_refreshes_reputation_cache(
+    authed_client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    """Report detail refresh should force cached reputation evidence to recalculate."""
+    workspace = get_or_create_default_workspace(db_session)
+    _persist_parsed_report(
+        db_session,
+        _parsed_report(domain="example.com", report_id="source-intel-refresh-report"),
+        workspace_id=workspace.id,
+    )
+    captured_refresh = []
+
+    async def fake_ptr_lookup(_provider, _ip, timeout=3.0):  # pylint: disable=unused-argument
+        return "mail.example-sender.net"
+
+    async def fake_reputation(*_args, **kwargs):
+        captured_refresh.append(kwargs.get("refresh"))
+        return (
+            DomainReputation(
+                domain="example.com",
+                status="clean",
+                checked_at="2026-07-01T00:00:00Z",
+                sources=[
+                    SourceReputation(
+                        ip="192.0.2.55",
+                        status="clean",
+                        risk_score=4,
+                        summary="No external reputation listing observed.",
+                        checked_at="2026-07-01T00:00:00Z",
+                    )
+                ],
+                summary={"total_sources": 1, "clean": 1},
+            ),
+            False,
+            None,
+        )
+
+    monkeypatch.setattr(reports_endpoint, "_safe_ptr_lookup", fake_ptr_lookup)
+    monkeypatch.setattr(reports_endpoint, "build_source_reputation_cached", fake_reputation)
+
+    response = authed_client.get("/api/v1/reports/source-intel-refresh-report?refresh_reputation=true")
+
+    assert response.status_code == 200
+    assert captured_refresh == [True]
+    assert response.json()["records"][0]["reputation"]["status"] == "clean"
+
+
 def test_get_report_by_id_continues_when_reputation_enrichment_fails(
     authed_client: TestClient,
     db_session,

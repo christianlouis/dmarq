@@ -3,7 +3,7 @@ import ipaddress
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -808,6 +808,7 @@ def _source_details(
 @router.get("/{report_id}", response_model=ReportDetail)
 async def get_report_by_id(
     report_id: str,
+    refresh_reputation: bool = Query(False, title="Refresh cached source reputation evidence"),
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
     selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
@@ -881,6 +882,7 @@ async def get_report_by_id(
             senders_by_ip=sender_by_ip,
             anomalies_by_ip={},
             days=1,
+            refresh=refresh_reputation,
         )
         reputations_by_ip = source_reputation_by_ip(reputation_result)
     except Exception as exc:  # pylint: disable=broad-exception-caught

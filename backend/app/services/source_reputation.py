@@ -581,13 +581,14 @@ def source_reputation_cache_key(
         if feed_providers is not None
         else _feed_fingerprint(feed_results_by_ip)
     )
-    return (
+    payload = (
         f"source-reputation:{int(days)}:"
         f"{_source_fingerprint(sources)}:"
         f"{_report_fingerprint(reports)}:"
         f"{_context_fingerprint(senders_by_ip, anomalies_by_ip)}:"
         f"{feed_fingerprint}"
     )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _feed_fingerprint(feed_results_by_ip: Optional[Dict[str, IPFeedReputation]]) -> str:
