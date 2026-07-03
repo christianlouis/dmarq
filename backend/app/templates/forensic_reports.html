@@ -50,7 +50,7 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                     <label class="form-control">
                         <span class="label-text font-medium mb-1">Domain</span>
-                        <select class="select select-bordered w-full" x-model="filters.domain" @change="fetchReports()">
+                        <select class="select select-bordered w-full" x-model="filters.domain" data-forensic-domain-filter>
                             <option value="">All domains</option>
                             <template x-for="domain in domains" :key="domain">
                                 <option :value="domain" x-text="domain"></option>
@@ -59,7 +59,7 @@
                     </label>
                     <label class="form-control">
                         <span class="label-text font-medium mb-1">Failure</span>
-                        <select class="select select-bordered w-full" x-model="filters.authFailure" @change="fetchReports()">
+                        <select class="select select-bordered w-full" x-model="filters.authFailure" data-forensic-auth-filter>
                             <option value="">Any failure</option>
                             <option value="dkim">DKIM</option>
                             <option value="spf">SPF</option>
@@ -68,7 +68,7 @@
                     </label>
                     <label class="form-control">
                         <span class="label-text font-medium mb-1">Result</span>
-                        <select class="select select-bordered w-full" x-model="filters.deliveryResult" @change="fetchReports()">
+                        <select class="select select-bordered w-full" x-model="filters.deliveryResult" data-forensic-result-filter>
                             <option value="">Any result</option>
                             <option value="reject">Reject</option>
                             <option value="quarantine">Quarantine</option>
@@ -89,8 +89,8 @@
                 {% call card_description() %}Upload a forensic .eml or .txt file{% endcall %}
             {% endcall %}
             {% call card_content() %}
-                <form class="space-y-3" @submit.prevent="uploadReport()">
-                    <input type="file" class="file-input file-input-bordered w-full" accept=".eml,.txt,message/rfc822,text/plain" @change="selectedFile = $event.target.files[0] || null">
+                <form class="space-y-3" data-forensic-upload-form>
+                    <input type="file" class="file-input file-input-bordered w-full" accept=".eml,.txt,message/rfc822,text/plain" data-forensic-upload-file>
                     <button class="btn btn-primary w-full" type="submit" :disabled="uploading || !selectedFile">
                         <span x-show="!uploading">Upload Forensic Report</span>
                         <span x-show="uploading" class="loading loading-spinner loading-sm"></span>
@@ -153,7 +153,7 @@
                         Showing <span x-text="filteredReports.length"></span> of <span x-text="total"></span> reports
                     {% endcall %}
                 </div>
-                <button class="btn btn-outline btn-sm" @click="resetFilters()">Reset</button>
+                <button class="btn btn-outline btn-sm" data-forensic-reset>Reset</button>
             </div>
         {% endcall %}
         {% call card_content() %}

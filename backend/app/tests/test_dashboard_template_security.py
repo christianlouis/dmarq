@@ -413,6 +413,17 @@ def test_forensic_reports_uses_external_page_script_for_csp_migration():
     assert "/api/v1/forensics/analysis?" in script
     assert "/api/v1/forensics/upload" in script
     assert "Unable to load forensic reports" in script
+    assert '@change="fetchReports()"' not in template
+    assert '@submit.prevent="uploadReport()"' not in template
+    assert '@click="resetFilters()"' not in template
+    assert "data-forensic-domain-filter" in template
+    assert "data-forensic-auth-filter" in template
+    assert "data-forensic-result-filter" in template
+    assert "data-forensic-upload-form" in template
+    assert "data-forensic-upload-file" in template
+    assert "data-forensic-reset" in template
+    assert "data-forensic-reset" in script
+    assert "bindControls()" in script
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 
@@ -437,6 +448,17 @@ def test_tls_reports_uses_external_page_script_for_csp_migration():
     assert "/api/v1/tls-reports/summary?" in script
     assert "/api/v1/tls-reports/upload" in script
     assert "Unable to load TLS report summary" in script
+    assert '@click="refresh()"' not in template
+    assert '@change="refresh()"' not in template
+    assert '@input="refresh()"' not in template
+    assert '@submit.prevent="uploadReport()"' not in template
+    assert "data-tls-refresh" in template
+    assert "data-tls-days-filter" in template
+    assert "data-tls-domain-filter" in template
+    assert "data-tls-upload-form" in template
+    assert "data-tls-upload-file" in template
+    assert "data-tls-refresh" in script
+    assert "bindControls()" in script
     assert 'x-effect="$el.style.width' in template
     assert not _has_inline_style(template)
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
