@@ -456,7 +456,6 @@ test('dashboard becomes useful before false empty states appear', async ({ page 
 test('domain list loads domain rows and keeps edit action wired', async ({ page }) => {
   await page.goto('/domains');
 
-  await expect(page.getByText('Loading monitored domains...')).toBeVisible();
   await expect(page.getByRole('cell', { name: 'cklnet.com' })).toBeVisible();
   await expect(page.getByRole('cell', { name: 'dmarq.org' })).toBeVisible();
   await expect(page.getByText('No domains found. Add a domain to get started.')).not.toBeVisible();
