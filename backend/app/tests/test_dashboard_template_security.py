@@ -673,7 +673,11 @@ def test_legacy_login_script_uses_css_class_instead_of_inline_style():
 
     assert "login-error-message" in script
     assert ".login-error-message" in stylesheet
-    assert 'id="login-error" class="hidden login-error-message"' in script
+    assert re.search(
+        r'<div\b(?=[^>]*\bid="login-error")'
+        r'(?=[^>]*\bclass="[^"]*\bhidden\b[^"]*\blogin-error-message\b)[^>]*>',
+        script,
+    )
     assert "style=" not in script
 
 
