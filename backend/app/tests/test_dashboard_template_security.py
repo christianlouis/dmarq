@@ -335,6 +335,17 @@ def test_operations_uses_external_page_script_for_csp_migration():
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 
+def test_alert_component_uses_external_close_control_for_csp_migration():
+    template = _read_project_file("templates", "components", "ui", "alert.html")
+    script = _read_project_file("static", "js", "pages.js")
+
+    assert 'x-on:click="close()"' not in template
+    assert "data-alert-close" in template
+    assert "data-alert-close" in script
+    assert "bindControls()" in script
+    assert "close()" in script
+
+
 def test_reports_uses_external_page_script_for_csp_migration():
     template = _reports_template()
     script = _reports_script()
