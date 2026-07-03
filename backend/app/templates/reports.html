@@ -34,7 +34,7 @@
                         </select>
                     </div>
                     <div class="w-full sm:w-auto flex items-end">
-                        <button type="button" class="btn btn-outline btn-md" @click="resetFilters()">
+                        <button type="button" class="btn btn-outline btn-md" data-report-reset-filters>
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
                             Reset Filters
                         </button>
@@ -86,7 +86,7 @@
                                 {% call td(colspan="7", class="text-center") %}
                                     <div class="flex flex-col items-center gap-3 py-4">
                                         <p class="text-red-700" x-text="error"></p>
-                                        <button type="button" class="btn btn-outline btn-sm" @click="fetchReports()">
+                                        <button type="button" class="btn btn-outline btn-sm" data-report-retry-load>
                                             Retry loading reports
                                         </button>
                                     </div>

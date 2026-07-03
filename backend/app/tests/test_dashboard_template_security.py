@@ -360,12 +360,13 @@ def test_reports_uses_external_page_script_for_csp_migration():
     assert '@click="deleteReport' not in template
     assert "data-report-delete" in template
     assert "data-report-delete" in script
-    assert "bindDeleteControls()" in script
+    assert "bindPageControls()" in script
     assert "event.target instanceof Element" in script
     assert "/api/v1/reports" in script
     assert "deleteReport(domain, reportId)" in script
     assert 'x-data="reportsApp()" x-cloak' in template
     assert "resetFilters()" in script
+    assert '@click="' not in template
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 
@@ -377,8 +378,12 @@ def test_reports_page_distinguishes_loading_error_and_empty_states():
     assert "Reports could not be loaded." in script
     assert "No reports match this filter." in template
     assert "Retry loading reports" in template
-    assert '@click="fetchReports()"' in template
-    assert '@click="resetFilters()"' in template
+    assert '@click="fetchReports()"' not in template
+    assert '@click="resetFilters()"' not in template
+    assert "data-report-retry-load" in template
+    assert "data-report-retry-load" in script
+    assert "data-report-reset-filters" in template
+    assert "data-report-reset-filters" in script
     assert 'x-show="!loading && error"' in template
     assert "(!loading && !error ? filteredReports : [])" in template
     assert "loading: true" in script
