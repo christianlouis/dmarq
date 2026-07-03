@@ -674,6 +674,10 @@ def test_settings_controls_are_bound_from_external_script():
     assert "data-settings-toggle-ai-key" in template
     assert "handleSettingsAction" in script
     assert "handleWebhookAction" in script
+    assert "const numericEndpointId = Number(endpointId)" in script
+    assert "Number.isInteger(numericEndpointId)" in script
+    assert "this.testWebhook(numericEndpointId)" in script
+    assert "this.disableWebhook(numericEndpointId)" in script
     assert "data-settings-save-category" in script
     assert "data-settings-boolean-key" in script
     assert "data-settings-ai-provider-select" in script

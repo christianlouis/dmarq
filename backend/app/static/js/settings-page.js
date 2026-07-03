@@ -162,11 +162,12 @@ function settingsApp() {
         },
 
         handleWebhookAction(action, endpointId) {
-            if (!endpointId) return;
+            const numericEndpointId = Number(endpointId);
+            if (!Number.isInteger(numericEndpointId) || numericEndpointId <= 0) return;
             if (action === 'test') {
-                this.testWebhook(endpointId);
+                this.testWebhook(numericEndpointId);
             } else if (action === 'disable') {
-                this.disableWebhook(endpointId);
+                this.disableWebhook(numericEndpointId);
             }
         },
 
