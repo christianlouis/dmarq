@@ -5,6 +5,7 @@ import pytest
 from app.services.source_reputation import (
     build_source_reputation,
     build_source_reputation_cached,
+    reputation_presentation,
     source_reputation_by_ip,
 )
 from app.services.source_reputation_feeds import FeedLookupEvidence, IPFeedReputation
@@ -201,6 +202,47 @@ def test_build_source_reputation_merges_external_feed_listing():
     assert source.risk_score >= 45
     assert any(item.label == "External reputation feeds" for item in source.evidence)
     assert any("delisting" in item for item in source.recommendations)
+
+
+def test_reputation_presentation_distinguishes_local_only_from_checked_feeds():
+    local_result = build_source_reputation(
+        "example.com",
+        [],
+        [{"source_ip": "8.8.8.8", "count": 100, "dmarc_fail_count": 0}],
+    )
+
+    local_view = reputation_presentation(local_result.sources[0])
+
+    assert local_view.status_label == "Clean"
+    assert local_view.feed_status == "local_only"
+    assert "local DMARC evidence" in local_view.feed_summary
+
+    checked_result = build_source_reputation(
+        "example.com",
+        [],
+        [{"source_ip": "8.8.4.4", "count": 100, "dmarc_fail_count": 0}],
+        feed_results_by_ip={
+            "8.8.4.4": IPFeedReputation(
+                ip="8.8.4.4",
+                evidence=[
+                    FeedLookupEvidence(
+                        provider_id="demo_feed",
+                        provider_name="Demo Reputation Feed",
+                        status="clean",
+                        detail="clean",
+                    )
+                ],
+            )
+        },
+    )
+
+    checked_source = checked_result.sources[0]
+    checked_view = reputation_presentation(checked_source)
+
+    assert checked_view.status_label == "Clean"
+    assert checked_view.feed_status == "checked"
+    assert "checked without listings" in checked_view.feed_summary
+    assert any(item.source == "external" and item.value == "clean" for item in checked_source.evidence)
 
 
 @pytest.mark.asyncio

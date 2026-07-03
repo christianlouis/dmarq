@@ -951,6 +951,9 @@ def test_get_report_by_id_includes_source_intelligence_and_reputation(
     assert record["source_details"]["allocated"] == "2004-02-17"
     assert record["source_details"]["network_source"] == "team-cymru"
     assert record["reputation"]["status"] == "listed"
+    assert record["reputation"]["status_label"] == "Listed"
+    assert record["reputation"]["feed_status"] == "listed"
+    assert "Example DNSBL" in record["reputation"]["feed_summary"]
     assert record["reputation"]["risk_score"] == 82
     assert record["reputation"]["listings"] == ["Example DNSBL"]
 

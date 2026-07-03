@@ -527,6 +527,11 @@ def test_report_detail_uses_external_page_script_for_csp_migration():
     assert "/api/v1/reports/${encodeURIComponent(this.reportId)}" in script
     assert "deleteReport(domain, reportId)" in script
     assert "sourceLocation(record)" in script
+    assert "record.reputation.feed_status" in template
+    assert "record.reputation.feed_summary" in template
+    assert "reputationFeedClass" in script
+    assert "reputationLabel" in script
+    assert "reputationEvidencePreview" in script
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 
@@ -696,10 +701,16 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     assert "source.volume_history" in template
     assert "sourceSeenLabel" in script
     assert "sourceVolumeBars" in script
-    assert "source.reputation?.status" in template
-    assert "source.reputation?.risk_score" in template
+    assert "source.reputation.status" in template
+    assert "source.reputation.feed_status" in template
+    assert "source.reputation.feed_summary" in template
+    assert "reputationRiskLabel" in script
     assert "source.reputation?.listings" in template
     assert "reputationStatusClass" in script
+    assert "reputationFeedClass" in script
+    assert "reputationLabel" in script
+    assert "reputationEvidencePreview" in script
+    assert "Reputation has not been calculated for this source yet." in template
     assert 'colspan="9"' in template
     assert "x-effect=\"$el.style.height = point.height + '%'" in template
     assert "x-html" not in template

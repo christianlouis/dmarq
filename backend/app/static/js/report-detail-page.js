@@ -126,5 +126,27 @@ function reportDetailApp(reportId) {
             if (status === 'clean') return 'bg-green-100 text-green-800';
             return 'bg-gray-100 text-gray-800';
         },
+
+        reputationFeedClass(status) {
+            if (status === 'listed') return 'bg-red-50 text-red-800';
+            if (status === 'error') return 'bg-yellow-50 text-yellow-800';
+            if (status === 'checked') return 'bg-green-50 text-green-800';
+            return 'bg-base-200 text-base-content/70';
+        },
+
+        reputationLabel(reputation) {
+            return reputation?.status_label || reputation?.status || 'Reputation unavailable';
+        },
+
+        reputationCheckedLabel(reputation) {
+            if (!reputation?.checked_at) return 'not checked yet';
+            const date = new Date(reputation.checked_at);
+            if (Number.isNaN(date.getTime())) return reputation.checked_at;
+            return `checked ${date.toLocaleString()}`;
+        },
+
+        reputationEvidencePreview(reputation) {
+            return (reputation?.evidence || []).slice(0, 3);
+        },
     };
 }
