@@ -841,7 +841,11 @@ function domainDetailsApp(domainId) {
 
         async fetchDomainStats() {
             try {
-                const response = await fetch(`/api/v1/domains/${this.domainId}/stats`);
+                const response = await this.fetchWithTimeout(
+                    `/api/v1/domains/${this.domainId}/stats`,
+                    {},
+                    10000
+                );
                 if (response.ok) {
                     const data = await response.json();
                     this.stats = data;

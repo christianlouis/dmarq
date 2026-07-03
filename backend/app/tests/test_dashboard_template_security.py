@@ -709,6 +709,7 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "loadInitialData()" in script
     assert "async fetchWithTimeout" in script
     assert "Promise.allSettled" in script
+    assert "const response = await this.fetchWithTimeout(\n                    `/api/v1/domains/${this.domainId}/stats`" in script
     assert "The request timed out. Reload data or try again in a moment." in script
     assert "dnsRecordsLoading" in template
     assert "Checking DMARC record..." in template
