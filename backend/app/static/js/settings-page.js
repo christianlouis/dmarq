@@ -627,6 +627,7 @@ function settingsApp() {
                     window.location.href = data.authorization_url;
                     return;
                 }
+                popup.opener = null;
                 const poll = window.setInterval(async () => {
                     if (popup.closed) {
                         window.clearInterval(poll);
