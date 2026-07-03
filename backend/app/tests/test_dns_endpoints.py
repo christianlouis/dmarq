@@ -35,6 +35,7 @@ from app.services.dns_resolver import DomainDNSResult, SystemDNSProvider
 from app.services.mta_sts import MTAStsResult
 from app.services.report_persistence import save_parsed_report
 from app.services.report_store import ReportStore
+from app.services.source_reputation import DomainReputation
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1743,8 +1744,111 @@ def test_summary_refresh_dns_exception_marks_lookup_failed(authed_client: TestCl
     assert domain["dns_lookup_status"] == "failed"
     assert domain["dns_lookup_failed"] is True
     assert "resolver unavailable" in domain["dns_lookup_error"]
+    assert domain["dmarc_policy_source"] == "report"
+    assert domain["dns_evidence_source"] == "lookup_failed"
     action_types = [action["type"] for action in domain["health"]["actions"]]
     assert "dns_evidence_unavailable" in action_types
+    dns_action = next(
+        action for action in domain["health"]["actions"] if action["type"] == "dns_evidence_unavailable"
+    )
+    evidence = {item["label"]: item["value"] for item in dns_action["evidence"]}
+    assert evidence["dns_evidence"] == "DNS lookup failed"
+    assert evidence["policy_source"] == "DMARC report policy"
+    assert "missing_dmarc" not in action_types
+    assert "missing_spf" not in action_types
+    assert "missing_dkim" not in action_types
+
+
+def test_summary_prefers_report_policy_when_dns_cache_is_stale(
+    authed_client: TestClient,
+    db_session,
+):
+    """Stale DNS evidence should not override the policy observed in reports."""
+    save_parsed_report(
+        db_session,
+        {
+            **MINIMAL_REPORT,
+            "report_id": "stale-dns-policy-fixture",
+            "policy": {"p": "reject", "sp": "", "pct": "100"},
+        },
+    )
+    db_session.commit()
+    stale_dns = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=none; rua=mailto:dmarc@example.com",
+        spf=True,
+        spf_record="v=spf1 include:_spf.google.com ~all",
+        dkim=True,
+        dkim_selectors=["google"],
+        dkim_record="v=DKIM1; k=rsa; p=ABC",
+        lookup_status="stale_cache",
+    )
+
+    with _mock_dns(result=stale_dns):
+        response = authed_client.get("/api/v1/domains/summary?refresh=true")
+
+    assert response.status_code == 200
+    domain = response.json()["domains"][0]
+    assert domain["dmarc_policy"] == "reject"
+    assert domain["dmarc_policy_source"] == "report"
+    assert domain["dns_evidence_source"] == "stale_cache"
+
+
+def test_summary_dns_evidence_source_uses_any_live_dns_evidence(
+    authed_client: TestClient,
+    db_session,
+):
+    """SPF/DKIM evidence should not be reported as an empty DNS lookup."""
+    _persist_minimal_report(db_session)
+    partial_dns = DomainDNSResult(
+        dmarc=False,
+        spf=True,
+        spf_record="v=spf1 include:_spf.google.com ~all",
+        dkim=True,
+        dkim_selectors=["google"],
+        dkim_record="v=DKIM1; k=rsa; p=ABC",
+    )
+
+    with _mock_dns(result=partial_dns):
+        response = authed_client.get("/api/v1/domains/summary?refresh=true")
+
+    assert response.status_code == 200
+    domain = response.json()["domains"][0]
+    assert domain["dmarc_policy_source"] == "report"
+    assert domain["dns_evidence_source"] == "live_dns"
+
+
+@pytest.mark.asyncio
+async def test_domain_health_grade_treats_pending_dns_as_unavailable(db_session):
+    """Domain detail health should match summary behavior while DNS is pending."""
+    _persist_minimal_report(db_session)
+    pending_dns = DomainDNSResult(lookup_status="pending")
+    pending_dns.pending = True  # type: ignore[attr-defined]
+    reputation = DomainReputation(
+        domain=DOMAIN,
+        status="clean",
+        checked_at="2026-07-03T15:00:00Z",
+        summary={"total_sources": 0, "highest_risk_score": 0},
+    )
+
+    with (
+        patch(
+            "app.api.api_v1.endpoints.domains.resolve_domain_dns_cached",
+            new=AsyncMock(return_value=(pending_dns, False, None)),
+        ),
+        patch(
+            "app.api.api_v1.endpoints.domains.build_source_reputation_cached",
+            new=AsyncMock(return_value=(reputation, False, None)),
+        ),
+    ):
+        health = await domains_endpoint._build_domain_health_grade(  # pylint: disable=protected-access
+            db_session,
+            DOMAIN,
+            ReportStore.get_instance(),
+        )
+
+    action_types = [action["type"] for action in health["actions"]]
+    assert "dns_evidence_pending" in action_types
     assert "missing_dmarc" not in action_types
     assert "missing_spf" not in action_types
     assert "missing_dkim" not in action_types

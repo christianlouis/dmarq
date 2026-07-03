@@ -270,6 +270,8 @@ def test_dashboard_exposes_workspace_health_history():
 
     assert "Score Trend" in template
     assert "health-trend-chart" in template
+    assert "action.evidence" in template
+    assert "item.label.replaceAll('_', ' ')" in template
     assert "/api/v1/domains/summary/health/history" in script
     assert "fetchWorkspaceHealthHistory" in script
 

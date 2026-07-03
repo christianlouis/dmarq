@@ -9,7 +9,7 @@ import logging
 import secrets
 from dataclasses import asdict
 from datetime import date, datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request, status
 from fastapi.responses import JSONResponse, Response
@@ -2622,6 +2622,14 @@ async def _build_domain_health_grade(
         days=30,
         refresh=refresh,
     )
+    dmarc_policy, dmarc_policy_source = _dmarc_policy_with_source(
+        dns,
+        live_policy=live_policy,
+        reported_policy=reported_policy,
+    )
+    dns_evidence_source = _dns_evidence_source(dns)
+    dns_pending = bool(getattr(dns, "pending", False))
+    dns_lookup_status = _dns_lookup_status(dns)
     domain_row = {
         "id": domain_id,
         "domain_name": domain_id,
@@ -2631,11 +2639,14 @@ async def _build_domain_health_grade(
         "pass_rate": summary.get("compliance_rate", 0),
         "report_count": summary.get("reports_processed", 0),
         "dmarc_status": dns.dmarc,
-        "dmarc_policy": live_policy or reported_policy or "none",
+        "dmarc_policy": dmarc_policy,
+        "dmarc_policy_source": dmarc_policy_source,
+        "dns_evidence_source": dns_evidence_source,
         "spf_status": dns.spf,
         "dkim_status": dns.dkim,
-        "dns_lookup_status": dns.lookup_status,
-        "dns_lookup_failed": dns.lookup_status == "failed",
+        "dns_pending": dns_pending,
+        "dns_lookup_status": dns_lookup_status,
+        "dns_lookup_failed": dns_lookup_status == "failed",
         "dns_lookup_error": dns.lookup_error,
         "dmarc_warnings": dns.dmarc_warnings,
         "dmarc_suggestions": dns.dmarc_suggestions,
@@ -2991,6 +3002,62 @@ def _pending_dns_summary_result() -> DomainDNSResult:
     )
 
 
+_NON_LIVE_DNS_POLICY_STATUSES = {"pending", "failed", "stale_cache", "fallback"}
+
+
+def _dns_lookup_status(dns: DomainDNSResult) -> str:
+    return str(getattr(dns, "lookup_status", "ok") or "ok")
+
+
+def _dns_has_evidence(dns: DomainDNSResult) -> bool:
+    return any(
+        (
+            dns.dmarc,
+            dns.dmarc_record,
+            dns.spf,
+            dns.spf_record,
+            dns.dkim,
+            dns.dkim_record,
+            dns.dkim_selectors,
+            dns.nameservers,
+            dns.dmarc_policy_domain,
+        )
+    )
+
+
+def _dmarc_policy_with_source(
+    dns: DomainDNSResult,
+    *,
+    live_policy: Optional[str],
+    reported_policy: Optional[str],
+) -> Tuple[str, str]:
+    status = _dns_lookup_status(dns)
+    if status in _NON_LIVE_DNS_POLICY_STATUSES and reported_policy:
+        return reported_policy, "report"
+    if live_policy:
+        return live_policy, "dns"
+    if reported_policy:
+        return reported_policy, "report"
+    return "none", "default"
+
+
+def _dns_evidence_source(dns: DomainDNSResult) -> str:
+    status = _dns_lookup_status(dns)
+    if status == "pending":
+        return "pending"
+    if status == "failed":
+        return "lookup_failed"
+    if status == "stale_cache":
+        return "stale_cache"
+    if status == "fallback":
+        return "fallback_dns"
+    if status == "partial":
+        return "partial_dns"
+    if _dns_has_evidence(dns):
+        return "cached_dns" if getattr(dns, "cached", False) else "live_dns"
+    return "empty_lookup"
+
+
 def _failed_dns_summary_result(error: str) -> DomainDNSResult:
     return _with_dns_summary_metadata(
         DomainDNSResult(lookup_status="failed", lookup_error=error),
@@ -3130,13 +3197,17 @@ async def get_domains_summary(
         total_passed += summary.get("passed_count", 0)
         total_reports += summary.get("reports_processed", 0)
 
-        # Prefer live DNS policy; fall back to policy seen in reports
         live_policy = extract_dmarc_policy(dns.dmarc_record)
         reported_policy = _normalize_reported_policy(summary.get("policy", {}))
-        dmarc_policy = live_policy or reported_policy or "none"
+        dmarc_policy, dmarc_policy_source = _dmarc_policy_with_source(
+            dns,
+            live_policy=live_policy,
+            reported_policy=reported_policy,
+        )
         dns_pending = bool(getattr(dns, "pending", False))
-        dns_lookup_status = str(getattr(dns, "lookup_status", "ok") or "ok")
+        dns_lookup_status = _dns_lookup_status(dns)
         dns_lookup_failed = dns_lookup_status == "failed"
+        dns_evidence_source = _dns_evidence_source(dns)
 
         # Format domain data for frontend
         domain_row = {
@@ -3152,6 +3223,8 @@ async def get_domains_summary(
             # Real DNS status
             "dmarc_status": dns.dmarc,
             "dmarc_policy": dmarc_policy,
+            "dmarc_policy_source": dmarc_policy_source,
+            "dns_evidence_source": dns_evidence_source,
             "spf_status": dns.spf,
             "dkim_status": dns.dkim,
             "dns_pending": dns_pending,
