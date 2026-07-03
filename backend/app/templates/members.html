@@ -4,7 +4,7 @@
 {% block title %}Members - DMARQ{% endblock %}
 
 {% block content %}
-<div x-data="membershipApp()" x-init="init()" class="mx-auto max-w-7xl space-y-6 py-4">
+<div x-data="membershipApp()" x-init="init()" class="mx-auto max-w-7xl space-y-6 py-4" data-members-page>
     <section class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
             <p class="text-sm font-semibold uppercase text-[#2c9aa3]">Access control</p>
@@ -48,13 +48,13 @@
                             <button type="button"
                                     class="btn join-item flex-1"
                                     :class="scope === 'workspace' ? 'btn-primary' : 'btn-outline'"
-                                    @click="setScope('workspace')">
+                                    data-members-scope="workspace">
                                 Workspace
                             </button>
                             <button type="button"
                                     class="btn join-item flex-1"
                                     :class="scope === 'organization' ? 'btn-primary' : 'btn-outline'"
-                                    @click="setScope('organization')">
+                                    data-members-scope="organization">
                                 Organization
                             </button>
                         </div>
@@ -63,7 +63,7 @@
                             <span class="label-text mb-2 font-semibold">Organization</span>
                             <select class="select select-bordered w-full"
                                     x-model="selectedOrgId"
-                                    @change="selectOrganization(selectedOrgId)">
+                                    data-members-organization-select>
                                 <template x-for="organization in organizations" :key="organization.id">
                                     <option :value="organization.id" x-text="organization.name"></option>
                                 </template>
@@ -75,7 +75,7 @@
                                 <span class="label-text mb-2 font-semibold">Workspace</span>
                                 <select class="select select-bordered w-full"
                                         x-model="selectedWorkspaceId"
-                                        @change="loadMemberships()">
+                                        data-members-workspace-select>
                                     <template x-for="workspace in currentWorkspaces()" :key="workspace.id">
                                         <option :value="workspace.id" x-text="workspace.name"></option>
                                     </template>
@@ -208,7 +208,7 @@
                 {% endcall %}
                 {% call card_content() %}
                     <form class="grid grid-cols-1 gap-3 lg:grid-cols-[1.2fr_1fr_1fr_auto]"
-                          @submit.prevent="inviteMember()">
+                          data-members-invite-form>
                         <label class="form-control">
                             <span class="label-text mb-2 font-semibold">Email</span>
                             <input class="input input-bordered w-full"
@@ -253,7 +253,7 @@
                                 Active and inactive assignments for the selected tenant boundary.
                             {% endcall %}
                         </div>
-                        <button type="button" class="btn btn-outline btn-sm" @click="loadMemberships()" :disabled="loading">
+                        <button type="button" class="btn btn-outline btn-sm" data-members-refresh :disabled="loading">
                             <span x-show="loading" class="loading loading-spinner loading-xs"></span>
                             Refresh
                         </button>
@@ -303,7 +303,8 @@
                                                 <select class="select select-bordered select-sm w-full"
                                                         :disabled="saving"
                                                         x-model="membership.role"
-                                                        @change="updateMembership(membership, membership.active)">
+                                                        :data-members-user-id="membership.user.id"
+                                                        data-members-role-select>
                                                     <template x-for="role in availableRoles" :key="role">
                                                         <option :value="role" x-text="roleLabel(role)"></option>
                                                     </template>
@@ -319,14 +320,16 @@
                                                         class="btn btn-outline btn-xs"
                                                         x-show="membership.active"
                                                         :disabled="saving"
-                                                        @click="deactivateMembership(membership)">
+                                                        :data-members-user-id="membership.user.id"
+                                                        data-members-deactivate>
                                                     Deactivate
                                                 </button>
                                                 <button type="button"
                                                         class="btn btn-primary btn-xs"
                                                         x-show="!membership.active"
                                                         :disabled="saving"
-                                                        @click="updateMembership(membership, true)">
+                                                        :data-members-user-id="membership.user.id"
+                                                        data-members-restore>
                                                     Restore
                                                 </button>
                                             </td>
