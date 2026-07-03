@@ -3,13 +3,13 @@
 {% block title %}DMARQ - Health{% endblock %}
 
 {% block content %}
-<div class="mx-auto max-w-6xl space-y-6" x-data="operationsHealth()" x-init="load()">
+<div class="mx-auto max-w-6xl space-y-6" x-data="operationsHealth()" data-operations-health>
     <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
             <h1 class="text-2xl font-bold">System Health</h1>
             <p class="mt-1 text-sm text-base-content/70">Operational status for imports, scheduler activity, and storage.</p>
         </div>
-        <button class="btn btn-outline btn-sm" @click="load" :disabled="loading">
+        <button class="btn btn-outline btn-sm" data-operations-refresh :disabled="loading">
             <span x-show="loading" class="loading loading-spinner loading-xs"></span>
             Refresh
         </button>

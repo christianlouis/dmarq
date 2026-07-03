@@ -4,6 +4,23 @@ function operationsHealth() {
         error: '',
         health: {},
 
+        init() {
+            this.bindRefreshControl();
+            this.load();
+        },
+
+        bindRefreshControl() {
+            const root = this.$root || document.querySelector('[data-operations-health]');
+            const refreshButton = root?.querySelector('[data-operations-refresh]');
+            if (!refreshButton || refreshButton.dataset.operationsRefreshBound === 'true') {
+                return;
+            }
+            refreshButton.dataset.operationsRefreshBound = 'true';
+            refreshButton.addEventListener('click', () => {
+                this.load();
+            });
+        },
+
         async load() {
             this.loading = true;
             this.error = '';

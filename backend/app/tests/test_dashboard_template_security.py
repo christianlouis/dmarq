@@ -287,6 +287,10 @@ def test_operations_uses_external_page_script_for_csp_migration():
 
     assert 'src="/static/js/operations-page.js"' in template
     assert "operationsHealth()" in template
+    assert 'x-init="load()"' not in template
+    assert '@click="load"' not in template
+    assert "data-operations-refresh" in template
+    assert "data-operations-refresh" in script
     assert "/api/v1/health/operations" in script
     assert "Health details could not be loaded." in script
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
