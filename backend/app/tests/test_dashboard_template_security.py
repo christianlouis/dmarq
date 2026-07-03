@@ -1020,7 +1020,8 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "dnsRecordsLoading" in template
     assert "Checking DMARC record..." in template
     assert "DNS records could not be loaded." in script
-    assert "dnsLookupFailed" in template
+    assert "dnsEvidenceUnavailable" in template
+    assert "DNS evidence unavailable. Reload DNS to retry the live lookup." in script
     assert "dnsLookupStaleCache" in script
     assert "dnsLookupFallback" in script
     assert "dnsLookupNoticeVisible" in template
