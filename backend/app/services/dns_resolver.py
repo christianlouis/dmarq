@@ -409,6 +409,24 @@ class BaseDNSProvider(ABC):
         """Return TLSA record strings for *name* when available."""
         return []
 
+    async def _check_one_dkim_selector(
+        self, domain: str, selector: str
+    ) -> Tuple[str, Optional[str]]:
+        """Return the selector and first valid DKIM record for one selector."""
+        try:
+            records = await self.lookup_txt(f"{selector}._domainkey.{domain}")
+            for record in records:
+                if "v=dkim1" in record.lower() or "p=" in record.lower():
+                    return selector, record
+        except LookupError as exc:
+            logger.debug(
+                "DKIM lookup failed for selector=%s domain=%s: %s",
+                selector,
+                _sanitize_for_log(domain),
+                exc,
+            )
+        return selector, None
+
     async def check_dkim(
         self, domain: str, selectors: List[str]
     ) -> Tuple[bool, List[str], Optional[str]]:
@@ -418,25 +436,21 @@ class BaseDNSProvider(ABC):
         a valid DKIM TXT record is collected.  The boolean is ``True`` when at
         least one selector resolved.  *first_record_string* is the record text
         for the first matching selector (useful for display purposes).
+
+        Selector lookups are parallel so slow common-selector guesses do not
+        block otherwise valid DMARC/SPF/nameserver evidence.  ``gather`` keeps
+        input order, preserving manual selector priority in the response.
         """
-        matching_selectors: List[str] = []
-        first_record: Optional[str] = None
-        for selector in selectors:
-            try:
-                records = await self.lookup_txt(f"{selector}._domainkey.{domain}")
-                for record in records:
-                    if "v=dkim1" in record.lower() or "p=" in record.lower():
-                        matching_selectors.append(selector)
-                        if first_record is None:
-                            first_record = record
-                        break
-            except LookupError as exc:
-                logger.debug(
-                    "DKIM lookup failed for selector=%s domain=%s: %s",
-                    selector,
-                    _sanitize_for_log(domain),
-                    exc,
-                )
+        selector_results = await asyncio.gather(
+            *(self._check_one_dkim_selector(domain, selector) for selector in selectors)
+        )
+        matching_selectors = [
+            selector for selector, record in selector_results if record is not None
+        ]
+        first_record = next(
+            (record for _selector, record in selector_results if record is not None),
+            None,
+        )
         return bool(matching_selectors), matching_selectors, first_record
 
     async def check_domain(
