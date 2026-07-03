@@ -30,7 +30,7 @@
             {% call card_description() %}Basic application settings{% endcall %}
         {% endcall %}
         {% call card_content() %}
-            <form @submit.prevent="saveCategory('general')" class="space-y-4">
+            <form data-settings-save-category="general" class="space-y-4">
                 <div class="form-control w-full">
                     <label class="label"><span class="label-text font-medium">Application Name</span></label>
                     <input type="text" x-model="s['general.app_name']"
@@ -79,7 +79,7 @@
             {% call card_description() %}Default values applied when adding a new domain{% endcall %}
         {% endcall %}
         {% call card_content() %}
-            <form @submit.prevent="saveCategory('dmarc')" class="space-y-4">
+            <form data-settings-save-category="dmarc" class="space-y-4">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div class="form-control w-full">
                         <label class="label"><span class="label-text font-medium">Default Policy</span></label>
@@ -136,7 +136,7 @@
             {% call card_description() %}Choose how DMARQ resolves DNS records for domain lookups{% endcall %}
         {% endcall %}
         {% call card_content() %}
-            <form @submit.prevent="saveCategory('dns')" class="space-y-4">
+            <form data-settings-save-category="dns" class="space-y-4">
                 <div class="form-control w-full">
                     <label class="label"><span class="label-text font-medium">DNS Resolver</span></label>
                     <select x-model="s['dns.resolver']" class="input input-bordered w-full">
@@ -170,7 +170,7 @@
             {% endcall %}
         {% endcall %}
         {% call card_content() %}
-            <form @submit.prevent="saveCategory('cloudflare')" class="space-y-4">
+            <form data-settings-save-category="cloudflare" class="space-y-4">
                 <div class="rounded-lg border border-[#dfdfdf] bg-[#f8f7f4] p-4">
                     <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div>
@@ -375,7 +375,7 @@
             {% endcall %}
         {% endcall %}
         {% call card_content() %}
-            <form @submit.prevent="saveCategory('postmark')" class="space-y-4">
+            <form data-settings-save-category="postmark" class="space-y-4">
                 <div class="form-control w-full">
                     <label class="label"><span class="label-text font-medium">Postmark Account Token</span></label>
                     <div class="relative">
@@ -491,7 +491,7 @@
             {% call card_description() %}Control privacy for forensic report metadata{% endcall %}
         {% endcall %}
         {% call card_content() %}
-            <form @submit.prevent="saveCategory('forensics')" class="space-y-4">
+            <form data-settings-save-category="forensics" class="space-y-4">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div class="form-control w-full">
                         <label class="label"><span class="label-text font-medium">Email Redaction</span></label>
@@ -506,7 +506,7 @@
                         <label class="label cursor-pointer justify-start gap-3">
                             <input type="checkbox"
                                 :checked="s['forensics.redact_long_tokens_enabled'] === 'true'"
-                                @change="s['forensics.redact_long_tokens_enabled'] = $event.target.checked ? 'true' : 'false'"
+                                data-settings-boolean-key="forensics.redact_long_tokens_enabled"
                                 class="checkbox checkbox-primary" />
                             <span class="label-text font-medium">Redact long tokens</span>
                         </label>
@@ -533,12 +533,12 @@
             {% call card_description() %}Send alerts through Apprise-compatible targets{% endcall %}
         {% endcall %}
         {% call card_content() %}
-            <form @submit.prevent="saveCategory('notifications')" class="space-y-4">
+            <form data-settings-save-category="notifications" class="space-y-4">
                 <div class="form-control">
                     <label class="label cursor-pointer justify-start gap-3">
                         <input type="checkbox"
                             :checked="s['notifications.apprise_enabled'] === 'true'"
-                            @change="s['notifications.apprise_enabled'] = $event.target.checked ? 'true' : 'false'"
+                                data-settings-boolean-key="notifications.apprise_enabled"
                             class="checkbox checkbox-primary" />
                         <span class="label-text font-medium">Enable notifications</span>
                     </label>
@@ -567,7 +567,7 @@
                         <label class="label cursor-pointer justify-start gap-3">
                             <input type="checkbox"
                                 :checked="s['notifications.redact_pii_enabled'] === 'true'"
-                                @change="s['notifications.redact_pii_enabled'] = $event.target.checked ? 'true' : 'false'"
+                                data-settings-boolean-key="notifications.redact_pii_enabled"
                                 class="checkbox checkbox-primary" />
                             <span class="label-text font-medium">Redact email addresses in messages</span>
                         </label>
@@ -584,7 +584,7 @@
                             <label class="label cursor-pointer justify-start gap-3">
                                 <input type="checkbox"
                                     :checked="s['notifications.alert_new_sources_enabled'] === 'true'"
-                                    @change="s['notifications.alert_new_sources_enabled'] = $event.target.checked ? 'true' : 'false'"
+                                data-settings-boolean-key="notifications.alert_new_sources_enabled"
                                     class="checkbox checkbox-primary" />
                                 <span class="label-text font-medium">New sending sources</span>
                             </label>
@@ -594,7 +594,7 @@
                             <label class="label cursor-pointer justify-start gap-3">
                                 <input type="checkbox"
                                     :checked="s['notifications.alert_missing_reports_enabled'] === 'true'"
-                                    @change="s['notifications.alert_missing_reports_enabled'] = $event.target.checked ? 'true' : 'false'"
+                                data-settings-boolean-key="notifications.alert_missing_reports_enabled"
                                     class="checkbox checkbox-primary" />
                                 <span class="label-text font-medium">Missing reports</span>
                             </label>
@@ -604,7 +604,7 @@
                             <label class="label cursor-pointer justify-start gap-3">
                                 <input type="checkbox"
                                     :checked="s['notifications.alert_failure_threshold_enabled'] === 'true'"
-                                    @change="s['notifications.alert_failure_threshold_enabled'] = $event.target.checked ? 'true' : 'false'"
+                                data-settings-boolean-key="notifications.alert_failure_threshold_enabled"
                                     class="checkbox checkbox-primary" />
                                 <span class="label-text font-medium">High DMARC failures</span>
                             </label>
@@ -614,7 +614,7 @@
                             <label class="label cursor-pointer justify-start gap-3">
                                 <input type="checkbox"
                                     :checked="s['notifications.alert_compliance_drop_enabled'] === 'true'"
-                                    @change="s['notifications.alert_compliance_drop_enabled'] = $event.target.checked ? 'true' : 'false'"
+                                data-settings-boolean-key="notifications.alert_compliance_drop_enabled"
                                     class="checkbox checkbox-primary" />
                                 <span class="label-text font-medium">Compliance drops</span>
                             </label>
@@ -656,7 +656,7 @@
                             <label class="label cursor-pointer justify-start gap-3">
                                 <input type="checkbox"
                                     :checked="s['notifications.summary_daily_enabled'] === 'true'"
-                                    @change="s['notifications.summary_daily_enabled'] = $event.target.checked ? 'true' : 'false'"
+                                data-settings-boolean-key="notifications.summary_daily_enabled"
                                     class="checkbox checkbox-primary" />
                                 <span class="label-text font-medium">Daily summary</span>
                             </label>
@@ -666,7 +666,7 @@
                             <label class="label cursor-pointer justify-start gap-3">
                                 <input type="checkbox"
                                     :checked="s['notifications.summary_weekly_enabled'] === 'true'"
-                                    @change="s['notifications.summary_weekly_enabled'] = $event.target.checked ? 'true' : 'false'"
+                                data-settings-boolean-key="notifications.summary_weekly_enabled"
                                     class="checkbox checkbox-primary" />
                                 <span class="label-text font-medium">Weekly summary</span>
                             </label>
@@ -710,7 +710,7 @@
                 <div class="border-t border-border pt-4 space-y-4">
                     <div class="flex items-center justify-between gap-3">
                         <h3 class="text-sm font-semibold">Alert History</h3>
-                        <button type="button" class="btn btn-outline btn-sm" :disabled="loadingAlertHistory" @click="loadAlertHistory()">
+                        <button type="button" class="btn btn-outline btn-sm" :disabled="loadingAlertHistory" data-settings-action="load_alert_history">
                             <template x-if="!loadingAlertHistory">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
                                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
@@ -751,7 +751,7 @@
                 <div class="border-t border-border pt-4 space-y-4">
                     <div class="flex items-center justify-between gap-3">
                         <h3 class="text-sm font-semibold">Configuration Audit</h3>
-                        <button type="button" class="btn btn-outline btn-sm" :disabled="loadingConfigAudit" @click="loadConfigAudit()">
+                        <button type="button" class="btn btn-outline btn-sm" :disabled="loadingConfigAudit" data-settings-action="load_config_audit">
                             <template x-if="!loadingConfigAudit">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
                                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
@@ -787,7 +787,7 @@
                 </div>
 
                 <div class="flex flex-col sm:flex-row justify-end gap-2">
-                    <button type="button" class="btn btn-outline btn-md" :disabled="saving || previewingSummary" @click="previewSummary()">
+                    <button type="button" class="btn btn-outline btn-md" :disabled="saving || previewingSummary" data-settings-action="preview_summary">
                         <template x-if="!previewingSummary">
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
                                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
@@ -800,7 +800,7 @@
                         <template x-if="previewingSummary"><span class="loading loading-spinner loading-xs mr-2"></span></template>
                         Preview Summary
                     </button>
-                    <button type="button" class="btn btn-outline btn-md" :disabled="saving || sendingSummary" @click="sendSummaryNow()">
+                    <button type="button" class="btn btn-outline btn-md" :disabled="saving || sendingSummary" data-settings-action="send_summary_now">
                         <template x-if="!sendingSummary">
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
                                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
@@ -811,7 +811,7 @@
                         <template x-if="sendingSummary"><span class="loading loading-spinner loading-xs mr-2"></span></template>
                         Send Summary Now
                     </button>
-                    <button type="button" class="btn btn-outline btn-md" :disabled="saving || checkingAlerts" @click="checkAlerts()">
+                    <button type="button" class="btn btn-outline btn-md" :disabled="saving || checkingAlerts" data-settings-action="check_alerts">
                         <template x-if="!checkingAlerts">
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
                                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
@@ -821,7 +821,7 @@
                         <template x-if="checkingAlerts"><span class="loading loading-spinner loading-xs mr-2"></span></template>
                         Check Alerts
                     </button>
-                    <button type="button" class="btn btn-outline btn-md" :disabled="saving || sendingAlerts" @click="sendAlertSummary()">
+                    <button type="button" class="btn btn-outline btn-md" :disabled="saving || sendingAlerts" data-settings-action="send_alert_summary">
                         <template x-if="!sendingAlerts">
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
                                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
@@ -832,7 +832,7 @@
                         <template x-if="sendingAlerts"><span class="loading loading-spinner loading-xs mr-2"></span></template>
                         Send Alerts Now
                     </button>
-                    <button type="button" class="btn btn-outline btn-md" :disabled="saving || testingNotification" @click="sendTestNotification()">
+                    <button type="button" class="btn btn-outline btn-md" :disabled="saving || testingNotification" data-settings-action="send_test_notification">
                         <template x-if="!testingNotification">
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
                                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
@@ -863,7 +863,7 @@
         {% endcall %}
         {% call card_content() %}
             <div class="space-y-5">
-                <form @submit.prevent="createWebhook()" class="space-y-4">
+                <form data-settings-create-webhook class="space-y-4">
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div class="form-control w-full">
                             <label class="label"><span class="label-text font-medium">Name</span></label>
@@ -896,7 +896,7 @@
                     </div>
 
                     <div class="flex flex-col sm:flex-row justify-end gap-2">
-                        <button type="button" class="btn btn-outline btn-md" :disabled="loadingWebhooks" @click="loadWebhooks()">
+                        <button type="button" class="btn btn-outline btn-md" :disabled="loadingWebhooks" data-settings-action="load_webhooks">
                             <template x-if="!loadingWebhooks">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
                                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
@@ -948,11 +948,11 @@
                                     <td><span class="badge" :class="hook.enabled ? 'badge-success' : 'badge-ghost'" x-text="hook.enabled ? 'Enabled' : 'Disabled'"></span></td>
                                     <td class="text-xs text-muted-foreground" x-text="hook.last_success_at ? 'Success ' + new Date(hook.last_success_at).toLocaleString() : (hook.last_failure_at ? 'Failed ' + new Date(hook.last_failure_at).toLocaleString() : 'No deliveries')"></td>
                                     <td class="text-right">
-                                        <button type="button" class="btn btn-outline btn-xs" :disabled="testingWebhookId === hook.id" @click="testWebhook(hook.id)">
+                                        <button type="button" class="btn btn-outline btn-xs" :disabled="testingWebhookId === hook.id" :data-webhook-id="hook.id" data-settings-webhook-action="test">
                                             <span x-show="testingWebhookId !== hook.id">Test</span>
                                             <span x-show="testingWebhookId === hook.id" class="loading loading-spinner loading-xs"></span>
                                         </button>
-                                        <button type="button" class="btn btn-ghost btn-xs" :disabled="disablingWebhookId === hook.id || !hook.enabled" @click="disableWebhook(hook.id)">
+                                        <button type="button" class="btn btn-ghost btn-xs" :disabled="disablingWebhookId === hook.id || !hook.enabled" :data-webhook-id="hook.id" data-settings-webhook-action="disable">
                                             Disable
                                         </button>
                                     </td>
@@ -966,10 +966,10 @@
                     <div class="flex items-center justify-between gap-3">
                         <h3 class="text-sm font-semibold">Recent Deliveries</h3>
                         <div class="flex gap-2">
-                            <button type="button" class="btn btn-outline btn-sm" :disabled="processingWebhooks" @click="processWebhooks()">
+                            <button type="button" class="btn btn-outline btn-sm" :disabled="processingWebhooks" data-settings-action="process_webhooks">
                                 Process Due
                             </button>
-                            <button type="button" class="btn btn-outline btn-sm" :disabled="loadingWebhookDeliveries" @click="loadWebhookDeliveries()">
+                            <button type="button" class="btn btn-outline btn-sm" :disabled="loadingWebhookDeliveries" data-settings-action="load_webhook_deliveries">
                                 Refresh
                             </button>
                         </div>
@@ -1007,7 +1007,7 @@
             {% call card_description() %}Opt-in summaries, read-only MCP access, and human-confirmed proposal controls{% endcall %}
         {% endcall %}
         {% call card_content() %}
-            <form @submit.prevent="saveAutomationSettings()" class="space-y-4">
+            <form data-settings-save-automation class="space-y-4">
                 <div class="alert alert-info">
                     <span>AI and MCP features are disabled by default. Safe context redacts secrets, tokens, long opaque values, and email local-parts before it can be shared with model or agent surfaces.</span>
                 </div>
@@ -1016,7 +1016,7 @@
                         <label class="label cursor-pointer justify-start gap-3">
                             <input type="checkbox"
                                 :checked="s['ai.enabled'] === 'true'"
-                                @change="s['ai.enabled'] = $event.target.checked ? 'true' : 'false'"
+                                data-settings-boolean-key="ai.enabled"
                                 class="checkbox checkbox-primary" />
                             <span class="label-text font-medium">Enable AI assistance</span>
                         </label>
@@ -1025,7 +1025,7 @@
                         <label class="label cursor-pointer justify-start gap-3">
                             <input type="checkbox"
                                 :checked="s['mcp.enabled'] === 'true'"
-                                @change="s['mcp.enabled'] = $event.target.checked ? 'true' : 'false'"
+                                data-settings-boolean-key="mcp.enabled"
                                 class="checkbox checkbox-primary" />
                             <span class="label-text font-medium">Enable read-only MCP endpoint</span>
                         </label>
@@ -1035,7 +1035,7 @@
                     <div class="form-control w-full">
                         <label class="label"><span class="label-text font-medium">Provider</span></label>
                         <select x-model="s['ai.provider']"
-                            @change="onAIProviderChanged()"
+                            data-settings-ai-provider-select
                             class="input input-bordered w-full">
                             <template x-for="profile in aiProviderProfiles" :key="profile.id">
                                 <option :value="profile.id" x-text="profile.name"></option>
@@ -1086,7 +1086,7 @@
                                 placeholder="Stored encrypted; never shown again" />
                             <button type="button"
                                 class="absolute right-2 top-3 text-muted-foreground hover:text-foreground"
-                                @click="showAIKey = !showAIKey">
+                                data-settings-toggle-ai-key>
                                 <svg x-show="!showAIKey" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
                                 <svg x-show="showAIKey" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
                             </button>
@@ -1108,14 +1108,14 @@
                     <label class="label cursor-pointer justify-start gap-3">
                         <input type="checkbox"
                             :checked="s['ai.action_tools_enabled'] === 'true'"
-                            @change="s['ai.action_tools_enabled'] = $event.target.checked ? 'true' : 'false'"
+                                data-settings-boolean-key="ai.action_tools_enabled"
                             class="checkbox checkbox-primary" />
                         <span class="label-text font-medium">Allow human-confirmed action proposals</span>
                     </label>
                 </div>
                 <div class="flex flex-col gap-2 sm:flex-row sm:justify-end">
                     <button type="button" class="btn btn-outline btn-md" :disabled="testingAIConnection"
-                        @click="testAIConnection()">
+                        data-settings-action="test_ai_connection">
                         <template x-if="!testingAIConnection">
                             <span>Test Connection</span>
                         </template>

@@ -660,6 +660,32 @@ def test_settings_exposes_provider_agnostic_dns_import_without_html_injection():
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 
+def test_settings_controls_are_bound_from_external_script():
+    template = _settings_template()
+    script = _settings_script()
+
+    assert "data-settings-save-category" in template
+    assert "data-settings-save-automation" in template
+    assert "data-settings-create-webhook" in template
+    assert "data-settings-boolean-key" in template
+    assert "data-settings-action" in template
+    assert "data-settings-webhook-action" in template
+    assert "data-settings-ai-provider-select" in template
+    assert "data-settings-toggle-ai-key" in template
+    assert "handleSettingsAction" in script
+    assert "handleWebhookAction" in script
+    assert "data-settings-save-category" in script
+    assert "data-settings-boolean-key" in script
+    assert "data-settings-ai-provider-select" in script
+    assert "@click" not in template
+    assert "@submit" not in template
+    assert "@change" not in template
+    assert "showAIKey = !showAIKey" not in template
+    assert 'testWebhook(hook.id)' not in template
+    assert "x-html" not in template
+    assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
+
+
 def test_mail_sources_list_actions_are_bound_from_external_script():
     template = _mail_sources_template()
     script = _mail_sources_script()
