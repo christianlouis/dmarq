@@ -92,6 +92,9 @@ def test_dns_lookup_failure_preserves_report_policy_and_avoids_missing_dns_actio
             "spf_status": False,
             "dkim_status": False,
             "dmarc_policy": "reject",
+            "dmarc_policy_source": "report",
+            "dns_evidence_source": "lookup_failed",
+            "dns_lookup_status": "failed",
             "dmarc_warnings": [],
             "dns_lookup_failed": True,
             "dns_lookup_error": "DNS lookup failed with TimeoutError.",
@@ -99,11 +102,16 @@ def test_dns_lookup_failure_preserves_report_policy_and_avoids_missing_dns_actio
     )
 
     action_types = [action["type"] for action in health["actions"]]
+    dns_action = next(action for action in health["actions"] if action["type"] == "dns_evidence_unavailable")
+    evidence = {item["label"]: item["value"] for item in dns_action["evidence"]}
 
     assert health["factors"]["policy_strength"] == 100.0
     assert health["factors"]["dns_posture"] == 65.0
     assert health["grade"] != "F"
     assert "dns_evidence_unavailable" in action_types
+    assert evidence["dns_evidence"] == "DNS lookup failed"
+    assert evidence["policy_source"] == "DMARC report policy"
+    assert evidence["policy"] == "p=reject"
     assert "missing_dmarc" not in action_types
     assert "missing_spf" not in action_types
     assert "missing_dkim" not in action_types

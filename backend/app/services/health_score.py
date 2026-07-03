@@ -134,6 +134,38 @@ def _action(
     }
 
 
+def _evidence_label(value: Optional[str]) -> str:
+    labels = {
+        "live_dns": "Live DNS",
+        "cached_dns": "Cached DNS",
+        "fallback_dns": "Fallback DNS",
+        "stale_cache": "Stale DNS cache",
+        "partial_dns": "Partial DNS lookup",
+        "empty_lookup": "DNS lookup returned no evidence",
+        "lookup_failed": "DNS lookup failed",
+        "pending": "DNS lookup pending",
+        "dns": "DNS policy record",
+        "report": "DMARC report policy",
+        "default": "Default fallback",
+    }
+    return labels.get(str(value or ""), str(value or "unknown"))
+
+
+def _evidence_items(domain: Dict[str, Any]) -> List[Dict[str, str]]:
+    items: List[Dict[str, str]] = []
+    dns_source = domain.get("dns_evidence_source")
+    if dns_source:
+        items.append({"label": "dns_evidence", "value": _evidence_label(str(dns_source))})
+    policy_source = domain.get("dmarc_policy_source")
+    if policy_source:
+        items.append({"label": "policy_source", "value": _evidence_label(str(policy_source))})
+    if domain.get("dmarc_policy"):
+        items.append({"label": "policy", "value": f"p={domain.get('dmarc_policy')}"})
+    if domain.get("dns_lookup_status"):
+        items.append({"label": "dns_lookup", "value": str(domain.get("dns_lookup_status"))})
+    return items
+
+
 def _dns_evidence_actions(
     domain: Dict[str, Any],
     *,
@@ -141,6 +173,7 @@ def _dns_evidence_actions(
     dns_pending: bool,
     dns_lookup_failed: bool,
 ) -> List[Dict[str, Any]]:
+    provenance = _evidence_items(domain)
     actions: List[Dict[str, Any]] = []
     if dns_pending:
         actions.append(
@@ -152,9 +185,17 @@ def _dns_evidence_actions(
                 next_step="Open the domain or use Reload to fetch live DNS before making DNS decisions.",
                 score_impact=0,
                 domain=domain_name,
+                evidence=provenance,
             )
         )
     if dns_lookup_failed:
+        evidence = [
+            *provenance,
+            {
+                "label": "lookup_error",
+                "value": str(domain.get("dns_lookup_error") or "lookup failed"),
+            },
+        ]
         actions.append(
             _action(
                 action_type="dns_evidence_unavailable",
@@ -170,12 +211,7 @@ def _dns_evidence_actions(
                 ),
                 score_impact=0,
                 domain=domain_name,
-                evidence=[
-                    {
-                        "label": "dns_lookup",
-                        "value": str(domain.get("dns_lookup_error") or "lookup failed"),
-                    }
-                ],
+                evidence=evidence,
             )
         )
     return actions
@@ -191,6 +227,7 @@ def _missing_dns_actions(
     if dns_pending or dns_lookup_failed:
         return []
 
+    provenance = _evidence_items(domain)
     actions: List[Dict[str, Any]] = []
     if not domain.get("dmarc_status"):
         actions.append(
@@ -202,6 +239,7 @@ def _missing_dns_actions(
                 next_step="Publish a v=DMARC1 record with rua reporting and start in p=none if needed.",
                 score_impact=25,
                 domain=domain_name,
+                evidence=provenance,
             )
         )
     if not domain.get("spf_status"):
@@ -214,6 +252,7 @@ def _missing_dns_actions(
                 next_step="Publish or repair the SPF TXT record for legitimate sending infrastructure.",
                 score_impact=12,
                 domain=domain_name,
+                evidence=provenance,
             )
         )
     if not domain.get("dkim_status"):
@@ -226,6 +265,7 @@ def _missing_dns_actions(
                 next_step="Publish the missing selector or rotate the service DKIM configuration.",
                 score_impact=12,
                 domain=domain_name,
+                evidence=provenance,
             )
         )
     return actions
@@ -236,6 +276,7 @@ def _compliance_action(
 ) -> Optional[Dict[str, Any]]:
     if pass_rate >= 90 or int(domain.get("total_emails") or 0) <= 0:
         return None
+    provenance = _evidence_items(domain)
     return _action(
         action_type="low_compliance",
         severity="high" if pass_rate < 75 else "medium",
@@ -245,6 +286,7 @@ def _compliance_action(
         score_impact=18 if pass_rate < 75 else 10,
         domain=domain_name,
         evidence=[
+            *provenance,
             {"label": "pass_rate", "value": f"{pass_rate:.1f}%"},
             {"label": "failed", "value": str(domain.get("failed_count") or 0)},
         ],
@@ -256,6 +298,7 @@ def _policy_action(
 ) -> Optional[Dict[str, Any]]:
     if policy != "none" or not domain.get("dmarc_status"):
         return None
+    provenance = _evidence_items(domain)
     return _action(
         action_type="policy_none",
         severity="medium",
@@ -264,7 +307,7 @@ def _policy_action(
         next_step="After known senders pass DMARC, stage p=quarantine and then p=reject.",
         score_impact=14,
         domain=domain_name,
-        evidence=[{"label": "policy", "value": "p=none"}],
+        evidence=provenance or [{"label": "policy", "value": "p=none"}],
     )
 
 
@@ -279,7 +322,9 @@ def _dmarc_lint_action(domain: Dict[str, Any], *, domain_name: str) -> Optional[
         next_step="Review the DNS health details and publish a corrected DMARC record.",
         score_impact=8,
         domain=domain_name,
-        evidence=[{"label": "warnings", "value": str(len(domain.get("dmarc_warnings") or []))}],
+        evidence=[
+            {"label": "warnings", "value": str(len(domain.get("dmarc_warnings") or []))}
+        ],
     )
 
 

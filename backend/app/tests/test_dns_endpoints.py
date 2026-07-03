@@ -1743,8 +1743,16 @@ def test_summary_refresh_dns_exception_marks_lookup_failed(authed_client: TestCl
     assert domain["dns_lookup_status"] == "failed"
     assert domain["dns_lookup_failed"] is True
     assert "resolver unavailable" in domain["dns_lookup_error"]
+    assert domain["dmarc_policy_source"] == "report"
+    assert domain["dns_evidence_source"] == "lookup_failed"
     action_types = [action["type"] for action in domain["health"]["actions"]]
     assert "dns_evidence_unavailable" in action_types
+    dns_action = next(
+        action for action in domain["health"]["actions"] if action["type"] == "dns_evidence_unavailable"
+    )
+    evidence = {item["label"]: item["value"] for item in dns_action["evidence"]}
+    assert evidence["dns_evidence"] == "DNS lookup failed"
+    assert evidence["policy_source"] == "DMARC report policy"
     assert "missing_dmarc" not in action_types
     assert "missing_spf" not in action_types
     assert "missing_dkim" not in action_types
