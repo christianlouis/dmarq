@@ -19,6 +19,7 @@ from app.services.dns_resolver import (
     BaseDNSProvider,
     CloudflareDNSProvider,
     DomainDNSResult,
+    GoogleDNSProvider,
     SystemDNSProvider,
 )
 
@@ -60,6 +61,8 @@ def _result_from_json(value: str) -> DomainDNSResult:
         dmarc_suggestions=list(data.get("dmarc_suggestions") or []),
         nameservers=list(data.get("nameservers") or []),
         dns_provider=detection_from_json(data.get("dns_provider")),
+        lookup_status=str(data.get("lookup_status") or "ok"),
+        lookup_error=data.get("lookup_error"),
     )
 
 
@@ -99,31 +102,64 @@ async def _resolve_with_fallback(
     *,
     selectors: List[str],
 ) -> DomainDNSResult:
-    """Resolve DNS, using a public fallback when the primary result has no evidence."""
-    result = await provider.check_domain(domain, selectors=selectors)
-    if _has_dns_evidence(result):
-        return result
-    if not isinstance(provider, (CloudflareDNSProvider, SystemDNSProvider)):
-        return result
+    """Resolve DNS, walking independent resolvers before accepting an empty result."""
+    if not isinstance(
+        provider,
+        (SystemDNSProvider, CloudflareDNSProvider, GoogleDNSProvider),
+    ):
+        return await provider.check_domain(domain, selectors=selectors)
 
-    fallback: BaseDNSProvider
-    if isinstance(provider, CloudflareDNSProvider):
-        fallback = SystemDNSProvider()
-    else:
-        fallback = CloudflareDNSProvider()
+    fallback_types: List[type[BaseDNSProvider]] = [
+        SystemDNSProvider,
+        CloudflareDNSProvider,
+        GoogleDNSProvider,
+    ]
+    provider_types = [provider.__class__] + [
+        fallback_type
+        for fallback_type in fallback_types
+        if not isinstance(provider, fallback_type)
+    ]
+    last_result: Optional[DomainDNSResult] = None
+    resolver_errors: List[str] = []
 
-    try:
-        fallback_result = await fallback.check_domain(domain, selectors=selectors)
-    except asyncio.CancelledError:
-        raise
-    except Exception as exc:
-        logger.debug(
-            "Fallback DNS resolver failed with %s; returning primary DNS result",
-            exc.__class__.__name__,
-        )
-        return result
+    for index, provider_type in enumerate(provider_types):
+        candidate = provider if index == 0 else provider_type()
+        try:
+            result = await candidate.check_domain(domain, selectors=selectors)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            resolver_errors.append(f"{candidate.__class__.__name__}:{exc.__class__.__name__}")
+            logger.debug(
+                "DNS resolver %s failed with %s",
+                candidate.__class__.__name__,
+                exc.__class__.__name__,
+            )
+            continue
 
-    return fallback_result if _has_dns_evidence(fallback_result) else result
+        if _has_dns_evidence(result):
+            if index > 0:
+                result.lookup_status = "fallback"
+                result.lookup_error = (
+                    f"No DNS evidence from {provider.__class__.__name__}; "
+                    f"using {candidate.__class__.__name__}."
+                )
+            return result
+        last_result = result
+
+    if last_result is not None:
+        if resolver_errors:
+            last_result.lookup_status = "partial"
+            last_result.lookup_error = (
+                "No DNS evidence found after fallback resolver checks; "
+                f"{len(resolver_errors)} resolver error(s) occurred."
+            )
+        return last_result
+
+    raise LookupError(
+        "All DNS resolvers failed: "
+        + ", ".join(resolver_errors or ["no resolver attempted"])
+    )
 
 
 async def resolve_domain_dns_cached(
@@ -155,7 +191,36 @@ async def resolve_domain_dns_cached(
         if _is_fresh(row, cache_ttl, now):
             return cached_result, True, row.checked_at
 
-    result = await _resolve_with_fallback(provider, domain, selectors=selectors)
+    try:
+        result = await _resolve_with_fallback(provider, domain, selectors=selectors)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        if row and _has_dns_evidence(_result_from_json(row.result_json)):
+            cached_result = _result_from_json(row.result_json)
+            if _within_stale_evidence_grace(row, now):
+                cached_result.lookup_status = "stale_cache"
+                cached_result.lookup_error = (
+                    f"DNS lookup failed with {exc.__class__.__name__}; "
+                    "using the last known DNS evidence."
+                )
+                logger.warning(
+                    "DNS resolver failed; using last known DNS evidence for %s",
+                    provider_name,
+                )
+                return cached_result, True, row.checked_at
+        logger.warning(
+            "DNS resolver failed with %s; returning lookup failure evidence",
+            exc.__class__.__name__,
+        )
+        return (
+            DomainDNSResult(
+                lookup_status="failed",
+                lookup_error=f"DNS lookup failed with {exc.__class__.__name__}.",
+            ),
+            False,
+            now,
+        )
     if (
         row
         and _has_dns_evidence(_result_from_json(row.result_json))
@@ -163,6 +228,10 @@ async def resolve_domain_dns_cached(
     ):
         cached_result = _result_from_json(row.result_json)
         if _within_stale_evidence_grace(row, now):
+            cached_result.lookup_status = "stale_cache"
+            cached_result.lookup_error = (
+                "DNS resolver returned no DNS evidence; using the last known DNS cache."
+            )
             logger.warning(
                 "DNS resolver returned no evidence; keeping last known DNS evidence for %s",
                 provider_name,

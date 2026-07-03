@@ -16,7 +16,9 @@ function domainDetailsApp(domainId) {
             dkimSelectors: [],
             nameservers: [],
             dnsProvider: null,
-            providerContext: null
+            providerContext: null,
+            lookupStatus: 'ok',
+            lookupError: ''
         },
         dnsRecordsLoading: true,
         dnsRecordsError: '',
@@ -384,11 +386,55 @@ function domainDetailsApp(domainId) {
 
         get dkimLiveText() {
             if (this.dnsRecordsLoading) return 'Checking DKIM selectors...';
+            if (this.dnsLookupFailed) return this.dnsLookupFailureText;
             if (!this.dns.dkim) return 'No DKIM record found for configured selectors';
             if (this.dns.dkimSelectors && this.dns.dkimSelectors.length > 0) {
                 return 'selectors: ' + this.dns.dkimSelectors.join(', ');
             }
             return 'Verified';
+        },
+
+        get dnsLookupFailed() {
+            return this.dns.lookupStatus === 'failed';
+        },
+
+        get dnsLookupStaleCache() {
+            return this.dns.lookupStatus === 'stale_cache';
+        },
+
+        get dnsLookupFallback() {
+            return this.dns.lookupStatus === 'fallback';
+        },
+
+        get dnsLookupPartial() {
+            return this.dns.lookupStatus === 'partial';
+        },
+
+        get dnsLookupNoticeVisible() {
+            return this.dnsLookupFailed || this.dnsLookupStaleCache || this.dnsLookupFallback || this.dnsLookupPartial;
+        },
+
+        get dnsLookupNoticeClass() {
+            if (this.dnsLookupFailed) return 'border-red-200 bg-red-50 text-red-800';
+            return 'border-yellow-200 bg-yellow-50 text-yellow-800';
+        },
+
+        get dnsLookupNoticeText() {
+            if (this.dnsLookupFailed) return this.dnsLookupFailureText;
+            if (this.dnsLookupStaleCache) return this.dns.lookupError || 'Using last known DNS evidence because live DNS refresh returned no usable result.';
+            if (this.dnsLookupFallback) return this.dns.lookupError || 'DNS evidence was found through a fallback resolver.';
+            if (this.dnsLookupPartial) return this.dns.lookupError || 'DNS fallback completed with partial resolver errors.';
+            return '';
+        },
+
+        get dnsLookupFailureText() {
+            return this.dns.lookupError || 'DNS lookup failed; cached or report evidence may be incomplete.';
+        },
+
+        dnsRecordText(record, missingText, checkingText) {
+            if (this.dnsRecordsLoading) return checkingText;
+            if (this.dnsLookupFailed) return this.dnsLookupFailureText;
+            return record || missingText;
         },
 
         get detectedDnsProvider() {
@@ -401,17 +447,20 @@ function domainDetailsApp(domainId) {
 
         get dnsProviderName() {
             if (this.dnsRecordsLoading) return 'Checking DNS provider...';
+            if (this.dnsLookupFailed) return 'DNS lookup failed';
             return this.detectedDnsProvider?.provider_name || 'Unknown provider';
         },
 
         get dnsProviderConfidence() {
             if (this.dnsRecordsLoading) return 'checking';
+            if (this.dnsLookupFailed) return 'unavailable';
             return this.detectedDnsProvider?.confidence || 'unknown';
         },
 
         get dnsProviderAction() {
             if (this.dnsRecordsLoading) return 'Looking up authoritative nameservers and authentication records.';
             if (this.dnsRecordsError) return this.dnsRecordsError;
+            if (this.dnsLookupFailed) return this.dnsLookupFailureText;
             return this.detectedDnsProvider?.suggested_action || 'Review nameservers and select the DNS provider manually before making changes.';
         },
 
@@ -425,6 +474,7 @@ function domainDetailsApp(domainId) {
 
         get dnsNameserverText() {
             if (this.dnsRecordsLoading) return 'Checking nameservers...';
+            if (this.dnsLookupFailed) return this.dnsLookupFailureText;
             const nameservers = this.dns.nameservers || this.detectedDnsProvider?.evidence || [];
             return nameservers.length ? nameservers.join(', ') : 'No NS evidence available yet';
         },

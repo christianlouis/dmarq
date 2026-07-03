@@ -39,7 +39,9 @@ def _bounded(value: Any, *, lower: float = 0.0, upper: float = 100.0) -> float:
 
 def _effective_dmarc_policy(domain: Dict[str, Any]) -> str:
     """Return the DMARC policy used for scoring, distinct from endpoint fallbacks."""
-    if domain.get("dns_pending") and domain.get("dmarc_policy"):
+    if (domain.get("dns_pending") or domain.get("dns_lookup_failed")) and domain.get(
+        "dmarc_policy"
+    ):
         return str(domain.get("dmarc_policy") or "none").lower()
     if not domain.get("dmarc_status"):
         return "missing"
@@ -60,6 +62,8 @@ def _policy_factor(policy: Optional[str]) -> float:
 def _dns_factor(domain: Dict[str, Any]) -> float:
     if domain.get("dns_pending"):
         return 70.0
+    if domain.get("dns_lookup_failed"):
+        return 65.0
     checks = [
         bool(domain.get("dmarc_status")),
         bool(domain.get("spf_status")),
@@ -136,6 +140,7 @@ def _domain_actions(domain: Dict[str, Any]) -> List[Dict[str, Any]]:
     policy = str(domain.get("dmarc_policy") or "missing").lower()
     actions: List[Dict[str, Any]] = []
     dns_pending = bool(domain.get("dns_pending"))
+    dns_lookup_failed = bool(domain.get("dns_lookup_failed"))
 
     if dns_pending:
         actions.append(
@@ -149,7 +154,31 @@ def _domain_actions(domain: Dict[str, Any]) -> List[Dict[str, Any]]:
                 domain=domain_name,
             )
         )
-    if not dns_pending and not domain.get("dmarc_status"):
+    if dns_lookup_failed:
+        actions.append(
+            _action(
+                action_type="dns_evidence_unavailable",
+                severity="medium",
+                title="Refresh DNS evidence",
+                detail=(
+                    "DMARQ could not refresh live DNS evidence, so it is not treating "
+                    "missing lookup data as a missing record."
+                ),
+                next_step=(
+                    "Retry DNS refresh or check resolver/provider connectivity before "
+                    "changing DNS records."
+                ),
+                score_impact=0,
+                domain=domain_name,
+                evidence=[
+                    {
+                        "label": "dns_lookup",
+                        "value": str(domain.get("dns_lookup_error") or "lookup failed"),
+                    }
+                ],
+            )
+        )
+    if not dns_pending and not dns_lookup_failed and not domain.get("dmarc_status"):
         actions.append(
             _action(
                 action_type="missing_dmarc",
@@ -161,7 +190,7 @@ def _domain_actions(domain: Dict[str, Any]) -> List[Dict[str, Any]]:
                 domain=domain_name,
             )
         )
-    if not dns_pending and not domain.get("spf_status"):
+    if not dns_pending and not dns_lookup_failed and not domain.get("spf_status"):
         actions.append(
             _action(
                 action_type="missing_spf",
@@ -173,7 +202,7 @@ def _domain_actions(domain: Dict[str, Any]) -> List[Dict[str, Any]]:
                 domain=domain_name,
             )
         )
-    if not dns_pending and not domain.get("dkim_status"):
+    if not dns_pending and not dns_lookup_failed and not domain.get("dkim_status"):
         actions.append(
             _action(
                 action_type="missing_dkim",

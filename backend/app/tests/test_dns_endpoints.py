@@ -329,6 +329,54 @@ def test_dns_endpoint_returns_real_data(authed_client: TestClient):
     assert data["checkedAt"] is not None
 
 
+def test_dns_endpoint_labels_lookup_failure_without_claiming_records_are_missing(
+    authed_client: TestClient,
+):
+    """A resolver exception should surface as lookup failure evidence."""
+    provider = AsyncMock()
+    provider.check_domain = AsyncMock(side_effect=LookupError("resolver unavailable"))
+    provider.lookup_txt = AsyncMock(side_effect=LookupError("resolver unavailable"))
+    provider.lookup_cname = AsyncMock(return_value=None)
+
+    with patch(
+        "app.api.api_v1.endpoints.domains.get_default_provider",
+        return_value=provider,
+    ):
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns?refresh=true")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["dmarc"] is False
+    assert data["spf"] is False
+    assert data["dkim"] is False
+    assert data["lookupStatus"] == "failed"
+    assert "LookupError" in data["lookupError"]
+    assert data["dmarcRecord"] is None
+    assert data["spfRecord"] is None
+
+
+def test_dns_endpoint_labels_backend_fallback_evidence(authed_client: TestClient):
+    """The UI can surface that backend resolver fallback supplied DNS evidence."""
+    result = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=reject",
+        spf=True,
+        spf_record="v=spf1 -all",
+        lookup_status="fallback",
+        lookup_error="No DNS evidence from SystemDNSProvider; using GoogleDNSProvider.",
+    )
+
+    with _mock_dns(result):
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns?refresh=true")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["lookupStatus"] == "fallback"
+    assert "GoogleDNSProvider" in data["lookupError"]
+    assert data["dmarc"] is True
+    assert data["spf"] is True
+
+
 def test_dns_endpoint_returns_dmarc_lint_findings(
     authed_client: TestClient,
     monkeypatch,
@@ -852,6 +900,46 @@ async def test_dns_cache_keeps_recent_positive_evidence_when_lookup_turns_empty(
 
 
 @pytest.mark.asyncio
+async def test_dns_cache_uses_stale_positive_evidence_when_lookup_raises(db_session):
+    """Transient resolver exceptions should keep known-good evidence with an explicit label."""
+    healthy = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=reject",
+        spf=True,
+        spf_record="v=spf1 -all",
+        nameservers=["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"],
+        dns_provider=detect_dns_provider(["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"]),
+    )
+    provider = AsyncMock()
+    provider.check_domain = AsyncMock(side_effect=TimeoutError("resolver timed out"))
+    db_session.add(
+        DNSCache(
+            domain=DOMAIN,
+            provider=provider.__class__.__name__,
+            selectors_key=_selectors_key([]),
+            result_json=json.dumps(asdict(healthy), sort_keys=True, separators=(",", ":")),
+            checked_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=30),
+        )
+    )
+    db_session.commit()
+
+    result, cached, _checked = await resolve_domain_dns_cached(
+        db_session,
+        provider,
+        DOMAIN,
+        selectors=[],
+    )
+
+    assert cached is True
+    assert result.lookup_status == "stale_cache"
+    assert "TimeoutError" in (result.lookup_error or "")
+    assert result.dmarc is True
+    assert result.spf is True
+    assert result.nameservers == ["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"]
+    assert provider.check_domain.await_count == 1
+
+
+@pytest.mark.asyncio
 async def test_dns_cache_allows_old_positive_evidence_to_expire(db_session):
     """Very old DNS evidence should not mask a persistently empty resolver result."""
     healthy = DomainDNSResult(
@@ -892,7 +980,12 @@ async def test_dns_cache_allows_old_positive_evidence_to_expire(db_session):
 async def test_dns_cache_uses_public_fallback_for_empty_primary_result(db_session):
     """A primary resolver with no evidence should not force a false F grade."""
     primary_provider = SystemDNSProvider()
-    primary_check = AsyncMock(return_value=DomainDNSResult(dmarc=False, spf=False, dkim=False))
+    primary_check = AsyncMock(
+        return_value=DomainDNSResult(dmarc=False, spf=False, dkim=False)
+    )
+    cloudflare_check = AsyncMock(
+        return_value=DomainDNSResult(dmarc=False, spf=False, dkim=False)
+    )
     fallback_result = DomainDNSResult(
         dmarc=True,
         dmarc_record="v=DMARC1; p=reject",
@@ -906,8 +999,12 @@ async def test_dns_cache_uses_public_fallback_for_empty_primary_result(db_sessio
         patch.object(primary_provider, "check_domain", new=primary_check),
         patch(
             "app.services.dns_cache.CloudflareDNSProvider.check_domain",
+            new=cloudflare_check,
+        ),
+        patch(
+            "app.services.dns_cache.GoogleDNSProvider.check_domain",
             new=AsyncMock(return_value=fallback_result),
-        ) as fallback,
+        ) as google_fallback,
     ):
         result, cached, _checked = await resolve_domain_dns_cached(
             db_session,
@@ -920,21 +1017,30 @@ async def test_dns_cache_uses_public_fallback_for_empty_primary_result(db_sessio
     assert result.dmarc is True
     assert result.spf is True
     assert result.dns_provider is not None
+    assert result.lookup_status == "fallback"
+    assert "GoogleDNSProvider" in (result.lookup_error or "")
     primary_check.assert_awaited_once()
-    fallback.assert_awaited_once()
+    cloudflare_check.assert_awaited_once()
+    google_fallback.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 async def test_dns_cache_propagates_fallback_cancellation(db_session):
     """Request cancellation must not be swallowed by defensive fallback handling."""
     primary_provider = SystemDNSProvider()
-    primary_check = AsyncMock(return_value=DomainDNSResult(dmarc=False, spf=False, dkim=False))
+    primary_check = AsyncMock(
+        return_value=DomainDNSResult(dmarc=False, spf=False, dkim=False)
+    )
     fallback_check = AsyncMock(side_effect=asyncio.CancelledError())
 
     with (
         patch.object(primary_provider, "check_domain", new=primary_check),
         patch(
             "app.services.dns_cache.CloudflareDNSProvider.check_domain",
+            new=AsyncMock(return_value=DomainDNSResult(dmarc=False, spf=False, dkim=False)),
+        ),
+        patch(
+            "app.services.dns_cache.GoogleDNSProvider.check_domain",
             new=fallback_check,
         ),
         pytest.raises(asyncio.CancelledError),
@@ -955,7 +1061,9 @@ async def test_dns_cache_fallback_failure_log_omits_user_values(db_session, capl
     """Fallback failure logging should not echo domains or exception messages."""
     domain = "bad.example\nforged-log-line"
     primary_provider = SystemDNSProvider()
-    primary_check = AsyncMock(return_value=DomainDNSResult(dmarc=False, spf=False, dkim=False))
+    primary_check = AsyncMock(
+        return_value=DomainDNSResult(dmarc=False, spf=False, dkim=False)
+    )
     fallback_check = AsyncMock(side_effect=RuntimeError(f"resolver failed for {domain}"))
     caplog.set_level(logging.DEBUG, logger="app.services.dns_cache")
 
@@ -964,6 +1072,10 @@ async def test_dns_cache_fallback_failure_log_omits_user_values(db_session, capl
         patch(
             "app.services.dns_cache.CloudflareDNSProvider.check_domain",
             new=fallback_check,
+        ),
+        patch(
+            "app.services.dns_cache.GoogleDNSProvider.check_domain",
+            new=AsyncMock(return_value=DomainDNSResult(dmarc=False, spf=False, dkim=False)),
         ),
     ):
         result, cached, _checked = await resolve_domain_dns_cached(
@@ -975,6 +1087,7 @@ async def test_dns_cache_fallback_failure_log_omits_user_values(db_session, capl
 
     assert cached is False
     assert result.dmarc is False
+    assert result.lookup_status == "partial"
     assert "RuntimeError" in caplog.text
     assert domain not in caplog.text
     assert f"resolver failed for {domain}" not in caplog.text
@@ -1595,7 +1708,7 @@ def test_summary_includes_dns_fields(authed_client: TestClient, db_session):
 
 
 def test_summary_dns_failure_defaults_false(authed_client: TestClient, db_session):
-    """If DNS check fails, status fields default to False rather than crashing."""
+    """Empty DNS results stay false without being labeled resolver failures."""
     _persist_minimal_report(db_session)
     empty_result = DomainDNSResult()
 
@@ -1607,10 +1720,12 @@ def test_summary_dns_failure_defaults_false(authed_client: TestClient, db_sessio
     assert domain["dmarc_status"] is False
     assert domain["spf_status"] is False
     assert domain["dkim_status"] is False
+    assert domain["dns_lookup_status"] == "ok"
+    assert domain["dns_lookup_failed"] is False
 
 
-def test_summary_refresh_dns_exception_defaults_false(authed_client: TestClient, db_session):
-    """Resolver failures during explicit refresh should not block the summary."""
+def test_summary_refresh_dns_exception_marks_lookup_failed(authed_client: TestClient, db_session):
+    """Resolver failures should not become misleading missing-DNS recommendations."""
     _persist_minimal_report(db_session)
 
     with patch(
@@ -1625,6 +1740,14 @@ def test_summary_refresh_dns_exception_defaults_false(authed_client: TestClient,
     assert domain["spf_status"] is False
     assert domain["dkim_status"] is False
     assert domain["dns_pending"] is False
+    assert domain["dns_lookup_status"] == "failed"
+    assert domain["dns_lookup_failed"] is True
+    assert "resolver unavailable" in domain["dns_lookup_error"]
+    action_types = [action["type"] for action in domain["health"]["actions"]]
+    assert "dns_evidence_unavailable" in action_types
+    assert "missing_dmarc" not in action_types
+    assert "missing_spf" not in action_types
+    assert "missing_dkim" not in action_types
 
 
 def test_summary_endpoint_uses_manual_selectors(authed_client: TestClient, db_session):

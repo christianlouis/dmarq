@@ -79,6 +79,36 @@ def test_missing_dmarc_scores_worse_than_policy_none():
     assert not any(action["type"] == "policy_none" for action in missing_record["actions"])
 
 
+def test_dns_lookup_failure_preserves_report_policy_and_avoids_missing_dns_actions():
+    """A resolver failure is not proof that DMARC/SPF/DKIM records are missing."""
+    health = score_domain_health(
+        {
+            "domain_name": "cklnet.com",
+            "total_emails": 20_000,
+            "failed_count": 0,
+            "pass_rate": 99.8,
+            "report_count": 30,
+            "dmarc_status": False,
+            "spf_status": False,
+            "dkim_status": False,
+            "dmarc_policy": "reject",
+            "dmarc_warnings": [],
+            "dns_lookup_failed": True,
+            "dns_lookup_error": "DNS lookup failed with TimeoutError.",
+        }
+    )
+
+    action_types = [action["type"] for action in health["actions"]]
+
+    assert health["factors"]["policy_strength"] == 100.0
+    assert health["factors"]["dns_posture"] == 65.0
+    assert health["grade"] != "F"
+    assert "dns_evidence_unavailable" in action_types
+    assert "missing_dmarc" not in action_types
+    assert "missing_spf" not in action_types
+    assert "missing_dkim" not in action_types
+
+
 def test_build_health_summary_weights_domain_scores_by_volume():
     domains = [
         {
