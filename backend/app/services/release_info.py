@@ -25,9 +25,18 @@ def _image_tag(value: Optional[str]) -> Optional[str]:
     cleaned = _clean(value)
     if not cleaned:
         return None
-    if ":" not in cleaned.rsplit("/", 1)[-1]:
+    image_name = cleaned.rsplit("/", 1)[-1].split("@", 1)[0]
+    if ":" not in image_name:
         return None
-    return cleaned.rsplit(":", 1)[-1]
+    return _clean(image_name.rsplit(":", 1)[-1])
+
+
+def _image_tag_matches_short_sha(image_tag: Optional[str], short_sha: Optional[str]) -> bool:
+    tag = _clean(image_tag)
+    sha = _clean(short_sha)
+    if not tag or not sha:
+        return False
+    return len(tag) >= 7 and sha.startswith(tag)
 
 
 def build_release_info(settings: Any) -> Dict[str, Any]:
@@ -37,6 +46,7 @@ def build_release_info(settings: Any) -> Dict[str, Any]:
     short_sha = _short_sha(sha)
     version = _clean(getattr(settings, "DMARQ_RELEASE_VERSION", None)) or __version__
     image = _clean(getattr(settings, "DMARQ_BUILD_IMAGE", None))
+    image_tag = _image_tag(image)
     environment = _clean(getattr(settings, "ENVIRONMENT", None)) or "development"
     label = f"v{version}"
     if short_sha:
@@ -54,14 +64,14 @@ def build_release_info(settings: Any) -> Dict[str, Any]:
             "short_sha": short_sha,
             "ref": _clean(getattr(settings, "DMARQ_BUILD_REF", None)),
             "image": image,
-            "image_tag": _image_tag(image),
+            "image_tag": image_tag,
             "date": _clean(getattr(settings, "DMARQ_BUILD_DATE", None)),
         },
         "rollout": {
             "endpoint": "/api/v1/health/release",
             "root_health_endpoint": "/health",
             "environment": environment,
-            "image_tag_matches_short_sha": bool(image and short_sha and _image_tag(image) == short_sha),
+            "image_tag_matches_short_sha": _image_tag_matches_short_sha(image_tag, short_sha),
         },
         "changelog_url": "https://github.com/christianlouis/dmarq/blob/main/CHANGELOG.md",
         "changes": [

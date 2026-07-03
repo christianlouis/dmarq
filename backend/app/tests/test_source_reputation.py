@@ -245,6 +245,67 @@ def test_reputation_presentation_distinguishes_local_only_from_checked_feeds():
     assert any(item.source == "external" and item.value == "clean" for item in checked_source.evidence)
 
 
+def test_reputation_presentation_summarizes_external_feed_states():
+    result = build_source_reputation(
+        "example.com",
+        [],
+        [
+            {"source_ip": "8.8.8.8", "count": 100, "dmarc_fail_count": 0},
+            {"source_ip": "8.8.4.4", "count": 100, "dmarc_fail_count": 0},
+            {"source_ip": "1.1.1.1", "count": 100, "dmarc_fail_count": 0},
+        ],
+        feed_results_by_ip={
+            "8.8.8.8": IPFeedReputation(
+                ip="8.8.8.8",
+                evidence=[
+                    FeedLookupEvidence(
+                        provider_id="demo_feed",
+                        provider_name="Demo Reputation Feed",
+                        status="suspicious",
+                        detail="Provider returned a warning.",
+                    )
+                ],
+            ),
+            "8.8.4.4": IPFeedReputation(
+                ip="8.8.4.4",
+                evidence=[
+                    FeedLookupEvidence(
+                        provider_id="demo_feed",
+                        provider_name="Demo Reputation Feed",
+                        status="error",
+                        detail="lookup timed out",
+                    )
+                ],
+            ),
+            "1.1.1.1": IPFeedReputation(
+                ip="1.1.1.1",
+                evidence=[
+                    FeedLookupEvidence(
+                        provider_id="demo_feed",
+                        provider_name="Demo Reputation Feed",
+                        status="not_configured",
+                        detail="Provider query zone is not configured.",
+                    )
+                ],
+            ),
+        },
+    )
+
+    views = {
+        source.ip: reputation_presentation(source)
+        for source in result.sources
+    }
+
+    suspicious_source = source_reputation_by_ip(result)["8.8.8.8"]
+    assert suspicious_source.risk_score == 20
+    assert any("warning" in item.value for item in suspicious_source.evidence)
+    assert views["8.8.8.8"].feed_status == "checked"
+    assert views["8.8.4.4"].feed_status == "error"
+    assert "errors" in views["8.8.4.4"].feed_summary
+    assert views["1.1.1.1"].feed_status == "not_configured"
+    assert "not configured" in views["1.1.1.1"].feed_summary
+
+
 @pytest.mark.asyncio
 async def test_build_source_reputation_cached_reuses_fresh_result(db_session):
     sources = [

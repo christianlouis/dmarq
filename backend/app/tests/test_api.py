@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from starlette.requests import Request
 
 from app.api.api_v1.endpoints import domains as domains_endpoint
-from app.main import app, members_page, settings
+from app.main import app, health as root_health, members_page, settings
 from app.models.domain import Domain
 from app.models.report import DMARCReport, ReportRecord
 from app.services.workspaces import get_or_create_default_workspace
@@ -59,10 +59,67 @@ def test_release_info_endpoint_exposes_safe_build_metadata(authed_client: TestCl
     assert data["build"]["image_tag"] == "abcdef1"
     assert data["rollout"]["endpoint"] == "/api/v1/health/release"
     assert data["rollout"]["environment"] == "production"
+    assert data["rollout"]["image_tag_matches_short_sha"] is True
     assert data["changelog_url"].endswith("/CHANGELOG.md")
     assert len(data["changes"]) >= 8
     assert "Cloudflare rights profiles" in {item["title"] for item in data["changes"]}
     assert "CSP hardening progress" in {item["title"] for item in data["changes"]}
+
+
+def test_release_info_ignores_digest_only_image_references(authed_client: TestClient, monkeypatch):
+    """Digest-pinned images do not expose a misleading digest as a tag."""
+    from app.api.api_v1.endpoints import (
+        health as health_endpoint,
+    )  # pylint: disable=import-outside-toplevel
+    from app.core.config import Settings  # pylint: disable=import-outside-toplevel
+
+    monkeypatch.setattr(
+        health_endpoint,
+        "get_settings",
+        lambda: Settings(
+            SECRET_KEY="s" * 32,
+            DMARQ_BUILD_SHA="abcdef1234567890",
+            DMARQ_BUILD_IMAGE=(
+                "ghcr.io/christianlouis/dmarq@"
+                "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+            ),
+        ),
+    )
+
+    response = authed_client.get("/api/v1/health/release")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["build"]["image_tag"] is None
+    assert data["rollout"]["image_tag_matches_short_sha"] is False
+
+
+def test_release_info_extracts_tag_from_digest_pinned_tag(authed_client: TestClient, monkeypatch):
+    """Tag-plus-digest image references still expose the tag for rollout checks."""
+    from app.api.api_v1.endpoints import (
+        health as health_endpoint,
+    )  # pylint: disable=import-outside-toplevel
+    from app.core.config import Settings  # pylint: disable=import-outside-toplevel
+
+    monkeypatch.setattr(
+        health_endpoint,
+        "get_settings",
+        lambda: Settings(
+            SECRET_KEY="s" * 32,
+            DMARQ_BUILD_SHA="abcdef1234567890",
+            DMARQ_BUILD_IMAGE=(
+                "ghcr.io/christianlouis/dmarq:abcdef1@"
+                "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+            ),
+        ),
+    )
+
+    response = authed_client.get("/api/v1/health/release")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["build"]["image_tag"] == "abcdef1"
+    assert data["rollout"]["image_tag_matches_short_sha"] is True
 
 
 def test_api_health_includes_release_summary(authed_client: TestClient, monkeypatch):
@@ -91,6 +148,20 @@ def test_api_health_includes_release_summary(authed_client: TestClient, monkeypa
     assert data["release"]["environment"] == "demo"
     assert data["release"]["build"]["short_sha"] == "1234567890ab"
     assert data["release"]["build"]["image"] == "ghcr.io/christianlouis/dmarq:1234567"
+
+
+def test_root_healthz_includes_release_summary(authed_client: TestClient, monkeypatch):
+    """Root health probes expose the same non-secret build summary."""
+    del authed_client
+    monkeypatch.setattr(settings, "ENVIRONMENT", "demo")
+    monkeypatch.setattr(settings, "DMARQ_BUILD_SHA", "1234567890abcdef")
+    monkeypatch.setattr(settings, "DMARQ_BUILD_IMAGE", "ghcr.io/christianlouis/dmarq:1234567")
+
+    data = asyncio.run(root_health())
+
+    assert data["status"] == "ok"
+    assert data["release"]["environment"] == "demo"
+    assert data["release"]["build"]["short_sha"] == "1234567890ab"
 
 
 def test_domains_empty(authed_client: TestClient):
