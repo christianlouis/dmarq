@@ -132,3 +132,16 @@ document.addEventListener('alpine:init', () => {
         document.documentElement.setAttribute('data-theme', 'dmarqlight');
     }
 })();
+
+(function bindReleaseModalTriggers() {
+    document.addEventListener('click', (event) => {
+        const trigger = event.target.closest('[data-release-modal-trigger]');
+        if (!trigger) {
+            return;
+        }
+        const modal = document.getElementById('dmarq-release-modal');
+        if (modal && typeof modal.showModal === 'function') {
+            modal.showModal();
+        }
+    });
+})();
