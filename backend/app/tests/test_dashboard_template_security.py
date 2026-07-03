@@ -98,6 +98,14 @@ def _dashboard_script() -> str:
     return _read_project_file("static", "js", "dashboard-page.js")
 
 
+def _mail_sources_template() -> str:
+    return _read_project_file("templates", "mail_sources.html")
+
+
+def _mail_sources_script() -> str:
+    return _read_project_file("static", "js", "mail-sources-page.js")
+
+
 def _run_dashboard_poll_summary(payload: dict[str, object]) -> str:
     node = shutil.which("node")
     if not node:
@@ -648,6 +656,49 @@ def test_settings_exposes_provider_agnostic_dns_import_without_html_injection():
     assert "/api/v1/domains/dns/import/${encodeURIComponent(providerId)}" in script
     assert "discoverCloudflareZones()" in script
     assert "importCloudflareZones()" in script
+    assert "x-html" not in template
+    assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
+
+
+def test_mail_sources_list_actions_are_bound_from_external_script():
+    template = _mail_sources_template()
+    script = _mail_sources_script()
+
+    assert 'src="/static/js/mail-sources-page.js"' in template
+    assert "data-mail-sources-page" in template
+    assert "data-mail-source-add" in template
+    assert "data-mail-source-toggle" in template
+    assert "data-mail-source-edit" in template
+    assert "data-mail-source-test" in template
+    assert "data-mail-source-fetch" in template
+    assert "data-mail-source-backfill" in template
+    assert "data-mail-source-history" in template
+    assert "data-mail-source-delete" in template
+    assert "data-mail-source-history-close" in template
+    assert "data-mail-source-backfill-refresh" in template
+    assert "data-mail-source-backfill-cancel" in template
+    assert "data-mail-source-backfill-retry" in template
+    assert "data-mail-source-backfill-close" in template
+    assert "data-mail-source-backfill-run" in template
+    assert "data-backfill-days" in template
+    assert "bindPageControls" in script
+    assert "sourceById" in script
+    assert "data-mail-source-toggle" in script
+    assert 'x-on:click="openAddForm()"' not in template
+    assert 'x-on:change="toggleSource(source.id)"' not in template
+    assert 'x-on:click="openEditForm(source)"' not in template
+    assert 'x-on:click="testSource(source.id)"' not in template
+    assert 'x-on:click="fetchSource(source)"' not in template
+    assert 'x-on:click="loadImportHistory(source)"' not in template
+    assert 'x-on:click="confirmDelete(source)"' not in template
+    assert 'x-on:click.stop="openBackfill(source)"' not in template
+    assert 'x-on:click.stop="loadBackfills(source)"' not in template
+    assert 'x-on:click.stop="cancelBackfill(source, latestBackfill(source))"' not in template
+    assert 'x-on:click.stop="retryBackfill(source, latestBackfill(source))"' not in template
+    assert 'x-on:click="backfillDays = 7"' not in template
+    assert 'x-on:click="backfillDays = 30"' not in template
+    assert 'x-on:click="backfillDays = 90"' not in template
+    assert 'x-on:click="runBackfill()"' not in template
     assert "x-html" not in template
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
