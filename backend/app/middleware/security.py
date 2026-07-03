@@ -22,6 +22,41 @@ from starlette.responses import Response
 logger = logging.getLogger(__name__)
 
 
+def _strict_csp_directives() -> list[str]:
+    """Return the target CSP once templates and Alpine runtime are fully migrated."""
+    return [
+        "default-src 'self'",
+        "script-src 'self' https://cdn.tailwindcss.com https://cdn.jsdelivr.net",
+        "style-src 'self' https://fonts.googleapis.com https://cdn.jsdelivr.net",
+        "font-src 'self' https://fonts.gstatic.com",
+        "img-src 'self' data: https:",
+        "connect-src 'self'",
+        "frame-ancestors 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+    ]
+
+
+def _relaxed_csp_directives() -> list[str]:
+    """Return the compatibility CSP required by the current CDN Alpine runtime."""
+    return [
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdn.jsdelivr.net",
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net",
+        "font-src 'self' https://fonts.gstatic.com",
+        "img-src 'self' data: https:",
+        "connect-src 'self'",
+        "frame-ancestors 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+    ]
+
+
+def _truthy_env(name: str) -> bool:
+    """Return whether a boolean environment flag is enabled."""
+    return os.environ.get(name, "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """
     Middleware to add security headers to all HTTP responses.
@@ -51,58 +86,18 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         """
         response = await call_next(request)
 
-        # Content Security Policy (CSP)
-        # Restricts sources of content that can be loaded
-        #
-        # SECURITY TODO: Current CSP includes 'unsafe-inline' which weakens
-        # XSS protection. To remove it:
-        #
-        # For script-src 'unsafe-inline':
-        # 1. Move all inline <script> tags from templates to external .js files
-        # 2. OR implement CSP nonces for inline scripts (requires template changes)
-        # 3. Convert any inline event handlers (onclick, etc.) to addEventListener
-        #
-        # For style-src 'unsafe-inline':
-        # 1. Move inline styles to CSS files or use style tags with nonces
-        # 2. Replace style="" attributes with CSS classes
-        # 3. OR implement CSP nonces for inline styles
-        #
-        # Target secure CSP (no inline):
-        # "script-src 'self'"
-        # "style-src 'self' https://fonts.googleapis.com"
-        #
-        # See: https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP
-        csp_directives = [
-            "default-src 'self'",
-            # TODO: Remove 'unsafe-inline' and 'unsafe-eval' - requires moving inline
-            # scripts to external files and replacing the standard Alpine CDN build
-            # with the CSP-compatible build.  # pylint: disable=fixme
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
-            " https://cdn.tailwindcss.com https://cdn.jsdelivr.net",
-            # TODO: Remove 'unsafe-inline' - requires moving inline styles to CSS or using nonces  # pylint: disable=fixme
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com"
-            " https://cdn.jsdelivr.net",
-            "font-src 'self' https://fonts.gstatic.com",
-            "img-src 'self' data: https:",
-            "connect-src 'self'",
-            "frame-ancestors 'none'",  # Prevent framing
-            "base-uri 'self'",
-            "form-action 'self'",
-        ]
+        # Content Security Policy (CSP). Default remains compatibility mode for the
+        # current CDN Alpine runtime; operators can enable the strict target policy
+        # after validating their deployment with CSP_REPORT_ONLY=true.
+        csp_directives = (
+            _strict_csp_directives()
+            if _truthy_env("CSP_ENFORCE_STRICT")
+            else _relaxed_csp_directives()
+        )
         response.headers["Content-Security-Policy"] = "; ".join(csp_directives)
 
-        if os.environ.get("CSP_REPORT_ONLY", "false").lower() == "true":
-            report_only_directives = [
-                "default-src 'self'",
-                "script-src 'self' https://cdn.tailwindcss.com https://cdn.jsdelivr.net",
-                "style-src 'self' https://fonts.googleapis.com https://cdn.jsdelivr.net",
-                "font-src 'self' https://fonts.gstatic.com",
-                "img-src 'self' data: https:",
-                "connect-src 'self'",
-                "frame-ancestors 'none'",
-                "base-uri 'self'",
-                "form-action 'self'",
-            ]
+        if _truthy_env("CSP_REPORT_ONLY"):
+            report_only_directives = _strict_csp_directives()
             response.headers["Content-Security-Policy-Report-Only"] = "; ".join(
                 report_only_directives
             )
