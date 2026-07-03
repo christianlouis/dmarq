@@ -26,6 +26,34 @@ DEFAULT_DISPATCH_EVENTS = {
 }
 ACKNOWLEDGED_LIFECYCLE_STATES = {"previewed", "acknowledged"}
 OPERATOR_HELD_LIFECYCLE_STATES = {"resolved", "rejected", "snoozed"}
+BLOCKED_REASON_NEXT_STEPS = (
+    (
+        "Remediation dispatch is disabled",
+        f"Enable {DISPATCH_ENABLED_KEY} after testing routing.",
+    ),
+    ("This remediation event", f"Add the event to {DISPATCH_EVENTS_KEY}."),
+    ("Only webhook", f"Set {DISPATCH_CHANNEL_KEY}=webhook."),
+    (
+        "Record a previewed",
+        "Record a previewed or acknowledged remediation notification audit marker.",
+    ),
+    (
+        "Operator marked this remediation item resolved",
+        "Keep monitoring new reports; reopen the item only if the finding returns.",
+    ),
+    (
+        "Operator marked this remediation item rejected",
+        "Review the rejection history before creating a new dispatch request.",
+    ),
+    (
+        "Operator marked this remediation item snoozed",
+        "Wait for the snooze window or record a new lifecycle marker to resume.",
+    ),
+    (
+        "No enabled webhook",
+        "Create or enable a webhook endpoint subscribed to the remediation event.",
+    ),
+)
 HISTORY_ACTIONS = {
     "remediation.notification_lifecycle_recorded",
     "remediation.notification_dispatch_enqueued",
@@ -300,26 +328,9 @@ def _next_steps(blocked_reasons: List[str]) -> List[str]:
         return ["Review the payload preview, then use the future dispatch endpoint to enqueue it."]
     steps = []
     for reason in blocked_reasons:
-        if reason.startswith("Remediation dispatch is disabled"):
-            steps.append(f"Enable {DISPATCH_ENABLED_KEY} after testing routing.")
-        elif reason.startswith("This remediation event"):
-            steps.append(f"Add the event to {DISPATCH_EVENTS_KEY}.")
-        elif reason.startswith("Only webhook"):
-            steps.append(f"Set {DISPATCH_CHANNEL_KEY}=webhook.")
-        elif reason.startswith("Record a previewed"):
-            steps.append(
-                "Record a previewed or acknowledged remediation notification audit marker."
-            )
-        elif reason.startswith("Operator marked this remediation item resolved"):
-            steps.append(
-                "Keep monitoring new reports; reopen the item only if the finding returns."
-            )
-        elif reason.startswith("Operator marked this remediation item rejected"):
-            steps.append("Review the rejection history before creating a new dispatch request.")
-        elif reason.startswith("Operator marked this remediation item snoozed"):
-            steps.append("Wait for the snooze window or record a new lifecycle marker to resume.")
-        elif reason.startswith("No enabled webhook"):
-            steps.append("Create or enable a webhook endpoint subscribed to the remediation event.")
+        steps.extend(
+            step for prefix, step in BLOCKED_REASON_NEXT_STEPS if reason.startswith(prefix)
+        )
     return steps
 
 
