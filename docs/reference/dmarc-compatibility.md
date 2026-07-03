@@ -2,6 +2,24 @@
 
 DMARQ imports DMARC aggregate reports from direct uploads, IMAP attachments, Gmail API attachments, and the Cloudflare Email Worker webhook. Compatibility is locked by the fixture pack in `backend/app/tests/fixtures/dmarc_aggregate`.
 
+## Protocol Coverage Boundary
+
+DMARQ is a report consumer and DNS posture assistant. It parses standards-based
+reports, stores privacy-preserving evidence, and helps operators repair their
+own sending posture. It is not a mail receiver, outbound report generator, or
+mail gateway.
+
+| Protocol or signal | DMARQ support level | Boundary |
+| --- | --- | --- |
+| DMARC aggregate/RUA | Supported | Parse, persist, analyze, export, and visualize inbound aggregate reports. |
+| DMARC failure/RUF / ARF | Supported as inbound evidence | Parse inbound `multipart/report` and `message/feedback-report` metadata for operators who receive failure reports. DMARQ does not generate outbound ARF/RUF reports. |
+| SMTP TLS reports / TLS-RPT | Supported | Parse inbound TLS report data and surface posture/failure evidence. |
+| MTA-STS | Supported read-only posture | Check TXT and HTTPS policy presence, syntax, and enforcement mode. |
+| BIMI | Supported read-only posture | Check default selector and DMARC prerequisites. |
+| DANE/TLSA for MX hosts | Supported read-only guidance | Check TLSA coverage and syntax, and suggest `3 1 1` SPKI hashes when live SMTP STARTTLS evidence is reachable. DMARQ does not manage DNSSEC validation state. |
+| ARC | Passive diagnostic context only | Record redacted ARC header presence from failure-report samples when present. DMARQ does not validate ARC chains and does not use ARC to override DMARC alignment. |
+| DNS provider writes | Human-approved only | Low-risk TXT/CNAME changes can be previewed and applied through supported providers after explicit operator confirmation. |
+
 ## Supported Aggregate Inputs
 
 - Plain XML files with a `.xml` extension.

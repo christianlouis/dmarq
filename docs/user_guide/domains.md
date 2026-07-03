@@ -234,6 +234,18 @@ When `_mta-sts.<domain>` exists but `mta-sts.<domain>` does not resolve or the H
 
 MTA-STS posture uses the same cached DNS refresh behavior as the existing DNS health checks. Use the DNS refresh action when you publish or update a policy and need DMARQ to re-check immediately.
 
+### DANE/TLSA Posture
+
+When a domain has MX records, DMARQ can inspect passive DANE/TLSA readiness for
+the `_25._tcp.<mx-host>` names. The check is read-only: it reports whether TLSA
+records exist, whether their syntax is usable, and whether a reachable SMTP
+STARTTLS certificate can produce an operator-ready `3 1 1` SPKI SHA-256
+suggestion.
+
+Treat generated TLSA values as review evidence, not an automatic DNS change.
+The operator still needs to confirm DNSSEC posture, MX certificate rotation
+policy, and maintenance timing before publishing or replacing TLSA records.
+
 ### BIMI Readiness
 
 The domain detail page checks the default BIMI selector at
