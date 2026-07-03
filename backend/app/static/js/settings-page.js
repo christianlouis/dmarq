@@ -65,6 +65,57 @@ function settingsApp() {
 
         // Session cookie is sent automatically by the browser (httpOnly, same-origin).
         // No manual auth header needed for API calls from the UI.
+        initSettingsPage() {
+            this.bindProviderControls();
+            return this.loadSettings();
+        },
+
+        bindProviderControls() {
+            if (this._providerControlsBound || !this.$root) {
+                return;
+            }
+            this._providerControlsBound = true;
+            this.$root.addEventListener('click', event => {
+                if (!(event.target instanceof Element)) {
+                    return;
+                }
+                const button = event.target.closest('button');
+                if (!button || !this.$root.contains(button)) {
+                    return;
+                }
+                if (button.matches('[data-settings-cloudflare-connect]')) {
+                    event.preventDefault();
+                    this.connectCloudflare();
+                } else if (button.matches('[data-settings-toggle-cf-token]')) {
+                    event.preventDefault();
+                    this.showCfToken = !this.showCfToken;
+                } else if (button.matches('[data-settings-discover-dns-zones]')) {
+                    event.preventDefault();
+                    this.discoverDNSProviderZones();
+                } else if (button.matches('[data-settings-import-dns-zones]')) {
+                    event.preventDefault();
+                    this.importDNSProviderZones();
+                } else if (button.matches('[data-settings-toggle-postmark-token]')) {
+                    event.preventDefault();
+                    this.showPostmarkToken = !this.showPostmarkToken;
+                } else if (button.matches('[data-settings-discover-mail-domains]')) {
+                    event.preventDefault();
+                    this.discoverMailServiceDomains();
+                } else if (button.matches('[data-settings-import-mail-domains]')) {
+                    event.preventDefault();
+                    this.importMailServiceDomains();
+                }
+            });
+            this.$root.addEventListener('change', event => {
+                if (!(event.target instanceof Element)) {
+                    return;
+                }
+                if (event.target.matches('[data-settings-dns-provider-select]')) {
+                    this.resetDnsProviderImportState();
+                }
+            });
+        },
+
         apiHeaders() {
             return { 'Content-Type': 'application/json' };
         },

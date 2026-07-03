@@ -10,8 +10,9 @@
 
 {% block content %}
 <div
+    data-settings-page
     x-data="settingsApp()"
-    x-init="loadSettings()"
+    x-init="initSettingsPage()"
     class="space-y-6 py-4"
 >
 
@@ -206,7 +207,7 @@
                         </div>
                         <button type="button" class="btn btn-default btn-sm"
                             :disabled="connectingCloudflare || !cfOAuthStatus.oauth_configured"
-                            @click="connectCloudflare()">
+                            data-settings-cloudflare-connect>
                             <template x-if="!connectingCloudflare">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
                                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
@@ -228,7 +229,7 @@
                             placeholder="Your Cloudflare API token" />
                         <button type="button"
                             class="absolute right-2 top-3 text-muted-foreground hover:text-foreground"
-                            @click="showCfToken = !showCfToken">
+                            data-settings-toggle-cf-token>
                             <svg x-show="!showCfToken" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
                             <svg x-show="showCfToken" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
                         </button>
@@ -252,14 +253,14 @@
                             <label class="sr-only" for="dns-provider-import-select">DNS provider</label>
                             <select id="dns-provider-import-select"
                                 x-model="selectedDnsProvider"
-                                @change="resetDnsProviderImportState()"
+                                data-settings-dns-provider-select
                                 class="select select-sm select-bordered min-w-44"
                                 :disabled="loadingDnsProviders || loadingCfZones || importingCfZones">
                                 <template x-for="provider in dnsImportProviders()" :key="provider.id">
                                     <option :value="provider.id" x-text="provider.name"></option>
                                 </template>
                             </select>
-                            <button type="button" class="btn btn-outline btn-sm" :disabled="saving || loadingCfZones || !selectedDnsProvider" @click="discoverDNSProviderZones()">
+                            <button type="button" class="btn btn-outline btn-sm" :disabled="saving || loadingCfZones || !selectedDnsProvider" data-settings-discover-dns-zones>
                                 <template x-if="!loadingCfZones">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
                                         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
@@ -270,7 +271,7 @@
                                 <template x-if="loadingCfZones"><span class="loading loading-spinner loading-xs mr-2"></span></template>
                                 Discover
                             </button>
-                            <button type="button" class="btn btn-default btn-sm" :disabled="saving || importingCfZones || importableDnsProviderZoneCount() === 0" @click="importDNSProviderZones()">
+                            <button type="button" class="btn btn-default btn-sm" :disabled="saving || importingCfZones || importableDnsProviderZoneCount() === 0" data-settings-import-dns-zones>
                                 <template x-if="!importingCfZones">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
                                         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
@@ -384,7 +385,7 @@
                             placeholder="Postmark account token" />
                         <button type="button"
                             class="absolute right-2 top-3 text-muted-foreground hover:text-foreground"
-                            @click="showPostmarkToken = !showPostmarkToken">
+                            data-settings-toggle-postmark-token>
                             <svg x-show="!showPostmarkToken" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
                                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
                             <svg x-show="showPostmarkToken" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
@@ -401,7 +402,7 @@
                             <p class="text-sm text-muted-foreground">Preview Postmark domains and import them into DMARQ for DNS linting and monitoring.</p>
                         </div>
                         <div class="flex flex-col gap-2 sm:flex-row">
-                            <button type="button" class="btn btn-outline btn-sm" :disabled="saving || loadingMailServiceDomains" @click="discoverMailServiceDomains()">
+                            <button type="button" class="btn btn-outline btn-sm" :disabled="saving || loadingMailServiceDomains" data-settings-discover-mail-domains>
                                 <template x-if="!loadingMailServiceDomains">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
                                         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
@@ -412,7 +413,7 @@
                                 <template x-if="loadingMailServiceDomains"><span class="loading loading-spinner loading-xs mr-2"></span></template>
                                 Discover
                             </button>
-                            <button type="button" class="btn btn-default btn-sm" :disabled="saving || importingMailServiceDomains || mailServiceDomains.length === 0" @click="importMailServiceDomains()">
+                            <button type="button" class="btn btn-default btn-sm" :disabled="saving || importingMailServiceDomains || mailServiceDomains.length === 0" data-settings-import-mail-domains>
                                 <template x-if="!importingMailServiceDomains">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
                                         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
