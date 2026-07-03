@@ -97,7 +97,7 @@ class TestSetupPage:
         assert '@submit.prevent="submitSystem"' in response.text
         assert 'data-app-name="DMARQ"' in response.text
         assert 'src="/static/js/setup-page.js"' in response.text
-        assert 'src="/static/js/setup.js"' not in response.text
+        assert "/static/js/setup.js" not in response.text
         assert "/onboarding" not in response.text
 
     def test_setup_page_links_onboarding_when_logto_is_configured(self, monkeypatch):
