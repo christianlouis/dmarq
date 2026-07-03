@@ -31,6 +31,7 @@ from app.services.source_network import (
 from app.services.source_reputation import (
     SourceReputation,
     build_source_reputation_cached,
+    reputation_presentation,
     source_reputation_by_ip,
 )
 from app.services.workspace_access import (
@@ -748,11 +749,17 @@ def _source_row_from_report_record(record: Dict[str, Any]) -> Dict[str, Any]:
 
 def _source_reputation_dict(item: SourceReputation) -> Dict[str, Any]:
     """Return a template-friendly reputation payload."""
+    presentation = reputation_presentation(item)
     return {
         "ip": item.ip,
         "status": item.status,
+        "status_label": presentation.status_label,
+        "status_detail": presentation.status_detail,
         "risk_score": item.risk_score,
         "summary": item.summary,
+        "evidence_summary": presentation.evidence_summary,
+        "feed_status": presentation.feed_status,
+        "feed_summary": presentation.feed_summary,
         "listings": item.listings,
         "evidence": [
             {"label": evidence.label, "value": evidence.value, "source": evidence.source}

@@ -1,18 +1,6 @@
-/**
- * DMARQ Frontend Styles with DaisyUI
- */
-
-/* Base style imports */
-@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Open+Sans:wght@400;500;600&display=swap');
-
-/* Include Tailwind layers */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-/* Load DaisyUI plugins */
-@plugin "./daisyui.js";
-@plugin "./daisyui-theme.js";
 
 /* Base styles */
 body {

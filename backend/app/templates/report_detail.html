@@ -6,7 +6,7 @@
 {% block title %}DMARQ - Report Detail{% endblock %}
 
 {% block content %}
-<div class="space-y-6" x-data="reportDetailApp('{{ report_id }}')">
+<div class="space-y-6" x-data="reportDetailApp('{{ report_id }}')" x-cloak>
     <nav class="text-sm text-[#5f5c78]">
         <ol class="flex items-center space-x-2">
             <li><a href="/" class="font-semibold hover:text-[#2f9da5]">Dashboard</a></li>
@@ -30,7 +30,12 @@
             <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <span x-text="error"></span>
+            <div class="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <span x-text="error"></span>
+                <button type="button" class="btn btn-outline btn-sm" @click="fetchReport()">
+                    Retry
+                </button>
+            </div>
         </div>
     </template>
 
@@ -246,16 +251,31 @@
                                             <div x-show="record.source_details?.network_error && !record.source_details?.asn && !record.source_details?.network"
                                                  x-text="record.source_details.network_error"></div>
                                             <template x-if="record.reputation">
-                                                <div class="pt-1">
-                                                    <span class="inline-flex items-center px-2 py-1 rounded text-xs"
-                                                          :class="reputationClass(record.reputation.status)"
-                                                          x-text="`Reputation ${record.reputation.risk_score}/100 · ${record.reputation.status}`"></span>
-                                                    <div class="mt-1" x-text="record.reputation.summary"></div>
+                                                <div class="space-y-1 pt-1">
+                                                    <div class="flex flex-wrap gap-1">
+                                                        <span class="inline-flex items-center px-2 py-1 rounded text-xs"
+                                                              :class="reputationClass(record.reputation.status)"
+                                                              x-text="`${reputationLabel(record.reputation)} · risk ${record.reputation.risk_score}/100`"></span>
+                                                        <span class="inline-flex items-center px-2 py-1 rounded text-xs"
+                                                              :class="reputationFeedClass(record.reputation.feed_status)"
+                                                              x-text="record.reputation.feed_summary || 'Local reputation evidence only'"></span>
+                                                    </div>
+                                                    <div x-text="record.reputation.status_detail || record.reputation.summary"></div>
+                                                    <div class="text-muted-foreground" x-text="reputationCheckedLabel(record.reputation)"></div>
                                                     <template x-if="record.reputation.listings?.length">
                                                         <div class="font-semibold text-[#ff6f3c]">
                                                             DNSBL: <span x-text="record.reputation.listings.join(', ')"></span>
                                                         </div>
                                                     </template>
+                                                    <div class="flex flex-wrap gap-1" x-show="reputationEvidencePreview(record.reputation).length">
+                                                        <template x-for="item in reputationEvidencePreview(record.reputation)" :key="item.label + item.value">
+                                                            <span class="inline-flex max-w-full items-center rounded bg-base-200 px-2 py-0.5 text-[11px] text-base-content/75">
+                                                                <span class="font-medium" x-text="item.label"></span>
+                                                                <span class="px-1">·</span>
+                                                                <span class="truncate" x-text="item.value"></span>
+                                                            </span>
+                                                        </template>
+                                                    </div>
                                                 </div>
                                             </template>
                                         </div>

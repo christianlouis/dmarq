@@ -51,6 +51,17 @@ class SourceReputation:
 
 
 @dataclass
+class ReputationPresentation:
+    """Frontend-friendly reputation labels and evidence context."""
+
+    status_label: str
+    status_detail: str
+    feed_status: str
+    feed_summary: str
+    evidence_summary: str
+
+
+@dataclass
 class DomainReputation:
     """Domain-level reputation summary for observed sending infrastructure."""
 
@@ -374,7 +385,15 @@ def _external_feed_notes(feed_result: Optional[IPFeedReputation]) -> List[Reputa
         return []
     notes: List[ReputationEvidence] = []
     for item in feed_result.evidence:
-        if item.status in {"error", "not_configured"}:
+        if item.status == "clean":
+            notes.append(
+                ReputationEvidence(
+                    f"{item.provider_name} lookup",
+                    item.detail or "clean",
+                    "external",
+                )
+            )
+        elif item.status in {"error", "not_configured", "skipped"}:
             notes.append(
                 ReputationEvidence(
                     f"{item.provider_name} lookup",
@@ -425,6 +444,60 @@ def _recommendations(
     if listings:
         return ["Review reputation-list evidence before changing DMARC policy."]
     return []
+
+
+def reputation_presentation(item: SourceReputation) -> ReputationPresentation:
+    """Return labels that make reputation evidence understandable in templates."""
+    status_label = {
+        "listed": "Listed",
+        "critical": "Critical",
+        "suspicious": "Needs review",
+        "clean": "Clean",
+        "unknown": "Not enough evidence",
+    }.get(item.status, item.status.replace("_", " ").title())
+    status_detail = {
+        "listed": "External or metadata evidence says this IP is listed.",
+        "critical": "High local or external risk signals were observed.",
+        "suspicious": "Some evidence needs operator review before trusting this source.",
+        "clean": "No local or configured external reputation findings were found.",
+        "unknown": "DMARQ has local DMARC evidence, but no decisive reputation signal.",
+    }.get(item.status, item.summary)
+
+    external_evidence = [evidence for evidence in item.evidence if evidence.source == "external"]
+    external_values = " ".join(evidence.value.lower() for evidence in external_evidence)
+    if item.listings:
+        feed_status = "listed"
+        feed_summary = "Listed by " + ", ".join(item.listings[:3])
+        if len(item.listings) > 3:
+            feed_summary += f" +{len(item.listings) - 3}"
+    elif any("not configured" in evidence.value.lower() for evidence in external_evidence):
+        feed_status = "not_configured"
+        feed_summary = "External reputation feeds are not configured."
+    elif any(
+        token in external_values
+        for token in ("timed out", "unavailable", "unexpected", "error")
+    ):
+        feed_status = "error"
+        feed_summary = "External reputation lookup returned errors."
+    elif external_evidence:
+        feed_status = "checked"
+        feed_summary = "External reputation feeds checked without listings."
+    else:
+        feed_status = "local_only"
+        feed_summary = "Using local DMARC evidence only; external feeds are not enabled."
+
+    evidence_summary = item.summary
+    if item.evidence:
+        primary = item.evidence[0]
+        evidence_summary = f"{item.summary} Evidence: {primary.label} {primary.value}."
+
+    return ReputationPresentation(
+        status_label=status_label,
+        status_detail=status_detail,
+        feed_status=feed_status,
+        feed_summary=feed_summary,
+        evidence_summary=evidence_summary,
+    )
 
 
 def build_source_reputation(

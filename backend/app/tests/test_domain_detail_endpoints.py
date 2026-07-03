@@ -2551,6 +2551,9 @@ def test_get_domain_sources_includes_ip_intelligence_and_reputation(
     assert source["geo"]["allocated"] == "2004-02-17"
     assert source["geo"]["network_source"] == "team-cymru"
     assert source["reputation"]["status"] == "listed"
+    assert source["reputation"]["status_label"] == "Listed"
+    assert source["reputation"]["feed_status"] == "listed"
+    assert "Spamhaus Zen" in source["reputation"]["feed_summary"]
     assert source["reputation"]["risk_score"] == 85
     assert source["reputation"]["listings"] == ["Spamhaus Zen"]
     recommendation_types = {item["type"] for item in source["recommendations"]}

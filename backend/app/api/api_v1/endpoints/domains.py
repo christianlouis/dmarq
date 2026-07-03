@@ -122,6 +122,7 @@ from app.services.source_network import (
 from app.services.source_reputation import (
     SourceReputation,
     build_source_reputation_cached,
+    reputation_presentation,
     source_reputation_by_ip,
 )
 from app.services.source_reputation_feeds import feed_registry
@@ -1481,8 +1482,13 @@ class SourceReputationResponse(BaseModel):
 
     ip: str
     status: str
+    status_label: str
+    status_detail: str
     risk_score: int
     summary: str
+    evidence_summary: str
+    feed_status: str
+    feed_summary: str
     listings: List[str] = Field(default_factory=list)
     evidence: List[SourceReputationEvidence] = Field(default_factory=list)
     recommendations: List[str] = Field(default_factory=list)
@@ -6199,11 +6205,17 @@ def _policy_not_enforced_recommendation() -> SourceRecommendation:
 
 
 def _source_reputation_response(item: SourceReputation) -> SourceReputationResponse:
+    presentation = reputation_presentation(item)
     return SourceReputationResponse(
         ip=item.ip,
         status=item.status,
+        status_label=presentation.status_label,
+        status_detail=presentation.status_detail,
         risk_score=item.risk_score,
         summary=item.summary,
+        evidence_summary=presentation.evidence_summary,
+        feed_status=presentation.feed_status,
+        feed_summary=presentation.feed_summary,
         listings=item.listings,
         evidence=[
             SourceReputationEvidence(

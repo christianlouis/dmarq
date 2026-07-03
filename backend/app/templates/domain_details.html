@@ -1655,25 +1655,43 @@
                                         <template x-if="source.geo?.network_error && !source.geo?.asn && !source.geo?.network">
                                             <p class="text-muted-foreground" x-text="source.geo.network_error"></p>
                                         </template>
-                                        <div class="flex flex-wrap items-center gap-1.5">
-                                            <span
-                                                class="inline-flex items-center rounded-full px-2 py-0.5 font-semibold"
-                                                :class="reputationStatusClass(source.reputation?.status)"
-                                                x-text="source.reputation?.status || 'reputation unknown'"
-                                            ></span>
-                                            <template x-if="source.reputation?.risk_score !== undefined && source.reputation?.risk_score !== null">
-                                                <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-medium text-base-content/80" x-text="'risk ' + source.reputation.risk_score + '/100'"></span>
-                                            </template>
-                                        </div>
-                                        <template x-if="source.reputation?.listings?.length">
-                                            <p class="text-muted-foreground">
-                                                <span>Listed on </span>
-                                                <span x-text="source.reputation.listings.slice(0, 2).join(', ')"></span>
-                                                <span x-show="source.reputation.listings.length > 2" x-text="' +' + (source.reputation.listings.length - 2)"></span>
-                                            </p>
+                                        <template x-if="source.reputation">
+                                            <div class="space-y-1.5">
+                                                <div class="flex flex-wrap items-center gap-1.5">
+                                                    <span
+                                                        class="inline-flex items-center rounded-full px-2 py-0.5 font-semibold"
+                                                        :class="reputationStatusClass(source.reputation.status)"
+                                                        x-text="reputationLabel(source.reputation)"
+                                                    ></span>
+                                                    <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-medium text-base-content/80" x-text="reputationRiskLabel(source.reputation)"></span>
+                                                    <span
+                                                        class="inline-flex items-center rounded-full px-2 py-0.5 font-medium"
+                                                        :class="reputationFeedClass(source.reputation.feed_status)"
+                                                        x-text="source.reputation.feed_summary || 'Local reputation evidence only'"
+                                                    ></span>
+                                                </div>
+                                                <p class="text-muted-foreground" x-text="source.reputation.status_detail || source.reputation.summary"></p>
+                                                <p class="text-muted-foreground" x-text="reputationCheckedLabel(source.reputation)"></p>
+                                                <template x-if="source.reputation?.listings?.length">
+                                                    <p class="font-medium text-[#ff6f3c]">
+                                                        <span>Listed on </span>
+                                                        <span x-text="source.reputation.listings.slice(0, 2).join(', ')"></span>
+                                                        <span x-show="source.reputation.listings.length > 2" x-text="' +' + (source.reputation.listings.length - 2)"></span>
+                                                    </p>
+                                                </template>
+                                                <div class="flex flex-wrap gap-1" x-show="reputationEvidencePreview(source.reputation).length">
+                                                    <template x-for="item in reputationEvidencePreview(source.reputation)" :key="item.label + item.value">
+                                                        <span class="inline-flex max-w-full items-center rounded bg-base-200 px-2 py-0.5 text-[11px] text-base-content/75">
+                                                            <span class="font-medium" x-text="item.label"></span>
+                                                            <span class="px-1">·</span>
+                                                            <span class="truncate" x-text="item.value"></span>
+                                                        </span>
+                                                    </template>
+                                                </div>
+                                            </div>
                                         </template>
-                                        <template x-if="source.reputation?.summary">
-                                            <p class="text-muted-foreground" x-text="source.reputation.summary"></p>
+                                        <template x-if="!source.reputation">
+                                            <p class="text-muted-foreground">Reputation has not been calculated for this source yet.</p>
                                         </template>
                                         <template x-if="!source.geo?.asn && !source.geo?.network && !source.reputation">
                                             <p class="text-muted-foreground">No ASN or reputation evidence available yet.</p>

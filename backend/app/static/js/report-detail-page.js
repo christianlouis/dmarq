@@ -35,16 +35,21 @@ function reportDetailApp(reportId) {
         },
 
         async fetchReport() {
+            this.loading = true;
+            this.error = null;
             try {
                 const response = await fetch(`/api/v1/reports/${encodeURIComponent(this.reportId)}`);
                 if (response.ok) {
                     this.report = await response.json();
                 } else if (response.status === 404) {
+                    this.report = null;
                     this.error = `Report '${this.reportId}' was not found. It may have been deleted or may not exist.`;
                 } else {
+                    this.report = null;
                     this.error = 'Failed to load report. Please try again later.';
                 }
             } catch (err) {
+                this.report = null;
                 this.error = 'Network error — could not load report.';
                 console.error('Error fetching report:', err);
             } finally {
@@ -125,6 +130,28 @@ function reportDetailApp(reportId) {
             if (status === 'suspicious') return 'bg-yellow-100 text-yellow-800';
             if (status === 'clean') return 'bg-green-100 text-green-800';
             return 'bg-gray-100 text-gray-800';
+        },
+
+        reputationFeedClass(status) {
+            if (status === 'listed') return 'bg-red-50 text-red-800';
+            if (status === 'error') return 'bg-yellow-50 text-yellow-800';
+            if (status === 'checked') return 'bg-green-50 text-green-800';
+            return 'bg-base-200 text-base-content/70';
+        },
+
+        reputationLabel(reputation) {
+            return reputation?.status_label || reputation?.status || 'Reputation unavailable';
+        },
+
+        reputationCheckedLabel(reputation) {
+            if (!reputation?.checked_at) return 'not checked yet';
+            const date = new Date(reputation.checked_at);
+            if (Number.isNaN(date.getTime())) return reputation.checked_at;
+            return `checked ${date.toLocaleString()}`;
+        },
+
+        reputationEvidencePreview(reputation) {
+            return (reputation?.evidence || []).slice(0, 3);
         },
     };
 }

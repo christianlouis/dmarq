@@ -3,7 +3,11 @@
 {% set release_info = release_info | default({
     'label': 'vlocal',
     'version': 'local',
-    'build': {'short_sha': none, 'ref': none, 'date': none},
+    'environment': 'local',
+    'demo_mode': false,
+    'public_base_url': none,
+    'build': {'short_sha': none, 'ref': none, 'date': none, 'image': none, 'image_tag': none},
+    'rollout': {'image_tag_matches_short_sha': false},
     'changes': []
 }) %}
 <html lang="en" data-theme="dmarqlight" data-multi-workspace-ui="{{ 'true' if multi_workspace_ui_enabled else 'false' }}" class="dark:data-theme-dmarqdark">
@@ -21,14 +25,13 @@
     <!-- Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Open+Sans:wght@400;500;600&display=swap" rel="stylesheet">
     
-    <!-- Tailwind CSS & DaisyUI via CDN -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.24/dist/full.css" rel="stylesheet" type="text/css"/>
+    <!-- Built Tailwind CSS & DaisyUI bundle -->
+    <link href="/static/css/app.css" rel="stylesheet" type="text/css"/>
 
     <!-- Alpine.js for interactivity -->
     <script src="/static/js/pages.js"></script>
     <script src="/static/js/base-layout.js"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script defer src="/static/js/vendor/alpine.min.js"></script>
     <link href="/static/css/page-utilities.css" rel="stylesheet" type="text/css"/>
 
     {% block head %}{% endblock %}
@@ -184,9 +187,19 @@
                             <dd>{{ release_info.version }}</dd>
                         </div>
                         <div>
+                            <dt class="font-semibold text-base-content">Environment</dt>
+                            <dd>{{ release_info.environment }}</dd>
+                        </div>
+                        <div>
                             <dt class="font-semibold text-base-content">Build</dt>
                             <dd>{{ release_info.build.short_sha or 'local' }}</dd>
                         </div>
+                        {% if release_info.build.image_tag %}
+                        <div>
+                            <dt class="font-semibold text-base-content">Image tag</dt>
+                            <dd class="truncate">{{ release_info.build.image_tag }}</dd>
+                        </div>
+                        {% endif %}
                         {% if release_info.build.ref %}
                         <div>
                             <dt class="font-semibold text-base-content">Ref</dt>
@@ -199,7 +212,17 @@
                             <dd>{{ release_info.build.date }}</dd>
                         </div>
                         {% endif %}
+                        {% if release_info.build.image %}
+                        <div class="sm:col-span-2">
+                            <dt class="font-semibold text-base-content">Image</dt>
+                            <dd class="truncate font-mono text-xs">{{ release_info.build.image }}</dd>
+                        </div>
+                        {% endif %}
                     </dl>
+                    <p class="mt-3 text-xs text-base-content/60">
+                        Release endpoint:
+                        <a class="link link-primary" href="/api/v1/health/release" target="_blank" rel="noopener noreferrer">/api/v1/health/release</a>
+                    </p>
                 </div>
                 <div>
                     <div class="flex items-center justify-between gap-3">

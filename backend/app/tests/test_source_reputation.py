@@ -5,6 +5,7 @@ import pytest
 from app.services.source_reputation import (
     build_source_reputation,
     build_source_reputation_cached,
+    reputation_presentation,
     source_reputation_by_ip,
 )
 from app.services.source_reputation_feeds import FeedLookupEvidence, IPFeedReputation
@@ -201,6 +202,108 @@ def test_build_source_reputation_merges_external_feed_listing():
     assert source.risk_score >= 45
     assert any(item.label == "External reputation feeds" for item in source.evidence)
     assert any("delisting" in item for item in source.recommendations)
+
+
+def test_reputation_presentation_distinguishes_local_only_from_checked_feeds():
+    local_result = build_source_reputation(
+        "example.com",
+        [],
+        [{"source_ip": "8.8.8.8", "count": 100, "dmarc_fail_count": 0}],
+    )
+
+    local_view = reputation_presentation(local_result.sources[0])
+
+    assert local_view.status_label == "Clean"
+    assert local_view.feed_status == "local_only"
+    assert "local DMARC evidence" in local_view.feed_summary
+
+    checked_result = build_source_reputation(
+        "example.com",
+        [],
+        [{"source_ip": "8.8.4.4", "count": 100, "dmarc_fail_count": 0}],
+        feed_results_by_ip={
+            "8.8.4.4": IPFeedReputation(
+                ip="8.8.4.4",
+                evidence=[
+                    FeedLookupEvidence(
+                        provider_id="demo_feed",
+                        provider_name="Demo Reputation Feed",
+                        status="clean",
+                        detail="clean",
+                    )
+                ],
+            )
+        },
+    )
+
+    checked_source = checked_result.sources[0]
+    checked_view = reputation_presentation(checked_source)
+
+    assert checked_view.status_label == "Clean"
+    assert checked_view.feed_status == "checked"
+    assert "checked without listings" in checked_view.feed_summary
+    assert any(item.source == "external" and item.value == "clean" for item in checked_source.evidence)
+
+
+def test_reputation_presentation_summarizes_external_feed_states():
+    result = build_source_reputation(
+        "example.com",
+        [],
+        [
+            {"source_ip": "8.8.8.8", "count": 100, "dmarc_fail_count": 0},
+            {"source_ip": "8.8.4.4", "count": 100, "dmarc_fail_count": 0},
+            {"source_ip": "1.1.1.1", "count": 100, "dmarc_fail_count": 0},
+        ],
+        feed_results_by_ip={
+            "8.8.8.8": IPFeedReputation(
+                ip="8.8.8.8",
+                evidence=[
+                    FeedLookupEvidence(
+                        provider_id="demo_feed",
+                        provider_name="Demo Reputation Feed",
+                        status="suspicious",
+                        detail="Provider returned a warning.",
+                    )
+                ],
+            ),
+            "8.8.4.4": IPFeedReputation(
+                ip="8.8.4.4",
+                evidence=[
+                    FeedLookupEvidence(
+                        provider_id="demo_feed",
+                        provider_name="Demo Reputation Feed",
+                        status="error",
+                        detail="lookup timed out",
+                    )
+                ],
+            ),
+            "1.1.1.1": IPFeedReputation(
+                ip="1.1.1.1",
+                evidence=[
+                    FeedLookupEvidence(
+                        provider_id="demo_feed",
+                        provider_name="Demo Reputation Feed",
+                        status="not_configured",
+                        detail="Provider query zone is not configured.",
+                    )
+                ],
+            ),
+        },
+    )
+
+    views = {
+        source.ip: reputation_presentation(source)
+        for source in result.sources
+    }
+
+    suspicious_source = source_reputation_by_ip(result)["8.8.8.8"]
+    assert suspicious_source.risk_score == 20
+    assert any("warning" in item.value for item in suspicious_source.evidence)
+    assert views["8.8.8.8"].feed_status == "checked"
+    assert views["8.8.4.4"].feed_status == "error"
+    assert "errors" in views["8.8.4.4"].feed_summary
+    assert views["1.1.1.1"].feed_status == "not_configured"
+    assert "not configured" in views["1.1.1.1"].feed_summary
 
 
 @pytest.mark.asyncio

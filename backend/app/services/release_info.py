@@ -21,12 +21,33 @@ def _short_sha(value: Optional[str]) -> Optional[str]:
     return cleaned[:12]
 
 
+def _image_tag(value: Optional[str]) -> Optional[str]:
+    cleaned = _clean(value)
+    if not cleaned:
+        return None
+    image_name = cleaned.rsplit("/", 1)[-1].split("@", 1)[0]
+    if ":" not in image_name:
+        return None
+    return _clean(image_name.rsplit(":", 1)[-1])
+
+
+def _image_tag_matches_short_sha(image_tag: Optional[str], short_sha: Optional[str]) -> bool:
+    tag = _clean(image_tag)
+    sha = _clean(short_sha)
+    if not tag or not sha:
+        return False
+    return len(tag) >= 7 and sha.startswith(tag)
+
+
 def build_release_info(settings: Any) -> Dict[str, Any]:
     """Return safe build metadata and a short operator-facing changelog."""
 
     sha = _clean(getattr(settings, "DMARQ_BUILD_SHA", None))
     short_sha = _short_sha(sha)
     version = _clean(getattr(settings, "DMARQ_RELEASE_VERSION", None)) or __version__
+    image = _clean(getattr(settings, "DMARQ_BUILD_IMAGE", None))
+    image_tag = _image_tag(image)
+    environment = _clean(getattr(settings, "ENVIRONMENT", None)) or "development"
     label = f"v{version}"
     if short_sha:
         label = f"{label} · {short_sha}"
@@ -35,12 +56,22 @@ def build_release_info(settings: Any) -> Dict[str, Any]:
         "service": "dmarq",
         "version": version,
         "label": label,
+        "environment": environment,
+        "demo_mode": bool(getattr(settings, "DEMO_MODE", False)),
+        "public_base_url": _clean(getattr(settings, "PUBLIC_BASE_URL", None)),
         "build": {
             "sha": sha,
             "short_sha": short_sha,
             "ref": _clean(getattr(settings, "DMARQ_BUILD_REF", None)),
-            "image": _clean(getattr(settings, "DMARQ_BUILD_IMAGE", None)),
+            "image": image,
+            "image_tag": image_tag,
             "date": _clean(getattr(settings, "DMARQ_BUILD_DATE", None)),
+        },
+        "rollout": {
+            "endpoint": "/api/v1/health/release",
+            "root_health_endpoint": "/health",
+            "environment": environment,
+            "image_tag_matches_short_sha": _image_tag_matches_short_sha(image_tag, short_sha),
         },
         "changelog_url": "https://github.com/christianlouis/dmarq/blob/main/CHANGELOG.md",
         "changes": [

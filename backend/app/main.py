@@ -761,7 +761,17 @@ async def upload_page(request: Request):
 @app.get("/healthz", status_code=200, tags=["health"], include_in_schema=False)
 async def health():
     """Root-level health check endpoint for Kubernetes liveness/readiness probes."""
-    return {"status": "ok", "service": "dmarq"}
+    release = build_release_info(settings)
+    return {
+        "status": "ok",
+        "service": "dmarq",
+        "version": release["version"],
+        "release": {
+            "label": release["label"],
+            "environment": release["environment"],
+            "build": release["build"],
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
