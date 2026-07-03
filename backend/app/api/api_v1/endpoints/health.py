@@ -22,10 +22,16 @@ async def health_check():
     Health check endpoint to verify API status.
     For Milestone 1, this simply returns status information without checking a database.
     """
+    release = build_release_info(get_settings())
     return {
         "status": "ok",
-        "version": build_release_info(get_settings())["version"],
+        "version": release["version"],
         "service": "dmarq",
+        "release": {
+            "label": release["label"],
+            "environment": release["environment"],
+            "build": release["build"],
+        },
         "is_setup_complete": setup_status["is_setup_complete"],
     }
 

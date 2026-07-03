@@ -33,6 +33,9 @@ def test_release_info_endpoint_exposes_safe_build_metadata(authed_client: TestCl
         "get_settings",
         lambda: Settings(
             SECRET_KEY="s" * 32,
+            ENVIRONMENT="production",
+            DEMO_MODE=False,
+            PUBLIC_BASE_URL="https://app.dmarq.org",
             DMARQ_BUILD_SHA="abcdef1234567890",
             DMARQ_BUILD_REF="main",
             DMARQ_BUILD_IMAGE="ghcr.io/christianlouis/dmarq:abcdef1",
@@ -47,13 +50,47 @@ def test_release_info_endpoint_exposes_safe_build_metadata(authed_client: TestCl
     assert data["service"] == "dmarq"
     assert data["version"]
     assert data["label"].startswith(f"v{data['version']}")
+    assert data["environment"] == "production"
+    assert data["demo_mode"] is False
+    assert data["public_base_url"] == "https://app.dmarq.org"
     assert data["build"]["short_sha"] == "abcdef123456"
     assert data["build"]["ref"] == "main"
     assert data["build"]["image"] == "ghcr.io/christianlouis/dmarq:abcdef1"
+    assert data["build"]["image_tag"] == "abcdef1"
+    assert data["rollout"]["endpoint"] == "/api/v1/health/release"
+    assert data["rollout"]["environment"] == "production"
     assert data["changelog_url"].endswith("/CHANGELOG.md")
     assert len(data["changes"]) >= 8
     assert "Cloudflare rights profiles" in {item["title"] for item in data["changes"]}
     assert "CSP hardening progress" in {item["title"] for item in data["changes"]}
+
+
+def test_api_health_includes_release_summary(authed_client: TestClient, monkeypatch):
+    """The simple API health endpoint exposes the same release metadata family."""
+    from app.api.api_v1.endpoints import (
+        health as health_endpoint,
+    )  # pylint: disable=import-outside-toplevel
+    from app.core.config import Settings  # pylint: disable=import-outside-toplevel
+
+    monkeypatch.setattr(
+        health_endpoint,
+        "get_settings",
+        lambda: Settings(
+            SECRET_KEY="s" * 32,
+            ENVIRONMENT="demo",
+            DMARQ_BUILD_SHA="1234567890abcdef",
+            DMARQ_BUILD_IMAGE="ghcr.io/christianlouis/dmarq:1234567",
+        ),
+    )
+
+    response = authed_client.get("/api/v1/health")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["release"]["label"].startswith(f"v{data['version']}")
+    assert data["release"]["environment"] == "demo"
+    assert data["release"]["build"]["short_sha"] == "1234567890ab"
+    assert data["release"]["build"]["image"] == "ghcr.io/christianlouis/dmarq:1234567"
 
 
 def test_domains_empty(authed_client: TestClient):

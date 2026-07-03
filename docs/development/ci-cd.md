@@ -72,6 +72,15 @@ Runs only on pushes to `main` after both **Test** and **Security** pass.
   - branch name (e.g. `main`)
   - short commit SHA (e.g. `a1b2c3d`)
 - Layer cache is stored via GitHub Actions cache (`type=gha`).
+- Injects safe build metadata into the image:
+  - `DMARQ_BUILD_SHA`
+  - `DMARQ_BUILD_REF`
+  - `DMARQ_BUILD_IMAGE`
+  - `DMARQ_BUILD_DATE`
+
+The running app exposes the same metadata in the release modal and at
+`/api/v1/health/release`. Operators should use that endpoint, not assumptions
+from GitHub alone, when deciding whether a fix is live.
 
 ### Stage 4 — GitOps (Update K8s Manifest)
 
@@ -86,6 +95,24 @@ for the self-hosted demo and preprod environments:
 Production (`apps/dmarq/prod/dmarq-stack.yaml` for `app.dmarq.org`) is not
 updated automatically by this stage. Promote the tested image to production with
 an explicit GitOps change after reviewing the release.
+
+### Rollout drift checks
+
+After demo, preprod, or production is reconciled, check the live release endpoint
+against the expected image or commit:
+
+```bash
+python3 scripts/check_release_rollout.py \
+  --base-url https://demo.dmarq.org \
+  --expected-environment demo \
+  --expected-sha a1b2c3d
+```
+
+For `app.dmarq.org`, use the image tag promoted in
+`apps/dmarq/prod/dmarq-stack.yaml`. For `demo.dmarq.org`, use the image tag
+written to `apps/dmarq/greenfield-demo/dmarq-stack.yaml`, and use the
+environment label configured for that deployment. A mismatch means the
+browser-visible app is behind GitOps or serving a different image than expected.
 
 !!! note "Optional"
     This stage requires a `GH_PAT` repository secret with write access to the

@@ -48,7 +48,32 @@ Run these checks after the deployment updates:
 ```bash
 curl -fsS https://your-dmarq-host.example.com/health
 curl -fsS https://your-dmarq-host.example.com/api/v1/health
+curl -fsS https://your-dmarq-host.example.com/api/v1/health/release
 ```
+
+The release endpoints must agree with the in-product release label. Click the
+small version label in the app header or sidebar and compare:
+
+- version
+- environment
+- build SHA
+- image tag
+- full image reference
+- build date
+
+For automated checks, compare the live endpoint with the image or SHA intended
+for the environment:
+
+```bash
+python3 scripts/check_release_rollout.py \
+  --base-url https://your-dmarq-host.example.com \
+  --expected-environment production \
+  --expected-sha abcdef123456
+```
+
+Use the same command for demo and preprod with their expected environment label
+and short-SHA image tag. A non-zero exit means the app is serving a different
+release than the one being verified.
 
 Then verify in the browser:
 

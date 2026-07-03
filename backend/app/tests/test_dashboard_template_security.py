@@ -865,6 +865,10 @@ def test_base_template_propagates_selected_workspace_context():
     assert "data-release-modal-trigger" in template
     assert "Full changelog" in template
     assert "release_info.changelog_url" in template
+    assert "release_info.environment" in template
+    assert "release_info.build.image" in template
+    assert "release_info.build.image_tag" in template
+    assert "/api/v1/health/release" in template
     assert "bindReleaseModalTriggers" in script
     assert "dmarq-release-modal" in script
     assert "event.target" in script
