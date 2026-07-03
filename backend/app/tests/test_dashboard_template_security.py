@@ -406,13 +406,27 @@ def test_domains_uses_external_page_script_for_csp_migration():
     assert "data-domain-refresh" in script
     assert "data-domain-create-open" in template
     assert "data-domain-create-open" in script
+    assert "data-domain-create-dialog" in template
+    assert "data-domain-create-form" in template
+    assert "data-domain-create-form" in script
+    assert "data-domain-create-close" in template
+    assert "data-domain-create-close" in script
     assert "data-domain-edit" in template
     assert "data-domain-edit" in script
+    assert "data-domain-edit-dialog" in template
+    assert "data-domain-edit-form" in template
+    assert "data-domain-edit-form" in script
+    assert "data-domain-edit-close" in template
+    assert "data-domain-edit-close" in script
     assert "Edit monitored domain" in template
     assert "updateDomain()" in script
     assert "method: 'PATCH'" in script
     assert "editError" in template
     assert 'x-data="domainsApp()" x-cloak' in template
+    assert '@submit.prevent="createDomain' not in template
+    assert '@submit.prevent="updateDomain' not in template
+    assert '@click="closeCreate' not in template
+    assert '@click="closeEdit' not in template
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 
