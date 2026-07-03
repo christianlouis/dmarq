@@ -200,6 +200,7 @@ function domainDetailsApp(domainId) {
         refreshingPage: false,
 
         init() {
+            this.bindPageControls();
             const storedVolumeScale = this.loadStoredVolumeScale();
             if (storedVolumeScale === 'linear' || storedVolumeScale === 'logarithmic') {
                 this.volumeScale = storedVolumeScale;
@@ -211,6 +212,110 @@ function domainDetailsApp(domainId) {
                 this.fetchSources();
                 this.fetchSourceIntelligence();
             });
+        },
+
+        bindPageControls() {
+            if (this._pageControlsBound || !this.$root) {
+                return;
+            }
+            this._pageControlsBound = true;
+            this.$root.addEventListener('click', event => {
+                const target = event.target instanceof Element ? event.target : null;
+                const button = target ? target.closest('button') : null;
+                if (!button || !this.$root.contains(button)) {
+                    return;
+                }
+                if (button.matches('[data-domain-detail-reload]')) {
+                    event.preventDefault();
+                    this.reloadPageData();
+                } else if (button.matches('[data-domain-detail-delete]')) {
+                    event.preventDefault();
+                    this.deleteDomain();
+                } else if (button.matches('[data-domain-detail-verify-ownership]')) {
+                    event.preventDefault();
+                    this.verifyDomainOwnership();
+                } else if (button.matches('[data-domain-detail-verify-cloudflare]')) {
+                    event.preventDefault();
+                    this.verifyDomainOwnershipCloudflare();
+                } else if (button.matches('[data-domain-detail-volume-scale]')) {
+                    event.preventDefault();
+                    this.setVolumeScale(button.dataset.domainDetailVolumeScale);
+                } else if (button.matches('[data-domain-detail-remediation-action]')) {
+                    event.preventDefault();
+                    this.handleRemediationAction(button);
+                } else if (button.matches('[data-domain-detail-migration-action]')) {
+                    event.preventDefault();
+                    this.handleMigrationAction(button.dataset.domainDetailMigrationAction);
+                } else if (button.matches('[data-domain-detail-selector-add]')) {
+                    event.preventDefault();
+                    this.addSelector();
+                } else if (button.matches('[data-domain-detail-selector-delete]')) {
+                    event.preventDefault();
+                    this.deleteSelector(button.dataset.selectorValue || '');
+                } else if (button.matches('[data-domain-detail-copy-value]')) {
+                    event.preventDefault();
+                    this.copyValue(button.dataset.domainDetailCopyValue || '');
+                } else if (button.matches('[data-domain-detail-dns-action]')) {
+                    event.preventDefault();
+                    this.handleDnsPlanAction(
+                        button.dataset.domainDetailDnsAction,
+                        button.dataset.dnsPlanId
+                    );
+                }
+            });
+            this.$root.addEventListener('keydown', event => {
+                const target = event.target instanceof Element ? event.target : null;
+                if (!target || !target.matches('[data-domain-detail-selector-input]') || event.key !== 'Enter') {
+                    return;
+                }
+                event.preventDefault();
+                this.addSelector();
+            });
+        },
+
+        findRemediationItem(itemId) {
+            return (this.remediationQueue.items || []).find(item => String(item.id) === String(itemId));
+        },
+
+        findDnsPlan(planId) {
+            return (this.dnsGuidance.change_plans || []).find(plan => String(plan.plan_id) === String(planId));
+        },
+
+        handleRemediationAction(button) {
+            const item = this.findRemediationItem(button.dataset.remediationItemId);
+            if (!item) return;
+            const action = button.dataset.domainDetailRemediationAction;
+            if (action === 'dispatch') {
+                this.dispatchRemediationNotification(item);
+                return;
+            }
+            this.recordRemediationLifecycle(item, action);
+        },
+
+        handleMigrationAction(action) {
+            const handlers = {
+                enable: () => this.enableMigrationTools(),
+                preview_import: () => this.previewMigrationImport(),
+                load_sample: () => this.loadMigrationImportSample(),
+                apply_preview_baseline: () => this.applyMigrationPreviewBaseline(),
+                compare_baseline: () => this.compareMigrationBaseline()
+            };
+            handlers[action]?.();
+        },
+
+        handleDnsPlanAction(action, planId) {
+            const plan = this.findDnsPlan(planId);
+            if (!plan) return;
+            if (action === 'preview') {
+                this.previewDNSChange(plan);
+            } else if (action === 'apply') {
+                this.applyDNSChange(plan);
+            }
+        },
+
+        copyValue(value) {
+            if (!value || !navigator.clipboard) return;
+            navigator.clipboard.writeText(value);
         },
 
         async loadInitialData() {
