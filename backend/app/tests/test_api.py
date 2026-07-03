@@ -21,11 +21,11 @@ def test_health_check(authed_client: TestClient):
     assert "version" in data
 
 
-def test_release_info_endpoint_exposes_safe_build_metadata(
-    authed_client: TestClient, monkeypatch
-):
+def test_release_info_endpoint_exposes_safe_build_metadata(authed_client: TestClient, monkeypatch):
     """Release metadata is available for support without exposing secrets."""
-    from app.api.api_v1.endpoints import health as health_endpoint  # pylint: disable=import-outside-toplevel
+    from app.api.api_v1.endpoints import (
+        health as health_endpoint,
+    )  # pylint: disable=import-outside-toplevel
     from app.core.config import Settings  # pylint: disable=import-outside-toplevel
 
     monkeypatch.setattr(
@@ -50,7 +50,10 @@ def test_release_info_endpoint_exposes_safe_build_metadata(
     assert data["build"]["short_sha"] == "abcdef123456"
     assert data["build"]["ref"] == "main"
     assert data["build"]["image"] == "ghcr.io/christianlouis/dmarq:abcdef1"
-    assert data["changes"]
+    assert data["changelog_url"].endswith("/CHANGELOG.md")
+    assert len(data["changes"]) >= 8
+    assert "Cloudflare rights profiles" in {item["title"] for item in data["changes"]}
+    assert "CSP hardening progress" in {item["title"] for item in data["changes"]}
 
 
 def test_domains_empty(authed_client: TestClient):

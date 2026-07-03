@@ -7,10 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added in-product release metadata with version, image, git ref, build date, recent changes, and a link to the full changelog.
+- Added Cloudflare OAuth rights profiles for read-only zone import, read-only plus Radar enrichment, and full DNS repair.
+- Added source intelligence context for sending IPs, including provider recognition, network details, Radar links, and report activity history.
+- Added human-approved DNS repair groundwork for provider-connected domains.
+- Added self-hosted demo refinements focused on the single-user, multiple-domain workflow.
+
 ### Changed
+- Cloudflare OAuth profile selection now controls the requested scopes instead of being overridden by the legacy static scope setting.
+- The full Cloudflare DNS repair profile now requests DNS write access plus Radar read access so one-click repair and IP enrichment can work from the same consent flow.
+- Dashboard and domain detail pages now expose more actionable remediation context around DNS, DMARC, source authentication, and ownership state.
 - Reorganized repository: moved development docs (`AGENTS.md`, `ROADMAP.md`, `ISSUE_GENERATION_SUMMARY.md`, `generated_issues/`) into `docs/`
 - Added root-level `CHANGELOG.md` and `TODO.md`
 - Cleaned up root directory for clarity
+
+### Fixed
+- Fixed the Cloudflare permissions picker so selecting the full DNS repair profile no longer falls back to read-only scopes.
+- Fixed the release modal coverage so recent operator-facing work is visible from inside the app.
+- Fixed several CSP-hardening regressions by moving legacy inline handlers and styles out of templates.
+
+### Security
+- Cloudflare DNS write capabilities remain tied to explicit full-repair selection and human-confirmed DNS changes.
+- Release metadata is sanitized for display and does not expose secrets.
 
 ## [0.3.0] - 2026-02-09
 
