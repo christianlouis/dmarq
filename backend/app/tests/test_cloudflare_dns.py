@@ -1817,6 +1817,9 @@ def test_dns_provider_capabilities_mark_cloudflare_import_available(authed_clien
     assert providers["cloudflare"]["record_read_status"] == "ready"
     assert providers["cloudflare"]["record_write_status"] == "ready"
     assert "Zone:Read" in providers["cloudflare"]["minimum_permissions"]
+    assert providers["cloudflare"]["credentials_configured"] is False
+    assert providers["cloudflare"]["connection_status"] == "needs_credentials"
+    assert "Configure read-only provider credentials" in providers["cloudflare"]["connection_hint"]
     assert providers["hetzner"]["import_available"] is True
     assert providers["hetzner"]["zone_import_status"] == "ready"
     assert providers["hetzner"]["record_read_status"] == "planned"
@@ -1833,6 +1836,62 @@ def test_dns_provider_capabilities_mark_cloudflare_import_available(authed_clien
     assert providers["akamai-edgedns"]["zone_import_status"] == "ready"
     assert providers["akamai-edgedns"]["record_write_status"] == "planned"
     assert "edgerc" in providers["akamai-edgedns"]["auth_models"]
+
+
+def test_dns_provider_capabilities_keep_write_only_provider_planned(
+    authed_client: TestClient,
+):
+    with (
+        patch(
+            "app.api.api_v1.endpoints.domains.provider_capabilities",
+            return_value=[
+                {
+                    "id": "digitalocean",
+                    "name": "DigitalOcean",
+                    "mode": "lexicon",
+                    "record_types": ["CNAME", "TXT"],
+                    "operations": ["create", "update"],
+                    "credentials": "environment",
+                    "status": "ready",
+                },
+            ],
+        ),
+        patch(
+            "app.api.api_v1.endpoints.domains.supported_import_providers",
+            return_value=[],
+        ),
+    ):
+        response = authed_client.get("/api/v1/domains/dns/providers")
+
+    assert response.status_code == 200
+    provider = response.json()["providers"][0]
+    assert provider["id"] == "digitalocean"
+    assert provider["import_available"] is False
+    assert provider["credentials_configured"] is False
+    assert provider["connection_status"] == "planned"
+    assert "not import-ready yet" in provider["connection_hint"]
+
+
+def test_dns_provider_capabilities_report_configured_cloudflare_connection(
+    authed_client: TestClient,
+    db_session: Session,
+):
+    db_session.add(
+        Setting(
+            key="cloudflare.api_token",
+            value=encrypt_secret("cf-token"),
+            description="test token",
+        )
+    )
+    db_session.commit()
+
+    response = authed_client.get("/api/v1/domains/dns/providers")
+
+    assert response.status_code == 200
+    providers = {provider["id"]: provider for provider in response.json()["providers"]}
+    assert providers["cloudflare"]["credentials_configured"] is True
+    assert providers["cloudflare"]["connection_status"] == "connected"
+    assert "without exposing token material" in providers["cloudflare"]["connection_hint"]
 
 
 def test_dns_provider_import_preview_supports_akamai_alias(db_session, monkeypatch):

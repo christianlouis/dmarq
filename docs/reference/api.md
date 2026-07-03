@@ -634,8 +634,11 @@ request.
 provider connector metadata. Each row includes the supported auth model,
 minimum permission hints, zone-import/read/write status, dry-run support,
 verification support, rollback guidance support, and whether DNS-zone import is
-actually available today. Use `GET /domains/dns/import/{provider}/preview` to
-list DNS zones visible to a connected provider without creating anything. Use
+actually available today. Rows also include non-secret connection state via
+`credentials_configured`, `connection_status`, and `connection_hint` so the UI
+can explain whether discovery can run or which credentials are still needed.
+Use `GET /domains/dns/import/{provider}/preview` to list DNS zones visible to a
+connected provider without creating anything. Use
 `POST /domains/dns/import/{provider}` with an optional `domains` array to import
 selected zones as monitored DMARQ domains before reports have arrived.
 Cloudflare, Route 53, Hetzner DNS, Linode DNS, and Akamai Edge DNS/FastDNS

@@ -419,9 +419,15 @@ def test_settings_exposes_provider_agnostic_dns_import_without_html_injection():
     assert "selectedDnsProviderAuthHint" in script
     assert "selectedDnsProviderSetupHint" in script
     assert "selectedDnsProviderDocsUrl" in script
+    assert "selectedDnsProviderConnectionStatus" in script
+    assert "selectedDnsProviderConnectionLabel" in script
+    assert "selectedDnsProviderConnectionHint" in script
+    assert "selectedDnsProviderConnectionClass" in script
     assert "resetDnsProviderImportState" in script
     assert "dnsProviderImportError" in template
     assert "dnsProviderImportSummary" in template
+    assert "selectedDnsProviderConnectionLabel()" in template
+    assert "selectedDnsProviderConnectionHint()" in template
     assert "providerErrorDetail" in script
     assert "returned no importable zones" in template
     assert "discovery needs attention" in template
