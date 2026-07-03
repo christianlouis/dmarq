@@ -287,6 +287,12 @@ async def test_build_dns_guidance_classifies_dmarc_warning_codes():
     assert "dmarc_monitoring_policy" in codes
     assert "spf_all_neutral" in codes
     assert "bimi_dmarc_not_enforced" in codes
+    monitoring = next(
+        finding
+        for finding in guidance.findings
+        if finding.code == "dmarc_monitoring_policy"
+    )
+    assert monitoring.remediation_steps[0].startswith("Review DMARQ report evidence")
 
 
 @pytest.mark.asyncio

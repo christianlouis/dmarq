@@ -205,7 +205,6 @@ def _finding(
     target_record: Optional[DNSGuidanceRecord] = None,
     evidence: Optional[List[str]] = None,
     remediation_steps: Optional[List[str]] = None,
-    locale: str = "en",
 ) -> DNSLintFinding:
     return DNSLintFinding(
         code=code,
@@ -217,9 +216,7 @@ def _finding(
         record_name=record_name,
         target_record=target_record,
         evidence=list(evidence or []),
-        remediation_steps=list(
-            remediation_steps or _default_remediation_steps(code, locale=locale)
-        ),
+        remediation_steps=list(remediation_steps or _default_remediation_steps(code)),
     )
 
 
@@ -228,6 +225,12 @@ _REMEDIATION_STEPS_EN: Dict[str, List[str]] = {
         "Open the DNS zone for the affected domain.",
         "Create one TXT record at _dmarc with a monitoring policy and rua mailbox.",
         "Wait for DNS propagation, then refresh DMARQ DNS lint.",
+    ],
+    "dmarc_monitoring_policy": [
+        "Review DMARQ report evidence to confirm which legitimate sources already pass "
+        "SPF or DKIM alignment.",
+        "Document or fix any active failures before tightening the DMARC policy.",
+        "Only then plan the move from p=none to quarantine or reject.",
     ],
     "spf_missing": [
         "List every platform currently allowed to send mail for this domain.",
