@@ -366,12 +366,10 @@ class TestExternalAuthProviders:
             },
             allowed_domains="example.com",
             group_workspace_role_map=(
-                "dmarq-admins=primary:workspace_owner,"
-                "auditors=secondary:analyst"
+                "dmarq-admins=primary:workspace_owner," "auditors=secondary:analyst"
             ),
             group_organization_role_map=(
-                "dmarq-admins=customer-one:organization_owner,"
-                "auditors=customer-two:auditor"
+                "dmarq-admins=customer-one:organization_owner," "auditors=customer-two:auditor"
             ),
         )
 
