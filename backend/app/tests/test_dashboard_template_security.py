@@ -112,6 +112,14 @@ def _reports_script() -> str:
     return _read_project_file("static", "js", "reports-page.js")
 
 
+def _legacy_login_script() -> str:
+    return _read_project_file("static", "js", "login.js")
+
+
+def _main_stylesheet() -> str:
+    return _read_project_file("static", "css", "styles.css")
+
+
 def _domains_template() -> str:
     return _read_project_file("templates", "domains.html")
 
@@ -657,6 +665,20 @@ def test_members_template_uses_membership_api_without_html_injection():
     assert _has_inline_style('<div data-style="ok" :style="bad"></div>')
     assert _has_inline_style("<progress x-bind:style=\"{ width: progress + '%' }\" />")
     assert _has_inline_style("<div x-bind:style=\"{ width: progress + '%' }\"></div>")
+
+
+def test_legacy_login_script_uses_css_class_instead_of_inline_style():
+    script = _legacy_login_script()
+    stylesheet = _main_stylesheet()
+
+    assert "login-error-message" in script
+    assert ".login-error-message" in stylesheet
+    assert re.search(
+        r'<div\b(?=[^>]*\bid="login-error")'
+        r'(?=[^>]*\bclass="[^"]*\bhidden\b[^"]*\blogin-error-message\b)[^>]*>',
+        script,
+    )
+    assert "style=" not in script
 
 
 def test_base_template_propagates_selected_workspace_context():
