@@ -72,6 +72,15 @@ def _template_section_between_markers(template: str, start_marker: str, end_mark
     return section[: end_match.start()]
 
 
+def _has_alpine_handler_call(template: str, event: str, function_name: str) -> bool:
+    return bool(
+        re.search(
+            rf"@{re.escape(event)}(?:\.[\w:-]+)*\s*=\s*(['\"])\s*{re.escape(function_name)}\s*\(\s*\)\s*\1",
+            template,
+        )
+    )
+
+
 @pytest.mark.parametrize("template_name", ALL_TEMPLATE_NAMES)
 def test_templates_do_not_reintroduce_csp_blocking_inline_markup(template_name: str):
     template = _read_project_file("templates", *template_name.split("/"))
@@ -314,6 +323,7 @@ def test_reports_uses_external_page_script_for_csp_migration():
     assert "data-report-delete" in template
     assert "data-report-delete" in script
     assert "bindDeleteControls()" in script
+    assert "event.target instanceof Element" in script
     assert "/api/v1/reports" in script
     assert "deleteReport(domain, reportId)" in script
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
@@ -413,6 +423,18 @@ def test_forensic_reports_uses_external_page_script_for_csp_migration():
     assert "/api/v1/forensics/analysis?" in script
     assert "/api/v1/forensics/upload" in script
     assert "Unable to load forensic reports" in script
+    assert not _has_alpine_handler_call(template, "change", "fetchReports")
+    assert not _has_alpine_handler_call(template, "submit", "uploadReport")
+    assert not _has_alpine_handler_call(template, "click", "resetFilters")
+    assert "data-forensic-domain-filter" in template
+    assert "data-forensic-auth-filter" in template
+    assert "data-forensic-result-filter" in template
+    assert "data-forensic-upload-form" in template
+    assert "data-forensic-upload-file" in template
+    assert "data-forensic-reset" in template
+    assert "data-forensic-reset" in script
+    assert "bindControls()" in script
+    assert "event.target instanceof Element" in script
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 
@@ -437,6 +459,18 @@ def test_tls_reports_uses_external_page_script_for_csp_migration():
     assert "/api/v1/tls-reports/summary?" in script
     assert "/api/v1/tls-reports/upload" in script
     assert "Unable to load TLS report summary" in script
+    assert not _has_alpine_handler_call(template, "click", "refresh")
+    assert not _has_alpine_handler_call(template, "change", "refresh")
+    assert not _has_alpine_handler_call(template, "input", "refresh")
+    assert not _has_alpine_handler_call(template, "submit", "uploadReport")
+    assert "data-tls-refresh" in template
+    assert "data-tls-days-filter" in template
+    assert "data-tls-domain-filter" in template
+    assert "data-tls-upload-form" in template
+    assert "data-tls-upload-file" in template
+    assert "data-tls-refresh" in script
+    assert "bindControls()" in script
+    assert "event.target instanceof Element" in script
     assert 'x-effect="$el.style.width' in template
     assert not _has_inline_style(template)
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
@@ -452,6 +486,7 @@ def test_report_detail_uses_external_page_script_for_csp_migration():
     assert "data-report-delete" in template
     assert "data-report-delete" in script
     assert "bindDeleteControls()" in script
+    assert "event.target instanceof Element" in script
     assert "/api/v1/reports/${encodeURIComponent(this.reportId)}" in script
     assert "deleteReport(domain, reportId)" in script
     assert "sourceLocation(record)" in script

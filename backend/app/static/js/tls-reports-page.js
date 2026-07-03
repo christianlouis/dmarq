@@ -1,4 +1,5 @@
 function tlsReportsApp() {
+    let domainRefreshTimer = null;
     const emptySummary = {
         totals: { reports: 0, successful_sessions: 0, failed_sessions: 0, failure_rate: 0 },
         trends: [],
@@ -16,7 +17,63 @@ function tlsReportsApp() {
         filters: { domain: '', days: '30' },
         summary: emptySummary,
         init() {
+            this.bindControls();
             this.refresh();
+        },
+        bindControls() {
+            const root = this.$root || document;
+            if (root.dataset?.tlsControlsBound === 'true') {
+                return;
+            }
+            if (root.dataset) {
+                root.dataset.tlsControlsBound = 'true';
+            }
+
+            root.addEventListener('click', (event) => {
+                if (!(event.target instanceof Element)) {
+                    return;
+                }
+                const refreshButton = event.target.closest('[data-tls-refresh]');
+                if (refreshButton && root.contains(refreshButton)) {
+                    this.refresh();
+                }
+            });
+            root.addEventListener('change', (event) => {
+                if (!(event.target instanceof Element)) {
+                    return;
+                }
+                const daysFilter = event.target.closest('[data-tls-days-filter]');
+                if (daysFilter && root.contains(daysFilter)) {
+                    this.filters.days = daysFilter.value;
+                    this.refresh();
+                    return;
+                }
+                const uploadFile = event.target.closest('[data-tls-upload-file]');
+                if (uploadFile && root.contains(uploadFile)) {
+                    this.selectedFile = uploadFile.files?.[0] || null;
+                }
+            });
+            root.addEventListener('input', (event) => {
+                if (!(event.target instanceof Element)) {
+                    return;
+                }
+                const domainFilter = event.target.closest('[data-tls-domain-filter]');
+                if (domainFilter && root.contains(domainFilter)) {
+                    this.filters.domain = domainFilter.value;
+                    clearTimeout(domainRefreshTimer);
+                    domainRefreshTimer = setTimeout(() => this.refresh(), 250);
+                }
+            });
+            root.addEventListener('submit', (event) => {
+                if (!(event.target instanceof Element)) {
+                    return;
+                }
+                const form = event.target.closest('[data-tls-upload-form]');
+                if (form && root.contains(form)) {
+                    event.preventDefault();
+                    this.uploadReport();
+                }
+            });
         },
         async refresh() {
             this.loading = true;

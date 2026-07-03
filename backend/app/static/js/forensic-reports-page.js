@@ -17,7 +17,64 @@ function forensicReportsApp() {
             search: '',
         },
         init() {
+            this.bindControls();
             this.fetchReports();
+        },
+        bindControls() {
+            const root = this.$root || document;
+            if (root.dataset?.forensicControlsBound === 'true') {
+                return;
+            }
+            if (root.dataset) {
+                root.dataset.forensicControlsBound = 'true';
+            }
+
+            root.addEventListener('click', (event) => {
+                if (!(event.target instanceof Element)) {
+                    return;
+                }
+                const resetButton = event.target.closest('[data-forensic-reset]');
+                if (resetButton && root.contains(resetButton)) {
+                    this.resetFilters();
+                }
+            });
+            root.addEventListener('change', (event) => {
+                if (!(event.target instanceof Element)) {
+                    return;
+                }
+                const domainFilter = event.target.closest('[data-forensic-domain-filter]');
+                if (domainFilter && root.contains(domainFilter)) {
+                    this.filters.domain = domainFilter.value;
+                    this.fetchReports();
+                    return;
+                }
+                const authFilter = event.target.closest('[data-forensic-auth-filter]');
+                if (authFilter && root.contains(authFilter)) {
+                    this.filters.authFailure = authFilter.value;
+                    this.fetchReports();
+                    return;
+                }
+                const resultFilter = event.target.closest('[data-forensic-result-filter]');
+                if (resultFilter && root.contains(resultFilter)) {
+                    this.filters.deliveryResult = resultFilter.value;
+                    this.fetchReports();
+                    return;
+                }
+                const uploadFile = event.target.closest('[data-forensic-upload-file]');
+                if (uploadFile && root.contains(uploadFile)) {
+                    this.selectedFile = uploadFile.files?.[0] || null;
+                }
+            });
+            root.addEventListener('submit', (event) => {
+                if (!(event.target instanceof Element)) {
+                    return;
+                }
+                const form = event.target.closest('[data-forensic-upload-form]');
+                if (form && root.contains(form)) {
+                    event.preventDefault();
+                    this.uploadReport();
+                }
+            });
         },
         get domains() {
             return this.domainOptions;
