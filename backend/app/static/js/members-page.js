@@ -12,11 +12,87 @@ function membershipApp() {
         invite: { email: '', full_name: '', role: '' },
 
         async init() {
+            this.bindPageControls();
             await this.loadOrganizations();
         },
 
         apiHeaders() {
             return { 'Content-Type': 'application/json' };
+        },
+
+        bindPageControls() {
+            const root = this.$root || document.querySelector('[data-members-page]');
+            if (!root || root.dataset.membersControlsBound === 'true') {
+                return;
+            }
+            root.dataset.membersControlsBound = 'true';
+
+            root.addEventListener('click', (event) => {
+                if (!(event.target instanceof Element)) {
+                    return;
+                }
+
+                const scopeButton = event.target.closest('[data-members-scope]');
+                if (scopeButton && root.contains(scopeButton)) {
+                    this.setScope(scopeButton.dataset.membersScope);
+                    return;
+                }
+
+                const refreshButton = event.target.closest('[data-members-refresh]');
+                if (refreshButton && root.contains(refreshButton)) {
+                    this.loadMemberships();
+                    return;
+                }
+
+                const deactivateButton = event.target.closest('[data-members-deactivate]');
+                if (deactivateButton && root.contains(deactivateButton)) {
+                    const membership = this.findMembershipByUserId(deactivateButton.dataset.membersUserId);
+                    if (membership) {
+                        this.deactivateMembership(membership);
+                    }
+                    return;
+                }
+
+                const restoreButton = event.target.closest('[data-members-restore]');
+                if (!restoreButton || !root.contains(restoreButton)) {
+                    return;
+                }
+                const membership = this.findMembershipByUserId(restoreButton.dataset.membersUserId);
+                if (membership) {
+                    this.updateMembership(membership, true);
+                }
+            });
+
+            root.addEventListener('change', (event) => {
+                if (!(event.target instanceof HTMLSelectElement)) {
+                    return;
+                }
+
+                if (event.target.matches('[data-members-organization-select]')) {
+                    this.selectOrganization(event.target.value);
+                    return;
+                }
+
+                if (event.target.matches('[data-members-workspace-select]')) {
+                    this.selectedWorkspaceId = event.target.value;
+                    this.loadMemberships();
+                    return;
+                }
+
+                if (!event.target.matches('[data-members-role-select]')) {
+                    return;
+                }
+                const membership = this.findMembershipByUserId(event.target.dataset.membersUserId);
+                if (membership) {
+                    membership.role = event.target.value;
+                    this.updateMembership(membership, membership.active);
+                }
+            });
+
+            root.querySelector('[data-members-invite-form]')?.addEventListener('submit', (event) => {
+                event.preventDefault();
+                this.inviteMember();
+            });
         },
 
         async loadOrganizations() {
@@ -151,6 +227,15 @@ function membershipApp() {
             } finally {
                 this.saving = false;
             }
+        },
+
+        findMembershipByUserId(userId) {
+            if (!userId) {
+                return null;
+            }
+            return this.memberships.find((membership) => {
+                return String(membership.user?.id) === String(userId);
+            }) || null;
         },
 
         setScope(scope) {

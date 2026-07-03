@@ -870,7 +870,16 @@ def test_members_template_uses_membership_api_without_html_injection():
     assert "planLimitRows()" in template
     assert "invoice_delivery_label" in template
     assert 'x-text="membership.user.email"' in template
-    assert '@change="updateMembership(membership, membership.active)"' in template
+    assert '@click=' not in template
+    assert '@change=' not in template
+    assert '@submit' not in template
+    assert "data-members-page" in template
+    assert "data-members-scope" in template
+    assert "data-members-invite-form" in template
+    assert "data-members-role-select" in template
+    assert "bindPageControls()" in script
+    assert "findMembershipByUserId" in script
+    assert "data-members-role-select" in script
     assert '@change="updateMembership(membership, true)"' not in template
     assert "x-html" not in template
     assert not _has_inline_script(template)
