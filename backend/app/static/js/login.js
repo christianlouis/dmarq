@@ -19,7 +19,7 @@ function renderLogin() {
                         <label for="password">Password</label>
                         <input type="password" id="password" name="password" required>
                     </div>
-                    <div id="login-error" class="hidden" style="color: red; margin-top: 10px;"></div>
+                    <div id="login-error" class="hidden login-error-message"></div>
                     <div>
                         <button type="submit" id="login-button">Login</button>
                     </div>
