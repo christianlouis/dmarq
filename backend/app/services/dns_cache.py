@@ -96,6 +96,34 @@ def _within_stale_evidence_grace(row: DNSCache, now: datetime) -> bool:
     return row.checked_at >= now - timedelta(seconds=STALE_DNS_EVIDENCE_GRACE_SECONDS)
 
 
+def _stale_cached_evidence(
+    row: Optional[DNSCache],
+    *,
+    now: datetime,
+    lookup_error: str,
+) -> Optional[Tuple[DomainDNSResult, bool, datetime]]:
+    if not row:
+        return None
+    cached_result = _result_from_json(row.result_json)
+    if not _has_dns_evidence(cached_result) or not _within_stale_evidence_grace(row, now):
+        return None
+
+    cached_result.lookup_status = "stale_cache"
+    cached_result.lookup_error = lookup_error
+    return cached_result, True, row.checked_at
+
+
+def _lookup_failure_result(error_type: str, now: datetime) -> Tuple[DomainDNSResult, bool, datetime]:
+    return (
+        DomainDNSResult(
+            lookup_status="failed",
+            lookup_error=f"DNS lookup failed with {error_type}.",
+        ),
+        False,
+        now,
+    )
+
+
 async def _resolve_with_fallback(
     provider: BaseDNSProvider,
     domain: str,
@@ -196,47 +224,38 @@ async def resolve_domain_dns_cached(
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # pylint: disable=broad-exception-caught
-        if row and _has_dns_evidence(_result_from_json(row.result_json)):
-            cached_result = _result_from_json(row.result_json)
-            if _within_stale_evidence_grace(row, now):
-                cached_result.lookup_status = "stale_cache"
-                cached_result.lookup_error = (
-                    f"DNS lookup failed with {exc.__class__.__name__}; "
-                    "using the last known DNS evidence."
-                )
-                logger.warning(
-                    "DNS resolver failed; using last known DNS evidence for %s",
-                    provider_name,
-                )
-                return cached_result, True, row.checked_at
+        stale = _stale_cached_evidence(
+            row,
+            now=now,
+            lookup_error=(
+                f"DNS lookup failed with {exc.__class__.__name__}; "
+                "using the last known DNS evidence."
+            ),
+        )
+        if stale:
+            logger.warning(
+                "DNS resolver failed; using last known DNS evidence for %s",
+                provider_name,
+            )
+            return stale
         logger.warning(
             "DNS resolver failed with %s; returning lookup failure evidence",
             exc.__class__.__name__,
         )
-        return (
-            DomainDNSResult(
-                lookup_status="failed",
-                lookup_error=f"DNS lookup failed with {exc.__class__.__name__}.",
-            ),
-            False,
-            now,
+        return _lookup_failure_result(exc.__class__.__name__, now)
+
+    if not _has_dns_evidence(result):
+        stale = _stale_cached_evidence(
+            row,
+            now=now,
+            lookup_error="DNS resolver returned no DNS evidence; using the last known DNS cache.",
         )
-    if (
-        row
-        and _has_dns_evidence(_result_from_json(row.result_json))
-        and not _has_dns_evidence(result)
-    ):
-        cached_result = _result_from_json(row.result_json)
-        if _within_stale_evidence_grace(row, now):
-            cached_result.lookup_status = "stale_cache"
-            cached_result.lookup_error = (
-                "DNS resolver returned no DNS evidence; using the last known DNS cache."
-            )
+        if stale:
             logger.warning(
                 "DNS resolver returned no evidence; keeping last known DNS evidence for %s",
                 provider_name,
             )
-            return cached_result, True, row.checked_at
+            return stale
 
     payload = _result_to_json(result)
     if row is None:

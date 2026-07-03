@@ -134,14 +134,14 @@ def _action(
     }
 
 
-def _domain_actions(domain: Dict[str, Any]) -> List[Dict[str, Any]]:
-    domain_name = str(domain.get("domain_name") or domain.get("id") or "domain")
-    pass_rate = _bounded(domain.get("pass_rate"))
-    policy = str(domain.get("dmarc_policy") or "missing").lower()
+def _dns_evidence_actions(
+    domain: Dict[str, Any],
+    *,
+    domain_name: str,
+    dns_pending: bool,
+    dns_lookup_failed: bool,
+) -> List[Dict[str, Any]]:
     actions: List[Dict[str, Any]] = []
-    dns_pending = bool(domain.get("dns_pending"))
-    dns_lookup_failed = bool(domain.get("dns_lookup_failed"))
-
     if dns_pending:
         actions.append(
             _action(
@@ -178,7 +178,21 @@ def _domain_actions(domain: Dict[str, Any]) -> List[Dict[str, Any]]:
                 ],
             )
         )
-    if not dns_pending and not dns_lookup_failed and not domain.get("dmarc_status"):
+    return actions
+
+
+def _missing_dns_actions(
+    domain: Dict[str, Any],
+    *,
+    domain_name: str,
+    dns_pending: bool,
+    dns_lookup_failed: bool,
+) -> List[Dict[str, Any]]:
+    if dns_pending or dns_lookup_failed:
+        return []
+
+    actions: List[Dict[str, Any]] = []
+    if not domain.get("dmarc_status"):
         actions.append(
             _action(
                 action_type="missing_dmarc",
@@ -190,7 +204,7 @@ def _domain_actions(domain: Dict[str, Any]) -> List[Dict[str, Any]]:
                 domain=domain_name,
             )
         )
-    if not dns_pending and not dns_lookup_failed and not domain.get("spf_status"):
+    if not domain.get("spf_status"):
         actions.append(
             _action(
                 action_type="missing_spf",
@@ -202,7 +216,7 @@ def _domain_actions(domain: Dict[str, Any]) -> List[Dict[str, Any]]:
                 domain=domain_name,
             )
         )
-    if not dns_pending and not dns_lookup_failed and not domain.get("dkim_status"):
+    if not domain.get("dkim_status"):
         actions.append(
             _action(
                 action_type="missing_dkim",
@@ -214,56 +228,68 @@ def _domain_actions(domain: Dict[str, Any]) -> List[Dict[str, Any]]:
                 domain=domain_name,
             )
         )
-    if pass_rate < 90 and int(domain.get("total_emails") or 0) > 0:
-        actions.append(
-            _action(
-                action_type="low_compliance",
-                severity="high" if pass_rate < 75 else "medium",
-                title="Investigate failing senders",
-                detail=f"DMARC pass rate is {pass_rate:.1f}%, below the 90% enforcement target.",
-                next_step="Open the domain detail page and fix the top failing sources before tightening policy.",
-                score_impact=18 if pass_rate < 75 else 10,
-                domain=domain_name,
-                evidence=[
-                    {"label": "pass_rate", "value": f"{pass_rate:.1f}%"},
-                    {"label": "failed", "value": str(domain.get("failed_count") or 0)},
-                ],
-            )
-        )
-    if policy == "none" and domain.get("dmarc_status"):
-        actions.append(
-            _action(
-                action_type="policy_none",
-                severity="medium",
-                title="Move out of monitoring mode",
-                detail="p=none keeps DMARQ in observation mode and caps the health grade.",
-                next_step="After known senders pass DMARC, stage p=quarantine and then p=reject.",
-                score_impact=14,
-                domain=domain_name,
-                evidence=[{"label": "policy", "value": "p=none"}],
-            )
-        )
-    if domain.get("dmarc_warnings"):
-        actions.append(
-            _action(
-                action_type="dmarc_lint",
-                severity="medium",
-                title="Resolve DMARC lint warnings",
-                detail="The DMARC record has lint warnings that reduce operator confidence.",
-                next_step="Review the DNS health details and publish a corrected DMARC record.",
-                score_impact=8,
-                domain=domain_name,
-                evidence=[
-                    {"label": "warnings", "value": str(len(domain.get("dmarc_warnings") or []))}
-                ],
-            )
-        )
+    return actions
+
+
+def _compliance_action(
+    domain: Dict[str, Any], *, domain_name: str, pass_rate: float
+) -> Optional[Dict[str, Any]]:
+    if pass_rate >= 90 or int(domain.get("total_emails") or 0) <= 0:
+        return None
+    return _action(
+        action_type="low_compliance",
+        severity="high" if pass_rate < 75 else "medium",
+        title="Investigate failing senders",
+        detail=f"DMARC pass rate is {pass_rate:.1f}%, below the 90% enforcement target.",
+        next_step="Open the domain detail page and fix the top failing sources before tightening policy.",
+        score_impact=18 if pass_rate < 75 else 10,
+        domain=domain_name,
+        evidence=[
+            {"label": "pass_rate", "value": f"{pass_rate:.1f}%"},
+            {"label": "failed", "value": str(domain.get("failed_count") or 0)},
+        ],
+    )
+
+
+def _policy_action(
+    domain: Dict[str, Any], *, domain_name: str, policy: str
+) -> Optional[Dict[str, Any]]:
+    if policy != "none" or not domain.get("dmarc_status"):
+        return None
+    return _action(
+        action_type="policy_none",
+        severity="medium",
+        title="Move out of monitoring mode",
+        detail="p=none keeps DMARQ in observation mode and caps the health grade.",
+        next_step="After known senders pass DMARC, stage p=quarantine and then p=reject.",
+        score_impact=14,
+        domain=domain_name,
+        evidence=[{"label": "policy", "value": "p=none"}],
+    )
+
+
+def _dmarc_lint_action(domain: Dict[str, Any], *, domain_name: str) -> Optional[Dict[str, Any]]:
+    if not domain.get("dmarc_warnings"):
+        return None
+    return _action(
+        action_type="dmarc_lint",
+        severity="medium",
+        title="Resolve DMARC lint warnings",
+        detail="The DMARC record has lint warnings that reduce operator confidence.",
+        next_step="Review the DNS health details and publish a corrected DMARC record.",
+        score_impact=8,
+        domain=domain_name,
+        evidence=[{"label": "warnings", "value": str(len(domain.get("dmarc_warnings") or []))}],
+    )
+
+
+def _reputation_actions(domain: Dict[str, Any], *, domain_name: str) -> List[Dict[str, Any]]:
     reputation = domain.get("source_reputation") or {}
     reputation_summary = reputation.get("summary") or {}
     listed = int(reputation_summary.get("listed") or 0)
     suspicious = int(reputation_summary.get("suspicious") or 0)
     if listed:
-        actions.append(
+        return [
             _action(
                 action_type="source_reputation_listed",
                 severity="critical",
@@ -277,9 +303,9 @@ def _domain_actions(domain: Dict[str, Any]) -> List[Dict[str, Any]]:
                 domain=domain_name,
                 evidence=[{"label": "listed_sources", "value": str(listed)}],
             )
-        )
-    elif suspicious:
-        actions.append(
+        ]
+    if suspicious:
+        return [
             _action(
                 action_type="source_reputation_review",
                 severity="high",
@@ -290,7 +316,37 @@ def _domain_actions(domain: Dict[str, Any]) -> List[Dict[str, Any]]:
                 domain=domain_name,
                 evidence=[{"label": "suspicious_sources", "value": str(suspicious)}],
             )
-        )
+        ]
+    return []
+
+
+def _domain_actions(domain: Dict[str, Any]) -> List[Dict[str, Any]]:
+    domain_name = str(domain.get("domain_name") or domain.get("id") or "domain")
+    pass_rate = _bounded(domain.get("pass_rate"))
+    policy = str(domain.get("dmarc_policy") or "missing").lower()
+    dns_pending = bool(domain.get("dns_pending"))
+    dns_lookup_failed = bool(domain.get("dns_lookup_failed"))
+    actions = [
+        *_dns_evidence_actions(
+            domain,
+            domain_name=domain_name,
+            dns_pending=dns_pending,
+            dns_lookup_failed=dns_lookup_failed,
+        ),
+        *_missing_dns_actions(
+            domain,
+            domain_name=domain_name,
+            dns_pending=dns_pending,
+            dns_lookup_failed=dns_lookup_failed,
+        ),
+        *_reputation_actions(domain, domain_name=domain_name),
+    ]
+    optional_actions = [
+        _compliance_action(domain, domain_name=domain_name, pass_rate=pass_rate),
+        _policy_action(domain, domain_name=domain_name, policy=policy),
+        _dmarc_lint_action(domain, domain_name=domain_name),
+    ]
+    actions.extend(action for action in optional_actions if action is not None)
 
     return sorted(actions, key=lambda item: item["score_impact"], reverse=True)
 
