@@ -135,12 +135,16 @@ document.addEventListener('alpine:init', () => {
 
 (function bindReleaseModalTriggers() {
     document.addEventListener('click', (event) => {
-        const trigger = event.target.closest('[data-release-modal-trigger]');
+        const target = event.target;
+        if (!(target instanceof Element)) {
+            return;
+        }
+        const trigger = target.closest('[data-release-modal-trigger]');
         if (!trigger) {
             return;
         }
         const modal = document.getElementById('dmarq-release-modal');
-        if (modal && typeof modal.showModal === 'function') {
+        if (modal && typeof modal.showModal === 'function' && !modal.open) {
             modal.showModal();
         }
     });
