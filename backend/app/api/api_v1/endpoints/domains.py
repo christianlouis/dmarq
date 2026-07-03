@@ -6363,8 +6363,9 @@ async def get_domain_sources(
     settings = get_settings()
 
     ips = [s.get("source_ip", "unknown") for s in sources]
-    hostnames = await asyncio.gather(*[_safe_ptr_lookup(provider, ip) for ip in ips])
-    networks_by_ip = await _source_networks_by_ip(db, provider, ips, settings)
+    ptr_task = asyncio.gather(*[_safe_ptr_lookup(provider, ip) for ip in ips])
+    network_task = asyncio.create_task(_source_networks_by_ip(db, provider, ips, settings))
+    hostnames, networks_by_ip = await asyncio.gather(ptr_task, network_task)
 
     source_entries = []
     sender_by_ip: Dict[str, Dict[str, Any]] = {}

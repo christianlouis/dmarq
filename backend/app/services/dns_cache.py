@@ -185,19 +185,10 @@ def _store_cache_result(
     return row
 
 
-async def _resolve_with_fallback(
-    provider: BaseDNSProvider,
-    domain: str,
-    *,
-    selectors: List[str],
-) -> DomainDNSResult:
-    """Resolve DNS, walking independent resolvers before accepting an empty result."""
-    if not isinstance(
-        provider,
-        (SystemDNSProvider, CloudflareDNSProvider, GoogleDNSProvider),
-    ):
-        return await provider.check_domain(domain, selectors=selectors)
+DNSCandidateResult = Tuple[str, Optional[DomainDNSResult], Optional[Exception]]
 
+
+def _fallback_candidates(provider: BaseDNSProvider) -> List[BaseDNSProvider]:
     fallback_types: List[type[BaseDNSProvider]] = [
         SystemDNSProvider,
         CloudflareDNSProvider,
@@ -208,42 +199,117 @@ async def _resolve_with_fallback(
         for fallback_type in fallback_types
         if not isinstance(provider, fallback_type)
     ]
-    last_result: Optional[DomainDNSResult] = None
+    return [
+        provider if index == 0 else provider_type()
+        for index, provider_type in enumerate(provider_types)
+    ]
+
+
+async def _run_dns_candidate(
+    candidate: BaseDNSProvider,
+    domain: str,
+    *,
+    selectors: List[str],
+) -> DNSCandidateResult:
+    name = candidate.__class__.__name__
+    try:
+        return name, await candidate.check_domain(domain, selectors=selectors), None
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        return name, None, exc
+
+
+def _cancel_pending_dns_tasks(tasks: List[asyncio.Task[DNSCandidateResult]]) -> None:
+    for task in tasks:
+        if not task.done():
+            task.cancel()
+
+
+def _fallback_result(
+    result: DomainDNSResult,
+    *,
+    task_name: str,
+    primary_name: str,
+) -> DomainDNSResult:
+    if task_name != primary_name:
+        result.lookup_status = "fallback"
+        result.lookup_error = f"No DNS evidence from {primary_name}; using {task_name}."
+    return result
+
+
+def _empty_fallback_result(
+    first_empty_result: Optional[DomainDNSResult],
+    resolver_errors: List[str],
+) -> Optional[DomainDNSResult]:
+    if first_empty_result is None:
+        return None
+    if resolver_errors:
+        first_empty_result.lookup_status = "partial"
+        first_empty_result.lookup_error = (
+            "No DNS evidence found after fallback resolver checks; "
+            f"{len(resolver_errors)} resolver error(s) occurred."
+        )
+    return first_empty_result
+
+
+async def _resolve_with_fallback(  # noqa: C901
+    provider: BaseDNSProvider,
+    domain: str,
+    *,
+    selectors: List[str],
+) -> DomainDNSResult:
+    """Resolve DNS, checking independent resolvers before accepting an empty result."""
+    if not isinstance(
+        provider,
+        (SystemDNSProvider, CloudflareDNSProvider, GoogleDNSProvider),
+    ):
+        return await provider.check_domain(domain, selectors=selectors)
+
+    first_empty_result: Optional[DomainDNSResult] = None
     resolver_errors: List[str] = []
+    candidates = _fallback_candidates(provider)
+    tasks = [
+        asyncio.create_task(_run_dns_candidate(candidate, domain, selectors=selectors))
+        for candidate in candidates
+    ]
 
-    for index, provider_type in enumerate(provider_types):
-        candidate = provider if index == 0 else provider_type()
-        try:
-            result = await candidate.check_domain(domain, selectors=selectors)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            resolver_errors.append(f"{candidate.__class__.__name__}:{exc.__class__.__name__}")
-            logger.debug(
-                "DNS resolver %s failed with %s",
-                candidate.__class__.__name__,
-                exc.__class__.__name__,
-            )
-            continue
+    try:
+        for completed in asyncio.as_completed(tasks):
+            try:
+                task_name, result, error = await completed
+            except asyncio.CancelledError:
+                for task in tasks:
+                    task.cancel()
+                raise
 
-        if _has_dns_evidence(result):
-            if index > 0:
-                result.lookup_status = "fallback"
-                result.lookup_error = (
-                    f"No DNS evidence from {provider.__class__.__name__}; "
-                    f"using {candidate.__class__.__name__}."
+            if error is not None:
+                resolver_errors.append(f"{task_name}:{error.__class__.__name__}")
+                logger.debug(
+                    "DNS resolver %s failed with %s",
+                    task_name,
+                    error.__class__.__name__,
                 )
-            return result
-        last_result = result
+                continue
 
-    if last_result is not None:
-        if resolver_errors:
-            last_result.lookup_status = "partial"
-            last_result.lookup_error = (
-                "No DNS evidence found after fallback resolver checks; "
-                f"{len(resolver_errors)} resolver error(s) occurred."
-            )
-        return last_result
+            if result is None:
+                continue
+
+            if _has_dns_evidence(result):
+                return _fallback_result(
+                    result,
+                    task_name=task_name,
+                    primary_name=provider.__class__.__name__,
+                )
+
+            if first_empty_result is None:
+                first_empty_result = result
+    finally:
+        _cancel_pending_dns_tasks(tasks)
+
+    empty_result = _empty_fallback_result(first_empty_result, resolver_errors)
+    if empty_result is not None:
+        return empty_result
 
     raise LookupError(
         "All DNS resolvers failed: "
