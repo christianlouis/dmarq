@@ -146,6 +146,8 @@ class Settings(BaseSettings):
     ALLOW_OIDC_SKIP_SSL_VERIFY_IN_PRODUCTION: bool = False
     OIDC_ALLOWED_EMAILS: Optional[str] = None
     OIDC_ALLOWED_DOMAINS: Optional[str] = None
+    OIDC_GROUP_WORKSPACE_ROLE_MAP: Optional[str] = None
+    OIDC_GROUP_ORGANIZATION_ROLE_MAP: Optional[str] = None
 
     AUTHENTIK_ISSUER_URL: Optional[str] = None
     AUTHENTIK_CLIENT_ID: Optional[str] = None
@@ -154,6 +156,8 @@ class Settings(BaseSettings):
     AUTHENTIK_SCOPES: str = "openid email profile"
     AUTHENTIK_ALLOWED_EMAILS: Optional[str] = None
     AUTHENTIK_ALLOWED_DOMAINS: Optional[str] = None
+    AUTHENTIK_GROUP_WORKSPACE_ROLE_MAP: Optional[str] = None
+    AUTHENTIK_GROUP_ORGANIZATION_ROLE_MAP: Optional[str] = None
 
     # ── Trusted proxy / Authentik Outpost mode ───────────────────────────────
     # Use only when DMARQ is reachable exclusively through the trusted proxy.
@@ -166,6 +170,8 @@ class Settings(BaseSettings):
     AUTH_TRUSTED_PROXY_GROUPS_HEADER: str = "X-Authentik-Groups"
     AUTH_TRUSTED_PROXY_ALLOWED_EMAILS: Optional[str] = None
     AUTH_TRUSTED_PROXY_ALLOWED_DOMAINS: Optional[str] = None
+    AUTH_TRUSTED_PROXY_GROUP_WORKSPACE_ROLE_MAP: Optional[str] = None
+    AUTH_TRUSTED_PROXY_GROUP_ORGANIZATION_ROLE_MAP: Optional[str] = None
 
     # ── Logto OIDC ────────────────────────────────────────────────────────────
     # Set these to enable Logto-based authentication.
