@@ -463,15 +463,20 @@ async def test_check_dkim_queries_selectors_in_parallel_and_preserves_priority()
     provider = SlowSelectorProvider()
     task = asyncio.create_task(provider.check_dkim("example.com", ["manual", "common"]))
 
-    for _attempt in range(20):
-        if provider.started == 2:
-            break
-        await asyncio.sleep(0)
+    try:
+        for _attempt in range(20):
+            if provider.started == 2:
+                break
+            await asyncio.sleep(0)
 
-    assert provider.started == 2
-    provider.release.set()
+        assert provider.started == 2
+        provider.release.set()
 
-    found, selectors, record = await task
+        found, selectors, record = await task
+    finally:
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
 
     assert found is True
     assert selectors == ["manual", "common"]
