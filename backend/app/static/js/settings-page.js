@@ -76,6 +76,9 @@ function settingsApp() {
             }
             this._providerControlsBound = true;
             this.$root.addEventListener('click', event => {
+                if (!(event.target instanceof Element)) {
+                    return;
+                }
                 const button = event.target.closest('button');
                 if (!button || !this.$root.contains(button)) {
                     return;
@@ -104,6 +107,9 @@ function settingsApp() {
                 }
             });
             this.$root.addEventListener('change', event => {
+                if (!(event.target instanceof Element)) {
+                    return;
+                }
                 if (event.target.matches('[data-settings-dns-provider-select]')) {
                     this.resetDnsProviderImportState();
                 }
