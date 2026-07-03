@@ -288,12 +288,34 @@ def test_dashboard_clears_all_chart_instances():
 
 def test_dashboard_uses_external_page_script_for_csp_migration():
     template = _dashboard_template()
+    script = _dashboard_script()
     styles = _read_project_file("static", "css", "styles.css")
 
     assert 'src="/static/js/chart.umd.min.js"' in template
     assert 'src="/static/js/dashboard-page.js"' in template
     assert "enforcement-gauge-bg" in template
     assert ".enforcement-gauge-bg" in styles
+    assert '@change="handleDateIntervalChange()"' not in template
+    assert '@click="fetchDashboardStats(); fetchWorkspaceHealthHistory()"' not in template
+    assert '@change="updateDnsHealth()"' not in template
+    assert '@click="triggerPollNow()"' not in template
+    assert '@keydown.escape.window="closeDemoTour()"' not in template
+    assert '@click="closeDemoTour()"' not in template
+    assert '@click="previousDemoTourStep()"' not in template
+    assert '@click="nextDemoTourStep()"' not in template
+    assert "data-dashboard-date-interval" in template
+    assert "data-dashboard-custom-apply" in template
+    assert "data-dashboard-dns-health-domain" in template
+    assert "data-dashboard-trigger-poll" in template
+    assert "data-dashboard-demo-tour-close" in template
+    assert "data-dashboard-demo-tour-previous" in template
+    assert "data-dashboard-demo-tour-next" in template
+    assert "bindControls()" in script
+    assert "data-dashboard-date-interval" in script
+    assert "data-dashboard-custom-apply" in script
+    assert "data-dashboard-dns-health-domain" in script
+    assert "data-dashboard-trigger-poll" in script
+    assert "data-dashboard-demo-tour-close" in script
     assert not _has_inline_style(template)
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
@@ -311,6 +333,17 @@ def test_operations_uses_external_page_script_for_csp_migration():
     assert "/api/v1/health/operations" in script
     assert "Health details could not be loaded." in script
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
+
+
+def test_alert_component_uses_external_close_control_for_csp_migration():
+    template = _read_project_file("templates", "components", "ui", "alert.html")
+    script = _read_project_file("static", "js", "pages.js")
+
+    assert 'x-on:click="close()"' not in template
+    assert "data-alert-close" in template
+    assert "data-alert-close" in script
+    assert "bindControls()" in script
+    assert "close()" in script
 
 
 def test_reports_uses_external_page_script_for_csp_migration():
@@ -782,6 +815,12 @@ def test_base_template_propagates_selected_workspace_context():
     assert "workspaces.length > 1" in template
     assert "localStorage.removeItem('dmarq.selectedWorkspaceId')" in script
     assert "input instanceof URL" in script
+    assert 'x-init="loadUser()"' not in template
+    assert '@change="selectWorkspace($event.target.value)"' not in template
+    assert "data-user-menu" in template
+    assert "data-workspace-switcher" in template
+    assert "bindControls()" in script
+    assert "data-workspace-switcher" in script
     assert "onclick=" not in template
     assert "data-release-modal-trigger" in template
     assert "Full changelog" in template
@@ -879,7 +918,8 @@ def test_dashboard_trigger_poll_uses_post_action_not_get_link():
     script = _dashboard_script()
 
     assert 'href="/api/v1/admin/trigger-poll"' not in template
-    assert "triggerPollNow()" in template
+    assert "data-dashboard-trigger-poll" in template
+    assert "triggerPollNow()" in script
     assert "method: 'POST'" in script
     assert "Report Intake Status" in template
     assert "Gmail API" in script

@@ -69,12 +69,81 @@ function dashboardApp() {
         },
         
         init() {
+            this.bindControls();
+
             // Fetch domain summary on page load
             this.fetchDomainSummary();
             
             // Check report intake status
             this.getReportIntakeStatus();
             this.fetchForensicSummary();
+        },
+
+        bindControls() {
+            if (typeof document === 'undefined') return;
+            const hasElement = typeof Element !== 'undefined';
+            const root = hasElement && this.$root instanceof Element
+                ? this.$root
+                : document.querySelector('.dashboard-page');
+            if (!root || root.dataset.dashboardControlsBound === 'true') return;
+            root.dataset.dashboardControlsBound = 'true';
+
+            root.addEventListener('change', event => {
+                if (!hasElement || !(event.target instanceof Element)) return;
+
+                const dateInterval = event.target.closest('[data-dashboard-date-interval]');
+                if (dateInterval && root.contains(dateInterval)) {
+                    this.dateInterval = dateInterval.value;
+                    this.handleDateIntervalChange();
+                    return;
+                }
+
+                const dnsDomain = event.target.closest('[data-dashboard-dns-health-domain]');
+                if (dnsDomain && root.contains(dnsDomain)) {
+                    this.selectedDnsDomain = dnsDomain.value;
+                    this.updateDnsHealth();
+                }
+            });
+
+            root.addEventListener('click', event => {
+                if (!hasElement || !(event.target instanceof Element)) return;
+
+                const customApply = event.target.closest('[data-dashboard-custom-apply]');
+                if (customApply && root.contains(customApply)) {
+                    this.fetchDashboardStats();
+                    this.fetchWorkspaceHealthHistory();
+                    return;
+                }
+
+                const triggerPoll = event.target.closest('[data-dashboard-trigger-poll]');
+                if (triggerPoll && root.contains(triggerPoll)) {
+                    this.triggerPollNow();
+                    return;
+                }
+
+                const closeTour = event.target.closest('[data-dashboard-demo-tour-close]');
+                if (closeTour && root.contains(closeTour)) {
+                    this.closeDemoTour();
+                    return;
+                }
+
+                const previousTourStep = event.target.closest('[data-dashboard-demo-tour-previous]');
+                if (previousTourStep && root.contains(previousTourStep)) {
+                    this.previousDemoTourStep();
+                    return;
+                }
+
+                const nextTourStep = event.target.closest('[data-dashboard-demo-tour-next]');
+                if (nextTourStep && root.contains(nextTourStep)) {
+                    this.nextDemoTourStep();
+                }
+            });
+
+            document.addEventListener('keydown', event => {
+                if (event.key === 'Escape' && this.demoTourActive) {
+                    this.closeDemoTour();
+                }
+            });
         },
         
         formatSourceMethods(methods) {

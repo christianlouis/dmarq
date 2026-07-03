@@ -42,7 +42,7 @@
                     <select id="dashboard-date-interval"
                             class="rounded-md border border-[#dfdfdf] bg-white px-3 py-2 text-sm font-semibold text-[#120d36]"
                             x-model="dateInterval"
-                            @change="handleDateIntervalChange()">
+                            data-dashboard-date-interval>
                         <template x-for="option in dateIntervalOptions" :key="option.value">
                             <option :value="option.value"
                                     :selected="option.value === dateInterval"
@@ -61,7 +61,7 @@
                                    x-model="customEndDate">
                             <button type="button"
                                     class="rounded-md bg-[#272a5f] px-3 py-2 text-sm font-semibold text-white hover:bg-[#171346]"
-                                    @click="fetchDashboardStats(); fetchWorkspaceHealthHistory()">
+                                    data-dashboard-custom-apply>
                                 Apply
                             </button>
                         </div>
@@ -221,7 +221,7 @@
                     <select id="dns-health-domain"
                             class="min-w-0 rounded-md border border-[#dfdfdf] bg-white px-3 py-2 text-sm font-semibold text-[#120d36]"
                             x-model="selectedDnsDomain"
-                            @change="updateDnsHealth()">
+                            data-dashboard-dns-health-domain>
                         <option value="">No report-backed domain selected</option>
                         <template x-for="domain in domains" :key="domain.domain_name || domain.id">
                             <option :value="domain.domain_name" x-text="domain.domain_name"></option>
@@ -375,7 +375,7 @@
                     <button type="button"
                             class="btn btn-outline btn-sm"
                             :disabled="triggerPollRunning"
-                            @click="triggerPollNow()">
+                            data-dashboard-trigger-poll>
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="m3 2 2 4h8L7 14h2l-4 8 1-6H4l2-8H3z"></path></svg>
                         <span x-text="triggerPollRunning ? 'Polling...' : 'Trigger Poll Now'"></span>
                     </button>
@@ -415,7 +415,7 @@
     <div x-show="demoTourActive"
          x-cloak
          class="fixed inset-0 z-50 pointer-events-none"
-         @keydown.escape.window="closeDemoTour()">
+         data-dashboard-demo-tour>
         <div class="absolute inset-0 bg-[#07071f]/45"></div>
         <div class="absolute left-1/2 top-28 w-[min(92vw,30rem)] -translate-x-1/2 rounded-lg bg-white p-5 shadow-xl pointer-events-auto md:left-auto md:right-8 md:translate-x-0">
             <div class="flex items-start justify-between gap-4">
@@ -427,17 +427,17 @@
                 <button type="button"
                         class="rounded-md px-2 py-1 text-lg text-[#5f5c78] hover:bg-[#f4f3f2]"
                         aria-label="Close guided demo"
-                        @click="closeDemoTour()">×</button>
+                        data-dashboard-demo-tour-close>×</button>
             </div>
             <p class="mt-3 text-sm text-[#5f5c78]" x-text="currentDemoTourStep()?.body"></p>
             <div class="mt-5 flex items-center justify-between gap-3">
                 <button type="button"
                         class="rounded-md border border-[#dfdfdf] px-3 py-2 text-sm font-semibold text-[#120d36] disabled:opacity-40"
                         :disabled="demoTourStepIndex === 0"
-                        @click="previousDemoTourStep()">Back</button>
+                        data-dashboard-demo-tour-previous>Back</button>
                 <button type="button"
                         class="rounded-md bg-[#272a5f] px-4 py-2 text-sm font-semibold text-white hover:bg-[#171346]"
-                        @click="nextDemoTourStep()"
+                        data-dashboard-demo-tour-next
                         x-text="demoTourStepIndex + 1 >= demoTourSteps.length ? 'Finish' : 'Next'"></button>
             </div>
         </div>
