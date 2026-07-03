@@ -139,7 +139,7 @@ def _latest_stale_evidence_row(
             if _has_dns_evidence(_result_from_json(candidate.result_json)):
                 return candidate
         except (TypeError, ValueError, json.JSONDecodeError):
-            logger.debug("Ignoring unreadable DNS cache row for %s", domain)
+            logger.debug("Ignoring unreadable stale DNS cache row")
     return None
 
 
