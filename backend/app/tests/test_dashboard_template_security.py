@@ -773,8 +773,13 @@ def test_domain_details_exposes_volume_scale_controls_without_html_injection():
 
     assert "Volume scale" in template
     assert 'role="group" aria-label="Volume scale"' in template
-    assert "setVolumeScale('logarithmic')" in template
-    assert "setVolumeScale('linear')" in template
+    assert "data-domain-detail-page" in template
+    assert 'data-domain-detail-volume-scale="logarithmic"' in template
+    assert 'data-domain-detail-volume-scale="linear"' in template
+    assert "data-domain-detail-volume-scale" in script
+    assert "bindPageControls()" in script
+    assert "setVolumeScale('logarithmic')" not in template
+    assert "setVolumeScale('linear')" not in template
     assert ":aria-pressed=\"effectiveVolumeScale() === 'logarithmic'\"" in template
     assert ":aria-pressed=\"effectiveVolumeScale() === 'linear'\"" in template
     assert ':disabled="!hasObservedVolume"' in template
@@ -812,6 +817,13 @@ def test_domain_details_exposes_migration_readiness_without_html_injection():
     assert "migrationImport.preview?.sample_rows" in template
     assert "migrationToolsEnabled" in template
     assert "I am migrating data" in template
+    assert "data-domain-detail-migration-action" in template
+    assert "handleMigrationAction" in script
+    assert "@click=\"enableMigrationTools()\"" not in template
+    assert '@click="previewMigrationImport"' not in template
+    assert "@click=\"loadMigrationImportSample\"" not in template
+    assert "@click=\"applyMigrationPreviewBaseline\"" not in template
+    assert "@click=\"compareMigrationBaseline\"" not in template
     assert "x-html" not in template
 
 
@@ -820,12 +832,45 @@ def test_domain_details_exposes_ownership_and_delete_controls_without_html_injec
     script = _domain_details_script()
 
     assert "Domain Ownership" in template
+    assert "data-domain-detail-reload" in template
+    assert "data-domain-detail-delete" in template
+    assert "data-domain-detail-verify-ownership" in template
+    assert "data-domain-detail-verify-cloudflare" in template
+    assert "data-domain-detail-reload" in script
+    assert "data-domain-detail-delete" in script
+    assert "data-domain-detail-verify-ownership" in script
+    assert "data-domain-detail-verify-cloudflare" in script
     assert "/ownership" in script
     assert "/ownership/verify" in script
     assert "Report mailbox access is enough" not in template
     assert "deleteDomain()" in script
+    assert '@click="reloadPageData()"' not in template
+    assert '@click="deleteDomain()"' not in template
+    assert '@click="verifyDomainOwnership()"' not in template
+    assert '@click="verifyDomainOwnershipCloudflare()"' not in template
     assert "Type the domain name to confirm" in script
     assert "sourcesLoading" in template
+
+
+def test_domain_details_externalizes_detail_actions_without_inline_handlers():
+    template = _domain_details_template()
+    script = _domain_details_script()
+
+    assert "data-domain-detail-remediation-action" in template
+    assert "handleRemediationAction" in script
+    assert "findRemediationItem" in script
+    assert "data-domain-detail-selector-add" in template
+    assert "data-domain-detail-selector-delete" in template
+    assert "data-domain-detail-selector-input" in template
+    assert "data-domain-detail-copy-value" in template
+    assert "data-domain-detail-dns-action" in template
+    assert "handleDnsPlanAction" in script
+    assert "findDnsPlan" in script
+    assert "copyValue" in script
+    assert "@click=" not in template
+    assert "@keydown" not in template
+    assert "navigator.clipboard.writeText" not in template
+    assert "x-html" not in template
     assert "sourceEvidenceCount" in template
     assert "x-html" not in template
 
@@ -857,10 +902,15 @@ def test_domain_details_exposes_remediation_action_plans_without_html_injection(
     assert "Acknowledge" in template
     assert "Resolve" in template
     assert "Dispatch" in template
-    assert "recordRemediationLifecycle(item, 'previewed')" in template
-    assert "recordRemediationLifecycle(item, 'acknowledged')" in template
-    assert "recordRemediationLifecycle(item, 'resolved')" in template
-    assert "dispatchRemediationNotification(item)" in template
+    assert 'data-domain-detail-remediation-action="previewed"' in template
+    assert 'data-domain-detail-remediation-action="acknowledged"' in template
+    assert 'data-domain-detail-remediation-action="resolved"' in template
+    assert 'data-domain-detail-remediation-action="dispatch"' in template
+    assert "recordRemediationLifecycle(item, 'previewed')" not in template
+    assert "recordRemediationLifecycle(item, 'acknowledged')" not in template
+    assert "recordRemediationLifecycle(item, 'resolved')" not in template
+    assert "dispatchRemediationNotification(item)" not in template
+    assert "handleRemediationAction" in script
     assert "/remediation/notifications/audit" in script
     assert "/remediation/notifications/dispatch" in script
     assert "No DNS changes were made" in script
