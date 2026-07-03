@@ -480,6 +480,32 @@ async function installApiMocks(page) {
         source_labels: ['Gmail API: dmarc-reports@example.com'],
         latest_source_check: '2026-07-03T12:00:00Z',
       },
+      '/api/v1/onboarding/preview': {
+        plan: {
+          tasks: [
+            {
+              id: 'dns-review',
+              title: 'Review DNS posture',
+              description: 'Check DMARC, SPF, DKIM, and ownership evidence.',
+              category: 'DNS',
+              href: '/domains/cklnet.com',
+            },
+          ],
+        },
+      },
+      '/api/v1/onboarding/apply': {
+        result: {
+          tasks: [
+            {
+              id: 'dns-review',
+              title: 'Review DNS posture',
+              description: 'Check DMARC, SPF, DKIM, and ownership evidence.',
+              category: 'DNS',
+              href: '/domains/cklnet.com',
+            },
+          ],
+        },
+      },
     };
 
     if (
@@ -523,6 +549,44 @@ test('domain list loads domain rows and keeps edit action wired', async ({ page 
   await page.getByRole('button', { name: 'Edit' }).first().click();
   await expect(page.getByRole('heading', { name: 'Edit monitored domain' })).toBeVisible();
   await expect(page.getByRole('dialog').getByText('cklnet.com')).toBeVisible();
+});
+
+test('upload page keeps queue controls wired without inline handlers', async ({ page }) => {
+  await page.goto('/upload');
+
+  const fileInput = page.locator('[data-upload-file-input]');
+  await fileInput.setInputFiles({
+    name: 'not-a-dmarc-report.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('not xml'),
+  });
+  await expect(page.getByText('Invalid file type. Only XML, ZIP, or GZIP files are supported.')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Remove file' }).click();
+  await expect(page.getByText('Select or drop files above to begin uploading automatically.')).toBeVisible();
+
+  await fileInput.setInputFiles({
+    name: 'report.xml',
+    mimeType: 'application/xml',
+    buffer: Buffer.from('<feedback></feedback>'),
+  });
+  await expect(page.getByText('0 records for unknown domain')).toBeVisible();
+
+  await page.getByText('Clear all').click();
+  await expect(page.getByText('Select or drop files above to begin uploading automatically.')).toBeVisible();
+});
+
+test('onboarding page keeps setup controls wired without inline handlers', async ({ page }) => {
+  await page.goto('/onboarding');
+
+  await expect(page.getByRole('heading', { name: 'Mail health setup' })).toBeVisible();
+  await page.getByRole('button', { name: 'DNS only' }).click();
+  await expect(page.getByText('without storing mailbox credentials')).toBeVisible();
+
+  await page.getByRole('textbox', { name: 'Domain' }).fill('cklnet.com');
+  await page.getByRole('button', { name: 'Preview tasks' }).click();
+  await expect(page.getByText('Preview is ready. Review the task list before applying setup.')).toBeVisible();
+  await expect(page.getByText('Review DNS posture')).toBeVisible();
 });
 
 test('domain detail shows cached DNS evidence and sender reputation context', async ({ page }) => {

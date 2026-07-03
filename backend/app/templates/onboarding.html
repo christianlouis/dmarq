@@ -23,11 +23,11 @@
             </p>
         </div>
         <div class="flex flex-wrap gap-2">
-            <button type="button" class="btn btn-outline" @click="previewPlan" :disabled="saving">
+            <button type="button" class="btn btn-outline" :disabled="saving" data-onboarding-preview>
                 <span x-show="previewing" class="loading loading-spinner loading-xs"></span>
                 Preview tasks
             </button>
-            <button type="button" class="btn btn-primary" @click="applyPlan" :disabled="saving">
+            <button type="button" class="btn btn-primary" :disabled="saving" data-onboarding-apply>
                 <span x-show="applying" class="loading loading-spinner loading-xs"></span>
                 {{ "Create workspace" if multi_workspace_ui_enabled else "Apply setup" }}
             </button>
@@ -174,10 +174,10 @@
                     <div class="join">
                         <button type="button" class="btn join-item btn-sm"
                                 :class="form.mailSourcePath === 'imap' ? 'btn-primary' : 'btn-outline'"
-                                @click="form.mailSourcePath = 'imap'">IMAP</button>
+                                data-onboarding-mail-path="imap">IMAP</button>
                         <button type="button" class="btn join-item btn-sm"
                                 :class="form.mailSourcePath === 'dns_only' ? 'btn-primary' : 'btn-outline'"
-                                @click="form.mailSourcePath = 'dns_only'">DNS only</button>
+                                data-onboarding-mail-path="dns_only">DNS only</button>
                     </div>
                 </div>
 

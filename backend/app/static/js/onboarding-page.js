@@ -8,6 +8,7 @@ function workspaceOnboarding(options = {}) {
         plan: null,
         result: null,
         tasks: [],
+        initialized: false,
         form: {
             organizationName: '',
             workspaceName: '',
@@ -27,12 +28,30 @@ function workspaceOnboarding(options = {}) {
             return !this.multiWorkspaceUiEnabled;
         },
         init() {
+            if (this.initialized) return;
+            this.initialized = true;
             this.draftFields().forEach((field) => {
                 const storedValue = localStorage.getItem(`dmarq.onboarding.${field}`);
                 if (storedValue !== null) {
                     this.form[field] = storedValue;
                 }
                 this.$watch(`form.${field}`, () => this.persistDraft());
+            });
+            this.bindControls();
+        },
+        bindControls() {
+            const root = this.$root;
+            root?.querySelector('[data-onboarding-preview]')?.addEventListener('click', () => {
+                this.previewPlan();
+            });
+            root?.querySelector('[data-onboarding-apply]')?.addEventListener('click', () => {
+                this.applyPlan();
+            });
+            root?.addEventListener('click', (event) => {
+                if (!(event.target instanceof Element)) return;
+                const pathButton = event.target.closest('[data-onboarding-mail-path]');
+                if (!pathButton) return;
+                this.form.mailSourcePath = pathButton.getAttribute('data-onboarding-mail-path') || 'imap';
             });
         },
         draftFields() {
