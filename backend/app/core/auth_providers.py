@@ -599,11 +599,10 @@ def _merge_role_pairs(*role_sets: tuple[tuple[str, str], ...]) -> tuple[tuple[st
     seen = set()
     for role_set in role_sets:
         for slug, role in role_set:
-            key = (slug, role)
-            if key in seen:
+            if slug in seen:
                 continue
-            normalized.append(key)
-            seen.add(key)
+            normalized.append((slug, role))
+            seen.add(slug)
     return tuple(normalized)
 
 

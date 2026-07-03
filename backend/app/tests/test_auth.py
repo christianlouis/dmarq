@@ -354,6 +354,36 @@ class TestExternalAuthProviders:
         )
         assert claims.organization_roles == (("customer-one", "organization_owner"),)
 
+    def test_normalize_external_claims_preserves_explicit_role_precedence(self):
+        claims = normalize_external_claims(
+            "authentik",
+            {
+                "sub": "authentik-user-1",
+                "email": "owner@example.com",
+                "groups": ["dmarq-admins", "auditors"],
+                "dmarq_workspace_roles": {"primary": "analyst"},
+                "dmarq_organization_roles": {"customer-one": "auditor"},
+            },
+            allowed_domains="example.com",
+            group_workspace_role_map=(
+                "dmarq-admins=primary:workspace_owner,"
+                "auditors=secondary:analyst"
+            ),
+            group_organization_role_map=(
+                "dmarq-admins=customer-one:organization_owner,"
+                "auditors=customer-two:auditor"
+            ),
+        )
+
+        assert claims.workspace_roles == (
+            ("primary", "analyst"),
+            ("secondary", "analyst"),
+        )
+        assert claims.organization_roles == (
+            ("customer-one", "auditor"),
+            ("customer-two", "auditor"),
+        )
+
     def test_normalize_external_claims_logs_invalid_group_role_mappings(self, caplog):
         with caplog.at_level(logging.WARNING, logger="app.core.auth_providers"):
             claims = normalize_external_claims(
