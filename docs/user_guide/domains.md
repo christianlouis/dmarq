@@ -237,10 +237,10 @@ MTA-STS posture uses the same cached DNS refresh behavior as the existing DNS he
 ### DANE/TLSA Posture
 
 When a domain has MX records, DMARQ can inspect passive DANE/TLSA readiness for
-the `_25._tcp.<mx-host>` names. The check is read-only: it reports whether TLSA
-records exist, whether their syntax is usable, and whether a reachable SMTP
-STARTTLS certificate can produce an operator-ready `3 1 1` SPKI SHA-256
-suggestion.
+the `_25._tcp.<mx-host>` names on a best-effort basis. The check is read-only:
+it reports whether TLSA records exist, whether their syntax is usable, and
+whether capped live SMTP STARTTLS probing can reach an MX certificate that
+produces an operator-ready `3 1 1` SPKI SHA-256 suggestion.
 
 Treat generated TLSA values as review evidence, not an automatic DNS change.
 The operator still needs to confirm DNSSEC posture, MX certificate rotation

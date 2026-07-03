@@ -49,7 +49,7 @@ Included:
 - ✅ DNS linting, change plans, approved Cloudflare writes, and modular provider write adapters
 - ✅ Forensic/failure report ingestion with redacted metadata and grouped analysis
 - ✅ SMTP TLS report ingestion, trends, and top failure summaries
-- ✅ Passive DANE/TLSA MX coverage checks with read-only TLSA suggestions
+- ✅ Best-effort passive DANE/TLSA MX checks with bounded live probing and read-only TLSA suggestions
 - ✅ Public demo mode with rolling synthetic `dmarq.org` and `dmarq.com` data
 - 🔭 Roadmap: domain mail-health scoring, human-approved repair loops, sender IP
   reputation checks, DNS/mail provider imports, direct report intake workers,
@@ -57,9 +57,9 @@ Included:
 
 Protocol boundary:
 
-- **Supported now:** DMARC aggregate reports, DMARC failure/RUF reports,
-  SMTP TLS reports, DMARC/SPF/DKIM DNS linting, MTA-STS, TLS-RPT, BIMI, and
-  passive DANE/TLSA guidance.
+- **Supported now:** DMARC aggregate reports, inbound DMARC failure/RUF reports,
+  SMTP TLS/TLS-RPT reports, DMARC/SPF/DKIM DNS linting, MTA-STS, BIMI, and
+  best-effort passive DANE/TLSA guidance with bounded live probing.
 - **Passive context only:** ARC headers found in failure-report samples are
   retained as redacted diagnostics, but DMARQ does not validate ARC chains or
   use ARC as a substitute for DMARC alignment.
