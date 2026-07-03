@@ -1758,6 +1758,65 @@ def test_summary_refresh_dns_exception_marks_lookup_failed(authed_client: TestCl
     assert "missing_dkim" not in action_types
 
 
+def test_summary_prefers_report_policy_when_dns_cache_is_stale(
+    authed_client: TestClient,
+    db_session,
+):
+    """Stale DNS evidence should not override the policy observed in reports."""
+    save_parsed_report(
+        db_session,
+        {
+            **MINIMAL_REPORT,
+            "report_id": "stale-dns-policy-fixture",
+            "policy": {"p": "reject", "sp": "", "pct": "100"},
+        },
+    )
+    db_session.commit()
+    stale_dns = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=none; rua=mailto:dmarc@example.com",
+        spf=True,
+        spf_record="v=spf1 include:_spf.google.com ~all",
+        dkim=True,
+        dkim_selectors=["google"],
+        dkim_record="v=DKIM1; k=rsa; p=ABC",
+        lookup_status="stale_cache",
+    )
+
+    with _mock_dns(result=stale_dns):
+        response = authed_client.get("/api/v1/domains/summary?refresh=true")
+
+    assert response.status_code == 200
+    domain = response.json()["domains"][0]
+    assert domain["dmarc_policy"] == "reject"
+    assert domain["dmarc_policy_source"] == "report"
+    assert domain["dns_evidence_source"] == "stale_cache"
+
+
+def test_summary_dns_evidence_source_uses_any_live_dns_evidence(
+    authed_client: TestClient,
+    db_session,
+):
+    """SPF/DKIM evidence should not be reported as an empty DNS lookup."""
+    _persist_minimal_report(db_session)
+    partial_dns = DomainDNSResult(
+        dmarc=False,
+        spf=True,
+        spf_record="v=spf1 include:_spf.google.com ~all",
+        dkim=True,
+        dkim_selectors=["google"],
+        dkim_record="v=DKIM1; k=rsa; p=ABC",
+    )
+
+    with _mock_dns(result=partial_dns):
+        response = authed_client.get("/api/v1/domains/summary?refresh=true")
+
+    assert response.status_code == 200
+    domain = response.json()["domains"][0]
+    assert domain["dmarc_policy_source"] == "report"
+    assert domain["dns_evidence_source"] == "live_dns"
+
+
 def test_summary_endpoint_uses_manual_selectors(authed_client: TestClient, db_session):
     """Manually configured selectors are forwarded by the summary endpoint."""
     _persist_minimal_report(db_session)
