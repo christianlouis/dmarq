@@ -179,6 +179,20 @@ class TestSecurityHeaders:
         assert "'unsafe-eval'" not in csp_ro
         assert "script-src 'self'" in csp_ro
 
+    def test_strict_csp_can_be_enforced_after_runtime_migration(
+        self, client: TestClient, monkeypatch
+    ):
+        """Operators can enforce the strict target CSP once their UI is validated."""
+        monkeypatch.setenv("CSP_ENFORCE_STRICT", "true")
+
+        response = client.get("/mail-sources")
+
+        csp = response.headers["Content-Security-Policy"]
+        assert "'unsafe-inline'" not in csp
+        assert "'unsafe-eval'" not in csp
+        assert "script-src 'self'" in csp
+        assert "style-src 'self' https://fonts.googleapis.com https://cdn.jsdelivr.net" in csp
+
 
 class TestXMLParsingSecurity:
     """Test XML parsing security (defusedxml, XXE protection)."""
