@@ -186,6 +186,7 @@
                             {% call tr() %}
                                 {% call th() %}Source IP{% endcall %}
                                 {% call th() %}Source intelligence{% endcall %}
+                                {% call th() %}Reputation{% endcall %}
                                 {% call th() %}Count{% endcall %}
                                 {% call th() %}Disposition{% endcall %}
                                 {% call th() %}DKIM{% endcall %}
@@ -197,7 +198,7 @@
                         {% call tbody() %}
                             <template x-if="report.records.length === 0">
                                 <tr>
-                                    <td colspan="8" class="text-center py-4">
+                                    <td colspan="9" class="text-center py-4">
                                         <div class="text-muted-foreground">No records in this report</div>
                                     </td>
                                 </tr>
@@ -250,17 +251,25 @@
                                                class="inline-flex text-primary hover:underline">Open in Cloudflare Radar</a>
                                             <div x-show="record.source_details?.network_error && !record.source_details?.asn && !record.source_details?.network"
                                                  x-text="record.source_details.network_error"></div>
+                                        </div>
+                                    {% endcall %}
+                                    {% call td() %}
+                                        <div class="min-w-56 max-w-xs space-y-2 text-xs text-[#5f5c78]">
                                             <template x-if="record.reputation">
-                                                <div class="space-y-1 pt-1">
+                                                <div class="space-y-2">
                                                     <div class="flex flex-wrap gap-1">
-                                                        <span class="inline-flex items-center px-2 py-1 rounded text-xs"
+                                                        <span class="inline-flex items-center rounded px-2 py-1 text-xs font-semibold"
                                                               :class="reputationClass(record.reputation.status)"
-                                                              x-text="`${reputationLabel(record.reputation)} · risk ${record.reputation.risk_score}/100`"></span>
-                                                        <span class="inline-flex items-center px-2 py-1 rounded text-xs"
+                                                              x-text="reputationLabel(record.reputation)"></span>
+                                                        <span class="inline-flex items-center rounded bg-base-200 px-2 py-1 font-mono text-xs text-base-content/80"
+                                                              x-text="reputationScoreLabel(record.reputation)"></span>
+                                                    </div>
+                                                    <div class="flex flex-wrap gap-1">
+                                                        <span class="inline-flex items-center rounded px-2 py-1 text-xs"
                                                               :class="reputationFeedClass(record.reputation.feed_status)"
                                                               x-text="record.reputation.feed_summary || 'Local reputation evidence only'"></span>
                                                     </div>
-                                                    <div x-text="record.reputation.status_detail || record.reputation.summary"></div>
+                                                    <div class="leading-relaxed" x-text="reputationDetail(record.reputation)"></div>
                                                     <div class="text-muted-foreground" x-text="reputationCheckedLabel(record.reputation)"></div>
                                                     <template x-if="record.reputation.listings?.length">
                                                         <div class="font-semibold text-[#ff6f3c]">
@@ -276,6 +285,14 @@
                                                             </span>
                                                         </template>
                                                     </div>
+                                                </div>
+                                            </template>
+                                            <template x-if="!record.reputation">
+                                                <div class="space-y-1">
+                                                    <span class="inline-flex items-center rounded bg-base-200 px-2 py-1 text-xs font-semibold text-base-content/70">
+                                                        Reputation not calculated
+                                                    </span>
+                                                    <p>Reload source intelligence to refresh reputation evidence for this IP.</p>
                                                 </div>
                                             </template>
                                         </div>

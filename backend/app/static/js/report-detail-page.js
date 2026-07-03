@@ -149,6 +149,22 @@ function reportDetailApp(reportId) {
             return reputation?.status_label || reputation?.status || 'Reputation unavailable';
         },
 
+        reputationScoreLabel(reputation) {
+            if (typeof reputation?.risk_score === 'number') {
+                return `risk ${reputation.risk_score}/100`;
+            }
+            return 'risk unknown';
+        },
+
+        reputationDetail(reputation) {
+            return (
+                reputation?.status_detail ||
+                reputation?.summary ||
+                reputation?.evidence_summary ||
+                'No reputation assessment is available for this IP yet.'
+            );
+        },
+
         reputationCheckedLabel(reputation) {
             if (!reputation?.checked_at) return 'not checked yet';
             const date = new Date(reputation.checked_at);

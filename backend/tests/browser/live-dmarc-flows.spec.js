@@ -629,7 +629,12 @@ test('reports list and aggregate detail keep source evidence actionable', async 
   await expect(page.getByText('mta203-ab1.mtasv.net')).toBeVisible();
   await expect(page.getByText('AS23352').first()).toBeVisible();
   await expect(page.getByText('SERVERCENTRAL - DEFT.COM, US').first()).toBeVisible();
+  await expect(page.getByRole('columnheader', { name: 'Reputation' })).toBeVisible();
   await expect(page.getByText('Reputation clean').first()).toBeVisible();
+  await expect(page.getByText('risk 0/100').first()).toBeVisible();
+  await expect(page.getByText('No blacklist listings found.').first()).toBeVisible();
+  await expect(page.getByText('Reputation not checked').first()).toBeVisible();
+  await expect(page.getByText('Reputation feeds are disabled.').first()).toBeVisible();
   await expect(page.getByText('DKIM did not pass for this source.')).toBeVisible();
   await expect(page.getByText('Failed to load report')).not.toBeVisible();
 });
