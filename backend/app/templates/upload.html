@@ -21,10 +21,8 @@
                 <!-- Drop Zone -->
                 <div
                     class="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center hover:bg-muted/50 transition-colors cursor-pointer relative"
-                    x-on:dragover.prevent="dragover = true"
-                    x-on:dragleave.prevent="dragover = false"
-                    x-on:drop.prevent="handleDrop($event)"
                     x-bind:class="{'border-primary/50 bg-primary/5': dragover}"
+                    data-upload-dropzone
                 >
                     <div class="mb-4 text-muted-foreground">
                         <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mx-auto"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" x2="12" y1="3" y2="15"></line></svg>
@@ -41,7 +39,7 @@
                         accept=".xml,.zip,.gz,.gzip"
                         multiple
                         class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                        x-on:change="handleFileSelect($event)"
+                        data-upload-file-input
                     />
                 </div>
 
@@ -54,7 +52,7 @@
                             type="button"
                             class="text-xs underline hover:text-foreground"
                             x-show="!isUploading"
-                            x-on:click="clearAll()"
+                            data-upload-clear
                         >Clear all</button>
                     </div>
 
@@ -93,7 +91,7 @@
                                 type="button"
                                 class="flex-shrink-0 ml-2 text-muted-foreground hover:text-foreground"
                                 x-show="entry.status !== 'uploading'"
-                                x-on:click="removeFile(index)"
+                                :data-upload-remove-index="index"
                                 aria-label="Remove file"
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>

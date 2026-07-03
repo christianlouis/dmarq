@@ -6,6 +6,10 @@ function uploadForm() {
         isUploading: false,
         dragover: false,
 
+        init() {
+            this.bindControls();
+        },
+
         get pendingCount() {
             return this.files.filter((file) => file.status === 'pending').length;
         },
@@ -16,6 +20,41 @@ function uploadForm() {
 
         get errorCount() {
             return this.files.filter((file) => file.status === 'error').length;
+        },
+
+        bindControls() {
+            const root = this.$root;
+            const dropzone = root?.querySelector('[data-upload-dropzone]');
+            const fileInput = root?.querySelector('[data-upload-file-input]');
+            const clearButton = root?.querySelector('[data-upload-clear]');
+
+            dropzone?.addEventListener('dragover', (event) => {
+                event.preventDefault();
+                this.dragover = true;
+            });
+            dropzone?.addEventListener('dragleave', (event) => {
+                event.preventDefault();
+                this.dragover = false;
+            });
+            dropzone?.addEventListener('drop', (event) => {
+                event.preventDefault();
+                this.handleDrop(event);
+            });
+            fileInput?.addEventListener('change', (event) => {
+                this.handleFileSelect(event);
+            });
+            clearButton?.addEventListener('click', () => {
+                this.clearAll();
+            });
+            root?.addEventListener('click', (event) => {
+                if (!(event.target instanceof Element)) return;
+                const removeButton = event.target.closest('[data-upload-remove-index]');
+                if (!removeButton) return;
+                const index = Number(removeButton.getAttribute('data-upload-remove-index'));
+                if (Number.isInteger(index)) {
+                    this.removeFile(index);
+                }
+            });
         },
 
         handleFileSelect(event) {

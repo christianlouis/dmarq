@@ -439,6 +439,21 @@ def test_upload_uses_external_page_script_for_csp_migration():
     assert 'src="/static/js/upload-page.js"' in template
     assert "uploadForm()" in template
     assert "/api/v1/reports/upload" in script
+    assert "bindControls()" in script
+    assert "data-upload-dropzone" in template
+    assert "data-upload-dropzone" in script
+    assert "data-upload-file-input" in template
+    assert "data-upload-file-input" in script
+    assert "data-upload-clear" in template
+    assert "data-upload-clear" in script
+    assert "data-upload-remove-index" in template
+    assert "data-upload-remove-index" in script
+    assert 'x-on:dragover.prevent="dragover = true"' not in template
+    assert 'x-on:dragleave.prevent="dragover = false"' not in template
+    assert 'x-on:drop.prevent="handleDrop($event)"' not in template
+    assert 'x-on:change="handleFileSelect($event)"' not in template
+    assert 'x-on:click="clearAll()"' not in template
+    assert 'x-on:click="removeFile(index)"' not in template
     assert "AbortController" in script
     assert "UPLOAD_TIMEOUT_MS" in script
     assert "this.isUploading = false" in script
@@ -947,6 +962,16 @@ def test_onboarding_template_uses_single_user_setup_story_by_default():
     assert "draftFields()" in script
     assert "normalizeDomain(value)" in script
     assert "dmarq.selectedWorkspaceId" in script
+    assert "bindControls()" in script
+    assert "data-onboarding-preview" in template
+    assert "data-onboarding-preview" in script
+    assert "data-onboarding-apply" in template
+    assert "data-onboarding-apply" in script
+    assert "data-onboarding-mail-path" in template
+    assert "data-onboarding-mail-path" in script
+    assert '@click="previewPlan"' not in template
+    assert '@click="applyPlan"' not in template
+    assert '@click="form.mailSourcePath = ' not in template
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
     assert "Account boundary" not in rendered
     assert "Owner ready" not in rendered
