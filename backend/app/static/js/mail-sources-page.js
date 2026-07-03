@@ -107,27 +107,73 @@ function mailSourcesApp() {
                 } else if (button.matches('[data-mail-source-backfill-run]')) {
                     event.preventDefault();
                     this.runBackfill();
+                } else if (button.matches('[data-mail-source-form-close]')) {
+                    event.preventDefault();
+                    this.closeForm();
+                } else if (button.matches('[data-mail-source-password-toggle]')) {
+                    event.preventDefault();
+                    this.showPassword = !this.showPassword;
+                } else if (button.matches('[data-mail-source-m365-load-folders]')) {
+                    event.preventDefault();
+                    this.loadM365Folders();
+                } else if (button.matches('[data-mail-source-test-adhoc]')) {
+                    event.preventDefault();
+                    this.testAdHoc();
+                } else if (button.matches('[data-mail-source-connect-gmail]')) {
+                    event.preventDefault();
+                    this.connectGmail();
+                } else if (button.matches('[data-mail-source-connect-m365]')) {
+                    event.preventDefault();
+                    this.connectM365();
+                } else if (button.matches('[data-mail-source-delete-cancel]')) {
+                    event.preventDefault();
+                    this.deleteTarget = null;
+                } else if (button.matches('[data-mail-source-delete-confirm]')) {
+                    event.preventDefault();
+                    this.deleteSource();
                 }
             });
             this.$root.addEventListener('change', event => {
                 const target = event.target instanceof Element ? event.target : null;
-                if (!target || !target.matches('[data-mail-source-toggle]')) {
+                if (!target) {
                     return;
                 }
-                const source = this.sourceById(target.dataset.sourceId);
-                if (source) {
-                    this.toggleSource(source.id);
+                if (target.matches('[data-mail-source-toggle]')) {
+                    const source = this.sourceById(target.dataset.sourceId);
+                    if (source) {
+                        this.toggleSource(source.id);
+                    }
+                } else if (target.matches('[data-mail-source-m365-folder-select]')) {
+                    this.applyM365FolderSelection(target.value);
+                }
+            });
+            this.$root.addEventListener('input', event => {
+                const target = event.target instanceof Element ? event.target : null;
+                if (target && target.matches('[data-mail-source-m365-manual-folder]')) {
+                    this.form.m365_folder_id = '';
+                }
+            });
+            this.$root.addEventListener('submit', event => {
+                const form = event.target instanceof Element ? event.target : null;
+                if (form && form.matches('[data-mail-source-form]')) {
+                    event.preventDefault();
+                    this.saveSource();
                 }
             });
             window.addEventListener('keydown', event => {
-                if (event.key !== 'Escape' || !this.backfillSource) {
+                if (event.key !== 'Escape') {
                     return;
                 }
-                if (!this.$root.querySelector('[data-mail-source-backfill-modal]')) {
-                    return;
+                if (this.deleteTarget && this.$root.querySelector('[data-mail-source-delete-modal]')) {
+                    event.preventDefault();
+                    this.deleteTarget = null;
+                } else if (this.backfillSource && this.$root.querySelector('[data-mail-source-backfill-modal]')) {
+                    event.preventDefault();
+                    this.closeBackfill();
+                } else if (this.showForm && this.$root.querySelector('[data-mail-source-form-modal]')) {
+                    event.preventDefault();
+                    this.closeForm();
                 }
-                event.preventDefault();
-                this.closeBackfill();
             });
         },
 
