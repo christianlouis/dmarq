@@ -139,11 +139,17 @@ function dashboardApp() {
                 }
             });
 
-            root.addEventListener('keydown', event => {
+            const ownerDocument = root.ownerDocument || document;
+            const keydownHandlerKey = '__dmarqDashboardKeydownHandler';
+            if (ownerDocument[keydownHandlerKey]) {
+                ownerDocument.removeEventListener('keydown', ownerDocument[keydownHandlerKey]);
+            }
+            ownerDocument[keydownHandlerKey] = event => {
                 if (event.key === 'Escape' && this.demoTourActive) {
                     this.closeDemoTour();
                 }
-            });
+            };
+            ownerDocument.addEventListener('keydown', ownerDocument[keydownHandlerKey]);
         },
         
         formatSourceMethods(methods) {
