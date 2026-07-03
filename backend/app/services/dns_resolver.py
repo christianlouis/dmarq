@@ -101,6 +101,8 @@ class DomainDNSResult:
     dmarc_suggestions: List[str] = field(default_factory=list)
     nameservers: List[str] = field(default_factory=list)
     dns_provider: Optional[DNSProviderDetection] = None
+    lookup_status: str = "ok"
+    lookup_error: Optional[str] = None
 
 
 def _normalize_dns_name(domain: str) -> str:
@@ -971,6 +973,12 @@ class CloudflareDNSProvider(BaseDNSProvider):
         except (httpx.RequestError, httpx.HTTPStatusError, httpx.TimeoutException):
             pass
         return []
+
+
+class GoogleDNSProvider(CloudflareDNSProvider):
+    """DNS provider using Google Public DNS-over-HTTPS as an independent fallback."""
+
+    CLOUDFLARE_DOH_URL: str = "https://dns.google/resolve"
 
 
 class DemoDNSProvider(BaseDNSProvider):

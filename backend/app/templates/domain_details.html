@@ -1030,23 +1030,30 @@
                                x-text="providerContextCtaLabel"></a>
                         </div>
                     </div>
+                    <div x-show="!dnsRecordsLoading && dnsLookupNoticeVisible"
+                         class="rounded border px-3 py-2 text-sm"
+                         :class="dnsLookupNoticeClass">
+                        <span x-text="dnsLookupNoticeText"></span>
+                    </div>
                     <div>
                         <h3 class="font-semibold mb-1 flex items-center">
                             <span class="mr-2">DMARC Record</span>
                             <span x-show="dnsRecordsLoading" class="loading loading-spinner loading-xs"></span>
                             <span x-show="!dnsRecordsLoading && dns.dmarc" class="inline-flex h-2 w-2 rounded-full bg-green-500"></span>
-                            <span x-show="!dnsRecordsLoading && !dns.dmarc" class="inline-flex h-2 w-2 rounded-full bg-red-500"></span>
+                            <span x-show="!dnsRecordsLoading && dnsLookupFailed" class="inline-flex h-2 w-2 rounded-full bg-yellow-500"></span>
+                            <span x-show="!dnsRecordsLoading && !dnsLookupFailed && !dns.dmarc" class="inline-flex h-2 w-2 rounded-full bg-red-500"></span>
                         </h3>
-                        <div class="bg-muted p-2 rounded text-sm overflow-x-auto font-mono" x-text="dnsRecordsLoading ? 'Checking DMARC record...' : (dns.dmarcRecord || 'No DMARC record found')">-</div>
+                        <div class="bg-muted p-2 rounded text-sm overflow-x-auto font-mono" x-text="dnsRecordText(dns.dmarcRecord, 'No DMARC record found', 'Checking DMARC record...')">-</div>
                     </div>
                     <div>
                         <h3 class="font-semibold mb-1 flex items-center">
                             <span class="mr-2">SPF Record</span>
                             <span x-show="dnsRecordsLoading" class="loading loading-spinner loading-xs"></span>
                             <span x-show="!dnsRecordsLoading && dns.spf" class="inline-flex h-2 w-2 rounded-full bg-green-500"></span>
-                            <span x-show="!dnsRecordsLoading && !dns.spf" class="inline-flex h-2 w-2 rounded-full bg-red-500"></span>
+                            <span x-show="!dnsRecordsLoading && dnsLookupFailed" class="inline-flex h-2 w-2 rounded-full bg-yellow-500"></span>
+                            <span x-show="!dnsRecordsLoading && !dnsLookupFailed && !dns.spf" class="inline-flex h-2 w-2 rounded-full bg-red-500"></span>
                         </h3>
-                        <div class="bg-muted p-2 rounded text-sm overflow-x-auto font-mono" x-text="dnsRecordsLoading ? 'Checking SPF record...' : (dns.spfRecord || 'No SPF record found')">-</div>
+                        <div class="bg-muted p-2 rounded text-sm overflow-x-auto font-mono" x-text="dnsRecordText(dns.spfRecord, 'No SPF record found', 'Checking SPF record...')">-</div>
                     </div>
                     <div id="mta-sts-posture">
                         <h3 class="font-semibold mb-1 flex items-center">

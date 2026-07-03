@@ -424,6 +424,8 @@ class DNSRecordResponse(BaseModel):
     nameservers: List[str] = []
     dnsProvider: Optional[Dict[str, Any]] = None
     providerContext: Optional[Dict[str, Any]] = None
+    lookupStatus: str = "ok"
+    lookupError: Optional[str] = None
 
 
 class DNSGuidanceRecordResponse(BaseModel):
@@ -957,6 +959,8 @@ class DNSHealthResponse(BaseModel):
     compliance_rate: float
     total_emails: int
     failed_emails: int
+    dns_lookup_status: str = "ok"
+    dns_lookup_error: Optional[str] = None
     checks: List[DNSHealthCheck]
     recommendations: List[DNSHealthRecommendation]
 
@@ -2329,6 +2333,8 @@ async def _build_domain_dns_health(  # pylint: disable=too-many-locals
         compliance_rate=float(summary.get("compliance_rate", 0.0) or 0.0),
         total_emails=int(summary.get("total_count", 0) or 0),
         failed_emails=int(summary.get("failed_count", 0) or 0),
+        dns_lookup_status=result.lookup_status,
+        dns_lookup_error=result.lookup_error,
         checks=checks,
         recommendations=recommendations,
     )
@@ -2573,13 +2579,19 @@ async def _build_domain_health_grade(
     report_selectors = _get_selectors_from_reports(store, domain_id)
     combined_selectors = list(dict.fromkeys(manual_selectors + report_selectors))
     provider = get_default_provider(db)
-    dns, _, _ = await resolve_domain_dns_cached(
-        db,
-        provider,
-        domain_id,
-        selectors=combined_selectors,
-        refresh=refresh,
-    )
+    try:
+        dns, _, _ = await resolve_domain_dns_cached(
+            db,
+            provider,
+            domain_id,
+            selectors=combined_selectors,
+            refresh=refresh,
+        )
+    except (asyncio.TimeoutError, LookupError, OSError) as exc:
+        dns = DomainDNSResult(
+            lookup_status="failed",
+            lookup_error=f"DNS lookup failed: {exc}",
+        )
     summary = store.get_domain_summary(domain_id)
     live_policy = extract_dmarc_policy(dns.dmarc_record)
     reported_policy = _normalize_reported_policy(summary.get("policy", {}))
@@ -2622,6 +2634,9 @@ async def _build_domain_health_grade(
         "dmarc_policy": live_policy or reported_policy or "none",
         "spf_status": dns.spf,
         "dkim_status": dns.dkim,
+        "dns_lookup_status": dns.lookup_status,
+        "dns_lookup_failed": dns.lookup_status == "failed",
+        "dns_lookup_error": dns.lookup_error,
         "dmarc_warnings": dns.dmarc_warnings,
         "dmarc_suggestions": dns.dmarc_suggestions,
         "source_reputation": asdict(reputation_result),
@@ -2969,10 +2984,19 @@ def _with_dns_summary_metadata(
 
 def _pending_dns_summary_result() -> DomainDNSResult:
     return _with_dns_summary_metadata(
-        DomainDNSResult(),
+        DomainDNSResult(lookup_status="pending"),
         cached=False,
         checked_at=None,
         pending=True,
+    )
+
+
+def _failed_dns_summary_result(error: str) -> DomainDNSResult:
+    return _with_dns_summary_metadata(
+        DomainDNSResult(lookup_status="failed", lookup_error=error),
+        cached=False,
+        checked_at=None,
+        pending=False,
     )
 
 
@@ -3019,7 +3043,7 @@ async def _resolve_summary_dns_result(
         )
     except (asyncio.TimeoutError, LookupError, OSError) as exc:
         logger.warning("DNS check failed for %s: %s", domain_name, exc)
-        return DomainDNSResult()
+        return _failed_dns_summary_result(f"DNS lookup failed: {exc}")
 
 
 @router.get("/summary", response_model=DomainSummaryResponse)
@@ -3111,6 +3135,8 @@ async def get_domains_summary(
         reported_policy = _normalize_reported_policy(summary.get("policy", {}))
         dmarc_policy = live_policy or reported_policy or "none"
         dns_pending = bool(getattr(dns, "pending", False))
+        dns_lookup_status = str(getattr(dns, "lookup_status", "ok") or "ok")
+        dns_lookup_failed = dns_lookup_status == "failed"
 
         # Format domain data for frontend
         domain_row = {
@@ -3129,6 +3155,9 @@ async def get_domains_summary(
             "spf_status": dns.spf,
             "dkim_status": dns.dkim,
             "dns_pending": dns_pending,
+            "dns_lookup_status": dns_lookup_status,
+            "dns_lookup_failed": dns_lookup_failed,
+            "dns_lookup_error": getattr(dns, "lookup_error", None),
             "dns_cached": getattr(dns, "cached", False),
             "dns_checked_at": (
                 getattr(dns, "checked_at", None).isoformat()
@@ -4217,6 +4246,8 @@ async def get_domain_dns_records(
             dns_provider=asdict(result.dns_provider) if result.dns_provider else None,
             nameservers=result.nameservers,
         ),
+        lookupStatus=result.lookup_status,
+        lookupError=result.lookup_error,
     )
 
 
