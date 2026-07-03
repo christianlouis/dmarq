@@ -465,6 +465,31 @@ function settingsApp() {
             return this.selectedDnsProviderMetadata().docs_url || '';
         },
 
+        selectedDnsProviderConnectionStatus() {
+            const provider = this.selectedDnsProviderMetadata();
+            return provider.connection_status || (provider.credentials_configured ? 'connected' : 'not_configured');
+        },
+
+        selectedDnsProviderConnectionLabel() {
+            const status = this.selectedDnsProviderConnectionStatus();
+            if (status === 'connected') return 'Connected';
+            if (status === 'needs_credentials') return 'Needs credentials';
+            if (status === 'planned') return 'Planned';
+            return 'Not configured';
+        },
+
+        selectedDnsProviderConnectionClass() {
+            const status = this.selectedDnsProviderConnectionStatus();
+            if (status === 'connected') return 'badge-success';
+            if (status === 'needs_credentials') return 'badge-warning';
+            if (status === 'planned') return 'badge-outline';
+            return 'badge-ghost';
+        },
+
+        selectedDnsProviderConnectionHint() {
+            return this.selectedDnsProviderMetadata().connection_hint || '';
+        },
+
         resetDnsProviderImportState() {
             this.cfZones = [];
             this.dnsProviderImportSummary = '';

@@ -1817,6 +1817,9 @@ def test_dns_provider_capabilities_mark_cloudflare_import_available(authed_clien
     assert providers["cloudflare"]["record_read_status"] == "ready"
     assert providers["cloudflare"]["record_write_status"] == "ready"
     assert "Zone:Read" in providers["cloudflare"]["minimum_permissions"]
+    assert providers["cloudflare"]["credentials_configured"] is False
+    assert providers["cloudflare"]["connection_status"] == "needs_credentials"
+    assert "Configure read-only provider credentials" in providers["cloudflare"]["connection_hint"]
     assert providers["hetzner"]["import_available"] is True
     assert providers["hetzner"]["zone_import_status"] == "ready"
     assert providers["hetzner"]["record_read_status"] == "planned"
@@ -1833,6 +1836,28 @@ def test_dns_provider_capabilities_mark_cloudflare_import_available(authed_clien
     assert providers["akamai-edgedns"]["zone_import_status"] == "ready"
     assert providers["akamai-edgedns"]["record_write_status"] == "planned"
     assert "edgerc" in providers["akamai-edgedns"]["auth_models"]
+
+
+def test_dns_provider_capabilities_report_configured_cloudflare_connection(
+    authed_client: TestClient,
+    db_session: Session,
+):
+    db_session.add(
+        Setting(
+            key="cloudflare.api_token",
+            value=encrypt_secret("cf-token"),
+            description="test token",
+        )
+    )
+    db_session.commit()
+
+    response = authed_client.get("/api/v1/domains/dns/providers")
+
+    assert response.status_code == 200
+    providers = {provider["id"]: provider for provider in response.json()["providers"]}
+    assert providers["cloudflare"]["credentials_configured"] is True
+    assert providers["cloudflare"]["connection_status"] == "connected"
+    assert "without exposing token material" in providers["cloudflare"]["connection_hint"]
 
 
 def test_dns_provider_import_preview_supports_akamai_alias(db_session, monkeypatch):

@@ -816,6 +816,9 @@ class DNSProviderCapabilityResponse(BaseModel):
     minimum_permissions: List[str] = Field(default_factory=list)
     setup_hint: Optional[str] = None
     docs_url: Optional[str] = None
+    credentials_configured: bool = False
+    connection_status: str = "not_configured"
+    connection_hint: str = "Configure provider credentials before discovery or repair."
 
 
 class DNSProviderCapabilitiesResponse(BaseModel):
@@ -3578,6 +3581,7 @@ async def export_all_domain_dns_lint(
 
 @router.get("/dns/providers", response_model=DNSProviderCapabilitiesResponse)
 async def get_dns_provider_capabilities(
+    db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
 ):
     """Return provider-backed DNS write capabilities."""
@@ -3600,11 +3604,31 @@ async def get_dns_provider_capabilities(
         "docs_url",
     }
     for provider in capabilities:
+        credentials_configured = _provider_credentials_configured(db, provider["id"])
+        import_available = provider["id"] in import_provider_ids
+        status = provider.get("status")
         seen_provider_ids.add(provider["id"])
         provider_rows.append(
             {
                 **provider,
-                "import_available": provider["id"] in import_provider_ids,
+                "import_available": import_available,
+                "credentials_configured": credentials_configured,
+                "connection_status": (
+                    "connected"
+                    if credentials_configured
+                    else (
+                        "needs_credentials" if import_available or status == "ready" else "planned"
+                    )
+                ),
+                "connection_hint": (
+                    "Credentials are configured. Discovery can run without exposing token material."
+                    if credentials_configured
+                    else (
+                        "Configure read-only provider credentials before running zone discovery."
+                        if import_available
+                        else "Provider is tracked for repair planning but is not import-ready yet."
+                    )
+                ),
                 **{
                     key: value
                     for key, value in connector_metadata.get(provider["id"], {}).items()
@@ -3615,6 +3639,8 @@ async def get_dns_provider_capabilities(
     for provider_id, metadata in connector_metadata.items():
         if provider_id in seen_provider_ids:
             continue
+        credentials_configured = _provider_credentials_configured(db, provider_id)
+        import_available = provider_id in import_provider_ids
         provider_rows.append(
             {
                 "id": provider_id,
@@ -3624,7 +3650,22 @@ async def get_dns_provider_capabilities(
                 "operations": [],
                 "credentials": ", ".join(metadata.get("auth_models") or ["provider credentials"]),
                 "status": "planned",
-                "import_available": provider_id in import_provider_ids,
+                "import_available": import_available,
+                "credentials_configured": credentials_configured,
+                "connection_status": (
+                    "connected"
+                    if credentials_configured
+                    else ("needs_credentials" if import_available else "planned")
+                ),
+                "connection_hint": (
+                    "Credentials are configured. Discovery can run without exposing token material."
+                    if credentials_configured
+                    else (
+                        "Configure read-only provider credentials before running zone discovery."
+                        if import_available
+                        else "Provider is tracked for repair planning but is not import-ready yet."
+                    )
+                ),
                 **{key: value for key, value in metadata.items() if key in metadata_keys},
             }
         )
