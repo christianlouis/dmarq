@@ -399,7 +399,15 @@ def test_domains_uses_external_page_script_for_csp_migration():
     assert "/api/v1/domains/summary" in script
     assert "/api/v1/domains/domains" in script
     assert "createDomain()" in script
-    assert "openEditDialog(domain)" in template
+    assert "openEditDialog(domain)" not in template
+    assert "openEditDialog(domain)" in script
+    assert "bindPageControls()" in script
+    assert "data-domain-refresh" in template
+    assert "data-domain-refresh" in script
+    assert "data-domain-create-open" in template
+    assert "data-domain-create-open" in script
+    assert "data-domain-edit" in template
+    assert "data-domain-edit" in script
     assert "Edit monitored domain" in template
     assert "updateDomain()" in script
     assert "method: 'PATCH'" in script
@@ -416,7 +424,10 @@ def test_domains_page_distinguishes_loading_error_and_empty_states():
     assert "Domains could not be loaded." in script
     assert "No domains found. Add a domain to get started." in template
     assert "Retry loading domains" in template
-    assert '@click="fetchDomains()"' in template
+    assert '@click="fetchDomains()"' not in template
+    assert '@click="fetchDomains({ refresh: true })"' not in template
+    assert "data-domain-retry-load" in template
+    assert "data-domain-retry-load" in script
     assert 'x-if="!loading && loadError"' in template
     assert 'x-if="!loading && !loadError && domains.length === 0"' in template
 
