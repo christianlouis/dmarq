@@ -8,6 +8,7 @@ the Pydantic response models, including the policy-dict extraction and
 the use of begin_timestamp/end_timestamp integers for date fields.
 """
 
+import asyncio
 import csv
 import json
 from datetime import date
@@ -2556,6 +2557,29 @@ def test_get_domain_sources_includes_ip_intelligence_and_reputation(
     assert "source_reputation" in recommendation_types
 
 
+def test_get_domain_sources_continues_when_enrichment_times_out(
+    seeded_client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Slow enrichment providers must not block the sending-source table."""
+
+    async def timeout_networks(*_args, **_kwargs):
+        raise asyncio.TimeoutError
+
+    async def timeout_reputation(*_args, **_kwargs):
+        raise asyncio.TimeoutError
+
+    monkeypatch.setattr(domains_endpoint, "lookup_sources_network_cached", timeout_networks)
+    monkeypatch.setattr(domains_endpoint, "build_source_reputation_cached", timeout_reputation)
+
+    response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/sources?days=30")
+
+    assert response.status_code == 200
+    sources = response.json()["sources"]
+    assert sources
+    assert all("ip" in source for source in sources)
+    assert all(source["reputation"] is None for source in sources)
+
+
 def test_get_domain_sources_refreshes_reputation_cache(
     seeded_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -2779,6 +2803,76 @@ async def test_safe_ptr_lookup_skips_invalid_ips():
             FailingProvider(), "203.0.113.7"
         )
         is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_source_networks_by_ip_handles_disabled_and_failed_enrichment(
+    db_session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Network enrichment helper falls back to core source data when optional lookups fail."""
+
+    disabled_settings = SimpleNamespace(SOURCE_NETWORK_ENRICHMENT_ENABLED=False)
+    assert (
+        await domains_endpoint._source_networks_by_ip(  # pylint: disable=protected-access
+            db_session, object(), ["203.0.113.7"], disabled_settings
+        )
+        == {}
+    )
+
+    async def failing_network_lookup(*_args, **_kwargs):
+        raise RuntimeError("network provider unavailable")
+
+    monkeypatch.setattr(
+        domains_endpoint,
+        "lookup_sources_network_cached",
+        failing_network_lookup,
+    )
+    enabled_settings = SimpleNamespace(
+        SOURCE_NETWORK_ENRICHMENT_ENABLED=True,
+        SOURCE_NETWORK_ENRICHMENT_CACHE_SECONDS=3600,
+        SOURCE_NETWORK_ENRICHMENT_MAX_IPS=10,
+        SOURCE_NETWORK_ENRICHMENT_DETAIL_TIMEOUT_SECONDS=1.0,
+    )
+
+    assert (
+        await domains_endpoint._source_networks_by_ip(  # pylint: disable=protected-access
+            db_session, object(), ["203.0.113.7"], enabled_settings
+        )
+        == {}
+    )
+
+
+@pytest.mark.asyncio
+async def test_source_reputations_by_ip_handles_failed_enrichment(
+    db_session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Reputation helper falls back to no reputation data when optional lookups fail."""
+
+    async def failing_reputation_lookup(*_args, **_kwargs):
+        raise RuntimeError("reputation provider unavailable")
+
+    monkeypatch.setattr(
+        domains_endpoint,
+        "build_source_reputation_cached",
+        failing_reputation_lookup,
+    )
+
+    assert (
+        await domains_endpoint._source_reputations_by_ip(  # pylint: disable=protected-access
+            db_session,
+            DOMAIN,
+            [],
+            [],
+            {},
+            {},
+            30,
+            False,
+            SimpleNamespace(SOURCE_REPUTATION_DETAIL_TIMEOUT_SECONDS=1.0),
+        )
+        == {}
     )
 
 
