@@ -1971,6 +1971,8 @@ def test_cloudflare_oauth_state_round_trips_and_sanitizes_return_to(
     }
     with pytest.raises(LookupError, match="Invalid Cloudflare OAuth state"):
         cloudflare_oauth.decode_cloudflare_oauth_state("not-a-valid-token")
+    with pytest.raises(LookupError, match="Invalid Cloudflare OAuth state"):
+        cloudflare_oauth.decode_cloudflare_oauth_state("")
 
 
 def test_cloudflare_oauth_authorization_url_uses_configured_scopes(

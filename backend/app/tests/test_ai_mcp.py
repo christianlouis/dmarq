@@ -5,6 +5,7 @@ import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -94,6 +95,11 @@ def test_ai_provider_profiles_are_exposed_to_settings(authed_client: TestClient)
     assert profiles["litellm"]["requires_base_url"] is True
 
 
+def test_ai_setting_helpers_use_safe_defaults(db_session: Session):
+    assert settings_endpoint._setting_plain_or_default(db_session, "missing.setting") == ""
+    assert settings_endpoint._normalize_ai_base_url("openai", "", {}) == "https://api.openai.com/v1"
+
+
 def test_ai_connection_template_profile_needs_no_secret(authed_client: TestClient):
     response = authed_client.post(
         "/api/v1/settings/ai/test",
@@ -115,6 +121,68 @@ def test_ai_connection_requires_key_for_remote_provider(authed_client: TestClien
     assert "API key" in response.json()["detail"]
 
 
+def test_ai_connection_uses_openai_default_base_url(authed_client: TestClient):
+    model_fetch = AsyncMock(return_value=["gpt-4.1-mini"])
+
+    with patch.object(settings_endpoint, "_fetch_openai_compatible_models", model_fetch):
+        response = authed_client.post(
+            "/api/v1/settings/ai/test",
+            json={"provider": "openai", "api_key": "sk-test"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["selected_model"] == "gpt-4.1-mini"
+    model_fetch.assert_awaited_once_with(
+        base_url="https://api.openai.com/v1",
+        api_key="sk-test",
+    )
+
+
+def test_ai_connection_requires_base_url_for_litellm(authed_client: TestClient):
+    response = authed_client.post(
+        "/api/v1/settings/ai/test",
+        json={"provider": "litellm", "api_key": "sk-test"},
+    )
+
+    assert response.status_code == 400
+    assert "base URL" in response.json()["detail"]
+
+
+def test_ai_connection_reports_provider_http_status(authed_client: TestClient):
+    request = httpx.Request("GET", "https://api.openai.com/v1/models")
+    response = httpx.Response(401, request=request)
+    model_fetch = AsyncMock(
+        side_effect=httpx.HTTPStatusError(
+            "unauthorized",
+            request=request,
+            response=response,
+        )
+    )
+
+    with patch.object(settings_endpoint, "_fetch_openai_compatible_models", model_fetch):
+        result = authed_client.post(
+            "/api/v1/settings/ai/test",
+            json={"provider": "openai", "api_key": "sk-test"},
+        )
+
+    assert result.status_code == 400
+    assert "HTTP 401" in result.json()["detail"]
+
+
+def test_ai_connection_reports_network_failure(authed_client: TestClient):
+    request = httpx.Request("GET", "https://api.openai.com/v1/models")
+    model_fetch = AsyncMock(side_effect=httpx.RequestError("timeout", request=request))
+
+    with patch.object(settings_endpoint, "_fetch_openai_compatible_models", model_fetch):
+        response = authed_client.post(
+            "/api/v1/settings/ai/test",
+            json={"provider": "openai", "api_key": "sk-test"},
+        )
+
+    assert response.status_code == 400
+    assert "connection test failed" in response.json()["detail"]
+
+
 @pytest.mark.parametrize(
     "base_url",
     [
@@ -134,6 +202,72 @@ def test_ai_connection_rejects_unsafe_model_discovery_urls(
 
     assert response.status_code == 400
     assert "AI base URL" in response.json()["detail"]
+
+
+def test_ai_connection_rejects_invalid_model_discovery_url():
+    with pytest.raises(Exception) as exc_info:
+        settings_endpoint._validated_ai_base_url("not-a-url")
+
+    assert "absolute HTTP(S) URL" in str(exc_info.value)
+
+
+def test_ai_connection_rejects_unresolvable_model_discovery_url(monkeypatch):
+    def fail_lookup(*_args, **_kwargs):
+        raise settings_endpoint.socket.gaierror("not found")
+
+    monkeypatch.setattr(settings_endpoint.socket, "getaddrinfo", fail_lookup)
+
+    with pytest.raises(Exception) as exc_info:
+        settings_endpoint._validated_ai_base_url("https://missing-ai.example/v1")
+
+    assert "could not be resolved" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_fetch_openai_compatible_models_sorts_unique_models(monkeypatch):
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "data": [
+                    {"id": "z-model"},
+                    {"id": ""},
+                    {"id": "a-model"},
+                    {"id": "z-model"},
+                ]
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, *, base_url: str, timeout: int):
+            assert base_url == "https://ai.example/v1"
+            assert timeout == 10
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, path: str, *, headers):
+            assert path == "/models"
+            assert headers == {"Authorization": "Bearer sk-test"}
+            return FakeResponse()
+
+    monkeypatch.setattr(
+        settings_endpoint.socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: [(None, None, None, None, ("8.8.8.8", 443))],
+    )
+    monkeypatch.setattr(settings_endpoint.httpx, "AsyncClient", FakeAsyncClient)
+
+    models = await settings_endpoint._fetch_openai_compatible_models(
+        base_url="https://ai.example/v1/",
+        api_key="sk-test",
+    )
+
+    assert models == ["a-model", "z-model"]
 
 
 def test_ai_connection_uses_saved_redacted_secret_and_discovers_models(
@@ -230,6 +364,48 @@ def test_ai_summary_returns_not_found_for_unknown_domain(
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Domain not found"
+
+
+def test_ai_evidence_summary_handles_no_observed_volume(monkeypatch, db_session: Session):
+    context = {
+        "domain": DOMAIN,
+        "summary": {
+            "total_messages": 0,
+            "failed_messages": 0,
+            "compliance_rate": 0.0,
+        },
+        "evidence": [
+            {"label": "Domain", "value": DOMAIN, "href": f"/domains/{DOMAIN}"},
+        ],
+        "top_sources": [],
+        "config": {"provider": "template"},
+    }
+
+    monkeypatch.setattr(ai_assistance, "build_safe_context", lambda *_args, **_kwargs: context)
+
+    summary = ai_assistance.build_evidence_summary(db_session, DOMAIN)
+
+    assert summary["summary"]["headline"] == "No DMARC aggregate volume has been observed yet."
+    assert summary["recommendations"][0]["title"] == "Confirm report ingestion"
+
+
+def test_ai_headline_describes_healthy_and_mostly_healthy_posture():
+    healthy = {"summary": {"total_messages": 100, "failed_messages": 0, "compliance_rate": 100.0}}
+    mostly_healthy = {
+        "summary": {"total_messages": 100, "failed_messages": 5, "compliance_rate": 95.0}
+    }
+
+    assert (
+        ai_assistance._headline_for_context(healthy) == "Observed DMARC traffic is passing cleanly."
+    )
+    assert (
+        ai_assistance._headline_for_context(mostly_healthy)
+        == "DMARC posture is mostly healthy, with a small failure set to review."
+    )
+
+
+def test_ai_domain_selectors_from_db_returns_empty_for_unknown_domain(db_session: Session):
+    assert ai_assistance._domain_selectors_from_db(db_session, "missing.example") == []
 
 
 def test_ai_remediation_plan_uses_template_and_cache(
