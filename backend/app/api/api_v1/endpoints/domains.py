@@ -40,6 +40,7 @@ from app.services.cloudflare_oauth import (
     build_cloudflare_authorization_url,
     build_cloudflare_oauth_state,
     cloudflare_oauth_configured,
+    cloudflare_scopes_for_profile,
     cloudflare_scope_profile_metadata,
     decode_cloudflare_oauth_state,
     exchange_cloudflare_oauth_code,
@@ -5186,11 +5187,38 @@ async def cloudflare_oauth_callback(
             if safe_description:
                 details += f"<p>{safe_description}</p>"
             if error == "invalid_scope":
+                profile_id = "read_only"
+                try:
+                    profile_id = decode_cloudflare_oauth_state(state_value or "").get(
+                        "scope_profile", "read_only"
+                    )
+                except LookupError:
+                    profile_id = "read_only"
+                profile = next(
+                    (
+                        item
+                        for item in cloudflare_scope_profile_metadata()
+                        if item.get("id") == profile_id
+                    ),
+                    {},
+                )
+                permission_items = "".join(
+                    f"<li>{html.escape(str(permission))}</li>"
+                    for permission in profile.get("required_permissions", [])
+                )
+                requested_scopes = html.escape(cloudflare_scopes_for_profile(profile_id))
                 details += (
                     "<p>The selected rights profile requests a scope that this Cloudflare "
                     "OAuth client is not allowed to request. Choose a lower rights profile "
                     "or update the allowed scopes on the Cloudflare OAuth client.</p>"
+                    f"<p><strong>Selected profile:</strong> {html.escape(profile_id)}</p>"
+                    f"<p><strong>Requested scopes:</strong> <code>{requested_scopes}</code></p>"
                 )
+                if permission_items:
+                    details += (
+                        "<p>Allow these permissions on the Cloudflare OAuth client, then retry:</p>"
+                        f"<ul>{permission_items}</ul>"
+                    )
         return HTMLResponse(
             content=(
                 "<html><body><p>Cloudflare connection failed. "

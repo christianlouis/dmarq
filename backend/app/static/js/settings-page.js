@@ -604,6 +604,17 @@ function settingsApp() {
             }
         },
 
+        selectedCloudflareOAuthProfile() {
+            const profileId = this.s['cloudflare.oauth_scope_profile']
+                || this.cfOAuthStatus.scope_profile
+                || 'read_only';
+            return (this.cfOAuthStatus.scope_profiles || []).find(profile => profile.id === profileId) || null;
+        },
+
+        selectedCloudflareOAuthPermissions() {
+            return this.selectedCloudflareOAuthProfile()?.required_permissions || [];
+        },
+
         async connectCloudflare() {
             this.connectingCloudflare = true;
             try {
@@ -616,6 +627,9 @@ function settingsApp() {
                     const detail = typeof data.detail === 'string' ? data.detail : data.detail?.message;
                     this.showFlash('Cloudflare connect failed: ' + (detail || res.statusText), false);
                     return;
+                }
+                if (data.scopes) {
+                    this.showFlash(`Requesting Cloudflare OAuth scopes: ${data.scopes}`, true);
                 }
                 const popup = window.open(
                     data.authorization_url,
