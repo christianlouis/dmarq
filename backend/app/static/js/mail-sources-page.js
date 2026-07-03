@@ -48,7 +48,93 @@ function mailSourcesApp() {
         },
 
         async init() {
+            this.bindPageControls();
             await this.loadSources();
+        },
+
+        bindPageControls() {
+            if (this._pageControlsBound || !this.$root) {
+                return;
+            }
+            this._pageControlsBound = true;
+            this.$root.addEventListener('click', event => {
+                const target = event.target instanceof Element ? event.target : null;
+                const button = target ? target.closest('button') : null;
+                if (!button || !this.$root.contains(button)) {
+                    return;
+                }
+                const source = this.sourceById(button.dataset.sourceId);
+                const latestJob = source ? this.latestBackfill(source) : null;
+                if (button.matches('[data-mail-source-add]')) {
+                    event.preventDefault();
+                    this.openAddForm();
+                } else if (button.matches('[data-mail-source-edit]') && source) {
+                    event.preventDefault();
+                    this.openEditForm(source);
+                } else if (button.matches('[data-mail-source-test]') && source) {
+                    event.preventDefault();
+                    this.testSource(source.id);
+                } else if (button.matches('[data-mail-source-fetch]') && source) {
+                    event.preventDefault();
+                    this.fetchSource(source);
+                } else if (button.matches('[data-mail-source-backfill]') && source) {
+                    event.preventDefault();
+                    this.openBackfill(source);
+                } else if (button.matches('[data-mail-source-history]') && source) {
+                    event.preventDefault();
+                    this.loadImportHistory(source);
+                } else if (button.matches('[data-mail-source-delete]') && source) {
+                    event.preventDefault();
+                    this.confirmDelete(source);
+                } else if (button.matches('[data-mail-source-history-close]')) {
+                    event.preventDefault();
+                    this.closeHistory();
+                } else if (button.matches('[data-mail-source-backfill-refresh]') && source) {
+                    event.preventDefault();
+                    this.loadBackfills(source);
+                } else if (button.matches('[data-mail-source-backfill-cancel]') && source && latestJob) {
+                    event.preventDefault();
+                    this.cancelBackfill(source, latestJob);
+                } else if (button.matches('[data-mail-source-backfill-retry]') && source && latestJob) {
+                    event.preventDefault();
+                    this.retryBackfill(source, latestJob);
+                } else if (button.matches('[data-mail-source-backfill-close]')) {
+                    event.preventDefault();
+                    this.closeBackfill();
+                } else if (button.matches('[data-backfill-days]')) {
+                    event.preventDefault();
+                    this.backfillDays = Number(button.dataset.backfillDays);
+                } else if (button.matches('[data-mail-source-backfill-run]')) {
+                    event.preventDefault();
+                    this.runBackfill();
+                }
+            });
+            this.$root.addEventListener('change', event => {
+                const target = event.target instanceof Element ? event.target : null;
+                if (!target || !target.matches('[data-mail-source-toggle]')) {
+                    return;
+                }
+                const source = this.sourceById(target.dataset.sourceId);
+                if (source) {
+                    this.toggleSource(source.id);
+                }
+            });
+            window.addEventListener('keydown', event => {
+                if (event.key !== 'Escape' || !this.backfillSource) {
+                    return;
+                }
+                if (!this.$root.querySelector('[data-mail-source-backfill-modal]')) {
+                    return;
+                }
+                event.preventDefault();
+                this.closeBackfill();
+            });
+        },
+
+        sourceById(id) {
+            if (!id) return null;
+            const numericId = Number(id);
+            return this.sources.find(source => Number(source.id) === numericId) || null;
         },
 
         async loadSources() {
