@@ -2522,6 +2522,28 @@ def test_cloudflare_oauth_callback_explains_invalid_scope(
     assert "window or tab" in response.text
 
 
+def test_cloudflare_oauth_callback_explains_invalid_scope_with_bad_state(
+    authed_client: TestClient,
+):
+    with patch(
+        "app.api.api_v1.endpoints.domains.decode_cloudflare_oauth_state",
+        side_effect=LookupError("Invalid Cloudflare OAuth state."),
+    ):
+        response = authed_client.get(
+            "/api/v1/domains/cloudflare/oauth/callback"
+            "?error=invalid_scope"
+            "&error_description=The+OAuth+client+cannot+request+dns.write"
+            "&state=bad-state"
+        )
+
+    assert response.status_code == 400
+    assert "Selected profile:" in response.text
+    assert "read_only" in response.text
+    assert "zone.read dns.read" in response.text
+    assert "DNS Write" not in response.text
+    assert "window or tab" in response.text
+
+
 def test_cloudflare_oauth_callback_returns_failure_for_invalid_state(
     authed_client: TestClient,
 ):
