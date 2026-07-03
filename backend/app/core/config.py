@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     DEMO_MODE: bool = False
     PUBLIC_BASE_URL: Optional[str] = None
+    LANGUAGE: str = "en"
+    DMARQ_DEFAULT_LOCALE: Optional[str] = None
     DMARQ_RELEASE_VERSION: Optional[str] = None
     DMARQ_BUILD_SHA: Optional[str] = None
     DMARQ_BUILD_REF: Optional[str] = None
@@ -190,6 +192,15 @@ class Settings(BaseSettings):
     LOGTO_REDIRECT_URI: Optional[str] = None
     LOGTO_SKIP_SSL_VERIFY: bool = False
     ALLOW_LOGTO_SKIP_SSL_VERIFY_IN_PRODUCTION: bool = False
+
+    @property
+    def default_locale(self) -> str:
+        """Return the deployment default locale for operator-facing guidance."""
+        locale = self.DMARQ_DEFAULT_LOCALE or self.LANGUAGE or "en"
+        normalized = locale.strip().lower().replace("_", "-")
+        if normalized.startswith("de"):
+            return "de"
+        return "en"
 
     @property
     def logto_configured(self) -> bool:

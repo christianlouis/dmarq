@@ -2339,6 +2339,7 @@ async def _build_domain_dns_guidance(
     domain_id: str,
     *,
     refresh: bool = False,
+    locale: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Build typed DNS lint findings and target records for a monitored domain."""
     manual_selectors = _get_domain_selectors_from_db(db, domain_id)
@@ -2382,6 +2383,7 @@ async def _build_domain_dns_guidance(
         monitored_selectors=combined_selectors,
         observed_selectors=report_selectors,
         mail_service_records=mail_service_records,
+        locale=locale or get_settings().default_locale,
     )
     return asdict(guidance)
 
@@ -3499,6 +3501,7 @@ async def update_domain(
 async def lint_all_domain_dns(
     refresh: bool = Query(False, title="Refresh cached DNS results"),
     limit: int = Query(100, ge=1, le=500, title="Maximum domains to lint"),
+    locale: Optional[str] = Query(None, title="Operator guidance locale"),
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
 ):
@@ -3510,7 +3513,9 @@ async def lint_all_domain_dns(
 
     items: List[DNSBulkGuidanceItem] = []
     for domain_name in domains:
-        guidance = await _build_domain_dns_guidance(db, store, domain_name, refresh=refresh)
+        guidance = await _build_domain_dns_guidance(
+            db, store, domain_name, refresh=refresh, locale=locale
+        )
         findings = guidance["findings"]
         items.append(
             DNSBulkGuidanceItem(
@@ -3529,6 +3534,7 @@ async def lint_all_domain_dns(
 async def export_all_domain_dns_lint(
     refresh: bool = Query(False, title="Refresh cached DNS results"),
     limit: int = Query(500, ge=1, le=1000, title="Maximum domains to export"),
+    locale: Optional[str] = Query(None, title="Operator guidance locale"),
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
 ):
@@ -3555,7 +3561,9 @@ async def export_all_domain_dns_lint(
         ]
     )
     for domain_name in domains:
-        guidance = await _build_domain_dns_guidance(db, store, domain_name, refresh=refresh)
+        guidance = await _build_domain_dns_guidance(
+            db, store, domain_name, refresh=refresh, locale=locale
+        )
         for finding in guidance["findings"]:
             target = finding.get("target_record") or {}
             writer.writerow(
@@ -4215,6 +4223,7 @@ async def get_domain_dns_records(
 async def get_domain_dns_lint(
     domain_id: str = Path(..., title="The domain ID or name"),
     refresh: bool = Query(False, title="Refresh cached DNS result"),
+    locale: Optional[str] = Query(None, title="Operator guidance locale"),
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
 ):
@@ -4229,7 +4238,7 @@ async def get_domain_dns_lint(
             detail="Domain not found",
         )
 
-    return await _build_domain_dns_guidance(db, store, domain_id, refresh=refresh)
+    return await _build_domain_dns_guidance(db, store, domain_id, refresh=refresh, locale=locale)
 
 
 @router.get("/{domain_id}/dns/change-plan", response_model=DNSChangePlanResponse)

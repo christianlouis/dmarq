@@ -81,6 +81,14 @@ def _today_id() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%d")
 
 
+def normalize_guidance_locale(locale: Optional[str]) -> str:
+    """Return the supported locale used for operator-facing DNS guidance."""
+    normalized = (locale or "en").strip().lower().replace("_", "-")
+    if normalized.startswith("de"):
+        return "de"
+    return "en"
+
+
 def _target_records(domain: str, result: DomainDNSResult) -> List[DNSGuidanceRecord]:
     dmarc_value = result.dmarc_record or (
         f"v=DMARC1; p=none; rua=mailto:dmarc@{domain}; adkim=r; aspf=r"
@@ -197,6 +205,7 @@ def _finding(
     target_record: Optional[DNSGuidanceRecord] = None,
     evidence: Optional[List[str]] = None,
     remediation_steps: Optional[List[str]] = None,
+    locale: str = "en",
 ) -> DNSLintFinding:
     return DNSLintFinding(
         code=code,
@@ -208,127 +217,220 @@ def _finding(
         record_name=record_name,
         target_record=target_record,
         evidence=list(evidence or []),
-        remediation_steps=list(remediation_steps or _default_remediation_steps(code)),
+        remediation_steps=list(
+            remediation_steps or _default_remediation_steps(code, locale=locale)
+        ),
     )
 
 
-def _default_remediation_steps(code: str) -> List[str]:
+_REMEDIATION_STEPS_EN: Dict[str, List[str]] = {
+    "dmarc_missing": [
+        "Open the DNS zone for the affected domain.",
+        "Create one TXT record at _dmarc with a monitoring policy and rua mailbox.",
+        "Wait for DNS propagation, then refresh DMARQ DNS lint.",
+    ],
+    "spf_missing": [
+        "List every platform currently allowed to send mail for this domain.",
+        "Publish exactly one root TXT record beginning with v=spf1.",
+        "Use ~all during rollout or -all after all senders are verified.",
+    ],
+    "spf_multiple_records": [
+        "Copy all current SPF mechanisms into one planned SPF record.",
+        "Remove duplicate or obsolete mechanisms while preserving active senders.",
+        "Publish one root SPF TXT record and remove the extra SPF TXT values.",
+    ],
+    "spf_all_too_permissive": [
+        "Confirm which senders are legitimate from DMARQ sending-source evidence.",
+        "Replace +all with ~all while validating, or -all after coverage is complete.",
+        "Refresh DNS lint and watch failure trends for at least one report cycle.",
+    ],
+    "spf_dns_lookup_limit_exceeded": [
+        "Count every include, a, mx, ptr, exists, and redirect mechanism.",
+        "Remove unused includes and flatten stable sender ranges with the provider.",
+        "Keep the final SPF path below 10 DNS lookups before enforcement.",
+    ],
+    "spf_dns_lookup_limit_risk": [
+        "Identify which SPF includes are still actively used.",
+        "Remove duplicate or retired sender includes before adding new senders.",
+        "Document the remaining lookup budget for future sender onboarding.",
+    ],
+    "spf_duplicate_include": [
+        "Find the repeated include values in the SPF TXT record.",
+        "Keep one copy of each include and remove the duplicates.",
+        "Refresh DNS lint to confirm the SPF lookup budget improved.",
+    ],
+    "spf_void_lookup": [
+        "Open each referenced include, exists, or redirect target.",
+        "Remove targets that no longer publish TXT records.",
+        "Ask the sender provider for the current SPF include when the sender is still active.",
+    ],
+    "dkim_selector_missing": [
+        "Identify the sending provider that owns the selector from report evidence.",
+        "Open that provider's domain authentication settings and copy the DKIM TXT or CNAME.",
+        "Publish the selector record, then refresh DNS lint and confirm it resolves.",
+    ],
+    "dkim_selector_cname_broken": [
+        "Open the DNS CNAME record shown in evidence.",
+        "Compare its target with the current value in the sending provider admin page.",
+        "Replace stale targets or complete provider-side domain authentication.",
+    ],
+    "dkim_selector_key_too_short": [
+        "Check whether the sending provider supports 2048-bit DKIM keys.",
+        "Generate a replacement selector instead of editing the existing key in place.",
+        "Publish and validate the new selector before retiring the old selector.",
+    ],
+    "dkim_selector_stale": [
+        "Confirm whether the selector belongs to a retired sender or old key rotation.",
+        "Keep it only if a valid provider still uses it for aligned mail.",
+        "Remove retired selector records after checking one or more report cycles.",
+    ],
+    "mta_sts_missing": [
+        "Publish _mta-sts TXT with a stable id value.",
+        "Host a valid HTTPS policy at the well-known mta-sts hostname.",
+        "Start in testing mode and rotate the TXT id whenever the policy changes.",
+    ],
+    "tls_rpt_missing": [
+        "Choose the TLS report mailbox or HTTPS collector endpoint.",
+        "Publish one TXT record at _smtp._tls with v=TLSRPTv1 and rua.",
+        "Confirm DMARQ imports TLS reports after receivers start sending them.",
+    ],
+    "tls_rpt_multiple_records": [
+        "Merge all TLS-RPT rua destinations into one TXT record.",
+        "Remove duplicate _smtp._tls TXT records.",
+        "Refresh DNS lint to confirm only one TLS-RPT record remains.",
+    ],
+    "tls_rpt_rua_missing": [
+        "Choose where SMTP TLS reports should be delivered.",
+        "Add rua=mailto:... or rua=https://... to the TLS-RPT TXT value.",
+        "Refresh DMARQ after DNS propagation.",
+    ],
+    "bimi_missing": [
+        "Complete DMARC enforcement first.",
+        "Publish a default._bimi TXT record with an HTTPS SVG logo URL.",
+        "Add a certificate URL if the mailbox providers you care about require it.",
+    ],
+    "dane_missing": [
+        "Confirm that the domain's DNS zone and every MX host zone you control are signed and validating with DNSSEC.",
+        "For each MX host, fetch the live SMTP STARTTLS certificate and compute the TLSA 3 1 1 SHA-256 SPKI value.",
+        "Publish one TLSA record under _25._tcp.<mx-host> per controlled MX host, or confirm your mail provider's DANE/TLSA support for third-party MX hosts, then refresh DMARQ DNS lint.",
+    ],
+    "dane_review": [
+        "Review every TLSA record shown in evidence for the affected MX hosts.",
+        "Compare the TLSA selector and hash with the current SMTP TLS certificate.",
+        "Rotate TLSA values in the same change window as certificate changes.",
+    ],
+    "mail_service_record_missing": [
+        "Open the sender-domain authentication page in the mail service.",
+        "Copy the required DNS record into the authoritative DNS provider.",
+        "Refresh DMARQ DNS lint and then re-check verification in the mail service.",
+    ],
+    "mail_service_record_conflict": [
+        "Compare the existing DNS value with the value required by the mail service.",
+        "Confirm no other active sender depends on the current value.",
+        "Update the record or split senders onto provider-supported hostnames.",
+    ],
+}
+
+
+_REMEDIATION_STEPS_DE: Dict[str, List[str]] = {
+    "dmarc_missing": [
+        "Oeffne die DNS-Zone der betroffenen Domain.",
+        "Lege genau einen TXT-Record unter _dmarc mit Monitoring-Policy und rua-Postfach an.",
+        "Warte die DNS-Verteilung ab und aktualisiere danach den DMARQ-DNS-Check.",
+    ],
+    "dmarc_monitoring_policy": [
+        "Pruefe in DMARQ, welche legitimen Versandquellen bereits SPF oder DKIM-aligned bestehen.",
+        "Dokumentiere oder behebe alle aktiven Fehlschlaege, bevor du die Policy verschaerfst.",
+        "Plane erst danach den Wechsel von p=none zu quarantine oder reject.",
+    ],
+    "spf_missing": [
+        "Liste alle Plattformen auf, die aktuell fuer diese Domain E-Mail senden duerfen.",
+        "Veroeffentliche genau einen TXT-Record an der Domain-Wurzel, der mit v=spf1 beginnt.",
+        "Nutze waehrend der Einfuehrung ~all oder nach verifizierten Sendern -all.",
+    ],
+    "spf_multiple_records": [
+        "Kopiere alle aktuellen SPF-Mechanismen in einen geplanten gemeinsamen SPF-Record.",
+        "Entferne doppelte oder veraltete Mechanismen, ohne aktive Sender zu verlieren.",
+        "Veroeffentliche genau einen SPF-TXT-Record und entferne die zusaetzlichen SPF-Werte.",
+    ],
+    "spf_all_too_permissive": [
+        "Pruefe anhand der DMARQ-Versandquellen, welche Sender legitim sind.",
+        "Ersetze +all waehrend der Validierung durch ~all oder nach vollstaendiger Abdeckung durch -all.",
+        "Aktualisiere den DNS-Check und beobachte die Fehlertrends mindestens einen Report-Zyklus lang.",
+    ],
+    "spf_dns_lookup_limit_exceeded": [
+        "Zaehle alle include-, a-, mx-, ptr-, exists- und redirect-Mechanismen.",
+        "Entferne ungenutzte Includes und ersetze stabile Senderbereiche gemeinsam mit dem Provider.",
+        "Halte den finalen SPF-Pfad vor DMARC-Enforcement unter zehn DNS-Lookups.",
+    ],
+    "spf_dns_lookup_limit_risk": [
+        "Identifiziere, welche SPF-Includes noch aktiv genutzt werden.",
+        "Entferne doppelte oder stillgelegte Sender-Includes, bevor neue Sender ergaenzt werden.",
+        "Dokumentiere das verbleibende Lookup-Budget fuer spaetere Sender-Onboardings.",
+    ],
+    "spf_duplicate_include": [
+        "Finde die wiederholten include-Werte im SPF-TXT-Record.",
+        "Behalte jeden include-Wert nur einmal und entferne die Duplikate.",
+        "Aktualisiere den DNS-Check, um das verbesserte SPF-Lookup-Budget zu bestaetigen.",
+    ],
+    "spf_void_lookup": [
+        "Oeffne jedes referenzierte include-, exists- oder redirect-Ziel.",
+        "Entferne Ziele, die keine TXT-Records mehr veroeffentlichen.",
+        "Frage beim Sender-Provider nach dem aktuellen SPF-Include, falls der Sender weiterhin aktiv ist.",
+    ],
+    "dkim_selector_missing": [
+        "Identifiziere anhand der Report-Evidenz den Versanddienst, dem dieser Selector gehoert.",
+        "Oeffne dort die Domain-Authentifizierung und kopiere den DKIM-TXT- oder CNAME-Record.",
+        "Veroeffentliche den Selector-Record, aktualisiere den DNS-Check und pruefe, ob er aufloest.",
+    ],
+    "dkim_selector_cname_broken": [
+        "Oeffne den in der Evidenz genannten DNS-CNAME-Record.",
+        "Vergleiche dessen Ziel mit dem aktuellen Wert im Administrationsbereich des Versanddienstes.",
+        "Ersetze veraltete Ziele oder schliesse die Domain-Authentifizierung beim Provider ab.",
+    ],
+    "dkim_selector_key_too_short": [
+        "Pruefe, ob der Versanddienst 2048-Bit-DKIM-Schluessel unterstuetzt.",
+        "Erzeuge einen neuen Selector, statt den bestehenden Schluessel direkt zu ersetzen.",
+        "Veroeffentliche und validiere den neuen Selector, bevor du den alten Selector entfernst.",
+    ],
+    "dkim_selector_stale": [
+        "Pruefe, ob der Selector zu einem stillgelegten Sender oder einer alten Schluesselrotation gehoert.",
+        "Behalte ihn nur, wenn ein gueltiger Provider ihn weiterhin fuer aligned Mail nutzt.",
+        "Entferne stillgelegte Selector-Records erst nach einem oder mehreren Report-Zyklen.",
+    ],
+}
+
+
+_FALLBACK_REMEDIATION_STEPS_EN = [
+    "Open the linked DNS or report evidence in DMARQ.",
+    "Make the smallest provider-side change that addresses the finding.",
+    "Refresh DNS lint and monitor the next aggregate report cycle.",
+]
+
+
+def _default_remediation_steps(code: str, *, locale: Optional[str] = None) -> List[str]:
     """Return deterministic operator steps for a lint finding."""
-    steps = {
-        "dmarc_missing": [
-            "Open the DNS zone for the affected domain.",
-            "Create one TXT record at _dmarc with a monitoring policy and rua mailbox.",
-            "Wait for DNS propagation, then refresh DMARQ DNS lint.",
-        ],
-        "spf_missing": [
-            "List every platform currently allowed to send mail for this domain.",
-            "Publish exactly one root TXT record beginning with v=spf1.",
-            "Use ~all during rollout or -all after all senders are verified.",
-        ],
-        "spf_multiple_records": [
-            "Copy all current SPF mechanisms into one planned SPF record.",
-            "Remove duplicate or obsolete mechanisms while preserving active senders.",
-            "Publish one root SPF TXT record and remove the extra SPF TXT values.",
-        ],
-        "spf_all_too_permissive": [
-            "Confirm which senders are legitimate from DMARQ sending-source evidence.",
-            "Replace +all with ~all while validating, or -all after coverage is complete.",
-            "Refresh DNS lint and watch failure trends for at least one report cycle.",
-        ],
-        "spf_dns_lookup_limit_exceeded": [
-            "Count every include, a, mx, ptr, exists, and redirect mechanism.",
-            "Remove unused includes and flatten stable sender ranges with the provider.",
-            "Keep the final SPF path below 10 DNS lookups before enforcement.",
-        ],
-        "spf_dns_lookup_limit_risk": [
-            "Identify which SPF includes are still actively used.",
-            "Remove duplicate or retired sender includes before adding new senders.",
-            "Document the remaining lookup budget for future sender onboarding.",
-        ],
-        "spf_duplicate_include": [
-            "Find the repeated include values in the SPF TXT record.",
-            "Keep one copy of each include and remove the duplicates.",
-            "Refresh DNS lint to confirm the SPF lookup budget improved.",
-        ],
-        "spf_void_lookup": [
-            "Open each referenced include, exists, or redirect target.",
-            "Remove targets that no longer publish TXT records.",
-            "Ask the sender provider for the current SPF include when the sender is still active.",
-        ],
-        "dkim_selector_missing": [
-            "Identify the sending provider that owns the selector from report evidence.",
-            "Open that provider's domain authentication settings and copy the DKIM TXT or CNAME.",
-            "Publish the selector record, then refresh DNS lint and confirm it resolves.",
-        ],
-        "dkim_selector_cname_broken": [
-            "Open the DNS CNAME record shown in evidence.",
-            "Compare its target with the current value in the sending provider admin page.",
-            "Replace stale targets or complete provider-side domain authentication.",
-        ],
-        "dkim_selector_key_too_short": [
-            "Check whether the sending provider supports 2048-bit DKIM keys.",
-            "Generate a replacement selector instead of editing the existing key in place.",
-            "Publish and validate the new selector before retiring the old selector.",
-        ],
-        "dkim_selector_stale": [
-            "Confirm whether the selector belongs to a retired sender or old key rotation.",
-            "Keep it only if a valid provider still uses it for aligned mail.",
-            "Remove retired selector records after checking one or more report cycles.",
-        ],
-        "mta_sts_missing": [
-            "Publish _mta-sts TXT with a stable id value.",
-            "Host a valid HTTPS policy at the well-known mta-sts hostname.",
-            "Start in testing mode and rotate the TXT id whenever the policy changes.",
-        ],
-        "tls_rpt_missing": [
-            "Choose the TLS report mailbox or HTTPS collector endpoint.",
-            "Publish one TXT record at _smtp._tls with v=TLSRPTv1 and rua.",
-            "Confirm DMARQ imports TLS reports after receivers start sending them.",
-        ],
-        "tls_rpt_multiple_records": [
-            "Merge all TLS-RPT rua destinations into one TXT record.",
-            "Remove duplicate _smtp._tls TXT records.",
-            "Refresh DNS lint to confirm only one TLS-RPT record remains.",
-        ],
-        "tls_rpt_rua_missing": [
-            "Choose where SMTP TLS reports should be delivered.",
-            "Add rua=mailto:... or rua=https://... to the TLS-RPT TXT value.",
-            "Refresh DMARQ after DNS propagation.",
-        ],
-        "bimi_missing": [
-            "Complete DMARC enforcement first.",
-            "Publish a default._bimi TXT record with an HTTPS SVG logo URL.",
-            "Add a certificate URL if the mailbox providers you care about require it.",
-        ],
-        "dane_missing": [
-            "Confirm that the domain's DNS zone and every MX host zone you control are signed and validating with DNSSEC.",
-            "For each MX host, fetch the live SMTP STARTTLS certificate and compute the TLSA 3 1 1 SHA-256 SPKI value.",
-            "Publish one TLSA record under _25._tcp.<mx-host> per controlled MX host, or confirm your mail provider's DANE/TLSA support for third-party MX hosts, then refresh DMARQ DNS lint.",
-        ],
-        "dane_review": [
-            "Review every TLSA record shown in evidence for the affected MX hosts.",
-            "Compare the TLSA selector and hash with the current SMTP TLS certificate.",
-            "Rotate TLSA values in the same change window as certificate changes.",
-        ],
-        "mail_service_record_missing": [
-            "Open the sender-domain authentication page in the mail service.",
-            "Copy the required DNS record into the authoritative DNS provider.",
-            "Refresh DMARQ DNS lint and then re-check verification in the mail service.",
-        ],
-        "mail_service_record_conflict": [
-            "Compare the existing DNS value with the value required by the mail service.",
-            "Confirm no other active sender depends on the current value.",
-            "Update the record or split senders onto provider-supported hostnames.",
-        ],
-    }
-    return steps.get(
-        code,
-        [
-            "Open the linked DNS or report evidence in DMARQ.",
-            "Make the smallest provider-side change that addresses the finding.",
-            "Refresh DNS lint and monitor the next aggregate report cycle.",
-        ],
-    )
+    if normalize_guidance_locale(locale) == "de":
+        return list(
+            _REMEDIATION_STEPS_DE.get(
+                code,
+                _REMEDIATION_STEPS_EN.get(code, _FALLBACK_REMEDIATION_STEPS_EN),
+            )
+        )
+    return list(_REMEDIATION_STEPS_EN.get(code, _FALLBACK_REMEDIATION_STEPS_EN))
+
+
+def _localize_default_remediation_steps(
+    findings: List[DNSLintFinding], *, locale: Optional[str]
+) -> None:
+    """Replace generated remediation steps with the requested locale."""
+    normalized_locale = normalize_guidance_locale(locale)
+    if normalized_locale == "en":
+        return
+    for finding in findings:
+        finding.remediation_steps = _default_remediation_steps(
+            finding.code, locale=normalized_locale
+        )
 
 
 def _classify_dmarc_warning(message: str) -> str:
@@ -1314,6 +1416,7 @@ async def build_dns_guidance(
     monitored_selectors: Optional[List[str]] = None,
     observed_selectors: Optional[List[str]] = None,
     mail_service_records: Optional[List[Dict[str, str]]] = None,
+    locale: Optional[str] = None,
 ) -> DNSGuidanceResult:
     """Build typed DNS lint findings and target records for a domain."""
     normalized_domain = domain.strip().strip(".").lower()
@@ -1338,6 +1441,7 @@ async def build_dns_guidance(
     findings.extend(_bimi_findings(bimi, extract_dmarc_policy(result.dmarc_record), targets))
     findings.extend(_dane_findings(dane_result, targets))
     findings.extend(await _mail_service_dns_findings(provider, mail_service_records or []))
+    _localize_default_remediation_steps(findings, locale=locale)
     return DNSGuidanceResult(
         domain=normalized_domain,
         status=_status(findings),
