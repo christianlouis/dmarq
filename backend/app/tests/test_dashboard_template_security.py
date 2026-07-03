@@ -573,7 +573,9 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     assert "source.reputation?.listings" in template
     assert "reputationStatusClass" in script
     assert 'colspan="9"' in template
+    assert "x-effect=\"$el.style.height = point.height + '%'" in template
     assert "x-html" not in template
+    assert not _has_inline_style(template)
 
 
 def test_domain_details_distinguishes_loading_error_and_empty_states():
