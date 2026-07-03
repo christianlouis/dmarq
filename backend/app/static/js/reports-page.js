@@ -23,6 +23,9 @@ function reportsApp() {
                 root.dataset.reportDeleteBound = 'true';
             }
             root.addEventListener('click', (event) => {
+                if (!(event.target instanceof Element)) {
+                    return;
+                }
                 const button = event.target.closest('[data-report-delete]');
                 if (!button || !root.contains(button)) {
                     return;

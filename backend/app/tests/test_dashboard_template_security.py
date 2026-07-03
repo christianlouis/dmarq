@@ -314,6 +314,7 @@ def test_reports_uses_external_page_script_for_csp_migration():
     assert "data-report-delete" in template
     assert "data-report-delete" in script
     assert "bindDeleteControls()" in script
+    assert "event.target instanceof Element" in script
     assert "/api/v1/reports" in script
     assert "deleteReport(domain, reportId)" in script
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
@@ -474,6 +475,7 @@ def test_report_detail_uses_external_page_script_for_csp_migration():
     assert "data-report-delete" in template
     assert "data-report-delete" in script
     assert "bindDeleteControls()" in script
+    assert "event.target instanceof Element" in script
     assert "/api/v1/reports/${encodeURIComponent(this.reportId)}" in script
     assert "deleteReport(domain, reportId)" in script
     assert "sourceLocation(record)" in script
