@@ -722,6 +722,15 @@ async def _safe_ptr_lookup(provider: Any, ip: str, timeout: float = 3.0) -> Opti
         return None
 
 
+def _raise_refresh_reputation_failure(refresh_reputation: bool, exc: Exception) -> None:
+    if not refresh_reputation:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Source reputation could not be refreshed.",
+    ) from exc
+
+
 def _source_row_from_report_record(record: Dict[str, Any]) -> Dict[str, Any]:
     """Convert one report record into the source-row shape used by reputation scoring."""
     count = int(record.get("count") or 0)
@@ -890,6 +899,7 @@ async def get_report_by_id(
             "Report source reputation enrichment failed for report detail: %s",
             type(exc).__name__,
         )
+        _raise_refresh_reputation_failure(refresh_reputation, exc)
 
     # Normalize records
     record_details = []

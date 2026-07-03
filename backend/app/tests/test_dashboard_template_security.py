@@ -592,6 +592,8 @@ def test_report_detail_uses_external_page_script_for_csp_migration():
     assert "reputationRefreshing" in template
     assert "reputationRefreshError" in template
     assert "if (!refreshReputation) {\n                        this.reputationRefreshError = '';" in script
+    assert "Reputation refresh timed out. Please try again in a moment." in script
+    assert "const detail = typeof data.detail === 'string' ? data.detail : data.detail?.message;" in script
     assert "bindPageControls()" in script
     assert "event.target instanceof Element" in script
     assert "/api/v1/reports/${encodeURIComponent(this.reportId)}" in script
@@ -986,6 +988,8 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     assert "refreshSourceReputation" in script
     assert "sourceReputationRefreshing" in template
     assert "sourceReputationRefreshError" in template
+    assert "this.sourceReputationRefreshError = '';" in script
+    assert "if (!options.preserveOnFailure) {\n                    this.sources = [];" in script
     assert "sourceSeenLabel" in script
     assert "sourceVolumeBars" in script
     assert "source.reputation.status" in template

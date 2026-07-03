@@ -414,8 +414,6 @@ function domainDetailsApp(domainId) {
             this.sourceReputationRefreshError = '';
             try {
                 await this.fetchSources({ refresh: true, preserveOnFailure: true });
-            } catch (error) {
-                this.sourceReputationRefreshError = error.message || 'Source reputation could not be refreshed.';
             } finally {
                 this.sourceReputationRefreshing = false;
             }
@@ -1740,14 +1738,15 @@ function domainDetailsApp(domainId) {
                 }
                 const data = await response.json();
                 this.sources = data.sources || [];
+                this.sourceReputationRefreshError = '';
             } catch (error) {
                 if (!options.preserveOnFailure) {
                     this.sources = [];
+                    this.sourcesError = error.message || 'Sending sources could not be loaded.';
                 }
                 if (options.preserveOnFailure) {
                     this.sourceReputationRefreshError = error.message || 'Source reputation could not be refreshed.';
                 }
-                this.sourcesError = error.message || 'Sending sources could not be loaded.';
                 console.error('Error fetching sources:', error);
             } finally {
                 this.sourcesLoading = false;

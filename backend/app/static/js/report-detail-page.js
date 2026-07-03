@@ -59,7 +59,19 @@ function reportDetailApp(reportId) {
             }
             try {
                 const query = refreshReputation ? '?refresh_reputation=true' : '';
-                const response = await fetch(`/api/v1/reports/${encodeURIComponent(this.reportId)}${query}`);
+                const requestUrl = `/api/v1/reports/${encodeURIComponent(this.reportId)}${query}`;
+                let response;
+                if (refreshReputation) {
+                    const controller = new AbortController();
+                    const timeout = window.setTimeout(() => controller.abort(), 30000);
+                    try {
+                        response = await fetch(requestUrl, { signal: controller.signal });
+                    } finally {
+                        window.clearTimeout(timeout);
+                    }
+                } else {
+                    response = await fetch(requestUrl);
+                }
                 if (response.ok) {
                     this.report = await response.json();
                     if (!refreshReputation) {
@@ -73,17 +85,21 @@ function reportDetailApp(reportId) {
                         this.reputationRefreshError = `Report '${this.reportId}' was not found.`;
                     }
                 } else {
+                    const data = await response.json().catch(() => ({}));
+                    const detail = typeof data.detail === 'string' ? data.detail : data.detail?.message;
                     if (!refreshReputation) {
                         this.report = null;
-                        this.error = 'Failed to load report. Please try again later.';
+                        this.error = detail || 'Failed to load report. Please try again later.';
                     } else {
-                        this.reputationRefreshError = 'Reputation could not be refreshed. Please try again later.';
+                        this.reputationRefreshError = detail || 'Reputation could not be refreshed. Please try again later.';
                     }
                 }
             } catch (err) {
                 if (!refreshReputation) {
                     this.report = null;
                     this.error = 'Network error — could not load report.';
+                } else if (err?.name === 'AbortError') {
+                    this.reputationRefreshError = 'Reputation refresh timed out. Please try again in a moment.';
                 } else {
                     this.reputationRefreshError = 'Network error — reputation could not be refreshed.';
                 }
