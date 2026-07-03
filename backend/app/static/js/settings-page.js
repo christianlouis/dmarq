@@ -30,6 +30,8 @@ function settingsApp() {
             connected: false,
             auth_mode: null,
             scopes: null,
+            scope_profile: 'read_only',
+            scope_profiles: [],
             connected_at: null,
         },
         cfZones: [],
@@ -44,6 +46,12 @@ function settingsApp() {
         disablingWebhookId: null,
         processingWebhooks: false,
         loadingWebhookDeliveries: false,
+        loadingAIProfiles: false,
+        testingAIConnection: false,
+        aiProviderProfiles: [],
+        aiConnectionResult: null,
+        aiModels: [],
+        showAIKey: false,
         webhooks: [],
         webhookDeliveries: [],
         webhookEventTypes: [],
@@ -91,6 +99,7 @@ function settingsApp() {
                 await this.loadWebhookDeliveries(false);
                 await this.loadCloudflareOAuthStatus(false);
                 await this.loadDNSProviders(false);
+                await this.loadAIProviderProfiles(false);
             } catch (err) {
                 this.showFlash('Error loading settings: ' + err.message, false);
             }
@@ -148,6 +157,98 @@ function settingsApp() {
                 this.showFlash('Error saving automation settings: ' + err.message, false);
             } finally {
                 this.saving = false;
+            }
+        },
+
+        aiProviderProfile(provider = null) {
+            const selected = String(provider || this.s['ai.provider'] || 'template').replaceAll('-', '_');
+            return (this.aiProviderProfiles || []).find(profile => profile.id === selected)
+                || this.aiProviderProfiles[0]
+                || { id: 'template', name: 'Offline template', description: '', requires_api_key: false, requires_base_url: false };
+        },
+
+        aiProviderNeedsApiKey() {
+            return Boolean(this.aiProviderProfile().requires_api_key);
+        },
+
+        aiProviderNeedsBaseUrl() {
+            return Boolean(this.aiProviderProfile().requires_base_url);
+        },
+
+        async loadAIProviderProfiles(showMessage = false) {
+            this.loadingAIProfiles = true;
+            try {
+                const res = await fetch('/api/v1/settings/ai/provider-profiles', {
+                    headers: this.apiHeaders(),
+                });
+                const data = await res.json().catch(() => ([]));
+                if (!res.ok) {
+                    if (showMessage) {
+                        this.showFlash('AI provider profiles failed: ' + (data.detail || res.statusText), false);
+                    }
+                    return;
+                }
+                this.aiProviderProfiles = Array.isArray(data) ? data : [];
+                const profile = this.aiProviderProfile();
+                if (!this.s['ai.provider']) {
+                    this.s['ai.provider'] = profile.id || 'template';
+                }
+                if (!this.s['ai.remote_base_url'] && profile.default_base_url) {
+                    this.s['ai.remote_base_url'] = profile.default_base_url;
+                }
+            } catch (err) {
+                if (showMessage) {
+                    this.showFlash('Error loading AI provider profiles: ' + err.message, false);
+                }
+            } finally {
+                this.loadingAIProfiles = false;
+            }
+        },
+
+        onAIProviderChanged() {
+            const profile = this.aiProviderProfile();
+            this.aiConnectionResult = null;
+            this.aiModels = [];
+            if (profile.default_base_url && !this.s['ai.remote_base_url']) {
+                this.s['ai.remote_base_url'] = profile.default_base_url;
+            }
+            if (profile.default_model && !this.s['ai.model']) {
+                this.s['ai.model'] = profile.default_model;
+            }
+        },
+
+        async testAIConnection() {
+            this.testingAIConnection = true;
+            this.aiConnectionResult = null;
+            try {
+                const res = await fetch('/api/v1/settings/ai/test', {
+                    method: 'POST',
+                    headers: this.apiHeaders(),
+                    body: JSON.stringify({
+                        provider: this.s['ai.provider'] || 'template',
+                        base_url: this.s['ai.remote_base_url'] || '',
+                        api_key: this.s['ai.api_key'] || '',
+                        model: this.s['ai.model'] || '',
+                    }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    const detail = typeof data.detail === 'string' ? data.detail : data.detail?.message;
+                    this.aiConnectionResult = { success: false, message: detail || res.statusText };
+                    this.showFlash('AI connection failed: ' + this.aiConnectionResult.message, false);
+                    return;
+                }
+                this.aiConnectionResult = data;
+                this.aiModels = data.models || [];
+                if (!this.s['ai.model'] && data.selected_model) {
+                    this.s['ai.model'] = data.selected_model;
+                }
+                this.showFlash(data.message || 'AI connection succeeded.', true);
+            } catch (err) {
+                this.aiConnectionResult = { success: false, message: err.message };
+                this.showFlash('Error testing AI connection: ' + err.message, false);
+            } finally {
+                this.testingAIConnection = false;
             }
         },
 
@@ -468,6 +569,9 @@ function settingsApp() {
                     return;
                 }
                 this.cfOAuthStatus = data;
+                if (!this.s['cloudflare.oauth_scope_profile']) {
+                    this.s['cloudflare.oauth_scope_profile'] = data.scope_profile || 'read_only';
+                }
             } catch (err) {
                 if (showMessage) {
                     this.showFlash('Error loading Cloudflare status: ' + err.message, false);
@@ -478,7 +582,8 @@ function settingsApp() {
         async connectCloudflare() {
             this.connectingCloudflare = true;
             try {
-                const res = await fetch('/api/v1/domains/cloudflare/oauth/authorize-url?return_to=/settings', {
+                const profile = encodeURIComponent(this.s['cloudflare.oauth_scope_profile'] || 'read_only');
+                const res = await fetch(`/api/v1/domains/cloudflare/oauth/authorize-url?return_to=/settings&scope_profile=${profile}`, {
                     headers: this.workspaceHeaders(),
                 });
                 const data = await res.json().catch(() => ({}));

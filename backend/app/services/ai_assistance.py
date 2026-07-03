@@ -30,6 +30,7 @@ AI_DEFAULTS = {
     "ai.enabled": "false",
     "ai.provider": "template",
     "ai.model": "",
+    "ai.api_key": "",
     "ai.remote_base_url": "",
     "ai.redaction_mode": "strict",
     "ai.action_tools_enabled": "false",

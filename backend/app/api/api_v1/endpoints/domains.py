@@ -39,8 +39,10 @@ from app.services.cloudflare_oauth import (
     build_cloudflare_authorization_url,
     build_cloudflare_oauth_state,
     cloudflare_oauth_configured,
+    cloudflare_scope_profile_metadata,
     decode_cloudflare_oauth_state,
     exchange_cloudflare_oauth_code,
+    normalize_cloudflare_scope_profile,
     persist_cloudflare_oauth_tokens,
 )
 from app.services.dane import check_dane_cached
@@ -1284,6 +1286,7 @@ class CloudflareOAuthAuthorizeResponse(BaseModel):
     authorization_url: str
     redirect_uri: str
     scopes: str
+    scope_profile: str
 
 
 class CloudflareOAuthStatusResponse(BaseModel):
@@ -1293,6 +1296,8 @@ class CloudflareOAuthStatusResponse(BaseModel):
     connected: bool
     auth_mode: Optional[str] = None
     scopes: Optional[str] = None
+    scope_profile: str = "read_only"
+    scope_profiles: List[Dict[str, Any]] = Field(default_factory=list)
     connected_at: Optional[str] = None
 
 
@@ -5067,6 +5072,10 @@ async def get_cloudflare_oauth_status(
         connected=bool(token_row and token_row.value),
         auth_mode=auth_mode,
         scopes=_setting_value(db, "cloudflare.oauth_scopes"),
+        scope_profile=normalize_cloudflare_scope_profile(
+            _setting_value(db, "cloudflare.oauth_scope_profile")
+        ),
+        scope_profiles=cloudflare_scope_profile_metadata(),
         connected_at=_setting_value(db, "cloudflare.oauth_connected_at"),
     )
 
@@ -5075,6 +5084,11 @@ async def get_cloudflare_oauth_status(
 async def get_cloudflare_oauth_authorize_url(
     request: Request,
     return_to: str = Query("/settings", title="Path to return to after OAuth"),
+    scope_profile: str = Query(
+        "read_only",
+        title="Cloudflare OAuth rights profile",
+        description="read_only, read_only_radar, or full_dns_repair",
+    ),
     selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
@@ -5086,10 +5100,16 @@ async def get_cloudflare_oauth_authorize_url(
         selected_workspace_id=parse_selected_workspace_id(selected_workspace),
     )
     redirect_uri = f"{_public_base_url(request, db)}/api/v1/domains/cloudflare/oauth/callback"
+    normalized_profile = normalize_cloudflare_scope_profile(scope_profile)
     try:
         payload = build_cloudflare_authorization_url(
             redirect_uri=redirect_uri,
-            state=build_cloudflare_oauth_state(workspace_id=workspace.id, return_to=return_to),
+            state=build_cloudflare_oauth_state(
+                workspace_id=workspace.id,
+                return_to=return_to,
+                scope_profile=normalized_profile,
+            ),
+            scope_profile=normalized_profile,
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -5120,17 +5140,23 @@ async def cloudflare_oauth_callback(
     try:
         state_payload = decode_cloudflare_oauth_state(state_value)
         _authorized_domain_workspace(_auth, db, selected_workspace_id=state_payload["workspace_id"])
+        redirect_uri = f"{_public_base_url(request, db)}/api/v1/domains/cloudflare/oauth/callback"
         token_data = await exchange_cloudflare_oauth_code(
             code=code,
-            redirect_uri=f"{_public_base_url(request, db)}/api/v1/domains/cloudflare/oauth/callback",
+            redirect_uri=redirect_uri,
         )
-        persist_cloudflare_oauth_tokens(db, token_data)
+        persist_cloudflare_oauth_tokens(
+            db,
+            token_data,
+            scope_profile=state_payload.get("scope_profile"),
+        )
     except LookupError as exc:
         logger.info("Cloudflare OAuth callback failed: %s", exc)
         return HTMLResponse(
             content=(
                 "<html><body><p>Cloudflare connection failed. "
-                "Please close this window and retry after checking the connector settings.</p></body></html>"
+                "Please close this window and retry after checking the connector settings."
+                "</p></body></html>"
             ),
             status_code=400,
         )
