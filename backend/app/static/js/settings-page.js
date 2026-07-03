@@ -104,6 +104,30 @@ function settingsApp() {
                 } else if (button.matches('[data-settings-import-mail-domains]')) {
                     event.preventDefault();
                     this.importMailServiceDomains();
+                } else if (button.matches('[data-settings-action]')) {
+                    event.preventDefault();
+                    this.handleSettingsAction(button.dataset.settingsAction);
+                } else if (button.matches('[data-settings-webhook-action]')) {
+                    event.preventDefault();
+                    this.handleWebhookAction(button.dataset.settingsWebhookAction, button.dataset.webhookId);
+                } else if (button.matches('[data-settings-toggle-ai-key]')) {
+                    event.preventDefault();
+                    this.showAIKey = !this.showAIKey;
+                }
+            });
+            this.$root.addEventListener('submit', event => {
+                if (!(event.target instanceof Element)) {
+                    return;
+                }
+                if (event.target.matches('[data-settings-save-category]')) {
+                    event.preventDefault();
+                    this.saveCategory(event.target.dataset.settingsSaveCategory);
+                } else if (event.target.matches('[data-settings-save-automation]')) {
+                    event.preventDefault();
+                    this.saveAutomationSettings();
+                } else if (event.target.matches('[data-settings-create-webhook]')) {
+                    event.preventDefault();
+                    this.createWebhook();
                 }
             });
             this.$root.addEventListener('change', event => {
@@ -112,8 +136,39 @@ function settingsApp() {
                 }
                 if (event.target.matches('[data-settings-dns-provider-select]')) {
                     this.resetDnsProviderImportState();
+                } else if (event.target.matches('[data-settings-boolean-key]')) {
+                    this.s[event.target.dataset.settingsBooleanKey] = event.target.checked ? 'true' : 'false';
+                } else if (event.target.matches('[data-settings-ai-provider-select]')) {
+                    this.onAIProviderChanged();
                 }
             });
+        },
+
+        handleSettingsAction(action) {
+            const actions = {
+                load_alert_history: () => this.loadAlertHistory(),
+                load_config_audit: () => this.loadConfigAudit(),
+                preview_summary: () => this.previewSummary(),
+                send_summary_now: () => this.sendSummaryNow(),
+                check_alerts: () => this.checkAlerts(),
+                send_alert_summary: () => this.sendAlertSummary(),
+                send_test_notification: () => this.sendTestNotification(),
+                load_webhooks: () => this.loadWebhooks(),
+                process_webhooks: () => this.processWebhooks(),
+                load_webhook_deliveries: () => this.loadWebhookDeliveries(),
+                test_ai_connection: () => this.testAIConnection()
+            };
+            actions[action]?.();
+        },
+
+        handleWebhookAction(action, endpointId) {
+            const numericEndpointId = Number(endpointId);
+            if (!Number.isInteger(numericEndpointId) || numericEndpointId <= 0) return;
+            if (action === 'test') {
+                this.testWebhook(numericEndpointId);
+            } else if (action === 'disable') {
+                this.disableWebhook(numericEndpointId);
+            }
         },
 
         apiHeaders() {
