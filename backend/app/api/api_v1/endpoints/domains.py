@@ -5712,6 +5712,19 @@ def _spf_fix_hint(ip: str, spf_result: str, failed_count: int = 0) -> Optional[s
         return None
 
 
+def _allow_direct_spf_ip_hint(sender: Optional[Dict[str, Any]]) -> bool:
+    """Return whether a raw ip4/ip6 SPF mechanism is safe to suggest.
+
+    Commercial senders and forwarders often use shared, rotating, or receiver-side
+    infrastructure. Suggesting a raw IP for those sources is misleading. Keep
+    copy-paste IP SPF hints for monitored-domain infrastructure where the PTR is
+    under the domain and the operator can reasonably own the host.
+    """
+    return bool(
+        sender and sender.get("status") == "known" and sender.get("id") == "owned-infrastructure"
+    )
+
+
 def _source_recommendations(
     ip: str,
     source: Dict[str, Any],
@@ -5720,6 +5733,9 @@ def _source_recommendations(
     sender: Optional[Dict[str, Any]] = None,
 ) -> List[SourceRecommendation]:
     """Build clear next steps for common DMARC source patterns."""
+    if not _allow_direct_spf_ip_hint(sender):
+        spf_fix_hint = None
+
     spf_result = source.get("spf_result", "unknown")
     dkim_result = source.get("dkim_result", "unknown")
     dmarc_result = source.get("dmarc_result") or (
@@ -6048,6 +6064,8 @@ async def get_domain_sources(
         spf_result = source.get("spf_result", "unknown")
         dkim_result = source.get("dkim_result", "unknown")
         spf_fix_hint = _spf_fix_hint(ip, spf_result, source.get("spf_fail_count", 0))
+        if not _allow_direct_spf_ip_hint(sender):
+            spf_fix_hint = None
         source_anomalies = anomalies_by_ip.get(ip, [])
         reputation = reputations_by_ip.get(ip)
         recommendations = _source_recommendations(ip, source, hostname, spf_fix_hint, sender)
