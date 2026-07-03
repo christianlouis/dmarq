@@ -57,6 +57,12 @@ def _has_inline_style(markup: str) -> bool:
     return parser.has_inline_style
 
 
+TEMPLATE_DIR = Path(__file__).resolve().parents[1] / "templates"
+ALL_TEMPLATE_NAMES = tuple(
+    sorted(str(path.relative_to(TEMPLATE_DIR)) for path in TEMPLATE_DIR.rglob("*.html"))
+)
+
+
 def _template_section_between_markers(template: str, start_marker: str, end_marker: str) -> str:
     start_match = re.search(rf"^[ \t]*{re.escape(start_marker)}", template, re.MULTILINE)
     assert start_match, f"{start_marker!r} marker missing from template"
@@ -64,6 +70,15 @@ def _template_section_between_markers(template: str, start_marker: str, end_mark
     end_match = re.search(rf"^[ \t]*{re.escape(end_marker)}", section, re.MULTILINE)
     assert end_match, f"{end_marker!r} marker missing after {start_marker!r}"
     return section[: end_match.start()]
+
+
+@pytest.mark.parametrize("template_name", ALL_TEMPLATE_NAMES)
+def test_templates_do_not_reintroduce_csp_blocking_inline_markup(template_name: str):
+    template = _read_project_file("templates", *template_name.split("/"))
+
+    assert not _has_inline_script(template)
+    assert not _has_inline_style(template)
+    assert "x-html" not in template
 
 
 def _dashboard_template() -> str:
