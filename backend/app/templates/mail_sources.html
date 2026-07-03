@@ -340,15 +340,15 @@
     <!-- Add / Edit modal -->
     <div x-show="showForm" x-cloak
         class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
-        x-on:keydown.escape.window="closeForm()">
+        data-mail-source-form-modal>
         <div class="bg-base-100 rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div class="p-6 space-y-4">
                 <div class="flex items-center justify-between">
                     <h2 class="text-lg font-semibold" x-text="editingId ? 'Edit Mail Source' : 'Add Mail Source'"></h2>
-                    <button class="btn btn-ghost btn-sm btn-circle" x-on:click="closeForm()">✕</button>
+                    <button class="btn btn-ghost btn-sm btn-circle" data-mail-source-form-close>✕</button>
                 </div>
 
-                <form id="source-form" x-on:submit.prevent="saveSource()" class="space-y-4">
+                <form id="source-form" data-mail-source-form class="space-y-4">
 
                     <!-- Name -->
                     <div>
@@ -403,7 +403,7 @@
                                 <input :type="showPassword ? 'text' : 'password'" x-model="form.password"
                                     class="input input-bordered w-full pr-10" />
                                 <button type="button" class="absolute right-2 top-3 text-muted-foreground hover:text-foreground"
-                                    x-on:click="showPassword = !showPassword">
+                                    data-mail-source-password-toggle>
                                     <svg x-show="!showPassword" xmlns="http://www.w3.org/2000/svg" width="16" height="16"
                                         viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                                         stroke-linecap="round" stroke-linejoin="round">
@@ -474,7 +474,7 @@
                                         placeholder="GOCSPX-…" />
                                     <button type="button"
                                         class="absolute right-2 top-3 text-muted-foreground hover:text-foreground"
-                                        x-on:click="showPassword = !showPassword">
+                                        data-mail-source-password-toggle>
                                         <svg x-show="!showPassword" xmlns="http://www.w3.org/2000/svg" width="16" height="16"
                                             viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                                             stroke-linecap="round" stroke-linejoin="round">
@@ -541,7 +541,7 @@
                                         class="input input-bordered w-full pr-10" />
                                     <button type="button"
                                         class="absolute right-2 top-3 text-muted-foreground hover:text-foreground"
-                                        x-on:click="showPassword = !showPassword">
+                                        data-mail-source-password-toggle>
                                         <svg x-show="!showPassword" xmlns="http://www.w3.org/2000/svg" width="16" height="16"
                                             viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                                             stroke-linecap="round" stroke-linejoin="round">
@@ -571,20 +571,20 @@
                                 <div class="flex flex-col gap-2 md:flex-row">
                                     <select class="select select-bordered w-full md:flex-1"
                                         x-model="form.m365_folder_id"
-                                        x-on:change="applyM365FolderSelection($event.target.value)">
+                                        data-mail-source-m365-folder-select>
                                         <option value="">Use folder name below</option>
                                         <template x-for="folder in m365Folders" :key="folder.id">
                                             <option :value="folder.id" x-text="folder.path || folder.display_name"></option>
                                         </template>
                                     </select>
                                     <button type="button" class="btn btn-outline"
-                                        x-on:click="loadM365Folders()"
+                                        data-mail-source-m365-load-folders
                                         :disabled="!editingId || !m365Connected || m365FoldersLoading">
                                         <span x-text="m365FoldersLoading ? 'Loading…' : 'Load folders'"></span>
                                     </button>
                                 </div>
                                 <input type="text" x-model="form.folder" placeholder="INBOX"
-                                    x-on:input="form.m365_folder_id = ''"
+                                    data-mail-source-m365-manual-folder
                                     class="input input-bordered w-full mt-2" />
                                 <p class="text-xs text-muted-foreground mt-1">Use a listed folder when available; otherwise enter a well-known folder such as INBOX.</p>
                                 <p class="text-xs text-error mt-1" x-show="m365FoldersError" x-text="m365FoldersError"></p>
@@ -638,7 +638,7 @@
                         <div class="flex gap-2">
                             <template x-if="form.method !== 'GMAIL_API' && form.method !== 'M365_GRAPH'">
                                 <button type="button" class="btn btn-outline btn-sm"
-                                    x-on:click="testAdHoc()"
+                                    data-mail-source-test-adhoc
                                     :disabled="isTesting || isSaving">
                                     <span x-show="!isTesting">Test Connection</span>
                                     <span x-show="isTesting" class="flex items-center" x-cloak>
@@ -652,7 +652,7 @@
                             </template>
                             <template x-if="form.method === 'GMAIL_API' && editingId">
                                 <button type="button" class="btn btn-outline btn-sm"
-                                    x-on:click="connectGmail()"
+                                    data-mail-source-connect-gmail
                                     :disabled="isTesting || isSaving">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
                                         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-1">
@@ -663,14 +663,14 @@
                             </template>
                             <template x-if="form.method === 'M365_GRAPH' && editingId">
                                 <button type="button" class="btn btn-outline btn-sm"
-                                    x-on:click="connectM365()"
+                                    data-mail-source-connect-m365
                                     :disabled="isTesting || isSaving">
                                     Connect Microsoft 365
                                 </button>
                             </template>
                         </div>
                         <div class="flex gap-2">
-                            <button type="button" class="btn btn-ghost btn-sm" x-on:click="closeForm()">Cancel</button>
+                            <button type="button" class="btn btn-ghost btn-sm" data-mail-source-form-close>Cancel</button>
                             <button type="submit" class="btn btn-default btn-sm" :disabled="isSaving">
                                 <span x-show="!isSaving" x-text="editingId ? 'Update' : 'Save'"></span>
                                 <span x-show="isSaving" x-cloak>Saving…</span>
@@ -718,7 +718,8 @@
 
     <!-- Delete confirmation modal -->
     <div x-show="deleteTarget" x-cloak
-        class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+        data-mail-source-delete-modal>
         <div class="bg-base-100 rounded-lg shadow-xl w-full max-w-sm p-6 space-y-4">
             <h2 class="text-lg font-semibold">Delete Mail Source</h2>
             <p class="text-sm text-muted-foreground">
@@ -726,8 +727,8 @@
                 This action cannot be undone.
             </p>
             <div class="flex justify-end gap-2">
-                <button class="btn btn-ghost btn-sm" x-on:click="deleteTarget = null">Cancel</button>
-                <button class="btn btn-error btn-sm" x-on:click="deleteSource()">Delete</button>
+                <button class="btn btn-ghost btn-sm" data-mail-source-delete-cancel>Cancel</button>
+                <button class="btn btn-error btn-sm" data-mail-source-delete-confirm>Delete</button>
             </div>
         </div>
     </div>

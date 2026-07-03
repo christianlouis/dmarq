@@ -707,6 +707,46 @@ def test_mail_sources_list_actions_are_bound_from_external_script():
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 
+def test_mail_sources_form_actions_are_bound_from_external_script():
+    template = _mail_sources_template()
+    script = _mail_sources_script()
+
+    assert "data-mail-source-form-modal" in template
+    assert "data-mail-source-form" in template
+    assert "data-mail-source-form-close" in template
+    assert "data-mail-source-password-toggle" in template
+    assert "data-mail-source-m365-folder-select" in template
+    assert "data-mail-source-m365-load-folders" in template
+    assert "data-mail-source-m365-manual-folder" in template
+    assert "data-mail-source-test-adhoc" in template
+    assert "data-mail-source-connect-gmail" in template
+    assert "data-mail-source-connect-m365" in template
+    assert "data-mail-source-delete-modal" in template
+    assert "data-mail-source-delete-cancel" in template
+    assert "data-mail-source-delete-confirm" in template
+    assert "data-mail-source-form" in script
+    assert "data-mail-source-m365-folder-select" in script
+    assert "data-mail-source-m365-manual-folder" in script
+    assert "data-mail-source-connect-gmail" in script
+    assert "data-mail-source-delete-confirm" in script
+    assert "data-mail-source-form-modal" in script
+    assert "data-mail-source-delete-modal" in script
+    assert 'x-on:keydown.escape.window="closeForm()"' not in template
+    assert 'x-on:click="closeForm()"' not in template
+    assert 'x-on:submit.prevent="saveSource()"' not in template
+    assert 'x-on:click="showPassword = !showPassword"' not in template
+    assert 'x-on:change="applyM365FolderSelection($event.target.value)"' not in template
+    assert 'x-on:click="loadM365Folders()"' not in template
+    assert 'x-on:input="form.m365_folder_id = \'\'"' not in template
+    assert 'x-on:click="testAdHoc()"' not in template
+    assert 'x-on:click="connectGmail()"' not in template
+    assert 'x-on:click="connectM365()"' not in template
+    assert 'x-on:click="deleteTarget = null"' not in template
+    assert 'x-on:click="deleteSource()"' not in template
+    assert "x-html" not in template
+    assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
+
+
 def test_domain_details_exposes_health_history_without_html_injection():
     template = _domain_details_template()
     script = _domain_details_script()
