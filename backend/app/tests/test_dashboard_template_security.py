@@ -591,6 +591,7 @@ def test_report_detail_uses_external_page_script_for_csp_migration():
     assert "refresh_reputation=true" in script
     assert "reputationRefreshing" in template
     assert "reputationRefreshError" in template
+    assert "if (!refreshReputation) {\n                        this.reputationRefreshError = '';" in script
     assert "bindPageControls()" in script
     assert "event.target instanceof Element" in script
     assert "/api/v1/reports/${encodeURIComponent(this.reportId)}" in script

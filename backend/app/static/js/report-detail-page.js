@@ -62,6 +62,9 @@ function reportDetailApp(reportId) {
                 const response = await fetch(`/api/v1/reports/${encodeURIComponent(this.reportId)}${query}`);
                 if (response.ok) {
                     this.report = await response.json();
+                    if (!refreshReputation) {
+                        this.reputationRefreshError = '';
+                    }
                 } else if (response.status === 404) {
                     if (!refreshReputation) {
                         this.report = null;
