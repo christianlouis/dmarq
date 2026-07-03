@@ -208,8 +208,16 @@ def _settings_script() -> str:
 
 
 def test_settings_cloudflare_oauth_uses_popup_with_full_window_fallback():
+    template = _settings_template()
     script = _settings_script()
 
+    assert "Request scopes:" in template
+    assert "Cloudflare client permissions:" in template
+    assert "selectedCloudflareOAuthProfile()" in template
+    assert "selectedCloudflareOAuthPermissions()" in template
+    assert "selectedCloudflareOAuthProfile()" in script
+    assert "selectedCloudflareOAuthPermissions()" in script
+    assert "Requesting Cloudflare OAuth scopes:" in script
     assert "window.open(" in script
     assert "'dmarq-cloudflare-oauth'" in script
     assert "popup=yes" in script

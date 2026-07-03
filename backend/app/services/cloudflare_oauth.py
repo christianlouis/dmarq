@@ -40,6 +40,7 @@ class CloudflareScopeProfile:
     name: str
     description: str
     scopes: str
+    required_permissions: tuple[str, ...] = ()
     dns_write_enabled: bool = False
     radar_enabled: bool = False
     radar_requires_api_token: bool = False
@@ -52,12 +53,14 @@ CLOUDFLARE_SCOPE_PROFILES: Dict[str, CloudflareScopeProfile] = {
         name="Read-only discovery",
         description="Verify ownership, import zones, and inspect DNS records.",
         scopes="zone.read dns.read",
+        required_permissions=("Zone Read", "DNS Read"),
     ),
     "read_only_radar": CloudflareScopeProfile(
         id="read_only_radar",
         name="Read-only + Radar context",
         description=("Read DNS zones and request Cloudflare Radar read access for IP enrichment."),
         scopes="zone.read dns.read radar.read",
+        required_permissions=("Zone Read", "DNS Read", "Account Radar Read"),
         radar_enabled=True,
         warning=(
             "Includes Account Radar Read for Cloudflare Radar IP lookups. The Cloudflare "
@@ -72,6 +75,7 @@ CLOUDFLARE_SCOPE_PROFILES: Dict[str, CloudflareScopeProfile] = {
             "Cloudflare Radar IP enrichment access."
         ),
         scopes="zone.read dns.read dns.write radar.read",
+        required_permissions=("Zone Read", "DNS Read", "DNS Write", "Account Radar Read"),
         dns_write_enabled=True,
         radar_enabled=True,
         warning=(
@@ -91,7 +95,12 @@ def normalize_cloudflare_scope_profile(profile: Optional[str]) -> str:
 
 def cloudflare_scope_profile_metadata() -> List[Dict[str, Any]]:
     """Return serializable metadata for the settings UI."""
-    return [asdict(profile) for profile in CLOUDFLARE_SCOPE_PROFILES.values()]
+    metadata: List[Dict[str, Any]] = []
+    for profile in CLOUDFLARE_SCOPE_PROFILES.values():
+        item = asdict(profile)
+        item["required_permissions"] = list(profile.required_permissions)
+        metadata.append(item)
+    return metadata
 
 
 def cloudflare_scopes_for_profile(profile: Optional[str]) -> str:

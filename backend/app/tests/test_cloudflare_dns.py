@@ -2102,11 +2102,22 @@ def test_cloudflare_oauth_scope_profile_metadata_marks_full_dns_radar_enabled():
 
     full_profile = profiles["full_dns_repair"]
     assert full_profile["scopes"] == "zone.read dns.read dns.write radar.read"
+    assert full_profile["required_permissions"] == [
+        "Zone Read",
+        "DNS Read",
+        "DNS Write",
+        "Account Radar Read",
+    ]
     assert full_profile["dns_write_enabled"] is True
     assert full_profile["radar_enabled"] is True
 
     radar_profile = profiles["read_only_radar"]
     assert radar_profile["scopes"] == "zone.read dns.read radar.read"
+    assert radar_profile["required_permissions"] == [
+        "Zone Read",
+        "DNS Read",
+        "Account Radar Read",
+    ]
     assert radar_profile["dns_write_enabled"] is False
     assert radar_profile["radar_enabled"] is True
 
@@ -2483,18 +2494,53 @@ def test_cloudflare_oauth_callback_requires_code_and_state(
 def test_cloudflare_oauth_callback_explains_invalid_scope(
     authed_client: TestClient,
 ):
-    response = authed_client.get(
-        "/api/v1/domains/cloudflare/oauth/callback"
-        "?error=invalid_scope"
-        "&error_description=The+OAuth+client+cannot+request+radar.read"
-        "&state=state-token"
-    )
+    with patch(
+        "app.api.api_v1.endpoints.domains.decode_cloudflare_oauth_state",
+        return_value={
+            "workspace_id": 1,
+            "return_to": "/settings",
+            "scope_profile": "full_dns_repair",
+        },
+    ):
+        response = authed_client.get(
+            "/api/v1/domains/cloudflare/oauth/callback"
+            "?error=invalid_scope"
+            "&error_description=The+OAuth+client+cannot+request+radar.read"
+            "&state=state-token"
+        )
 
     assert response.status_code == 400
     assert "Cloudflare error:" in response.text
     assert "invalid_scope" in response.text
     assert "cannot request radar.read" in response.text
     assert "Choose a lower rights profile" in response.text
+    assert "Selected profile:" in response.text
+    assert "full_dns_repair" in response.text
+    assert "zone.read dns.read dns.write radar.read" in response.text
+    assert "DNS Write" in response.text
+    assert "Account Radar Read" in response.text
+    assert "window or tab" in response.text
+
+
+def test_cloudflare_oauth_callback_explains_invalid_scope_with_bad_state(
+    authed_client: TestClient,
+):
+    with patch(
+        "app.api.api_v1.endpoints.domains.decode_cloudflare_oauth_state",
+        side_effect=LookupError("Invalid Cloudflare OAuth state."),
+    ):
+        response = authed_client.get(
+            "/api/v1/domains/cloudflare/oauth/callback"
+            "?error=invalid_scope"
+            "&error_description=The+OAuth+client+cannot+request+dns.write"
+            "&state=bad-state"
+        )
+
+    assert response.status_code == 400
+    assert "Selected profile:" in response.text
+    assert "read_only" in response.text
+    assert "zone.read dns.read" in response.text
+    assert "DNS Write" not in response.text
     assert "window or tab" in response.text
 
 

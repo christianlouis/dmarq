@@ -187,9 +187,17 @@
                                     </template>
                                 </select>
                                 <div class="text-xs text-[#5f5c78]">
-                                    <p x-text="(cfOAuthStatus.scope_profiles || []).find(profile => profile.id === (s['cloudflare.oauth_scope_profile'] || cfOAuthStatus.scope_profile || 'read_only'))?.description || 'Choose how much Cloudflare access DMARQ should request.'"></p>
-                                    <p class="mt-1 text-warning" x-show="(cfOAuthStatus.scope_profiles || []).find(profile => profile.id === (s['cloudflare.oauth_scope_profile'] || cfOAuthStatus.scope_profile || 'read_only'))?.warning"
-                                        x-text="(cfOAuthStatus.scope_profiles || []).find(profile => profile.id === (s['cloudflare.oauth_scope_profile'] || cfOAuthStatus.scope_profile || 'read_only'))?.warning"></p>
+                                    <p x-text="selectedCloudflareOAuthProfile()?.description || 'Choose how much Cloudflare access DMARQ should request.'"></p>
+                                    <p class="mt-1">
+                                        Request scopes:
+                                        <span class="font-mono" x-text="selectedCloudflareOAuthProfile()?.scopes || 'zone.read dns.read'"></span>
+                                    </p>
+                                    <p class="mt-1" x-show="selectedCloudflareOAuthPermissions().length">
+                                        Cloudflare client permissions:
+                                        <span x-text="selectedCloudflareOAuthPermissions().join(', ')"></span>
+                                    </p>
+                                    <p class="mt-1 text-warning" x-show="selectedCloudflareOAuthProfile()?.warning"
+                                        x-text="selectedCloudflareOAuthProfile()?.warning"></p>
                                 </div>
                             </div>
                             <p class="mt-1 text-xs text-[#5f5c78]" x-show="cfOAuthStatus.scopes">
