@@ -316,6 +316,8 @@ def test_dashboard_uses_external_page_script_for_csp_migration():
     assert "data-dashboard-dns-health-domain" in script
     assert "data-dashboard-trigger-poll" in script
     assert "data-dashboard-demo-tour-close" in script
+    assert "ownerDocument.addEventListener('keydown'" in script
+    assert "removeEventListener('keydown'" in script
     assert not _has_inline_style(template)
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
