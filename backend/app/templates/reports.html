@@ -128,7 +128,9 @@
                                             {% endcall %}
                                         </a>
                                         <button class="btn btn-error btn-sm"
-                                                @click="deleteReport(report.domain, report.report_id)">
+                                                data-report-delete
+                                                :data-report-domain="report.domain"
+                                                :data-report-id="report.report_id">
                                             Delete
                                         </button>
                                     </div>
