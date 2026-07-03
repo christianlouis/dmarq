@@ -24,6 +24,9 @@ function uploadForm() {
 
         bindControls() {
             const root = this.$root;
+            if (!root || root.dataset.uploadControlsBound === 'true') return;
+            root.dataset.uploadControlsBound = 'true';
+
             const dropzone = root?.querySelector('[data-upload-dropzone]');
             const fileInput = root?.querySelector('[data-upload-file-input]');
             const clearButton = root?.querySelector('[data-upload-clear]');
