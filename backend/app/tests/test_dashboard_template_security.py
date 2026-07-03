@@ -212,8 +212,10 @@ def test_settings_cloudflare_oauth_uses_popup_with_full_window_fallback():
 
     assert "window.open(" in script
     assert "'dmarq-cloudflare-oauth'" in script
+    assert "noopener,noreferrer" in script
     assert "window.location.href = data.authorization_url" in script
     assert "loadCloudflareOAuthStatus(true)" in script
+    assert "Cloudflare status refresh failed:" in script
 
 
 def _domain_details_template() -> str:

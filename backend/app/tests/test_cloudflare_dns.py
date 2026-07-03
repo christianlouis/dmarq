@@ -2477,6 +2477,7 @@ def test_cloudflare_oauth_callback_requires_code_and_state(
 
     assert response.status_code == 400
     assert "Cloudflare connection failed" in response.text
+    assert "window or tab" in response.text
 
 
 def test_cloudflare_oauth_callback_explains_invalid_scope(
@@ -2494,6 +2495,7 @@ def test_cloudflare_oauth_callback_explains_invalid_scope(
     assert "invalid_scope" in response.text
     assert "cannot request radar.read" in response.text
     assert "Choose a lower rights profile" in response.text
+    assert "window or tab" in response.text
 
 
 def test_cloudflare_oauth_callback_returns_failure_for_invalid_state(
@@ -2509,6 +2511,7 @@ def test_cloudflare_oauth_callback_returns_failure_for_invalid_state(
 
     assert response.status_code == 400
     assert "retry after checking the connector settings" in response.text
+    assert "window or tab" in response.text
 
 
 def test_cloudflare_oauth_callback_stores_token_and_redirects(

@@ -5185,7 +5185,7 @@ async def cloudflare_oauth_callback(
         return HTMLResponse(
             content=(
                 "<html><body><p>Cloudflare connection failed. "
-                "Please close this window and try again from DMARQ settings.</p>"
+                "Please close this window or tab and try again from DMARQ settings.</p>"
                 f"{details}</body></html>"
             ),
             status_code=400,
@@ -5209,7 +5209,7 @@ async def cloudflare_oauth_callback(
         return HTMLResponse(
             content=(
                 "<html><body><p>Cloudflare connection failed. "
-                "Please close this window and retry after checking the connector settings."
+                "Please close this window or tab and retry after checking the connector settings."
                 "</p></body></html>"
             ),
             status_code=400,
