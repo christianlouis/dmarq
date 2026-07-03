@@ -116,6 +116,16 @@ SETTING_DEFAULTS: List[Dict[str, Any]] = [
         "value_type": "string",
         "category": "dmarc",
     },
+    {
+        "key": "dmarc.aggregate_report_mailbox",
+        "value": "",
+        "description": (
+            "Default aggregate-report mailbox used in generated DMARC rua records "
+            "(for example dmarc-reports@example.com)"
+        ),
+        "value_type": "string",
+        "category": "dmarc",
+    },
     # ── DNS ──────────────────────────────────────────────────────────────────
     {
         "key": "dns.resolver",

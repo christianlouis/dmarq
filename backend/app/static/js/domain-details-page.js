@@ -284,6 +284,61 @@ function domainDetailsApp(domainId) {
             return (this.dnsGuidance.change_plans || []).find(plan => String(plan.plan_id) === String(planId));
         },
 
+        get mailAuthSetupRecords() {
+            const records = this.dnsGuidance.target_records || [];
+            const wantedCodes = ['target_dmarc', 'target_spf', 'target_dkim'];
+            return wantedCodes
+                .map(code => records.find(record => record.code === code))
+                .filter(Boolean);
+        },
+
+        get mailAuthSetupSummary() {
+            const records = this.mailAuthSetupRecords;
+            if (!records.length) {
+                return 'Load DNS guidance to generate the DMARC, SPF, and DKIM records for this domain.';
+            }
+            const dmarc = records.find(record => record.code === 'target_dmarc');
+            const rua = this.extractDmarcRua(dmarc?.value || '');
+            if (rua) {
+                return `Generated setup records are ready. Aggregate reports are directed to ${rua}.`;
+            }
+            return 'Generated setup records are ready. Review the DMARC rua mailbox before publishing.';
+        },
+
+        mailAuthRecordLabel(record) {
+            const labels = {
+                target_dmarc: 'DMARC monitoring',
+                target_spf: 'SPF sender policy',
+                target_dkim: 'DKIM selector'
+            };
+            return labels[record?.code] || 'Mail authentication record';
+        },
+
+        mailAuthRecordStatus(record) {
+            if (!record) return 'missing';
+            if (record.code === 'target_dmarc') return this.dns.dmarc ? 'published' : 'ready to publish';
+            if (record.code === 'target_spf') return this.dns.spf ? 'published' : 'ready to publish';
+            if (record.code === 'target_dkim') return this.dns.dkim ? 'published' : 'needs provider key';
+            return record.priority || 'recommended';
+        },
+
+        mailAuthRecordStatusClass(record) {
+            const status = this.mailAuthRecordStatus(record);
+            if (status === 'published') return 'bg-green-100 text-green-700';
+            if (status === 'needs provider key') return 'bg-yellow-100 text-yellow-800';
+            return 'bg-[#e9f6f4] text-[#176b73]';
+        },
+
+        dnsRecordLine(record) {
+            if (!record) return '';
+            return `${record.name} ${record.record_type} ${record.value}`;
+        },
+
+        extractDmarcRua(value) {
+            const match = String(value || '').match(/(?:^|;\s*)rua=mailto:([^;\s]+)/i);
+            return match ? match[1] : '';
+        },
+
         handleRemediationAction(button) {
             const item = this.findRemediationItem(button.dataset.remediationItemId);
             if (!item) return;

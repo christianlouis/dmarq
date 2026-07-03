@@ -66,6 +66,32 @@ async def test_build_dns_guidance_returns_typed_findings_and_targets():
 
 
 @pytest.mark.asyncio
+async def test_build_dns_guidance_uses_configured_aggregate_report_mailbox():
+    provider = FakeDNSProvider({})
+    dns = DomainDNSResult(
+        dmarc=False,
+        spf=True,
+        spf_record="v=spf1 -all",
+        dkim=True,
+        selectors_checked=["selector1"],
+    )
+
+    guidance = await build_dns_guidance(
+        "example.com",
+        provider,
+        dns,
+        MTAStsResult(status="pass"),
+        BIMIResult(status="pass"),
+        dmarc_report_mailbox="dmarc-reports@example.net",
+    )
+
+    target = next(record for record in guidance.target_records if record.code == "target_dmarc")
+    assert "rua=mailto:dmarc-reports@example.net" in target.value
+    plan = next(plan for plan in guidance.change_plans if plan.finding_code == "dmarc_missing")
+    assert "rua=mailto:dmarc-reports@example.net" in plan.proposed_value
+
+
+@pytest.mark.asyncio
 async def test_build_dns_guidance_localizes_high_value_remediation_steps_to_german():
     provider = FakeDNSProvider({})
     dns = DomainDNSResult(

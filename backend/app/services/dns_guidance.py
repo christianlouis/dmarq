@@ -89,9 +89,16 @@ def normalize_guidance_locale(locale: Optional[str]) -> str:
     return "en"
 
 
-def _target_records(domain: str, result: DomainDNSResult) -> List[DNSGuidanceRecord]:
+def _target_records(
+    domain: str,
+    result: DomainDNSResult,
+    *,
+    dmarc_report_mailbox: Optional[str] = None,
+) -> List[DNSGuidanceRecord]:
+    report_mailbox = (dmarc_report_mailbox or "").strip()
+    rua_mailbox = report_mailbox or f"dmarc@{domain}"
     dmarc_value = result.dmarc_record or (
-        f"v=DMARC1; p=none; rua=mailto:dmarc@{domain}; adkim=r; aspf=r"
+        f"v=DMARC1; p=none; rua=mailto:{rua_mailbox}; adkim=r; aspf=r"
     )
     spf_value = result.spf_record or "v=spf1 -all"
     dkim_selector = (result.dkim_selectors or result.selectors_checked or ["selector1"])[0]
@@ -1420,11 +1427,16 @@ async def build_dns_guidance(
     observed_selectors: Optional[List[str]] = None,
     mail_service_records: Optional[List[Dict[str, str]]] = None,
     locale: Optional[str] = None,
+    dmarc_report_mailbox: Optional[str] = None,
 ) -> DNSGuidanceResult:
     """Build typed DNS lint findings and target records for a domain."""
     normalized_domain = domain.strip().strip(".").lower()
     dane_result = dane or DANEResult(errors=["No DANE/TLSA context was evaluated."])
-    targets = _target_records(normalized_domain, result)
+    targets = _target_records(
+        normalized_domain,
+        result,
+        dmarc_report_mailbox=dmarc_report_mailbox,
+    )
     targets.append(_dane_target_record(normalized_domain, dane_result))
     findings: List[DNSLintFinding] = []
     findings.extend(_dmarc_findings(normalized_domain, result, targets))

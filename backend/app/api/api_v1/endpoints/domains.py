@@ -2346,6 +2346,12 @@ async def _build_domain_dns_health(  # pylint: disable=too-many-locals
     )
 
 
+def _plain_setting_value(db: Session, key: str) -> Optional[str]:
+    row = db.query(Setting).filter(Setting.key == key).first()
+    value = row.value if row else None
+    return value.strip() if value else None
+
+
 async def _build_domain_dns_guidance(
     db: Session,
     store: ReportStore,
@@ -2397,6 +2403,7 @@ async def _build_domain_dns_guidance(
         observed_selectors=report_selectors,
         mail_service_records=mail_service_records,
         locale=locale or get_settings().default_locale,
+        dmarc_report_mailbox=_plain_setting_value(db, "dmarc.aggregate_report_mailbox"),
     )
     return asdict(guidance)
 

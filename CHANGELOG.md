@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added a DMARC aggregate-report mailbox default so generated DNS guidance can use a central `rua=mailto:` address instead of always defaulting to `dmarc@<domain>`.
 - Added in-product release metadata with version, image, git ref, build date, recent changes, and a link to the full changelog.
 - Added Cloudflare OAuth rights profiles for read-only zone import, read-only plus Radar enrichment, and full DNS repair.
 - Added source intelligence context for sending IPs, including provider recognition, network details, Radar links, and report activity history.

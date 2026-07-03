@@ -128,6 +128,23 @@ your DNS provider even if no DMARC reports have arrived yet.
 The import flow only creates monitored domains in DMARQ. It does not change DNS
 records. DNS repair remains a separate preview-and-approve action.
 
+## DMARC Policy Defaults
+
+Use **Settings** > **DMARC Policy Defaults** to define the starter policy and
+aggregate-report destination used by generated DNS guidance.
+
+- **Default policy** controls the policy DMARQ suggests for new DMARC records.
+- **DMARC aggregate report mailbox** controls the `rua=mailto:` address in
+  generated DMARC records. Set this to a central mailbox such as
+  `dmarc-reports@example.com` when all domains should send reports to one
+  monitored inbox.
+- If the aggregate report mailbox is empty, DMARQ falls back to
+  `dmarc@<domain>` for each domain.
+
+Changing these defaults does not modify DNS automatically. Domain detail pages
+and DNS lint guidance use the saved values when showing copyable records and
+provider-backed change plans.
+
 ## API Access
 
 DMARQ provides an API for integration with other systems:

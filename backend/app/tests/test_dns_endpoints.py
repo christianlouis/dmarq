@@ -26,6 +26,7 @@ from app.models.dns_cache import DNSCache, DNSRecordChange
 from app.models.domain import Domain
 from app.models.organization import Entitlement, Organization
 from app.models.report import DMARCReport, ReportRecord
+from app.models.setting import Setting
 from app.models.workspace import Workspace
 from app.services.bimi import BIMIResult
 from app.services.dane import DANEResult, TLSARecord, TLSASuggestion
@@ -539,6 +540,38 @@ def test_dns_lint_endpoint_accepts_locale_for_operator_guidance(authed_client: T
     assert "Veroeffentliche genau einen TXT-Record" in (
         findings["spf_missing"]["remediation_steps"][1]
     )
+
+
+def test_dns_lint_endpoint_uses_configured_aggregate_report_mailbox(
+    authed_client: TestClient,
+    db_session,
+):
+    db_session.add(
+        Setting(
+            key="dmarc.aggregate_report_mailbox",
+            value="dmarc-reports@example.net",
+            value_type="string",
+            category="dmarc",
+        )
+    )
+    db_session.commit()
+    result = DomainDNSResult(
+        dmarc=False,
+        spf=True,
+        spf_record="v=spf1 -all",
+        dkim=True,
+        selectors_checked=["selector1"],
+    )
+
+    with _mock_dns(result):
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns/lint")
+
+    assert response.status_code == 200
+    data = response.json()
+    target = next(record for record in data["target_records"] if record["code"] == "target_dmarc")
+    assert "rua=mailto:dmarc-reports@example.net" in target["value"]
+    plan = next(plan for plan in data["change_plans"] if plan["finding_code"] == "dmarc_missing")
+    assert "rua=mailto:dmarc-reports@example.net" in plan["proposed_value"]
 
 
 def test_dns_change_plan_endpoint_returns_apply_gated_plans(authed_client: TestClient):

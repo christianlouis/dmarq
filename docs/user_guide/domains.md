@@ -49,6 +49,27 @@ Configure where and how DMARC reports are delivered:
 - **RUF Email**: The email address receiving forensic reports
 - **Report Frequency**: How often you want to receive reports
 
+The generated DMARC record on each domain detail page uses the central
+aggregate-report mailbox from **Settings** > **DMARC Policy Defaults**. This is
+useful for self-hosted deployments that collect all reports in one inbox, for
+example `dmarc-reports@example.com`. If no default is configured, DMARQ suggests
+`dmarc@<domain>`.
+
+### DMARC, SPF, and DKIM Wizard
+
+Each domain detail page includes a DMARC, SPF, and DKIM wizard next to the DNS
+health evidence. The wizard converts the current DNS posture into copyable
+target records:
+
+- **DMARC** shows the starter policy and report mailbox DMARQ would publish.
+- **SPF** shows the proposed SPF TXT record when no usable SPF record exists.
+- **DKIM** lists configured or discovered selectors and shows whether a
+  provider key is still needed.
+
+Use the wizard as a guided starting point. DMARQ still keeps DNS writes
+human-in-the-loop: copy records manually or review a provider-backed change plan
+before approving any DNS update.
+
 ## Domain Health Check
 
 DMARQ provides a health check feature for each domain:

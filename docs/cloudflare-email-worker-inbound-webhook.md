@@ -36,6 +36,14 @@ records, including Cloudflare-managed DMARC, SPF, or DKIM records. Cloudflare
 DNS integration in DMARQ remains read-only unless an operator changes records
 manually outside this flow.
 
+When Cloudflare manages the reporting domain, this intake path pairs well with
+the central report mailbox in **Settings** > **DMARC Policy Defaults**. Publish
+the generated DMARC `rua=mailto:` value for each domain, route that address
+through Cloudflare Email Routing, and let the Worker forward received reports to
+DMARQ. The current guide documents the manual setup; one-click Cloudflare Email
+Routing and Worker provisioning is tracked separately because it requires
+broader Cloudflare permissions than read-only zone/DNS discovery.
+
 ## Prerequisites
 
 - DMARQ deployed with a reachable HTTPS URL (for example
