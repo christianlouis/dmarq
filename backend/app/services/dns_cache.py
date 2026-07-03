@@ -124,6 +124,67 @@ def _lookup_failure_result(error_type: str, now: datetime) -> Tuple[DomainDNSRes
     )
 
 
+def _cache_row(
+    db: Session,
+    *,
+    domain: str,
+    provider_name: str,
+    selectors_key: str,
+) -> Optional[DNSCache]:
+    return (
+        db.query(DNSCache)
+        .filter(
+            DNSCache.domain == domain,
+            DNSCache.provider == provider_name,
+            DNSCache.selectors_key == selectors_key,
+        )
+        .first()
+    )
+
+
+def _store_cache_result(
+    db: Session,
+    row: Optional[DNSCache],
+    *,
+    domain: str,
+    provider_name: str,
+    selectors_key: str,
+    payload: str,
+    checked_at: datetime,
+) -> DNSCache:
+    if row is None:
+        row = DNSCache(
+            domain=domain,
+            provider=provider_name,
+            selectors_key=selectors_key,
+            result_json=payload,
+            checked_at=checked_at,
+        )
+        db.add(row)
+    else:
+        row.result_json = payload
+        row.checked_at = checked_at
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        row = _cache_row(
+            db,
+            domain=domain,
+            provider_name=provider_name,
+            selectors_key=selectors_key,
+        )
+        if row is None:
+            raise
+        row.result_json = payload
+        row.checked_at = checked_at
+        db.commit()
+
+    db.refresh(row)
+    return row
+
+
 async def _resolve_with_fallback(
     provider: BaseDNSProvider,
     domain: str,
@@ -203,14 +264,11 @@ async def resolve_domain_dns_cached(
     now = _utcnow_naive()
     provider_name = provider.__class__.__name__
     selectors_key = _selectors_key(selectors)
-    row = (
-        db.query(DNSCache)
-        .filter(
-            DNSCache.domain == domain,
-            DNSCache.provider == provider_name,
-            DNSCache.selectors_key == selectors_key,
-        )
-        .first()
+    row = _cache_row(
+        db,
+        domain=domain,
+        provider_name=provider_name,
+        selectors_key=selectors_key,
     )
 
     if row and not refresh:
@@ -257,40 +315,15 @@ async def resolve_domain_dns_cached(
             )
             return stale
 
-    payload = _result_to_json(result)
-    if row is None:
-        row = DNSCache(
-            domain=domain,
-            provider=provider_name,
-            selectors_key=selectors_key,
-            result_json=payload,
-            checked_at=now,
-        )
-        db.add(row)
-    else:
-        row.result_json = payload
-        row.checked_at = now
-
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        row = (
-            db.query(DNSCache)
-            .filter(
-                DNSCache.domain == domain,
-                DNSCache.provider == provider_name,
-                DNSCache.selectors_key == selectors_key,
-            )
-            .first()
-        )
-        if row is None:
-            raise
-        row.result_json = payload
-        row.checked_at = now
-        db.commit()
-
-    db.refresh(row)
+    row = _store_cache_result(
+        db,
+        row,
+        domain=domain,
+        provider_name=provider_name,
+        selectors_key=selectors_key,
+        payload=_result_to_json(result),
+        checked_at=now,
+    )
     return result, False, row.checked_at
 
 
@@ -302,14 +335,11 @@ def get_cached_domain_dns_result(
     selectors: List[str],
 ) -> Tuple[Optional[DomainDNSResult], bool, Optional[datetime]]:
     """Return the latest cached DNS result without performing network lookups."""
-    row = (
-        db.query(DNSCache)
-        .filter(
-            DNSCache.domain == domain,
-            DNSCache.provider == provider.__class__.__name__,
-            DNSCache.selectors_key == _selectors_key(selectors),
-        )
-        .first()
+    row = _cache_row(
+        db,
+        domain=domain,
+        provider_name=provider.__class__.__name__,
+        selectors_key=_selectors_key(selectors),
     )
     if row is None:
         return None, False, None
