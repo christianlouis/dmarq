@@ -14,6 +14,27 @@ document.addEventListener('alpine:init', () => {
             selectedWorkspaceId: enabled
                 ? localStorage.getItem('dmarq.selectedWorkspaceId') || ''
                 : '',
+            init() {
+                this.bindControls();
+                this.loadUser();
+            },
+            bindControls() {
+                if (typeof document === 'undefined') return;
+                const hasElement = typeof Element !== 'undefined';
+                const root = hasElement && this.$root instanceof Element
+                    ? this.$root
+                    : document.querySelector('[data-user-menu]');
+                if (!root || root.dataset.userMenuControlsBound === 'true') return;
+                root.dataset.userMenuControlsBound = 'true';
+
+                root.addEventListener('change', (event) => {
+                    if (!hasElement || !(event.target instanceof Element)) return;
+                    const switcher = event.target.closest('[data-workspace-switcher]');
+                    if (switcher && root.contains(switcher)) {
+                        this.selectWorkspace(switcher.value);
+                    }
+                });
+            },
             async loadUser() {
                 try {
                     const res = await fetch('/api/v1/auth/me');

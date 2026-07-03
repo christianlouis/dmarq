@@ -804,6 +804,12 @@ def test_base_template_propagates_selected_workspace_context():
     assert "workspaces.length > 1" in template
     assert "localStorage.removeItem('dmarq.selectedWorkspaceId')" in script
     assert "input instanceof URL" in script
+    assert 'x-init="loadUser()"' not in template
+    assert '@change="selectWorkspace($event.target.value)"' not in template
+    assert "data-user-menu" in template
+    assert "data-workspace-switcher" in template
+    assert "bindControls()" in script
+    assert "data-workspace-switcher" in script
     assert "onclick=" not in template
     assert "data-release-modal-trigger" in template
     assert "Full changelog" in template

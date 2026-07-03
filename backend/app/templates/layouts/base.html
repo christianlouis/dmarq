@@ -35,7 +35,8 @@
 </head>
 <body class="min-h-screen bg-[#f4f3f2] font-body antialiased text-[#07071f]">
     <header class="fixed inset-x-0 top-0 z-40 flex h-24 items-center bg-[#272a5f] px-5 text-white shadow-sm md:px-10"
-            x-data="userMenu({ multiWorkspaceUiEnabled: {{ multi_workspace_ui_enabled | tojson }} })" x-init="loadUser()">
+            x-data="userMenu({ multiWorkspaceUiEnabled: {{ multi_workspace_ui_enabled | tojson }} })"
+            data-user-menu>
         <div class="flex flex-1 items-center">
             <a href="/" class="inline-flex items-center gap-4" aria-label="DMARQ Dashboard">
                 <span class="grid h-12 w-12 place-items-center bg-[#272a5f]" aria-hidden="true">
@@ -61,7 +62,7 @@
                 <select id="workspace-switcher"
                         class="select select-sm w-full border-white/30 bg-white/95 text-[#272a5f]"
                         x-model="selectedWorkspaceId"
-                        @change="selectWorkspace($event.target.value)">
+                        data-workspace-switcher>
                     <template x-for="workspace in workspaces" :key="workspace.id">
                         <option :value="workspace.id"
                                 :disabled="!workspace.active"
