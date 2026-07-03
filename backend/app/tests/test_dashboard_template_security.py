@@ -363,6 +363,8 @@ def test_reports_uses_external_page_script_for_csp_migration():
     assert "event.target instanceof Element" in script
     assert "/api/v1/reports" in script
     assert "deleteReport(domain, reportId)" in script
+    assert 'x-data="reportsApp()" x-cloak' in template
+    assert "resetFilters()" in script
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 
@@ -373,6 +375,9 @@ def test_reports_page_distinguishes_loading_error_and_empty_states():
     assert "Loading DMARC reports..." in template
     assert "Reports could not be loaded." in script
     assert "No reports match this filter." in template
+    assert "Retry loading reports" in template
+    assert '@click="fetchReports()"' in template
+    assert '@click="resetFilters()"' in template
     assert 'x-show="!loading && error"' in template
     assert "(!loading && !error ? filteredReports : [])" in template
     assert "loading: true" in script
@@ -393,6 +398,7 @@ def test_domains_uses_external_page_script_for_csp_migration():
     assert "updateDomain()" in script
     assert "method: 'PATCH'" in script
     assert "editError" in template
+    assert 'x-data="domainsApp()" x-cloak' in template
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 
@@ -403,6 +409,8 @@ def test_domains_page_distinguishes_loading_error_and_empty_states():
     assert "Loading monitored domains..." in template
     assert "Domains could not be loaded." in script
     assert "No domains found. Add a domain to get started." in template
+    assert "Retry loading domains" in template
+    assert '@click="fetchDomains()"' in template
     assert 'x-if="!loading && loadError"' in template
     assert 'x-if="!loading && !loadError && domains.length === 0"' in template
 
@@ -527,6 +535,11 @@ def test_report_detail_uses_external_page_script_for_csp_migration():
     assert "/api/v1/reports/${encodeURIComponent(this.reportId)}" in script
     assert "deleteReport(domain, reportId)" in script
     assert "sourceLocation(record)" in script
+    assert 'x-data="reportDetailApp' in template
+    assert "x-cloak" in template
+    assert '@click="fetchReport()"' in template
+    assert "this.loading = true;" in script
+    assert "this.report = null;" in script
     assert "record.reputation.feed_status" in template
     assert "record.reputation.feed_summary" in template
     assert "reputationFeedClass" in script

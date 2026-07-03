@@ -6,7 +6,7 @@
 {% block title %}DMARQ - Domains{% endblock %}
 
 {% block content %}
-<div class="container mx-auto py-4" x-data="domainsApp()">
+<div class="container mx-auto py-4" x-data="domainsApp()" x-cloak>
     <h1 class="text-2xl font-bold mb-6">Domain Management</h1>
     
     {% if error %}
@@ -63,7 +63,12 @@
                         <template x-if="!loading && loadError">
                             {% call tr() %}
                                 {% call td(colspan="5", class="text-center") %}
-                                    <p class="py-4 text-red-700" x-text="loadError"></p>
+                                    <div class="flex flex-col items-center gap-3 py-4">
+                                        <p class="text-red-700" x-text="loadError"></p>
+                                        <button type="button" class="btn btn-outline btn-sm" @click="fetchDomains()">
+                                            Retry loading domains
+                                        </button>
+                                    </div>
                                 {% endcall %}
                             {% endcall %}
                         </template>

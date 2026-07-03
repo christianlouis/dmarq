@@ -35,16 +35,21 @@ function reportDetailApp(reportId) {
         },
 
         async fetchReport() {
+            this.loading = true;
+            this.error = null;
             try {
                 const response = await fetch(`/api/v1/reports/${encodeURIComponent(this.reportId)}`);
                 if (response.ok) {
                     this.report = await response.json();
                 } else if (response.status === 404) {
+                    this.report = null;
                     this.error = `Report '${this.reportId}' was not found. It may have been deleted or may not exist.`;
                 } else {
+                    this.report = null;
                     this.error = 'Failed to load report. Please try again later.';
                 }
             } catch (err) {
+                this.report = null;
                 this.error = 'Network error — could not load report.';
                 console.error('Error fetching report:', err);
             } finally {

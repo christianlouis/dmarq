@@ -64,6 +64,13 @@ function reportsApp() {
             return date.toLocaleDateString();
         },
 
+        resetFilters() {
+            this.filters = {
+                domain: '',
+                dateRange: '30',
+            };
+        },
+
         getPassRateColor(rate) {
             if (rate >= 90) return 'bg-green-100 text-green-800';
             if (rate >= 50) return 'bg-yellow-100 text-yellow-800';
