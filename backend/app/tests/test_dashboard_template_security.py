@@ -360,12 +360,13 @@ def test_reports_uses_external_page_script_for_csp_migration():
     assert '@click="deleteReport' not in template
     assert "data-report-delete" in template
     assert "data-report-delete" in script
-    assert "bindDeleteControls()" in script
+    assert "bindPageControls()" in script
     assert "event.target instanceof Element" in script
     assert "/api/v1/reports" in script
     assert "deleteReport(domain, reportId)" in script
     assert 'x-data="reportsApp()" x-cloak' in template
     assert "resetFilters()" in script
+    assert '@click="' not in template
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 
@@ -377,8 +378,12 @@ def test_reports_page_distinguishes_loading_error_and_empty_states():
     assert "Reports could not be loaded." in script
     assert "No reports match this filter." in template
     assert "Retry loading reports" in template
-    assert '@click="fetchReports()"' in template
-    assert '@click="resetFilters()"' in template
+    assert '@click="fetchReports()"' not in template
+    assert '@click="resetFilters()"' not in template
+    assert "data-report-retry-load" in template
+    assert "data-report-retry-load" in script
+    assert "data-report-reset-filters" in template
+    assert "data-report-reset-filters" in script
     assert 'x-show="!loading && error"' in template
     assert "(!loading && !error ? filteredReports : [])" in template
     assert "loading: true" in script
@@ -394,7 +399,15 @@ def test_domains_uses_external_page_script_for_csp_migration():
     assert "/api/v1/domains/summary" in script
     assert "/api/v1/domains/domains" in script
     assert "createDomain()" in script
-    assert "openEditDialog(domain)" in template
+    assert "openEditDialog(domain)" not in template
+    assert "openEditDialog(domain)" in script
+    assert "bindPageControls()" in script
+    assert "data-domain-refresh" in template
+    assert "data-domain-refresh" in script
+    assert "data-domain-create-open" in template
+    assert "data-domain-create-open" in script
+    assert "data-domain-edit" in template
+    assert "data-domain-edit" in script
     assert "Edit monitored domain" in template
     assert "updateDomain()" in script
     assert "method: 'PATCH'" in script
@@ -411,7 +424,10 @@ def test_domains_page_distinguishes_loading_error_and_empty_states():
     assert "Domains could not be loaded." in script
     assert "No domains found. Add a domain to get started." in template
     assert "Retry loading domains" in template
-    assert '@click="fetchDomains()"' in template
+    assert '@click="fetchDomains()"' not in template
+    assert '@click="fetchDomains({ refresh: true })"' not in template
+    assert "data-domain-retry-load" in template
+    assert "data-domain-retry-load" in script
     assert 'x-if="!loading && loadError"' in template
     assert 'x-if="!loading && !loadError && domains.length === 0"' in template
 
@@ -531,14 +547,16 @@ def test_report_detail_uses_external_page_script_for_csp_migration():
     assert '@click="deleteReport' not in template
     assert "data-report-delete" in template
     assert "data-report-delete" in script
-    assert "bindDeleteControls()" in script
+    assert "data-report-retry-load" in template
+    assert "data-report-retry-load" in script
+    assert "bindPageControls()" in script
     assert "event.target instanceof Element" in script
     assert "/api/v1/reports/${encodeURIComponent(this.reportId)}" in script
     assert "deleteReport(domain, reportId)" in script
     assert "sourceLocation(record)" in script
     assert 'x-data="reportDetailApp' in template
     assert "x-cloak" in template
-    assert '@click="fetchReport()"' in template
+    assert '@click="fetchReport()"' not in template
     assert "this.loading = true;" in script
     assert "this.report = null;" in script
     assert "record.reputation.feed_status" in template

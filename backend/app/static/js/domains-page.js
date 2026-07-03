@@ -21,7 +21,52 @@ function domainsApp() {
         },
 
         init() {
+            this.bindPageControls();
             this.fetchDomains();
+        },
+
+        bindPageControls() {
+            const root = this.$root || document;
+            if (root.dataset?.domainControlsBound === 'true') {
+                return;
+            }
+            if (root.dataset) {
+                root.dataset.domainControlsBound = 'true';
+            }
+
+            root.addEventListener('click', (event) => {
+                if (!(event.target instanceof Element)) {
+                    return;
+                }
+
+                const refreshButton = event.target.closest('[data-domain-refresh]');
+                if (refreshButton && root.contains(refreshButton)) {
+                    this.fetchDomains({ refresh: true });
+                    return;
+                }
+
+                const createButton = event.target.closest('[data-domain-create-open]');
+                if (createButton && root.contains(createButton)) {
+                    this.openCreate = true;
+                    return;
+                }
+
+                const retryButton = event.target.closest('[data-domain-retry-load]');
+                if (retryButton && root.contains(retryButton)) {
+                    this.fetchDomains();
+                    return;
+                }
+
+                const editButton = event.target.closest('[data-domain-edit]');
+                if (!editButton || !root.contains(editButton)) {
+                    return;
+                }
+                const domainIndex = Number.parseInt(editButton.dataset.domainIndex || '', 10);
+                const domain = Number.isInteger(domainIndex) ? this.domains[domainIndex] : null;
+                if (domain) {
+                    this.openEditDialog(domain);
+                }
+            });
         },
 
         async fetchDomains(options = {}) {

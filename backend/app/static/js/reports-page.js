@@ -10,22 +10,34 @@ function reportsApp() {
         error: '',
 
         init() {
-            this.bindDeleteControls();
+            this.bindPageControls();
             this.fetchReports();
         },
 
-        bindDeleteControls() {
+        bindPageControls() {
             const root = this.$root || document;
-            if (root.dataset?.reportDeleteBound === 'true') {
+            if (root.dataset?.reportControlsBound === 'true') {
                 return;
             }
             if (root.dataset) {
-                root.dataset.reportDeleteBound = 'true';
+                root.dataset.reportControlsBound = 'true';
             }
             root.addEventListener('click', (event) => {
                 if (!(event.target instanceof Element)) {
                     return;
                 }
+                const resetButton = event.target.closest('[data-report-reset-filters]');
+                if (resetButton && root.contains(resetButton)) {
+                    this.resetFilters();
+                    return;
+                }
+
+                const retryButton = event.target.closest('[data-report-retry-load]');
+                if (retryButton && root.contains(retryButton)) {
+                    this.fetchReports();
+                    return;
+                }
+
                 const button = event.target.closest('[data-report-delete]');
                 if (!button || !root.contains(button)) {
                     return;

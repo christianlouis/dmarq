@@ -24,12 +24,12 @@
                     <div class="flex items-center gap-2">
                         <button type="button"
                                 class="btn btn-outline btn-sm"
-                                @click="fetchDomains({ refresh: true })"
+                                data-domain-refresh
                                 :disabled="loading || refreshing">
                             <span x-show="refreshing" class="loading loading-spinner loading-xs"></span>
                             <span x-text="refreshing ? 'Refreshing...' : 'Reload'"></span>
                         </button>
-                        <button type="button" class="btn btn-outline btn-sm" @click="openCreate = true">
+                        <button type="button" class="btn btn-outline btn-sm" data-domain-create-open>
                             <span class="mr-1">+</span> Add Domain
                         </button>
                     </div>
@@ -65,7 +65,7 @@
                                 {% call td(colspan="5", class="text-center") %}
                                     <div class="flex flex-col items-center gap-3 py-4">
                                         <p class="text-red-700" x-text="loadError"></p>
-                                        <button type="button" class="btn btn-outline btn-sm" @click="fetchDomains()">
+                                        <button type="button" class="btn btn-outline btn-sm" data-domain-retry-load>
                                             Retry loading domains
                                         </button>
                                     </div>
@@ -110,7 +110,10 @@
                                         <a :href="'/domains/' + domain.name" class="btn btn-sm btn-outline">
                                             Details
                                         </a>
-                                        <button type="button" class="btn btn-outline btn-sm" @click="openEditDialog(domain)">
+                                        <button type="button"
+                                                class="btn btn-outline btn-sm"
+                                                data-domain-edit
+                                                :data-domain-index="index">
                                             Edit
                                         </button>
                                     </div>
