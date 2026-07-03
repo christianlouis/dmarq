@@ -113,6 +113,60 @@ def _stale_cached_evidence(
     return cached_result, True, row.checked_at
 
 
+def _latest_stale_evidence_row(
+    db: Session,
+    *,
+    domain: str,
+    provider_name: str,
+    now: datetime,
+    excluded_selectors_key: str,
+) -> Optional[DNSCache]:
+    rows = (
+        db.query(DNSCache)
+        .filter(
+            DNSCache.domain == domain,
+            DNSCache.provider == provider_name,
+            DNSCache.selectors_key != excluded_selectors_key,
+        )
+        .order_by(DNSCache.checked_at.desc())
+        .limit(25)
+        .all()
+    )
+    for candidate in rows:
+        if not _within_stale_evidence_grace(candidate, now):
+            continue
+        try:
+            if _has_dns_evidence(_result_from_json(candidate.result_json)):
+                return candidate
+        except (TypeError, ValueError, json.JSONDecodeError):
+            logger.debug("Ignoring unreadable DNS cache row for %s", domain)
+    return None
+
+
+def _best_stale_cached_evidence(
+    db: Session,
+    row: Optional[DNSCache],
+    *,
+    domain: str,
+    provider_name: str,
+    selectors_key: str,
+    now: datetime,
+    lookup_error: str,
+) -> Optional[Tuple[DomainDNSResult, bool, datetime]]:
+    stale = _stale_cached_evidence(row, now=now, lookup_error=lookup_error)
+    if stale:
+        return stale
+
+    fallback_row = _latest_stale_evidence_row(
+        db,
+        domain=domain,
+        provider_name=provider_name,
+        now=now,
+        excluded_selectors_key=selectors_key,
+    )
+    return _stale_cached_evidence(fallback_row, now=now, lookup_error=lookup_error)
+
+
 def _lookup_failure_result(error_type: str, now: datetime) -> Tuple[DomainDNSResult, bool, datetime]:
     return (
         DomainDNSResult(
@@ -348,8 +402,12 @@ async def resolve_domain_dns_cached(
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # pylint: disable=broad-exception-caught
-        stale = _stale_cached_evidence(
+        stale = _best_stale_cached_evidence(
+            db,
             row,
+            domain=domain,
+            provider_name=provider_name,
+            selectors_key=selectors_key,
             now=now,
             lookup_error=(
                 f"DNS lookup failed with {exc.__class__.__name__}; "
@@ -369,8 +427,12 @@ async def resolve_domain_dns_cached(
         return _lookup_failure_result(exc.__class__.__name__, now)
 
     if not _has_dns_evidence(result):
-        stale = _stale_cached_evidence(
+        stale = _best_stale_cached_evidence(
+            db,
             row,
+            domain=domain,
+            provider_name=provider_name,
+            selectors_key=selectors_key,
             now=now,
             lookup_error="DNS resolver returned no DNS evidence; using the last known DNS cache.",
         )

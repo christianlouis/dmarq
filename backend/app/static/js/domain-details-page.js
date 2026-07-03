@@ -228,6 +228,9 @@ function domainDetailsApp(domainId) {
                 if (button.matches('[data-domain-detail-reload]')) {
                     event.preventDefault();
                     this.reloadPageData();
+                } else if (button.matches('[data-domain-detail-refresh-dns]')) {
+                    event.preventDefault();
+                    this.refreshDNSData();
                 } else if (button.matches('[data-domain-detail-delete]')) {
                     event.preventDefault();
                     this.deleteDomain();
@@ -392,6 +395,19 @@ function domainDetailsApp(domainId) {
             }
         },
 
+        async refreshDNSData() {
+            await Promise.allSettled([
+                this.fetchDNSRecords({ refresh: true, preserveEvidenceOnFailure: true }),
+                this.fetchDNSHealth({ refresh: true }),
+                this.fetchDNSGuidance({ refresh: true }),
+                this.fetchPosture({ refresh: true }),
+                this.fetchRemediationQueue(),
+                this.fetchMtaSts({ refresh: true }),
+                this.fetchBimi({ refresh: true }),
+                this.fetchSelectors()
+            ]);
+        },
+
         loadStoredVolumeScale() {
             try {
                 return window.localStorage?.getItem('dmarq:domain-volume-scale') || null;
@@ -541,6 +557,28 @@ function domainDetailsApp(domainId) {
 
         get dnsLookupFailureText() {
             return this.dns.lookupError || 'DNS lookup failed; cached or report evidence may be incomplete.';
+        },
+
+        dnsResponseHasEvidence(dns) {
+            if (!dns) return false;
+            return Boolean(
+                dns.dmarc ||
+                dns.dmarcRecord ||
+                dns.spf ||
+                dns.spfRecord ||
+                dns.dkim ||
+                dns.dkimRecord ||
+                (Array.isArray(dns.dkimSelectors) && dns.dkimSelectors.length > 0) ||
+                (Array.isArray(dns.nameservers) && dns.nameservers.length > 0)
+            );
+        },
+
+        shouldPreserveCurrentDNS(responseDns, options = {}) {
+            if (!options.preserveEvidenceOnFailure) return false;
+            if (!this.dnsResponseHasEvidence(this.dns)) return false;
+            if (this.dnsResponseHasEvidence(responseDns)) return false;
+            const status = responseDns?.lookupStatus || 'ok';
+            return status === 'failed' || status === 'partial';
         },
 
         dnsRecordText(record, missingText, checkingText) {
@@ -1095,6 +1133,10 @@ function domainDetailsApp(domainId) {
                     throw new Error(detail || 'DNS records could not be loaded.');
                 }
                 const data = await response.json();
+                if (this.shouldPreserveCurrentDNS(data, options)) {
+                    this.dnsRecordsError = data.lookupError || 'Live DNS refresh did not return usable evidence. Keeping the last known DNS records on screen.';
+                    return;
+                }
                 this.dns = data;
                 this.syncDetectedDnsProvider();
             } catch (error) {
@@ -1206,11 +1248,7 @@ function domainDetailsApp(domainId) {
                         : 'DNS change submitted, but provider verification is not complete. Review the verification details before treating it as repaired.')
                     : 'Preview ready. Review the provider mutation before applying.';
                 if (apply) {
-                    await this.fetchDNSRecords();
-                    await this.fetchDNSHealth();
-                    await this.fetchDNSGuidance();
-                    await this.fetchPosture();
-                    await this.fetchRemediationQueue();
+                    await this.refreshDNSData();
                 }
                 return data;
             } catch (error) {
@@ -1607,13 +1645,7 @@ function domainDetailsApp(domainId) {
                 });
                 if (response.ok) {
                     this.newSelector = '';
-                    // Refresh selectors (both manual and report) and DNS check
-                    this.fetchSelectors();
-                    this.fetchDNSRecords();
-                    this.fetchDNSHealth();
-                    this.fetchDNSGuidance();
-                    this.fetchPosture();
-                    this.fetchMtaSts();
+                    await this.refreshDNSData();
                 } else {
                     const err = await response.json();
                     this.selectorError = err.detail || 'Failed to add selector';
@@ -1631,13 +1663,7 @@ function domainDetailsApp(domainId) {
                     { method: 'DELETE' }
                 );
                 if (response.ok) {
-                    // Refresh selectors (both manual and report) and DNS check
-                    this.fetchSelectors();
-                    this.fetchDNSRecords();
-                    this.fetchDNSHealth();
-                    this.fetchDNSGuidance();
-                    this.fetchPosture();
-                    this.fetchMtaSts();
+                    await this.refreshDNSData();
                 } else {
                     console.error('Error deleting selector:', response.status);
                 }

@@ -1008,10 +1008,21 @@
         <section id="dns-records">
         {% call card() %}
             {% call card_header() %}
-                {% call card_title() %}DNS Records{% endcall %}
-                {% call card_description() %}
-                    Email authentication DNS records for this domain
-                {% endcall %}
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                        {% call card_title() %}DNS Records{% endcall %}
+                        {% call card_description() %}
+                            Email authentication DNS records for this domain
+                        {% endcall %}
+                    </div>
+                    <button type="button"
+                            class="btn btn-sm btn-default shrink-0"
+                            data-domain-detail-refresh-dns
+                            :disabled="dnsRecordsLoading">
+                        <span x-show="dnsRecordsLoading" class="loading loading-spinner loading-xs"></span>
+                        <span x-text="dnsRecordsLoading ? 'Refreshing DNS...' : 'Refresh DNS'"></span>
+                    </button>
+                </div>
             {% endcall %}
             {% call card_content() %}
                 <div class="grid gap-4">

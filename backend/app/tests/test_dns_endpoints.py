@@ -901,6 +901,55 @@ async def test_dns_cache_keeps_recent_positive_evidence_when_lookup_turns_empty(
 
 
 @pytest.mark.asyncio
+async def test_dns_cache_uses_positive_evidence_from_previous_selector_set(db_session):
+    """Selector changes should not let a transient empty lookup hide known DNS records."""
+    healthy = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=reject",
+        spf=True,
+        spf_record="v=spf1 -all",
+        nameservers=["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"],
+        dns_provider=detect_dns_provider(["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"]),
+    )
+    empty = DomainDNSResult(dmarc=False, spf=False, dkim=False)
+    provider = AsyncMock(check_domain=AsyncMock(return_value=empty))
+    db_session.add(
+        DNSCache(
+            domain=DOMAIN,
+            provider=provider.__class__.__name__,
+            selectors_key=_selectors_key(["pm20250806"]),
+            result_json=json.dumps(asdict(healthy), sort_keys=True, separators=(",", ":")),
+            checked_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=30),
+        )
+    )
+    db_session.add(
+        DNSCache(
+            domain=DOMAIN,
+            provider=provider.__class__.__name__,
+            selectors_key=_selectors_key(["pm20250806", "ab20250324"]),
+            result_json=json.dumps(asdict(empty), sort_keys=True, separators=(",", ":")),
+            checked_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=30),
+        )
+    )
+    db_session.commit()
+
+    result, cached, _checked = await resolve_domain_dns_cached(
+        db_session,
+        provider,
+        DOMAIN,
+        selectors=["pm20250806", "ab20250324"],
+        refresh=True,
+    )
+
+    assert cached is True
+    assert result.lookup_status == "stale_cache"
+    assert result.dmarc is True
+    assert result.spf is True
+    assert result.nameservers == ["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"]
+    assert provider.check_domain.await_count == 1
+
+
+@pytest.mark.asyncio
 async def test_dns_cache_uses_stale_positive_evidence_when_lookup_raises(db_session):
     """Transient resolver exceptions should keep known-good evidence with an explicit label."""
     healthy = DomainDNSResult(
