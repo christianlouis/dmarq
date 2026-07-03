@@ -94,7 +94,7 @@ class TestSetupPage:
             response = test_client.get("/setup")
         script = (
             Path(__file__).resolve().parents[1] / "static" / "js" / "setup-page.js"
-        ).read_text()
+        ).read_text(encoding="utf-8")
 
         assert response.status_code == 200
         assert "First-run setup" in response.text

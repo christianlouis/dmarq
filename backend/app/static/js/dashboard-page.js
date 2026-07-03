@@ -139,7 +139,7 @@ function dashboardApp() {
                 }
             });
 
-            document.addEventListener('keydown', event => {
+            root.addEventListener('keydown', event => {
                 if (event.key === 'Escape' && this.demoTourActive) {
                     this.closeDemoTour();
                 }
