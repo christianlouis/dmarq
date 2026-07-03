@@ -25,6 +25,35 @@ DEFAULT_DISPATCH_EVENTS = {
     "dmarq.remediation.investigation_required",
 }
 ACKNOWLEDGED_LIFECYCLE_STATES = {"previewed", "acknowledged"}
+OPERATOR_HELD_LIFECYCLE_STATES = {"resolved", "rejected", "snoozed"}
+BLOCKED_REASON_NEXT_STEPS = (
+    (
+        "Remediation dispatch is disabled",
+        f"Enable {DISPATCH_ENABLED_KEY} after testing routing.",
+    ),
+    ("This remediation event", f"Add the event to {DISPATCH_EVENTS_KEY}."),
+    ("Only webhook", f"Set {DISPATCH_CHANNEL_KEY}=webhook."),
+    (
+        "Record a previewed",
+        "Record a previewed or acknowledged remediation notification audit marker.",
+    ),
+    (
+        "Operator marked this remediation item resolved",
+        "Keep monitoring new reports; reopen the item only if the finding returns.",
+    ),
+    (
+        "Operator marked this remediation item rejected",
+        "Review the rejection history before creating a new dispatch request.",
+    ),
+    (
+        "Operator marked this remediation item snoozed",
+        "Wait for the snooze window or record a new lifecycle marker to resume.",
+    ),
+    (
+        "No enabled webhook",
+        "Create or enable a webhook endpoint subscribed to the remediation event.",
+    ),
+)
 HISTORY_ACTIONS = {
     "remediation.notification_lifecycle_recorded",
     "remediation.notification_dispatch_enqueued",
@@ -198,9 +227,7 @@ def _enabled_webhook_endpoints(db: Session, *, workspace: Workspace) -> List[Web
     )
 
 
-def _matching_webhook_count(
-    endpoints: Sequence[WebhookEndpoint], *, event_type: str
-) -> int:
+def _matching_webhook_count(endpoints: Sequence[WebhookEndpoint], *, event_type: str) -> int:
     return sum(1 for endpoint in endpoints if endpoint_matches_event(endpoint, event_type))
 
 
@@ -262,16 +289,22 @@ def build_remediation_dispatch_preview(
         webhook_count = webhook_event_counts.get(event_type, 0)
     blocked_reasons: List[str] = []
 
-    if not enabled:
-        blocked_reasons.append("Remediation dispatch is disabled in notification settings.")
-    if event_type not in configured_events:
-        blocked_reasons.append("This remediation event is not enabled for dispatch.")
-    if channel != "webhook":
-        blocked_reasons.append("Only webhook dispatch is supported in this release slice.")
-    if require_ack and lifecycle_state not in ACKNOWLEDGED_LIFECYCLE_STATES:
-        blocked_reasons.append("Record a previewed or acknowledged lifecycle marker first.")
-    if channel == "webhook" and webhook_count == 0:
-        blocked_reasons.append("No enabled webhook endpoint is subscribed to this event.")
+    operator_hold = lifecycle_state in OPERATOR_HELD_LIFECYCLE_STATES
+    if operator_hold:
+        blocked_reasons.append(
+            f"Operator marked this remediation item {str(lifecycle_state).replace('_', ' ')}."
+        )
+    else:
+        if not enabled:
+            blocked_reasons.append("Remediation dispatch is disabled in notification settings.")
+        if event_type not in configured_events:
+            blocked_reasons.append("This remediation event is not enabled for dispatch.")
+        if channel != "webhook":
+            blocked_reasons.append("Only webhook dispatch is supported in this release slice.")
+        if require_ack and lifecycle_state not in ACKNOWLEDGED_LIFECYCLE_STATES:
+            blocked_reasons.append("Record a previewed or acknowledged lifecycle marker first.")
+        if channel == "webhook" and webhook_count == 0:
+            blocked_reasons.append("No enabled webhook endpoint is subscribed to this event.")
 
     return {
         "enabled": enabled,
@@ -281,6 +314,7 @@ def build_remediation_dispatch_preview(
         "requires_lifecycle_acknowledgement": require_ack,
         "lifecycle_state": lifecycle_state,
         "lifecycle_recorded_at": lifecycle.get("recorded_at"),
+        "operator_hold": operator_hold,
         "webhook_endpoint_count": webhook_count,
         "blocked_reasons": blocked_reasons,
         "would_enqueue": enabled and not blocked_reasons,
@@ -294,18 +328,9 @@ def _next_steps(blocked_reasons: List[str]) -> List[str]:
         return ["Review the payload preview, then use the future dispatch endpoint to enqueue it."]
     steps = []
     for reason in blocked_reasons:
-        if reason.startswith("Remediation dispatch is disabled"):
-            steps.append(f"Enable {DISPATCH_ENABLED_KEY} after testing routing.")
-        elif reason.startswith("This remediation event"):
-            steps.append(f"Add the event to {DISPATCH_EVENTS_KEY}.")
-        elif reason.startswith("Only webhook"):
-            steps.append(f"Set {DISPATCH_CHANNEL_KEY}=webhook.")
-        elif reason.startswith("Record a previewed"):
-            steps.append(
-                "Record a previewed or acknowledged remediation notification audit marker."
-            )
-        elif reason.startswith("No enabled webhook"):
-            steps.append("Create or enable a webhook endpoint subscribed to the remediation event.")
+        steps.extend(
+            step for prefix, step in BLOCKED_REASON_NEXT_STEPS if reason.startswith(prefix)
+        )
     return steps
 
 
@@ -323,10 +348,7 @@ def attach_remediation_dispatch_previews(
         return queue
     settings = _settings(db)
     configured_events = _configured_events(settings.get(DISPATCH_EVENTS_KEY, ""))
-    event_types = {
-        str((item.get("notification") or {}).get("event") or "")
-        for item in items
-    }
+    event_types = {str((item.get("notification") or {}).get("event") or "") for item in items}
     endpoints = _enabled_webhook_endpoints(db, workspace=workspace)
     histories = _notification_histories(
         db,
@@ -382,6 +404,7 @@ def _attach_dispatch_summary(
         dispatch
         for dispatch in blocked
         if dispatch.get("requires_lifecycle_acknowledgement")
+        and not dispatch.get("operator_hold")
         and dispatch.get("lifecycle_state") not in ACKNOWLEDGED_LIFECYCLE_STATES
     ]
     route_keys: Set[str] = set()
@@ -396,6 +419,15 @@ def _attach_dispatch_summary(
             "dispatch_disabled": sum(1 for dispatch in dispatches if not dispatch.get("enabled")),
             "dispatch_awaiting_acknowledgement": len(awaiting_ack),
             "dispatch_webhook_routes": len(route_keys),
+            "dispatch_resolved": sum(
+                1 for dispatch in dispatches if dispatch.get("lifecycle_state") == "resolved"
+            ),
+            "dispatch_rejected": sum(
+                1 for dispatch in dispatches if dispatch.get("lifecycle_state") == "rejected"
+            ),
+            "dispatch_snoozed": sum(
+                1 for dispatch in dispatches if dispatch.get("lifecycle_state") == "snoozed"
+            ),
         }
     )
     queue["summary"] = summary

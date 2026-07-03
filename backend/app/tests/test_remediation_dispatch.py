@@ -145,6 +145,72 @@ def test_attach_remediation_dispatch_previews_adds_dashboard_summary(monkeypatch
     assert summary["dispatch_webhook_routes"] == 1
 
 
+def test_attach_remediation_dispatch_previews_counts_operator_held_items(monkeypatch):
+    def fake_settings(_db):
+        return {
+            remediation_dispatch.DISPATCH_ENABLED_KEY: "true",
+            remediation_dispatch.DISPATCH_REQUIRE_ACK_KEY: "true",
+            remediation_dispatch.DISPATCH_CHANNEL_KEY: "webhook",
+            remediation_dispatch.DISPATCH_EVENTS_KEY: EVENT_REMEDIATION_APPROVAL_REQUIRED,
+        }
+
+    monkeypatch.setattr(remediation_dispatch, "_settings", fake_settings)
+    monkeypatch.setattr(
+        remediation_dispatch,
+        "_enabled_webhook_endpoints",
+        lambda *_args, **_kwargs: [
+            SimpleNamespace(event_types=EVENT_REMEDIATION_APPROVAL_REQUIRED)
+        ],
+    )
+    monkeypatch.setattr(
+        remediation_dispatch,
+        "_latest_lifecycle_marker",
+        lambda *_args, **_kwargs: {"state": "resolved", "recorded_at": "2026-07-01T08:00:00"},
+    )
+    monkeypatch.setattr(
+        remediation_dispatch,
+        "_notification_histories",
+        lambda *_args, **_kwargs: {
+            "dns:dmarc-missing": [
+                {
+                    "action": "remediation.notification_lifecycle_recorded",
+                    "state": "resolved",
+                    "created_at": "2026-07-01T08:00:00",
+                }
+            ]
+        },
+    )
+
+    queue = {
+        "domain": "example.com",
+        "items": [
+            {
+                "id": "dns:dmarc-missing",
+                "notification": {"event": EVENT_REMEDIATION_APPROVAL_REQUIRED},
+            }
+        ],
+    }
+
+    result = remediation_dispatch.attach_remediation_dispatch_previews(
+        object(),
+        workspace=SimpleNamespace(id=42),
+        queue=queue,
+    )
+
+    dispatch = result["items"][0]["notification"]["dispatch"]
+    assert dispatch["operator_hold"] is True
+    assert dispatch["eligible"] is False
+    assert dispatch["blocked_reasons"] == ["Operator marked this remediation item resolved."]
+    assert dispatch["next_steps"] == [
+        "Keep monitoring new reports; reopen the item only if the finding returns."
+    ]
+    assert result["summary"]["dispatch_blocked"] == 1
+    assert result["summary"]["dispatch_awaiting_acknowledgement"] == 0
+    assert result["summary"]["dispatch_resolved"] == 1
+    assert result["summary"]["dispatch_rejected"] == 0
+    assert result["summary"]["dispatch_snoozed"] == 0
+
+
 def test_attach_remediation_dispatch_previews_skips_empty_queues(monkeypatch):
     def fail_if_called(*_args, **_kwargs):
         raise AssertionError("empty queues should not fetch dispatch context")
@@ -167,6 +233,9 @@ def test_attach_remediation_dispatch_previews_skips_empty_queues(monkeypatch):
         "dispatch_disabled": 0,
         "dispatch_awaiting_acknowledgement": 0,
         "dispatch_webhook_routes": 0,
+        "dispatch_resolved": 0,
+        "dispatch_rejected": 0,
+        "dispatch_snoozed": 0,
     }
 
 
