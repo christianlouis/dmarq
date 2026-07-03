@@ -26,8 +26,8 @@ def _strict_csp_directives() -> list[str]:
     """Return the target CSP once templates and Alpine runtime are fully migrated."""
     return [
         "default-src 'self'",
-        "script-src 'self' https://cdn.tailwindcss.com https://cdn.jsdelivr.net",
-        "style-src 'self' https://fonts.googleapis.com https://cdn.jsdelivr.net",
+        "script-src 'self' https://cdn.jsdelivr.net",
+        "style-src 'self' https://fonts.googleapis.com",
         "font-src 'self' https://fonts.gstatic.com",
         "img-src 'self' data: https:",
         "connect-src 'self'",
@@ -41,8 +41,8 @@ def _relaxed_csp_directives() -> list[str]:
     """Return the compatibility CSP required by the current CDN Alpine runtime."""
     return [
         "default-src 'self'",
-        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdn.jsdelivr.net",
-        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net",
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net",
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
         "font-src 'self' https://fonts.gstatic.com",
         "img-src 'self' data: https:",
         "connect-src 'self'",

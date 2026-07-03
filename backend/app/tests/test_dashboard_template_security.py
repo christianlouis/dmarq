@@ -295,6 +295,7 @@ def test_dashboard_uses_external_page_script_for_csp_migration():
 
     assert 'src="/static/js/chart.umd.min.js"' in template
     assert 'src="/static/js/dashboard-page.js"' in template
+    assert "cdn.tailwindcss.com" not in template
     assert "enforcement-gauge-bg" in template
     assert ".enforcement-gauge-bg" in styles
     assert '@change="handleDateIntervalChange()"' not in template
@@ -863,6 +864,8 @@ def test_base_template_propagates_selected_workspace_context():
     assert "data-workspace-switcher" in script
     assert "onclick=" not in template
     assert "data-release-modal-trigger" in template
+    assert 'href="/static/css/app.css"' in template
+    assert "cdn.tailwindcss.com" not in template
     assert "Full changelog" in template
     assert "release_info.changelog_url" in template
     assert "release_info.environment" in template

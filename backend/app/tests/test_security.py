@@ -141,6 +141,7 @@ class TestSecurityHeaders:
 
         assert "'unsafe-eval'" in csp
         assert "https://cdn.jsdelivr.net" in csp
+        assert "https://cdn.tailwindcss.com" not in csp
 
     def test_base_template_keeps_standard_alpine_until_templates_are_migrated(self):
         """The CSP build cannot evaluate the remaining inline Alpine expressions yet."""
@@ -148,10 +149,12 @@ class TestSecurityHeaders:
         body = template.read_text()
 
         assert "alpinejs@3.x.x/dist/cdn.min.js" in body
+        assert "cdn.tailwindcss.com" not in body
         assert "@alpinejs/csp" not in body
         assert not _script_tags_without_src(body)
         assert not re.search(r"<style\b", body, re.IGNORECASE)
         assert 'src="/static/js/base-layout.js"' in body
+        assert 'href="/static/css/app.css"' in body
         assert 'href="/static/css/page-utilities.css"' in body
 
     @pytest.mark.parametrize("template_name", ["login.html", "setup.html"])
@@ -163,6 +166,8 @@ class TestSecurityHeaders:
         assert not _script_tags_without_src(body)
         assert not re.search(r"<style\b", body, re.IGNORECASE)
         assert f'src="/static/js/{template_name.removesuffix(".html")}-page.js"' in body
+        assert "cdn.tailwindcss.com" not in body
+        assert 'href="/static/css/app.css"' in body
         assert 'href="/static/css/page-utilities.css"' in body
 
     def test_csp_report_only_header_appears_when_flag_enabled(

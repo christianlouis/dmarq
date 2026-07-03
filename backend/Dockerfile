@@ -1,3 +1,15 @@
+FROM node:22-slim AS frontend
+
+WORKDIR /app
+
+COPY package.json package-lock.json* tailwind.config.cjs ./
+RUN npm ci
+
+COPY app/templates ./app/templates
+COPY app/static/js ./app/static/js
+COPY app/static/css/styles.css ./app/static/css/styles.css
+RUN npm run build:css
+
 FROM python:3.13-slim
 
 WORKDIR /app
@@ -24,14 +36,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && chmod u-s /usr/bin/mount /usr/bin/umount \
     && rm -rf /var/lib/apt/lists/*
 
-# Remove Tailwind & DaisyUI build; using CDN links instead
-
 # Copy Python requirements and install
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code including templates and static assets
 COPY . .
+COPY --from=frontend /app/app/static/css/app.css /app/app/static/css/app.css
 
 # Make the entrypoint executable and create the default data directory so
 # SQLite has a place to write its file even without an explicit volume mount.

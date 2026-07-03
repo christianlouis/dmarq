@@ -67,6 +67,9 @@ vulnerability of `moderate` severity or higher.
 Runs only on pushes to `main` after both **Test** and **Security** pass.
 
 - Builds from `./backend/Dockerfile`
+- Builds the static Tailwind/DaisyUI CSS bundle from `backend/package.json`
+  before the Python runtime image is assembled. Production pages must load
+  `/static/css/app.css` and must not load the Tailwind browser compiler.
 - Pushes to `ghcr.io/<owner>/dmarq` with three tags:
   - `latest` (default branch only)
   - branch name (e.g. `main`)
