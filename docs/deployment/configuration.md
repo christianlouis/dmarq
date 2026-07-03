@@ -136,7 +136,7 @@ Live DNS writes stay behind the separate DNS repair approval flow.
 
 | Provider | Zone import | Configuration |
 |----------|-------------|---------------|
-| Cloudflare | Ready | OAuth client with `zone.read`/`dns.read`, or `CLOUDFLARE_API_TOKEN` with Zone/DNS read permissions |
+| Cloudflare | Ready | OAuth client with `zone.read`/`dns.read` for import, `radar.read`/`user.read` for Radar enrichment, and `dns.write` only for full repair; or `CLOUDFLARE_API_TOKEN` with matching permissions |
 | Amazon Route 53 | Ready | boto3/AWS credential chain, `DMARQ_ROUTE53_PROFILE`, or `DMARQ_ROUTE53_ROLE_ARN` with optional `DMARQ_ROUTE53_EXTERNAL_ID` |
 | Hetzner DNS | Ready | `HETZNER_DNS_API_TOKEN` or `HETZNER_API_TOKEN` with DNS zone read access |
 | Linode DNS | Ready | `LINODE_API_TOKEN` or `LINODE_TOKEN` with Domains read-only access |
@@ -310,7 +310,7 @@ operational policy if long-term storage size matters.
 | `CLOUDFLARE_ZONE_ID` | Optional default Cloudflare Zone ID | - | `your_cloudflare_zone_id` |
 | `CLOUDFLARE_OAUTH_CLIENT_ID` | Optional Cloudflare OAuth client ID for one-click provider connect | - | `your_cloudflare_oauth_client_id` |
 | `CLOUDFLARE_OAUTH_CLIENT_SECRET` | Optional Cloudflare OAuth client secret for one-click provider connect | - | `your_cloudflare_oauth_client_secret` |
-| `CLOUDFLARE_OAUTH_SCOPES` | Cloudflare OAuth scopes requested for read-only zone import and ownership checks | `zone.read dns.read` | `zone.read dns.read` |
+| `CLOUDFLARE_OAUTH_SCOPES` | Optional legacy fixed Cloudflare OAuth scope request used only when no in-product rights profile is supplied. Leave empty so the UI profiles can request `zone.read dns.read`, Radar-capable `zone.read dns.read radar.read user.read`, or full repair `zone.read dns.read dns.write radar.read user.read`. | - | `zone.read dns.read` |
 | `HETZNER_DNS_API_TOKEN` | Hetzner Console API token for read-only DNS zone import through `api.hetzner.cloud` | - | `your_hetzner_read_only_api_token` |
 | `HETZNER_API_TOKEN` | Fallback Hetzner token name if you already inject generic Hetzner Cloud credentials | - | `your_hetzner_read_only_api_token` |
 | `LINODE_API_TOKEN` | Linode API token for read-only DNS domain import through `api.linode.com/v4` | - | `your_linode_domains_read_only_token` |

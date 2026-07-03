@@ -2034,7 +2034,7 @@ def test_cloudflare_oauth_state_round_trips_and_sanitizes_return_to(
         cloudflare_oauth.decode_cloudflare_oauth_state("")
 
 
-def test_cloudflare_oauth_authorization_url_uses_configured_scopes(
+def test_cloudflare_oauth_authorization_url_uses_configured_scopes_without_profile(
     monkeypatch: pytest.MonkeyPatch,
 ):
     monkeypatch.setattr(cloudflare_oauth, "get_settings", _cloudflare_oauth_zone_read_settings)
@@ -2052,6 +2052,22 @@ def test_cloudflare_oauth_authorization_url_uses_configured_scopes(
     assert "state=state-token" in result["authorization_url"]
 
 
+def test_cloudflare_oauth_authorization_url_profile_overrides_configured_scopes(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(cloudflare_oauth, "get_settings", _cloudflare_oauth_zone_read_settings)
+
+    result = cloudflare_oauth.build_cloudflare_authorization_url(
+        redirect_uri="https://app.example.test/api/v1/domains/cloudflare/oauth/callback",
+        state="state-token",
+        scope_profile="full_dns_repair",
+    )
+
+    assert result["scope_profile"] == "full_dns_repair"
+    assert result["scopes"] == "zone.read dns.read dns.write radar.read user.read"
+    assert "scope=zone.read+dns.read+dns.write+radar.read+user.read" in result["authorization_url"]
+
+
 def test_cloudflare_oauth_authorization_url_uses_profile_scopes(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -2064,8 +2080,8 @@ def test_cloudflare_oauth_authorization_url_uses_profile_scopes(
     )
 
     assert result["scope_profile"] == "full_dns_repair"
-    assert result["scopes"] == "zone.read dns.read dns.write"
-    assert "scope=zone.read+dns.read+dns.write" in result["authorization_url"]
+    assert result["scopes"] == "zone.read dns.read dns.write radar.read user.read"
+    assert "scope=zone.read+dns.read+dns.write+radar.read+user.read" in result["authorization_url"]
 
 
 def test_cloudflare_oauth_config_defaults_to_read_scopes(
@@ -2077,6 +2093,22 @@ def test_cloudflare_oauth_config_defaults_to_read_scopes(
         cloudflare_oauth.get_cloudflare_oauth_config().scopes
         == cloudflare_oauth.CLOUDFLARE_DEFAULT_READ_SCOPES
     )
+
+
+def test_cloudflare_oauth_scope_profile_metadata_marks_full_dns_radar_enabled():
+    profiles = {
+        profile["id"]: profile for profile in cloudflare_oauth.cloudflare_scope_profile_metadata()
+    }
+
+    full_profile = profiles["full_dns_repair"]
+    assert full_profile["scopes"] == "zone.read dns.read dns.write radar.read user.read"
+    assert full_profile["dns_write_enabled"] is True
+    assert full_profile["radar_enabled"] is True
+
+    radar_profile = profiles["read_only_radar"]
+    assert radar_profile["scopes"] == "zone.read dns.read radar.read user.read"
+    assert radar_profile["dns_write_enabled"] is False
+    assert radar_profile["radar_enabled"] is True
 
 
 def test_cloudflare_oauth_config_requires_client_credentials(
@@ -2338,7 +2370,7 @@ def test_persist_cloudflare_oauth_tokens_requires_access_token(
         cloudflare_oauth.persist_cloudflare_oauth_tokens(db_session, {})
 
 
-def test_persist_cloudflare_oauth_tokens_defaults_to_configured_scopes(
+def test_persist_cloudflare_oauth_tokens_defaults_to_profile_scopes(
     db_session: Session,
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -2348,10 +2380,11 @@ def test_persist_cloudflare_oauth_tokens_defaults_to_configured_scopes(
     cloudflare_oauth.persist_cloudflare_oauth_tokens(
         db_session,
         {"access_token": "provider-token"},
+        scope_profile="full_dns_repair",
     )
 
     scope = db_session.query(Setting).filter(Setting.key == "cloudflare.oauth_scopes").first()
-    assert scope.value == "zone.read"
+    assert scope.value == "zone.read dns.read dns.write radar.read user.read"
 
 
 def test_persist_cloudflare_oauth_tokens_updates_existing_settings(

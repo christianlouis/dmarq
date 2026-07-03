@@ -701,6 +701,8 @@ def test_base_template_propagates_selected_workspace_context():
     assert "input instanceof URL" in script
     assert "onclick=" not in template
     assert "data-release-modal-trigger" in template
+    assert "Full changelog" in template
+    assert "release_info.changelog_url" in template
     assert "bindReleaseModalTriggers" in script
     assert "dmarq-release-modal" in script
     assert "event.target" in script

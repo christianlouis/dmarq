@@ -56,25 +56,27 @@ CLOUDFLARE_SCOPE_PROFILES: Dict[str, CloudflareScopeProfile] = {
     "read_only_radar": CloudflareScopeProfile(
         id="read_only_radar",
         name="Read-only + Radar context",
-        description=(
-            "Read DNS zones and enable Cloudflare Radar enrichment when a Radar API token "
-            "is configured server-side."
-        ),
-        scopes="zone.read dns.read",
+        description=("Read DNS zones and request Cloudflare Radar read access for IP enrichment."),
+        scopes="zone.read dns.read radar.read user.read",
         radar_enabled=True,
-        radar_requires_api_token=True,
         warning=(
-            "Cloudflare Radar API access is not granted by this DNS OAuth scope; configure "
-            "a separate Radar-capable API token on the server for enrichment."
+            "Includes Account Radar Read plus User Details Read for Cloudflare Radar " "IP lookups."
         ),
     ),
     "full_dns_repair": CloudflareScopeProfile(
         id="full_dns_repair",
-        name="Full DNS repair",
-        description="Read zones and allow human-approved DNS record changes.",
-        scopes="zone.read dns.read dns.write",
+        name="Full DNS repair + Radar",
+        description=(
+            "Read zones, allow human-approved DNS record changes, and request "
+            "Cloudflare Radar IP enrichment access."
+        ),
+        scopes="zone.read dns.read dns.write radar.read user.read",
         dns_write_enabled=True,
-        warning="Only use this when you want DMARQ to prepare and apply confirmed DNS repairs.",
+        radar_enabled=True,
+        warning=(
+            "Only use this when you want DMARQ to prepare/apply confirmed DNS repairs "
+            "and enrich sending IPs with Cloudflare Radar."
+        ),
     ),
 }
 
@@ -179,12 +181,11 @@ def build_cloudflare_authorization_url(
 ) -> Dict[str, str]:
     """Return the Cloudflare authorization URL and request metadata."""
     config = get_cloudflare_oauth_config()
+    explicit_profile = scope_profile is not None
     normalized_profile = normalize_cloudflare_scope_profile(scope_profile)
-    scopes = (
-        config.scopes
-        if get_settings().CLOUDFLARE_OAUTH_SCOPES
-        else cloudflare_scopes_for_profile(normalized_profile)
-    )
+    scopes = cloudflare_scopes_for_profile(normalized_profile)
+    if not explicit_profile and get_settings().CLOUDFLARE_OAUTH_SCOPES:
+        scopes = config.scopes
     params = {
         "client_id": config.client_id,
         "response_type": "code",
@@ -280,14 +281,7 @@ def persist_cloudflare_oauth_tokens(
     if not access_token:
         raise LookupError("Cloudflare OAuth did not return an access token.")
     normalized_profile = normalize_cloudflare_scope_profile(scope_profile)
-    scope = str(
-        token_data.get("scope")
-        or (
-            get_cloudflare_oauth_config().scopes
-            if get_settings().CLOUDFLARE_OAUTH_SCOPES
-            else cloudflare_scopes_for_profile(normalized_profile)
-        )
-    )
+    scope = str(token_data.get("scope") or cloudflare_scopes_for_profile(normalized_profile))
     _upsert_setting(
         db,
         key="cloudflare.api_token",

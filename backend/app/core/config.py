@@ -63,7 +63,7 @@ class Settings(BaseSettings):
     CLOUDFLARE_ZONE_ID: Optional[str] = None
     CLOUDFLARE_OAUTH_CLIENT_ID: Optional[str] = None
     CLOUDFLARE_OAUTH_CLIENT_SECRET: Optional[str] = None
-    CLOUDFLARE_OAUTH_SCOPES: str = "zone.read dns.read"
+    CLOUDFLARE_OAUTH_SCOPES: str = ""
     HETZNER_DNS_API_TOKEN: Optional[str] = None
     HETZNER_API_TOKEN: Optional[str] = None
     LINODE_API_TOKEN: Optional[str] = None

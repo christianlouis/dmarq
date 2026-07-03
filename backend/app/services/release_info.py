@@ -42,6 +42,7 @@ def build_release_info(settings: Any) -> Dict[str, Any]:
             "image": _clean(getattr(settings, "DMARQ_BUILD_IMAGE", None)),
             "date": _clean(getattr(settings, "DMARQ_BUILD_DATE", None)),
         },
+        "changelog_url": "https://github.com/christianlouis/dmarq/blob/main/CHANGELOG.md",
         "changes": [
             {
                 "title": "Faster domain pages",
@@ -62,6 +63,45 @@ def build_release_info(settings: Any) -> Dict[str, Any]:
                 "description": (
                     "The default demo and navigation emphasize the single-user, "
                     "multiple-domain self-hosted story."
+                ),
+            },
+            {
+                "title": "Cloudflare rights profiles",
+                "description": (
+                    "The Cloudflare connector exposes read-only, read-only plus Radar "
+                    "context, and full DNS repair profiles so operators can choose the "
+                    "least privilege needed for the next action."
+                ),
+            },
+            {
+                "title": "Safer DNS repair workflow",
+                "description": (
+                    "DNS changes remain human-approved, with provider imports, ownership "
+                    "verification, repair previews, and audit-friendly settings separated "
+                    "from automatic write actions."
+                ),
+            },
+            {
+                "title": "In-product release visibility",
+                "description": (
+                    "The current version, build image, git ref, build date, and recent "
+                    "operator-facing fixes are available from the small release label in "
+                    "the app shell."
+                ),
+            },
+            {
+                "title": "CSP hardening progress",
+                "description": (
+                    "Inline handlers and style bindings continue moving out of templates "
+                    "toward external scripts and CSS so strict CSP can become the default."
+                ),
+            },
+            {
+                "title": "Actionable remediation groundwork",
+                "description": (
+                    "Domain and report detail views include clearer next steps, DNS lint "
+                    "evidence, source intelligence, and safer repair context for DMARC "
+                    "operations."
                 ),
             },
         ],
