@@ -1695,7 +1695,7 @@
                                             <template x-for="point in sourceVolumeBars(source)" :key="point.date">
                                                 <div class="tooltip flex-1 rounded-t"
                                                      :class="point.failed > 0 ? 'bg-[#ff6f3c]' : 'bg-[#2f9da5]'"
-                                                     :style="'height: ' + point.height + '%'"
+                                                     x-effect="$el.style.height = point.height + '%'"
                                                      :data-tip="point.label"></div>
                                             </template>
                                         </div>
