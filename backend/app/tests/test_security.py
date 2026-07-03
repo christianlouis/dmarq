@@ -135,21 +135,23 @@ class TestSecurityHeaders:
     """Test security headers that affect the browser UI."""
 
     def test_csp_allows_current_alpine_runtime(self, client: TestClient):
-        """The current Alpine CDN build needs eval permission to render UI pages."""
+        """The current Alpine expression runtime still needs eval permission."""
         response = client.get("/mail-sources")
         csp = response.headers["Content-Security-Policy"]
 
         assert "'unsafe-eval'" in csp
-        assert "https://cdn.jsdelivr.net" in csp
+        assert "https://cdn.jsdelivr.net" not in csp
         assert "https://cdn.tailwindcss.com" not in csp
 
-    def test_base_template_keeps_standard_alpine_until_templates_are_migrated(self):
+    def test_base_template_uses_local_alpine_until_templates_are_migrated(self):
         """The CSP build cannot evaluate the remaining inline Alpine expressions yet."""
         template = Path(__file__).resolve().parents[1] / "templates" / "layouts" / "base.html"
         body = template.read_text()
 
-        assert "alpinejs@3.x.x/dist/cdn.min.js" in body
+        assert 'src="/static/js/vendor/alpine.min.js"' in body
+        assert "alpinejs@3.x.x/dist/cdn.min.js" not in body
         assert "cdn.tailwindcss.com" not in body
+        assert "cdn.jsdelivr.net" not in body
         assert "@alpinejs/csp" not in body
         assert not _script_tags_without_src(body)
         assert not re.search(r"<style\b", body, re.IGNORECASE)
@@ -166,6 +168,8 @@ class TestSecurityHeaders:
         assert not _script_tags_without_src(body)
         assert not re.search(r"<style\b", body, re.IGNORECASE)
         assert f'src="/static/js/{template_name.removesuffix(".html")}-page.js"' in body
+        assert 'src="/static/js/vendor/alpine.min.js"' in body
+        assert "cdn.jsdelivr.net" not in body
         assert "cdn.tailwindcss.com" not in body
         assert 'href="/static/css/app.css"' in body
         assert 'href="/static/css/page-utilities.css"' in body
@@ -196,7 +200,8 @@ class TestSecurityHeaders:
         assert "'unsafe-inline'" not in csp
         assert "'unsafe-eval'" not in csp
         assert "script-src 'self'" in csp
-        assert "style-src 'self' https://fonts.googleapis.com https://cdn.jsdelivr.net" in csp
+        assert "style-src 'self' https://fonts.googleapis.com" in csp
+        assert "https://cdn.jsdelivr.net" not in csp
 
 
 class TestXMLParsingSecurity:

@@ -874,6 +874,8 @@ def test_base_template_propagates_selected_workspace_context():
     assert "/api/v1/health/release" in template
     assert "bindReleaseModalTriggers" in script
     assert "dmarq-release-modal" in script
+    assert 'src="/static/js/vendor/alpine.min.js"' in template
+    assert "cdn.jsdelivr.net" not in template
     assert "event.target" in script
     assert "target instanceof Element" in script
     assert "!modal.open" in script
