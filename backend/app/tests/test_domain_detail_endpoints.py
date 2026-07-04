@@ -2851,6 +2851,35 @@ async def test_safe_ptr_lookup_uses_public_fallback(monkeypatch: pytest.MonkeyPa
 
 
 @pytest.mark.asyncio
+async def test_safe_ptr_lookup_propagates_cancellation(monkeypatch: pytest.MonkeyPatch):
+    """Request cancellation must not be hidden as a recoverable DNS miss."""
+
+    class CancelledProvider:
+        async def lookup_ptr(self, _ip):
+            raise asyncio.CancelledError()
+
+    class UnexpectedFallbackProvider:
+        async def lookup_ptr(self, _ip):
+            raise AssertionError("fallback should not run after cancellation")
+
+    monkeypatch.setattr(
+        domains_endpoint,
+        "PublicRecursiveDNSProvider",
+        lambda: UnexpectedFallbackProvider(),
+    )
+    monkeypatch.setattr(
+        domains_endpoint,
+        "CloudflareDNSProvider",
+        lambda: UnexpectedFallbackProvider(),
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await domains_endpoint._safe_ptr_lookup(  # pylint: disable=protected-access
+            CancelledProvider(), "104.245.209.200"
+        )
+
+
+@pytest.mark.asyncio
 async def test_source_networks_by_ip_handles_disabled_and_failed_enrichment(
     db_session,
     monkeypatch: pytest.MonkeyPatch,

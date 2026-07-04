@@ -6377,6 +6377,8 @@ async def _safe_ptr_lookup(provider: Any, ip: str, timeout: float = 3.0) -> Opti
     for candidate in _ptr_lookup_providers(provider):
         try:
             hostname = await asyncio.wait_for(candidate.lookup_ptr(ip), timeout=timeout)
+        except asyncio.CancelledError:
+            raise
         except Exception:
             continue
         if hostname:
