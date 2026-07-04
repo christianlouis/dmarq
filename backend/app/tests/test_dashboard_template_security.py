@@ -1105,10 +1105,12 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     assert "Use Refresh reputation" in template
     assert 'colspan="9"' in template
     assert "x-effect=\"$el.style.height = point.height + '%'" not in template
-    assert 'viewBox="0 0 140 100"' in template
     assert 'aria-label="Recent sending volume"' in template
+    assert ':viewBox="\'0 0 \' + point.width + \' 100\'"' in template
+    assert "<template x-for=\"point in sourceVolumeBars(source)\"" in template
     assert "point.y" in template
     assert "point.width" in template
+    assert "<svg class=\"h-8 w-full overflow-visible\"" not in template
     assert "x-html" not in template
     assert not _has_inline_style(template)
 
