@@ -2,8 +2,11 @@ import importlib.util
 from pathlib import Path
 
 
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
 def _load_script_module():
-    script_path = Path(__file__).resolve().parents[3] / "scripts" / "check_release_rollout.py"
+    script_path = REPO_ROOT / "scripts" / "check_release_rollout.py"
     spec = importlib.util.spec_from_file_location("check_release_rollout", script_path)
     module = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
@@ -55,3 +58,21 @@ def test_release_rollout_compare_reports_drift():
     assert any("environment expected demo" in failure for failure in failures)
     assert any("build SHA expected prefix deadbee" in failure for failure in failures)
     assert any("image expected ghcr.io/christianlouis/dmarq:deadbee" in failure for failure in failures)
+
+
+def test_release_workflow_build_metadata_uses_checked_out_ref():
+    """Docker build metadata must describe the commit used to build the image."""
+    workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "FULL_SHA=$(git rev-parse HEAD)" in workflow
+    assert "DMARQ_BUILD_SHA=${{ steps.release_ref.outputs.full_sha }}" in workflow
+    assert "DMARQ_BUILD_REF=${{ steps.release_ref.outputs.build_ref }}" in workflow
+    assert "DMARQ_BUILD_DATE=${{ steps.release_ref.outputs.build_date }}" in workflow
+    build_args = workflow.split("build-args: |", maxsplit=1)[1].split(
+        "cache-from:", maxsplit=1
+    )[0]
+    assert "github.sha" not in build_args
+    assert "github.ref_name" not in build_args
+    assert "github.event.head_commit.timestamp" not in build_args
