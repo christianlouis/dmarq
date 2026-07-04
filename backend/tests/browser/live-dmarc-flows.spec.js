@@ -522,10 +522,14 @@ async function installApiMocks(page) {
 }
 
 async function installCspViolationRecorder(page) {
+  page.__dmarqCspViolations = [];
+  await page.exposeFunction('__recordDmarqCspViolation', (violation) => {
+    page.__dmarqCspViolations.push(violation);
+  });
+
   await page.addInitScript(() => {
-    window.__dmarqCspViolations = [];
     document.addEventListener('securitypolicyviolation', (event) => {
-      window.__dmarqCspViolations.push({
+      window.__recordDmarqCspViolation({
         blockedURI: event.blockedURI,
         disposition: event.disposition,
         effectiveDirective: event.effectiveDirective,
@@ -539,6 +543,10 @@ async function installCspViolationRecorder(page) {
   });
 }
 
+function directiveMatches(effectiveDirective, directive) {
+  return effectiveDirective === directive || effectiveDirective.startsWith(`${directive}-`);
+}
+
 function isKnownStrictCspMigrationBlocker(violation) {
   const sourceFile = violation.sourceFile || '';
   const blockedURI = violation.blockedURI || '';
@@ -550,8 +558,8 @@ function isKnownStrictCspMigrationBlocker(violation) {
 
   if (sourceFile.endsWith('/static/js/vendor/alpine.min.js')) {
     return (
-      (effectiveDirective === 'script-src' && blockedURI === 'eval') ||
-      (effectiveDirective === 'style-src' && blockedURI === 'inline')
+      (directiveMatches(effectiveDirective, 'script-src') && blockedURI === 'eval') ||
+      (directiveMatches(effectiveDirective, 'style-src') && blockedURI === 'inline')
     );
   }
 
@@ -564,18 +572,22 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.afterEach(async ({ page }) => {
-  const violations = await page.evaluate(() => window.__dmarqCspViolations || []);
+  const violations = page.__dmarqCspViolations || [];
   const unexpectedViolations = violations.filter(
     (violation) => !isKnownStrictCspMigrationBlocker(violation)
   );
 
-  expect(unexpectedViolations).toEqual([]);
+  expect(unexpectedViolations, 'unexpected CSP report-only violations').toEqual([]);
 });
 
 test('dashboard becomes useful before false empty states appear', async ({ page }) => {
   const started = Date.now();
   const response = await page.goto('/dashboard');
-  expect(response.headers()['content-security-policy-report-only']).toContain("script-src 'self'");
+  expect(response, 'dashboard navigation should return a response').not.toBeNull();
+  const cspReportOnly = response.headers()['content-security-policy-report-only'];
+  expect(cspReportOnly, 'dashboard should send a CSP report-only header').toContain(
+    "script-src 'self'"
+  );
 
   await expect(page.getByText('Fix DKIM alignment for owned infrastructure')).toBeVisible();
   await expect(page.getByText('cklnet.com').first()).toBeVisible();
