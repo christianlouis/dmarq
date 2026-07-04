@@ -15,6 +15,7 @@ from app.core.database import get_db
 from app.services.api_tokens import find_api_token, parse_scopes, record_api_token_use
 
 settings = get_settings()
+_INITIAL_SETTINGS = settings
 logger = logging.getLogger(__name__)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -22,6 +23,14 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # Security schemes for authentication
 security_bearer = HTTPBearer(auto_error=False)
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+def _current_settings():
+    """Return fresh settings unless tests deliberately patch this module."""
+    if settings is not _INITIAL_SETTINGS:
+        return settings
+    return get_settings()
+
 
 # In-memory API keys storage
 # ⚠️ WARNING: This is a simple in-memory implementation suitable for:
@@ -152,7 +161,12 @@ async def verify_token(
     token = credentials.credentials
 
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        current_settings = _current_settings()
+        payload = jwt.decode(
+            token,
+            current_settings.SECRET_KEY,
+            algorithms=[current_settings.ALGORITHM],
+        )
         return payload
     except JWTError as e:
         logger.warning("Invalid JWT token: %s", str(e))
@@ -181,14 +195,18 @@ async def require_admin_auth(
     Returns an authentication context dict describing how the request was
     authenticated.  Raises ``HTTP 401`` when no valid credential is present.
     """
+    current_settings = _current_settings()
     # 0. Auth globally disabled
-    if settings.AUTH_DISABLED or getattr(settings, "active_auth_provider", "") == "disabled":
+    if (
+        current_settings.AUTH_DISABLED
+        or getattr(current_settings, "active_auth_provider", "") == "disabled"
+    ):
         return {"auth_type": "disabled"}
 
     # 1. Trusted proxy / Authentik Outpost headers
     from app.core.auth_providers import trusted_proxy_auth_context  # local import
 
-    proxy_context = trusted_proxy_auth_context(request, settings)
+    proxy_context = trusted_proxy_auth_context(request, current_settings)
     if proxy_context is not None:
         return proxy_context
 
@@ -216,7 +234,9 @@ async def require_admin_auth(
         # Fallback: legacy python-jose JWT (pre-Logto API keys / CI tokens)
         try:
             payload = jwt.decode(
-                bearer.credentials, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
+                bearer.credentials,
+                current_settings.SECRET_KEY,
+                algorithms=[current_settings.ALGORITHM],
             )
             return {"auth_type": "jwt", "payload": payload}
         except JWTError as e:
@@ -357,12 +377,17 @@ def create_access_token(subject: Union[str, Any], expires_delta: timedelta = Non
     """
     Create a JWT access token for authentication
     """
+    current_settings = _current_settings()
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.utcnow() + timedelta(minutes=current_settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode = {"exp": expire, "sub": str(subject)}
-    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    encoded_jwt = jwt.encode(
+        to_encode,
+        current_settings.SECRET_KEY,
+        algorithm=current_settings.ALGORITHM,
+    )
     return encoded_jwt
 
 
