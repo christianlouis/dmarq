@@ -247,16 +247,26 @@ def _health_playbook(domain: str, action: Dict[str, Any]) -> Dict[str, Any]:
         "low_compliance": {
             "steps": [
                 "Open the sending-source table and sort by failed messages and last sent date.",
-                "For each active failing source, verify the IP, PTR hostname, ASN, and provider "
-                "owner before changing DNS.",
-                "If SPF passes but DKIM fails, repair DKIM signing or the DKIM selector for "
-                "that sender.",
-                "If DKIM passes but SPF fails, verify the envelope-from or return-path domain "
-                "before adding SPF includes or IPs.",
-                "Do not authorize receiver, mailbox, or forwarding IPs just because a preserved "
-                "DKIM signature passed.",
-                "Refresh reports after the next receiver report window and confirm the source "
-                "now passes DMARC.",
+                (
+                    "For each active failing source, verify the IP, PTR hostname, ASN, and provider "
+                    + "owner before changing DNS."
+                ),
+                (
+                    "If SPF passes but DKIM fails, repair DKIM signing or the DKIM selector for "
+                    + "that sender."
+                ),
+                (
+                    "If DKIM passes but SPF fails, verify the envelope-from or return-path domain "
+                    + "before adding SPF includes or IPs."
+                ),
+                (
+                    "Do not authorize receiver, mailbox, or forwarding IPs just because a preserved "
+                    + "DKIM signature passed."
+                ),
+                (
+                    "Refresh reports after the next receiver report window and confirm the source "
+                    + "now passes DMARC."
+                ),
             ],
             "prerequisites": [
                 "Use recent report rows first; old senders may no longer need remediation.",
@@ -264,7 +274,7 @@ def _health_playbook(domain: str, action: Dict[str, Any]) -> Dict[str, Any]:
             ],
             "completion_criteria": (
                 "The active failing sources are owned and passing DMARC, or are intentionally "
-                "blocked by policy."
+                + "blocked by policy."
             ),
         },
         "source_reputation_listed": {
@@ -272,10 +282,14 @@ def _health_playbook(domain: str, action: Dict[str, Any]) -> Dict[str, Any]:
                 "Open the affected sending sources and identify which IPs are listed.",
                 "Confirm whether each listed IP is still used by this domain and who owns it.",
                 "Pause DMARC policy tightening until the owner confirms the reputation finding.",
-                "Follow the named blacklist or provider delisting process with evidence from "
-                "the current mail server or provider account.",
-                "After delisting, send a small authenticated test and wait for fresh DMARC "
-                "reports before marking the issue resolved.",
+                (
+                    "Follow the named blacklist or provider delisting process with evidence from "
+                    + "the current mail server or provider account."
+                ),
+                (
+                    "After delisting, send a small authenticated test and wait for fresh DMARC "
+                    + "reports before marking the issue resolved."
+                ),
             ],
             "prerequisites": [
                 "Use listing evidence from the configured reputation feed, not only local volume.",
@@ -283,18 +297,24 @@ def _health_playbook(domain: str, action: Dict[str, Any]) -> Dict[str, Any]:
             ],
             "completion_criteria": (
                 "The listed source is either removed from sending, delisted by the provider, "
-                "or documented as intentionally blocked."
+                + "or documented as intentionally blocked."
             ),
         },
         "source_reputation_review": {
             "steps": [
-                "Open the source details and review PTR, ASN, country, provider, and latest "
-                "send date.",
-                "Confirm whether the source belongs to a configured mail provider or owned "
-                "infrastructure.",
+                (
+                    "Open the source details and review PTR, ASN, country, provider, and latest "
+                    + "send date."
+                ),
+                (
+                    "Confirm whether the source belongs to a configured mail provider or owned "
+                    + "infrastructure."
+                ),
                 "If the source is legitimate, repair SPF/DKIM alignment before trusting it.",
-                "If the source is unknown or stale, keep it blocked and monitor whether it "
-                "reappears in fresh reports.",
+                (
+                    "If the source is unknown or stale, keep it blocked and monitor whether it "
+                    + "reappears in fresh reports."
+                ),
             ],
             "prerequisites": [
                 "Use current source intelligence and report timestamps before making a change.",
@@ -302,7 +322,7 @@ def _health_playbook(domain: str, action: Dict[str, Any]) -> Dict[str, Any]:
             ],
             "completion_criteria": (
                 "The suspicious source is assigned to an owner and fixed, or treated as "
-                "unauthorized traffic."
+                + "unauthorized traffic."
             ),
         },
         "policy_none": {

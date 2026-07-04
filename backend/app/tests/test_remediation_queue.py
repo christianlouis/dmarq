@@ -367,6 +367,56 @@ def test_remediation_queue_adds_specific_reputation_playbook():
     assert item["notification"]["state"] == "action_required"
 
 
+def test_remediation_queue_adds_specific_reputation_review_playbook():
+    queue = build_remediation_queue(
+        domain="example.com",
+        health={
+            "actions": [
+                {
+                    "type": "source_reputation_review",
+                    "severity": "high",
+                    "title": "Review suspicious sending source",
+                    "detail": "A sender needs source intelligence review.",
+                    "score_impact": 10,
+                }
+            ]
+        },
+        dns_guidance={"findings": [], "change_plans": []},
+    )
+
+    item = queue["items"][0]
+
+    assert any("PTR, ASN, country" in step for step in item["next_steps"])
+    assert any("human owner" in step for step in item["action_plan"]["prerequisites"])
+    assert "unauthorized traffic" in item["action_plan"]["completion_criteria"]
+
+
+def test_remediation_queue_adds_specific_policy_none_playbook():
+    queue = build_remediation_queue(
+        domain="example.com",
+        health={
+            "actions": [
+                {
+                    "type": "policy_none",
+                    "severity": "high",
+                    "title": "Move domain toward enforcement",
+                    "detail": "The DMARC policy is still monitoring-only.",
+                    "score_impact": 8,
+                }
+            ]
+        },
+        dns_guidance={"findings": [], "change_plans": []},
+    )
+
+    item = queue["items"][0]
+
+    assert any("p=quarantine" in step for step in item["next_steps"])
+    assert any("rua reporting remains configured" in step for step in item["prerequisites"])
+    assert item["action_plan"]["completion_criteria"] == (
+        "The domain enforces quarantine or reject without new failures."
+    )
+
+
 def test_remediation_queue_adds_specific_missing_dkim_playbook():
     queue = build_remediation_queue(
         domain="example.com",
