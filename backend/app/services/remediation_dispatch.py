@@ -163,6 +163,129 @@ def _history_entry(row: WorkspaceAuditLog) -> Optional[Dict[str, Any]]:
     }
 
 
+def _empty_domain_activity(domain: str) -> Dict[str, Any]:
+    return {
+        "domain": domain,
+        "status": "none",
+        "latest_state": None,
+        "latest_label": "No operator activity",
+        "latest_at": None,
+        "previewed": 0,
+        "acknowledged": 0,
+        "resolved": 0,
+        "rejected": 0,
+        "snoozed": 0,
+        "dispatch_enqueued": 0,
+        "delivery_count": 0,
+        "needs_operator_follow_up": False,
+    }
+
+
+def _apply_activity_entry(summary: Dict[str, Any], entry: Dict[str, Any]) -> None:
+    state = str(entry.get("state") or "")
+    if summary["latest_state"] is None:
+        summary["latest_state"] = state
+        summary["latest_label"] = str(entry.get("label") or state.replace("_", " ").title())
+        summary["latest_at"] = entry.get("created_at")
+    if state in {"previewed", "acknowledged", "resolved", "rejected", "snoozed"}:
+        summary[state] += 1
+    if state == "delivery_enqueued":
+        summary["dispatch_enqueued"] += 1
+        summary["delivery_count"] += _safe_int(entry.get("delivery_count"))
+
+
+def _activity_status(summary: Dict[str, Any]) -> str:
+    latest_state = summary["latest_state"]
+    if latest_state == "resolved":
+        return "resolved"
+    if latest_state in {"rejected", "snoozed"}:
+        return "operator_hold"
+    if summary["dispatch_enqueued"]:
+        return "dispatched"
+    if latest_state in {"previewed", "acknowledged"}:
+        return "reviewed"
+    if latest_state:
+        return "activity"
+    return "none"
+
+
+def _finalize_activity_summary(summary: Dict[str, Any]) -> None:
+    summary["status"] = _activity_status(summary)
+    summary["needs_operator_follow_up"] = summary["status"] in {
+        "dispatched",
+        "reviewed",
+        "operator_hold",
+    }
+
+
+def _remediation_activity_totals(summaries: Dict[str, Dict[str, Any]]) -> Dict[str, int]:
+    return {
+        "domains_with_activity": sum(
+            1 for summary in summaries.values() if summary["latest_state"] is not None
+        ),
+        "dispatch_enqueued": sum(summary["dispatch_enqueued"] for summary in summaries.values()),
+        "resolved": sum(summary["resolved"] for summary in summaries.values()),
+        "operator_holds": sum(
+            summary["rejected"] + summary["snoozed"] for summary in summaries.values()
+        ),
+        "needs_operator_follow_up": sum(
+            1 for summary in summaries.values() if summary["needs_operator_follow_up"]
+        ),
+        "delivery_count": sum(summary["delivery_count"] for summary in summaries.values()),
+    }
+
+
+def summarize_remediation_activity(
+    db: Session,
+    *,
+    workspace: Workspace,
+    domains: Iterable[str],
+    row_limit: int = 500,
+) -> Dict[str, Any]:
+    """Summarize remediation audit activity without rebuilding domain queues."""
+    domain_names = [str(domain or "").strip() for domain in domains if str(domain or "").strip()]
+    summaries = {domain: _empty_domain_activity(domain) for domain in domain_names}
+    if not domain_names:
+        return {
+            "summary": {
+                "domains_with_activity": 0,
+                "dispatch_enqueued": 0,
+                "resolved": 0,
+                "operator_holds": 0,
+                "needs_operator_follow_up": 0,
+                "delivery_count": 0,
+            },
+            "domains": summaries,
+        }
+
+    rows = (
+        db.query(WorkspaceAuditLog)
+        .filter(
+            WorkspaceAuditLog.workspace_id == workspace.id,
+            WorkspaceAuditLog.entity_type == "remediation_notification",
+            WorkspaceAuditLog.entity_name.in_(domain_names),
+            WorkspaceAuditLog.action.in_(HISTORY_ACTIONS),
+        )
+        .order_by(WorkspaceAuditLog.created_at.desc(), WorkspaceAuditLog.id.desc())
+        .limit(row_limit)
+        .all()
+    )
+
+    for row in rows:
+        domain = str(row.entity_name or "")
+        if domain not in summaries:
+            continue
+        entry = _history_entry(row)
+        if entry is None:
+            continue
+        _apply_activity_entry(summaries[domain], entry)
+
+    for summary in summaries.values():
+        _finalize_activity_summary(summary)
+
+    return {"summary": _remediation_activity_totals(summaries), "domains": summaries}
+
+
 def _notification_histories(
     db: Session,
     *,

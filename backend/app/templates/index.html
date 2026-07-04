@@ -91,6 +91,25 @@
                     <span x-text="healthSummary?.domain_count || 0"></span>
                     <span> domains need attention.</span>
                 </p>
+                <div class="mt-5 grid gap-2 border-t border-[#dfdfdf] pt-4 text-sm">
+                    <div class="flex items-center justify-between gap-3">
+                        <span class="text-[#5f5c78]">Remediation activity</span>
+                        <span class="font-semibold text-[#120d36]">
+                            <span x-text="remediationTotals().domains_with_activity || 0"></span>
+                            <span> domains</span>
+                        </span>
+                    </div>
+                    <div class="flex items-center justify-between gap-3">
+                        <span class="text-[#5f5c78]">Operator follow-up</span>
+                        <span class="font-semibold text-[#b8431d]"
+                              x-text="remediationTotals().needs_operator_follow_up || 0"></span>
+                    </div>
+                    <div class="flex items-center justify-between gap-3">
+                        <span class="text-[#5f5c78]">Resolved markers</span>
+                        <span class="font-semibold text-[#247982]"
+                              x-text="remediationTotals().resolved || 0"></span>
+                    </div>
+                </div>
                 <div class="mt-5 border-t border-[#dfdfdf] pt-4" x-show="healthHistory?.points?.length">
                     <div class="mb-3 flex items-center justify-between gap-3">
                         <p class="text-sm font-semibold text-[#120d36]">Score Trend</p>
@@ -160,6 +179,11 @@
                                 <div class="min-w-0">
                                     <p class="truncate font-semibold text-[#120d36]" x-text="domainHealth.domain"></p>
                                     <p class="mt-1 text-xs capitalize text-[#5f5c78]" x-text="domainHealth.status"></p>
+                                    <template x-if="domainRemediation(domainHealth.domain)?.status && domainRemediation(domainHealth.domain).status !== 'none'">
+                                        <p class="mt-1 text-xs font-semibold"
+                                           :class="remediationStatusClass(domainRemediation(domainHealth.domain).status)"
+                                           x-text="remediationStatusLabel(domainRemediation(domainHealth.domain).status)"></p>
+                                    </template>
                                 </div>
                                 <div class="text-right">
                                     <div class="inline-flex min-w-12 justify-center rounded-md px-2 py-1 text-lg font-bold"
@@ -336,6 +360,7 @@
                             {% call th() %}Domain{% endcall %}
                             {% call th() %}Emails{% endcall %}
                             {% call th() %}Grade{% endcall %}
+                            {% call th() %}Remediation{% endcall %}
                             {% call th() %}Pass Rate{% endcall %}
                             {% call th() %}Failed{% endcall %}
                             {% call th() %}Reports{% endcall %}
