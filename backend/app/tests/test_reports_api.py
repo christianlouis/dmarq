@@ -956,6 +956,14 @@ def test_get_report_by_id_includes_source_intelligence_and_reputation(
     assert "Example DNSBL" in record["reputation"]["feed_summary"]
     assert record["reputation"]["risk_score"] == 82
     assert record["reputation"]["listings"] == ["Example DNSBL"]
+    reputation_summary = response.json()["reputation_summary"]
+    assert reputation_summary["status"] == "listed"
+    assert reputation_summary["status_label"] == "Listed sender detected"
+    assert reputation_summary["listed_sources"] == 1
+    assert reputation_summary["highest_risk_score"] == 82
+    assert reputation_summary["feed_status"] == "listed"
+    assert reputation_summary["worst_source"]["ip"] == "193.138.195.141"
+    assert reputation_summary["recommendations"] == ["Follow the provider delisting process."]
 
 
 def test_get_report_by_id_refreshes_reputation_cache(
@@ -1000,7 +1008,9 @@ def test_get_report_by_id_refreshes_reputation_cache(
     monkeypatch.setattr(reports_endpoint, "_safe_ptr_lookup", fake_ptr_lookup)
     monkeypatch.setattr(reports_endpoint, "build_source_reputation_cached", fake_reputation)
 
-    response = authed_client.get("/api/v1/reports/source-intel-refresh-report?refresh_reputation=true")
+    response = authed_client.get(
+        "/api/v1/reports/source-intel-refresh-report?refresh_reputation=true"
+    )
 
     assert response.status_code == 200
     assert captured_refresh == [True]
@@ -1034,6 +1044,7 @@ def test_get_report_by_id_continues_when_reputation_enrichment_fails(
     record = response.json()["records"][0]
     assert record["source_details"]["sender"]
     assert record["reputation"] is None
+    assert response.json()["reputation_summary"]["status"] == "unavailable"
 
 
 def test_get_report_by_id_surfaces_refresh_reputation_failure(
@@ -1057,7 +1068,9 @@ def test_get_report_by_id_surfaces_refresh_reputation_failure(
     monkeypatch.setattr(reports_endpoint, "_safe_ptr_lookup", fake_ptr_lookup)
     monkeypatch.setattr(reports_endpoint, "build_source_reputation_cached", failing_reputation)
 
-    response = authed_client.get("/api/v1/reports/source-intel-refresh-failure?refresh_reputation=true")
+    response = authed_client.get(
+        "/api/v1/reports/source-intel-refresh-failure?refresh_reputation=true"
+    )
 
     assert response.status_code == 503
     assert response.json()["detail"] == "Source reputation could not be refreshed."

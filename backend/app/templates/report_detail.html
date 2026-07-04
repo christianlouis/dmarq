@@ -120,6 +120,73 @@
                 {% endcall %}
             </div>
 
+            <!-- Sender Reputation Summary -->
+            {% call card() %}
+                {% call card_header() %}
+                    {% call card_title() %}Sender Reputation{% endcall %}
+                    {% call card_description() %}Highest-risk sending IPs observed in this report{% endcall %}
+                {% endcall %}
+                {% call card_content() %}
+                    <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
+                        <div class="space-y-3">
+                            <div class="flex flex-wrap items-center gap-2">
+                                <span class="inline-flex items-center rounded px-2 py-1 text-xs font-semibold"
+                                      :class="reportReputationClass(report.reputation_summary?.status)"
+                                      x-text="report.reputation_summary?.status_label || 'Reputation unavailable'"></span>
+                                <span class="inline-flex items-center rounded bg-base-200 px-2 py-1 font-mono text-xs text-base-content/80"
+                                      x-text="reportReputationRiskLabel(report.reputation_summary)"></span>
+                                <span class="inline-flex items-center rounded px-2 py-1 text-xs"
+                                      :class="reputationFeedClass(report.reputation_summary?.feed_status)"
+                                      x-text="report.reputation_summary?.feed_summary || 'No reputation feed evidence is available.'"></span>
+                            </div>
+                            <p class="text-sm text-[#5f5c78]" x-text="report.reputation_summary?.status_detail || 'Sender reputation could not be calculated for this report.'"></p>
+                            <template x-if="report.reputation_summary?.worst_source">
+                                <div class="rounded border border-[#dfdfdf] bg-[#fbfbfb] p-3 text-sm text-[#5f5c78]">
+                                    <div class="font-semibold text-[#120d36]">
+                                        Highest-risk source:
+                                        <span class="font-mono" x-text="report.reputation_summary.worst_source.ip"></span>
+                                    </div>
+                                    <div>
+                                        <span x-text="report.reputation_summary.worst_source.status_label"></span>
+                                        <span>&middot;</span>
+                                        <span x-text="'risk ' + report.reputation_summary.worst_source.risk_score + '/100'"></span>
+                                    </div>
+                                    <div x-text="report.reputation_summary.worst_source.summary"></div>
+                                </div>
+                            </template>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3 text-sm">
+                            <div class="rounded border border-[#dfdfdf] p-3">
+                                <div class="text-xs font-semibold uppercase tracking-wide text-[#5f5c78]">Sources</div>
+                                <div class="text-2xl font-bold text-[#120d36]" x-text="report.reputation_summary?.total_sources ?? 0"></div>
+                            </div>
+                            <div class="rounded border border-[#dfdfdf] p-3">
+                                <div class="text-xs font-semibold uppercase tracking-wide text-[#5f5c78]">Listed</div>
+                                <div class="text-2xl font-bold text-[#ff6f3c]" x-text="report.reputation_summary?.listed_sources ?? 0"></div>
+                            </div>
+                            <div class="rounded border border-[#dfdfdf] p-3">
+                                <div class="text-xs font-semibold uppercase tracking-wide text-[#5f5c78]">Needs review</div>
+                                <div class="text-2xl font-bold text-[#c77700]" x-text="report.reputation_summary?.sources_needing_review ?? 0"></div>
+                            </div>
+                            <div class="rounded border border-[#dfdfdf] p-3">
+                                <div class="text-xs font-semibold uppercase tracking-wide text-[#5f5c78]">Clean</div>
+                                <div class="text-2xl font-bold text-[#2f9da5]" x-text="report.reputation_summary?.clean_sources ?? 0"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <template x-if="(report.reputation_summary?.recommendations || []).length">
+                        <div class="mt-4 rounded border border-[#d8edf0] bg-[#f3fbfc] p-3">
+                            <div class="mb-2 text-sm font-semibold text-[#120d36]">Recommended next steps</div>
+                            <ul class="space-y-1 text-sm text-[#5f5c78]">
+                                <template x-for="item in report.reputation_summary.recommendations" :key="item">
+                                    <li x-text="item"></li>
+                                </template>
+                            </ul>
+                        </div>
+                    </template>
+                {% endcall %}
+            {% endcall %}
+
             <!-- Report Metadata -->
             {% call card() %}
                 {% call card_header() %}

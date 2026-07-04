@@ -189,6 +189,21 @@ function reportDetailApp(reportId = '') {
             return 'bg-gray-100 text-gray-800';
         },
 
+        reportReputationClass(status) {
+            if (status === 'listed') return 'bg-red-100 text-red-800';
+            if (status === 'attention') return 'bg-yellow-100 text-yellow-800';
+            if (status === 'clean') return 'bg-green-100 text-green-800';
+            return 'bg-gray-100 text-gray-800';
+        },
+
+        reportReputationRiskLabel(summary) {
+            const score = summary?.highest_risk_score;
+            if (typeof score === 'number') {
+                return `highest risk ${score}/100`;
+            }
+            return 'risk unknown';
+        },
+
         reputationFeedClass(status) {
             if (status === 'listed') return 'bg-red-50 text-red-800';
             if (status === 'error') return 'bg-yellow-50 text-yellow-800';
