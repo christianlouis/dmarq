@@ -308,25 +308,23 @@ def _action_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
         )
         steps = steps or ["Review the evidence and complete the recommended operator action."]
 
+    automation_path = (
+        "provider_preview"
+        if automation.get("eligible")
+        else ("investigate" if state == "investigate" else "manual")
+    )
+
     return {
         "owner": owner,
         "diagnosis": str(item.get("detail") or item.get("title") or "Review this finding."),
         "prerequisites": prerequisites[:5],
         "steps": steps[:6],
         "completion_criteria": completion,
-        "automation_path": (
-            "provider_preview"
-            if automation.get("eligible")
-            else ("investigate" if state == "investigate" else "manual")
-        ),
+        "automation_path": automation_path,
         "guidance_paths": _guidance_paths_for_item(
             item,
             owner=owner,
-            automation_path=(
-                "provider_preview"
-                if automation.get("eligible")
-                else ("investigate" if state == "investigate" else "manual")
-            ),
+            automation_path=automation_path,
         ),
     }
 
@@ -337,7 +335,7 @@ def _guidance_paths_for_item(
     owner: str,
     automation_path: str,
 ) -> List[Dict[str, str]]:
-    """Return provider and self-hosted guidance paths for one remediation item."""
+    """Return operator guidance paths for one remediation item."""
     automation = item.get("automation") or {}
     provider = str(automation.get("provider") or "detected provider")
     source = str(item.get("source") or "remediation")
