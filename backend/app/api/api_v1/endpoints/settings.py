@@ -134,7 +134,10 @@ SETTING_DEFAULTS: List[Dict[str, Any]] = [
     {
         "key": "dns.resolver",
         "value": "public",
-        "description": "DNS resolver to use: public, cloudflare, or akamai_etp",
+        "description": (
+            "DNS resolver to use: public, cloudflare, quad9, opendns, "
+            "dns4eu_unfiltered, dns4eu_protective, akamai_etp, infoblox, or custom"
+        ),
         "value_type": "string",
         "category": "dns",
     },

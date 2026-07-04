@@ -1318,6 +1318,8 @@ async def test_dns_cache_replaces_system_provider_with_public_resolver(db_sessio
     assert cached is False
     assert result.dmarc is True
     assert result.spf is True
+    cache_row = db_session.query(DNSCache).one()
+    assert cache_row.provider == "PublicRecursiveDNSProvider"
     system_check.assert_not_awaited()
     public_check.assert_awaited_once()
 

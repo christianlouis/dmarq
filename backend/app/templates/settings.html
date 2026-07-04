@@ -161,9 +161,15 @@
                     <select x-model="s['dns.resolver']" class="input input-bordered w-full">
                         <option value="public">Public DNS (1.1.1.1 + 8.8.8.8)</option>
                         <option value="cloudflare">Cloudflare DoH</option>
+                        <option value="quad9">Quad9 secure DNS</option>
+                        <option value="opendns">OpenDNS / Cisco Umbrella</option>
+                        <option value="dns4eu_unfiltered">DNS4EU unfiltered</option>
+                        <option value="dns4eu_protective">DNS4EU protective</option>
                         <option value="akamai_etp">Akamai ETP DNS (from deployment secrets)</option>
+                        <option value="infoblox">Infoblox DNS (from deployment secrets)</option>
+                        <option value="custom">Custom DNS (from deployment secrets)</option>
                     </select>
-                    <label class="label"><span class="label-text-alt text-muted-foreground">Public DNS bypasses the host resolver. Akamai ETP uses resolver values supplied by environment or secret configuration.</span></label>
+                    <label class="label"><span class="label-text-alt text-muted-foreground">All profiles bypass the host resolver. Enterprise and custom profiles use resolver values supplied by environment or secret configuration.</span></label>
                 </div>
                 <div class="flex justify-end">
                     <button type="submit" class="btn btn-default btn-md" :disabled="saving">

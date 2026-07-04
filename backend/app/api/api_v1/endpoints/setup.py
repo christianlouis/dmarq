@@ -263,7 +263,10 @@ async def setup_system(
             db,
             DNS_RESOLVER_KEY,
             "cloudflare",
-            description="DNS resolver to use: public, cloudflare, or akamai_etp",
+            description=(
+                "DNS resolver to use: public, cloudflare, quad9, opendns, "
+                "dns4eu_unfiltered, dns4eu_protective, akamai_etp, infoblox, or custom"
+            ),
             category="dns",
         )
     db.commit()

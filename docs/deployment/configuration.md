@@ -188,9 +188,16 @@ possible, or inject `AKAMAI_HOST`, `AKAMAI_CLIENT_TOKEN`,
 Use `AKAMAI_ACCOUNT_SWITCH_KEY` only when your Akamai client needs to operate
 against a delegated account.
 
-For Akamai ETP resolver-backed DNS checks, select the `akamai_etp` resolver
-profile in DMARQ settings and inject the assigned resolver values through your
-secret manager. These values are account-specific and should not be committed.
+For resolver-backed DNS checks, DMARQ ships with public profiles for Public DNS,
+Cloudflare DoH, Quad9, OpenDNS, and DNS4EU. Select `dns4eu_unfiltered` for
+diagnostic DNS evidence when you want an EU-based resolver without protective
+filtering that could hide real DNS records. Use `dns4eu_protective` only when
+the intentional security-filtering behavior is part of the test.
+
+For Akamai ETP, Infoblox, or custom resolver-backed DNS checks, select the
+matching resolver profile in DMARQ settings and inject the assigned resolver
+values through your secret manager. These values may be account-specific and
+should not be committed.
 
 ### Mail Authentication Defaults
 
@@ -373,9 +380,15 @@ operational policy if long-term storage size matters.
 | `AKAMAI_ACCESS_TOKEN` | Akamai EdgeGrid access token when not using `.edgerc` | - | `your_akamai_access_token` |
 | `AKAMAI_ACCOUNT_SWITCH_KEY` | Optional Akamai account switch key for managed-account access | - | `A-CCT1234:A-CCT5432` |
 | `AKAMAI_ETP_DNS_SERVERS` | Comma-separated Akamai ETP resolver IP addresses assigned to this deployment | - | `op://...` |
-| `AKAMAI_ETP_DOH_HOSTNAME` | Optional Akamai ETP DNS-over-HTTPS hostname for future resolver transports and operator context | - | `op://...` |
+| `AKAMAI_ETP_DOH_HOSTNAME` | Optional Akamai ETP DNS-over-HTTPS hostname used when DNS server IPs are not configured or as fallback after resolver failure | - | `op://...` |
 | `AKAMAI_ETP_DOT_HOSTNAME` | Optional Akamai ETP DNS-over-TLS hostname for operator context | - | `op://...` |
 | `AKAMAI_ETP_PROXY_CHAINING_URL` | Optional Akamai ETP proxy chaining URL for operator context | - | `op://...` |
+| `INFOBLOX_DNS_SERVERS` | Comma-separated Infoblox resolver IP addresses assigned to this deployment | - | `op://...` |
+| `INFOBLOX_DOH_HOSTNAME` | Optional Infoblox DNS-over-HTTPS hostname used when DNS server IPs are not configured or as fallback after resolver failure | - | `op://...` |
+| `INFOBLOX_DOT_HOSTNAME` | Optional Infoblox DNS-over-TLS hostname for operator context | - | `op://...` |
+| `DMARQ_DNS_CUSTOM_SERVERS` | Comma-separated custom recursive resolver IP addresses for this deployment | - | `op://...` |
+| `DMARQ_DNS_CUSTOM_DOH_HOSTNAME` | Optional custom DNS-over-HTTPS hostname used when DNS server IPs are not configured or as fallback after resolver failure | - | `op://...` |
+| `DMARQ_DNS_CUSTOM_DOT_HOSTNAME` | Optional custom DNS-over-TLS hostname for operator context | - | `op://...` |
 
 ### Email Service and Webhook Integrations
 

@@ -390,6 +390,7 @@ async def resolve_domain_dns_cached(
 ) -> Tuple[DomainDNSResult, bool, datetime]:
     """Resolve DNS for a domain, reusing a fresh cached result when available."""
     now = _utcnow_naive()
+    provider = _normalize_dns_provider(provider)
     provider_name = provider.__class__.__name__
     selectors_key = _selectors_key(selectors)
     row = _cache_row(
@@ -471,6 +472,7 @@ def get_cached_domain_dns_result(
     selectors: List[str],
 ) -> Tuple[Optional[DomainDNSResult], bool, Optional[datetime]]:
     """Return the latest cached DNS result without performing network lookups."""
+    provider = _normalize_dns_provider(provider)
     row = _cache_row(
         db,
         domain=domain,

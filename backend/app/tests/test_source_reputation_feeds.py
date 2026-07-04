@@ -4,6 +4,7 @@ import dns.resolver
 import httpx
 import pytest
 
+from app.services.dns_resolver import PUBLIC_RECURSIVE_NAMESERVERS
 from app.services.source_reputation_feeds import (
     AbuseIPDBFeedProvider,
     DNSBLFeedProvider,
@@ -127,7 +128,7 @@ def test_dnsbl_default_resolver_uses_public_recursive_nameservers():
         )
     )
 
-    assert provider._resolver.nameservers == ["1.1.1.1", "8.8.8.8"]
+    assert provider._resolver.nameservers == list(PUBLIC_RECURSIVE_NAMESERVERS)
 
 
 class NoNameserversResolver:
