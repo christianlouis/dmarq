@@ -5,7 +5,7 @@
 {% block title %}DMARQ - Forensic Reports{% endblock %}
 
 {% block content %}
-<div class="container mx-auto py-4" x-data="forensicReportsApp()" data-forensic-reports-page>
+<div class="container mx-auto py-4" x-data="forensicReportsApp" data-forensic-reports-page>
     <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between mb-6">
         <div>
             <h1 class="text-2xl font-bold">Forensic Reports</h1>
@@ -91,11 +91,11 @@
             {% call card_content() %}
                 <form class="space-y-3" data-forensic-upload-form>
                     <input type="file" class="file-input file-input-bordered w-full" accept=".eml,.txt,message/rfc822,text/plain" data-forensic-upload-file>
-                    <button class="btn btn-primary w-full" type="submit" :disabled="uploading || !selectedFile">
-                        <span x-show="!uploading">Upload Forensic Report</span>
+                    <button class="btn btn-primary w-full" type="submit" :disabled="uploadDisabled">
+                        <span x-show="uploadIdle">Upload Forensic Report</span>
                         <span x-show="uploading" class="loading loading-spinner loading-sm"></span>
                     </button>
-                    <p class="text-sm" :class="uploadError ? 'text-error' : 'text-success'" x-show="uploadMessage" x-text="uploadMessage"></p>
+                    <p class="text-sm" :class="uploadMessageClass" x-show="uploadMessage" x-text="uploadMessage"></p>
                 </form>
             {% endcall %}
         {% endcall %}
@@ -115,27 +115,27 @@
             </div>
         {% endcall %}
         {% call card_content() %}
-            <template x-if="analysis.groups.length === 0">
+            <template x-if="analysisEmpty">
                 <p class="text-base-content/60">No failure samples are available for analysis.</p>
             </template>
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4" x-show="analysis.groups.length > 0">
-                <template x-for="group in analysis.groups.slice(0, 3)" :key="group.key">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4" x-show="hasAnalysisGroups">
+                <template x-for="group in visibleAnalysisGroups" :key="group.key">
                     <div class="border border-base-300 rounded-md p-4 space-y-3">
                         <div class="flex items-start justify-between gap-3">
                             <div class="min-w-0">
                                 <p class="font-semibold break-words" x-text="group.domain"></p>
                                 <p class="text-sm font-mono text-base-content/70" x-text="group.source_ip"></p>
                             </div>
-                            <span class="badge uppercase" :class="priorityClass(group.priority)" x-text="group.priority"></span>
+                            <span class="badge uppercase" :class="group.priority_class" x-text="group.priority"></span>
                         </div>
                         <p class="text-sm" x-text="group.diagnosis"></p>
                         <ul class="text-sm space-y-1 list-disc pl-4">
-                            <template x-for="action in group.recommendations.slice(0, 2)" :key="action">
+                            <template x-for="action in group.visible_recommendations" :key="action">
                                 <li x-text="action"></li>
                             </template>
                         </ul>
                         <div class="flex items-center justify-between text-xs text-base-content/60">
-                            <span><span x-text="group.count"></span> samples</span>
+                            <span x-text="group.sample_count_label"></span>
                             <span class="uppercase" x-text="group.auth_failure"></span>
                         </div>
                     </div>
@@ -150,7 +150,7 @@
                 <div>
                     {% call card_title() %}Authentication Failures{% endcall %}
                     {% call card_description() %}
-                        Showing <span x-text="filteredReports.length"></span> of <span x-text="total"></span> reports
+                        Showing <span x-text="filteredReportsCount"></span> of <span x-text="total"></span> reports
                     {% endcall %}
                 </div>
                 <button class="btn btn-outline btn-sm" data-forensic-reset>Reset</button>
@@ -185,15 +185,15 @@
                         </template>
                         <template x-for="report in filteredReports" :key="report.id">
                             {% call tr() %}
-                                {% call td() %}<span x-text="formatDate(report.arrival_date || report.processed_at)"></span>{% endcall %}
-                                {% call td() %}<a class="link link-hover font-medium" :href="'/domains/' + encodeURIComponent(report.domain || report.reported_domain)" x-text="report.domain || report.reported_domain || 'unknown'"></a>{% endcall %}
+                                {% call td() %}<span x-text="report.arrival_label"></span>{% endcall %}
+                                {% call td() %}<a class="link link-hover font-medium" :href="report.domain_url" x-text="report.domain_label"></a>{% endcall %}
                                 {% call td() %}<span class="font-mono text-sm" x-text="report.source_ip || '-'"></span>{% endcall %}
                                 {% call td() %}<span class="badge badge-error badge-outline uppercase" x-text="report.auth_failure || 'unknown'"></span>{% endcall %}
                                 {% call td() %}<span class="badge badge-ghost uppercase" x-text="report.delivery_result || 'unknown'"></span>{% endcall %}
                                 {% call td() %}<span class="block max-w-48 truncate" x-text="report.original_from || report.original_mail_from || '-'"></span>{% endcall %}
                                 {% call td() %}<span class="block max-w-64 truncate" x-text="report.original_subject || '-'"></span>{% endcall %}
                                 {% call td("text-right") %}
-                                    <a class="btn btn-outline btn-sm" :href="'/forensics/' + report.id">Investigate</a>
+                                    <a class="btn btn-outline btn-sm" :href="report.detail_url">Investigate</a>
                                 {% endcall %}
                             {% endcall %}
                         </template>

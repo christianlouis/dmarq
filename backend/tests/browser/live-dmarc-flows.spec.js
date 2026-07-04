@@ -511,7 +511,43 @@ async function installApiMocks(page) {
         warnings: [],
       },
       '/api/v1/domains/cklnet.com/selectors': [{ selector: 'pm' }, { selector: 'mail' }],
-      '/api/v1/forensics/analysis': { total: 0, failure_counts: {} },
+      '/api/v1/forensics': {
+        reports: [
+          {
+            id: 'forensic-1',
+            report_id: 'forensic-1',
+            arrival_date: '2026-07-04T08:10:00Z',
+            processed_at: '2026-07-04T08:12:00Z',
+            domain: 'cklnet.com',
+            reported_domain: 'cklnet.com',
+            source_ip: '193.138.195.141',
+            auth_failure: 'dkim',
+            delivery_result: 'reject',
+            original_from: 'alerts@cklnet.com',
+            original_subject: 'Authentication failed',
+            authentication_results: 'dkim=fail spf=pass dmarc=fail',
+          },
+        ],
+        total: 1,
+      },
+      '/api/v1/forensics/analysis': {
+        total: 1,
+        priority_counts: { high: 1, medium: 0 },
+        failure_counts: { dkim: 1 },
+        result_counts: { reject: 1 },
+        groups: [
+          {
+            key: 'cklnet.com:193.138.195.141:dkim',
+            domain: 'cklnet.com',
+            source_ip: '193.138.195.141',
+            priority: 'high',
+            diagnosis: 'DKIM failed for a source that still sends mail.',
+            recommendations: ['Check selector DNS', 'Confirm signing in the mail service'],
+            count: 1,
+            auth_failure: 'dkim',
+          },
+        ],
+      },
       '/api/v1/poll-status': {
         is_running: true,
         enabled_sources: 1,
@@ -665,6 +701,21 @@ test('domain list loads domain rows and keeps edit action wired', async ({ page 
   await expect(page.getByRole('dialog').getByText('cklnet.com')).toBeVisible();
   await page.locator('[data-domain-edit-close]').first().click();
   await expect(page.locator('[data-domain-edit-dialog]')).toHaveJSProperty('open', false);
+});
+
+test('forensic reports page renders normalized links and analysis cards', async ({ page }) => {
+  await page.goto('/forensics');
+
+  await expect(page.getByRole('heading', { name: 'Forensic Reports' })).toBeVisible();
+  await expect(page.getByText('DKIM failed for a source that still sends mail.')).toBeVisible();
+  await expect(page.getByText('1 samples')).toBeVisible();
+
+  const domainLink = page.getByRole('link', { name: 'cklnet.com' }).first();
+  await expect(domainLink).toHaveAttribute('href', '/domains/cklnet.com');
+  await expect(page.getByRole('link', { name: 'Investigate' })).toHaveAttribute(
+    'href',
+    '/forensics/forensic-1'
+  );
 });
 
 test('upload page keeps queue controls wired without inline handlers', async ({ page }) => {

@@ -93,6 +93,9 @@ function forensicReportsApp() {
                 ].some((value) => String(value || '').toLowerCase().includes(search))
             );
         },
+        get filteredReportsCount() {
+            return this.filteredReports.length;
+        },
         get summary() {
             return {
                 total: this.total,
@@ -100,6 +103,24 @@ function forensicReportsApp() {
                 spf: this.reports.filter((report) => report.auth_failure === 'spf').length,
                 rejected: this.reports.filter((report) => report.delivery_result === 'reject').length,
             };
+        },
+        get uploadIdle() {
+            return !this.uploading;
+        },
+        get uploadDisabled() {
+            return this.uploading || !this.selectedFile;
+        },
+        get uploadMessageClass() {
+            return this.uploadError ? 'text-error' : 'text-success';
+        },
+        get hasAnalysisGroups() {
+            return this.analysis.groups.length > 0;
+        },
+        get analysisEmpty() {
+            return !this.hasAnalysisGroups;
+        },
+        get visibleAnalysisGroups() {
+            return this.analysis.groups.slice(0, 3);
         },
         async fetchReports() {
             this.loading = true;
@@ -112,7 +133,7 @@ function forensicReportsApp() {
                 const response = await fetch(`/api/v1/forensics?${params.toString()}`);
                 if (!response.ok) throw new Error('Unable to load forensic reports');
                 const data = await response.json();
-                this.reports = data.reports || [];
+                this.reports = (data.reports || []).map((report) => this.normalizeReport(report));
                 this.total = data.total || 0;
                 await this.fetchAnalysis(params);
                 if (!this.filters.domain) {
@@ -133,7 +154,11 @@ function forensicReportsApp() {
         async fetchAnalysis(params) {
             const response = await fetch(`/api/v1/forensics/analysis?${params.toString()}`);
             if (!response.ok) throw new Error('Unable to analyze forensic reports');
-            this.analysis = await response.json();
+            const analysis = await response.json();
+            this.analysis = {
+                ...analysis,
+                groups: (analysis.groups || []).map((group) => this.normalizeAnalysisGroup(group)),
+            };
         },
         async uploadReport() {
             if (!this.selectedFile) return;
@@ -168,6 +193,24 @@ function forensicReportsApp() {
             const date = new Date(value);
             return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
         },
+        normalizeReport(report) {
+            const domain = report.domain || report.reported_domain || 'unknown';
+            return {
+                ...report,
+                arrival_label: this.formatDate(report.arrival_date || report.processed_at),
+                domain_label: domain,
+                domain_url: `/domains/${encodeURIComponent(domain)}`,
+                detail_url: `/forensics/${encodeURIComponent(report.id)}`,
+            };
+        },
+        normalizeAnalysisGroup(group) {
+            return {
+                ...group,
+                priority_class: this.priorityClass(group.priority),
+                visible_recommendations: (group.recommendations || []).slice(0, 2),
+                sample_count_label: `${group.count || 0} samples`,
+            };
+        },
         priorityClass(priority) {
             if (priority === 'high') return 'badge-error';
             if (priority === 'medium') return 'badge-warning';
@@ -175,3 +218,7 @@ function forensicReportsApp() {
         },
     };
 }
+
+document.addEventListener('alpine:init', () => {
+    Alpine.data('forensicReportsApp', forensicReportsApp);
+});
