@@ -83,7 +83,7 @@
                                 {% endcall %}
                             {% endcall %}
                         </template>
-                        <template x-if="!loading && !loadError && domains.length === 0">
+                        <template x-if="!loading && !loadError && domains.length === 0 && hiddenEmptyDomainCount() === 0">
                             {% call tr() %}
                                 {% call td(colspan="5", class="text-center") %}
                                     <p class="py-4 text-muted-foreground">No domains found. Add a domain to get started.</p>

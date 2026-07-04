@@ -1721,6 +1721,8 @@ class DomainSummaryResponse(BaseModel):
     overall_pass_rate: float
     reports_processed: int
     domains: List[Dict[str, Any]]
+    empty_domains_count: int = 0
+    empty_domains_hidden: int = 0
     health_summary: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -3388,6 +3390,10 @@ async def _resolve_summary_dns_result(
 @router.get("/summary", response_model=DomainSummaryResponse)
 async def get_domains_summary(
     refresh: bool = Query(False, title="Refresh cached DNS results"),
+    include_empty: bool = Query(
+        True,
+        title="Include domains with no reports or observed mail volume",
+    ),
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
     selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
@@ -3426,6 +3432,20 @@ async def get_domains_summary(
             domains,
             workspace_id=workspace.id,
         )
+
+    def _has_activity(domain_name: str) -> bool:
+        summary = summaries.get(domain_name, {})
+        return bool(
+            int(summary.get("reports_processed", 0) or 0) > 0
+            or int(summary.get("total_count", 0) or 0) > 0
+        )
+
+    empty_domains = [domain_name for domain_name in domains if not _has_activity(domain_name)]
+    empty_domains_count = len(empty_domains)
+    if not include_empty and empty_domains:
+        hidden = set(empty_domains)
+        domains = [domain_name for domain_name in domains if domain_name not in hidden]
+    empty_domains_hidden = empty_domains_count if not include_empty else 0
 
     # Perform DNS checks for all domains, reusing fresh cached results.
     provider = get_default_provider(db)
@@ -3543,6 +3563,8 @@ async def get_domains_summary(
         overall_pass_rate=overall_pass_rate,
         reports_processed=total_reports,
         domains=domains_list,
+        empty_domains_count=empty_domains_count,
+        empty_domains_hidden=empty_domains_hidden,
         health_summary=health_summary,
     )
 

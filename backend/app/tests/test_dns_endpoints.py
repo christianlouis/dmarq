@@ -2537,6 +2537,42 @@ def test_summary_endpoint_uses_database_aggregates_without_hydration(
     assert provider.check_domain.await_count == 0
 
 
+def test_summary_endpoint_can_hide_empty_domains_before_dns_work(
+    authed_client: TestClient,
+    db_session,
+):
+    """Domain management can skip empty imported zones before DNS summary work runs."""
+    _persist_minimal_report(db_session)
+    workspace = get_or_create_default_workspace(db_session)
+    db_session.add(Domain(name="empty.example", workspace_id=workspace.id, active=True))
+    db_session.commit()
+
+    provider = AsyncMock(check_domain=AsyncMock(return_value=MOCK_DNS_RESULT))
+
+    with patch(
+        "app.api.api_v1.endpoints.domains.get_default_provider",
+        return_value=provider,
+    ):
+        default_response = authed_client.get("/api/v1/domains/summary")
+        filtered_response = authed_client.get(
+            "/api/v1/domains/summary?include_empty=false&refresh=true"
+        )
+
+    assert default_response.status_code == 200
+    default_data = default_response.json()
+    assert default_data["total_domains"] == 2
+    assert default_data["empty_domains_count"] == 1
+    assert default_data["empty_domains_hidden"] == 0
+
+    assert filtered_response.status_code == 200
+    filtered_data = filtered_response.json()
+    assert filtered_data["total_domains"] == 1
+    assert filtered_data["empty_domains_count"] == 1
+    assert filtered_data["empty_domains_hidden"] == 1
+    assert [domain["domain_name"] for domain in filtered_data["domains"]] == [DOMAIN]
+    assert provider.check_domain.await_count == 1
+
+
 def test_summary_endpoint_reuses_prewarmed_dns_evidence_with_different_selectors(
     authed_client: TestClient,
     db_session,
