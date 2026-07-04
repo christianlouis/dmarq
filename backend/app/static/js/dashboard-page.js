@@ -903,6 +903,35 @@ function dashboardApp() {
             return this.healthSummary?.remediation || {};
         },
 
+        remediationLoop() {
+            return this.healthSummary?.remediation_loop || {};
+        },
+
+        remediationLoopItems() {
+            const items = this.remediationLoop().items;
+            return Array.isArray(items) ? items : [];
+        },
+
+        hasRemediationLoopItems() {
+            return this.remediationLoopItems().length > 0;
+        },
+
+        remediationLoopStateLabel(state) {
+            return {
+                needs_approval: 'Needs approval',
+                manual_action: 'Manual action',
+                investigate: 'Investigate'
+            }[String(state || '')] || 'Review';
+        },
+
+        remediationLoopStateClass(state) {
+            return {
+                needs_approval: 'bg-[#edf7f7] text-[#247982]',
+                manual_action: 'bg-[#fff7df] text-[#8a6418]',
+                investigate: 'bg-[#fff1ea] text-[#b8431d]'
+            }[String(state || '')] || 'bg-[#f8f7f6] text-[#5f5c78]';
+        },
+
         domainActionHref(action) {
             return action && action.domain
                 ? `/domains/${encodeURIComponent(action.domain)}`

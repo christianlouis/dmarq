@@ -201,6 +201,58 @@
         </div>
     </section>
 
+    <section class="rounded-lg bg-white p-6 shadow-sm" x-show="healthSummary && hasDomainData" x-cloak>
+        <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div>
+                <p class="text-xs font-semibold uppercase tracking-wide text-[#2f9da5]">Remediation Loop</p>
+                <h2 class="mt-1 text-2xl font-semibold tracking-normal text-[#07071f]">Current fix queue</h2>
+            </div>
+            <a href="/domains" class="text-sm font-semibold text-[#2f9da5] hover:text-[#272a5f]">Open domain worklist</a>
+        </div>
+        <div class="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div class="rounded-md border border-[#e6e3e1] p-4">
+                <p class="text-sm text-[#5f5c78]">Fixed</p>
+                <p class="mt-2 text-3xl font-bold text-[#247982]" x-text="remediationLoop().fixed || 0"></p>
+                <p class="mt-1 text-xs text-[#5f5c78]">Operator-marked and verified items</p>
+            </div>
+            <div class="rounded-md border border-[#e6e3e1] p-4">
+                <p class="text-sm text-[#5f5c78]">Needs approval</p>
+                <p class="mt-2 text-3xl font-bold text-[#120d36]" x-text="remediationLoop().needs_approval || 0"></p>
+                <p class="mt-1 text-xs text-[#5f5c78]">DNS or policy changes to review</p>
+            </div>
+            <div class="rounded-md border border-[#e6e3e1] p-4">
+                <p class="text-sm text-[#5f5c78]">Manual action</p>
+                <p class="mt-2 text-3xl font-bold text-[#8a6418]" x-text="remediationLoop().manual_action || 0"></p>
+                <p class="mt-1 text-xs text-[#5f5c78]">Tasks for mail or DNS owners</p>
+            </div>
+            <div class="rounded-md border border-[#e6e3e1] p-4">
+                <p class="text-sm text-[#5f5c78]">Investigate</p>
+                <p class="mt-2 text-3xl font-bold text-[#b8431d]" x-text="remediationLoop().investigate || 0"></p>
+                <p class="mt-1 text-xs text-[#5f5c78]">Sender or report evidence to confirm</p>
+            </div>
+        </div>
+        <div class="mt-5 grid gap-3 lg:grid-cols-2" x-show="hasRemediationLoopItems()">
+            <template x-for="item in remediationLoopItems()" :key="item.domain + item.type + item.title">
+                <a class="rounded-md border border-[#e6e3e1] p-4 transition hover:border-[#2f9da5] hover:shadow-sm"
+                   :href="domainActionHref(item)">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                            <span class="inline-flex rounded-md px-2 py-1 text-xs font-semibold"
+                                  :class="remediationLoopStateClass(item.state)"
+                                  x-text="remediationLoopStateLabel(item.state)"></span>
+                            <h3 class="mt-2 font-semibold text-[#120d36]" x-text="item.title"></h3>
+                        </div>
+                        <span class="rounded-full bg-[#f8f7f6] px-3 py-1 text-xs font-semibold text-[#5f5c78]"
+                              x-text="item.severity"></span>
+                    </div>
+                    <p class="mt-2 text-sm text-[#5f5c78]" x-text="item.detail"></p>
+                    <p class="mt-2 text-sm font-semibold text-[#272a5f]" x-text="item.next_step"></p>
+                    <p class="mt-2 text-xs text-[#5f5c78]" x-text="item.domain"></p>
+                </a>
+            </template>
+        </div>
+    </section>
+
     <div class="grid grid-cols-1 gap-6 xl:grid-cols-12" x-show="hasDomainData" x-cloak>
         <section class="rounded-lg bg-white p-6 shadow-sm xl:col-span-6" data-tour="compliance-chart">
             <div class="mb-3 grid gap-2 sm:flex sm:items-start sm:justify-between sm:gap-4">
