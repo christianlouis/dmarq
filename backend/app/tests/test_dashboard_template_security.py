@@ -568,11 +568,39 @@ def test_forensic_reports_uses_external_page_script_for_csp_migration():
     script = _forensic_reports_script()
 
     assert 'src="/static/js/forensic-reports-page.js"' in template
-    assert "forensicReportsApp()" in template
+    assert 'x-data="forensicReportsApp"' in template
+    assert "Alpine.data('forensicReportsApp', forensicReportsApp)" in script
     assert "/api/v1/forensics?" in script
     assert "/api/v1/forensics/analysis?" in script
     assert "/api/v1/forensics/upload" in script
     assert "Unable to load forensic reports" in script
+    assert "normalizeReport(report)" in script
+    assert "normalizeAnalysisGroup(group)" in script
+    assert "domain_url" in script
+    assert "detail_url" in script
+    assert "encodeURIComponent(domain)" in script
+    assert "encodeURIComponent(report.id)" in script
+    assert "uploadDisabled" in template
+    assert "uploadIdle" in template
+    assert "uploadMessageClass" in template
+    assert "analysisEmpty" in template
+    assert "hasAnalysisGroups" in template
+    assert "visibleAnalysisGroups" in template
+    assert "group.priority_class" in template
+    assert "group.visible_recommendations" in template
+    assert "group.sample_count_label" in template
+    assert "filteredReportsCount" in template
+    assert "report.arrival_label" in template
+    assert "report.domain_url" in template
+    assert "report.domain_label" in template
+    assert "report.detail_url" in template
+    assert "forensicReportsApp()" not in template
+    assert "priorityClass(group.priority)" not in template
+    assert "analysis.groups.slice(0, 3)" not in template
+    assert "group.recommendations.slice(0, 2)" not in template
+    assert "formatDate(report.arrival_date" not in template
+    assert "'/domains/' + encodeURIComponent" not in template
+    assert "'/forensics/' + report.id" not in template
     assert not _has_alpine_handler_call(template, "change", "fetchReports")
     assert not _has_alpine_handler_call(template, "submit", "uploadReport")
     assert not _has_alpine_handler_call(template, "click", "resetFilters")
