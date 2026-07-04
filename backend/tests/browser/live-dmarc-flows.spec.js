@@ -66,6 +66,43 @@ const reputationUnknown = {
   recommendations: [],
 };
 
+const operationsHealth = {
+  status: 'ok',
+  database: { ok: true, detail: 'SQLite ready' },
+  scheduler: {
+    running: true,
+    enabled_sources: 2,
+    total_sources: 3,
+    last_cycle_started_at: '2026-07-04T08:20:00Z',
+    last_success_at: '2026-07-04T08:21:00Z',
+    last_error: '',
+  },
+  imports: {
+    latest: {
+      status: 'completed',
+      reports_found: 4,
+      finished_at: '2026-07-04T08:22:00Z',
+    },
+    latest_successful: {
+      status: 'completed',
+      reports_found: 4,
+      finished_at: '2026-07-04T08:22:00Z',
+    },
+  },
+  reports: {
+    count: 151,
+    latest_processed_at: '2026-07-04T08:22:30Z',
+  },
+  checks: ['DNS cache refresh queue is healthy'],
+  mailbox_recovery: [
+    {
+      category: 'gmail_backfill',
+      summary: 'Gmail backfill can resume from the saved cursor.',
+      recovery_steps: ['Open Mail Sources', 'Run backfill from cursor'],
+    },
+  ],
+};
+
 const domainSummary = {
   total_domains: 2,
   total_emails: 2873,
@@ -346,6 +383,7 @@ async function installApiMocks(page) {
       '/api/v1/stats/dashboard': dashboardStats,
       '/api/v1/domains/summary/health/history': healthHistory,
       '/api/v1/reports': reports,
+      '/api/v1/health/operations': operationsHealth,
       '/api/v1/reports/browser-smoke-cklnet': reportDetail,
       '/api/v1/domains/cklnet.com/stats': {
         complianceRate: 92.1,
@@ -720,4 +758,19 @@ test('reports list and aggregate detail keep source evidence actionable', async 
   await expect(page.getByText('Reputation feeds are disabled.').first()).toBeVisible();
   await expect(page.getByText('DKIM did not pass for this source.')).toBeVisible();
   await expect(page.getByText('Failed to load report')).not.toBeVisible();
+});
+
+test('operations health page renders the registered Alpine component', async ({ page }) => {
+  await page.goto('/operations');
+
+  await expect(page.getByRole('heading', { name: 'System Health' })).toBeVisible();
+  await expect(page.getByText('ok')).toBeVisible();
+  await expect(page.getByText('Connected')).toBeVisible();
+  await expect(page.getByText('2/3')).toBeVisible();
+  await expect(page.getByText('151')).toBeVisible();
+  await expect(page.getByText('Running')).toBeVisible();
+  await expect(page.getByText('completed (4 reports)')).toHaveCount(2);
+  await expect(page.getByText('DNS cache refresh queue is healthy')).toBeVisible();
+  await expect(page.getByText('gmail backfill', { exact: true })).toBeVisible();
+  await expect(page.getByText('Gmail backfill can resume from the saved cursor.')).toBeVisible();
 });

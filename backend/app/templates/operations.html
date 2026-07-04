@@ -3,7 +3,7 @@
 {% block title %}DMARQ - Health{% endblock %}
 
 {% block content %}
-<div class="mx-auto max-w-6xl space-y-6" x-data="operationsHealth()" data-operations-health>
+<div class="mx-auto max-w-6xl space-y-6" x-data="operationsHealth" data-operations-health>
     <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
             <h1 class="text-2xl font-bold">System Health</h1>
@@ -15,7 +15,7 @@
         </button>
     </div>
 
-    <div x-show="error" role="alert" class="alert alert-error">
+    <div x-show="hasError" role="alert" class="alert alert-error">
         <span x-text="error"></span>
     </div>
 
@@ -23,25 +23,25 @@
         <div class="card bg-base-100 shadow">
             <div class="card-body">
                 <div class="text-sm text-base-content/60">Overall</div>
-                <div class="text-2xl font-semibold capitalize" :class="health.status === 'ok' ? 'text-success' : 'text-warning'" x-text="health.status || 'loading'"></div>
+                <div class="text-2xl font-semibold capitalize" :class="statusClass" x-text="statusLabel"></div>
             </div>
         </div>
         <div class="card bg-base-100 shadow">
             <div class="card-body">
                 <div class="text-sm text-base-content/60">Database</div>
-                <div class="text-2xl font-semibold" :class="health.database?.ok ? 'text-success' : 'text-error'" x-text="health.database?.ok ? 'Connected' : 'Failed'"></div>
+                <div class="text-2xl font-semibold" :class="databaseClass" x-text="databaseLabel"></div>
             </div>
         </div>
         <div class="card bg-base-100 shadow">
             <div class="card-body">
                 <div class="text-sm text-base-content/60">Mail Sources</div>
-                <div class="text-2xl font-semibold" x-text="`${health.scheduler?.enabled_sources || 0}/${health.scheduler?.total_sources || 0}`"></div>
+                <div class="text-2xl font-semibold" x-text="mailSourcesLabel"></div>
             </div>
         </div>
         <div class="card bg-base-100 shadow">
             <div class="card-body">
                 <div class="text-sm text-base-content/60">Reports</div>
-                <div class="text-2xl font-semibold" x-text="health.reports?.count || 0"></div>
+                <div class="text-2xl font-semibold" x-text="reportsCountLabel"></div>
             </div>
         </div>
     </div>
@@ -53,19 +53,19 @@
                 <dl class="grid gap-3 text-sm sm:grid-cols-2">
                     <div>
                         <dt class="text-base-content/60">State</dt>
-                        <dd class="font-medium" x-text="health.scheduler?.running ? 'Running' : 'Stopped'"></dd>
+                        <dd class="font-medium" x-text="schedulerStateLabel"></dd>
                     </div>
                     <div>
                         <dt class="text-base-content/60">Last cycle</dt>
-                        <dd class="font-medium" x-text="formatDate(health.scheduler?.last_cycle_started_at)"></dd>
+                        <dd class="font-medium" x-text="lastCycleLabel"></dd>
                     </div>
                     <div>
                         <dt class="text-base-content/60">Last successful cycle</dt>
-                        <dd class="font-medium" x-text="formatDate(health.scheduler?.last_success_at)"></dd>
+                        <dd class="font-medium" x-text="lastSuccessLabel"></dd>
                     </div>
                     <div>
                         <dt class="text-base-content/60">Last error</dt>
-                        <dd class="font-medium" x-text="health.scheduler?.last_error || 'None'"></dd>
+                        <dd class="font-medium" x-text="schedulerLastErrorLabel"></dd>
                     </div>
                 </dl>
             </div>
@@ -77,48 +77,48 @@
                 <dl class="grid gap-3 text-sm sm:grid-cols-2">
                     <div>
                         <dt class="text-base-content/60">Last completed</dt>
-                        <dd class="font-medium" x-text="formatImport(health.imports?.latest)"></dd>
+                        <dd class="font-medium" x-text="latestImportLabel"></dd>
                     </div>
                     <div>
                         <dt class="text-base-content/60">Last successful</dt>
-                        <dd class="font-medium" x-text="formatImport(health.imports?.latest_successful)"></dd>
+                        <dd class="font-medium" x-text="latestSuccessfulImportLabel"></dd>
                     </div>
                     <div>
                         <dt class="text-base-content/60">Latest report</dt>
-                        <dd class="font-medium" x-text="formatDate(health.reports?.latest_processed_at)"></dd>
+                        <dd class="font-medium" x-text="latestReportLabel"></dd>
                     </div>
                     <div>
                         <dt class="text-base-content/60">Database detail</dt>
-                        <dd class="font-medium" x-text="health.database?.detail || 'Unknown'"></dd>
+                        <dd class="font-medium" x-text="databaseDetailLabel"></dd>
                     </div>
                 </dl>
             </div>
         </section>
     </div>
 
-    <section class="card bg-base-100 shadow" x-show="health.checks?.length">
+    <section class="card bg-base-100 shadow" x-show="hasChecks">
         <div class="card-body">
             <h2 class="card-title">Attention</h2>
             <ul class="list-disc space-y-2 pl-5 text-sm">
-                <template x-for="check in health.checks" :key="check">
+                <template x-for="check in checks" :key="check">
                     <li x-text="check"></li>
                 </template>
             </ul>
         </div>
     </section>
 
-    <section class="card bg-base-100 shadow" x-show="health.mailbox_recovery?.length">
+    <section class="card bg-base-100 shadow" x-show="hasMailboxRecovery">
         <div class="card-body">
             <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <h2 class="card-title">Mailbox Recovery</h2>
                 <a href="/mail-sources" class="btn btn-outline btn-sm">Open Mail Sources</a>
             </div>
             <div class="grid gap-3 md:grid-cols-2">
-                <template x-for="item in health.mailbox_recovery" :key="item.category + item.summary">
+                <template x-for="item in mailboxRecovery" :key="item.key">
                     <div class="rounded-lg border border-base-300 bg-base-200/60 p-4">
-                        <div class="text-xs font-semibold uppercase tracking-wide text-base-content/60" x-text="categoryLabel(item.category)"></div>
+                        <div class="text-xs font-semibold uppercase tracking-wide text-base-content/60" x-text="item.category_label"></div>
                         <p class="mt-1 text-sm font-medium" x-text="item.summary"></p>
-                        <ul class="mt-3 list-disc space-y-1 pl-5 text-sm text-base-content/70" x-show="item.recovery_steps?.length">
+                        <ul class="mt-3 list-disc space-y-1 pl-5 text-sm text-base-content/70" x-show="item.has_recovery_steps">
                             <template x-for="step in item.recovery_steps" :key="step">
                                 <li x-text="step"></li>
                             </template>
