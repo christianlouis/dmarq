@@ -85,6 +85,13 @@ PUBLIC_EXPORT_ENDPOINTS = [
         "description": "Read-only DNS change plans without apply links.",
     },
     {
+        "key": "remediation_queue",
+        "method": "GET",
+        "path_template": "/api/v1/public/domains/{domain}/remediation",
+        "scope": READ_POSTURE_SCOPE,
+        "description": "Prioritized remediation work items without apply links.",
+    },
+    {
         "key": "action_proposals",
         "method": "GET",
         "path_template": "/api/v1/public/domains/{domain}/action-proposals",
@@ -136,6 +143,11 @@ MCP_EXPORT_TOOLS = [
     {
         "name": "dns_change_plan",
         "description": "Return read-only DNS change plans without apply links.",
+        "read_only": True,
+    },
+    {
+        "name": "remediation_queue",
+        "description": "Return prioritized remediation work items without apply links.",
         "read_only": True,
     },
     {

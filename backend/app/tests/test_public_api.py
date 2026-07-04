@@ -91,6 +91,63 @@ def _persist_failing_report(db_session, report=None, *, workspace_id=None):
     db_session.commit()
 
 
+def _sample_remediation_queue(domain=DOMAIN):
+    return {
+        "domain": domain,
+        "status": "needs_approval",
+        "summary": {"total": 1, "approval_ready": 1},
+        "items": [
+            {
+                "id": "dns:dmarc_missing",
+                "source": "dns_lint",
+                "state": "approval_ready",
+                "severity": "critical",
+                "confidence": "high",
+                "title": "Publish DMARC",
+                "detail": "No DMARC record is visible.",
+                "next_steps": ["Create the TXT record."],
+                "evidence": [{"label": "record", "value": "_dmarc.example.com"}],
+                "blast_radius": "DNS TXT record",
+                "prerequisites": ["Review the DNS diff."],
+                "expected_health_score_impact": "Expected to remove a DNS-health finding.",
+                "action_plan": {
+                    "owner": "DNS operator",
+                    "diagnosis": "DMARC is missing.",
+                    "prerequisites": ["DNS access"],
+                    "steps": ["Publish a DMARC TXT record."],
+                    "guidance_paths": [],
+                    "completion_criteria": "DMARC resolves.",
+                    "automation_path": "Preview the DNS write in DMARQ.",
+                },
+                "automation": {
+                    "eligible": True,
+                    "requires_approval": True,
+                    "provider": "cloudflare",
+                    "plan_id": "plan-1",
+                    "apply_endpoint": "/api/v1/domains/example.com/dns/change-plan/apply",
+                    "reason": "Safe provider-backed DNS preview is available.",
+                },
+                "notification": {
+                    "state": "approval_required",
+                    "event": "dmarq.remediation.approval_required",
+                    "channel": "email_security",
+                    "dedupe_key": "dmarq:remediation:example.com:dns:dmarc_missing",
+                    "reason": "Notify an operator that a safe DNS repair is ready.",
+                    "next_transition": "verified_after_apply",
+                    "payload_preview": {
+                        "automation": {
+                            "eligible": True,
+                            "apply_endpoint": ("/api/v1/domains/example.com/dns/change-plan/apply"),
+                        }
+                    },
+                    "history": [],
+                    "dispatch": {"eligible": False, "reason": "disabled"},
+                },
+            }
+        ],
+    }
+
+
 def test_public_reports_api_requires_scoped_token(client: TestClient, db_session):
     """Stable public report endpoints require scoped tokens and audit usage."""
     _seed_report_store()
@@ -440,6 +497,53 @@ def test_public_action_proposals_use_posture_scope(client: TestClient, db_sessio
     assert body["proposals"]
     assert body["proposals"][0]["mutates_state"] is False
     assert body["proposals"][0]["requires_human_confirmation"] is True
+
+
+def test_public_remediation_queue_is_read_only_and_posture_scoped(
+    client: TestClient,
+    db_session,
+):
+    """Public remediation queues keep actionability but remove write links."""
+    _persist_failing_report(db_session)
+    posture_token = create_api_token(
+        db_session,
+        name="posture remediation bot",
+        scopes=[READ_POSTURE_SCOPE],
+    )
+    reports_token = create_api_token(
+        db_session,
+        name="reports bot",
+        scopes=[READ_REPORTS_SCOPE],
+    )
+
+    with (
+        patch(
+            "app.api.api_v1.endpoints.public.domains._build_domain_remediation_queue_for_workspace",
+            new=AsyncMock(return_value=_sample_remediation_queue()),
+        ),
+        patch(
+            "app.api.api_v1.endpoints.public.domains.attach_remediation_dispatch_previews",
+            side_effect=lambda db, workspace, queue: queue,
+        ),
+    ):
+        denied = client.get(
+            f"/api/v1/public/domains/{DOMAIN}/remediation",
+            headers={"X-API-Key": reports_token.secret},
+        )
+        response = client.get(
+            f"/api/v1/public/domains/{DOMAIN}/remediation",
+            headers={"X-API-Key": posture_token.secret},
+        )
+
+    assert denied.status_code == 403
+    assert response.status_code == 200
+    body = response.json()
+    assert body["domain"] == DOMAIN
+    assert body["summary"]["approval_ready"] == 1
+    item = body["items"][0]
+    assert item["automation"]["eligible"] is True
+    assert item["automation"]["apply_endpoint"] is None
+    assert item["notification"]["payload_preview"]["automation"]["apply_endpoint"] is None
 
 
 def test_public_action_proposals_are_workspace_scoped(client: TestClient, db_session):

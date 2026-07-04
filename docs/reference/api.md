@@ -82,6 +82,7 @@ through the `/public` path and avoid UI-specific payloads.
 | `GET /public/domains/{domain_id}/posture/evidence/export` | `posture:read` | Sanitized health score evidence export |
 | `GET /public/domains/{domain_id}/dns/lint` | `posture:read` | DNS lint findings, target records, and evidence |
 | `GET /public/domains/{domain_id}/dns/change-plan` | `posture:read` | Read-only DNS change plans without apply links |
+| `GET /public/domains/{domain_id}/remediation` | `posture:read` | Prioritized remediation queue without apply links |
 | `GET /public/domains/{domain_id}/action-proposals` | `posture:read` | Reviewable read-only remediation proposals |
 | `GET /public/alerts` | `posture:read` | Sanitized alert history for monitored workspace domains |
 | `GET /public/tls-reports/summary` | `tls-reports:read` | SMTP TLS report trends and failure groups |
@@ -135,6 +136,7 @@ The MCP endpoint currently exposes these read-only tools:
 | `domain_sources` | Return enriched DMARC sending sources |
 | `dns_lint` | Return DNS lint findings, evidence, and target records |
 | `dns_change_plan` | Return read-only DNS change plans without apply links |
+| `remediation_queue` | Return prioritized remediation work items without apply links |
 | `source_intelligence` | Return source regions and anomaly hints |
 | `action_proposals` | Return reviewable remediation proposals without applying them |
 
@@ -508,6 +510,7 @@ Available tools:
 | `domain_sources` | Return enriched DMARC sending sources |
 | `dns_lint` | Return DNS lint findings, evidence, and target records |
 | `dns_change_plan` | Return read-only DNS change plans without apply links |
+| `remediation_queue` | Return prioritized remediation work items without apply links |
 | `source_intelligence` | Return source regions and anomaly hints |
 | `action_proposals` | Return reviewable remediation proposals without applying changes |
 

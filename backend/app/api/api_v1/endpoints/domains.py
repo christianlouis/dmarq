@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import csv
 import hashlib
 import html
@@ -583,6 +584,26 @@ def read_only_dns_change_plan_response(payload: Any) -> DNSChangePlanResponse:
         apply_endpoint=None,
         plans=plans,
     )
+
+
+def read_only_remediation_queue_response(payload: Any) -> "RemediationQueueResponse":
+    """Return remediation queue data without public write affordances."""
+    data = payload.model_dump() if hasattr(payload, "model_dump") else copy.deepcopy(payload)
+    for item in data.get("items") or []:
+        automation = item.get("automation") or {}
+        automation["apply_endpoint"] = None
+        item["automation"] = automation
+
+        notification = item.get("notification") or {}
+        preview = notification.get("payload_preview") or {}
+        preview_automation = preview.get("automation") or {}
+        preview_automation["apply_endpoint"] = None
+        if preview_automation:
+            preview["automation"] = preview_automation
+        if preview:
+            notification["payload_preview"] = preview
+        item["notification"] = notification
+    return RemediationQueueResponse(**data)
 
 
 DNS_AUTOMATION_OPERATIONS = {"create", "update"}
@@ -3513,9 +3534,7 @@ async def get_domains_summary(
             "domain_name": domain_name,
             "description": stored_domain.description if stored_domain else None,
             "dkim_selectors": manual_selectors_by_domain.get(domain_name, []),
-            "dmarc_report_mailbox": (
-                stored_domain.dmarc_report_mailbox if stored_domain else None
-            ),
+            "dmarc_report_mailbox": (stored_domain.dmarc_report_mailbox if stored_domain else None),
             "total_emails": summary.get("total_count", 0),
             "passed_count": summary.get("passed_count", 0),
             "failed_count": summary.get("failed_count", 0),
