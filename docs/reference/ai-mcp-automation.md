@@ -83,6 +83,7 @@ The current tools are read-only:
 - `domain_sources`
 - `dns_lint`
 - `dns_change_plan`
+- `remediation_queue`
 - `source_intelligence`
 - `action_proposals`
 

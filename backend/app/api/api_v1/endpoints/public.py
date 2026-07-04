@@ -138,6 +138,28 @@ async def public_domain_action_proposals(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
+@router.get(
+    "/domains/{domain_id}/remediation",
+    response_model=domains.RemediationQueueResponse,
+)
+async def public_domain_remediation_queue(
+    domain_id: str = Path(..., title="The domain ID or name"),
+    refresh: bool = Query(False, title="Refresh cached DNS posture"),
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_api_token_scope(READ_POSTURE_SCOPE)),
+):
+    """Return the prioritized remediation queue without write affordances."""
+    workspace = resolve_authorized_workspace(db, _auth, PERMISSION_REPORTS_READ)
+    queue = await domains._build_domain_remediation_queue_for_workspace(
+        db,
+        workspace=workspace,
+        domain_id=domain_id,
+        refresh=refresh,
+    )
+    queue = domains.attach_remediation_dispatch_previews(db, workspace=workspace, queue=queue)
+    return domains.read_only_remediation_queue_response(queue)
+
+
 @router.get("/alerts")
 async def public_alert_history(
     active: Optional[bool] = Query(None, title="Filter active or resolved alerts"),

@@ -64,6 +64,63 @@ def _persist_report(db_session: Session) -> None:
     db_session.commit()
 
 
+def _sample_remediation_queue(domain=DOMAIN):
+    return {
+        "domain": domain,
+        "status": "needs_approval",
+        "summary": {"total": 1, "approval_ready": 1},
+        "items": [
+            {
+                "id": "dns:dmarc_missing",
+                "source": "dns_lint",
+                "state": "approval_ready",
+                "severity": "critical",
+                "confidence": "high",
+                "title": "Publish DMARC",
+                "detail": "No DMARC record is visible.",
+                "next_steps": ["Create the TXT record."],
+                "evidence": [{"label": "record", "value": "_dmarc.example.com"}],
+                "blast_radius": "DNS TXT record",
+                "prerequisites": ["Review the DNS diff."],
+                "expected_health_score_impact": "Expected to remove a DNS-health finding.",
+                "action_plan": {
+                    "owner": "DNS operator",
+                    "diagnosis": "DMARC is missing.",
+                    "prerequisites": ["DNS access"],
+                    "steps": ["Publish a DMARC TXT record."],
+                    "guidance_paths": [],
+                    "completion_criteria": "DMARC resolves.",
+                    "automation_path": "Preview the DNS write in DMARQ.",
+                },
+                "automation": {
+                    "eligible": True,
+                    "requires_approval": True,
+                    "provider": "cloudflare",
+                    "plan_id": "plan-1",
+                    "apply_endpoint": "/api/v1/domains/example.com/dns/change-plan/apply",
+                    "reason": "Safe provider-backed DNS preview is available.",
+                },
+                "notification": {
+                    "state": "approval_required",
+                    "event": "dmarq.remediation.approval_required",
+                    "channel": "email_security",
+                    "dedupe_key": "dmarq:remediation:example.com:dns:dmarc_missing",
+                    "reason": "Notify an operator that a safe DNS repair is ready.",
+                    "next_transition": "verified_after_apply",
+                    "payload_preview": {
+                        "automation": {
+                            "eligible": True,
+                            "apply_endpoint": ("/api/v1/domains/example.com/dns/change-plan/apply"),
+                        }
+                    },
+                    "history": [],
+                    "dispatch": {"eligible": False, "reason": "disabled"},
+                },
+            }
+        ],
+    }
+
+
 def _set_setting(db: Session, key: str, value: str, category: str) -> None:
     row = db.query(Setting).filter(Setting.key == key).first()
     if row is None:
@@ -815,10 +872,7 @@ def test_ai_redaction_mode_none_keeps_pii_but_redacts_secrets(db_session: Sessio
     redacted = ai_assistance.redact_safe_value(
         {
             "contact": "admin@example.com",
-            "details": (
-                "api_key=sk-test-secret "
-                "opaque=abcdefghijklmnopqrstuvwxyz1234567890"
-            ),
+            "details": ("api_key=sk-test-secret " "opaque=abcdefghijklmnopqrstuvwxyz1234567890"),
         },
         mode=config.redaction_mode,
     )
@@ -830,9 +884,7 @@ def test_ai_redaction_mode_none_keeps_pii_but_redacts_secrets(db_session: Sessio
     rules = ai_assistance._redaction_rules("none")
     assert "email local-parts and domains are preserved" in rules
     assert "secret-like key/value fragments" in rules
-    assert "no email local-part redaction" in ai_assistance._redaction_rules(
-        "balanced"
-    )
+    assert "no email local-part redaction" in ai_assistance._redaction_rules("balanced")
 
 
 def test_report_selectors_ignore_malformed_entries():
@@ -1042,6 +1094,14 @@ async def test_mcp_read_only_tool_dispatch_covers_new_domain_tools(db_session: S
             new=AsyncMock(return_value={"domain": DOMAIN, "regions": []}),
         ) as intelligence,
         patch(
+            "app.api.api_v1.endpoints.mcp.domains._build_domain_remediation_queue_for_workspace",
+            new=AsyncMock(return_value=_sample_remediation_queue()),
+        ) as remediation_queue,
+        patch(
+            "app.api.api_v1.endpoints.mcp.domains.attach_remediation_dispatch_previews",
+            side_effect=lambda db, workspace, queue: queue,
+        ) as remediation_dispatch,
+        patch(
             "app.api.api_v1.endpoints.mcp.domains.build_domain_health_evidence_export_rows",
             new=AsyncMock(return_value=[{"domain": DOMAIN, "score": 72, "grade": "C"}]),
         ) as health_evidence,
@@ -1095,6 +1155,13 @@ async def test_mcp_read_only_tool_dispatch_covers_new_domain_tools(db_session: S
             auth_context=auth_context,
             workspace_id=None,
         )
+        remediation_result = await mcp_endpoint._call_read_only_tool(
+            "remediation_queue",
+            {"domain": DOMAIN, "refresh": True},
+            db=db_session,
+            auth_context=auth_context,
+            workspace_id=None,
+        )
         health_evidence_result = await mcp_endpoint._call_read_only_tool(
             "health_evidence_export",
             {"domain": DOMAIN, "start_date": "2026-06-01", "limit": "25"},
@@ -1121,6 +1188,13 @@ async def test_mcp_read_only_tool_dispatch_covers_new_domain_tools(db_session: S
     assert dns_plan_result.plans[0].applies_automatically is False
     assert intelligence_result["regions"] == []
     assert proposals["proposals"]
+    assert remediation_result.domain == DOMAIN
+    assert remediation_result.items[0].automation.eligible is True
+    assert remediation_result.items[0].automation.apply_endpoint is None
+    assert (
+        remediation_result.items[0].notification.payload_preview["automation"]["apply_endpoint"]
+        is None
+    )
     assert health_evidence_result["scope"] == "domain"
     assert health_evidence_result["rows"][0]["score"] == 72
     assert usage_result["summary"]["domain_count"] == 1
@@ -1130,6 +1204,8 @@ async def test_mcp_read_only_tool_dispatch_covers_new_domain_tools(db_session: S
     dns_lint.assert_awaited_once()
     dns_change_plan.assert_awaited_once()
     intelligence.assert_awaited_once()
+    remediation_queue.assert_awaited_once()
+    remediation_dispatch.assert_called_once()
     health_evidence.assert_awaited_once()
 
 
@@ -1353,6 +1429,7 @@ def test_mcp_requires_enabled_scoped_token(client: TestClient, db_session: Sessi
         "domain_posture",
         "dns_lint",
         "dns_change_plan",
+        "remediation_queue",
         "health_evidence_export",
         "alert_history",
         "export_catalog",

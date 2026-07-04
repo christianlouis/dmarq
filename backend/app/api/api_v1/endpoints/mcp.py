@@ -110,6 +110,19 @@ READ_ONLY_TOOLS = [
         "readOnlyHint": True,
     },
     {
+        "name": "remediation_queue",
+        "description": "Return prioritized remediation work items without apply links.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string"},
+                "refresh": {"type": "boolean", "default": False},
+            },
+            "required": ["domain"],
+        },
+        "readOnlyHint": True,
+    },
+    {
         "name": "source_intelligence",
         "description": "Return source geography summaries and anomaly hints for one domain.",
         "inputSchema": {
@@ -367,6 +380,56 @@ READ_ONLY_SYNC_HANDLERS = {
 }
 
 
+async def _call_remediation_queue_tool(
+    arguments: Dict[str, Any],
+    *,
+    db: Session,
+    auth_context: Dict[str, Any],
+    workspace_id: Optional[int],
+) -> Any:
+    workspace = resolve_authorized_workspace(
+        db,
+        auth_context,
+        PERMISSION_REPORTS_READ,
+        selected_workspace_id=workspace_id,
+    )
+    queue = await domains._build_domain_remediation_queue_for_workspace(
+        db,
+        workspace=workspace,
+        domain_id=_tool_domain(arguments),
+        refresh=bool(arguments.get("refresh", False)),
+    )
+    queue = domains.attach_remediation_dispatch_previews(db, workspace=workspace, queue=queue)
+    return domains.read_only_remediation_queue_response(queue)
+
+
+async def _call_health_evidence_export_tool(
+    arguments: Dict[str, Any],
+    *,
+    db: Session,
+    auth_context: Dict[str, Any],
+    workspace_id: Optional[int],
+) -> Dict[str, Any]:
+    domain = _tool_domain(arguments)
+    rows = await domains.build_domain_health_evidence_export_rows(
+        domain_id=domain,
+        start_date=_tool_optional_date(arguments, "start_date"),
+        end_date=_tool_optional_date(arguments, "end_date"),
+        limit=_tool_limit(arguments),
+        capture_current=False,
+        db=db,
+        auth_context=auth_context,
+        selected_workspace_id=workspace_id,
+    )
+    return {"scope": "domain", "domain": domain, "rows": rows}
+
+
+READ_ONLY_ASYNC_HANDLERS = {
+    "health_evidence_export": _call_health_evidence_export_tool,
+    "remediation_queue": _call_remediation_queue_tool,
+}
+
+
 async def _call_read_only_tool(
     name: str,
     arguments: Dict[str, Any],
@@ -423,19 +486,14 @@ async def _call_read_only_tool(
             auth_context=auth_context,
             workspace_id=workspace_id,
         )
-    if name == "health_evidence_export":
-        domain = _tool_domain(arguments)
-        rows = await domains.build_domain_health_evidence_export_rows(
-            domain_id=domain,
-            start_date=_tool_optional_date(arguments, "start_date"),
-            end_date=_tool_optional_date(arguments, "end_date"),
-            limit=_tool_limit(arguments),
-            capture_current=False,
+    async_handler = READ_ONLY_ASYNC_HANDLERS.get(name)
+    if async_handler is not None:
+        return await async_handler(
+            arguments,
             db=db,
             auth_context=auth_context,
-            selected_workspace_id=workspace_id,
+            workspace_id=workspace_id,
         )
-        return {"scope": "domain", "domain": domain, "rows": rows}
     raise KeyError(name)
 
 
