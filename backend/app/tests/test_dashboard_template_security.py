@@ -498,7 +498,7 @@ def test_domains_page_distinguishes_loading_error_and_empty_states():
     assert "data-domain-retry-load" in template
     assert "data-domain-retry-load" in script
     assert 'x-if="!loading && loadError"' in template
-    assert 'x-if="!loading && !loadError && domains.length === 0"' in template
+    assert 'x-if="!loading && !loadError && domains.length === 0 && hiddenEmptyDomainCount() === 0"' in template
 
 
 def test_upload_uses_external_page_script_for_csp_migration():

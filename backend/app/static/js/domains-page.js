@@ -1,6 +1,8 @@
 function domainsApp() {
     return {
         domains: [],
+        emptyDomainsCount: 0,
+        emptyDomainsHidden: 0,
         openCreate: false,
         openEdit: false,
         loading: true,
@@ -60,7 +62,7 @@ function domainsApp() {
 
                 const emptyToggle = event.target.closest('[data-domain-toggle-empty]');
                 if (emptyToggle && root.contains(emptyToggle)) {
-                    this.showEmptyDomains = !this.showEmptyDomains;
+                    this.setShowEmptyDomains(!this.showEmptyDomains);
                     return;
                 }
 
@@ -98,26 +100,42 @@ function domainsApp() {
 
         async fetchDomains(options = {}) {
             const refresh = Boolean(options.refresh);
+            const includeEmpty =
+                options.includeEmpty === undefined ? this.showEmptyDomains : Boolean(options.includeEmpty);
             this.loading = !refresh;
             this.refreshing = refresh;
             this.loadError = '';
             try {
-                const response = await fetch(
-                    `/api/v1/domains/summary${refresh ? '?refresh=true' : ''}`
-                );
+                const params = new URLSearchParams();
+                params.set('include_empty', includeEmpty ? 'true' : 'false');
+                if (refresh) {
+                    params.set('refresh', 'true');
+                }
+                const response = await fetch(`/api/v1/domains/summary?${params.toString()}`);
                 if (!response.ok) {
                     throw new Error('Domains could not be loaded. Refresh the page or check the API service.');
                 }
                 const data = await response.json();
 
                 this.domains = data.domains.map((domain) => this.normalizeDomain(domain));
+                this.emptyDomainsCount = Number(data.empty_domains_count || 0);
+                this.emptyDomainsHidden = Number(data.empty_domains_hidden || 0);
             } catch (error) {
                 this.domains = [];
+                this.emptyDomainsCount = 0;
+                this.emptyDomainsHidden = 0;
                 this.loadError = error.message || 'Domains could not be loaded.';
                 console.error('Error fetching domains:', error);
             } finally {
                 this.loading = false;
                 this.refreshing = false;
+            }
+        },
+
+        async setShowEmptyDomains(show) {
+            this.showEmptyDomains = Boolean(show);
+            if (this.showEmptyDomains && this.emptyDomainsHidden > 0) {
+                await this.fetchDomains({ includeEmpty: true });
             }
         },
 
@@ -280,7 +298,11 @@ function domainsApp() {
         },
 
         hiddenEmptyDomainCount() {
-            return this.domains.filter((domain) => !domain.has_activity).length;
+            if (!this.showEmptyDomains && this.emptyDomainsHidden > 0) {
+                return this.emptyDomainsHidden;
+            }
+            const localEmptyCount = this.domains.filter((domain) => !domain.has_activity).length;
+            return Math.max(localEmptyCount, this.emptyDomainsCount || 0);
         },
 
         activeDomainCount() {
@@ -293,7 +315,12 @@ function domainsApp() {
         },
 
         showEmptyDomainHint() {
-            return !this.loading && !this.loadError && this.domains.length > 0 && this.activeDomainCount() === 0;
+            return (
+                !this.loading &&
+                !this.loadError &&
+                this.hiddenEmptyDomainCount() > 0 &&
+                this.activeDomainCount() === 0
+            );
         },
 
         genericDnsStatusText(domain, key) {
