@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cleaned up root directory for clarity
 
 ### Fixed
+- Fixed domain posture scoring so optional MTA-STS/BIMI gaps stay visible as actions without collapsing otherwise healthy DMARC/SPF/DKIM domains to an F-grade impression.
 - Fixed report detail views so sender-IP reputation appears as a dedicated score and assessment column instead of being buried in source metadata.
 - Fixed DNS fallback behavior so independent public resolvers are checked in parallel before a transient timeout can make records appear missing.
 - Fixed domain sending-source loading so PTR and network enrichment run in parallel instead of pushing report-backed source rows past the UI timeout.
