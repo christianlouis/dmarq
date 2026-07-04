@@ -357,7 +357,8 @@ jobs:
           cmd: |
             for manifest in \
               k8s-cluster-state/apps/dmarq/greenfield-preprod/dmarq-stack.yaml \
-              k8s-cluster-state/apps/dmarq/greenfield-demo/dmarq-stack.yaml
+              k8s-cluster-state/apps/dmarq/greenfield-demo/dmarq-stack.yaml \
+              k8s-cluster-state/apps/dmarq/prod/dmarq-stack.yaml
             do
               test -f "$manifest"
               yq -i '(.. | select(tag == "!!str") | select(test(strenv(IMAGE_PATTERN)))) = strenv(IMAGE)' \
@@ -375,7 +376,8 @@ jobs:
           git remote set-url origin "https://x-access-token:${GH_PAT}@github.com/${{ env.K8S_STATE_REPO }}.git"
           git add \
             apps/dmarq/greenfield-preprod/dmarq-stack.yaml \
-            apps/dmarq/greenfield-demo/dmarq-stack.yaml
+            apps/dmarq/greenfield-demo/dmarq-stack.yaml \
+            apps/dmarq/prod/dmarq-stack.yaml
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
