@@ -2667,8 +2667,7 @@ def _build_posture_dashboard(
     domain_health: Dict[str, Any],
     changes: List[Dict[str, Any]],
 ) -> PostureDashboardResponse:
-    passing = sum(1 for check in health.checks if check.status == "pass")
-    score = round((passing / len(health.checks)) * 100) if health.checks else 0
+    score = _posture_score(health.checks)
     coverage = [
         PostureCoverageItem(
             key=check.key,
@@ -2691,6 +2690,26 @@ def _build_posture_dashboard(
         changes=_change_summaries(changes),
         playbooks=_operator_playbooks(health.recommendations),
     )
+
+
+def _posture_score(checks: List[DNSHealthCheck]) -> int:
+    """Score posture with DMARC/SPF/DKIM as core controls and optional controls as light weight."""
+    if not checks:
+        return 0
+    weights = {
+        "dmarc": 35,
+        "spf": 25,
+        "dkim": 25,
+        "mta_sts": 10,
+        "bimi": 5,
+    }
+    total_weight = sum(weights.get(check.key, 0) for check in checks)
+    if total_weight <= 0:
+        return 0
+    passing_weight = sum(
+        weights.get(check.key, 0) for check in checks if check.status == "pass"
+    )
+    return round((passing_weight / total_weight) * 100)
 
 
 def _history_response_from_points(

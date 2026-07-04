@@ -1541,7 +1541,7 @@ def test_posture_dashboard_links_recommendations_changes_and_playbooks(
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "degraded"
-    assert data["score"] == 80
+    assert data["score"] == 75
     assert data["health"]["domain"] == DOMAIN
     assert data["health"]["grade"] in {"A+", "A", "A-", "B+", "B", "B-", "C", "D", "F"}
     assert isinstance(data["health"]["score"], int)
@@ -1595,6 +1595,37 @@ def test_posture_dashboard_distinguishes_mta_sts_policy_hosting_failure(
     assert "Rotate the TXT id" in recommendation["action"]
     assert any(playbook["key"] == "mta_sts_policy_unreachable" for playbook in data["playbooks"])
     assert all(item["type"] != "missing_mta_sts" for item in data["recommendations"])
+    assert data["score"] == 85
+    assert data["health"]["grade"] != "F"
+
+
+def test_posture_dashboard_weights_optional_controls_below_core_authentication(
+    authed_client: TestClient,
+):
+    """Missing optional posture checks should not collapse a core-authenticated domain."""
+    mta_sts = MTAStsResult(errors=["No _mta-sts TXT record was found."])
+    bimi = BIMIResult(errors=["No BIMI TXT record was found at the selector."])
+
+    with (
+        _mock_dns(result=MOCK_DNS_RESULT),
+        patch(
+            "app.api.api_v1.endpoints.domains.check_mta_sts_cached",
+            new=AsyncMock(return_value=(mta_sts, False, None)),
+        ),
+        patch(
+            "app.api.api_v1.endpoints.domains.check_bimi_cached",
+            new=AsyncMock(return_value=(bimi, False, None)),
+        ),
+    ):
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/posture")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "degraded"
+    assert data["score"] == 85
+    assert data["health"]["grade"] != "F"
+    recommendation_types = {item["type"] for item in data["recommendations"]}
+    assert {"missing_mta_sts", "missing_bimi"}.issubset(recommendation_types)
 
 
 def test_posture_dashboard_refreshes_health_grade_dns(
