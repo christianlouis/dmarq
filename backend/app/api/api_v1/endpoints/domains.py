@@ -1106,6 +1106,7 @@ class RemediationActionPlan(BaseModel):
     diagnosis: str
     prerequisites: List[str] = Field(default_factory=list)
     steps: List[str] = Field(default_factory=list)
+    guidance_paths: List[Dict[str, str]] = Field(default_factory=list)
     completion_criteria: str
     automation_path: str
 

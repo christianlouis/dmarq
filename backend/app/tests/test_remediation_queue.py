@@ -81,6 +81,9 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
     )
     assert queue["items"][0]["action_plan"]["owner"] == "Domain DNS operator"
     assert queue["items"][0]["action_plan"]["automation_path"] == "provider_preview"
+    assert queue["items"][0]["action_plan"]["guidance_paths"][0]["key"] == "provider"
+    assert "cloudflare" in queue["items"][0]["action_plan"]["guidance_paths"][0]["label"].lower()
+    assert queue["items"][0]["action_plan"]["guidance_paths"][1]["key"] == "manual"
     assert (
         "preview the provider mutation"
         in " ".join(queue["items"][0]["action_plan"]["steps"]).lower()
@@ -173,6 +176,10 @@ def test_remediation_queue_keeps_placeholder_plan_manual():
     assert queue["items"][0]["automation"]["eligible"] is False
     assert queue["items"][0]["automation"]["apply_endpoint"] is None
     assert queue["items"][0]["action_plan"]["automation_path"] == "manual"
+    assert {path["key"] for path in queue["items"][0]["action_plan"]["guidance_paths"]} == {
+        "provider",
+        "self_hosted",
+    }
     assert queue["items"][0]["action_plan"]["completion_criteria"]
     assert queue["items"][0]["notification"]["state"] == "summary_only"
     assert queue["items"][0]["notification"]["event"] == "dmarq.remediation.summary"
