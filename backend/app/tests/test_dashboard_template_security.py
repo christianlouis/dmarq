@@ -637,7 +637,8 @@ def test_tls_reports_uses_external_page_script_for_csp_migration():
     script = _tls_reports_script()
 
     assert 'src="/static/js/tls-reports-page.js"' in template
-    assert "tlsReportsApp()" in template
+    assert 'x-data="tlsReportsApp"' in template
+    assert "Alpine.data('tlsReportsApp', tlsReportsApp)" in script
     assert "/api/v1/tls-reports/summary?" in script
     assert "/api/v1/tls-reports/upload" in script
     assert "Unable to load TLS report summary" in script
@@ -653,11 +654,16 @@ def test_tls_reports_uses_external_page_script_for_csp_migration():
     assert "data-tls-reports-page" in template
     assert "data-tls-refresh" in script
     assert "bindControls()" in script
+    assert "normalizeSummary" in script
     assert "event.target instanceof Element" in script
     assert 'x-init="init()"' not in template
     assert 'x-effect="$el.style.width' not in template
-    assert "trendSuccessWidth(day)" in template
-    assert "trendFailureWidth(day)" in template
+    assert "trendSuccessWidth(day)" not in template
+    assert "trendFailureWidth(day)" not in template
+    assert 'x-text="day.failed_label"' in template
+    assert 'x-text="failure.affected_domains_label"' in template
+    assert 'x-text="failure.receiving_mx_hostnames_label"' in template
+    assert ':href="item.domain_url"' in template
     assert "viewBox=\"0 0 100 6\"" in template
     assert not _has_inline_style(template)
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)

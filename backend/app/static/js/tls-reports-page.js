@@ -20,6 +20,30 @@ function tlsReportsApp() {
             this.bindControls();
             this.refresh();
         },
+        get showError() {
+            return !this.loading && Boolean(this.error);
+        },
+        get showEmptyTrends() {
+            return !this.loading && !this.error && this.summary.trends.length === 0;
+        },
+        get showTrends() {
+            return !this.loading && !this.error && this.summary.trends.length > 0;
+        },
+        get uploadIdle() {
+            return !this.uploading;
+        },
+        get uploadDisabled() {
+            return this.uploading || !this.selectedFile;
+        },
+        get uploadMessageClass() {
+            return this.uploadError ? 'text-error' : 'text-success';
+        },
+        get showNoTopFailures() {
+            return this.summary.top_failures.length === 0;
+        },
+        get showNoAffectedDomains() {
+            return this.summary.affected_domains.length === 0;
+        },
         bindControls() {
             const root = this.$root || document;
             if (root.dataset?.tlsControlsBound === 'true') {
@@ -83,7 +107,7 @@ function tlsReportsApp() {
             try {
                 const response = await fetch(`/api/v1/tls-reports/summary?${params.toString()}`);
                 if (!response.ok) throw new Error('Unable to load TLS report summary');
-                this.summary = await response.json();
+                this.summary = this.normalizeSummary(await response.json());
             } catch (err) {
                 this.error = err.message || 'Unable to load TLS report summary';
             } finally {
@@ -129,5 +153,38 @@ function tlsReportsApp() {
         trendFailureWidth(day) {
             return Math.round((Number(day.failed_sessions || 0) / this.trendTotal(day)) * 100);
         },
+        normalizeSummary(payload) {
+            const summary = payload || emptySummary;
+            const trends = (summary.trends || []).map((day) => ({
+                ...day,
+                success_width: this.trendSuccessWidth(day),
+                failure_width: this.trendFailureWidth(day),
+                failed_label: `${this.formatNumber(day.failed_sessions)} failed`,
+            }));
+            const topFailures = (summary.top_failures || []).map((failure) => ({
+                ...failure,
+                affected_domains_label: this.joinValues(failure.affected_domains),
+                receiving_mx_hostnames_label: this.joinValues(failure.receiving_mx_hostnames),
+            }));
+            const affectedDomains = (summary.affected_domains || []).map((item) => ({
+                ...item,
+                domain_url: `/domains/${encodeURIComponent(item.domain || '')}`,
+            }));
+            return {
+                totals: { ...emptySummary.totals, ...(summary.totals || {}) },
+                trends,
+                top_failures: topFailures,
+                affected_domains: affectedDomains,
+                privacy: { ...emptySummary.privacy, ...(summary.privacy || {}) },
+            };
+        },
+        joinValues(values) {
+            const joined = (values || []).filter(Boolean).join(', ');
+            return joined || '-';
+        },
     };
 }
+
+document.addEventListener('alpine:init', () => {
+    Alpine.data('tlsReportsApp', tlsReportsApp);
+});

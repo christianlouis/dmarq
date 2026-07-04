@@ -5,7 +5,7 @@
 {% block title %}DMARQ - TLS Reports{% endblock %}
 
 {% block content %}
-<div class="container mx-auto py-4" x-data="tlsReportsApp()" data-tls-reports-page>
+<div class="container mx-auto py-4" x-data="tlsReportsApp" data-tls-reports-page>
     <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between mb-6">
         <div>
             <h1 class="text-2xl font-bold">TLS Reports</h1>
@@ -64,21 +64,21 @@
                 <template x-if="loading">
                     <div class="py-12 text-center"><span class="loading loading-spinner loading-lg"></span></div>
                 </template>
-                <template x-if="!loading && error">
+                <template x-if="showError">
                     <div class="alert alert-error" x-text="error"></div>
                 </template>
-                <template x-if="!loading && !error && summary.trends.length === 0">
+                <template x-if="showEmptyTrends">
                     <p class="text-base-content/60">No TLS report data is available for the current filters.</p>
                 </template>
-                <div class="space-y-3" x-show="!loading && !error && summary.trends.length > 0">
+                <div class="space-y-3" x-show="showTrends">
                     <template x-for="day in summary.trends" :key="day.date">
                         <div class="grid grid-cols-[6.5rem_1fr_7rem] gap-3 items-center">
                             <span class="text-sm text-base-content/70" x-text="day.date"></span>
                             <svg class="h-3 w-full rounded bg-base-300 overflow-hidden" viewBox="0 0 100 6" preserveAspectRatio="none" aria-hidden="true">
-                                <rect class="text-success fill-current" x="0" y="0" :width="trendSuccessWidth(day)" height="6"></rect>
-                                <rect class="text-error fill-current" :x="trendSuccessWidth(day)" y="0" :width="trendFailureWidth(day)" height="6"></rect>
+                                <rect class="text-success fill-current" x="0" y="0" :width="day.success_width" height="6"></rect>
+                                <rect class="text-error fill-current" :x="day.success_width" y="0" :width="day.failure_width" height="6"></rect>
                             </svg>
-                            <span class="text-right text-sm font-medium" x-text="formatNumber(day.failed_sessions) + ' failed'"></span>
+                            <span class="text-right text-sm font-medium" x-text="day.failed_label"></span>
                         </div>
                     </template>
                 </div>
@@ -93,11 +93,11 @@
             {% call card_content() %}
                 <form class="space-y-3" data-tls-upload-form>
                     <input type="file" class="file-input file-input-bordered w-full" accept=".json,.gz,.gzip,.zip,application/json,application/zip" data-tls-upload-file>
-                    <button class="btn btn-primary w-full" type="submit" :disabled="uploading || !selectedFile">
-                        <span x-show="!uploading">Upload TLS Report</span>
+                    <button class="btn btn-primary w-full" type="submit" :disabled="uploadDisabled">
+                        <span x-show="uploadIdle">Upload TLS Report</span>
                         <span x-show="uploading" class="loading loading-spinner loading-sm"></span>
                     </button>
-                    <p class="text-sm" :class="uploadError ? 'text-error' : 'text-success'" x-show="uploadMessage" x-text="uploadMessage"></p>
+                    <p class="text-sm" :class="uploadMessageClass" x-show="uploadMessage" x-text="uploadMessage"></p>
                 </form>
             {% endcall %}
         {% endcall %}
@@ -120,15 +120,15 @@
                         {% endcall %}
                     {% endcall %}
                     {% call tbody() %}
-                        <template x-if="summary.top_failures.length === 0">
+                        <template x-if="showNoTopFailures">
                             <tr><td colspan="4" class="text-center py-8 text-base-content/60">No failures found.</td></tr>
                         </template>
                         <template x-for="failure in summary.top_failures" :key="failure.result_type">
                             {% call tr() %}
                                 {% call td() %}<span class="badge badge-error badge-outline" x-text="failure.result_type"></span>{% endcall %}
                                 {% call td("text-right font-semibold") %}<span x-text="formatNumber(failure.failed_sessions)"></span>{% endcall %}
-                                {% call td() %}<span class="block max-w-56 truncate" x-text="failure.affected_domains.join(', ') || '-'"></span>{% endcall %}
-                                {% call td() %}<span class="block max-w-56 truncate" x-text="failure.receiving_mx_hostnames.join(', ') || '-'"></span>{% endcall %}
+                                {% call td() %}<span class="block max-w-56 truncate" x-text="failure.affected_domains_label"></span>{% endcall %}
+                                {% call td() %}<span class="block max-w-56 truncate" x-text="failure.receiving_mx_hostnames_label"></span>{% endcall %}
                             {% endcall %}
                         </template>
                     {% endcall %}
@@ -152,12 +152,12 @@
                         {% endcall %}
                     {% endcall %}
                     {% call tbody() %}
-                        <template x-if="summary.affected_domains.length === 0">
+                        <template x-if="showNoAffectedDomains">
                             <tr><td colspan="4" class="text-center py-8 text-base-content/60">No affected domains found.</td></tr>
                         </template>
                         <template x-for="item in summary.affected_domains" :key="item.domain">
                             {% call tr() %}
-                                {% call td() %}<a class="link link-hover font-medium" :href="'/domains/' + encodeURIComponent(item.domain)" x-text="item.domain"></a>{% endcall %}
+                                {% call td() %}<a class="link link-hover font-medium" :href="item.domain_url" x-text="item.domain"></a>{% endcall %}
                                 {% call td("text-right") %}<span x-text="item.reports"></span>{% endcall %}
                                 {% call td("text-right font-semibold") %}<span x-text="formatNumber(item.failed_sessions)"></span>{% endcall %}
                                 {% call td("text-right") %}<span x-text="formatPercent(item.failure_rate)"></span>{% endcall %}
