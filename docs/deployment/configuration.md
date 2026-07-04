@@ -390,6 +390,10 @@ operational policy if long-term storage size matters.
 | `DMARQ_DNS_CUSTOM_DOH_HOSTNAME` | Optional custom DNS-over-HTTPS hostname used when DNS server IPs are not configured or as fallback after resolver failure | - | `op://...` |
 | `DMARQ_DNS_CUSTOM_DOT_HOSTNAME` | Optional custom DNS-over-TLS hostname for operator context | - | `op://...` |
 
+The `op://...` examples are intentional 1Password secret-reference placeholders
+for deployment environments that inject tenant-specific DNS resolver details at
+runtime instead of storing raw secrets in the repository.
+
 ### Email Service and Webhook Integrations
 
 | Variable | Description | Default | Example |

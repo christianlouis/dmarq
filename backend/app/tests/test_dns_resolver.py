@@ -1106,11 +1106,16 @@ def test_get_default_provider_uses_custom_env_profile(db_session, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_configured_provider_uses_doh_when_nameservers_are_not_configured():
+    import dns.rcode  # type: ignore[import]
+
     class FakeTxt:
         strings = [b"v=DMARC1; ", b"p=reject"]
 
     class FakeResponse:
         answer = [[FakeTxt()]]
+
+        def rcode(self):
+            return dns.rcode.NOERROR
 
     provider = ConfiguredRecursiveDNSProvider(
         doh_hostname="https://resolver.example.test/custom-dns"
@@ -1122,9 +1127,63 @@ async def test_configured_provider_uses_doh_when_nameservers_are_not_configured(
     assert records == ["v=DMARC1; p=reject"]
     doh.assert_awaited_once()
     _, kwargs = doh.await_args
-    assert kwargs["where"] == "resolver.example.test"
+    assert kwargs["where"] == "https://resolver.example.test/custom-dns"
     assert kwargs["path"] == "/custom-dns"
     assert kwargs["port"] == 443
+
+
+@pytest.mark.asyncio
+async def test_configured_provider_falls_back_to_doh_after_nameserver_failure():
+    import dns.exception  # type: ignore[import]
+    import dns.rcode  # type: ignore[import]
+
+    class FakeTxt:
+        strings = [b"v=spf1 ", b"include:example.net -all"]
+
+    class FakeResponse:
+        answer = [[FakeTxt()]]
+
+        def rcode(self):
+            return dns.rcode.NOERROR
+
+    provider = ConfiguredRecursiveDNSProvider(
+        nameservers=["192.0.2.53"],
+        doh_hostname="https://resolver.example.test:8443/custom-dns?profile=prod",
+    )
+
+    with patch(
+        "app.services.dns_resolver.PublicRecursiveDNSProvider._resolve",
+        new=AsyncMock(side_effect=dns.exception.DNSException("timeout")),
+    ) as recursive_lookup:
+        with patch("dns.asyncquery.https", new=AsyncMock(return_value=FakeResponse())) as doh:
+            records = await provider.lookup_txt("example.com")
+
+    assert records == ["v=spf1 include:example.net -all"]
+    recursive_lookup.assert_awaited_once_with("example.com", "TXT")
+    doh.assert_awaited_once()
+    _, kwargs = doh.await_args
+    assert kwargs["where"] == "https://resolver.example.test:8443/custom-dns?profile=prod"
+    assert kwargs["path"] == "/custom-dns?profile=prod"
+    assert kwargs["port"] == 8443
+
+
+@pytest.mark.asyncio
+async def test_configured_provider_raises_on_doh_error_response_code():
+    import dns.rcode  # type: ignore[import]
+
+    class FakeResponse:
+        answer = []
+
+        def rcode(self):
+            return dns.rcode.SERVFAIL
+
+    provider = ConfiguredRecursiveDNSProvider(
+        doh_hostname="https://resolver.example.test/dns-query"
+    )
+
+    with patch("dns.asyncquery.https", new=AsyncMock(return_value=FakeResponse())):
+        with pytest.raises(LookupError, match="SERVFAIL"):
+            await provider.lookup_txt("example.com")
 
 
 # ---------------------------------------------------------------------------

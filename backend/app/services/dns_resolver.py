@@ -49,12 +49,14 @@ def _parse_doh_endpoint(value: str) -> Tuple[str, str, int]:
     endpoint = value.strip()
     if not endpoint:
         raise LookupError("DNS-over-HTTPS hostname is not configured.")
-    if "://" not in endpoint:
-        return endpoint, "/dns-query", 443
-    parsed = urlparse(endpoint)
+    url = endpoint if "://" in endpoint else f"https://{endpoint}"
+    parsed = urlparse(url)
     if not parsed.hostname:
         raise LookupError("DNS-over-HTTPS hostname is invalid.")
-    return parsed.hostname, parsed.path or "/dns-query", parsed.port or 443
+    path = parsed.path or "/dns-query"
+    if parsed.query:
+        path = f"{path}?{parsed.query}"
+    return url, path, parsed.port or 443
 
 
 def _ip_to_arpa_name(ip: str) -> str:
@@ -841,7 +843,9 @@ class ConfiguredRecursiveDNSProvider(PublicRecursiveDNSProvider):
             )
 
         import dns.asyncquery  # type: ignore[import]
+        import dns.exception  # type: ignore[import]
         import dns.message  # type: ignore[import]
+        import dns.rcode  # type: ignore[import]
 
         where, path, port = _parse_doh_endpoint(self.doh_hostname)
         query = dns.message.make_query(name, record_type)
@@ -852,6 +856,12 @@ class ConfiguredRecursiveDNSProvider(PublicRecursiveDNSProvider):
             port=port,
             timeout=DNS_TIMEOUT,
         )
+        response_rcode = response.rcode()
+        if response_rcode != dns.rcode.NOERROR:
+            raise dns.exception.DNSException(
+                f"{self.provider_label} DoH lookup for {name}/{record_type} "
+                f"returned {dns.rcode.to_text(response_rcode)}"
+            )
         records: List[Any] = []
         for rrset in response.answer:
             records.extend(rrset)
