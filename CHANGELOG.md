@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Added in-product release metadata with version, image, git ref, build date, recent changes, and a link to the full changelog.
 - Added a domain-level DMARC/SPF/DKIM mail-authentication wizard entry point that renders generated target records as ordered setup steps.
+- Added an explicit AI redaction mode for operators who want to share un-anonymized domain/report context while still protecting secrets and opaque tokens.
 - Added Cloudflare OAuth rights profiles for read-only zone import, read-only plus Radar enrichment, and full DNS repair.
 - Added configurable mail-authentication setup defaults so generated DMARC/TLS-RPT guidance can use central report mailboxes.
 - Added source intelligence context for sending IPs, including provider recognition, network details, Radar links, and report activity history.

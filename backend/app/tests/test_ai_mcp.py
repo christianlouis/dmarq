@@ -808,6 +808,28 @@ def test_assistance_config_normalizes_invalid_settings(db_session: Session):
     assert config.remediation_cache_seconds == 86400
 
 
+def test_ai_redaction_mode_none_keeps_pii_but_redacts_secrets(db_session: Session):
+    _set_setting(db_session, "ai.redaction_mode", "none", "ai")
+
+    config = ai_assistance.get_assistance_config(db_session)
+    redacted = ai_assistance.redact_safe_value(
+        {
+            "contact": "admin@example.com",
+            "details": (
+                "api_key=sk-test-secret "
+                "opaque=abcdefghijklmnopqrstuvwxyz1234567890"
+            ),
+        },
+        mode=config.redaction_mode,
+    )
+
+    assert config.redaction_mode == "none"
+    assert redacted["contact"] == "admin@example.com"
+    assert "api_key=**redacted**" in redacted["details"]
+    assert "abcdefghijklmnopqrstuvwxyz1234567890" not in redacted["details"]
+    assert "no PII or domain anonymization" in ai_assistance._redaction_rules("none")
+
+
 def test_report_selectors_ignore_malformed_entries():
     store = ReportStore.get_instance()
     store.add_report(

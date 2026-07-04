@@ -422,7 +422,9 @@ GET /ai/config
 
 Returns provider mode, model name, whether a remote base URL is configured,
 redaction mode, action-tool state, MCP state, and data-handling guarantees. Raw
-provider credentials are not stored or returned.
+provider credentials are not stored or returned. Redaction can be strict,
+balanced, or no PII redaction; secret-like values and opaque tokens are still
+redacted in every mode.
 
 #### Build Safe Context
 
@@ -430,9 +432,9 @@ provider credentials are not stored or returned.
 GET /ai/domains/{domain}/context
 ```
 
-Returns a redacted context payload for a domain. The payload includes summary
-counts, recent reports, top sources, evidence links, and the redaction rules
-that were applied.
+Returns a context payload for a domain. The payload includes summary counts,
+recent reports, top sources, evidence links, and the redaction rules that were
+applied.
 
 #### Build Evidence Summary
 

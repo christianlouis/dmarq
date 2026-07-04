@@ -1028,7 +1028,7 @@
         {% call card_content() %}
             <form data-settings-save-automation class="space-y-4">
                 <div class="alert alert-info">
-                    <span>AI and MCP features are disabled by default. Safe context redacts secrets, tokens, long opaque values, and email local-parts before it can be shared with model or agent surfaces.</span>
+                    <span>AI and MCP features are disabled by default. Safe context always redacts secrets and tokens before it can be shared with model or agent surfaces. PII redaction is controlled below.</span>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div class="form-control">
@@ -1082,6 +1082,7 @@
                         <select x-model="s['ai.redaction_mode']" class="input input-bordered w-full">
                             <option value="strict">Strict</option>
                             <option value="balanced">Balanced</option>
+                            <option value="none">No PII redaction</option>
                         </select>
                     </div>
                 </div>
