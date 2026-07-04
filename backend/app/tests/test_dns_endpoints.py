@@ -35,6 +35,7 @@ from app.services.dns_cache import _selectors_key, resolve_domain_dns_cached
 from app.services.dns_provider_detection import detect_dns_provider
 from app.services.dns_resolver import DomainDNSResult, SystemDNSProvider
 from app.services.mta_sts import MTAStsResult
+from app.services.remediation_dispatch import summarize_remediation_activity
 from app.services.report_persistence import save_parsed_report
 from app.services.report_store import ReportStore
 from app.services.source_reputation import DomainReputation
@@ -2030,6 +2031,16 @@ def test_summary_includes_remediation_activity(authed_client: TestClient, db_ses
                 details=json.dumps({"lifecycle_state": "resolved"}),
                 created_at=now + timedelta(seconds=1),
             ),
+            WorkspaceAuditLog(
+                workspace_id=workspace.id,
+                actor_type="operator",
+                action="remediation.notification_lifecycle_recorded",
+                entity_type="remediation_notification",
+                entity_id="dns:quiet-domain",
+                entity_name=" Quiet.Example. ",
+                details=json.dumps({"lifecycle_state": "acknowledged"}),
+                created_at=now - timedelta(days=1),
+            ),
         ]
     )
     db_session.commit()
@@ -2048,6 +2059,14 @@ def test_summary_includes_remediation_activity(authed_client: TestClient, db_ses
     assert data["health_summary"]["remediation"]["domains_with_activity"] == 1
     assert data["health_summary"]["remediation"]["resolved"] == 1
     assert data["health_summary"]["remediation"]["delivery_count"] == 1
+
+    activity = summarize_remediation_activity(
+        db_session,
+        workspace=workspace,
+        domains=[DOMAIN, "quiet.example"],
+        row_limit=1,
+    )
+    assert activity["domains"]["quiet.example"]["latest_state"] == "acknowledged"
 
 
 def test_summary_dns_failure_defaults_false(authed_client: TestClient, db_session):

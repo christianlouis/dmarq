@@ -6,6 +6,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.setting import Setting
@@ -272,18 +273,22 @@ def summarize_remediation_activity(
             "domains": summaries,
         }
 
-    effective_row_limit = max(row_limit, len(domain_names) * 15)
-    rows = (
-        db.query(WorkspaceAuditLog)
-        .filter(
-            WorkspaceAuditLog.workspace_id == workspace.id,
-            WorkspaceAuditLog.entity_type == "remediation_notification",
-            WorkspaceAuditLog.action.in_(HISTORY_ACTIONS),
+    normalized_entity_name = func.lower(func.rtrim(func.trim(WorkspaceAuditLog.entity_name), "."))
+    rows: List[WorkspaceAuditLog] = []
+    per_domain_limit = max(row_limit, 1)
+    for domain in domain_names:
+        rows.extend(
+            db.query(WorkspaceAuditLog)
+            .filter(
+                WorkspaceAuditLog.workspace_id == workspace.id,
+                WorkspaceAuditLog.entity_type == "remediation_notification",
+                normalized_entity_name == domain,
+                WorkspaceAuditLog.action.in_(HISTORY_ACTIONS),
+            )
+            .order_by(WorkspaceAuditLog.created_at.desc(), WorkspaceAuditLog.id.desc())
+            .limit(per_domain_limit)
+            .all()
         )
-        .order_by(WorkspaceAuditLog.created_at.desc(), WorkspaceAuditLog.id.desc())
-        .limit(effective_row_limit)
-        .all()
-    )
 
     for row in rows:
         domain = normalize_domain_name(str(row.entity_name or ""))
