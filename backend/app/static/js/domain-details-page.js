@@ -755,11 +755,6 @@ function domainDetailsApp(domainId) {
             return 'bg-base-200 text-base-content/70';
         },
 
-        get mailAuthTargetRecords() {
-            const codes = new Set(['target_dmarc', 'target_spf', 'target_dkim']);
-            return (this.dnsGuidance.target_records || []).filter(record => codes.has(record.code));
-        },
-
         targetRecordByCode(code) {
             return (this.dnsGuidance.target_records || []).find(record => record.code === code) || null;
         },
@@ -786,12 +781,15 @@ function domainDetailsApp(domainId) {
                 },
             ];
             return stepDefinitions
-                .map((definition, index) => ({
+                .map(definition => ({
                     ...definition,
-                    index: index + 1,
                     record: this.targetRecordByCode(definition.code),
                 }))
-                .filter(step => step.record);
+                .filter(step => step.record)
+                .map((step, index) => ({
+                    ...step,
+                    index: index + 1,
+                }));
         },
 
         get optionalTransportTargetRecords() {
