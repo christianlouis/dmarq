@@ -5336,12 +5336,16 @@ async def cloudflare_oauth_callback(
                     for permission in profile.get("required_permissions", [])
                 )
                 requested_scopes = html.escape(cloudflare_scopes_for_profile(profile_id))
+                retry_href = "/settings?cloudflare_scope_profile=read_only&cloudflare_retry=1"
                 details += (
                     "<p>The selected rights profile requests a scope that this Cloudflare "
                     "OAuth client is not allowed to request. Choose a lower rights profile "
                     "or update the allowed scopes on the Cloudflare OAuth client.</p>"
                     f"<p><strong>Selected profile:</strong> {html.escape(profile_id)}</p>"
                     f"<p><strong>Requested scopes:</strong> <code>{requested_scopes}</code></p>"
+                    "<p><a href=\""
+                    f"{html.escape(retry_href)}"
+                    "\">Retry with read-only Cloudflare access</a></p>"
                 )
                 if permission_items:
                     details += (

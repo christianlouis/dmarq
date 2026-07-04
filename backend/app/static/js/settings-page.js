@@ -199,6 +199,7 @@ function settingsApp() {
                 const map = {};
                 rows.forEach(r => { map[r.key] = r.value ?? ''; });
                 this.s = map;
+                this.applyCloudflareOAuthQueryState();
                 await this.loadAlertHistory(false);
                 await this.loadConfigAudit(false);
                 await this.loadWebhooks(false);
@@ -209,6 +210,42 @@ function settingsApp() {
             } catch (err) {
                 this.showFlash('Error loading settings: ' + err.message, false);
             }
+        },
+
+        applyCloudflareOAuthQueryState() {
+            const params = new URLSearchParams(window.location.search);
+            if (params.get('cloudflare_retry') === '1') {
+                this.s['cloudflare.oauth_scope_profile'] = 'read_only';
+                this.showFlash('Cloudflare retry is set to the read-only profile. Click Connect Cloudflare to continue.', true);
+                this.clearCloudflareOAuthQueryState(params);
+                return;
+            }
+            const profile = params.get('cloudflare_scope_profile');
+            if (profile && this.isKnownCloudflareOAuthProfile(profile)) {
+                this.s['cloudflare.oauth_scope_profile'] = profile;
+            }
+            if (profile) {
+                this.clearCloudflareOAuthQueryState(params);
+            }
+        },
+
+        clearCloudflareOAuthQueryState(params) {
+            params.delete('cloudflare_scope_profile');
+            params.delete('cloudflare_retry');
+            const query = params.toString();
+            window.history.replaceState(
+                {},
+                '',
+                window.location.pathname + (query ? `?${query}` : '')
+            );
+        },
+
+        isKnownCloudflareOAuthProfile(profileId) {
+            const knownProfiles = new Set(
+                (this.cfOAuthStatus.scope_profiles || []).map(profile => profile.id)
+            );
+            ['read_only', 'read_only_radar', 'full_dns_repair'].forEach(profile => knownProfiles.add(profile));
+            return knownProfiles.has(profileId);
         },
 
         async saveCategory(category) {
@@ -700,7 +737,10 @@ function settingsApp() {
                     return;
                 }
                 this.cfOAuthStatus = data;
-                if (!this.s['cloudflare.oauth_scope_profile']) {
+                if (
+                    !this.s['cloudflare.oauth_scope_profile']
+                    || !this.isKnownCloudflareOAuthProfile(this.s['cloudflare.oauth_scope_profile'])
+                ) {
                     this.s['cloudflare.oauth_scope_profile'] = data.scope_profile || 'read_only';
                 }
             } catch (err) {
@@ -719,6 +759,10 @@ function settingsApp() {
 
         selectedCloudflareOAuthPermissions() {
             return this.selectedCloudflareOAuthProfile()?.required_permissions || [];
+        },
+
+        selectedCloudflareOAuthRequiresAllowlisting() {
+            return Boolean(this.selectedCloudflareOAuthProfile()?.requires_client_allowlisting);
         },
 
         async connectCloudflare() {
