@@ -422,9 +422,9 @@ GET /ai/config
 
 Returns provider mode, model name, whether a remote base URL is configured,
 redaction mode, action-tool state, MCP state, and data-handling guarantees. Raw
-provider credentials are not stored or returned. Redaction can be strict,
-balanced, or no PII redaction; secret-like values and opaque tokens are still
-redacted in every mode.
+provider credentials are not stored or returned. Strict redaction masks email
+local-parts, while balanced and no-redaction modes preserve email addresses and
+domains; secret-like values and opaque tokens are still redacted in every mode.
 
 #### Build Safe Context
 

@@ -151,10 +151,10 @@ Each lint finding includes a short remediation checklist. DKIM findings now
 distinguish missing observed selectors, broken selector CNAME targets, short
 RSA keys, and selectors that still resolve but have no recent report traffic.
 Optional AI remediation plans can turn the same DNS/report context into a
-longer step-by-step plan through LiteLLM/OpenAI-compatible providers. AI
-settings support strict, balanced, and no PII redaction modes; secrets and
-opaque tokens are still redacted in every mode. Demo mode keeps these plans
-template-backed and heavily cached.
+longer step-by-step plan through LiteLLM/OpenAI-compatible providers. Strict
+mode redacts email local-parts, while balanced and no-redaction modes preserve
+email addresses and domains; secrets and opaque tokens are still redacted in
+every mode. Demo mode keeps these plans template-backed and heavily cached.
 
 The same section also shows a proposed DNS change plan when findings are
 actionable. These plans include the record name, type, proposed value, captured

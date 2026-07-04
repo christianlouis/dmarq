@@ -1079,11 +1079,11 @@
                     </div>
                     <div class="form-control w-full">
                         <label class="label"><span class="label-text font-medium">Redaction</span></label>
-                        <select x-model="s['ai.redaction_mode']" class="input input-bordered w-full">
-                            <option value="strict">Strict</option>
-                            <option value="balanced">Balanced</option>
-                            <option value="none">No PII redaction</option>
-                        </select>
+	                        <select x-model="s['ai.redaction_mode']" class="input input-bordered w-full">
+	                            <option value="strict">Strict</option>
+	                            <option value="balanced">Preserve email addresses</option>
+	                            <option value="none">Preserve email addresses and domains</option>
+	                        </select>
                     </div>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">

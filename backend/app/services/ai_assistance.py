@@ -142,7 +142,7 @@ def _redaction_rules(mode: str) -> List[str]:
     elif mode == "balanced":
         rules.append("no email local-part redaction")
     else:
-        rules.append("no PII or domain anonymization")
+        rules.append("email local-parts and domains are preserved")
     return rules
 
 

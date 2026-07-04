@@ -827,7 +827,9 @@ def test_ai_redaction_mode_none_keeps_pii_but_redacts_secrets(db_session: Sessio
     assert redacted["contact"] == "admin@example.com"
     assert "api_key=**redacted**" in redacted["details"]
     assert "abcdefghijklmnopqrstuvwxyz1234567890" not in redacted["details"]
-    assert "no PII or domain anonymization" in ai_assistance._redaction_rules("none")
+    rules = ai_assistance._redaction_rules("none")
+    assert "email local-parts and domains are preserved" in rules
+    assert "secret-like key/value fragments" in rules
 
 
 def test_report_selectors_ignore_malformed_entries():
