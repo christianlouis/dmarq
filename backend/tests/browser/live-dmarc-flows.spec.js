@@ -521,13 +521,73 @@ async function installApiMocks(page) {
   });
 }
 
+async function installCspViolationRecorder(page) {
+  page.__dmarqCspViolations = [];
+  await page.exposeFunction('__recordDmarqCspViolation', (violation) => {
+    page.__dmarqCspViolations.push(violation);
+  });
+
+  await page.addInitScript(() => {
+    document.addEventListener('securitypolicyviolation', (event) => {
+      window.__recordDmarqCspViolation({
+        blockedURI: event.blockedURI,
+        disposition: event.disposition,
+        effectiveDirective: event.effectiveDirective,
+        lineNumber: event.lineNumber,
+        originalPolicy: event.originalPolicy,
+        sample: event.sample,
+        sourceFile: event.sourceFile,
+        violatedDirective: event.violatedDirective,
+      });
+    });
+  });
+}
+
+function directiveMatches(effectiveDirective, directive) {
+  return effectiveDirective === directive || effectiveDirective.startsWith(`${directive}-`);
+}
+
+function isKnownStrictCspMigrationBlocker(violation) {
+  const sourceFile = violation.sourceFile || '';
+  const blockedURI = violation.blockedURI || '';
+  const effectiveDirective = violation.effectiveDirective || violation.violatedDirective || '';
+
+  if (violation.disposition !== 'report') {
+    return false;
+  }
+
+  if (sourceFile.endsWith('/static/js/vendor/alpine.min.js')) {
+    return (
+      (directiveMatches(effectiveDirective, 'script-src') && blockedURI === 'eval') ||
+      (directiveMatches(effectiveDirective, 'style-src') && blockedURI === 'inline')
+    );
+  }
+
+  return false;
+}
+
 test.beforeEach(async ({ page }) => {
+  await installCspViolationRecorder(page);
   await installApiMocks(page);
+});
+
+test.afterEach(async ({ page }) => {
+  const violations = page.__dmarqCspViolations || [];
+  const unexpectedViolations = violations.filter(
+    (violation) => !isKnownStrictCspMigrationBlocker(violation)
+  );
+
+  expect(unexpectedViolations, 'unexpected CSP report-only violations').toEqual([]);
 });
 
 test('dashboard becomes useful before false empty states appear', async ({ page }) => {
   const started = Date.now();
-  await page.goto('/dashboard');
+  const response = await page.goto('/dashboard');
+  expect(response, 'dashboard navigation should return a response').not.toBeNull();
+  const cspReportOnly = response.headers()['content-security-policy-report-only'];
+  expect(cspReportOnly, 'dashboard should send a CSP report-only header').toContain(
+    "script-src 'self'"
+  );
 
   await expect(page.getByText('Fix DKIM alignment for owned infrastructure')).toBeVisible();
   await expect(page.getByText('cklnet.com').first()).toBeVisible();

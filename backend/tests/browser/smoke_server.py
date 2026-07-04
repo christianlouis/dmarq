@@ -1,5 +1,6 @@
 """Local browser-smoke server with deterministic DMARC report evidence."""
 
+import atexit
 import os
 import sys
 from pathlib import Path
@@ -11,10 +12,12 @@ os.environ.setdefault("ENVIRONMENT", "test")
 os.environ.setdefault("AUTH_DISABLED", "true")
 os.environ.setdefault("ALLOW_AUTH_DISABLED_IN_PRODUCTION", "true")
 os.environ.setdefault("SECRET_KEY", "browser-smoke-secret-key-change-me")
+SMOKE_DB_PATH = Path(f"/tmp/dmarq-browser-smoke-{os.getpid()}.sqlite")
 os.environ.setdefault(
     "DATABASE_URL",
-    f"sqlite:///{Path('/tmp/dmarq-browser-smoke.sqlite').as_posix()}",
+    f"sqlite:///{SMOKE_DB_PATH.as_posix()}",
 )
+atexit.register(lambda: SMOKE_DB_PATH.unlink(missing_ok=True))
 os.environ.setdefault("SOURCE_NETWORK_ENRICHMENT_ENABLED", "false")
 os.environ.setdefault("SOURCE_REPUTATION_FEEDS_ENABLED", "false")
 
