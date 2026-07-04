@@ -459,9 +459,17 @@ def test_upload_uses_external_page_script_for_csp_migration():
     script = _upload_script()
 
     assert 'src="/static/js/upload-page.js"' in template
-    assert "uploadForm()" in template
+    assert 'x-data="uploadForm"' in template
+    assert "uploadForm()" not in template
+    assert "Alpine.data('uploadForm', uploadForm)" in script
     assert "/api/v1/reports/upload" in script
     assert "bindControls()" in script
+    assert "get hasFiles()" in script
+    assert "get isProcessed()" in script
+    assert "get isAllSuccess()" in script
+    assert 'x-show="hasFiles"' in template
+    assert 'x-show="isProcessed"' in template
+    assert 'x-if="isAllSuccess"' in template
     assert "data-upload-dropzone" in template
     assert "data-upload-dropzone" in script
     assert "data-upload-file-input" in template
