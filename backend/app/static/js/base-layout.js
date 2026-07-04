@@ -1,12 +1,9 @@
-document.addEventListener('alpine:init', () => {
+if (typeof document !== 'undefined') {
     const multiWorkspaceUiEnabled = () =>
         document.documentElement.dataset.multiWorkspaceUi === 'true';
 
-    Alpine.data('userMenu', (options = {}) => {
-        const enabled =
-            options.multiWorkspaceUiEnabled === undefined
-                ? multiWorkspaceUiEnabled()
-                : Boolean(options.multiWorkspaceUiEnabled);
+    const userMenu = () => {
+        const enabled = multiWorkspaceUiEnabled();
         return {
             user: null,
             workspaces: [],
@@ -123,8 +120,12 @@ document.addEventListener('alpine:init', () => {
                 };
             },
         };
+    };
+
+    document.addEventListener('alpine:init', () => {
+        Alpine.data('userMenu', userMenu);
     });
-});
+}
 
 (function attachWorkspaceContextToFetch() {
     const originalFetch = window.fetch;

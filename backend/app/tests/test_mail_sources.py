@@ -584,7 +584,8 @@ def test_mail_sources_template_exposes_backfill_progress_controls():
     ).read_text()
 
     assert 'src="/static/js/mail-sources-page.js"' in template
-    assert "mailSourcesApp()" in template
+    assert 'x-data="mailSourcesApp"' in template
+    assert "mailSourcesApp()" not in template
     assert "data-backfill-progress" in template
     assert "status_summary" in template
     assert "progress_percent" in script

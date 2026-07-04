@@ -1251,8 +1251,8 @@ def test_members_template_uses_membership_api_without_html_injection():
     assert 'x-effect="$el.style.width' not in template
     assert "invoice_delivery_label" in template
     assert 'x-text="membership.user.email"' in template
-    assert "@click=" not in template
-    assert "@change=" not in template
+    assert "@click" not in template
+    assert "@change" not in template
     assert "@submit" not in template
     assert "data-members-page" in template
     assert "data-members-scope" in template
@@ -1296,6 +1296,7 @@ def test_base_template_propagates_selected_workspace_context():
     assert "data-multi-workspace-ui" in template
     assert 'x-data="userMenu"' in template
     assert "userMenu({" not in template
+    assert "Alpine.data('userMenu', userMenu)" in script
     assert "multiWorkspaceUiEnabled" in script
     assert "/api/v1/workspaces" in script
     assert "dmarq.selectedWorkspaceId" in script

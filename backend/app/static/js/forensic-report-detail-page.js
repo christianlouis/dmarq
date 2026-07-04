@@ -123,6 +123,8 @@ function forensicReportDetailApp() {
     };
 }
 
-document.addEventListener('alpine:init', () => {
-    Alpine.data('forensicReportDetailApp', forensicReportDetailApp);
-});
+if (typeof document !== 'undefined') {
+    document.addEventListener('alpine:init', () => {
+        Alpine.data('forensicReportDetailApp', forensicReportDetailApp);
+    });
+}

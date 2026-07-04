@@ -46,7 +46,9 @@ function workspaceOnboarding(options = {}) {
             return this.showDnsOnlyNotice ? 'btn-primary' : 'btn-outline';
         },
         get taskPreviewLabel() {
-            return this.tasks.length ? `${this.tasks.length} tasks` : 'No preview yet';
+            return this.tasks.length
+                ? `${this.tasks.length} task${this.tasks.length === 1 ? '' : 's'}`
+                : 'No preview yet';
         },
         get showNoTasks() {
             return this.tasks.length === 0;
@@ -226,6 +228,8 @@ function workspaceOnboarding(options = {}) {
     };
 }
 
-document.addEventListener('alpine:init', () => {
-    Alpine.data('workspaceOnboarding', workspaceOnboarding);
-});
+if (typeof document !== 'undefined') {
+    document.addEventListener('alpine:init', () => {
+        Alpine.data('workspaceOnboarding', workspaceOnboarding);
+    });
+}
