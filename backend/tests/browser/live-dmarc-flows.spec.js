@@ -865,7 +865,12 @@ test('tls reports page renders summary data from the registered Alpine component
   await page.goto('/tls-reports');
 
   await expect(page.getByRole('heading', { name: 'TLS Reports' })).toBeVisible();
-  await expect(page.getByText('9,870')).toBeVisible();
+  const successfulSessions = page.locator(
+    '[x-text="formatNumber(summary.totals.successful_sessions)"]',
+  );
+  await expect(successfulSessions).toHaveText(
+    /^9(?:[\s,.\u202f])?870$/,
+  );
   await expect(page.locator('[x-text="formatNumber(summary.totals.failed_sessions)"]')).toHaveText('13');
   await expect(page.locator('[x-text="formatPercent(summary.totals.failure_rate)"]')).toHaveText('0.1%');
   await expect(page.getByText('7 failed')).toBeVisible();

@@ -39,10 +39,18 @@ function tlsReportsApp() {
             return this.uploadError ? 'text-error' : 'text-success';
         },
         get showNoTopFailures() {
-            return this.summary.top_failures.length === 0;
+            return (
+                !this.loading
+                && !this.error
+                && this.summary.top_failures.length === 0
+            );
         },
         get showNoAffectedDomains() {
-            return this.summary.affected_domains.length === 0;
+            return (
+                !this.loading
+                && !this.error
+                && this.summary.affected_domains.length === 0
+            );
         },
         bindControls() {
             const root = this.$root || document;
