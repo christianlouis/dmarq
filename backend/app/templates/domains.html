@@ -172,6 +172,11 @@
                     <span class="label-text font-medium">DKIM selectors</span>
                     <input x-model.trim="newDomain.dkim_selectors" type="text" placeholder="default, google, selector1" class="input input-bordered">
                 </label>
+                <label class="form-control">
+                    <span class="label-text font-medium">DMARC report mailbox override</span>
+                    <input x-model.trim="newDomain.dmarc_report_mailbox" type="text" inputmode="email" placeholder="Use global default mailbox" class="input input-bordered">
+                    <span class="label-text-alt text-muted-foreground">Optional. Leave empty to use the aggregate report mailbox from Settings or dmarc@domain.</span>
+                </label>
                 <div x-show="createError" role="alert" class="alert alert-error py-3">
                     <span x-text="createError"></span>
                 </div>
@@ -201,6 +206,11 @@
                 <label class="form-control">
                     <span class="label-text font-medium">DKIM selectors</span>
                     <input x-model.trim="editDomain.dkim_selectors" type="text" placeholder="default, google, selector1" class="input input-bordered">
+                </label>
+                <label class="form-control">
+                    <span class="label-text font-medium">DMARC report mailbox override</span>
+                    <input x-model.trim="editDomain.dmarc_report_mailbox" type="text" inputmode="email" placeholder="Use global default mailbox" class="input input-bordered" data-domain-edit-mailbox>
+                    <span class="label-text-alt text-muted-foreground">Optional. Leave empty to use the aggregate report mailbox from Settings or dmarc@domain.</span>
                 </label>
                 <div x-show="editError" role="alert" class="alert alert-error py-3">
                     <span x-text="editError"></span>

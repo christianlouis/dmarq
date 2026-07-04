@@ -2147,6 +2147,14 @@ def test_enforcement_recommendation_common_states(
 def test_summary_includes_dns_fields(authed_client: TestClient, db_session):
     """The summary endpoint should include dmarc_status, spf_status, dkim_status."""
     _persist_minimal_report(db_session)
+    workspace = get_or_create_default_workspace(db_session)
+    stored_domain = db_session.query(Domain).filter_by(name=DOMAIN).first()
+    if stored_domain is None:
+        stored_domain = Domain(name=DOMAIN, workspace_id=workspace.id, active=True)
+        db_session.add(stored_domain)
+    stored_domain.workspace_id = workspace.id
+    stored_domain.dmarc_report_mailbox = "dmarc-example@tenant.example"
+    db_session.commit()
 
     with _mock_dns():
         response = authed_client.get("/api/v1/domains/summary?refresh=true")
@@ -2162,6 +2170,7 @@ def test_summary_includes_dns_fields(authed_client: TestClient, db_session):
     assert domain["spf_status"] is True
     assert domain["dkim_status"] is True
     assert domain["dmarc_policy"] == "none"
+    assert domain["dmarc_report_mailbox"] == "dmarc-example@tenant.example"
 
 
 def test_summary_includes_remediation_activity(authed_client: TestClient, db_session):
