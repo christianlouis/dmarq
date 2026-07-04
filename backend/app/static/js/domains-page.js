@@ -16,11 +16,13 @@ function domainsApp() {
             name: '',
             description: '',
             dkim_selectors: '',
+            dmarc_report_mailbox: '',
         },
         editDomain: {
             name: '',
             description: '',
             dkim_selectors: '',
+            dmarc_report_mailbox: '',
         },
 
         init() {
@@ -142,7 +144,12 @@ function domainsApp() {
         closeCreate() {
             this.openCreate = false;
             this.createError = '';
-            this.newDomain = { name: '', description: '', dkim_selectors: '' };
+            this.newDomain = {
+                name: '',
+                description: '',
+                dkim_selectors: '',
+                dmarc_report_mailbox: '',
+            };
         },
 
         openEditDialog(domain) {
@@ -153,6 +160,7 @@ function domainsApp() {
                 dkim_selectors: Array.isArray(domain.dkim_selectors)
                     ? domain.dkim_selectors.join(', ')
                     : '',
+                dmarc_report_mailbox: domain.dmarc_report_mailbox || '',
             };
             this.openEdit = true;
         },
@@ -160,7 +168,12 @@ function domainsApp() {
         closeEdit() {
             this.openEdit = false;
             this.editError = '';
-            this.editDomain = { name: '', description: '', dkim_selectors: '' };
+            this.editDomain = {
+                name: '',
+                description: '',
+                dkim_selectors: '',
+                dmarc_report_mailbox: '',
+            };
         },
 
         apiErrorDetail(data, fallback) {
@@ -202,6 +215,7 @@ function domainsApp() {
                         name: this.newDomain.name,
                         description: this.newDomain.description || null,
                         dkim_selectors: selectors,
+                        dmarc_report_mailbox: this.newDomain.dmarc_report_mailbox || null,
                     }),
                 });
                 if (!response.ok) {
@@ -234,6 +248,7 @@ function domainsApp() {
                         body: JSON.stringify({
                             description: this.editDomain.description || null,
                             dkim_selectors: selectors,
+                            dmarc_report_mailbox: this.editDomain.dmarc_report_mailbox || null,
                         }),
                     }
                 );
@@ -266,6 +281,7 @@ function domainsApp() {
                 compliance_rate: domain.pass_rate,
                 description: domain.description || '',
                 dkim_selectors: Array.isArray(domain.dkim_selectors) ? domain.dkim_selectors : [],
+                dmarc_report_mailbox: domain.dmarc_report_mailbox || '',
             };
             normalized.has_activity =
                 Number(normalized.reports_count || 0) > 0 ||
