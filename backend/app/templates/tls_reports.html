@@ -74,10 +74,10 @@
                     <template x-for="day in summary.trends" :key="day.date">
                         <div class="grid grid-cols-[6.5rem_1fr_7rem] gap-3 items-center">
                             <span class="text-sm text-base-content/70" x-text="day.date"></span>
-                            <div class="h-3 rounded bg-base-300 overflow-hidden flex">
-                                <div class="bg-success" x-effect="$el.style.width = `${trendSuccessWidth(day)}%`"></div>
-                                <div class="bg-error" x-effect="$el.style.width = `${trendFailureWidth(day)}%`"></div>
-                            </div>
+                            <svg class="h-3 w-full rounded bg-base-300 overflow-hidden" viewBox="0 0 100 6" preserveAspectRatio="none" aria-hidden="true">
+                                <rect class="text-success fill-current" x="0" y="0" :width="trendSuccessWidth(day)" height="6"></rect>
+                                <rect class="text-error fill-current" :x="trendSuccessWidth(day)" y="0" :width="trendFailureWidth(day)" height="6"></rect>
+                            </svg>
                             <span class="text-right text-sm font-medium" x-text="formatNumber(day.failed_sessions) + ' failed'"></span>
                         </div>
                     </template>

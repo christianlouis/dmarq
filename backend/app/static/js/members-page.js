@@ -362,11 +362,15 @@ function membershipApp() {
             return `${this.formatLimitValue(limit.current, limit.unit)} / ${this.formatLimitValue(limit.limit, limit.unit)}`;
         },
 
+        limitTrackWidth(limit) {
+            return Math.min(Math.max(Number(limit.usage_percent || 0), 0), 100);
+        },
+
         limitTrackClass(limit) {
-            if (limit.limit === null || limit.limit === undefined) return 'bg-[#2c9aa3]';
-            if (limit.usage_percent >= 100) return 'bg-[#ff6333]';
-            if (limit.near_limit) return 'bg-[#f2a23a]';
-            return 'bg-[#2c9aa3]';
+            if (limit.limit === null || limit.limit === undefined) return 'text-success';
+            if (limit.usage_percent >= 100) return 'text-error';
+            if (limit.near_limit) return 'text-warning';
+            return 'text-success';
         },
 
         ownerBadgeClass() {

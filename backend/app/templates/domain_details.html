@@ -1866,13 +1866,21 @@
                                                 <span x-show="source.report_count" x-text="source.report_count + ' report' + (source.report_count === 1 ? '' : 's')"></span>
                                             </div>
                                         </div>
-                                        <div class="flex h-8 items-end gap-0.5" x-show="source.volume_history?.length">
+                                        <div class="h-8" x-show="source.volume_history?.length">
+                                            <svg class="h-8 w-full overflow-visible" viewBox="0 0 140 100" preserveAspectRatio="none" role="img" aria-label="Recent sending volume">
                                             <template x-for="point in sourceVolumeBars(source)" :key="point.date">
-                                                <div class="tooltip flex-1 rounded-t"
-                                                     :class="point.failed > 0 ? 'bg-[#ff6f3c]' : 'bg-[#2f9da5]'"
-                                                     x-effect="$el.style.height = point.height + '%'"
-                                                     :data-tip="point.label"></div>
+                                                <rect
+                                                     :x="point.x"
+                                                     :y="point.y"
+                                                     :width="point.width"
+                                                     :height="point.height"
+                                                     rx="1.5"
+                                                     class="fill-current"
+                                                     :class="point.failed > 0 ? 'text-error' : 'text-success'">
+                                                    <title x-text="point.label"></title>
+                                                </rect>
                                             </template>
+                                            </svg>
                                         </div>
                                     </div>
                                 {% endcall %}
