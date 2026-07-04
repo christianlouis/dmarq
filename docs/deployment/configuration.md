@@ -188,6 +188,23 @@ possible, or inject `AKAMAI_HOST`, `AKAMAI_CLIENT_TOKEN`,
 Use `AKAMAI_ACCOUNT_SWITCH_KEY` only when your Akamai client needs to operate
 against a delegated account.
 
+### Mail Authentication Defaults
+
+The Settings page includes DMARC defaults used by domain-level DNS guidance and
+change plans. Set a central aggregate-report mailbox, for example
+`dmarc-reports@example.com`, when reports should flow to one monitored inbox
+instead of `dmarc@<each-domain>`. DMARQ uses that value in generated
+`rua=mailto:...` records for domains that do not already publish DMARC.
+
+The same section controls the default DMARC policy, `pct`, `adkim`, and `aspf`
+values used by generated setup records. Keep `p=none` for initial monitoring,
+then tighten per domain once legitimate senders pass consistently. The optional
+TLS report mailbox is used for generated `_smtp._tls` TLS-RPT records.
+
+Cloudflare Email Routing or a Cloudflare Email Worker can be used as a future
+managed intake path for reports, but live Cloudflare changes should remain
+explicitly reviewed through the DNS provider repair flow.
+
 ### IMAP Settings
 
 | Variable | Description | Default | Example |

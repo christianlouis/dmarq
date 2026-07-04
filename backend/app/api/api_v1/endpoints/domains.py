@@ -50,7 +50,7 @@ from app.services.cloudflare_oauth import (
 from app.services.dane import check_dane_cached
 from app.services.demo_data import DEMO_DAYS, build_demo_health_score_history
 from app.services.dns_cache import get_cached_domain_dns_result, resolve_domain_dns_cached
-from app.services.dns_guidance import build_dns_guidance
+from app.services.dns_guidance import MailAuthSetupDefaults, build_dns_guidance
 from app.services.dns_provider_connectors import (
     provider_connector_metadata,
     provider_connector_registry,
@@ -191,6 +191,25 @@ def _raise_plan_limit_error(exc: OrganizationPlanLimitError) -> None:
 def _setting_value(db: Session, key: str) -> Optional[str]:
     row = db.query(Setting).filter(Setting.key == key).first()
     return row.value if row and row.value else None
+
+
+def _int_setting_value(db: Session, key: str, default: int) -> int:
+    value = _setting_value(db, key)
+    try:
+        return default if value in {None, ""} else int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _mail_auth_setup_defaults(db: Session) -> MailAuthSetupDefaults:
+    return MailAuthSetupDefaults(
+        report_mailbox=_setting_value(db, "dmarc.report_mailbox"),
+        tls_report_mailbox=_setting_value(db, "dmarc.tls_report_mailbox"),
+        policy=_setting_value(db, "dmarc.default_policy") or "none",
+        percentage=_int_setting_value(db, "dmarc.default_percentage", 100),
+        adkim=_setting_value(db, "dmarc.default_adkim") or "r",
+        aspf=_setting_value(db, "dmarc.default_aspf") or "r",
+    )
 
 
 def _public_base_url(request: Request, db: Session) -> str:
@@ -2396,6 +2415,7 @@ async def _build_domain_dns_guidance(
         monitored_selectors=combined_selectors,
         observed_selectors=report_selectors,
         mail_service_records=mail_service_records,
+        setup_defaults=_mail_auth_setup_defaults(db),
         locale=locale or get_settings().default_locale,
     )
     return asdict(guidance)

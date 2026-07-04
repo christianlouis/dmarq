@@ -1272,9 +1272,44 @@
                             </template>
                         </div>
                         <div class="mt-4">
-                            <h4 class="text-sm font-semibold">Target Records</h4>
+                            <div class="rounded-lg border border-[#d8ebe8] bg-[#f2fbf9] p-4">
+                                <div class="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                                    <div>
+                                        <h4 class="text-sm font-semibold text-[#07071f]">Mail authentication setup</h4>
+                                        <p class="text-xs text-[#45505f]">Publish or verify these core DMARC, SPF, and DKIM records first.</p>
+                                    </div>
+                                    <a href="/settings#dmarc-defaults" class="btn btn-xs btn-outline">Edit defaults</a>
+                                </div>
+                                <div class="mt-3 grid gap-2">
+                                    <template x-for="record in mailAuthTargetRecords" :key="record.code">
+                                        <div class="rounded border border-[#c7e3df] bg-white p-3">
+                                            <div class="flex flex-col gap-2 lg:flex-row lg:items-center">
+                                                <div class="min-w-0 flex-1">
+                                                    <div class="flex flex-wrap items-center gap-2">
+                                                        <code class="text-xs font-semibold" x-text="record.name"></code>
+                                                        <span class="badge badge-outline" x-text="record.record_type"></span>
+                                                        <span class="badge badge-ghost" x-text="record.priority"></span>
+                                                    </div>
+                                                    <code class="mt-2 block break-all rounded bg-base-200 p-2 text-xs" x-text="record.value"></code>
+                                                    <p class="mt-1 text-xs text-base-content/60" x-text="record.purpose"></p>
+                                                </div>
+                                                <button
+                                                    :data-domain-detail-copy-value="record.value"
+                                                    class="btn btn-xs btn-ghost"
+                                                    title="Copy DNS value"
+                                                >
+                                                    Copy
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mt-4">
+                            <h4 class="text-sm font-semibold">Optional transport and branding records</h4>
                             <div class="mt-2 grid gap-2">
-                                <template x-for="record in dnsGuidance.target_records" :key="record.code">
+                                <template x-for="record in optionalTransportTargetRecords" :key="record.code">
                                     <div class="rounded border border-base-300 p-3">
                                         <div class="flex flex-col gap-2 lg:flex-row lg:items-center">
                                             <div class="min-w-0 flex-1">

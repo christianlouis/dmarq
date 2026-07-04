@@ -755,6 +755,16 @@ function domainDetailsApp(domainId) {
             return 'bg-base-200 text-base-content/70';
         },
 
+        get mailAuthTargetRecords() {
+            const codes = new Set(['target_dmarc', 'target_spf', 'target_dkim']);
+            return (this.dnsGuidance.target_records || []).filter(record => codes.has(record.code));
+        },
+
+        get optionalTransportTargetRecords() {
+            const codes = new Set(['target_dmarc', 'target_spf', 'target_dkim']);
+            return (this.dnsGuidance.target_records || []).filter(record => !codes.has(record.code));
+        },
+
         get migrationStatusClass() {
             if (this.migration.error) return 'bg-red-100 text-red-700';
             if (this.migration.status === 'ready') return 'bg-green-100 text-green-700';

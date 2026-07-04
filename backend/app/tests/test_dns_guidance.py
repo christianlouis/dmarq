@@ -2,7 +2,7 @@ import pytest
 
 from app.services.bimi import BIMIResult
 from app.services.dane import DANEResult, TLSASuggestion
-from app.services.dns_guidance import build_dns_guidance
+from app.services.dns_guidance import MailAuthSetupDefaults, build_dns_guidance
 from app.services.dns_resolver import BaseDNSProvider, DomainDNSResult
 from app.services.mta_sts import MTAStsResult
 
@@ -63,6 +63,64 @@ async def test_build_dns_guidance_returns_typed_findings_and_targets():
     assert plan.applies_automatically is False
     assert plan.provider_write_available is False
     assert plan.rollback.startswith("Delete the newly created")
+
+
+@pytest.mark.asyncio
+async def test_build_dns_guidance_uses_configured_mail_auth_defaults():
+    provider = FakeDNSProvider({})
+    dns = DomainDNSResult(
+        dmarc=False,
+        spf=False,
+        dkim=False,
+        selectors_checked=["selector1"],
+    )
+
+    guidance = await build_dns_guidance(
+        "example.com",
+        provider,
+        dns,
+        MTAStsResult(status="pass"),
+        BIMIResult(status="pass"),
+        setup_defaults=MailAuthSetupDefaults(
+            report_mailbox="dmarc-reports@central.example",
+            tls_report_mailbox="tls-reports@central.example",
+            policy="quarantine",
+            percentage=50,
+            adkim="s",
+            aspf="s",
+        ),
+    )
+
+    targets = {record.code: record for record in guidance.target_records}
+    assert targets["target_dmarc"].value == (
+        "v=DMARC1; p=quarantine; rua=mailto:dmarc-reports@central.example; "
+        "pct=50; adkim=s; aspf=s"
+    )
+    assert targets["target_tls_rpt"].value == "v=TLSRPTv1; rua=mailto:tls-reports@central.example"
+
+
+@pytest.mark.asyncio
+async def test_build_dns_guidance_preserves_zero_dmarc_percentage():
+    provider = FakeDNSProvider({})
+    dns = DomainDNSResult(
+        dmarc=False,
+        spf=True,
+        spf_record="v=spf1 -all",
+        dkim=True,
+        dkim_selectors=["selector1"],
+    )
+
+    guidance = await build_dns_guidance(
+        "example.com",
+        provider,
+        dns,
+        MTAStsResult(status="pass"),
+        BIMIResult(status="pass"),
+        setup_defaults=MailAuthSetupDefaults(percentage=0),
+    )
+
+    targets = {record.code: record for record in guidance.target_records}
+    assert "pct=0" in targets["target_dmarc"].value
 
 
 @pytest.mark.asyncio
