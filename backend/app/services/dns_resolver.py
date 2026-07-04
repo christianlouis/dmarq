@@ -2,13 +2,14 @@
 DNS resolver service for DMARC, SPF, DKIM, and PTR record lookups.
 
 Provides an extensible provider architecture so that DNS data can be fetched
-either via the system resolver (dnspython) or via the Cloudflare DNS API for
-future Cloudflare integration.
+through public recursive resolvers or via the Cloudflare DNS API for future
+Cloudflare integration.
 """
 
 import asyncio
 import ipaddress
 import logging
+import shlex
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
@@ -22,6 +23,20 @@ logger = logging.getLogger(__name__)
 def _sanitize_for_log(value: str) -> str:
     """Remove newline and carriage-return characters to prevent log injection."""
     return value.replace("\r", "").replace("\n", "")
+
+
+def _decode_doh_txt_record(value: str) -> str:
+    """Decode JSON DoH TXT data into one logical TXT record."""
+    text = value.strip()
+    if not text:
+        return ""
+    try:
+        chunks = shlex.split(text)
+    except ValueError:
+        return text.strip('"')
+    if chunks:
+        return "".join(chunks)
+    return text.strip('"')
 
 
 def _ip_to_arpa_name(ip: str) -> str:
@@ -63,6 +78,7 @@ COMMON_DKIM_SELECTORS: List[str] = [
 
 # Seconds to wait for a single DNS query before giving up
 DNS_TIMEOUT: float = 5.0
+PUBLIC_RECURSIVE_NAMESERVERS: List[str] = ["1.1.1.1", "8.8.8.8"]
 
 DMARC_POLICY_VALUES = {"none", "quarantine", "reject"}
 DMARCBIS_ACTIVE_TAGS = {
@@ -625,6 +641,118 @@ class SystemDNSProvider(BaseDNSProvider):
         return []
 
 
+class PublicRecursiveDNSProvider(SystemDNSProvider):
+    """DNS provider pinned to public recursive resolvers.
+
+    The production app must not depend on the runtime host or Kubernetes DNS
+    configuration for internet DNS evidence. This provider uses dnspython with
+    an explicit resolver configuration backed by Cloudflare and Google Public
+    DNS.
+    """
+
+    nameservers: List[str] = PUBLIC_RECURSIVE_NAMESERVERS
+
+    def _resolver(self) -> Any:
+        import dns.asyncresolver  # type: ignore[import]
+
+        resolver = dns.asyncresolver.Resolver(configure=False)
+        resolver.nameservers = list(self.nameservers)
+        resolver.timeout = DNS_TIMEOUT
+        resolver.lifetime = DNS_TIMEOUT
+        return resolver
+
+    async def _resolve(self, name: str, record_type: str) -> Any:
+        return await self._resolver().resolve(
+            name,
+            record_type,
+            lifetime=DNS_TIMEOUT,
+            raise_on_no_answer=False,
+        )
+
+    async def lookup_txt(self, name: str) -> List[str]:
+        """Resolve TXT records through Cloudflare and Google Public DNS."""
+        import dns.exception  # type: ignore[import]
+
+        try:
+            answers = await self._resolve(name, "TXT")
+            result: List[str] = []
+            if answers:
+                for rdata in answers:
+                    result.append(
+                        "".join(
+                            string.decode("utf-8", errors="replace") for string in rdata.strings
+                        )
+                    )
+            return result
+        except dns.exception.DNSException as exc:
+            raise LookupError(f"TXT lookup failed for {name}: {exc}") from exc
+
+    async def lookup_ptr(self, ip: str) -> Optional[str]:
+        """Resolve a PTR record through public recursive DNS."""
+        import dns.exception  # type: ignore[import]
+
+        try:
+            answers = await self._resolve(_ip_to_arpa_name(ip), "PTR")
+            if answers:
+                for rdata in answers:
+                    return str(rdata).rstrip(".")
+        except (dns.exception.DNSException, ValueError):
+            pass
+        return None
+
+    async def lookup_cname(self, name: str) -> Optional[str]:
+        """Resolve a CNAME record through public recursive DNS."""
+        import dns.exception  # type: ignore[import]
+
+        try:
+            answers = await self._resolve(name, "CNAME")
+            if answers:
+                for rdata in answers:
+                    return str(rdata.target).rstrip(".")
+        except dns.exception.DNSException as exc:
+            logger.debug("CNAME lookup failed for %s: %s", _sanitize_for_log(name), exc)
+        return None
+
+    async def lookup_ns(self, domain: str) -> List[str]:
+        """Resolve authoritative NS records through public recursive DNS."""
+        import dns.exception  # type: ignore[import]
+
+        try:
+            answers = await self._resolve(domain, "NS")
+            if answers:
+                return sorted(str(rdata.target).rstrip(".").lower() for rdata in answers)
+        except dns.exception.DNSException as exc:
+            logger.debug("NS lookup failed for %s: %s", _sanitize_for_log(domain), exc)
+        return []
+
+    async def lookup_mx(self, domain: str) -> List[str]:
+        """Resolve MX hostnames through public recursive DNS."""
+        import dns.exception  # type: ignore[import]
+
+        try:
+            answers = await self._resolve(domain, "MX")
+            if answers:
+                return [
+                    str(rdata.exchange).rstrip(".").lower()
+                    for rdata in sorted(answers, key=lambda item: int(item.preference))
+                ]
+        except dns.exception.DNSException as exc:
+            logger.debug("MX lookup failed for %s: %s", _sanitize_for_log(domain), exc)
+        return []
+
+    async def lookup_tlsa(self, name: str) -> List[str]:
+        """Resolve TLSA records through public recursive DNS."""
+        import dns.exception  # type: ignore[import]
+
+        try:
+            answers = await self._resolve(name, "TLSA")
+            if answers:
+                return [str(rdata).strip() for rdata in answers]
+        except dns.exception.DNSException as exc:
+            logger.debug("TLSA lookup failed for %s: %s", _sanitize_for_log(name), exc)
+        return []
+
+
 class CloudflareDNSProvider(BaseDNSProvider):
     """DNS provider using Cloudflare DoH and, when configured, the REST API.
 
@@ -848,7 +976,7 @@ class CloudflareDNSProvider(BaseDNSProvider):
                 for answer in data.get("Answer", []):
                     if answer.get("type") == 16:  # TXT record type
                         # Cloudflare wraps TXT values in double-quotes
-                        txt = answer.get("data", "").strip('"')
+                        txt = _decode_doh_txt_record(answer.get("data", ""))
                         records.append(txt)
                 return records
         except (httpx.RequestError, httpx.HTTPStatusError, httpx.TimeoutException) as exc:
@@ -1139,7 +1267,7 @@ def get_default_provider(db: Any = None) -> BaseDNSProvider:
             api_token=api_token or settings.CLOUDFLARE_API_TOKEN,
             zone_id=zone_id or settings.CLOUDFLARE_ZONE_ID,
         )
-    return SystemDNSProvider()
+    return PublicRecursiveDNSProvider()
 
 
 def extract_dmarc_policy(dmarc_record: Optional[str]) -> Optional[str]:

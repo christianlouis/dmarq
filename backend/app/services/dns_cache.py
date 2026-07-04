@@ -19,7 +19,7 @@ from app.services.dns_resolver import (
     BaseDNSProvider,
     CloudflareDNSProvider,
     DomainDNSResult,
-    GoogleDNSProvider,
+    PublicRecursiveDNSProvider,
     SystemDNSProvider,
 )
 
@@ -246,9 +246,8 @@ DNSCandidateResult = Tuple[str, Optional[DomainDNSResult], Optional[Exception]]
 
 def _fallback_candidates(provider: BaseDNSProvider) -> List[BaseDNSProvider]:
     fallback_types: List[type[BaseDNSProvider]] = [
-        SystemDNSProvider,
+        PublicRecursiveDNSProvider,
         CloudflareDNSProvider,
-        GoogleDNSProvider,
     ]
     provider_types = [provider.__class__] + [
         fallback_type for fallback_type in fallback_types if not isinstance(provider, fallback_type)
@@ -316,7 +315,7 @@ async def _resolve_with_fallback(  # noqa: C901
     """Resolve DNS, checking independent resolvers before accepting an empty result."""
     if not isinstance(
         provider,
-        (SystemDNSProvider, CloudflareDNSProvider, GoogleDNSProvider),
+        (SystemDNSProvider, PublicRecursiveDNSProvider, CloudflareDNSProvider),
     ):
         return await provider.check_domain(domain, selectors=selectors)
 

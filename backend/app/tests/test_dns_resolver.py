@@ -18,6 +18,7 @@ from app.services.dns_resolver import (
     CloudflareDNSProvider,
     DemoDNSProvider,
     DomainDNSResult,
+    PublicRecursiveDNSProvider,
     SystemDNSProvider,
     extract_dmarc_policy,
     get_default_provider,
@@ -692,6 +693,36 @@ async def test_cloudflare_provider_parses_doh_response():
 
 
 @pytest.mark.asyncio
+async def test_cloudflare_provider_joins_split_doh_txt_chunks():
+    """DoH TXT chunks from one answer must be one logical record."""
+    from unittest.mock import MagicMock
+
+    fake_response_data = {
+        "Answer": [
+            {
+                "type": 16,
+                "data": (
+                    '"v=DMARC1; p=reject; ruf=mailto" '
+                    '":postmaster@example.com; sp=reject"'
+                ),
+            },
+        ]
+    }
+
+    mock_response = AsyncMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json = lambda: fake_response_data
+
+    with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=mock_response)):
+        provider = CloudflareDNSProvider()
+        records = await provider.lookup_txt("_dmarc.example.com")
+
+    assert records == [
+        "v=DMARC1; p=reject; ruf=mailto:postmaster@example.com; sp=reject"
+    ]
+
+
+@pytest.mark.asyncio
 async def test_cloudflare_provider_raises_on_http_error():
     import httpx
 
@@ -929,9 +960,10 @@ async def test_cloudflare_provider_raises_when_rest_api_reports_error():
 # ---------------------------------------------------------------------------
 
 
-def test_get_default_provider_returns_system():
+def test_get_default_provider_returns_public_recursive():
     provider = get_default_provider()
-    assert isinstance(provider, SystemDNSProvider)
+    assert isinstance(provider, PublicRecursiveDNSProvider)
+    assert provider.nameservers == ["1.1.1.1", "8.8.8.8"]
 
 
 def test_get_default_provider_uses_cloudflare_settings(db_session):

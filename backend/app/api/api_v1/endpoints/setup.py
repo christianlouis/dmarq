@@ -263,7 +263,7 @@ async def setup_system(
             db,
             DNS_RESOLVER_KEY,
             "cloudflare",
-            description="DNS resolver to use: system or cloudflare",
+            description="DNS resolver to use: public or cloudflare",
             category="dns",
         )
     db.commit()
