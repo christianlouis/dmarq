@@ -386,7 +386,11 @@ jobs:
               fi
               echo "GitOps push failed on attempt ${attempt}; rebasing onto latest main before retry."
               git fetch origin main
-              git rebase origin/main
+              if ! git rebase origin/main; then
+                echo "::error::Failed to rebase nonproduction GitOps manifest update onto latest main."
+                git rebase --abort || true
+                exit 1
+              fi
             done
             echo "::error::Failed to push nonproduction GitOps manifest update after rebasing."
             exit 1
@@ -473,7 +477,11 @@ jobs:
               fi
               echo "GitOps push failed on attempt ${attempt}; rebasing onto latest main before retry."
               git fetch origin main
-              git rebase origin/main
+              if ! git rebase origin/main; then
+                echo "::error::Failed to rebase production GitOps manifest update onto latest main."
+                git rebase --abort || true
+                exit 1
+              fi
             done
             echo "::error::Failed to push production GitOps manifest update after rebasing."
             exit 1
