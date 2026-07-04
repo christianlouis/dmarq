@@ -1851,7 +1851,7 @@ function domainDetailsApp(domainId = '') {
             return {
                 ...source,
                 ip: source?.ip || source?.source_ip || '',
-                count: source?.count || source?.total_count || 0,
+                count: source?.count ?? source?.total_count ?? 0,
                 sender,
                 geo
             };
