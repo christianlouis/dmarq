@@ -38,6 +38,8 @@ from app.services.dane import DANEResult, TLSARecord, TLSASuggestion
 from app.services.dns_cache import _selectors_key, resolve_domain_dns_cached
 from app.services.dns_provider_detection import detect_dns_provider
 from app.services.dns_resolver import (
+    CloudflareDNSProvider,
+    ConfiguredRecursiveDNSProvider,
     DomainDNSResult,
     PublicRecursiveDNSProvider,
     SystemDNSProvider,
@@ -1046,6 +1048,59 @@ async def test_dns_cache_preserves_provider_detection(db_session):
     assert second.nameservers == ["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"]
     assert second.dns_provider is not None
     assert second.dns_provider.provider_id == "cloudflare"
+
+
+@pytest.mark.asyncio
+async def test_dns_cache_uses_public_fallback_for_configured_resolver(db_session, monkeypatch):
+    """Configured resolver misses should not hide positive public DNS evidence."""
+
+    class EmptyConfiguredProvider(ConfiguredRecursiveDNSProvider):
+        async def check_domain(self, domain, selectors=None):  # pylint: disable=unused-argument
+            return DomainDNSResult(dmarc=False, spf=False, dkim=False)
+
+    async def positive_public_result(
+        self,
+        domain,
+        selectors=None,
+    ):  # pylint: disable=unused-argument
+        return DomainDNSResult(
+            dmarc=True,
+            dmarc_record="v=DMARC1; p=reject",
+            spf=True,
+            spf_record="v=spf1 -all",
+            nameservers=["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"],
+            dns_provider=detect_dns_provider(["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"]),
+        )
+
+    primary = EmptyConfiguredProvider()
+    monkeypatch.setattr(
+        PublicRecursiveDNSProvider,
+        "check_domain",
+        positive_public_result,
+    )
+    monkeypatch.setattr(
+        CloudflareDNSProvider,
+        "check_domain",
+        AsyncMock(return_value=DomainDNSResult(dmarc=False, spf=False, dkim=False)),
+    )
+
+    result, cached, _checked = await resolve_domain_dns_cached(
+        db_session,
+        primary,
+        DOMAIN,
+        selectors=[],
+        refresh=True,
+    )
+
+    assert cached is False
+    assert result.lookup_status == "fallback"
+    assert result.lookup_error == (
+        "No DNS evidence from EmptyConfiguredProvider; using PublicRecursiveDNSProvider."
+    )
+    assert result.dmarc is True
+    assert result.spf is True
+    assert result.dns_provider is not None
+    assert result.dns_provider.provider_id == "cloudflare"
 
 
 @pytest.mark.asyncio

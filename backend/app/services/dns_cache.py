@@ -314,10 +314,7 @@ async def _resolve_with_fallback(  # noqa: C901
 ) -> DomainDNSResult:
     """Resolve DNS, checking independent resolvers before accepting an empty result."""
     provider = _normalize_dns_provider(provider)
-    if not isinstance(
-        provider,
-        (PublicRecursiveDNSProvider, CloudflareDNSProvider),
-    ):
+    if not isinstance(provider, (PublicRecursiveDNSProvider, CloudflareDNSProvider)):
         return await provider.check_domain(domain, selectors=selectors)
 
     first_empty_result: Optional[DomainDNSResult] = None
