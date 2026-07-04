@@ -5,7 +5,7 @@
 {% block title %}My Profile – {{ app_name }}{% endblock %}
 
 {% block content %}
-<div x-data="profileApp()" class="max-w-2xl mx-auto space-y-6 py-4" data-profile-page>
+<div x-data="profileApp" class="max-w-2xl mx-auto space-y-6 py-4" data-profile-page>
 
     <!-- Profile info card -->
     {% call card() %}
@@ -16,36 +16,36 @@
         {% call card_content() %}
             <div class="flex items-center gap-4 mb-6">
                 <!-- Avatar -->
-                <template x-if="user && user.picture">
-                    <img :src="user.picture" :alt="user.full_name || user.email"
+                <template x-if="hasPicture">
+                    <img :src="user.picture" :alt="avatarAlt"
                          class="w-16 h-16 rounded-full object-cover ring-2 ring-primary/20">
                 </template>
-                <template x-if="user && !user.picture">
+                <template x-if="showPlaceholderAvatar">
                     <div class="avatar placeholder">
                         <div class="bg-primary text-primary-content rounded-full w-16">
                             <span class="text-2xl font-semibold"
-                                  x-text="user ? (user.full_name || user.email || '?')[0].toUpperCase() : '?'"></span>
+                                  x-text="avatarInitial"></span>
                         </div>
                     </div>
                 </template>
                 <div>
-                    <p class="text-lg font-semibold" x-text="user ? (user.full_name || '—') : '…'"></p>
-                    <p class="text-sm text-base-content/60" x-text="user ? user.email : ''"></p>
+                    <p class="text-lg font-semibold" x-text="displayName"></p>
+                    <p class="text-sm text-base-content/60" x-text="emailText"></p>
                 </div>
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                 <div>
                     <span class="font-medium text-base-content/70">Username</span>
-                    <p class="mt-0.5" x-text="user && user.username ? user.username : '—'"></p>
+                    <p class="mt-0.5" x-text="usernameText"></p>
                 </div>
                 <div>
                     <span class="font-medium text-base-content/70">Role</span>
                     <p class="mt-0.5">
-                        <template x-if="user && user.is_superuser">
+                        <template x-if="isAdmin">
                             <span class="badge badge-primary badge-sm">Admin</span>
                         </template>
-                        <template x-if="user && !user.is_superuser">
+                        <template x-if="isRegularUser">
                             <span class="badge badge-ghost badge-sm">User</span>
                         </template>
                     </p>
@@ -53,16 +53,16 @@
                 <div>
                     <span class="font-medium text-base-content/70">External ID</span>
                     <p class="mt-0.5 font-mono text-xs truncate"
-                       x-text="user && user.logto_id ? user.logto_id : '—'"></p>
+                       x-text="externalIdText"></p>
                 </div>
                 <div>
                     <span class="font-medium text-base-content/70">Auth mode</span>
                     <p class="mt-0.5">
-                        <template x-if="user && user.auth_disabled">
+                        <template x-if="authDisabled">
                             <span class="badge badge-warning badge-sm">Auth disabled</span>
                         </template>
-                        <template x-if="user && !user.auth_disabled">
-                            <span class="badge badge-success badge-sm" x-text="user.auth_provider_label || 'External auth'"></span>
+                        <template x-if="externalAuthEnabled">
+                            <span class="badge badge-success badge-sm" x-text="authProviderText"></span>
                         </template>
                     </p>
                 </div>
