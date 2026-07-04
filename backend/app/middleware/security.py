@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 def _strict_csp_directives() -> list[str]:
-    """Return the target CSP once templates and Alpine runtime are fully migrated."""
+    """Return the default CSP for the local CSP-compatible frontend runtime."""
     return [
         "default-src 'self'",
         "script-src 'self'",
@@ -38,7 +38,7 @@ def _strict_csp_directives() -> list[str]:
 
 
 def _relaxed_csp_directives() -> list[str]:
-    """Return the compatibility CSP required by current Alpine expressions."""
+    """Return the legacy compatibility CSP for emergency operator fallback."""
     return [
         "default-src 'self'",
         "script-src 'self' 'unsafe-eval'",
@@ -86,13 +86,13 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         """
         response = await call_next(request)
 
-        # Content Security Policy (CSP). Default remains compatibility mode for the
-        # current CDN Alpine runtime; operators can enable the strict target policy
-        # after validating their deployment with CSP_REPORT_ONLY=true.
+        # Content Security Policy (CSP). The shipped Alpine runtime is the CSP build,
+        # so strict mode is the default. Keep a temporary compatibility escape hatch
+        # for operators with custom templates or extensions.
         csp_directives = (
-            _strict_csp_directives()
-            if _truthy_env("CSP_ENFORCE_STRICT")
-            else _relaxed_csp_directives()
+            _relaxed_csp_directives()
+            if _truthy_env("CSP_COMPATIBILITY_MODE")
+            else _strict_csp_directives()
         )
         response.headers["Content-Security-Policy"] = "; ".join(csp_directives)
 

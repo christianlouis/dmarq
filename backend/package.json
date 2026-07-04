@@ -5,6 +5,7 @@
     "test:browser:install": "playwright install chromium"
   },
   "devDependencies": {
+    "@alpinejs/csp": "^3.15.12",
     "@playwright/test": "^1.61.1",
     "alpinejs": "^3.15.12",
     "daisyui": "4.12.24",

@@ -464,6 +464,7 @@ function domainDetailsApp(domainId = '') {
                     source.ip,
                     source.hostname,
                     source.sender?.name,
+                    source.sender?.label,
                     source.sender?.provider,
                     source.sender?.status,
                     source.geo?.country,
@@ -984,6 +985,31 @@ function domainDetailsApp(domainId = '') {
             if (status === 'ambiguous') return 'bg-yellow-100 text-yellow-800';
             if (status === 'suspicious') return 'bg-red-100 text-red-800';
             return 'bg-gray-100 text-gray-700';
+        },
+
+        sourceSenderName(source) {
+            return source?.sender?.name || source?.sender?.label || 'Unknown sender';
+        },
+
+        sourceSenderStatus(source) {
+            return source?.sender?.status || 'unknown';
+        },
+
+        sourceSenderProvider(source) {
+            return source?.sender?.provider || source?.sender?.category || 'Unclassified';
+        },
+
+        sourceSenderConfidence(source) {
+            return `${source?.sender?.confidence || 0}% confidence`;
+        },
+
+        sourceSenderEvidence(source) {
+            const evidence = source?.sender?.evidence || [];
+            return evidence.length ? evidence[0] : '';
+        },
+
+        sourceSenderRemediationHint(source) {
+            return source?.sender?.remediation_hint || '';
         },
 
         reputationStatusClass(status) {
@@ -1807,6 +1833,29 @@ function domainDetailsApp(domainId = '') {
                 this.initComplianceChart(this.lastComplianceTimeline);
             }
         },
+
+        normalizeSource(source) {
+            const sourceDetails = source?.source_details || {};
+            const sender = {
+                ...(sourceDetails.sender || {}),
+                ...(source?.sender || {})
+            };
+            if (!sender.name && sender.label) {
+                sender.name = sender.label;
+            }
+            const geo = {
+                ...sourceDetails,
+                ...(source?.geo || {})
+            };
+            delete geo.sender;
+            return {
+                ...source,
+                ip: source?.ip || source?.source_ip || '',
+                count: source?.count || source?.total_count || 0,
+                sender,
+                geo
+            };
+        },
         
         async fetchSources(options = {}) {
             this.sourcesLoading = true;
@@ -1825,7 +1874,7 @@ function domainDetailsApp(domainId = '') {
                     throw new Error(detail || 'Sending sources could not be loaded.');
                 }
                 const data = await response.json();
-                this.sources = data.sources || [];
+                this.sources = (data.sources || []).map(source => this.normalizeSource(source));
                 this.sourceReputationRefreshError = '';
             } catch (error) {
                 if (!options.preserveOnFailure) {
