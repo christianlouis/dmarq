@@ -23,6 +23,13 @@
                     {% call card_title() %}Monitored Domains{% endcall %}
                     <div class="flex items-center gap-2">
                         <button type="button"
+                                class="btn btn-ghost btn-sm"
+                                data-domain-toggle-empty
+                                :aria-pressed="showEmptyDomains ? 'true' : 'false'"
+                                x-show="hiddenEmptyDomainCount() > 0"
+                                x-text="showEmptyDomains ? 'Hide empty domains' : `Show ${hiddenEmptyDomainCount()} empty`">
+                        </button>
+                        <button type="button"
                                 class="btn btn-outline btn-sm"
                                 data-domain-refresh
                                 :disabled="loading || refreshing">
@@ -35,7 +42,11 @@
                     </div>
                 </div>
                 {% call card_description() %}
-                    Domains currently being monitored for DMARC compliance
+                    <span x-text="activeDomainCount()"></span>
+                    visible monitored domain<span x-show="activeDomainCount() !== 1">s</span>
+                    <span x-show="hiddenEmptyDomainCount() > 0 && !showEmptyDomains">
+                        · <span x-text="hiddenEmptyDomainCount()"></span> without reports or volume hidden
+                    </span>
                 {% endcall %}
             {% endcall %}
             {% call card_content() %}
@@ -79,10 +90,28 @@
                                 {% endcall %}
                             {% endcall %}
                         </template>
-                        <template x-for="(domain, index) in domains" :key="index">
+                        <template x-if="showEmptyDomainHint()">
+                            {% call tr() %}
+                                {% call td(colspan="5", class="text-center") %}
+                                    <div class="flex flex-col items-center gap-3 py-5 text-muted-foreground">
+                                        <p>All monitored domains are currently hidden because no reports or mail volume have been observed yet.</p>
+                                        <button type="button" class="btn btn-outline btn-sm" data-domain-toggle-empty>
+                                            Show empty domains
+                                        </button>
+                                    </div>
+                                {% endcall %}
+                            {% endcall %}
+                        </template>
+                        <template x-for="(domain, index) in visibleDomains()" :key="domain.name">
                             {% call tr() %}
                                 {% call td() %}
                                     <div class="font-medium" x-text="domain.name"></div>
+                                    <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                        <span x-text="formatCount(domain.reports_count, 'report')"></span>
+                                        <span>·</span>
+                                        <span x-text="formatCount(domain.emails_count, 'message')"></span>
+                                        <span x-show="!domain.has_activity" class="badge badge-ghost badge-xs">empty</span>
+                                    </div>
                                 {% endcall %}
                                 {% call td() %}
                                     <div class="flex items-center">

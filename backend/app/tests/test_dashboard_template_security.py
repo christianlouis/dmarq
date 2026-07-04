@@ -440,6 +440,15 @@ def test_domains_uses_external_page_script_for_csp_migration():
     assert "bindPageControls()" in script
     assert "data-domain-refresh" in template
     assert "data-domain-refresh" in script
+    assert "data-domain-toggle-empty" in template
+    assert "data-domain-toggle-empty" in script
+    assert "showEmptyDomains" in script
+    assert "visibleDomains()" in script
+    assert "hiddenEmptyDomainCount()" in script
+    assert "showEmptyDomainHint()" in script
+    assert "visibleDomains()" in template
+    assert "without reports or volume hidden" in template
+    assert "Show empty domains" in template
     assert "data-domain-create-open" in template
     assert "data-domain-create-open" in script
     assert "data-domain-create-dialog" in template
@@ -465,6 +474,10 @@ def test_domains_uses_external_page_script_for_csp_migration():
     assert '@submit.prevent="updateDomain' not in template
     assert '@click="closeCreate' not in template
     assert '@click="closeEdit' not in template
+    assert '@click=' not in template
+    assert "formatCount(domain.reports_count, 'report')" in template
+    assert "formatCount(domain.emails_count, 'message')" in template
+    assert "formatCount(value, noun)" in script
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 
@@ -476,6 +489,10 @@ def test_domains_page_distinguishes_loading_error_and_empty_states():
     assert "Domains could not be loaded." in script
     assert "No domains found. Add a domain to get started." in template
     assert "Retry loading domains" in template
+    assert "All monitored domains are currently hidden" in template
+    assert "has_activity" in script
+    assert "reports_count" in script
+    assert "emails_count" in script
     assert '@click="fetchDomains()"' not in template
     assert '@click="fetchDomains({ refresh: true })"' not in template
     assert "data-domain-retry-load" in template

@@ -6,6 +6,7 @@ function domainsApp() {
         loading: true,
         refreshing: false,
         loadError: '',
+        showEmptyDomains: false,
         saving: false,
         createError: '',
         editError: '',
@@ -57,12 +58,19 @@ function domainsApp() {
                     return;
                 }
 
+                const emptyToggle = event.target.closest('[data-domain-toggle-empty]');
+                if (emptyToggle && root.contains(emptyToggle)) {
+                    this.showEmptyDomains = !this.showEmptyDomains;
+                    return;
+                }
+
                 const editButton = event.target.closest('[data-domain-edit]');
                 if (!editButton || !root.contains(editButton)) {
                     return;
                 }
                 const domainIndex = Number.parseInt(editButton.dataset.domainIndex || '', 10);
-                const domain = Number.isInteger(domainIndex) ? this.domains[domainIndex] : null;
+                const visibleDomains = this.visibleDomains();
+                const domain = Number.isInteger(domainIndex) ? visibleDomains[domainIndex] : null;
                 if (domain) {
                     this.openEditDialog(domain);
                 }
@@ -241,6 +249,9 @@ function domainsApp() {
                 description: domain.description || '',
                 dkim_selectors: Array.isArray(domain.dkim_selectors) ? domain.dkim_selectors : [],
             };
+            normalized.has_activity =
+                Number(normalized.reports_count || 0) > 0 ||
+                Number(normalized.emails_count || 0) > 0;
 
             return {
                 ...normalized,
@@ -259,6 +270,30 @@ function domainsApp() {
         dmarcStatusText(domain) {
             if (domain.dns_pending) return 'Pending DNS refresh';
             return domain.dmarc_policy || 'Not configured';
+        },
+
+        visibleDomains() {
+            if (this.showEmptyDomains) {
+                return this.domains;
+            }
+            return this.domains.filter((domain) => domain.has_activity);
+        },
+
+        hiddenEmptyDomainCount() {
+            return this.domains.filter((domain) => !domain.has_activity).length;
+        },
+
+        activeDomainCount() {
+            return this.visibleDomains().length;
+        },
+
+        formatCount(value, noun) {
+            const count = Number(value || 0);
+            return `${count} ${noun}${count === 1 ? '' : 's'}`;
+        },
+
+        showEmptyDomainHint() {
+            return !this.loading && !this.loadError && this.domains.length > 0 && this.activeDomainCount() === 0;
         },
 
         genericDnsStatusText(domain, key) {
