@@ -206,7 +206,14 @@ def _normalize_optional_mailbox(value: Optional[str]) -> Optional[str]:
     mailbox = (value or "").strip()
     if not mailbox:
         return None
-    if "@" not in mailbox or mailbox.startswith("@") or mailbox.endswith("@"):
+    if mailbox.lower().startswith("mailto:"):
+        mailbox = mailbox[7:].strip()
+    if any(character in mailbox for character in (";", ",")):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="DMARC report mailbox must be a single email address",
+        )
+    if mailbox.count("@") != 1 or mailbox.startswith("@") or mailbox.endswith("@"):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="DMARC report mailbox must be a valid email address",
