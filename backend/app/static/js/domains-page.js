@@ -24,6 +24,7 @@ function domainsApp() {
             dkim_selectors: '',
             dmarc_report_mailbox: '',
         },
+        editDmarcReportMailboxLoaded: false,
 
         init() {
             this.bindPageControls();
@@ -98,6 +99,9 @@ function domainsApp() {
                 event.preventDefault();
                 this.updateDomain();
             });
+            root.querySelector('[data-domain-edit-mailbox]')?.addEventListener('input', () => {
+                this.editDmarcReportMailboxLoaded = true;
+            });
         },
 
         async fetchDomains(options = {}) {
@@ -154,6 +158,10 @@ function domainsApp() {
 
         openEditDialog(domain) {
             this.editError = '';
+            this.editDmarcReportMailboxLoaded = Object.prototype.hasOwnProperty.call(
+                domain,
+                'dmarc_report_mailbox'
+            );
             this.editDomain = {
                 name: domain.name,
                 description: domain.description || '',
@@ -174,6 +182,7 @@ function domainsApp() {
                 dkim_selectors: '',
                 dmarc_report_mailbox: '',
             };
+            this.editDmarcReportMailboxLoaded = false;
         },
 
         apiErrorDetail(data, fallback) {
@@ -240,16 +249,19 @@ function domainsApp() {
                     .split(',')
                     .map((selector) => selector.trim())
                     .filter(Boolean);
+                const payload = {
+                    description: this.editDomain.description || null,
+                    dkim_selectors: selectors,
+                };
+                if (this.editDmarcReportMailboxLoaded) {
+                    payload.dmarc_report_mailbox = this.editDomain.dmarc_report_mailbox || null;
+                }
                 const response = await fetch(
                     `/api/v1/domains/domains/${encodeURIComponent(this.editDomain.name)}`,
                     {
                         method: 'PATCH',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            description: this.editDomain.description || null,
-                            dkim_selectors: selectors,
-                            dmarc_report_mailbox: this.editDomain.dmarc_report_mailbox || null,
-                        }),
+                        body: JSON.stringify(payload),
                     }
                 );
                 if (!response.ok) {
@@ -281,8 +293,10 @@ function domainsApp() {
                 compliance_rate: domain.pass_rate,
                 description: domain.description || '',
                 dkim_selectors: Array.isArray(domain.dkim_selectors) ? domain.dkim_selectors : [],
-                dmarc_report_mailbox: domain.dmarc_report_mailbox || '',
             };
+            if (Object.prototype.hasOwnProperty.call(domain, 'dmarc_report_mailbox')) {
+                normalized.dmarc_report_mailbox = domain.dmarc_report_mailbox || '';
+            }
             normalized.has_activity =
                 Number(normalized.reports_count || 0) > 0 ||
                 Number(normalized.emails_count || 0) > 0;

@@ -468,6 +468,11 @@ def test_domains_uses_external_page_script_for_csp_migration():
     assert "method: 'PATCH'" in script
     assert "DMARC report mailbox override" in template
     assert "dmarc_report_mailbox" in script
+    assert 'inputmode="email"' in template
+    assert 'type="email" placeholder="Use global default mailbox"' not in template
+    assert "data-domain-edit-mailbox" in template
+    assert "data-domain-edit-mailbox" in script
+    assert "editDmarcReportMailboxLoaded" in script
     assert "Use global default mailbox" in template
     assert "editError" in template
     assert "data-domains-page" in template
