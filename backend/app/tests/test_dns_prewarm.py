@@ -10,7 +10,7 @@ from app.services import dns_prewarm
 async def test_prewarm_dns_cache_refreshes_active_domains(db_session, monkeypatch):
     db_session.add(
         Domain(
-            name="example.com",
+            name=" Example.COM. ",
             active=True,
             dkim_selectors="google, mailgun",
         )
@@ -40,3 +40,21 @@ async def test_prewarm_dns_cache_refreshes_active_domains(db_session, monkeypatc
     assert domain == "example.com"
     assert resolve.await_args.kwargs["selectors"] == ["google", "mailgun"]
     assert resolve.await_args.kwargs["refresh"] is True
+
+
+def test_domain_selectors_strip_empty_entries():
+    domain = Domain(name="example.com", dkim_selectors=" google, , mailgun ,")
+
+    assert dns_prewarm._domain_selectors(domain) == [  # pylint: disable=protected-access
+        "google",
+        "mailgun",
+    ]
+
+
+def test_canonical_domain_name_normalizes_imported_values():
+    assert (
+        dns_prewarm._canonical_domain_name(  # pylint: disable=protected-access
+            " Example.COM. "
+        )
+        == "example.com"
+    )

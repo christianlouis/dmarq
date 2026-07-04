@@ -191,17 +191,22 @@ async def check_mta_sts_with_fallback(
     provider: BaseDNSProvider,
 ) -> MTAStsResult:
     """Resolve MTA-STS with public fallback if the primary resolver fails."""
-    first_result: Optional[MTAStsResult] = None
-    for candidate in dns_fallback_candidates(provider):
+    candidates = dns_fallback_candidates(provider)
+    if not candidates:
+        return MTAStsResult(
+            policy_url=f"https://mta-sts.{domain}/.well-known/mta-sts.txt",
+            errors=["MTA-STS DNS lookup failed for all configured resolvers."],
+        )
+
+    first_result = await check_mta_sts(domain, candidates[0])
+    if not _dns_lookup_failed(first_result):
+        return first_result
+
+    for candidate in candidates[1:]:
         result = await check_mta_sts(domain, candidate)
-        if first_result is None:
-            first_result = result
         if not _dns_lookup_failed(result):
             return result
-    return first_result or MTAStsResult(
-        policy_url=f"https://mta-sts.{domain}/.well-known/mta-sts.txt",
-        errors=["MTA-STS DNS lookup failed for all configured resolvers."],
-    )
+    return first_result
 
 
 async def check_mta_sts_cached(

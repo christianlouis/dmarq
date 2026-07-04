@@ -60,7 +60,22 @@ settings = get_settings()
 
 # Global variables for background task management
 background_task = None
+dns_prewarm_task = None
 last_check_time = None
+
+
+async def _cancel_background_task(task: Optional[asyncio.Task], label: str) -> None:
+    """Cancel and await a background task so shutdown does not leave it pending."""
+    if not task:
+        return
+    if task.done():
+        return
+    logger.info("Cancelling %s background task", label)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
 
 
 def _poll_single_imap_source(source: MailSource) -> None:
@@ -492,7 +507,7 @@ def create_app() -> FastAPI:
     @application.on_event("startup")
     async def startup_event():
         """Initialize background tasks and security on application startup"""
-        global background_task  # pylint: disable=global-statement
+        global background_task, dns_prewarm_task  # pylint: disable=global-statement
 
         run_startup_checks(settings)
 
@@ -553,11 +568,15 @@ def create_app() -> FastAPI:
         logger.info("Starting IMAP polling background task")
         mark_scheduler_started()
         background_task = asyncio.create_task(scheduled_imap_polling())
-        asyncio.create_task(prewarm_dns_cache())
+        dns_prewarm_task = asyncio.create_task(prewarm_dns_cache())
 
     @application.on_event("shutdown")
     async def shutdown_event():
         """Clean up background tasks on application shutdown"""
+        global dns_prewarm_task  # pylint: disable=global-statement
+
+        await _cancel_background_task(dns_prewarm_task, "DNS prewarm")
+        dns_prewarm_task = None
         if background_task:
             logger.info("Cancelling IMAP polling background task")
             background_task.cancel()

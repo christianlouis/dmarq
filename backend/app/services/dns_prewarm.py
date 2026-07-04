@@ -20,6 +20,10 @@ def _domain_selectors(domain: Domain) -> List[str]:
     return [selector.strip() for selector in raw.split(",") if selector.strip()]
 
 
+def _canonical_domain_name(name: str) -> str:
+    return name.strip().rstrip(".").lower()
+
+
 async def _prewarm_domain(domain_id: int, domain_name: str, selectors: List[str]) -> None:
     db = SessionLocal()
     try:
@@ -64,7 +68,9 @@ async def prewarm_dns_cache() -> None:
             .all()
         )
         candidates = [
-            (domain.id, domain.name, _domain_selectors(domain)) for domain in domains if domain.name
+            (domain.id, canonical_name, _domain_selectors(domain))
+            for domain in domains
+            if domain.name and (canonical_name := _canonical_domain_name(domain.name))
         ]
     finally:
         db.close()

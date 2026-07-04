@@ -151,19 +151,24 @@ async def check_bimi_with_fallback(
     selector: str = "default",
 ) -> BIMIResult:
     """Resolve BIMI with public fallback if the primary resolver fails."""
-    first_result: Optional[BIMIResult] = None
-    for candidate in dns_fallback_candidates(provider):
+    normalized_selector = (selector or "default").strip().lower()
+    candidates = dns_fallback_candidates(provider)
+    if not candidates:
+        return BIMIResult(
+            selector=normalized_selector,
+            query_name=f"{normalized_selector}._bimi.{domain}",
+            errors=["BIMI DNS lookup failed for all configured resolvers."],
+        )
+
+    first_result = await check_bimi(domain, candidates[0], selector=selector)
+    if not _dns_lookup_failed(first_result):
+        return first_result
+
+    for candidate in candidates[1:]:
         result = await check_bimi(domain, candidate, selector=selector)
-        if first_result is None:
-            first_result = result
         if not _dns_lookup_failed(result):
             return result
-    normalized_selector = (selector or "default").strip().lower()
-    return first_result or BIMIResult(
-        selector=normalized_selector,
-        query_name=f"{normalized_selector}._bimi.{domain}",
-        errors=["BIMI DNS lookup failed for all configured resolvers."],
-    )
+    return first_result
 
 
 async def check_bimi_cached(
