@@ -134,36 +134,51 @@ class TestFileUploadSecurity:
 class TestSecurityHeaders:
     """Test security headers that affect the browser UI."""
 
-    def test_csp_allows_current_alpine_runtime(self, client: TestClient):
-        """The current Alpine expression runtime still needs eval permission."""
+    def test_csp_is_strict_by_default(self, client: TestClient):
+        """The shipped frontend runtime should work without eval or inline CSP."""
+        response = client.get("/mail-sources")
+        csp = response.headers["Content-Security-Policy"]
+
+        assert "'unsafe-eval'" not in csp
+        assert "'unsafe-inline'" not in csp
+        script_src = next(
+            part.strip() for part in csp.split(";") if part.strip().startswith("script-src ")
+        )
+        assert script_src == "script-src 'self'"
+        assert "style-src 'self' https://fonts.googleapis.com" in csp
+        assert "https://cdn.jsdelivr.net" not in csp
+        assert "https://cdn.tailwindcss.com" not in csp
+
+    def test_csp_compatibility_mode_restores_legacy_policy(self, client: TestClient, monkeypatch):
+        """Operators retain a temporary escape hatch for custom legacy templates."""
+        monkeypatch.setenv("CSP_COMPATIBILITY_MODE", "true")
+
         response = client.get("/mail-sources")
         csp = response.headers["Content-Security-Policy"]
 
         assert "'unsafe-eval'" in csp
-        script_src = next(
-            part.strip() for part in csp.split(";") if part.strip().startswith("script-src ")
-        )
-        assert "'unsafe-inline'" not in script_src
-        assert script_src == "script-src 'self' 'unsafe-eval'"
+        assert "script-src 'self' 'unsafe-eval'" in csp
         assert "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com" in csp
-        assert "https://cdn.jsdelivr.net" not in csp
-        assert "https://cdn.tailwindcss.com" not in csp
 
-    def test_base_template_uses_local_alpine_until_templates_are_migrated(self):
-        """The CSP build cannot evaluate the remaining inline Alpine expressions yet."""
+    def test_base_template_uses_local_csp_alpine(self):
+        """The bundled Alpine runtime should be the CSP-compatible local build."""
         template = Path(__file__).resolve().parents[1] / "templates" / "layouts" / "base.html"
         body = template.read_text()
+        alpine = (
+            Path(__file__).resolve().parents[1] / "static" / "js" / "vendor" / "alpine.min.js"
+        ).read_text()
 
         assert 'src="/static/js/vendor/alpine.min.js"' in body
         assert "alpinejs@3.x.x/dist/cdn.min.js" not in body
         assert "cdn.tailwindcss.com" not in body
         assert "cdn.jsdelivr.net" not in body
-        assert "@alpinejs/csp" not in body
         assert not _script_tags_without_src(body)
         assert not re.search(r"<style\b", body, re.IGNORECASE)
         assert 'src="/static/js/base-layout.js"' in body
         assert 'href="/static/css/app.css"' in body
         assert 'href="/static/css/page-utilities.css"' in body
+        assert "Using the x-html directive is prohibited in the CSP build" in alpine
+        assert "new Function" not in alpine
 
     @pytest.mark.parametrize("template_name", ["login.html", "setup.html"])
     def test_auth_templates_use_external_page_scripts(self, template_name: str):
@@ -194,10 +209,8 @@ class TestSecurityHeaders:
         assert "'unsafe-eval'" not in csp_ro
         assert "script-src 'self'" in csp_ro
 
-    def test_strict_csp_can_be_enforced_after_runtime_migration(
-        self, client: TestClient, monkeypatch
-    ):
-        """Operators can enforce the strict target CSP once their UI is validated."""
+    def test_legacy_strict_flag_remains_strict(self, client: TestClient, monkeypatch):
+        """The old strict flag stays harmless for existing deployments."""
         monkeypatch.setenv("CSP_ENFORCE_STRICT", "true")
 
         response = client.get("/mail-sources")

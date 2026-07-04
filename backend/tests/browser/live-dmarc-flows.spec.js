@@ -661,26 +661,8 @@ async function installCspViolationRecorder(page) {
   });
 }
 
-function directiveMatches(effectiveDirective, directive) {
-  return effectiveDirective === directive || effectiveDirective.startsWith(`${directive}-`);
-}
-
 function isKnownStrictCspMigrationBlocker(violation) {
-  const sourceFile = violation.sourceFile || '';
-  const blockedURI = violation.blockedURI || '';
-  const effectiveDirective = violation.effectiveDirective || violation.violatedDirective || '';
-
-  if (violation.disposition !== 'report') {
-    return false;
-  }
-
-  if (sourceFile.endsWith('/static/js/vendor/alpine.min.js')) {
-    return (
-      (directiveMatches(effectiveDirective, 'script-src') && blockedURI === 'eval') ||
-      (directiveMatches(effectiveDirective, 'style-src') && blockedURI === 'inline')
-    );
-  }
-
+  void violation;
   return false;
 }
 
@@ -702,10 +684,10 @@ test('dashboard becomes useful before false empty states appear', async ({ page 
   const started = Date.now();
   const response = await page.goto('/dashboard');
   expect(response, 'dashboard navigation should return a response').not.toBeNull();
-  const cspReportOnly = response.headers()['content-security-policy-report-only'];
-  expect(cspReportOnly, 'dashboard should send a CSP report-only header').toContain(
-    "script-src 'self'"
-  );
+  const csp = response.headers()['content-security-policy'];
+  expect(csp, 'dashboard should enforce strict CSP').toContain("script-src 'self'");
+  expect(csp, 'dashboard CSP should not need eval').not.toContain("'unsafe-eval'");
+  expect(csp, 'dashboard CSP should not need inline styles').not.toContain("'unsafe-inline'");
 
   await expect(page.getByText('Fix DKIM alignment for owned infrastructure')).toBeVisible();
   await expect(page.getByText('cklnet.com').first()).toBeVisible();

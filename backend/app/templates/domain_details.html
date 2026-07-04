@@ -1741,23 +1741,23 @@
                                 {% call td() %}
                                     <div class="min-w-52 space-y-1">
                                         <div class="flex items-center gap-2">
-                                            <span class="font-semibold text-sm" x-text="source.sender?.name || 'Unknown sender'"></span>
+                                            <span class="font-semibold text-sm" x-text="sourceSenderName(source)"></span>
                                             <span
                                                 class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
-                                                :class="senderStatusClass(source.sender?.status)"
-                                                x-text="source.sender?.status || 'unknown'"
+                                                :class="senderStatusClass(sourceSenderStatus(source))"
+                                                x-text="sourceSenderStatus(source)"
                                             ></span>
                                         </div>
                                         <div class="text-xs text-muted-foreground">
-                                            <span x-text="source.sender?.provider || source.sender?.category || 'Unclassified'"></span>
+                                            <span x-text="sourceSenderProvider(source)"></span>
                                             <span> · </span>
-                                            <span x-text="(source.sender?.confidence || 0) + '% confidence'"></span>
+                                            <span x-text="sourceSenderConfidence(source)"></span>
                                         </div>
-                                        <template x-if="source.sender?.evidence?.length">
-                                            <p class="text-xs text-muted-foreground" x-text="source.sender.evidence[0]"></p>
+                                        <template x-if="sourceSenderEvidence(source)">
+                                            <p class="text-xs text-muted-foreground" x-text="sourceSenderEvidence(source)"></p>
                                         </template>
-                                        <template x-if="source.sender?.remediation_hint">
-                                            <p class="text-xs" x-text="source.sender.remediation_hint"></p>
+                                        <template x-if="sourceSenderRemediationHint(source)">
+                                            <p class="text-xs" x-text="sourceSenderRemediationHint(source)"></p>
                                         </template>
                                     </div>
                                 {% endcall %}
