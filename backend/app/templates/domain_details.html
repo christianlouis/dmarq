@@ -406,6 +406,18 @@
                                         <template x-if="(item.notification.dispatch.blocked_reasons || []).length">
                                             <p class="mt-1 text-xs text-[#5f5c78]" x-text="item.notification.dispatch.blocked_reasons[0]"></p>
                                         </template>
+                                        <template x-if="item.notification.dispatch.verification">
+                                            <div class="mt-3 rounded border border-[#e6e3e1] bg-white px-3 py-2 text-xs">
+                                                <div class="flex flex-wrap items-center justify-between gap-2">
+                                                    <span class="font-semibold text-[#5f5c78]">Verification</span>
+                                                    <span class="rounded px-2 py-1 font-semibold"
+                                                          :class="remediationVerificationClass(item.notification.dispatch.verification)"
+                                                          x-text="item.notification.dispatch.verification.label"></span>
+                                                </div>
+                                                <p class="mt-2 text-[#120d36]"
+                                                   x-text="remediationVerificationText(item.notification.dispatch.verification)"></p>
+                                            </div>
+                                        </template>
                                         <div class="mt-3 flex flex-wrap gap-2">
                                             <button type="button"
                                                     class="btn btn-xs btn-outline"

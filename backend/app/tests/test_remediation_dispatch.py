@@ -200,6 +200,16 @@ def test_attach_remediation_dispatch_previews_counts_operator_held_items(monkeyp
     dispatch = result["items"][0]["notification"]["dispatch"]
     assert dispatch["operator_hold"] is True
     assert dispatch["eligible"] is False
+    assert dispatch["verification"] == {
+        "state": "still_observed",
+        "verified": False,
+        "label": "Still observed",
+        "detail": (
+            "An operator marked this remediation item resolved, but current "
+            "domain evidence still produces the same finding."
+        ),
+        "recorded_at": "2026-07-01T08:00:00",
+    }
     assert dispatch["blocked_reasons"] == ["Operator marked this remediation item resolved."]
     assert dispatch["next_steps"] == [
         "Keep monitoring new reports; reopen the item only if the finding returns."
@@ -209,6 +219,56 @@ def test_attach_remediation_dispatch_previews_counts_operator_held_items(monkeyp
     assert result["summary"]["dispatch_resolved"] == 1
     assert result["summary"]["dispatch_rejected"] == 0
     assert result["summary"]["dispatch_snoozed"] == 0
+
+
+def test_verification_state_covers_lifecycle_branches():
+    recorded_at = "2026-07-01T08:00:00"
+
+    assert remediation_dispatch._verification_state("resolved", recorded_at) == {
+        "state": "still_observed",
+        "verified": False,
+        "label": "Still observed",
+        "detail": (
+            "An operator marked this remediation item resolved, but current "
+            "domain evidence still produces the same finding."
+        ),
+        "recorded_at": recorded_at,
+    }
+    assert remediation_dispatch._verification_state("rejected", recorded_at) == {
+        "state": "operator_rejected",
+        "verified": False,
+        "label": "Rejected",
+        "detail": "Operator hold is active; DMARQ will keep showing current evidence.",
+        "recorded_at": recorded_at,
+    }
+    assert remediation_dispatch._verification_state("snoozed", recorded_at) == {
+        "state": "operator_snoozed",
+        "verified": False,
+        "label": "Snoozed",
+        "detail": "Operator hold is active; DMARQ will keep showing current evidence.",
+        "recorded_at": recorded_at,
+    }
+    assert remediation_dispatch._verification_state("previewed", recorded_at) == {
+        "state": "pending_operator_action",
+        "verified": False,
+        "label": "Pending action",
+        "detail": "Operator reviewed this item; current evidence still needs remediation.",
+        "recorded_at": recorded_at,
+    }
+    assert remediation_dispatch._verification_state("acknowledged", recorded_at) == {
+        "state": "pending_operator_action",
+        "verified": False,
+        "label": "Pending action",
+        "detail": "Operator reviewed this item; current evidence still needs remediation.",
+        "recorded_at": recorded_at,
+    }
+    assert remediation_dispatch._verification_state(None, None) == {
+        "state": "not_started",
+        "verified": False,
+        "label": "Not started",
+        "detail": "No verification marker exists for this current remediation item.",
+        "recorded_at": None,
+    }
 
 
 def test_attach_remediation_dispatch_previews_skips_empty_queues(monkeypatch):

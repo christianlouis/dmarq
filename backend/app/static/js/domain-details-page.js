@@ -934,6 +934,24 @@ function domainDetailsApp(domainId) {
             return nextStep || 'Review notification settings before dispatching this remediation item.';
         },
 
+        remediationVerificationClass(verification) {
+            const state = verification?.state || 'not_started';
+            return {
+                still_observed: 'bg-red-100 text-red-700',
+                pending_operator_action: 'bg-yellow-100 text-yellow-800',
+                operator_rejected: 'bg-base-200 text-base-content/70',
+                operator_snoozed: 'bg-base-200 text-base-content/70',
+                not_started: 'bg-base-200 text-base-content/70'
+            }[state] || 'bg-base-200 text-base-content/70';
+        },
+
+        remediationVerificationText(verification) {
+            if (!verification) return '';
+            const detail = verification.detail || '';
+            if (!verification.recorded_at) return detail;
+            return `${detail} Last marker: ${this.formatIsoDate(verification.recorded_at)}.`;
+        },
+
         remediationActionBusy(item, action = '') {
             if (!this.remediationAction.loading) return false;
             if (this.remediationAction.itemId !== item?.id) return false;
