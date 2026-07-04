@@ -39,6 +39,12 @@ def _decode_doh_txt_record(value: str) -> str:
     return text.strip('"')
 
 
+def _parse_csv_setting(value: Optional[str]) -> List[str]:
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
 def _ip_to_arpa_name(ip: str) -> str:
     """Convert an IP address string to its reverse-DNS ARPA lookup name.
 
@@ -753,6 +759,28 @@ class PublicRecursiveDNSProvider(SystemDNSProvider):
         return []
 
 
+class AkamaiETPDNSProvider(PublicRecursiveDNSProvider):
+    """DNS provider backed by deployment-specific Akamai ETP resolver settings."""
+
+    def __init__(
+        self,
+        *,
+        nameservers: Optional[List[str]] = None,
+        doh_hostname: Optional[str] = None,
+        dot_hostname: Optional[str] = None,
+        proxy_chaining_url: Optional[str] = None,
+    ) -> None:
+        self.nameservers = list(nameservers or [])
+        self.doh_hostname = doh_hostname
+        self.dot_hostname = dot_hostname
+        self.proxy_chaining_url = proxy_chaining_url
+
+    def _resolver(self) -> Any:
+        if not self.nameservers:
+            raise LookupError("Akamai ETP DNS servers are not configured.")
+        return super()._resolver()
+
+
 class CloudflareDNSProvider(BaseDNSProvider):
     """DNS provider using Cloudflare DoH and, when configured, the REST API.
 
@@ -1260,6 +1288,13 @@ def get_default_provider(db: Any = None) -> BaseDNSProvider:
         return DemoDNSProvider()
 
     resolver = (_setting_value(db, "dns.resolver") or "").strip().lower()
+    if resolver == "akamai_etp":
+        return AkamaiETPDNSProvider(
+            nameservers=_parse_csv_setting(settings.AKAMAI_ETP_DNS_SERVERS),
+            doh_hostname=settings.AKAMAI_ETP_DOH_HOSTNAME,
+            dot_hostname=settings.AKAMAI_ETP_DOT_HOSTNAME,
+            proxy_chaining_url=settings.AKAMAI_ETP_PROXY_CHAINING_URL,
+        )
     if resolver == "cloudflare":
         api_token = _decrypt_setting_value(_setting_value(db, "cloudflare.api_token"))
         zone_id = _setting_value(db, "cloudflare.zone_id")

@@ -10,10 +10,12 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from app.core.config import get_settings
 from app.core.credential_encryption import encrypt_secret
 from app.models.setting import Setting
 from app.services.dns_provider_detection import detect_dns_provider
 from app.services.dns_resolver import (
+    AkamaiETPDNSProvider,
     BaseDNSProvider,
     CloudflareDNSProvider,
     DemoDNSProvider,
@@ -985,6 +987,27 @@ def test_get_default_provider_uses_cloudflare_settings(db_session):
     assert isinstance(provider, CloudflareDNSProvider)
     assert provider.api_token == "cf-token"
     assert provider.zone_id == "zone-1"
+
+
+def test_get_default_provider_uses_akamai_etp_env_profile(db_session, monkeypatch):
+    monkeypatch.setenv("AKAMAI_ETP_DNS_SERVERS", "192.0.2.53, 2001:db8::53")
+    monkeypatch.setenv("AKAMAI_ETP_DOH_HOSTNAME", "resolver.example.test")
+    monkeypatch.setenv("AKAMAI_ETP_DOT_HOSTNAME", "dot-resolver.example.test")
+    monkeypatch.setenv("AKAMAI_ETP_PROXY_CHAINING_URL", "https://proxy.example.test:443")
+    get_settings.cache_clear()
+    db_session.add(Setting(key="dns.resolver", value="akamai_etp", category="dns"))
+    db_session.commit()
+
+    try:
+        provider = get_default_provider(db_session)
+    finally:
+        get_settings.cache_clear()
+
+    assert isinstance(provider, AkamaiETPDNSProvider)
+    assert provider.nameservers == ["192.0.2.53", "2001:db8::53"]
+    assert provider.doh_hostname == "resolver.example.test"
+    assert provider.dot_hostname == "dot-resolver.example.test"
+    assert provider.proxy_chaining_url == "https://proxy.example.test:443"
 
 
 # ---------------------------------------------------------------------------

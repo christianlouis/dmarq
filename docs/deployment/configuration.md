@@ -188,6 +188,10 @@ possible, or inject `AKAMAI_HOST`, `AKAMAI_CLIENT_TOKEN`,
 Use `AKAMAI_ACCOUNT_SWITCH_KEY` only when your Akamai client needs to operate
 against a delegated account.
 
+For Akamai ETP resolver-backed DNS checks, select the `akamai_etp` resolver
+profile in DMARQ settings and inject the assigned resolver values through your
+secret manager. These values are account-specific and should not be committed.
+
 ### Mail Authentication Defaults
 
 The Settings page includes DMARC defaults used by domain-level DNS guidance and
@@ -368,6 +372,10 @@ operational policy if long-term storage size matters.
 | `AKAMAI_CLIENT_SECRET` | Akamai EdgeGrid client secret when not using `.edgerc` | - | `your_akamai_client_secret` |
 | `AKAMAI_ACCESS_TOKEN` | Akamai EdgeGrid access token when not using `.edgerc` | - | `your_akamai_access_token` |
 | `AKAMAI_ACCOUNT_SWITCH_KEY` | Optional Akamai account switch key for managed-account access | - | `A-CCT1234:A-CCT5432` |
+| `AKAMAI_ETP_DNS_SERVERS` | Comma-separated Akamai ETP resolver IP addresses assigned to this deployment | - | `op://...` |
+| `AKAMAI_ETP_DOH_HOSTNAME` | Optional Akamai ETP DNS-over-HTTPS hostname for future resolver transports and operator context | - | `op://...` |
+| `AKAMAI_ETP_DOT_HOSTNAME` | Optional Akamai ETP DNS-over-TLS hostname for operator context | - | `op://...` |
+| `AKAMAI_ETP_PROXY_CHAINING_URL` | Optional Akamai ETP proxy chaining URL for operator context | - | `op://...` |
 
 ### Email Service and Webhook Integrations
 

@@ -117,6 +117,19 @@ def test_feed_registry_exposes_safe_metadata_only():
     assert "secret" not in registry["abuseipdb"]
 
 
+def test_dnsbl_default_resolver_uses_public_recursive_nameservers():
+    provider = DNSBLFeedProvider(
+        FeedProviderConfig(
+            provider_id="demo_feed",
+            display_name="Demo Reputation Feed",
+            enabled=True,
+            query_zone="example.test",
+        )
+    )
+
+    assert provider._resolver.nameservers == ["1.1.1.1", "8.8.8.8"]
+
+
 class NoNameserversResolver:
     lifetime = 0.0
     timeout = 0.0
