@@ -14,6 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.dns_cache import DNSCache
+from app.services.dns_fallbacks import dns_fallback_candidates
 from app.services.dns_provider_detection import detection_from_json
 from app.services.dns_resolver import (
     BaseDNSProvider,
@@ -245,17 +246,7 @@ DNSCandidateResult = Tuple[str, Optional[DomainDNSResult], Optional[Exception]]
 
 
 def _fallback_candidates(provider: BaseDNSProvider) -> List[BaseDNSProvider]:
-    fallback_types: List[type[BaseDNSProvider]] = [
-        PublicRecursiveDNSProvider,
-        CloudflareDNSProvider,
-    ]
-    provider_types = [provider.__class__] + [
-        fallback_type for fallback_type in fallback_types if not isinstance(provider, fallback_type)
-    ]
-    return [
-        provider if index == 0 else provider_type()
-        for index, provider_type in enumerate(provider_types)
-    ]
+    return dns_fallback_candidates(provider)
 
 
 def _normalize_dns_provider(provider: BaseDNSProvider) -> BaseDNSProvider:

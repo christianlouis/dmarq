@@ -33,15 +33,16 @@ from app.middleware.demo import DemoReadOnlyMiddleware
 from app.middleware.security import SecurityHeadersMiddleware
 from app.models.domain import Domain
 from app.models.mail_source import MailSource  # noqa: F401 – ensure table is registered
+from app.services.dns_prewarm import prewarm_dns_cache
 from app.services.gmail_client import GmailClient
 from app.services.imap_client import IMAPClient
 from app.services.import_history import record_import_attempt
 from app.services.mail_service_imports import mail_service_context_from_domain
 from app.services.mail_source_backfill_worker import run_due_mail_source_backfill_jobs
 from app.services.microsoft_graph_client import MicrosoftGraphClient
+from app.services.release_info import build_release_info
 from app.services.report_persistence import hydrate_report_store_from_db
 from app.services.report_store import ReportStore
-from app.services.release_info import build_release_info
 from app.services.runtime_status import (
     mark_scheduler_cycle_started,
     mark_scheduler_error,
@@ -552,6 +553,7 @@ def create_app() -> FastAPI:
         logger.info("Starting IMAP polling background task")
         mark_scheduler_started()
         background_task = asyncio.create_task(scheduled_imap_polling())
+        asyncio.create_task(prewarm_dns_cache())
 
     @application.on_event("shutdown")
     async def shutdown_event():

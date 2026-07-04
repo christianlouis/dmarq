@@ -11,6 +11,7 @@ from app.services.mta_sts import (
     MTAStsResult,
     check_mta_sts,
     check_mta_sts_cached,
+    check_mta_sts_with_fallback,
     parse_mta_sts_policy,
     parse_mta_sts_record,
 )
@@ -228,6 +229,25 @@ async def test_check_mta_sts_reports_policy_host_resolution_error(monkeypatch):
         "Publish DNS for mta-sts.example.com and serve "
         "https://mta-sts.example.com/.well-known/mta-sts.txt over HTTPS."
     ]
+
+
+@pytest.mark.asyncio
+async def test_check_mta_sts_falls_back_after_dns_lookup_failure(monkeypatch):
+    primary = AsyncMock()
+    primary.lookup_txt = AsyncMock(side_effect=LookupError("local resolver timed out"))
+    fallback = AsyncMock()
+    fallback.lookup_txt = AsyncMock(return_value=[])
+
+    monkeypatch.setattr(
+        "app.services.mta_sts.dns_fallback_candidates",
+        lambda _provider: [primary, fallback],
+    )
+
+    result = await check_mta_sts_with_fallback("example.com", primary)
+
+    assert result.errors == ["No _mta-sts TXT record was found."]
+    primary.lookup_txt.assert_awaited_once()
+    fallback.lookup_txt.assert_awaited_once()
 
 
 @pytest.mark.asyncio

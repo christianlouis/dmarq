@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.models.dns_cache import DNSCache
 from app.services.dns_cache import DEFAULT_DNS_CACHE_TTL_SECONDS
+from app.services.dns_fallbacks import dns_fallback_candidates
 from app.services.dns_resolver import BaseDNSProvider
 
 _CACHE_KEY = "mta-sts-v1"
@@ -181,6 +182,28 @@ async def check_mta_sts(domain: str, provider: BaseDNSProvider) -> MTAStsResult:
     return result
 
 
+def _dns_lookup_failed(result: MTAStsResult) -> bool:
+    return any("DNS lookup failed" in error for error in result.errors)
+
+
+async def check_mta_sts_with_fallback(
+    domain: str,
+    provider: BaseDNSProvider,
+) -> MTAStsResult:
+    """Resolve MTA-STS with public fallback if the primary resolver fails."""
+    first_result: Optional[MTAStsResult] = None
+    for candidate in dns_fallback_candidates(provider):
+        result = await check_mta_sts(domain, candidate)
+        if first_result is None:
+            first_result = result
+        if not _dns_lookup_failed(result):
+            return result
+    return first_result or MTAStsResult(
+        policy_url=f"https://mta-sts.{domain}/.well-known/mta-sts.txt",
+        errors=["MTA-STS DNS lookup failed for all configured resolvers."],
+    )
+
+
 async def check_mta_sts_cached(
     db: Session,
     provider: BaseDNSProvider,
@@ -204,7 +227,7 @@ async def check_mta_sts_cached(
     if row and not refresh and _is_fresh(row, ttl_seconds, now):
         return _result_from_json(row.result_json), True, row.checked_at
 
-    result = await check_mta_sts(domain, provider)
+    result = await check_mta_sts_with_fallback(domain, provider)
     payload = json.dumps(asdict(result), sort_keys=True, separators=(",", ":"))
     if row is None:
         row = DNSCache(
