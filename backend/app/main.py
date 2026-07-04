@@ -75,7 +75,7 @@ async def _cancel_background_task(task: Optional[asyncio.Task], label: str) -> N
     try:
         await task
     except asyncio.CancelledError:
-        pass
+        logger.debug("%s background task cancelled during shutdown", label)
 
 
 def _poll_single_imap_source(source: MailSource) -> None:
