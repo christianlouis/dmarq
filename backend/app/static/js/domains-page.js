@@ -102,23 +102,7 @@ function domainsApp() {
                 }
                 const data = await response.json();
 
-                this.domains = data.domains.map((domain) => ({
-                    name: domain.domain_name,
-                    dmarc_status: domain.dmarc_status ?? false,
-                    dmarc_policy: domain.dmarc_policy || 'Not configured',
-                    spf_status: domain.spf_status ?? false,
-                    dkim_status: domain.dkim_status ?? false,
-                    dns_pending: Boolean(domain.dns_pending),
-                    dns_cached: Boolean(domain.dns_cached),
-                    dns_checked_at: domain.dns_checked_at || null,
-                    reports_count: domain.report_count,
-                    emails_count: domain.total_emails,
-                    compliance_rate: domain.pass_rate,
-                    description: domain.description || '',
-                    dkim_selectors: Array.isArray(domain.dkim_selectors)
-                        ? domain.dkim_selectors
-                        : [],
-                }));
+                this.domains = data.domains.map((domain) => this.normalizeDomain(domain));
             } catch (error) {
                 this.domains = [];
                 this.loadError = error.message || 'Domains could not be loaded.';
@@ -241,6 +225,32 @@ function domainsApp() {
             }
         },
 
+        normalizeDomain(domain) {
+            const normalized = {
+                name: domain.domain_name,
+                dmarc_status: domain.dmarc_status ?? false,
+                dmarc_policy: domain.dmarc_policy || 'Not configured',
+                spf_status: domain.spf_status ?? false,
+                dkim_status: domain.dkim_status ?? false,
+                dns_pending: Boolean(domain.dns_pending),
+                dns_cached: Boolean(domain.dns_cached),
+                dns_checked_at: domain.dns_checked_at || null,
+                reports_count: domain.report_count,
+                emails_count: domain.total_emails,
+                compliance_rate: domain.pass_rate,
+                description: domain.description || '',
+                dkim_selectors: Array.isArray(domain.dkim_selectors) ? domain.dkim_selectors : [],
+            };
+
+            return {
+                ...normalized,
+                detail_url: `/domains/${encodeURIComponent(normalized.name)}`,
+                dmarc_status_class: this.dnsStatusClass(normalized, 'dmarc_status'),
+                spf_status_class: this.dnsStatusClass(normalized, 'spf_status'),
+                dkim_status_class: this.dnsStatusClass(normalized, 'dkim_status'),
+            };
+        },
+
         dnsStatusClass(domain, key) {
             if (domain.dns_pending) return 'bg-gray-400';
             return domain[key] ? 'bg-green-500' : 'bg-red-500';
@@ -257,3 +267,7 @@ function domainsApp() {
         },
     };
 }
+
+document.addEventListener('alpine:init', () => {
+    Alpine.data('domainsApp', domainsApp);
+});

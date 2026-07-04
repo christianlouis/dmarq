@@ -17,7 +17,7 @@
     <link href="/static/css/page-utilities.css" rel="stylesheet" type="text/css"/>
 </head>
 <body class="min-h-screen bg-base-200 font-sans antialiased">
-<div class="min-h-screen" x-data="setupWizard()" x-cloak data-app-name="{{ app_name }}" data-setup-wizard>
+<div class="min-h-screen" x-data="setupWizard" x-cloak data-app-name="{{ app_name }}" data-setup-wizard>
     <header class="border-b border-base-300 bg-base-100">
         <div class="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
             <a href="/" class="inline-flex items-center gap-3">
@@ -40,11 +40,11 @@
             <div class="card bg-base-100 shadow">
                 <div class="card-body gap-6">
                     <ol class="grid gap-3 sm:grid-cols-3" aria-label="Setup progress">
-                        <template x-for="step in steps" :key="step.id">
+                        <template x-for="step in renderedSteps" :key="step.id">
                             <li class="flex items-center gap-3 rounded-lg border border-base-300 p-3"
-                                :class="stepClass(step.id)">
+                                :class="step.className">
                                 <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold"
-                                      :class="stepBadgeClass(step.id)"
+                                      :class="step.badgeClass"
                                       x-text="step.id"></span>
                                 <span class="min-w-0">
                                     <span class="block text-sm font-semibold" x-text="step.title"></span>
@@ -219,14 +219,14 @@
                             <span class="mt-1 h-2 w-2 rounded-full bg-primary"></span>
                             <span>
                                 <a href="/domains" class="link link-primary font-medium">Add monitored domains</a>
-                                <span class="ml-1" x-text="`(${totalDomains} configured)`"></span>
+                                <span class="ml-1" x-text="domainsConfiguredLabel"></span>
                             </span>
                         </li>
                         <li class="flex gap-2">
                             <span class="mt-1 h-2 w-2 rounded-full bg-secondary"></span>
                             <span>
                                 <a href="/mail-sources" class="link link-primary font-medium">Connect a mailbox</a>
-                                <span class="ml-1" x-text="`(${enabledMailSources}/${totalMailSources} enabled)`"></span>
+                                <span class="ml-1" x-text="mailSourcesEnabledLabel"></span>
                             </span>
                         </li>
                         <li class="flex gap-2">
@@ -238,8 +238,8 @@
                     </ul>
                     <div x-show="mailboxRecoveryHint" class="mt-4 rounded-lg border border-warning/30 bg-warning/10 p-4 text-sm">
                         <div class="font-semibold text-base-content" x-text="mailboxRecoveryHint?.summary"></div>
-                        <ul class="mt-2 list-disc space-y-1 pl-5 text-base-content/70" x-show="mailboxRecoveryHint?.recovery_steps?.length">
-                            <template x-for="step in mailboxRecoveryHint.recovery_steps" :key="step">
+                        <ul class="mt-2 list-disc space-y-1 pl-5 text-base-content/70" x-show="hasMailboxRecoverySteps">
+                            <template x-for="step in mailboxRecoverySteps" :key="step">
                                 <li x-text="step"></li>
                             </template>
                         </ul>

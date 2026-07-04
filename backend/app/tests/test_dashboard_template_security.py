@@ -412,10 +412,18 @@ def test_domains_uses_external_page_script_for_csp_migration():
     script = _domains_script()
 
     assert 'src="/static/js/domains-page.js"' in template
-    assert "domainsApp()" in template
+    assert 'x-data="domainsApp" x-cloak' in template
+    assert "Alpine.data('domainsApp', domainsApp)" in script
     assert "/api/v1/domains/summary" in script
     assert "/api/v1/domains/domains" in script
     assert "createDomain()" in script
+    assert "normalizeDomain(domain)" in script
+    assert "detail_url" in script
+    assert "encodeURIComponent(normalized.name)" in script
+    assert "domain.detail_url" in template
+    assert "domain.dmarc_status_class" in template
+    assert "domain.spf_status_class" in template
+    assert "domain.dkim_status_class" in template
     assert "openEditDialog(domain)" not in template
     assert "openEditDialog(domain)" in script
     assert "bindPageControls()" in script
@@ -439,7 +447,9 @@ def test_domains_uses_external_page_script_for_csp_migration():
     assert "updateDomain()" in script
     assert "method: 'PATCH'" in script
     assert "editError" in template
-    assert 'x-data="domainsApp()" x-cloak' in template
+    assert "data-domains-page" in template
+    assert "dnsStatusClass(domain" not in template
+    assert "'/domains/' + domain.name" not in template
     assert '@submit.prevent="createDomain' not in template
     assert '@submit.prevent="updateDomain' not in template
     assert '@click="closeCreate' not in template
