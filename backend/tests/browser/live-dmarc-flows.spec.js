@@ -347,6 +347,40 @@ const dnsCached = {
   lookupError: 'TXT lookup timed out; showing cached DNS evidence from 2026-07-03T12:00:00Z.',
 };
 
+const tlsSummary = {
+  totals: {
+    reports: 2,
+    successful_sessions: 9870,
+    failed_sessions: 13,
+    failure_rate: 0.0013,
+  },
+  trends: [
+    { date: '2026-07-02', successful_sessions: 4831, failed_sessions: 7 },
+    { date: '2026-07-03', successful_sessions: 5039, failed_sessions: 6 },
+  ],
+  top_failures: [
+    {
+      result_type: 'certificate-host-mismatch',
+      failed_sessions: 9,
+      affected_domains: ['cklnet.com'],
+      receiving_mx_hostnames: ['mx1.cklnet.com'],
+    },
+  ],
+  affected_domains: [
+    {
+      domain: 'cklnet.com',
+      reports: 2,
+      failed_sessions: 13,
+      failure_rate: 0.0013,
+    },
+  ],
+  privacy: {
+    retention: 'TLS reports are retained for 365 days.',
+    stored_fields: ['report metadata', 'policy domain', 'failure aggregate counts'],
+    not_stored: ['message body', 'recipient local-parts'],
+  },
+};
+
 function json(body, status = 200) {
   return { status, contentType: 'application/json', body: JSON.stringify(body) };
 }
@@ -385,6 +419,7 @@ async function installApiMocks(page) {
       '/api/v1/reports': reports,
       '/api/v1/health/operations': operationsHealth,
       '/api/v1/reports/browser-smoke-cklnet': reportDetail,
+      '/api/v1/tls-reports/summary': tlsSummary,
       '/api/v1/domains/cklnet.com/stats': {
         complianceRate: 92.1,
         totalEmails: 2849,
@@ -824,4 +859,26 @@ test('operations health page renders the registered Alpine component', async ({ 
   await expect(page.getByText('DNS cache refresh queue is healthy')).toBeVisible();
   await expect(page.getByText('gmail backfill', { exact: true })).toBeVisible();
   await expect(page.getByText('Gmail backfill can resume from the saved cursor.')).toBeVisible();
+});
+
+test('tls reports page renders summary data from the registered Alpine component', async ({ page }) => {
+  await page.goto('/tls-reports');
+
+  await expect(page.getByRole('heading', { name: 'TLS Reports' })).toBeVisible();
+  const successfulSessions = page.locator(
+    '[x-text="formatNumber(summary.totals.successful_sessions)"]',
+  );
+  await expect(successfulSessions).toHaveText(
+    /^9(?:[\s,.\u202f])?870$/,
+  );
+  await expect(page.locator('[x-text="formatNumber(summary.totals.failed_sessions)"]')).toHaveText('13');
+  await expect(page.locator('[x-text="formatPercent(summary.totals.failure_rate)"]')).toHaveText('0.1%');
+  await expect(page.getByText('7 failed')).toBeVisible();
+  await expect(page.getByText('certificate-host-mismatch')).toBeVisible();
+  await expect(page.getByText('mx1.cklnet.com')).toBeVisible();
+  await expect(page.getByText('TLS reports are retained for 365 days.')).toBeVisible();
+
+  const domainLink = page.getByRole('link', { name: 'cklnet.com' });
+  await expect(domainLink).toHaveAttribute('href', '/domains/cklnet.com');
+  await expect(page.getByText('No TLS report data is available for the current filters.')).not.toBeVisible();
 });
