@@ -107,9 +107,9 @@
                                 {% call td() %}
                                     <div class="font-medium" x-text="domain.name"></div>
                                     <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                                        <span x-text="`${domain.reports_count || 0} reports`"></span>
+                                        <span x-text="formatCount(domain.reports_count, 'report')"></span>
                                         <span>·</span>
-                                        <span x-text="`${domain.emails_count || 0} messages`"></span>
+                                        <span x-text="formatCount(domain.emails_count, 'message')"></span>
                                         <span x-show="!domain.has_activity" class="badge badge-ghost badge-xs">empty</span>
                                     </div>
                                 {% endcall %}

@@ -474,7 +474,10 @@ def test_domains_uses_external_page_script_for_csp_migration():
     assert '@submit.prevent="updateDomain' not in template
     assert '@click="closeCreate' not in template
     assert '@click="closeEdit' not in template
-    assert "@click=" not in template
+    assert '@click=' not in template
+    assert "formatCount(domain.reports_count, 'report')" in template
+    assert "formatCount(domain.emails_count, 'message')" in template
+    assert "formatCount(value, noun)" in script
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 

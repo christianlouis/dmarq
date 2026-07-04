@@ -287,6 +287,11 @@ function domainsApp() {
             return this.visibleDomains().length;
         },
 
+        formatCount(value, noun) {
+            const count = Number(value || 0);
+            return `${count} ${noun}${count === 1 ? '' : 's'}`;
+        },
+
         showEmptyDomainHint() {
             return !this.loading && !this.loadError && this.domains.length > 0 && this.activeDomainCount() === 0;
         },
