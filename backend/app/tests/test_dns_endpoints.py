@@ -2189,6 +2189,11 @@ def test_summary_includes_current_remediation_loop(
     assert loop["total_open"] >= 2
     assert loop["items"][0]["domain"] == DOMAIN
     assert loop["items"][0]["state"] == "needs_approval"
+    assert loop["items"][0]["state_label"] == "Needs approval"
+    assert loop["items"][0]["owner"] == "Domain DNS operator"
+    assert loop["items"][0]["automation_path"] == "provider_preview"
+    assert loop["items"][0]["completion_criteria"]
+    assert loop["items"][0]["why"]
     assert loop["items"][0]["title"]
     assert loop["items"][0]["next_step"]
     domain = response.json()["domains"][0]
@@ -2196,6 +2201,9 @@ def test_summary_includes_current_remediation_loop(
     assert domain["remediation_workload"]["needs_approval"] >= 2
     assert domain["remediation_workload"]["total_open"] >= 2
     assert domain["remediation_workload"]["primary"]["state"] == "needs_approval"
+    assert domain["remediation_workload"]["primary"]["state_label"] == "Needs approval"
+    assert domain["remediation_workload"]["primary"]["owner"] == "Domain DNS operator"
+    assert domain["remediation_workload"]["primary"]["automation_path"] == "provider_preview"
     assert domain["remediation_workload"]["primary"]["title"]
 
 
