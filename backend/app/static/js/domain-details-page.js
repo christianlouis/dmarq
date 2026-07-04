@@ -539,7 +539,7 @@ function domainDetailsApp(domainId) {
         },
 
         get dnsEvidenceUnavailable() {
-            return (Boolean(this.dnsRecordsError) && !this.dnsRecordsErrorHasPreservedEvidence) || this.dnsLookupFailed;
+            return Boolean(this.dnsRecordsError) && !this.dnsRecordsErrorHasPreservedEvidence;
         },
 
         get dnsRecordsErrorHasPreservedEvidence() {
