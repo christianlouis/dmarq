@@ -22,6 +22,34 @@ function uploadForm() {
             return this.files.filter((file) => file.status === 'error').length;
         },
 
+        get hasFiles() {
+            return this.files.length > 0;
+        },
+
+        get isEmpty() {
+            return this.files.length === 0;
+        },
+
+        get canClear() {
+            return !this.isUploading;
+        },
+
+        get isProcessed() {
+            return !this.isUploading && this.hasFiles && this.pendingCount === 0;
+        },
+
+        get isAllSuccess() {
+            return this.errorCount === 0 && this.successCount > 0;
+        },
+
+        get isAllError() {
+            return this.successCount === 0 && this.errorCount > 0;
+        },
+
+        get isMixedResult() {
+            return this.successCount > 0 && this.errorCount > 0;
+        },
+
         get dropzoneClass() {
             return this.dragover ? 'border-primary/50 bg-primary/5' : '';
         },

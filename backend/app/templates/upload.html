@@ -17,7 +17,7 @@
             {% endcall %}
         {% endcall %}
         {% call card_content() %}
-            <div class="space-y-6" x-data="uploadForm()">
+            <div class="space-y-6" x-data="uploadForm">
                 <!-- Drop Zone -->
                 <div
                     class="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center hover:bg-muted/50 transition-colors cursor-pointer relative"
@@ -44,14 +44,14 @@
                 </div>
 
                 <!-- File queue -->
-                <div x-show="files.length > 0" x-cloak class="space-y-2">
+                <div x-show="hasFiles" x-cloak class="space-y-2">
                     <!-- Queue header -->
                     <div class="flex items-center justify-between text-sm text-muted-foreground">
                         <span x-text="queuedFileLabel"></span>
                         <button
                             type="button"
                             class="text-xs underline hover:text-foreground"
-                            x-show="!isUploading"
+                            x-show="canClear"
                             data-upload-clear
                         >Clear all</button>
                     </div>
@@ -100,8 +100,8 @@
                     </template>
 
                     <!-- Summary alert shown when all files have been processed -->
-                    <div x-show="!isUploading && files.length > 0 && pendingCount === 0" class="mt-4">
-                        <template x-if="errorCount === 0 && successCount > 0">
+                    <div x-show="isProcessed" class="mt-4">
+                        <template x-if="isAllSuccess">
                             {% call alert(variant="success") %}
                                 {% call alert_title() %}All uploads complete{% endcall %}
                                 {% call alert_description() %}
@@ -109,7 +109,7 @@
                                 {% endcall %}
                             {% endcall %}
                         </template>
-                        <template x-if="successCount === 0 && errorCount > 0">
+                        <template x-if="isAllError">
                             {% call alert(variant="error") %}
                                 {% call alert_title() %}Upload failed{% endcall %}
                                 {% call alert_description() %}
@@ -117,7 +117,7 @@
                                 {% endcall %}
                             {% endcall %}
                         </template>
-                        <template x-if="successCount > 0 && errorCount > 0">
+                        <template x-if="isMixedResult">
                             {% call alert(variant="warning") %}
                                 {% call alert_title() %}Upload complete with errors{% endcall %}
                                 {% call alert_description() %}
@@ -129,7 +129,7 @@
                 </div>
 
                 <!-- Hint shown when the queue is empty -->
-                <p x-show="files.length === 0" class="text-center text-sm text-muted-foreground">
+                <p x-show="isEmpty" class="text-center text-sm text-muted-foreground">
                     Select or drop files above to begin uploading automatically.
                 </p>
             </div>
