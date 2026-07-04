@@ -470,3 +470,36 @@ def get_cached_domain_dns_result(
     if row is None:
         return None, False, None
     return _result_from_json(row.result_json), True, row.checked_at
+
+
+def get_latest_cached_domain_dns_evidence(
+    db: Session,
+    provider: BaseDNSProvider,
+    domain: str,
+) -> Tuple[Optional[DomainDNSResult], bool, Optional[datetime]]:
+    """Return the newest cached DNS row with positive evidence for a domain.
+
+    Summary pages sometimes have a richer selector set than startup prewarming.
+    This lets them display already-known DMARC/SPF/NS evidence while the exact
+    selector-specific cache row is still warming up.
+    """
+    provider = _normalize_dns_provider(provider)
+    rows = (
+        db.query(DNSCache)
+        .filter(
+            DNSCache.domain == domain,
+            DNSCache.provider == provider.__class__.__name__,
+        )
+        .order_by(DNSCache.checked_at.desc())
+        .limit(25)
+        .all()
+    )
+    for row in rows:
+        try:
+            result = _result_from_json(row.result_json)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            logger.debug("Ignoring unreadable DNS cache row while finding latest evidence")
+            continue
+        if _has_dns_evidence(result):
+            return result, True, row.checked_at
+    return None, False, None

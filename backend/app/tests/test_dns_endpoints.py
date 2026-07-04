@@ -35,7 +35,11 @@ from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog
 from app.services.bimi import BIMIResult
 from app.services.dane import DANEResult, TLSARecord, TLSASuggestion
-from app.services.dns_cache import _selectors_key, resolve_domain_dns_cached
+from app.services.dns_cache import (
+    _selectors_key,
+    get_latest_cached_domain_dns_evidence,
+    resolve_domain_dns_cached,
+)
 from app.services.dns_provider_detection import detect_dns_provider
 from app.services.dns_resolver import (
     CloudflareDNSProvider,
@@ -1048,6 +1052,42 @@ async def test_dns_cache_preserves_provider_detection(db_session):
     assert second.nameservers == ["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"]
     assert second.dns_provider is not None
     assert second.dns_provider.provider_id == "cloudflare"
+
+
+@pytest.mark.asyncio
+async def test_latest_cached_dns_evidence_ignores_selector_key_mismatch(db_session):
+    """Summary pages can reuse positive prewarm evidence with a different selector key."""
+    mock_provider = AsyncMock()
+    prewarmed_dns = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com",
+        spf=True,
+        spf_record="v=spf1 include:_spf.example.com -all",
+        nameservers=["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"],
+    )
+    db_session.add(
+        DNSCache(
+            domain=DOMAIN,
+            provider=mock_provider.__class__.__name__,
+            selectors_key=_selectors_key([]),
+            result_json=json.dumps(asdict(prewarmed_dns), sort_keys=True),
+            checked_at=datetime(2026, 7, 4, 18, 0, 0),
+        )
+    )
+    db_session.commit()
+
+    result, cached, checked_at = get_latest_cached_domain_dns_evidence(
+        db_session,
+        mock_provider,
+        DOMAIN,
+    )
+
+    assert cached is True
+    assert checked_at == datetime(2026, 7, 4, 18, 0, 0)
+    assert result is not None
+    assert result.dmarc is True
+    assert result.spf is True
+    assert result.nameservers == ["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"]
 
 
 @pytest.mark.asyncio
@@ -2460,6 +2500,48 @@ def test_summary_endpoint_uses_database_aggregates_without_hydration(
     assert data["reports_processed"] == 1
     assert data["domains"][0]["pass_rate"] == 100.0
     assert data["domains"][0]["dns_pending"] is True
+    assert provider.check_domain.await_count == 0
+
+
+def test_summary_endpoint_reuses_prewarmed_dns_evidence_with_different_selectors(
+    authed_client: TestClient,
+    db_session,
+):
+    """Startup prewarm should keep summary pages from showing pending DNS after deploy."""
+    _persist_minimal_report(db_session)
+    provider = AsyncMock()
+    provider.check_domain = AsyncMock(return_value=MOCK_DNS_RESULT)
+    prewarmed_dns = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com",
+        spf=True,
+        spf_record="v=spf1 include:_spf.example.com -all",
+        nameservers=["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"],
+    )
+    db_session.add(
+        DNSCache(
+            domain=DOMAIN,
+            provider=provider.__class__.__name__,
+            selectors_key=_selectors_key([]),
+            result_json=json.dumps(asdict(prewarmed_dns), sort_keys=True),
+            checked_at=datetime(2026, 7, 4, 18, 0, 0),
+        )
+    )
+    db_session.commit()
+
+    with patch(
+        "app.api.api_v1.endpoints.domains.get_default_provider",
+        return_value=provider,
+    ):
+        response = authed_client.get("/api/v1/domains/summary")
+
+    assert response.status_code == 200
+    domain = response.json()["domains"][0]
+    assert domain["dns_pending"] is False
+    assert domain["dns_cached"] is True
+    assert domain["dns_evidence_source"] == "cached_dns"
+    assert domain["dmarc_status"] is True
+    assert domain["spf_status"] is True
     assert provider.check_domain.await_count == 0
 
 
