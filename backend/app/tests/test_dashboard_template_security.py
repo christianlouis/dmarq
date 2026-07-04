@@ -359,6 +359,9 @@ def test_alert_component_uses_external_close_control_for_csp_migration():
     script = _read_project_file("static", "js", "pages.js")
 
     assert 'x-on:click="close()"' not in template
+    assert 'x-data="alertComponent"' in template
+    assert "alertComponent()" not in template
+    assert "Alpine.data('alertComponent'" in script
     assert "data-alert-close" in template
     assert "data-alert-close" in script
     assert "bindControls()" in script
