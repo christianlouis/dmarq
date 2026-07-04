@@ -200,6 +200,16 @@ def test_attach_remediation_dispatch_previews_counts_operator_held_items(monkeyp
     dispatch = result["items"][0]["notification"]["dispatch"]
     assert dispatch["operator_hold"] is True
     assert dispatch["eligible"] is False
+    assert dispatch["verification"] == {
+        "state": "still_observed",
+        "verified": False,
+        "label": "Still observed",
+        "detail": (
+            "An operator marked this remediation item resolved, but current "
+            "domain evidence still produces the same finding."
+        ),
+        "recorded_at": "2026-07-01T08:00:00",
+    }
     assert dispatch["blocked_reasons"] == ["Operator marked this remediation item resolved."]
     assert dispatch["next_steps"] == [
         "Keep monitoring new reports; reopen the item only if the finding returns."

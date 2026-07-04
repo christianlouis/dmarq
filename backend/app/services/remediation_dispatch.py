@@ -430,6 +430,7 @@ def build_remediation_dispatch_preview(
     else:
         webhook_count = webhook_event_counts.get(event_type, 0)
     blocked_reasons: List[str] = []
+    verification = _verification_state(lifecycle_state, lifecycle.get("recorded_at"))
 
     operator_hold = lifecycle_state in OPERATOR_HELD_LIFECYCLE_STATES
     if operator_hold:
@@ -457,11 +458,52 @@ def build_remediation_dispatch_preview(
         "lifecycle_state": lifecycle_state,
         "lifecycle_recorded_at": lifecycle.get("recorded_at"),
         "operator_hold": operator_hold,
+        "verification": verification,
         "webhook_endpoint_count": webhook_count,
         "blocked_reasons": blocked_reasons,
         "would_enqueue": enabled and not blocked_reasons,
         "delivery_enqueued": False,
         "next_steps": _next_steps(blocked_reasons),
+    }
+
+
+def _verification_state(
+    lifecycle_state: Optional[str],
+    lifecycle_recorded_at: Optional[str],
+) -> Dict[str, Any]:
+    if lifecycle_state == "resolved":
+        return {
+            "state": "still_observed",
+            "verified": False,
+            "label": "Still observed",
+            "detail": (
+                "An operator marked this remediation item resolved, but current "
+                "domain evidence still produces the same finding."
+            ),
+            "recorded_at": lifecycle_recorded_at,
+        }
+    if lifecycle_state in {"rejected", "snoozed"}:
+        return {
+            "state": f"operator_{lifecycle_state}",
+            "verified": False,
+            "label": lifecycle_state.replace("_", " ").title(),
+            "detail": "Operator hold is active; DMARQ will keep showing current evidence.",
+            "recorded_at": lifecycle_recorded_at,
+        }
+    if lifecycle_state in ACKNOWLEDGED_LIFECYCLE_STATES:
+        return {
+            "state": "pending_operator_action",
+            "verified": False,
+            "label": "Pending action",
+            "detail": "Operator reviewed this item; current evidence still needs remediation.",
+            "recorded_at": lifecycle_recorded_at,
+        }
+    return {
+        "state": "not_started",
+        "verified": False,
+        "label": "Not started",
+        "detail": "No verification marker exists for this current remediation item.",
+        "recorded_at": lifecycle_recorded_at,
     }
 
 
