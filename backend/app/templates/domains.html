@@ -6,7 +6,7 @@
 {% block title %}DMARQ - Domains{% endblock %}
 
 {% block content %}
-<div class="container mx-auto py-4" x-data="domainsApp()" x-cloak>
+<div class="container mx-auto py-4" x-data="domainsApp" x-cloak data-domains-page>
     <h1 class="text-2xl font-bold mb-6">Domain Management</h1>
     
     {% if error %}
@@ -87,27 +87,27 @@
                                 {% call td() %}
                                     <div class="flex items-center">
                                         <span class="w-2 h-2 rounded-full" 
-                                            :class="dnsStatusClass(domain, 'dmarc_status')"></span>
+                                            :class="domain.dmarc_status_class"></span>
                                         <span class="ml-2" x-text="dmarcStatusText(domain)"></span>
                                     </div>
                                 {% endcall %}
                                 {% call td() %}
                                     <div class="flex items-center">
                                         <span class="w-2 h-2 rounded-full"
-                                            :class="dnsStatusClass(domain, 'spf_status')"></span>
+                                            :class="domain.spf_status_class"></span>
                                         <span class="ml-2" x-text="genericDnsStatusText(domain, 'spf_status')"></span>
                                     </div>
                                 {% endcall %}
                                 {% call td() %}
                                     <div class="flex items-center">
                                         <span class="w-2 h-2 rounded-full"
-                                            :class="dnsStatusClass(domain, 'dkim_status')"></span>
+                                            :class="domain.dkim_status_class"></span>
                                         <span class="ml-2" x-text="genericDnsStatusText(domain, 'dkim_status')"></span>
                                     </div>
                                 {% endcall %}
                                 {% call td("text-right") %}
                                     <div class="flex justify-end space-x-2">
-                                        <a :href="'/domains/' + domain.name" class="btn btn-sm btn-outline">
+                                        <a :href="domain.detail_url" class="btn btn-sm btn-outline">
                                             Details
                                         </a>
                                         <button type="button"
