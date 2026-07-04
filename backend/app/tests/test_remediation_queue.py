@@ -81,6 +81,9 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
     )
     assert queue["items"][0]["action_plan"]["owner"] == "Domain DNS operator"
     assert queue["items"][0]["action_plan"]["automation_path"] == "provider_preview"
+    assert queue["items"][0]["action_plan"]["guidance_paths"][0]["key"] == "provider"
+    assert "cloudflare" in queue["items"][0]["action_plan"]["guidance_paths"][0]["label"].lower()
+    assert queue["items"][0]["action_plan"]["guidance_paths"][1]["key"] == "manual"
     assert (
         "preview the provider mutation"
         in " ".join(queue["items"][0]["action_plan"]["steps"]).lower()
@@ -173,6 +176,10 @@ def test_remediation_queue_keeps_placeholder_plan_manual():
     assert queue["items"][0]["automation"]["eligible"] is False
     assert queue["items"][0]["automation"]["apply_endpoint"] is None
     assert queue["items"][0]["action_plan"]["automation_path"] == "manual"
+    assert {path["key"] for path in queue["items"][0]["action_plan"]["guidance_paths"]} == {
+        "provider",
+        "self_hosted",
+    }
     assert queue["items"][0]["action_plan"]["completion_criteria"]
     assert queue["items"][0]["notification"]["state"] == "summary_only"
     assert queue["items"][0]["notification"]["event"] == "dmarq.remediation.summary"
@@ -258,3 +265,44 @@ def test_remediation_queue_requires_recommended_provider_for_automation():
     assert queue["items"][0]["notification"]["event"] == (
         "dmarq.remediation.manual_action_required"
     )
+
+
+def test_remediation_queue_adds_generic_operator_guidance_for_health_actions():
+    queue = build_remediation_queue(
+        domain="example.com",
+        health={
+            "actions": [
+                {
+                    "type": "review_forwarding",
+                    "severity": "high",
+                    "title": "Review forwarding alignment",
+                    "detail": "Some forwarded messages are failing DMARC.",
+                    "next_step": "Confirm whether the forwarding path is expected.",
+                }
+            ]
+        },
+        dns_guidance={"findings": [], "change_plans": []},
+    )
+
+    assert queue["status"] == "needs_manual_action"
+    assert queue["items"][0]["action_plan"]["automation_path"] == "manual"
+    assert queue["items"][0]["action_plan"]["guidance_paths"] == [
+        {
+            "key": "provider",
+            "label": "Provider-guided remediation",
+            "summary": (
+                "Use the provider dashboard to confirm required DNS or sender settings "
+                "before applying changes."
+            ),
+            "owner": "Mail operations owner",
+        },
+        {
+            "key": "self_hosted",
+            "label": "Self-hosted remediation",
+            "summary": (
+                "Apply the equivalent mail or DNS configuration directly in the "
+                "local infrastructure."
+            ),
+            "owner": "Mail operations owner",
+        },
+    ]

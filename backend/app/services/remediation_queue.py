@@ -308,18 +308,98 @@ def _action_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
         )
         steps = steps or ["Review the evidence and complete the recommended operator action."]
 
+    automation_path = (
+        "provider_preview"
+        if automation.get("eligible")
+        else ("investigate" if state == "investigate" else "manual")
+    )
+
     return {
         "owner": owner,
         "diagnosis": str(item.get("detail") or item.get("title") or "Review this finding."),
         "prerequisites": prerequisites[:5],
         "steps": steps[:6],
         "completion_criteria": completion,
-        "automation_path": (
-            "provider_preview"
-            if automation.get("eligible")
-            else ("investigate" if state == "investigate" else "manual")
+        "automation_path": automation_path,
+        "guidance_paths": _guidance_paths_for_item(
+            item,
+            owner=owner,
+            automation_path=automation_path,
         ),
     }
+
+
+def _guidance_paths_for_item(
+    item: Dict[str, Any],
+    *,
+    owner: str,
+    automation_path: str,
+) -> List[Dict[str, str]]:
+    """Return operator guidance paths for one remediation item."""
+    automation = item.get("automation") or {}
+    provider = str(automation.get("provider") or "detected provider")
+    source = str(item.get("source") or "remediation")
+    state = str(item.get("state") or "")
+
+    if automation_path == "provider_preview":
+        return [
+            {
+                "key": "provider",
+                "label": f"{provider} guided repair",
+                "summary": "Use the connected DNS provider preview and approve the exact record mutation.",
+                "owner": owner,
+            },
+            {
+                "key": "manual",
+                "label": "Manual DNS fallback",
+                "summary": "Copy the proposed record into the authoritative DNS provider if provider automation is not desired.",
+                "owner": "Domain DNS operator",
+            },
+        ]
+    if source == "dns_lint":
+        return [
+            {
+                "key": "provider",
+                "label": "DNS provider console",
+                "summary": "Open the authoritative DNS zone and apply the record value from the remediation plan.",
+                "owner": "Domain DNS operator",
+            },
+            {
+                "key": "self_hosted",
+                "label": "Self-hosted DNS",
+                "summary": "Update the zone file or DNS management system, reload the service, then refresh DMARQ evidence.",
+                "owner": "DNS platform operator",
+            },
+        ]
+    if state == "investigate":
+        return [
+            {
+                "key": "provider",
+                "label": "Mail provider investigation",
+                "summary": "Check sender signatures, bounce domains, and provider authentication status before changing DNS.",
+                "owner": "Mail operations owner",
+            },
+            {
+                "key": "self_hosted",
+                "label": "Self-hosted mail investigation",
+                "summary": "Review MTA logs, DKIM signing configuration, SPF envelope sender alignment, and recent sending hosts.",
+                "owner": "Mail server operator",
+            },
+        ]
+    return [
+        {
+            "key": "provider",
+            "label": "Provider-guided remediation",
+            "summary": "Use the provider dashboard to confirm required DNS or sender settings before applying changes.",
+            "owner": owner,
+        },
+        {
+            "key": "self_hosted",
+            "label": "Self-hosted remediation",
+            "summary": "Apply the equivalent mail or DNS configuration directly in the local infrastructure.",
+            "owner": owner,
+        },
+    ]
 
 
 def build_remediation_queue(

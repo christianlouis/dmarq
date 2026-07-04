@@ -1099,6 +1099,15 @@ class RemediationEvidence(BaseModel):
     value: str
 
 
+class RemediationGuidancePath(BaseModel):
+    """Operator-facing path for completing a remediation item."""
+
+    key: str
+    label: str
+    summary: str
+    owner: str
+
+
 class RemediationActionPlan(BaseModel):
     """Operator-facing action plan for one remediation queue item."""
 
@@ -1106,6 +1115,7 @@ class RemediationActionPlan(BaseModel):
     diagnosis: str
     prerequisites: List[str] = Field(default_factory=list)
     steps: List[str] = Field(default_factory=list)
+    guidance_paths: List[RemediationGuidancePath] = Field(default_factory=list)
     completion_criteria: str
     automation_path: str
 
