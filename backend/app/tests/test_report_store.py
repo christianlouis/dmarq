@@ -223,6 +223,38 @@ class TestReportStore:
             {"date": "2024-02-01", "count": 4, "passed": 4, "failed": 0},
         ]
 
+    def test_get_domain_sources_clamps_future_report_begin_to_current_time(self, monkeypatch):
+        store = ReportStore.get_instance()
+        now = 1706788800
+        report = _sample_report("test.com")
+        report.update(
+            {
+                "report_id": "future-period-start",
+                "begin_timestamp": 1706831999,
+                "end_timestamp": 1706745600,
+                "records": [
+                    {
+                        "source_ip": "203.0.113.9",
+                        "count": 4,
+                        "disposition": "none",
+                        "dkim_result": "pass",
+                        "spf_result": "pass",
+                        "header_from": "test.com",
+                    }
+                ],
+            }
+        )
+        monkeypatch.setattr(report_store_module, "_now_timestamp", lambda: now)
+
+        store.add_report(report)
+
+        source = store.get_domain_sources("test.com")[0]
+        assert source["first_seen"] == 1706745600
+        assert source["last_seen"] == 1706745600
+        assert source["volume_history"] == [
+            {"date": "2024-02-01", "count": 4, "passed": 4, "failed": 0},
+        ]
+
     def test_get_domain_sources_ignores_missing_date_sentinel_timestamps(self):
         store = ReportStore.get_instance()
         report = _sample_report("test.com")
