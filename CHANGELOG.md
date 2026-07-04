@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed domain sending-source loading so PTR and network enrichment run in parallel instead of pushing report-backed source rows past the UI timeout.
 - Fixed the Cloudflare permissions picker so selecting the full DNS repair profile no longer falls back to read-only scopes.
 - Fixed the release modal coverage so recent operator-facing work is visible from inside the app.
+- Fixed the remaining Settings page startup hook so CSP hardening no longer depends on template-level page initialization.
 - Fixed several CSP-hardening regressions by moving legacy inline handlers, explicit page initialization, and styles out of templates.
 
 ### Security
