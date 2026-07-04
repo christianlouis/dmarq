@@ -33,7 +33,7 @@ from app.services.bimi import BIMIResult
 from app.services.dane import DANEResult, TLSARecord, TLSASuggestion
 from app.services.dns_cache import _selectors_key, resolve_domain_dns_cached
 from app.services.dns_provider_detection import detect_dns_provider
-from app.services.dns_resolver import DomainDNSResult, SystemDNSProvider
+from app.services.dns_resolver import DomainDNSResult, PublicRecursiveDNSProvider
 from app.services.mta_sts import MTAStsResult
 from app.services.remediation_dispatch import summarize_remediation_activity
 from app.services.report_persistence import save_parsed_report
@@ -368,7 +368,7 @@ def test_dns_endpoint_labels_backend_fallback_evidence(authed_client: TestClient
         spf=True,
         spf_record="v=spf1 -all",
         lookup_status="fallback",
-        lookup_error="No DNS evidence from SystemDNSProvider; using GoogleDNSProvider.",
+        lookup_error="No DNS evidence from PublicRecursiveDNSProvider; using CloudflareDNSProvider.",
     )
 
     with _mock_dns(result):
@@ -377,7 +377,7 @@ def test_dns_endpoint_labels_backend_fallback_evidence(authed_client: TestClient
     assert response.status_code == 200
     data = response.json()
     assert data["lookupStatus"] == "fallback"
-    assert "GoogleDNSProvider" in data["lookupError"]
+    assert "CloudflareDNSProvider" in data["lookupError"]
     assert data["dmarc"] is True
     assert data["spf"] is True
 
@@ -1238,11 +1238,8 @@ async def test_dns_cache_allows_old_positive_evidence_to_expire(db_session):
 @pytest.mark.asyncio
 async def test_dns_cache_uses_public_fallback_for_empty_primary_result(db_session):
     """A primary resolver with no evidence should not force a false F grade."""
-    primary_provider = SystemDNSProvider()
+    primary_provider = PublicRecursiveDNSProvider()
     primary_check = AsyncMock(
-        return_value=DomainDNSResult(dmarc=False, spf=False, dkim=False)
-    )
-    cloudflare_check = AsyncMock(
         return_value=DomainDNSResult(dmarc=False, spf=False, dkim=False)
     )
     fallback_result = DomainDNSResult(
@@ -1258,12 +1255,8 @@ async def test_dns_cache_uses_public_fallback_for_empty_primary_result(db_sessio
         patch.object(primary_provider, "check_domain", new=primary_check),
         patch(
             "app.services.dns_cache.CloudflareDNSProvider.check_domain",
-            new=cloudflare_check,
-        ),
-        patch(
-            "app.services.dns_cache.GoogleDNSProvider.check_domain",
             new=AsyncMock(return_value=fallback_result),
-        ) as google_fallback,
+        ) as cloudflare_fallback,
     ):
         result, cached, _checked = await resolve_domain_dns_cached(
             db_session,
@@ -1277,16 +1270,15 @@ async def test_dns_cache_uses_public_fallback_for_empty_primary_result(db_sessio
     assert result.spf is True
     assert result.dns_provider is not None
     assert result.lookup_status == "fallback"
-    assert "GoogleDNSProvider" in (result.lookup_error or "")
+    assert "CloudflareDNSProvider" in (result.lookup_error or "")
     primary_check.assert_awaited_once()
-    cloudflare_check.assert_awaited_once()
-    google_fallback.assert_awaited_once()
+    cloudflare_fallback.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 async def test_dns_cache_propagates_fallback_cancellation(db_session):
     """Request cancellation must not be swallowed by defensive fallback handling."""
-    primary_provider = SystemDNSProvider()
+    primary_provider = PublicRecursiveDNSProvider()
     primary_check = AsyncMock(
         return_value=DomainDNSResult(dmarc=False, spf=False, dkim=False)
     )
@@ -1296,10 +1288,6 @@ async def test_dns_cache_propagates_fallback_cancellation(db_session):
         patch.object(primary_provider, "check_domain", new=primary_check),
         patch(
             "app.services.dns_cache.CloudflareDNSProvider.check_domain",
-            new=AsyncMock(return_value=DomainDNSResult(dmarc=False, spf=False, dkim=False)),
-        ),
-        patch(
-            "app.services.dns_cache.GoogleDNSProvider.check_domain",
             new=fallback_check,
         ),
         pytest.raises(asyncio.CancelledError),
@@ -1319,7 +1307,7 @@ async def test_dns_cache_propagates_fallback_cancellation(db_session):
 async def test_dns_cache_fallback_failure_log_omits_user_values(db_session, caplog):
     """Fallback failure logging should not echo domains or exception messages."""
     domain = "bad.example\nforged-log-line"
-    primary_provider = SystemDNSProvider()
+    primary_provider = PublicRecursiveDNSProvider()
     primary_check = AsyncMock(
         return_value=DomainDNSResult(dmarc=False, spf=False, dkim=False)
     )
@@ -1331,10 +1319,6 @@ async def test_dns_cache_fallback_failure_log_omits_user_values(db_session, capl
         patch(
             "app.services.dns_cache.CloudflareDNSProvider.check_domain",
             new=fallback_check,
-        ),
-        patch(
-            "app.services.dns_cache.GoogleDNSProvider.check_domain",
-            new=AsyncMock(return_value=DomainDNSResult(dmarc=False, spf=False, dkim=False)),
         ),
     ):
         result, cached, _checked = await resolve_domain_dns_cached(

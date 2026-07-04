@@ -159,10 +159,10 @@
                 <div class="form-control w-full">
                     <label class="label"><span class="label-text font-medium">DNS Resolver</span></label>
                     <select x-model="s['dns.resolver']" class="input input-bordered w-full">
-                        <option value="system">System (OS default)</option>
-                        <option value="cloudflare">Cloudflare DoH (1.1.1.1)</option>
+                        <option value="public">Public DNS (1.1.1.1 + 8.8.8.8)</option>
+                        <option value="cloudflare">Cloudflare DoH</option>
                     </select>
-                    <label class="label"><span class="label-text-alt text-muted-foreground">System resolver uses the OS-configured DNS server; Cloudflare uses DNS-over-HTTPS</span></label>
+                    <label class="label"><span class="label-text-alt text-muted-foreground">Public DNS bypasses the host resolver; Cloudflare uses DNS-over-HTTPS.</span></label>
                 </div>
                 <div class="flex justify-end">
                     <button type="submit" class="btn btn-default btn-md" :disabled="saving">
