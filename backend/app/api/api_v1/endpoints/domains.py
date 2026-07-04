@@ -1795,6 +1795,45 @@ def _build_dashboard_remediation_loop(
     }
 
 
+def _domain_remediation_workload(domain: Dict[str, Any]) -> Dict[str, Any]:
+    """Summarize current remediation work for one dashboard domain row."""
+    counters = {
+        "needs_approval": 0,
+        "manual_action": 0,
+        "investigate": 0,
+    }
+    items: List[Dict[str, Any]] = []
+    domain_name = str(domain.get("domain_name") or domain.get("id") or "")
+    for action in (domain.get("health") or {}).get("actions") or []:
+        state = _remediation_loop_state(action)
+        counters[state] += 1
+        items.append(
+            {
+                "domain": domain_name,
+                "state": state,
+                "severity": str(action.get("severity") or "info"),
+                "title": str(action.get("title") or "Review remediation item"),
+                "next_step": str(action.get("next_step") or "Review the domain evidence."),
+                "score_impact": int(action.get("score_impact") or 0),
+            }
+        )
+
+    items.sort(
+        key=lambda item: (
+            item["state"] != "needs_approval",
+            -REMEDIATION_SEVERITY_RANK.get(str(item.get("severity") or "info"), 0),
+            -int(item.get("score_impact") or 0),
+        )
+    )
+    total_open = counters["needs_approval"] + counters["manual_action"] + counters["investigate"]
+    return {
+        **counters,
+        "total_open": total_open,
+        "status": "clear" if total_open == 0 else "needs_attention",
+        "primary": items[0] if items else None,
+    }
+
+
 class SelectorRequest(BaseModel):
     """Request body for adding a DKIM selector"""
 
@@ -3417,6 +3456,7 @@ async def get_domains_summary(
             "remediation": remediation_by_domain.get(domain_name, {}),
         }
         domain_row["health"] = score_domain_health(domain_row)
+        domain_row["remediation_workload"] = _domain_remediation_workload(domain_row)
         domains_list.append(domain_row)
 
     domain_health = [domain["health"] for domain in domains_list]

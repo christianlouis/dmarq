@@ -1548,7 +1548,7 @@ function dashboardApp() {
                 row.appendChild(this.createDomainNameCell(domain.domain_name));
                 row.appendChild(this.createTextCell(this.formatLargeNumber(domain.total_emails || 0)));
                 row.appendChild(this.createGradeCell(domain.health));
-                row.appendChild(this.createRemediationCell(domain.remediation));
+                row.appendChild(this.createRemediationCell(domain.remediation, domain.remediation_workload));
                 row.appendChild(this.createPassRateCell(domain.pass_rate || 0));
                 row.appendChild(this.createTextCell(this.formatLargeNumber(domain.failed_count || 0)));
                 row.appendChild(this.createTextCell(this.formatLargeNumber(domain.report_count || 0)));
@@ -1591,27 +1591,39 @@ function dashboardApp() {
             return cell;
         },
 
-        createRemediationCell(remediation) {
+        createRemediationCell(remediation, workload) {
             const cell = document.createElement('td');
             cell.className = 'table-cell';
 
             const wrapper = document.createElement('div');
             wrapper.className = 'flex flex-col gap-1';
 
-            const status = remediation?.status || 'none';
+            const openCount = Number(workload?.total_open || 0);
+            const status = openCount > 0 ? 'activity' : (remediation?.status || 'none');
             const badge = document.createElement('span');
             badge.className = `inline-flex w-fit rounded-md bg-[#f8f7f6] px-2 py-1 text-xs font-semibold ${this.remediationStatusClass(status)}`;
-            badge.textContent = this.remediationStatusLabel(status);
+            badge.textContent = openCount > 0
+                ? `${this.formatLargeNumber(openCount)} open`
+                : this.remediationStatusLabel(status);
             wrapper.appendChild(badge);
 
             const latest = document.createElement('span');
             latest.className = 'text-xs text-muted-foreground whitespace-nowrap';
-            if (remediation?.latest_at) {
+            if (workload?.primary?.state) {
+                latest.textContent = this.remediationLoopStateLabel(workload.primary.state);
+            } else if (remediation?.latest_at) {
                 latest.textContent = new Date(remediation.latest_at).toLocaleString();
             } else {
                 latest.textContent = 'No operator action';
             }
             wrapper.appendChild(latest);
+
+            if (workload?.primary?.title) {
+                const action = document.createElement('span');
+                action.className = 'max-w-48 truncate text-xs text-muted-foreground';
+                action.textContent = workload.primary.title;
+                wrapper.appendChild(action);
+            }
 
             cell.appendChild(wrapper);
             return cell;
