@@ -60,19 +60,15 @@
             {% else %}
 
             <!-- Error banner (shown when ?error= is present) -->
-            <div x-data="loginErrorBanner()"
-                 x-show="error" x-cloak>
+            <div x-data="loginErrorBanner"
+                 x-show="hasError" x-cloak>
                 <div role="alert" class="alert alert-error">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                     </svg>
                     <div>
                         <p class="font-semibold">Sign-in failed</p>
-                        <p class="text-sm" x-text="error === 'callback_failed'
-                            ? 'The authentication callback failed. Please try again.'
-                            : error === 'token_error'
-                            ? 'Could not read authentication token. Please try again.'
-                            : 'An unexpected error occurred. Please try again.'">
+                        <p class="text-sm" x-text="errorMessage">
                         </p>
                     </div>
                 </div>

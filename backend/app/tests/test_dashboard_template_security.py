@@ -496,11 +496,33 @@ def test_profile_uses_external_page_script_for_csp_migration():
     script = _profile_script()
 
     assert 'src="/static/js/profile-page.js"' in template
-    assert "profileApp()" in template
+    assert 'x-data="profileApp"' in template
+    assert "profileApp()" not in template
+    assert "Alpine.data('profileApp', profileApp)" in script
     assert "data-profile-page" in template
     assert "/api/v1/auth/me" in script
     assert "Failed to load user profile" in script
+    assert "get avatarInitial()" in script
+    assert "get authProviderText()" in script
+    assert 'x-text="avatarInitial"' in template
+    assert 'x-text="authProviderText"' in template
     assert 'x-init="init()"' not in template
+    assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
+
+
+def test_login_error_banner_uses_registered_component_for_csp_migration():
+    template = _read_project_file("templates", "login.html")
+    script = _read_project_file("static", "js", "login-page.js")
+
+    assert 'src="/static/js/login-page.js"' in template
+    assert 'x-data="loginErrorBanner"' in template
+    assert "loginErrorBanner()" not in template
+    assert "Alpine.data('loginErrorBanner'" in script
+    assert "get hasError()" in script
+    assert "get errorMessage()" in script
+    assert 'x-show="hasError"' in template
+    assert 'x-text="errorMessage"' in template
+    assert "error === 'callback_failed'" not in template
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 

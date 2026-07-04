@@ -480,6 +480,15 @@ async function installApiMocks(page) {
         source_labels: ['Gmail API: dmarc-reports@example.com'],
         latest_source_check: '2026-07-03T12:00:00Z',
       },
+      '/api/v1/auth/me': {
+        email: 'operator@example.com',
+        full_name: 'Demo Operator',
+        username: 'operator',
+        logto_id: 'auth-disabled-local',
+        is_superuser: true,
+        auth_disabled: true,
+        auth_provider_label: 'Auth disabled',
+      },
       '/api/v1/onboarding/preview': {
         plan: {
           tasks: [
@@ -643,6 +652,20 @@ test('upload page keeps queue controls wired without inline handlers', async ({ 
 
   await page.getByText('Clear all').click();
   await expect(page.getByText('Select or drop files above to begin uploading automatically.')).toBeVisible();
+});
+
+test('profile page renders the registered Alpine component', async ({ page }) => {
+  await page.goto('/profile');
+
+  const main = page.getByRole('main');
+  await expect(page.getByRole('heading', { name: 'My Profile' })).toBeVisible();
+  await expect(main.getByText('Demo Operator')).toBeVisible();
+  await expect(main.getByText('operator@example.com')).toBeVisible();
+  await expect(main.getByText('Username')).toBeVisible();
+  await expect(main.getByText('operator', { exact: true })).toBeVisible();
+  await expect(main.getByText('Auth mode')).toBeVisible();
+  await expect(main.getByText('Auth disabled')).toBeVisible();
+  await expect(page.getByText('Failed to load user profile')).not.toBeVisible();
 });
 
 test('onboarding page keeps setup controls wired without inline handlers', async ({ page }) => {
