@@ -101,7 +101,7 @@ def get_assistance_config(db: Session) -> AssistanceConfig:
     if provider not in {"template", "local", "remote", "litellm"}:
         provider = "template"
     redaction_mode = (_setting_value(db, "ai.redaction_mode") or "strict").strip().lower()
-    if redaction_mode not in {"strict", "balanced"}:
+    if redaction_mode not in {"strict", "balanced", "none"}:
         redaction_mode = "strict"
     return AssistanceConfig(
         ai_enabled=_setting_bool(db, "ai.enabled"),
@@ -128,6 +128,22 @@ def redact_safe_value(value: Any, *, mode: str = "strict") -> Any:
     if mode == "strict":
         redacted = EMAIL_PATTERN.sub(r"*@\1", redacted)
     return redacted
+
+
+def _redaction_rules(mode: str) -> List[str]:
+    """Describe the redaction rules applied to AI-safe context."""
+    rules = [
+        "secret-like key/value fragments",
+        "bearer tokens",
+        "long opaque tokens",
+    ]
+    if mode == "strict":
+        rules.append("email local-parts")
+    elif mode == "balanced":
+        rules.append("no email local-part redaction")
+    else:
+        rules.append("email local-parts and domains are preserved")
+    return rules
 
 
 def _domain_exists(
@@ -503,12 +519,7 @@ def build_safe_context(
         "redaction": {
             "mode": config.redaction_mode,
             "applied": True,
-            "rules": [
-                "secret-like key/value fragments",
-                "bearer tokens",
-                "long opaque tokens",
-                "email local-parts in strict mode",
-            ],
+            "rules": _redaction_rules(config.redaction_mode),
         },
     }
     return redact_safe_value(context, mode=config.redaction_mode)
