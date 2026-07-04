@@ -40,8 +40,8 @@ from app.services.cloudflare_oauth import (
     build_cloudflare_authorization_url,
     build_cloudflare_oauth_state,
     cloudflare_oauth_configured,
-    cloudflare_scopes_for_profile,
     cloudflare_scope_profile_metadata,
+    cloudflare_scopes_for_profile,
     decode_cloudflare_oauth_state,
     exchange_cloudflare_oauth_code,
     normalize_cloudflare_scope_profile,
@@ -1710,6 +1710,91 @@ class DomainSummaryResponse(BaseModel):
     health_summary: Dict[str, Any] = Field(default_factory=dict)
 
 
+REMEDIATION_DNS_ACTION_TYPES = {
+    "missing_dmarc",
+    "missing_spf",
+    "missing_dkim",
+    "dmarc_lint",
+}
+REMEDIATION_REPUTATION_ACTION_TYPES = {
+    "source_reputation_listed",
+    "source_reputation_review",
+}
+REMEDIATION_SEVERITY_RANK = {
+    "critical": 4,
+    "high": 3,
+    "medium": 2,
+    "low": 1,
+    "info": 0,
+}
+
+
+def _remediation_loop_state(action: Dict[str, Any]) -> str:
+    """Classify current health actions into dashboard remediation buckets."""
+    action_type = str(action.get("type") or "")
+    severity = str(action.get("severity") or "info")
+    if action_type in REMEDIATION_DNS_ACTION_TYPES and severity in {"critical", "high"}:
+        return "needs_approval"
+    if action_type in {"low_compliance", *REMEDIATION_REPUTATION_ACTION_TYPES}:
+        return "investigate"
+    return "manual_action"
+
+
+def _build_dashboard_remediation_loop(
+    domains: List[Dict[str, Any]],
+    remediation_activity: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Return a visible remediation-loop summary for the workspace dashboard."""
+    counters = {
+        "fixed": int((remediation_activity.get("summary") or {}).get("resolved") or 0),
+        "needs_approval": 0,
+        "manual_action": 0,
+        "investigate": 0,
+    }
+    items: List[Dict[str, Any]] = []
+
+    for domain in domains:
+        domain_name = str(domain.get("domain_name") or domain.get("id") or "")
+        health = domain.get("health") or {}
+        for action in health.get("actions") or []:
+            state = _remediation_loop_state(action)
+            counters[state] += 1
+            items.append(
+                {
+                    "domain": domain_name,
+                    "state": state,
+                    "severity": str(action.get("severity") or "info"),
+                    "title": str(action.get("title") or "Review remediation item"),
+                    "detail": str(action.get("detail") or ""),
+                    "next_step": str(action.get("next_step") or "Review the domain evidence."),
+                    "score_impact": int(action.get("score_impact") or 0),
+                    "type": str(action.get("type") or "health_action"),
+                }
+            )
+
+    items.sort(
+        key=lambda item: (
+            item["state"] != "needs_approval",
+            -REMEDIATION_SEVERITY_RANK.get(str(item.get("severity") or "info"), 0),
+            -int(item.get("score_impact") or 0),
+            str(item.get("domain") or ""),
+        )
+    )
+    total_open = counters["needs_approval"] + counters["manual_action"] + counters["investigate"]
+    return {
+        **counters,
+        "total_open": total_open,
+        "dispatch_enqueued": int(
+            (remediation_activity.get("summary") or {}).get("dispatch_enqueued") or 0
+        ),
+        "operator_follow_up": int(
+            (remediation_activity.get("summary") or {}).get("needs_operator_follow_up") or 0
+        ),
+        "status": "clear" if total_open == 0 else "needs_attention",
+        "items": items[:5],
+    }
+
+
 class SelectorRequest(BaseModel):
     """Request body for adding a DKIM selector"""
 
@@ -2767,9 +2852,7 @@ def _posture_score(checks: List[DNSHealthCheck]) -> int:
     total_weight = sum(weights.get(check.key, 0) for check in checks)
     if total_weight <= 0:
         return 0
-    passing_weight = sum(
-        weights.get(check.key, 0) for check in checks if check.status == "pass"
-    )
+    passing_weight = sum(weights.get(check.key, 0) for check in checks if check.status == "pass")
     return round((passing_weight / total_weight) * 100)
 
 
@@ -3345,6 +3428,10 @@ async def get_domains_summary(
 
     health_summary = build_health_summary(domains_list, domain_health)
     health_summary["remediation"] = remediation_activity["summary"]
+    health_summary["remediation_loop"] = _build_dashboard_remediation_loop(
+        domains_list,
+        remediation_activity,
+    )
 
     return DomainSummaryResponse(
         total_domains=total_domains,
@@ -5423,9 +5510,9 @@ async def cloudflare_oauth_callback(
                     "or update the allowed scopes on the Cloudflare OAuth client.</p>"
                     f"<p><strong>Selected profile:</strong> {html.escape(profile_id)}</p>"
                     f"<p><strong>Requested scopes:</strong> <code>{requested_scopes}</code></p>"
-                    "<p><a href=\""
+                    '<p><a href="'
                     f"{html.escape(retry_href)}"
-                    "\">Retry with read-only Cloudflare access</a></p>"
+                    '">Retry with read-only Cloudflare access</a></p>'
                 )
                 if permission_items:
                     details += (
@@ -6453,8 +6540,7 @@ async def _source_reputations_by_ip(
             ),
             timeout=max(
                 0.5,
-                float(settings.SOURCE_REPUTATION_DETAIL_TIMEOUT_SECONDS)
-                * (2 if refresh else 1),
+                float(settings.SOURCE_REPUTATION_DETAIL_TIMEOUT_SECONDS) * (2 if refresh else 1),
             ),
         )
         return source_reputation_by_ip(reputation_result)

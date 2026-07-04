@@ -21,7 +21,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 
 from app.api.api_v1.endpoints import domains as domains_endpoint
-from app.api.api_v1.endpoints.domains import _domain_names_for_summary, _spf_fix_hint
+from app.api.api_v1.endpoints.domains import (
+    _domain_names_for_summary,
+    _remediation_loop_state,
+    _spf_fix_hint,
+)
 from app.models.dns_cache import DNSCache, DNSRecordChange
 from app.models.domain import Domain
 from app.models.organization import Entitlement, Organization
@@ -578,8 +582,7 @@ def test_dns_lint_endpoint_uses_configured_mail_auth_defaults(
     assert response.status_code == 200
     targets = {record["code"]: record for record in response.json()["target_records"]}
     assert targets["target_dmarc"]["value"] == (
-        "v=DMARC1; p=quarantine; rua=mailto:dmarc-reports@cklnet.com; "
-        "pct=25; adkim=r; aspf=r"
+        "v=DMARC1; p=quarantine; rua=mailto:dmarc-reports@cklnet.com; " "pct=25; adkim=r; aspf=r"
     )
     assert targets["target_tls_rpt"]["value"] == "v=TLSRPTv1; rua=mailto:tls-reports@cklnet.com"
 
@@ -628,8 +631,7 @@ def test_dns_lint_endpoint_prefers_domain_dmarc_mailbox_override(
     assert response.status_code == 200
     targets = {record["code"]: record for record in response.json()["target_records"]}
     assert targets["target_dmarc"]["value"] == (
-        "v=DMARC1; p=none; rua=mailto:dmarc-example@tenant.example; "
-        "pct=100; adkim=r; aspf=r"
+        "v=DMARC1; p=none; rua=mailto:dmarc-example@tenant.example; " "pct=100; adkim=r; aspf=r"
     )
 
 
@@ -704,21 +706,30 @@ def test_int_setting_value_preserves_zero_and_falls_back(db_session):
     )
     db_session.commit()
 
-    assert domains_endpoint._int_setting_value(
-        db_session,
-        "dmarc.default_percentage_zero",
-        100,
-    ) == 0
-    assert domains_endpoint._int_setting_value(
-        db_session,
-        "dmarc.default_percentage_invalid",
-        100,
-    ) == 100
-    assert domains_endpoint._int_setting_value(
-        db_session,
-        "dmarc.default_percentage_missing",
-        100,
-    ) == 100
+    assert (
+        domains_endpoint._int_setting_value(
+            db_session,
+            "dmarc.default_percentage_zero",
+            100,
+        )
+        == 0
+    )
+    assert (
+        domains_endpoint._int_setting_value(
+            db_session,
+            "dmarc.default_percentage_invalid",
+            100,
+        )
+        == 100
+    )
+    assert (
+        domains_endpoint._int_setting_value(
+            db_session,
+            "dmarc.default_percentage_missing",
+            100,
+        )
+        == 100
+    )
 
 
 def test_dns_lint_endpoint_accepts_locale_for_operator_guidance(authed_client: TestClient):
@@ -1243,9 +1254,7 @@ async def test_dns_cache_allows_old_positive_evidence_to_expire(db_session):
 async def test_dns_cache_uses_public_fallback_for_empty_primary_result(db_session):
     """A primary resolver with no evidence should not force a false F grade."""
     primary_provider = PublicRecursiveDNSProvider()
-    primary_check = AsyncMock(
-        return_value=DomainDNSResult(dmarc=False, spf=False, dkim=False)
-    )
+    primary_check = AsyncMock(return_value=DomainDNSResult(dmarc=False, spf=False, dkim=False))
     fallback_result = DomainDNSResult(
         dmarc=True,
         dmarc_record="v=DMARC1; p=reject",
@@ -1328,9 +1337,7 @@ async def test_dns_cache_replaces_system_provider_with_public_resolver(db_sessio
 async def test_dns_cache_propagates_fallback_cancellation(db_session):
     """Request cancellation must not be swallowed by defensive fallback handling."""
     primary_provider = PublicRecursiveDNSProvider()
-    primary_check = AsyncMock(
-        return_value=DomainDNSResult(dmarc=False, spf=False, dkim=False)
-    )
+    primary_check = AsyncMock(return_value=DomainDNSResult(dmarc=False, spf=False, dkim=False))
     fallback_check = AsyncMock(side_effect=asyncio.CancelledError())
 
     with (
@@ -1357,9 +1364,7 @@ async def test_dns_cache_fallback_failure_log_omits_user_values(db_session, capl
     """Fallback failure logging should not echo domains or exception messages."""
     domain = "bad.example\nforged-log-line"
     primary_provider = PublicRecursiveDNSProvider()
-    primary_check = AsyncMock(
-        return_value=DomainDNSResult(dmarc=False, spf=False, dkim=False)
-    )
+    primary_check = AsyncMock(return_value=DomainDNSResult(dmarc=False, spf=False, dkim=False))
     fallback_check = AsyncMock(side_effect=RuntimeError(f"resolver failed for {domain}"))
     caplog.set_level(logging.DEBUG, logger="app.services.dns_cache")
 
@@ -2092,6 +2097,7 @@ def test_summary_includes_remediation_activity(authed_client: TestClient, db_ses
     assert data["health_summary"]["remediation"]["domains_with_activity"] == 1
     assert data["health_summary"]["remediation"]["resolved"] == 1
     assert data["health_summary"]["remediation"]["delivery_count"] == 1
+    assert data["health_summary"]["remediation_loop"]["fixed"] == 1
 
     activity = summarize_remediation_activity(
         db_session,
@@ -2100,6 +2106,45 @@ def test_summary_includes_remediation_activity(authed_client: TestClient, db_ses
         row_limit=1,
     )
     assert activity["domains"]["quiet.example"]["latest_state"] == "acknowledged"
+
+
+def test_summary_includes_current_remediation_loop(
+    authed_client: TestClient,
+    db_session,
+):
+    """Dashboard summaries expose current operator work, not only historic audit rows."""
+    _persist_minimal_report(db_session)
+    degraded_dns = DomainDNSResult(
+        dmarc=False,
+        dmarc_record=None,
+        spf=False,
+        spf_record=None,
+        dkim=True,
+        dkim_selectors=["google"],
+        dkim_record="v=DKIM1; k=rsa; p=ABC",
+    )
+
+    with _mock_dns(degraded_dns):
+        response = authed_client.get("/api/v1/domains/summary?refresh=true")
+
+    assert response.status_code == 200
+    loop = response.json()["health_summary"]["remediation_loop"]
+    assert loop["status"] == "needs_attention"
+    assert loop["needs_approval"] >= 2
+    assert loop["total_open"] >= 2
+    assert loop["items"][0]["domain"] == DOMAIN
+    assert loop["items"][0]["state"] == "needs_approval"
+    assert loop["items"][0]["title"]
+    assert loop["items"][0]["next_step"]
+
+
+@pytest.mark.parametrize(
+    "action_type",
+    ["source_reputation_listed", "source_reputation_review"],
+)
+def test_remediation_loop_classifies_reputation_actions_as_investigate(action_type: str):
+    """Reputation health actions should remain investigation work, not manual tasks."""
+    assert _remediation_loop_state({"type": action_type, "severity": "high"}) == "investigate"
 
 
 def test_summary_dns_failure_defaults_false(authed_client: TestClient, db_session):
@@ -2143,7 +2188,9 @@ def test_summary_refresh_dns_exception_marks_lookup_failed(authed_client: TestCl
     action_types = [action["type"] for action in domain["health"]["actions"]]
     assert "dns_evidence_unavailable" in action_types
     dns_action = next(
-        action for action in domain["health"]["actions"] if action["type"] == "dns_evidence_unavailable"
+        action
+        for action in domain["health"]["actions"]
+        if action["type"] == "dns_evidence_unavailable"
     )
     evidence = {item["label"]: item["value"] for item in dns_action["evidence"]}
     assert evidence["dns_evidence"] == "DNS lookup failed"
@@ -2235,10 +2282,12 @@ async def test_domain_health_grade_treats_pending_dns_as_unavailable(db_session)
             new=AsyncMock(return_value=(reputation, False, None)),
         ),
     ):
-        health = await domains_endpoint._build_domain_health_grade(  # pylint: disable=protected-access
-            db_session,
-            DOMAIN,
-            ReportStore.get_instance(),
+        health = (
+            await domains_endpoint._build_domain_health_grade(  # pylint: disable=protected-access
+                db_session,
+                DOMAIN,
+                ReportStore.get_instance(),
+            )
         )
 
     action_types = [action["type"] for action in health["actions"]]
