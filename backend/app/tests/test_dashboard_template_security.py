@@ -655,7 +655,10 @@ def test_tls_reports_uses_external_page_script_for_csp_migration():
     assert "bindControls()" in script
     assert "event.target instanceof Element" in script
     assert 'x-init="init()"' not in template
-    assert 'x-effect="$el.style.width' in template
+    assert 'x-effect="$el.style.width' not in template
+    assert "trendSuccessWidth(day)" in template
+    assert "trendFailureWidth(day)" in template
+    assert "viewBox=\"0 0 100 6\"" in template
     assert not _has_inline_style(template)
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
@@ -1101,7 +1104,13 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     assert "reputationEvidencePreview" in script
     assert "Use Refresh reputation" in template
     assert 'colspan="9"' in template
-    assert "x-effect=\"$el.style.height = point.height + '%'" in template
+    assert "x-effect=\"$el.style.height = point.height + '%'" not in template
+    assert 'aria-label="Recent sending volume"' in template
+    assert ':viewBox="\'0 0 \' + point.width + \' 100\'"' in template
+    assert "<template x-for=\"point in sourceVolumeBars(source)\"" in template
+    assert "point.y" in template
+    assert "point.width" in template
+    assert "<svg class=\"h-8 w-full overflow-visible\"" not in template
     assert "x-html" not in template
     assert not _has_inline_style(template)
 
@@ -1187,6 +1196,9 @@ def test_members_template_uses_membership_api_without_html_injection():
     assert "Billing & Plan" in template
     assert "currentBillingOwner().owner" in template
     assert "planLimitRows()" in template
+    assert "limitTrackWidth(limit)" in template
+    assert "limitTrackWidth" in script
+    assert 'x-effect="$el.style.width' not in template
     assert "invoice_delivery_label" in template
     assert 'x-text="membership.user.email"' in template
     assert '@click=' not in template
