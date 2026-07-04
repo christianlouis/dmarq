@@ -2216,6 +2216,52 @@ def test_remediation_loop_classifies_reputation_actions_as_investigate(action_ty
     assert _remediation_loop_state({"type": action_type, "severity": "high"}) == "investigate"
 
 
+@pytest.mark.parametrize(
+    ("action", "expected_context"),
+    [
+        (
+            {"type": "source_reputation_listed", "severity": "high"},
+            {
+                "state": "investigate",
+                "state_label": "Investigate",
+                "owner": "Deliverability owner",
+                "automation_path": "investigate",
+            },
+        ),
+        (
+            {"type": "low_compliance", "severity": "medium"},
+            {
+                "state": "investigate",
+                "state_label": "Investigate",
+                "owner": "Mail operations owner",
+                "automation_path": "investigate",
+            },
+        ),
+        (
+            {"type": "tls_coverage_gap", "severity": "medium"},
+            {
+                "state": "manual_action",
+                "state_label": "Manual action",
+                "owner": "Mail or DNS operator",
+                "automation_path": "manual",
+            },
+        ),
+    ],
+)
+def test_dashboard_remediation_item_includes_context_for_non_approval_states(
+    action: dict,
+    expected_context: dict,
+):
+    """Non-approval remediation buckets should expose stable operator context."""
+    item = domains_endpoint._dashboard_remediation_item(DOMAIN, action)
+
+    for key, value in expected_context.items():
+        assert item[key] == value
+    assert item["domain"] == DOMAIN
+    assert item["completion_criteria"]
+    assert item["why"]
+
+
 def test_summary_dns_failure_defaults_false(authed_client: TestClient, db_session):
     """Empty DNS results stay false without being labeled resolver failures."""
     _persist_minimal_report(db_session)
