@@ -5,7 +5,7 @@
 {% block content %}
 <div class="mx-auto max-w-7xl space-y-6"
      x-data="workspaceOnboarding({ multiWorkspaceUiEnabled: {{ multi_workspace_ui_enabled | tojson }} })"
-     x-init="init()" x-cloak>
+     data-onboarding-page x-cloak>
     <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
             <p class="text-sm font-semibold uppercase tracking-wide text-[#2f9da6]">Guided setup</p>
