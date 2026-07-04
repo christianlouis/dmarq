@@ -50,6 +50,33 @@ function reportsApp() {
             });
         },
 
+        get showLoading() {
+            return this.loading;
+        },
+
+        get showError() {
+            return !this.loading && Boolean(this.error);
+        },
+
+        get showReportCount() {
+            return !this.loading && !this.error;
+        },
+
+        get showEmpty() {
+            return !this.loading && !this.error && this.filteredReports.length === 0;
+        },
+
+        get filteredReportCount() {
+            return this.filteredReports.length;
+        },
+
+        get visibleReports() {
+            if (this.loading || this.error) {
+                return [];
+            }
+            return this.filteredReports;
+        },
+
         get filteredReports() {
             return this.reports.filter((report) => {
                 if (this.filters.domain && report.domain !== this.filters.domain) {
@@ -72,8 +99,28 @@ function reportsApp() {
         },
 
         formatDate(dateStr) {
+            if (!dateStr) {
+                return '';
+            }
             const date = new Date(dateStr);
+            if (Number.isNaN(date.getTime())) {
+                return '';
+            }
             return date.toLocaleDateString();
+        },
+
+        normalizeReport(report) {
+            const passRate = Number(report.pass_rate || 0);
+            const reportId = String(report.report_id || '');
+
+            return {
+                ...report,
+                pass_rate: passRate,
+                pass_rate_class: this.getPassRateColor(passRate),
+                pass_rate_label: `${passRate}%`,
+                end_date_label: this.formatDate(report.end_date),
+                detail_url: `/reports/${encodeURIComponent(reportId)}`,
+            };
         },
 
         resetFilters() {
@@ -97,7 +144,8 @@ function reportsApp() {
                 if (!response.ok) {
                     throw new Error('Reports could not be loaded. Refresh the page or check the import service.');
                 }
-                this.reports = await response.json();
+                const reports = await response.json();
+                this.reports = reports.map((report) => this.normalizeReport(report));
                 this.domains = [...new Set(this.reports.map((report) => report.domain))].sort();
             } catch (error) {
                 this.reports = [];
@@ -142,3 +190,7 @@ function reportsApp() {
         },
     };
 }
+
+document.addEventListener('alpine:init', () => {
+    Alpine.data('reportsApp', reportsApp);
+});
