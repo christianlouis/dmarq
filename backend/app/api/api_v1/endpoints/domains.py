@@ -49,7 +49,11 @@ from app.services.cloudflare_oauth import (
 )
 from app.services.dane import check_dane_cached
 from app.services.demo_data import DEMO_DAYS, build_demo_health_score_history
-from app.services.dns_cache import get_cached_domain_dns_result, resolve_domain_dns_cached
+from app.services.dns_cache import (
+    get_cached_domain_dns_result,
+    get_latest_cached_domain_dns_evidence,
+    resolve_domain_dns_cached,
+)
 from app.services.dns_guidance import MailAuthSetupDefaults, build_dns_guidance
 from app.services.dns_provider_connectors import (
     provider_connector_metadata,
@@ -3341,6 +3345,20 @@ async def _resolve_summary_dns_result(
                 cached_result,
                 cached=cached,
                 checked_at=checked_at,
+                pending=False,
+            )
+        fallback_result, fallback_cached, fallback_checked_at = (
+            get_latest_cached_domain_dns_evidence(
+                db,
+                provider,
+                domain_name,
+            )
+        )
+        if fallback_result is not None:
+            return _with_dns_summary_metadata(
+                fallback_result,
+                cached=fallback_cached,
+                checked_at=fallback_checked_at,
                 pending=False,
             )
         return _pending_dns_summary_result()
