@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set
 
 from sqlalchemy.orm import Session
@@ -13,6 +13,7 @@ from app.models.webhook import WebhookEndpoint
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog
 from app.services.webhook_events import SUPPORTED_EVENT_TYPES, endpoint_matches_event
+from app.utils.domain_validator import normalize_domain_name
 
 DISPATCH_ENABLED_KEY = "notifications.remediation_dispatch_enabled"
 DISPATCH_CHANNEL_KEY = "notifications.remediation_dispatch_channel"
@@ -116,7 +117,7 @@ def _latest_lifecycle_marker(
         details = json.loads(row.details or "{}")
     except (json.JSONDecodeError, TypeError):
         details = {}
-    recorded_at = row.created_at.isoformat() if isinstance(row.created_at, datetime) else None
+    recorded_at = _audit_timestamp(row.created_at)
     return {"state": details.get("lifecycle_state"), "recorded_at": recorded_at}
 
 
@@ -135,9 +136,17 @@ def _safe_int(value: Any) -> int:
         return 0
 
 
+def _audit_timestamp(value: Any) -> Optional[str]:
+    if not isinstance(value, datetime):
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.isoformat().replace("+00:00", "Z")
+
+
 def _history_entry(row: WorkspaceAuditLog) -> Optional[Dict[str, Any]]:
     details = _audit_details(row)
-    created_at = row.created_at.isoformat() if isinstance(row.created_at, datetime) else None
+    created_at = _audit_timestamp(row.created_at)
     action = str(row.action or "")
     if action == "remediation.notification_dispatch_enqueued":
         state = "delivery_enqueued" if details.get("delivery_enqueued") else "dispatch_requested"
@@ -243,7 +252,12 @@ def summarize_remediation_activity(
     row_limit: int = 500,
 ) -> Dict[str, Any]:
     """Summarize remediation audit activity without rebuilding domain queues."""
-    domain_names = [str(domain or "").strip() for domain in domains if str(domain or "").strip()]
+    domain_names = []
+    for domain in domains:
+        domain_name = normalize_domain_name(str(domain or ""))
+        if domain_name:
+            domain_names.append(domain_name)
+    domain_names = list(dict.fromkeys(domain_names))
     summaries = {domain: _empty_domain_activity(domain) for domain in domain_names}
     if not domain_names:
         return {
@@ -258,21 +272,21 @@ def summarize_remediation_activity(
             "domains": summaries,
         }
 
+    effective_row_limit = max(row_limit, len(domain_names) * 15)
     rows = (
         db.query(WorkspaceAuditLog)
         .filter(
             WorkspaceAuditLog.workspace_id == workspace.id,
             WorkspaceAuditLog.entity_type == "remediation_notification",
-            WorkspaceAuditLog.entity_name.in_(domain_names),
             WorkspaceAuditLog.action.in_(HISTORY_ACTIONS),
         )
         .order_by(WorkspaceAuditLog.created_at.desc(), WorkspaceAuditLog.id.desc())
-        .limit(row_limit)
+        .limit(effective_row_limit)
         .all()
     )
 
     for row in rows:
-        domain = str(row.entity_name or "")
+        domain = normalize_domain_name(str(row.entity_name or ""))
         if domain not in summaries:
             continue
         entry = _history_entry(row)

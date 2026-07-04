@@ -2009,7 +2009,7 @@ def test_summary_includes_remediation_activity(authed_client: TestClient, db_ses
                 action="remediation.notification_dispatch_enqueued",
                 entity_type="remediation_notification",
                 entity_id="dns:dmarc-missing",
-                entity_name=DOMAIN,
+                entity_name=f" {DOMAIN.upper()}. ",
                 details=json.dumps(
                     {
                         "delivery_enqueued": True,
@@ -2026,7 +2026,7 @@ def test_summary_includes_remediation_activity(authed_client: TestClient, db_ses
                 action="remediation.notification_lifecycle_recorded",
                 entity_type="remediation_notification",
                 entity_id="dns:dmarc-missing",
-                entity_name=DOMAIN,
+                entity_name=f" {DOMAIN.upper()}. ",
                 details=json.dumps({"lifecycle_state": "resolved"}),
                 created_at=now + timedelta(seconds=1),
             ),
@@ -2042,6 +2042,7 @@ def test_summary_includes_remediation_activity(authed_client: TestClient, db_ses
     domain = data["domains"][0]
     assert domain["remediation"]["status"] == "resolved"
     assert domain["remediation"]["latest_state"] == "resolved"
+    assert domain["remediation"]["latest_at"].endswith("Z")
     assert domain["remediation"]["resolved"] == 1
     assert domain["remediation"]["dispatch_enqueued"] == 1
     assert data["health_summary"]["remediation"]["domains_with_activity"] == 1
