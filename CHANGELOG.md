@@ -42,6 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Release metadata is sanitized for display and does not expose secrets.
 - Domain-specific DMARC aggregate-report mailbox overrides now feed DNS lint and
   the mail-authentication wizard before falling back to the workspace default.
+- The default browser policy no longer allows inline scripts; Alpine expression
+  compatibility still keeps `unsafe-eval` until the CSP runtime migration is
+  complete.
 
 ## [0.3.0] - 2026-02-09
 

@@ -140,6 +140,14 @@ class TestSecurityHeaders:
         csp = response.headers["Content-Security-Policy"]
 
         assert "'unsafe-eval'" in csp
+        script_src = next(
+            part.strip()
+            for part in csp.split(";")
+            if part.strip().startswith("script-src ")
+        )
+        assert "'unsafe-inline'" not in script_src
+        assert script_src == "script-src 'self' 'unsafe-eval'"
+        assert "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com" in csp
         assert "https://cdn.jsdelivr.net" not in csp
         assert "https://cdn.tailwindcss.com" not in csp
 
