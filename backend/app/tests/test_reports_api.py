@@ -956,6 +956,142 @@ def test_get_report_by_id_includes_source_intelligence_and_reputation(
     assert "Example DNSBL" in record["reputation"]["feed_summary"]
     assert record["reputation"]["risk_score"] == 82
     assert record["reputation"]["listings"] == ["Example DNSBL"]
+    reputation_summary = response.json()["reputation_summary"]
+    assert reputation_summary["status"] == "listed"
+    assert reputation_summary["status_label"] == "Listed sender detected"
+    assert reputation_summary["listed_sources"] == 1
+    assert reputation_summary["highest_risk_score"] == 82
+    assert reputation_summary["feed_status"] == "listed"
+    assert reputation_summary["worst_source"]["ip"] == "193.138.195.141"
+    assert reputation_summary["recommendations"] == ["Follow the provider delisting process."]
+
+
+def test_report_reputation_summary_covers_empty_and_unchecked_sources():
+    unavailable = reports_endpoint._report_reputation_summary(None)
+    assert unavailable["status"] == "unavailable"
+    assert unavailable["feed_status"] == "unavailable"
+
+    no_sources = reports_endpoint._report_reputation_summary(
+        DomainReputation(
+            domain="example.com",
+            status="unknown",
+            checked_at="2026-07-01T00:00:00Z",
+            sources=[],
+            summary={},
+        )
+    )
+
+    assert no_sources["status"] == "unknown"
+    assert no_sources["total_sources"] == 0
+    assert no_sources["feed_status"] == "unknown"
+    assert no_sources["worst_source"] is None
+    assert no_sources["recommendations"] == []
+
+
+def test_report_reputation_summary_covers_feed_status_and_attention_branches():
+    suspicious = SourceReputation(
+        ip="192.0.2.55",
+        status="suspicious",
+        risk_score=41,
+        summary="Local source needs review.",
+        evidence=[
+            ReputationEvidence(
+                label="External reputation feeds",
+                value="Lookup timed out",
+                source="external",
+            )
+        ],
+        recommendations=["Confirm source owner.", "Review authentication failures."],
+        checked_at="2026-07-01T00:00:00Z",
+    )
+    clean_external = SourceReputation(
+        ip="198.51.100.20",
+        status="clean",
+        risk_score=2,
+        summary="No reputation listing observed.",
+        evidence=[
+            ReputationEvidence(
+                label="External reputation feeds",
+                value="Checked without listings",
+                source="external",
+            )
+        ],
+        checked_at="2026-07-01T00:00:00Z",
+    )
+    not_configured = SourceReputation(
+        ip="203.0.113.10",
+        status="unknown",
+        risk_score=0,
+        summary="External feeds not configured.",
+        evidence=[
+            ReputationEvidence(
+                label="External reputation feeds",
+                value="External feeds not configured",
+                source="external",
+            )
+        ],
+        checked_at="2026-07-01T00:00:00Z",
+    )
+    local_only = SourceReputation(
+        ip="203.0.113.11",
+        status="clean",
+        risk_score=0,
+        summary="Local evidence only.",
+        checked_at="2026-07-01T00:00:00Z",
+    )
+
+    attention_summary = reports_endpoint._report_reputation_summary(
+        DomainReputation(
+            domain="example.com",
+            status="suspicious",
+            checked_at="2026-07-01T00:00:00Z",
+            sources=[suspicious, clean_external],
+            summary={"total_sources": 2, "suspicious": 1, "clean": 1},
+        )
+    )
+
+    assert attention_summary["status"] == "attention"
+    assert attention_summary["feed_status"] == "error"
+    assert attention_summary["highest_risk_score"] == 41
+    assert attention_summary["worst_source"]["ip"] == "192.0.2.55"
+    assert attention_summary["recommendations"] == [
+        "Confirm source owner.",
+        "Review authentication failures.",
+    ]
+
+    checked_summary = reports_endpoint._report_reputation_summary(
+        DomainReputation(
+            domain="example.com",
+            status="clean",
+            checked_at="2026-07-01T00:00:00Z",
+            sources=[clean_external],
+            summary={"total_sources": 1, "clean": 1, "highest_risk_score": 2},
+        )
+    )
+    assert checked_summary["status"] == "clean"
+    assert checked_summary["feed_status"] == "checked"
+
+    not_configured_summary = reports_endpoint._report_reputation_summary(
+        DomainReputation(
+            domain="example.com",
+            status="unknown",
+            checked_at="2026-07-01T00:00:00Z",
+            sources=[not_configured],
+            summary={"total_sources": 1, "unknown": 1},
+        )
+    )
+    assert not_configured_summary["feed_status"] == "not_configured"
+
+    local_only_summary = reports_endpoint._report_reputation_summary(
+        DomainReputation(
+            domain="example.com",
+            status="clean",
+            checked_at="2026-07-01T00:00:00Z",
+            sources=[local_only],
+            summary={"total_sources": 1, "clean": 1},
+        )
+    )
+    assert local_only_summary["feed_status"] == "local_only"
 
 
 def test_get_report_by_id_refreshes_reputation_cache(
@@ -1000,7 +1136,9 @@ def test_get_report_by_id_refreshes_reputation_cache(
     monkeypatch.setattr(reports_endpoint, "_safe_ptr_lookup", fake_ptr_lookup)
     monkeypatch.setattr(reports_endpoint, "build_source_reputation_cached", fake_reputation)
 
-    response = authed_client.get("/api/v1/reports/source-intel-refresh-report?refresh_reputation=true")
+    response = authed_client.get(
+        "/api/v1/reports/source-intel-refresh-report?refresh_reputation=true"
+    )
 
     assert response.status_code == 200
     assert captured_refresh == [True]
@@ -1034,6 +1172,7 @@ def test_get_report_by_id_continues_when_reputation_enrichment_fails(
     record = response.json()["records"][0]
     assert record["source_details"]["sender"]
     assert record["reputation"] is None
+    assert response.json()["reputation_summary"]["status"] == "unavailable"
 
 
 def test_get_report_by_id_surfaces_refresh_reputation_failure(
@@ -1057,7 +1196,9 @@ def test_get_report_by_id_surfaces_refresh_reputation_failure(
     monkeypatch.setattr(reports_endpoint, "_safe_ptr_lookup", fake_ptr_lookup)
     monkeypatch.setattr(reports_endpoint, "build_source_reputation_cached", failing_reputation)
 
-    response = authed_client.get("/api/v1/reports/source-intel-refresh-failure?refresh_reputation=true")
+    response = authed_client.get(
+        "/api/v1/reports/source-intel-refresh-failure?refresh_reputation=true"
+    )
 
     assert response.status_code == 503
     assert response.json()["detail"] == "Source reputation could not be refreshed."

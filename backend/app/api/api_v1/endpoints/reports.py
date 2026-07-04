@@ -29,6 +29,7 @@ from app.services.source_network import (
     merge_network_into_geo,
 )
 from app.services.source_reputation import (
+    DomainReputation,
     SourceReputation,
     build_source_reputation_cached,
     reputation_presentation,
@@ -668,6 +669,7 @@ class ReportDetail(BaseModel):
     policy: ReportPolicyDetail
     records: List[ReportRecordDetail]
     summary: ReportSummaryDetail
+    reputation_summary: Dict[str, Any] = Field(default_factory=dict)
 
 
 def _record_review_guidance(record: Dict[str, Any]) -> Dict[str, Any]:
@@ -779,6 +781,139 @@ def _source_reputation_dict(item: SourceReputation) -> Dict[str, Any]:
     }
 
 
+def _empty_report_reputation_summary() -> Dict[str, Any]:
+    return {
+        "status": "unavailable",
+        "status_label": "Reputation unavailable",
+        "status_detail": "Sender reputation could not be calculated for this report.",
+        "total_sources": 0,
+        "listed_sources": 0,
+        "sources_needing_review": 0,
+        "clean_sources": 0,
+        "unknown_sources": 0,
+        "highest_risk_score": None,
+        "feed_status": "unavailable",
+        "feed_summary": "No reputation evidence is available.",
+        "checked_at": "",
+        "worst_source": None,
+        "recommendations": [],
+    }
+
+
+def _report_reputation_status(
+    sources: List[SourceReputation], listed_sources: int, review_sources: int
+) -> Dict[str, str]:
+    if listed_sources:
+        return {
+            "status": "listed",
+            "status_label": "Listed sender detected",
+            "status_detail": "At least one sending IP has reputation listing evidence.",
+        }
+    if review_sources:
+        return {
+            "status": "attention",
+            "status_label": "Sender review needed",
+            "status_detail": "At least one sending IP has risk signals that need review.",
+        }
+    if sources:
+        return {
+            "status": "clean",
+            "status_label": "No reputation findings",
+            "status_detail": "No configured reputation feed or local signal flagged these sources.",
+        }
+    return {
+        "status": "unknown",
+        "status_label": "No sending sources",
+        "status_detail": "This report does not contain sending-source records.",
+    }
+
+
+def _report_feed_summary(sources: List[SourceReputation]) -> Dict[str, str]:
+    feed_statuses = [reputation_presentation(item).feed_status for item in sources]
+    if "listed" in feed_statuses:
+        return {
+            "feed_status": "listed",
+            "feed_summary": "At least one reputation feed returned a listing.",
+        }
+    if "error" in feed_statuses:
+        return {
+            "feed_status": "error",
+            "feed_summary": "One or more reputation lookups returned errors.",
+        }
+    if "checked" in feed_statuses:
+        return {
+            "feed_status": "checked",
+            "feed_summary": "External reputation feeds checked without listings.",
+        }
+    if "not_configured" in feed_statuses:
+        return {
+            "feed_status": "not_configured",
+            "feed_summary": "External reputation feeds are not configured.",
+        }
+    if "local_only" in feed_statuses:
+        return {
+            "feed_status": "local_only",
+            "feed_summary": "Using local DMARC evidence only; external feeds are not enabled.",
+        }
+    return {"feed_status": "unknown", "feed_summary": "No reputation feed evidence is available."}
+
+
+def _report_reputation_recommendations(sources: List[SourceReputation]) -> List[str]:
+    recommendations: List[str] = []
+    for source in sources:
+        for recommendation in source.recommendations:
+            if recommendation not in recommendations:
+                recommendations.append(recommendation)
+            if len(recommendations) >= 3:
+                break
+        if len(recommendations) >= 3:
+            break
+    return recommendations
+
+
+def _report_worst_source(worst: Optional[SourceReputation]) -> Optional[Dict[str, Any]]:
+    if not worst:
+        return None
+    worst_view = reputation_presentation(worst)
+    return {
+        "ip": worst.ip,
+        "status": worst.status,
+        "status_label": worst_view.status_label,
+        "risk_score": worst.risk_score,
+        "summary": worst.summary,
+        "listings": worst.listings,
+    }
+
+
+def _report_reputation_summary(result: Optional[DomainReputation]) -> Dict[str, Any]:
+    """Return a report-level sender reputation summary for the detail page."""
+    if result is None:
+        return _empty_report_reputation_summary()
+
+    sources = list(result.sources or [])
+    summary = dict(result.summary or {})
+    listed_sources = int(summary.get("listed") or 0)
+    review_sources = int(summary.get("suspicious") or 0)
+    highest_risk_score = summary.get("highest_risk_score")
+    if highest_risk_score is None and sources:
+        highest_risk_score = max(source.risk_score for source in sources)
+    status_view = _report_reputation_status(sources, listed_sources, review_sources)
+
+    return {
+        **status_view,
+        "total_sources": int(summary.get("total_sources") or len(sources)),
+        "listed_sources": listed_sources,
+        "sources_needing_review": review_sources,
+        "clean_sources": int(summary.get("clean") or 0),
+        "unknown_sources": int(summary.get("unknown") or 0),
+        "highest_risk_score": highest_risk_score,
+        **_report_feed_summary(sources),
+        "checked_at": result.checked_at,
+        "worst_source": _report_worst_source(sources[0] if sources else None),
+        "recommendations": _report_reputation_recommendations(sources),
+    }
+
+
 def _source_details(
     ip: str,
     record: Dict[str, Any],
@@ -881,6 +1016,7 @@ async def get_report_by_id(
         ip: identify_sender(ip, row, hostname=hostname, domain=report.get("domain", ""))
         for ip, row, hostname in zip(ips, source_rows, hostnames, strict=True)
     }
+    reputation_result: Optional[DomainReputation] = None
     reputations_by_ip: Dict[str, SourceReputation] = {}
     try:
         reputation_result, _, _ = await build_source_reputation_cached(
@@ -949,4 +1085,5 @@ async def get_report_by_id(
         policy=policy_detail,
         records=record_details,
         summary=summary_detail,
+        reputation_summary=_report_reputation_summary(reputation_result),
     )
