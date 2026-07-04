@@ -65,6 +65,10 @@ function settingsApp() {
 
         // Session cookie is sent automatically by the browser (httpOnly, same-origin).
         // No manual auth header needed for API calls from the UI.
+        init() {
+            return this.initSettingsPage();
+        },
+
         initSettingsPage() {
             this.bindProviderControls();
             return this.loadSettings();

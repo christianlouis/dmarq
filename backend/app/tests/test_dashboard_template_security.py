@@ -645,6 +645,12 @@ def test_settings_exposes_provider_agnostic_dns_import_without_html_injection():
     assert "selectedDnsProviderConnectionClass" in script
     assert "resetDnsProviderImportState" in script
     assert "bindProviderControls" in script
+    assert re.search(r"\bx-init\s*=", template) is None
+    assert re.search(
+        r"\binit\s*\(\s*\)\s*\{[^}]*\breturn\s+this\.initSettingsPage\s*\(\s*\)",
+        script,
+        re.DOTALL,
+    )
     assert "data-settings-cloudflare-connect" in template
     assert "data-settings-toggle-cf-token" in template
     assert "data-settings-dns-provider-select" in template
