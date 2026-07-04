@@ -7,6 +7,7 @@ from typing import List
 from app.services.dns_resolver import (
     BaseDNSProvider,
     CloudflareDNSProvider,
+    ConfiguredRecursiveDNSProvider,
     DemoDNSProvider,
     PublicRecursiveDNSProvider,
 )
@@ -22,7 +23,9 @@ def dns_fallback_candidates(provider: BaseDNSProvider) -> List[BaseDNSProvider]:
     candidates: List[BaseDNSProvider] = [provider]
     if isinstance(provider, DemoDNSProvider):
         return candidates
-    if not isinstance(provider, PublicRecursiveDNSProvider):
+    if not isinstance(provider, PublicRecursiveDNSProvider) or isinstance(
+        provider, ConfiguredRecursiveDNSProvider
+    ):
         candidates.append(PublicRecursiveDNSProvider())
     if not isinstance(provider, CloudflareDNSProvider):
         candidates.append(CloudflareDNSProvider())
