@@ -2519,6 +2519,7 @@ def test_report_selector_map_handles_empty_and_malformed_details(db_session):
 # ---------------------------------------------------------------------------
 
 # A failing-source report used for sources tests
+FAILING_SOURCE_IP = "104.245.209.200"
 FAILING_SOURCE_REPORT = {
     "domain": DOMAIN,
     "report_id": "fail-src-001",
@@ -2526,7 +2527,7 @@ FAILING_SOURCE_REPORT = {
     "policy": {"p": "reject", "sp": "", "pct": "100"},
     "records": [
         {
-            "source_ip": "10.0.0.1",
+            "source_ip": FAILING_SOURCE_IP,
             "count": 3,
             "disposition": "reject",
             "dkim_result": "fail",
@@ -2561,7 +2562,7 @@ def test_sources_endpoint_includes_hostname(authed_client: TestClient):
     assert response.status_code == 200
     sources = response.json()["sources"]
     # Find the failing source
-    failing = next((s for s in sources if s["ip"] == "10.0.0.1"), None)
+    failing = next((s for s in sources if s["ip"] == FAILING_SOURCE_IP), None)
     assert failing is not None
     assert failing["hostname"] == "mail.example.com"
 
@@ -2590,7 +2591,7 @@ def test_sources_endpoint_omits_spf_fix_hint_for_unknown_failing_ip(
 
     assert response.status_code == 200
     sources = response.json()["sources"]
-    failing = next((s for s in sources if s["ip"] == "10.0.0.1"), None)
+    failing = next((s for s in sources if s["ip"] == FAILING_SOURCE_IP), None)
     assert failing is not None
     assert failing["spf_fix_hint"] is None
 
