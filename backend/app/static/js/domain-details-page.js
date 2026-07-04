@@ -525,6 +525,7 @@ function domainDetailsApp(domainId) {
 
         get dkimLiveText() {
             if (this.dnsRecordsLoading) return 'Checking DKIM selectors...';
+            if (this.dnsEvidenceUnavailable) return this.dnsRecordsError || this.dnsLookupFailureText;
             if (this.dnsLookupFailed) return this.dnsLookupFailureText;
             if (!this.dns.dkim) return 'No DKIM record found for configured selectors';
             if (this.dns.dkimSelectors && this.dns.dkimSelectors.length > 0) {
@@ -538,7 +539,11 @@ function domainDetailsApp(domainId) {
         },
 
         get dnsEvidenceUnavailable() {
-            return Boolean(this.dnsRecordsError) || this.dnsLookupFailed;
+            return (Boolean(this.dnsRecordsError) && !this.dnsRecordsErrorHasPreservedEvidence) || this.dnsLookupFailed;
+        },
+
+        get dnsRecordsErrorHasPreservedEvidence() {
+            return Boolean(this.dnsRecordsError) && this.dnsResponseHasEvidence(this.dns);
         },
 
         get dnsLookupStaleCache() {
@@ -598,7 +603,7 @@ function domainDetailsApp(domainId) {
 
         dnsRecordText(record, missingText, checkingText) {
             if (this.dnsRecordsLoading) return checkingText;
-            if (this.dnsRecordsError) return 'DNS evidence unavailable. Reload DNS to retry the live lookup.';
+            if (this.dnsEvidenceUnavailable) return 'DNS evidence unavailable. Reload DNS to retry the live lookup.';
             if (this.dnsLookupFailed) return this.dnsLookupFailureText;
             return record || missingText;
         },
@@ -613,21 +618,21 @@ function domainDetailsApp(domainId) {
 
         get dnsProviderName() {
             if (this.dnsRecordsLoading) return 'Checking DNS provider...';
-            if (this.dnsRecordsError) return 'DNS evidence unavailable';
+            if (this.dnsEvidenceUnavailable) return 'DNS evidence unavailable';
             if (this.dnsLookupFailed) return 'DNS lookup failed';
             return this.detectedDnsProvider?.provider_name || 'Unknown provider';
         },
 
         get dnsProviderConfidence() {
             if (this.dnsRecordsLoading) return 'checking';
-            if (this.dnsRecordsError) return 'unavailable';
+            if (this.dnsEvidenceUnavailable) return 'unavailable';
             if (this.dnsLookupFailed) return 'unavailable';
             return this.detectedDnsProvider?.confidence || 'unknown';
         },
 
         get dnsProviderAction() {
             if (this.dnsRecordsLoading) return 'Looking up authoritative nameservers and authentication records.';
-            if (this.dnsRecordsError) return this.dnsRecordsError;
+            if (this.dnsEvidenceUnavailable) return this.dnsRecordsError || this.dnsLookupFailureText;
             if (this.dnsLookupFailed) return this.dnsLookupFailureText;
             return this.detectedDnsProvider?.suggested_action || 'Review nameservers and select the DNS provider manually before making changes.';
         },
@@ -642,7 +647,7 @@ function domainDetailsApp(domainId) {
 
         get dnsNameserverText() {
             if (this.dnsRecordsLoading) return 'Checking nameservers...';
-            if (this.dnsRecordsError) return 'DNS evidence unavailable. Reload DNS to retry.';
+            if (this.dnsEvidenceUnavailable) return 'DNS evidence unavailable. Reload DNS to retry.';
             if (this.dnsLookupFailed) return this.dnsLookupFailureText;
             const nameservers = this.dns.nameservers || this.detectedDnsProvider?.evidence || [];
             return nameservers.length ? nameservers.join(', ') : 'No NS evidence available yet';
@@ -650,7 +655,7 @@ function domainDetailsApp(domainId) {
 
         get providerContextStatusLabel() {
             if (this.dnsRecordsLoading) return 'checking';
-            if (this.dnsRecordsError) return 'unavailable';
+            if (this.dnsEvidenceUnavailable) return 'unavailable';
             return {
                 connected: 'connected',
                 read_only: 'read-only',
@@ -671,20 +676,20 @@ function domainDetailsApp(domainId) {
 
         get providerContextSummary() {
             if (this.dnsRecordsLoading) return 'Checking provider connection and safe DNS repair options.';
-            if (this.dnsRecordsError) return 'Live DNS evidence is not available yet, so DMARQ is not making repair assumptions.';
+            if (this.dnsEvidenceUnavailable) return 'Live DNS evidence is not available yet, so DMARQ is not making repair assumptions.';
             return this.providerContext?.summary || this.dnsProviderAction;
         },
 
         get providerContextSteps() {
             if (this.dnsRecordsLoading) return ['Wait for DNS checks to complete.'];
-            if (this.dnsRecordsError) return ['Reload DNS after the resolver finishes or network timeouts clear.'];
+            if (this.dnsEvidenceUnavailable) return ['Reload DNS after the resolver finishes or network timeouts clear.'];
             const steps = this.providerContext?.next_steps || [];
             return steps.length ? steps : ['Review the DNS lint findings and apply changes manually.'];
         },
 
         get providerContextCtaLabel() {
             if (this.dnsRecordsLoading) return 'Checking...';
-            if (this.dnsRecordsError) return 'Reload DNS';
+            if (this.dnsEvidenceUnavailable) return 'Reload DNS';
             return this.providerContext?.cta_label || 'Review DNS guidance';
         },
 
