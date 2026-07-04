@@ -6,7 +6,7 @@
 {% block title %}DMARQ - Reports{% endblock %}
 
 {% block content %}
-<div class="container mx-auto py-4" x-data="reportsApp()" x-cloak>
+<div class="container mx-auto py-4" x-data="reportsApp" x-cloak>
     <h1 class="text-2xl font-bold mb-6">DMARC Reports</h1>
 
     <!-- Report Filters -->
@@ -52,9 +52,9 @@
                     {% call card_title() %}DMARC Reports{% endcall %}
                 </div>
                 {% call card_description() %}
-                    <span x-show="loading">Loading reports...</span>
-                    <span x-show="!loading && !error">Showing <span x-text="filteredReports.length"></span> reports</span>
-                    <span x-show="!loading && error">Reports unavailable</span>
+                    <span x-show="showLoading">Loading reports...</span>
+                    <span x-show="showReportCount">Showing <span x-text="filteredReportCount"></span> reports</span>
+                    <span x-show="showError">Reports unavailable</span>
                 {% endcall %}
             {% endcall %}
             {% call card_content() %}
@@ -71,7 +71,7 @@
                         {% endcall %}
                     {% endcall %}
                     {% call tbody() %}
-                        <template x-if="loading">
+                        <template x-if="showLoading">
                             {% call tr() %}
                                 {% call td(colspan="7", class="text-center") %}
                                     <div class="flex items-center justify-center gap-2 py-4 text-muted-foreground" role="status">
@@ -81,7 +81,7 @@
                                 {% endcall %}
                             {% endcall %}
                         </template>
-                        <template x-if="!loading && error">
+                        <template x-if="showError">
                             {% call tr() %}
                                 {% call td(colspan="7", class="text-center") %}
                                     <div class="flex flex-col items-center gap-3 py-4">
@@ -93,17 +93,17 @@
                                 {% endcall %}
                             {% endcall %}
                         </template>
-                        <template x-if="!loading && !error && filteredReports.length === 0">
+                        <template x-if="showEmpty">
                             {% call tr() %}
                                 {% call td(colspan="7", class="text-center") %}
                                     <p class="py-4 text-muted-foreground">No reports match this filter.</p>
                                 {% endcall %}
                             {% endcall %}
                         </template>
-                        <template x-for="(report, index) in (!loading && !error ? filteredReports : [])" :key="index">
+                        <template x-for="report in visibleReports" :key="report.report_id">
                             {% call tr() %}
                                 {% call td() %}
-                                    <div x-text="formatDate(report.end_date)"></div>
+                                    <div x-text="report.end_date_label"></div>
                                 {% endcall %}
                                 {% call td() %}
                                     <div class="inline-flex items-center px-2 py-1 rounded text-xs bg-blue-100 text-blue-800">
@@ -121,13 +121,13 @@
                                 {% endcall %}
                                 {% call td() %}
                                     <div class="inline-flex items-center px-2 py-1 rounded" 
-                                         :class="getPassRateColor(report.pass_rate)">
-                                        <span x-text="report.pass_rate + '%'"></span>
+                                         :class="report.pass_rate_class">
+                                        <span x-text="report.pass_rate_label"></span>
                                     </div>
                                 {% endcall %}
                                 {% call td("text-right") %}
                                     <div class="inline-flex gap-2 justify-end">
-                                        <a :href="`/reports/${report.report_id}`">
+                                        <a :href="report.detail_url">
                                             {% call button(variant="outline", size="sm") %}
                                                 View Details
                                             {% endcall %}
