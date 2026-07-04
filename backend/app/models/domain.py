@@ -19,6 +19,7 @@ class Domain(Base):
 
     # DMARC policy information
     dmarc_policy = Column(String, nullable=True)
+    dmarc_report_mailbox = Column(String, nullable=True)
     spf_record = Column(String, nullable=True)
     dkim_selectors = Column(String, nullable=True)  # Comma-separated list of DKIM selectors
 
