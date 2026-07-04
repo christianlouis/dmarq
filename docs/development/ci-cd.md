@@ -90,14 +90,17 @@ from GitHub alone, when deciding whether a fix is live.
 Runs only on pushes to `main` after the Docker stage succeeds.
 
 Updates the image tag in the GitOps manifests that Argo CD actually reconciles
-for the self-hosted demo and preprod environments:
+for the self-hosted demo and preprod environments immediately:
 
 - `apps/dmarq/greenfield-demo/dmarq-stack.yaml` for `demo.dmarq.org`
 - `apps/dmarq/greenfield-preprod/dmarq-stack.yaml` for `preprod.app.dmarq.org`
 
-Production (`apps/dmarq/prod/dmarq-stack.yaml` for `app.dmarq.org`) is not
-updated automatically by this stage. Promote the tested image to production with
-an explicit GitOps change after reviewing the release.
+Production (`apps/dmarq/prod/dmarq-stack.yaml` for `app.dmarq.org`) is promoted
+by the separate `Promote Production K8s Manifest` job. That job targets the
+`dmarq-production-gitops` GitHub environment, so configure that environment
+with required reviewers or protection rules when production promotion should
+wait for release approval. After approval, the job writes the same tested image
+tag to the production GitOps manifest.
 
 ### Rollout drift checks
 
@@ -118,9 +121,10 @@ environment label configured for that deployment. A mismatch means the
 browser-visible app is behind GitOps or serving a different image than expected.
 
 !!! note "Optional"
-    This stage requires a `GH_PAT` repository secret with write access to the
-    k8s-cluster-state repo.  If the secret is absent or lacks access the step
-    emits a warning and skips gracefully — it will never fail the pipeline.
+    The GitOps jobs require a `GH_PAT` repository secret with write access to
+    the k8s-cluster-state repo.  If the secret is absent or lacks access the
+    affected job emits a warning and skips gracefully — it will never fail the
+    pipeline.
 
 ---
 

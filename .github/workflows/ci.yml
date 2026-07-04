@@ -300,7 +300,7 @@ jobs:
           echo "::error::Verified image tag did not become available in GHCR: $IMAGE"
           exit 1
 
-  # ── Stage 4: GitOps – update k8s manifests ───────────────────────────────
+  # ── Stage 4: GitOps – update non-production k8s manifests ────────────────
   update-k8s-manifest:
     name: Update K8s Manifests
     runs-on: ubuntu-latest
@@ -357,8 +357,7 @@ jobs:
           cmd: |
             for manifest in \
               k8s-cluster-state/apps/dmarq/greenfield-preprod/dmarq-stack.yaml \
-              k8s-cluster-state/apps/dmarq/greenfield-demo/dmarq-stack.yaml \
-              k8s-cluster-state/apps/dmarq/prod/dmarq-stack.yaml
+              k8s-cluster-state/apps/dmarq/greenfield-demo/dmarq-stack.yaml
             do
               test -f "$manifest"
               yq -i '(.. | select(tag == "!!str") | select(test(strenv(IMAGE_PATTERN)))) = strenv(IMAGE)' \
@@ -376,11 +375,88 @@ jobs:
           git remote set-url origin "https://x-access-token:${GH_PAT}@github.com/${{ env.K8S_STATE_REPO }}.git"
           git add \
             apps/dmarq/greenfield-preprod/dmarq-stack.yaml \
-            apps/dmarq/greenfield-demo/dmarq-stack.yaml \
-            apps/dmarq/prod/dmarq-stack.yaml
+            apps/dmarq/greenfield-demo/dmarq-stack.yaml
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "chore(gitops): update dmarq images to ${{ steps.tag.outputs.short_sha }}"
+            git commit -m "chore(gitops): update dmarq nonprod images to ${{ steps.tag.outputs.short_sha }}"
+            git push
+          fi
+
+  # ── Stage 4b: GitOps – gated production manifest promotion ───────────────
+  promote-prod-k8s-manifest:
+    name: Promote Production K8s Manifest
+    runs-on: ubuntu-latest
+    needs: [docker]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: dmarq-production-gitops
+    permissions:
+      contents: read
+
+    steps:
+      - name: Compute image tag
+        id: tag
+        run: |
+          test -n "${{ needs.docker.outputs.image }}"
+          echo "image=${{ needs.docker.outputs.image }}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${{ needs.docker.outputs.short_sha }}" >> "$GITHUB_OUTPUT"
+          echo "image_pattern=^ghcr\\.io/${{ github.repository }}:" >> "$GITHUB_OUTPUT"
+
+      - name: Check if GH_PAT is configured and has repo access
+        id: pat-check
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          if [ -z "$GH_PAT" ]; then
+            echo "::warning::GH_PAT secret is not configured. Skipping production k8s manifest update."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          else
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+              -H "Authorization: Bearer $GH_PAT" \
+              "https://api.github.com/repos/${{ env.K8S_STATE_REPO }}")
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "available=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "::warning::GH_PAT does not have access to ${{ env.K8S_STATE_REPO }} (HTTP $HTTP_CODE). Skipping production k8s manifest update."
+              echo "available=false" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Checkout k8s-cluster-state
+        if: steps.pat-check.outputs.available == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.K8S_STATE_REPO }}
+          token: ${{ secrets.GH_PAT }}
+          path: k8s-cluster-state
+          ref: main
+
+      - name: Update production image tag in GitOps manifest
+        if: steps.pat-check.outputs.available == 'true'
+        uses: mikefarah/yq@v4.44.6
+        env:
+          IMAGE: ${{ steps.tag.outputs.image }}
+          IMAGE_PATTERN: ${{ steps.tag.outputs.image_pattern }}
+        with:
+          cmd: |
+            manifest="k8s-cluster-state/apps/dmarq/prod/dmarq-stack.yaml"
+            test -f "$manifest"
+            yq -i '(.. | select(tag == "!!str") | select(test(strenv(IMAGE_PATTERN)))) = strenv(IMAGE)' \
+              "$manifest"
+
+      - name: Commit and push production manifest update
+        if: steps.pat-check.outputs.available == 'true'
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          cd k8s-cluster-state
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${GH_PAT}@github.com/${{ env.K8S_STATE_REPO }}.git"
+          git add apps/dmarq/prod/dmarq-stack.yaml
+          if git diff --staged --quiet; then
+            echo "No production changes to commit"
+          else
+            git commit -m "chore(gitops): promote dmarq prod image to ${{ steps.tag.outputs.short_sha }}"
             git push
           fi
