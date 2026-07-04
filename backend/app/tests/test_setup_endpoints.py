@@ -182,7 +182,10 @@ class TestSetupPage:
         assert response.status_code == 200
         assert "Mail health setup" in response.text
         assert "Apply setup" in response.text
-        assert "workspaceOnboarding({" in response.text
+        assert 'x-data="workspaceOnboarding"' in response.text
+        assert "workspaceOnboarding({" not in response.text
+        assert 'data-multi-workspace-ui="false"' in response.text
+        assert "data-onboarding-page" in response.text
         assert 'src="/static/js/onboarding-page.js"' in response.text
 
 
