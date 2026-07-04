@@ -357,15 +357,20 @@ def _verified_fixed_items(
     """Return resolved remediation markers whose items no longer appear in current evidence."""
     if not hasattr(db, "query"):
         return []
+    normalized_domain = normalize_domain_name(domain)
+    if not normalized_domain:
+        return []
     active_ids = {str(item_id or "") for item_id in current_item_ids if str(item_id or "")}
-    normalized_entity_name = func.lower(func.rtrim(func.trim(WorkspaceAuditLog.entity_name), "."))
+    normalized_entity_name = func.lower(
+        func.rtrim(func.ltrim(func.trim(WorkspaceAuditLog.entity_name), "."), ".")
+    )
     rows = (
         db.query(WorkspaceAuditLog)
         .filter(
             WorkspaceAuditLog.workspace_id == workspace.id,
             WorkspaceAuditLog.action == "remediation.notification_lifecycle_recorded",
             WorkspaceAuditLog.entity_type == "remediation_notification",
-            normalized_entity_name == normalize_domain_name(domain),
+            normalized_entity_name == normalized_domain,
         )
         .order_by(WorkspaceAuditLog.created_at.desc(), WorkspaceAuditLog.id.desc())
         .limit(max(limit * 4, limit))
@@ -377,10 +382,10 @@ def _verified_fixed_items(
         item_id = str(row.entity_id or "")
         if not item_id or item_id in active_ids or item_id in seen:
             continue
+        seen.add(item_id)
         details = _audit_details(row)
         if details.get("lifecycle_state") != "resolved":
             continue
-        seen.add(item_id)
         verified.append(
             {
                 "item_id": item_id,

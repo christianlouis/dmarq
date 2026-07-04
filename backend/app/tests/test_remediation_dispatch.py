@@ -313,7 +313,7 @@ def test_attach_remediation_dispatch_previews_reports_verified_fixed_items(db_se
                 action="remediation.notification_lifecycle_recorded",
                 entity_type="remediation_notification",
                 entity_id="dns:dmarc-missing",
-                entity_name=" Example.COM. ",
+                entity_name=" .Example.COM. ",
                 details=json.dumps(
                     {
                         "lifecycle_state": "resolved",
@@ -331,6 +331,26 @@ def test_attach_remediation_dispatch_previews_reports_verified_fixed_items(db_se
                 entity_name="example.com",
                 details=json.dumps({"lifecycle_state": "resolved"}),
                 created_at=datetime(2026, 7, 1, 9, 0, 0),
+            ),
+            WorkspaceAuditLog(
+                workspace_id=workspace.id,
+                actor_type="operator",
+                action="remediation.notification_lifecycle_recorded",
+                entity_type="remediation_notification",
+                entity_id="dns:changed-after-resolved",
+                entity_name="example.com",
+                details=json.dumps({"lifecycle_state": "resolved"}),
+                created_at=datetime(2026, 7, 1, 7, 0, 0),
+            ),
+            WorkspaceAuditLog(
+                workspace_id=workspace.id,
+                actor_type="operator",
+                action="remediation.notification_lifecycle_recorded",
+                entity_type="remediation_notification",
+                entity_id="dns:changed-after-resolved",
+                entity_name="example.com",
+                details=json.dumps({"lifecycle_state": "snoozed"}),
+                created_at=datetime(2026, 7, 1, 10, 0, 0),
             ),
         ]
     )
