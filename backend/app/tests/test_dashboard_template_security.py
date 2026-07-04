@@ -489,8 +489,10 @@ def test_profile_uses_external_page_script_for_csp_migration():
 
     assert 'src="/static/js/profile-page.js"' in template
     assert "profileApp()" in template
+    assert "data-profile-page" in template
     assert "/api/v1/auth/me" in script
     assert "Failed to load user profile" in script
+    assert 'x-init="init()"' not in template
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 
@@ -531,9 +533,11 @@ def test_forensic_reports_uses_external_page_script_for_csp_migration():
     assert "data-forensic-upload-form" in template
     assert "data-forensic-upload-file" in template
     assert "data-forensic-reset" in template
+    assert "data-forensic-reports-page" in template
     assert "data-forensic-reset" in script
     assert "bindControls()" in script
     assert "event.target instanceof Element" in script
+    assert 'x-init="init()"' not in template
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 
@@ -546,6 +550,8 @@ def test_forensic_report_detail_uses_external_page_script_for_csp_migration():
     assert "/api/v1/forensics/${this.reportId}" in script
     assert "Forensic report not found" in script
     assert "feedbackHeaderEntries" in script
+    assert "data-forensic-report-detail-page" in template
+    assert 'x-init="init()"' not in template
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 
@@ -567,9 +573,11 @@ def test_tls_reports_uses_external_page_script_for_csp_migration():
     assert "data-tls-domain-filter" in template
     assert "data-tls-upload-form" in template
     assert "data-tls-upload-file" in template
+    assert "data-tls-reports-page" in template
     assert "data-tls-refresh" in script
     assert "bindControls()" in script
     assert "event.target instanceof Element" in script
+    assert 'x-init="init()"' not in template
     assert 'x-effect="$el.style.width' in template
     assert not _has_inline_style(template)
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
@@ -1079,6 +1087,7 @@ def test_members_template_uses_membership_api_without_html_injection():
 
     assert _has_script_src(template, "/static/js/members-page.js")
     assert "membershipApp()" in template
+    assert 'x-init="init()"' not in template
     assert "/api/v1/organizations" in script
     assert "/api/v1/memberships/organizations/" in script
     assert "/api/v1/memberships/workspaces/" in script
@@ -1200,6 +1209,7 @@ def test_onboarding_template_uses_single_user_setup_story_by_default():
     assert "One monitored domain with DMARC report and DNS setup tasks." in rendered
     assert "multiWorkspaceUiEnabled: false" in rendered
     assert 'src="/static/js/onboarding-page.js"' in template
+    assert "data-onboarding-page" in template
     assert "/api/v1/onboarding/preview" in script
     assert "/api/v1/onboarding/apply" in script
     assert "draftFields()" in script
@@ -1215,6 +1225,7 @@ def test_onboarding_template_uses_single_user_setup_story_by_default():
     assert '@click="previewPlan"' not in template
     assert '@click="applyPlan"' not in template
     assert '@click="form.mailSourcePath = ' not in template
+    assert 'x-init="init()"' not in template
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
     assert "Account boundary" not in rendered
     assert "Owner ready" not in rendered

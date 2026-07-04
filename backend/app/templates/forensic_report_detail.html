@@ -4,7 +4,7 @@
 {% block title %}DMARQ - Forensic Report Detail{% endblock %}
 
 {% block content %}
-<div class="space-y-6" x-data="forensicReportDetailApp({{ report_id }})" x-init="init()">
+<div class="space-y-6" x-data="forensicReportDetailApp({{ report_id }})" data-forensic-report-detail-page>
     <nav class="text-sm text-[#5f5c78]">
         <ol class="flex items-center space-x-2">
             <li><a href="/" class="font-semibold hover:text-[#2f9da5]">Dashboard</a></li>
