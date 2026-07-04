@@ -577,6 +577,105 @@ def test_dns_lint_endpoint_uses_configured_mail_auth_defaults(
     assert targets["target_tls_rpt"]["value"] == "v=TLSRPTv1; rua=mailto:tls-reports@cklnet.com"
 
 
+def test_dns_lint_endpoint_prefers_domain_dmarc_mailbox_override(
+    authed_client: TestClient,
+    db_session,
+):
+    db_session.add_all(
+        [
+            Setting(
+                key="dmarc.report_mailbox",
+                value="dmarc-reports@central.example",
+                description="Central DMARC report mailbox",
+                value_type="string",
+                category="dmarc",
+            ),
+            Domain(
+                name=DOMAIN,
+                active=True,
+                dmarc_report_mailbox="dmarc-example@tenant.example",
+            ),
+        ]
+    )
+    db_session.commit()
+    result = DomainDNSResult(
+        dmarc=False,
+        spf=False,
+        dkim=False,
+        selectors_checked=["selector1"],
+    )
+
+    with (
+        _mock_dns(result),
+        patch(
+            "app.api.api_v1.endpoints.domains.check_mta_sts_cached",
+            new=AsyncMock(return_value=(MTAStsResult(status="pass"), False, None)),
+        ),
+        patch(
+            "app.api.api_v1.endpoints.domains.check_bimi_cached",
+            new=AsyncMock(return_value=(BIMIResult(status="pass"), False, None)),
+        ),
+    ):
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns/lint")
+
+    assert response.status_code == 200
+    targets = {record["code"]: record for record in response.json()["target_records"]}
+    assert targets["target_dmarc"]["value"] == (
+        "v=DMARC1; p=none; rua=mailto:dmarc-example@tenant.example; "
+        "pct=100; adkim=r; aspf=r"
+    )
+
+
+def test_update_domain_persists_dmarc_report_mailbox_override(authed_client: TestClient):
+    create_response = authed_client.post("/api/v1/domains/domains", json={"name": DOMAIN})
+    assert create_response.status_code == 201
+
+    response = authed_client.patch(
+        f"/api/v1/domains/domains/{DOMAIN}",
+        json={"dmarc_report_mailbox": "mailto:dmarc-example@tenant.example"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["dmarc_report_mailbox"] == "dmarc-example@tenant.example"
+
+    read_response = authed_client.get(f"/api/v1/domains/domains/{DOMAIN}")
+    assert read_response.status_code == 200
+    assert read_response.json()["dmarc_report_mailbox"] == "dmarc-example@tenant.example"
+
+    response = authed_client.patch(
+        f"/api/v1/domains/domains/{DOMAIN}",
+        json={"dmarc_report_mailbox": ""},
+    )
+    assert response.status_code == 200
+    assert response.json()["dmarc_report_mailbox"] is None
+
+    response = authed_client.patch(
+        f"/api/v1/domains/domains/{DOMAIN}",
+        json={"dmarc_report_mailbox": "dmarc-example@tenant.example"},
+    )
+    assert response.status_code == 200
+
+    response = authed_client.patch(
+        f"/api/v1/domains/domains/{DOMAIN}",
+        json={"dmarc_report_mailbox": None},
+    )
+    assert response.status_code == 200
+    assert response.json()["dmarc_report_mailbox"] is None
+
+
+def test_update_domain_rejects_invalid_dmarc_report_mailbox(authed_client: TestClient):
+    create_response = authed_client.post("/api/v1/domains/domains", json={"name": DOMAIN})
+    assert create_response.status_code == 201
+
+    for mailbox in ("not a mailbox", "dmarc@example.com; pct=0", "a@example.com,b@example.com"):
+        response = authed_client.patch(
+            f"/api/v1/domains/domains/{DOMAIN}",
+            json={"dmarc_report_mailbox": mailbox},
+        )
+
+        assert response.status_code == 422
+
+
 def test_int_setting_value_preserves_zero_and_falls_back(db_session):
     db_session.add_all(
         [

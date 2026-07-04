@@ -201,9 +201,41 @@ def _int_setting_value(db: Session, key: str, default: int) -> int:
         return default
 
 
-def _mail_auth_setup_defaults(db: Session) -> MailAuthSetupDefaults:
+def _normalize_optional_mailbox(value: Optional[str]) -> Optional[str]:
+    """Return a trimmed mailbox override or None when the operator cleared it."""
+    mailbox = (value or "").strip()
+    if not mailbox:
+        return None
+    if mailbox.lower().startswith("mailto:"):
+        mailbox = mailbox[7:].strip()
+    if any(character in mailbox for character in (";", ",")):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="DMARC report mailbox must be a single email address",
+        )
+    if mailbox.count("@") != 1 or mailbox.startswith("@") or mailbox.endswith("@"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="DMARC report mailbox must be a valid email address",
+        )
+    if any(character.isspace() for character in mailbox):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="DMARC report mailbox must not contain whitespace",
+        )
+    return mailbox
+
+
+def _mail_auth_setup_defaults(
+    db: Session, domain: Optional[Domain] = None
+) -> MailAuthSetupDefaults:
+    report_mailbox = (
+        domain.dmarc_report_mailbox
+        if domain is not None and domain.dmarc_report_mailbox
+        else _setting_value(db, "dmarc.report_mailbox")
+    )
     return MailAuthSetupDefaults(
-        report_mailbox=_setting_value(db, "dmarc.report_mailbox"),
+        report_mailbox=report_mailbox,
         tls_report_mailbox=_setting_value(db, "dmarc.tls_report_mailbox"),
         policy=_setting_value(db, "dmarc.default_policy") or "none",
         percentage=_int_setting_value(db, "dmarc.default_percentage", 100),
@@ -250,6 +282,7 @@ class DomainResponse(DomainBase):
     emails_count: int = 0
     compliance_rate: float = 0.0
     dkim_selectors: List[str] = Field(default_factory=list)
+    dmarc_report_mailbox: Optional[str] = None
     mail_service_context: List[Dict[str, Any]] = Field(default_factory=list)
 
 
@@ -259,6 +292,7 @@ class DomainCreate(BaseModel):
     name: str
     description: Optional[str] = None
     dkim_selectors: Optional[List[str]] = None
+    dmarc_report_mailbox: Optional[str] = None
 
 
 class DomainUpdate(BaseModel):
@@ -266,6 +300,7 @@ class DomainUpdate(BaseModel):
 
     description: Optional[str] = None
     dkim_selectors: Optional[List[str]] = None
+    dmarc_report_mailbox: Optional[str] = None
 
 
 class DomainStatsResponse(BaseModel):
@@ -2405,6 +2440,7 @@ async def _build_domain_dns_guidance(
         refresh=refresh,
     )
     mail_service_records = await mail_service_dns_records_for_domain(db, domain_id)
+    stored_domain = db.query(Domain).filter(Domain.name == domain_id).first()
     guidance = await build_dns_guidance(
         domain_id,
         provider,
@@ -2415,7 +2451,7 @@ async def _build_domain_dns_guidance(
         monitored_selectors=combined_selectors,
         observed_selectors=report_selectors,
         mail_service_records=mail_service_records,
-        setup_defaults=_mail_auth_setup_defaults(db),
+        setup_defaults=_mail_auth_setup_defaults(db, stored_domain),
         locale=locale or get_settings().default_locale,
     )
     return asdict(guidance)
@@ -3456,6 +3492,7 @@ async def read_domains(
             dkim_selectors=_normalize_domain_selectors(
                 (stored_domain.dkim_selectors or "").split(",") if stored_domain else []
             ),
+            dmarc_report_mailbox=stored_domain.dmarc_report_mailbox if stored_domain else None,
             mail_service_context=mail_service_context_from_domain(stored_domain),
         )
         result.append(domain_response)
@@ -3495,11 +3532,13 @@ async def create_domain(
             _raise_plan_limit_error(exc)
 
     selectors = ",".join(_normalize_domain_selectors(payload.dkim_selectors))
+    report_mailbox = _normalize_optional_mailbox(payload.dmarc_report_mailbox)
     domain = Domain(
         workspace_id=workspace.id,
         name=name,
         description=payload.description,
         dkim_selectors=selectors or None,
+        dmarc_report_mailbox=report_mailbox,
         active=True,
         verified=False,
     )
@@ -3518,6 +3557,7 @@ async def create_domain(
         description=domain.description,
         policy=domain.dmarc_policy or "unknown",
         dkim_selectors=_normalize_domain_selectors((domain.dkim_selectors or "").split(",")),
+        dmarc_report_mailbox=domain.dmarc_report_mailbox,
         mail_service_context=mail_service_context_from_domain(domain),
     )
 
@@ -3556,6 +3596,7 @@ async def read_domain(
         dkim_selectors=_normalize_domain_selectors(
             (stored_domain.dkim_selectors or "").split(",") if stored_domain else []
         ),
+        dmarc_report_mailbox=stored_domain.dmarc_report_mailbox if stored_domain else None,
         mail_service_context=mail_service_context_from_domain(stored_domain),
     )
 
@@ -3603,6 +3644,8 @@ async def update_domain(
     if "dkim_selectors" in fields:
         selectors = _normalize_domain_selectors(payload.dkim_selectors)
         domain.dkim_selectors = ",".join(selectors) if selectors else None
+    if "dmarc_report_mailbox" in fields:
+        domain.dmarc_report_mailbox = _normalize_optional_mailbox(payload.dmarc_report_mailbox)
 
     try:
         db.commit()
@@ -3625,6 +3668,7 @@ async def update_domain(
             "dkim_selector_count": len(
                 _normalize_domain_selectors((domain.dkim_selectors or "").split(","))
             ),
+            "has_dmarc_report_mailbox_override": bool(domain.dmarc_report_mailbox),
         },
         auth_context=_auth,
         request=request,
@@ -3641,6 +3685,7 @@ async def update_domain(
         emails_count=summary.get("total_count", 0),
         compliance_rate=summary.get("compliance_rate", 0.0),
         dkim_selectors=_normalize_domain_selectors((domain.dkim_selectors or "").split(",")),
+        dmarc_report_mailbox=domain.dmarc_report_mailbox,
         mail_service_context=mail_service_context_from_domain(domain),
     )
 

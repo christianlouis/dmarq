@@ -45,9 +45,16 @@ To update a record:
 
 Configure where and how DMARC reports are delivered:
 
-- **RUA Email**: The email address receiving aggregate reports
+- **Default RUA Email**: The central workspace mailbox that should receive
+  aggregate reports, such as `dmarc-reports@example.net`
+- **Domain RUA Override**: An optional per-domain mailbox when one domain needs
+  a different aggregate-report destination
 - **RUF Email**: The email address receiving forensic reports
 - **Report Frequency**: How often you want to receive reports
+
+DNS guidance and the mail authentication wizard use the domain override first,
+then the workspace default, and only fall back to `dmarc@<domain>` when neither
+is configured.
 
 ## Domain Health Check
 

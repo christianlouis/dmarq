@@ -557,6 +557,7 @@ Returns details for a specific domain.
 {
   "id": "1",
   "name": "example.com",
+  "dmarc_report_mailbox": "dmarc-reports@example.net",
   "added_at": "2025-01-15T14:30:00Z",
   "status": "active",
   "compliance_rate": 87.5,
@@ -569,6 +570,21 @@ Returns details for a specific domain.
   }
 }
 ```
+
+`dmarc_report_mailbox` is optional. When present, generated DMARC target
+records and DNS lint guidance use it as the aggregate-report `rua` destination
+for this domain. When omitted, DMARQ uses the workspace-wide
+`dmarc.report_mailbox` setting and then falls back to `dmarc@<domain>`.
+
+#### Update Domain Metadata
+
+```
+PATCH /domains/{domain_id}
+```
+
+Editable fields include `description`, `dkim_selectors`, and
+`dmarc_report_mailbox`. Send an empty string or `null` for
+`dmarc_report_mailbox` to clear the domain-specific override.
 
 #### Get BIMI Posture
 
