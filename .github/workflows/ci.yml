@@ -232,8 +232,14 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.release_ref || github.ref }}
+
+      - name: Checkout selected release ref
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.release_ref != ''
+        env:
+          RELEASE_REF: ${{ github.event.inputs.release_ref }}
+        run: |
+          git fetch --tags --force --depth=100 origin main
+          git checkout "$RELEASE_REF"
 
       - name: Resolve release image tag
         id: release_ref
