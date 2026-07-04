@@ -115,6 +115,25 @@ def _report_time_window(report: Dict[str, Any]) -> tuple[Optional[int], Optional
     return begin, end
 
 
+def _now_timestamp() -> int:
+    return int(datetime.now(timezone.utc).timestamp())
+
+
+def _observed_report_window(report: Dict[str, Any]) -> tuple[Optional[int], Optional[int]]:
+    """Return a source-observation window, clamped so UI recency never points ahead."""
+    begin, end = _report_time_window(report)
+    observed_start = begin if begin is not None else end
+    observed_end = end if end is not None else begin
+    now = _now_timestamp()
+    if observed_start is not None and observed_start > now:
+        observed_start = now
+    if observed_end is not None and observed_end > now:
+        observed_end = now
+    if observed_start is not None and observed_end is not None and observed_start > observed_end:
+        observed_start = observed_end
+    return observed_start, observed_end
+
+
 def _date_bucket(timestamp: Optional[int]) -> Optional[str]:
     if timestamp is None:
         return None
@@ -127,9 +146,7 @@ def _update_source_window(
     count: int,
     dmarc_passed: bool,
 ) -> None:
-    begin, end = _report_time_window(report)
-    observed_start = begin if begin is not None else end
-    observed_end = end if end is not None else begin
+    observed_start, observed_end = _observed_report_window(report)
 
     if observed_start is not None:
         current_first = source.get("first_seen")
