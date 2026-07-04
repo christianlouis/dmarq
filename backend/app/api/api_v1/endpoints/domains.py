@@ -1750,6 +1750,62 @@ def _remediation_loop_state(action: Dict[str, Any]) -> str:
     return "manual_action"
 
 
+def _remediation_loop_context(state: str, action: Dict[str, Any]) -> Dict[str, str]:
+    """Return operator-facing context for a dashboard remediation bucket."""
+    action_type = str(action.get("type") or "")
+    if state == "needs_approval":
+        return {
+            "state_label": "Needs approval",
+            "owner": "Domain DNS operator",
+            "automation_path": "provider_preview",
+            "completion_criteria": "DNS change is previewed, approved, applied, and verified.",
+            "why": "A high-impact DNS or policy finding can move through a controlled approval path.",
+        }
+    if state == "investigate":
+        return {
+            "state_label": "Investigate",
+            "owner": (
+                "Mail operations owner"
+                if action_type not in REMEDIATION_REPUTATION_ACTION_TYPES
+                else "Deliverability owner"
+            ),
+            "automation_path": "investigate",
+            "completion_criteria": "Sender legitimacy is confirmed before any DNS or policy change.",
+            "why": "This finding needs evidence review before DMARQ can suggest a safe repair.",
+        }
+    return {
+        "state_label": "Manual action",
+        "owner": "Mail or DNS operator",
+        "automation_path": "manual",
+        "completion_criteria": "The operator completes the recommended action and refreshes evidence.",
+        "why": "This item is not safe or specific enough for one-click repair yet.",
+    }
+
+
+def _dashboard_remediation_item(
+    domain_name: str,
+    action: Dict[str, Any],
+    *,
+    include_detail: bool = True,
+) -> Dict[str, Any]:
+    """Convert one health action into a dashboard remediation-loop item."""
+    state = _remediation_loop_state(action)
+    context = _remediation_loop_context(state, action)
+    item = {
+        "domain": domain_name,
+        "state": state,
+        "severity": str(action.get("severity") or "info"),
+        "title": str(action.get("title") or "Review remediation item"),
+        "next_step": str(action.get("next_step") or "Review the domain evidence."),
+        "score_impact": int(action.get("score_impact") or 0),
+        "type": str(action.get("type") or "health_action"),
+        **context,
+    }
+    if include_detail:
+        item["detail"] = str(action.get("detail") or "")
+    return item
+
+
 def _build_dashboard_remediation_loop(
     domains: List[Dict[str, Any]],
     remediation_activity: Dict[str, Any],
@@ -1769,18 +1825,7 @@ def _build_dashboard_remediation_loop(
         for action in health.get("actions") or []:
             state = _remediation_loop_state(action)
             counters[state] += 1
-            items.append(
-                {
-                    "domain": domain_name,
-                    "state": state,
-                    "severity": str(action.get("severity") or "info"),
-                    "title": str(action.get("title") or "Review remediation item"),
-                    "detail": str(action.get("detail") or ""),
-                    "next_step": str(action.get("next_step") or "Review the domain evidence."),
-                    "score_impact": int(action.get("score_impact") or 0),
-                    "type": str(action.get("type") or "health_action"),
-                }
-            )
+            items.append(_dashboard_remediation_item(domain_name, action))
 
     items.sort(
         key=lambda item: (
@@ -1817,16 +1862,7 @@ def _domain_remediation_workload(domain: Dict[str, Any]) -> Dict[str, Any]:
     for action in (domain.get("health") or {}).get("actions") or []:
         state = _remediation_loop_state(action)
         counters[state] += 1
-        items.append(
-            {
-                "domain": domain_name,
-                "state": state,
-                "severity": str(action.get("severity") or "info"),
-                "title": str(action.get("title") or "Review remediation item"),
-                "next_step": str(action.get("next_step") or "Review the domain evidence."),
-                "score_impact": int(action.get("score_impact") or 0),
-            }
-        )
+        items.append(_dashboard_remediation_item(domain_name, action, include_detail=False))
 
     items.sort(
         key=lambda item: (

@@ -2189,6 +2189,11 @@ def test_summary_includes_current_remediation_loop(
     assert loop["total_open"] >= 2
     assert loop["items"][0]["domain"] == DOMAIN
     assert loop["items"][0]["state"] == "needs_approval"
+    assert loop["items"][0]["state_label"] == "Needs approval"
+    assert loop["items"][0]["owner"] == "Domain DNS operator"
+    assert loop["items"][0]["automation_path"] == "provider_preview"
+    assert loop["items"][0]["completion_criteria"]
+    assert loop["items"][0]["why"]
     assert loop["items"][0]["title"]
     assert loop["items"][0]["next_step"]
     domain = response.json()["domains"][0]
@@ -2196,6 +2201,9 @@ def test_summary_includes_current_remediation_loop(
     assert domain["remediation_workload"]["needs_approval"] >= 2
     assert domain["remediation_workload"]["total_open"] >= 2
     assert domain["remediation_workload"]["primary"]["state"] == "needs_approval"
+    assert domain["remediation_workload"]["primary"]["state_label"] == "Needs approval"
+    assert domain["remediation_workload"]["primary"]["owner"] == "Domain DNS operator"
+    assert domain["remediation_workload"]["primary"]["automation_path"] == "provider_preview"
     assert domain["remediation_workload"]["primary"]["title"]
 
 
@@ -2206,6 +2214,52 @@ def test_summary_includes_current_remediation_loop(
 def test_remediation_loop_classifies_reputation_actions_as_investigate(action_type: str):
     """Reputation health actions should remain investigation work, not manual tasks."""
     assert _remediation_loop_state({"type": action_type, "severity": "high"}) == "investigate"
+
+
+@pytest.mark.parametrize(
+    ("action", "expected_context"),
+    [
+        (
+            {"type": "source_reputation_listed", "severity": "high"},
+            {
+                "state": "investigate",
+                "state_label": "Investigate",
+                "owner": "Deliverability owner",
+                "automation_path": "investigate",
+            },
+        ),
+        (
+            {"type": "low_compliance", "severity": "medium"},
+            {
+                "state": "investigate",
+                "state_label": "Investigate",
+                "owner": "Mail operations owner",
+                "automation_path": "investigate",
+            },
+        ),
+        (
+            {"type": "tls_coverage_gap", "severity": "medium"},
+            {
+                "state": "manual_action",
+                "state_label": "Manual action",
+                "owner": "Mail or DNS operator",
+                "automation_path": "manual",
+            },
+        ),
+    ],
+)
+def test_dashboard_remediation_item_includes_context_for_non_approval_states(
+    action: dict,
+    expected_context: dict,
+):
+    """Non-approval remediation buckets should expose stable operator context."""
+    item = domains_endpoint._dashboard_remediation_item(DOMAIN, action)
+
+    for key, value in expected_context.items():
+        assert item[key] == value
+    assert item["domain"] == DOMAIN
+    assert item["completion_criteria"]
+    assert item["why"]
 
 
 def test_summary_dns_failure_defaults_false(authed_client: TestClient, db_session):
