@@ -677,7 +677,7 @@ def test_tls_reports_uses_external_page_script_for_csp_migration():
     assert 'x-text="failure.affected_domains_label"' in template
     assert 'x-text="failure.receiving_mx_hostnames_label"' in template
     assert ':href="item.domain_url"' in template
-    assert "viewBox=\"0 0 100 6\"" in template
+    assert 'viewBox="0 0 100 6"' in template
     assert not _has_inline_style(template)
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
@@ -1346,13 +1346,17 @@ def test_onboarding_template_uses_single_user_setup_story_by_default():
     assert "Connect Gmail or IMAP" in rendered
     assert "Apply setup" in rendered
     assert "One monitored domain with DMARC report and DNS setup tasks." in rendered
-    assert "multiWorkspaceUiEnabled: false" in rendered
+    assert 'data-multi-workspace-ui="false"' in rendered
     assert 'src="/static/js/onboarding-page.js"' in template
     assert "data-onboarding-page" in template
+    assert 'x-data="workspaceOnboarding"' in template
+    assert "workspaceOnboarding({" not in template
+    assert "Alpine.data('workspaceOnboarding', workspaceOnboarding)" in script
     assert "/api/v1/onboarding/preview" in script
     assert "/api/v1/onboarding/apply" in script
     assert "draftFields()" in script
     assert "normalizeDomain(value)" in script
+    assert "normalizeTasks(tasks)" in script
     assert "dmarq.selectedWorkspaceId" in script
     assert "bindControls()" in script
     assert "data-onboarding-preview" in template
@@ -1364,6 +1368,14 @@ def test_onboarding_template_uses_single_user_setup_story_by_default():
     assert '@click="previewPlan"' not in template
     assert '@click="applyPlan"' not in template
     assert '@click="form.mailSourcePath = ' not in template
+    assert "result?.workspace" not in template
+    assert "form.mailSourcePath ===" not in template
+    assert "tasks.length ?" not in template
+    assert "!tasks.length" not in template
+    assert "task.href || '#'" not in template
+    assert "showWorkspaceSwitchSuccess" in template
+    assert "taskPreviewLabel" in template
+    assert "showNoTasks" in template
     assert 'x-init="init()"' not in template
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
     assert "Account boundary" not in rendered
@@ -1379,7 +1391,7 @@ def test_onboarding_template_keeps_workspace_story_for_multi_workspace_mode():
     assert "Create workspace" in rendered
     assert "Organization and workspace" in rendered
     assert "Starter plan entitlement records" in rendered
-    assert "multiWorkspaceUiEnabled: true" in rendered
+    assert 'data-multi-workspace-ui="true"' in rendered
 
 
 def test_dashboard_hides_multi_user_demo_mode_controls():
