@@ -380,7 +380,16 @@ jobs:
             echo "No changes to commit"
           else
             git commit -m "chore(gitops): update dmarq nonprod images to ${{ steps.tag.outputs.short_sha }}"
-            git push
+            for attempt in 1 2 3; do
+              if git push; then
+                exit 0
+              fi
+              echo "GitOps push failed on attempt ${attempt}; rebasing onto latest main before retry."
+              git fetch origin main
+              git rebase origin/main
+            done
+            echo "::error::Failed to push nonproduction GitOps manifest update after rebasing."
+            exit 1
           fi
 
   # ── Stage 4b: GitOps – gated production manifest promotion ───────────────
@@ -458,5 +467,14 @@ jobs:
             echo "No production changes to commit"
           else
             git commit -m "chore(gitops): promote dmarq prod image to ${{ steps.tag.outputs.short_sha }}"
-            git push
+            for attempt in 1 2 3; do
+              if git push; then
+                exit 0
+              fi
+              echo "GitOps push failed on attempt ${attempt}; rebasing onto latest main before retry."
+              git fetch origin main
+              git rebase origin/main
+            done
+            echo "::error::Failed to push production GitOps manifest update after rebasing."
+            exit 1
           fi
