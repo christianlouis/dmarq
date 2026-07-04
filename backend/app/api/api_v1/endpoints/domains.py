@@ -70,7 +70,9 @@ from app.services.dns_provider_writes import (
     simulate_demo_dns_write,
 )
 from app.services.dns_resolver import (
+    CloudflareDNSProvider,
     DomainDNSResult,
+    PublicRecursiveDNSProvider,
     extract_dmarc_policy,
     get_default_provider,
 )
@@ -6352,16 +6354,46 @@ def _reputation_recommendations(item: Optional[SourceReputation]) -> List[Source
     ]
 
 
+def _ptr_lookup_providers(provider: Any) -> List[Any]:
+    """Return resolver candidates for reverse-DNS sender enrichment."""
+    providers = [provider]
+    provider_class = provider.__class__
+    provider_name = provider_class.__name__
+    if provider_name == "DemoDNSProvider":
+        return providers
+    if provider_class is not PublicRecursiveDNSProvider:
+        providers.append(PublicRecursiveDNSProvider())
+    if provider_class is not CloudflareDNSProvider:
+        providers.append(CloudflareDNSProvider())
+    return providers
+
+
 async def _safe_ptr_lookup(provider: Any, ip: str, timeout: float = 3.0) -> Optional[str]:
     """Perform a PTR lookup for *ip*, returning ``None`` on any error or timeout."""
     try:
-        ipaddress.ip_address(ip)  # validate before making a DNS query
+        parsed_ip = ipaddress.ip_address(ip)  # validate before making a DNS query
     except ValueError:
         return None
-    try:
-        return await asyncio.wait_for(provider.lookup_ptr(ip), timeout=timeout)
-    except Exception:
+    if not parsed_ip.is_global:
         return None
+    for candidate in _ptr_lookup_providers(provider):
+        try:
+            hostname = await asyncio.wait_for(candidate.lookup_ptr(ip), timeout=timeout)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.debug(
+                "PTR lookup provider failed during sender enrichment",
+                extra={
+                    "provider": candidate.__class__.__name__,
+                    "ip": ip,
+                    "error": str(exc),
+                },
+            )
+            continue
+        if hostname:
+            return str(hostname).rstrip(".")
+    return None
 
 
 async def _source_networks_by_ip(
@@ -6453,13 +6485,6 @@ async def get_domain_sources(
 
     sources = store.get_domain_sources(domain_name, days=days)
     reports = store.get_domain_reports(domain_name)
-    intelligence = build_source_intelligence(
-        domain_name,
-        reports,
-        sources,
-        period_days=days,
-    )
-    anomalies_by_ip = intelligence.get("anomalies_by_ip", {})
     provider = get_default_provider(db)
     settings = get_settings()
 
@@ -6467,6 +6492,21 @@ async def get_domain_sources(
     ptr_task = asyncio.gather(*[_safe_ptr_lookup(provider, ip) for ip in ips])
     network_task = asyncio.create_task(_source_networks_by_ip(db, provider, ips, settings))
     hostnames, networks_by_ip = await asyncio.gather(ptr_task, network_task)
+    geo_by_ip = {
+        str(source.get("source_ip") or "unknown"): merge_network_into_geo(
+            source_geo_for(str(source.get("source_ip") or "unknown"), source),
+            networks_by_ip.get(str(source.get("source_ip") or "unknown")),
+        )
+        for source in sources
+    }
+    intelligence = build_source_intelligence(
+        domain_name,
+        reports,
+        sources,
+        period_days=days,
+        geo_by_ip=geo_by_ip,
+    )
+    anomalies_by_ip = intelligence.get("anomalies_by_ip", {})
 
     source_entries = []
     sender_by_ip: Dict[str, Dict[str, Any]] = {}
@@ -6524,7 +6564,13 @@ async def get_domain_sources(
                 hostname=hostname,
                 sender=SenderIdentity(**sender),
                 geo=SourceGeo(
-                    **merge_network_into_geo(source_geo_for(ip, source), networks_by_ip.get(ip))
+                    **(
+                        geo_by_ip.get(ip)
+                        or merge_network_into_geo(
+                            source_geo_for(ip, source),
+                            networks_by_ip.get(ip),
+                        )
+                    )
                 ),
                 anomalies=[SourceAnomaly(**anomaly) for anomaly in source_anomalies],
                 reputation=(
@@ -6600,11 +6646,23 @@ async def get_domain_source_intelligence(
     domain_name, store = _single_domain_report_store_for_read(db, domain_id, workspace)
 
     sources = store.get_domain_sources(domain_name, days=days)
+    provider = get_default_provider(db)
+    settings = get_settings()
+    ips = [str(source.get("source_ip") or "unknown") for source in sources]
+    networks_by_ip = await _source_networks_by_ip(db, provider, ips, settings)
+    geo_by_ip = {
+        str(source.get("source_ip") or "unknown"): merge_network_into_geo(
+            source_geo_for(str(source.get("source_ip") or "unknown"), source),
+            networks_by_ip.get(str(source.get("source_ip") or "unknown")),
+        )
+        for source in sources
+    }
     intelligence = build_source_intelligence(
         domain_name,
         store.get_domain_reports(domain_name),
         sources,
         period_days=days,
+        geo_by_ip=geo_by_ip,
     )
     return SourceIntelligenceResponse(
         domain=intelligence["domain"],
