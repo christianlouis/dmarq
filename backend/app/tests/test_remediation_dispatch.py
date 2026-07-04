@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from app.models.workspace_access import WorkspaceAuditLog
@@ -318,6 +318,96 @@ def test_notification_histories_return_sanitized_recent_audit_events(db_session)
     assert "actor_id" not in history[0]
     assert history[1]["state"] == "acknowledged"
     assert history[1]["operator_note"] == "Reviewed with DNS owner"
+
+
+def test_summarize_remediation_activity_handles_empty_domain_inputs(db_session):
+    workspace = get_or_create_default_workspace(db_session)
+
+    activity = remediation_dispatch.summarize_remediation_activity(
+        db_session,
+        workspace=workspace,
+        domains=["", " . "],
+        row_limit=0,
+    )
+
+    assert activity == {
+        "summary": {
+            "domains_with_activity": 0,
+            "dispatch_enqueued": 0,
+            "resolved": 0,
+            "operator_holds": 0,
+            "needs_operator_follow_up": 0,
+            "delivery_count": 0,
+        },
+        "domains": {},
+    }
+    assert remediation_dispatch._audit_timestamp("not-a-datetime") is None
+
+
+def test_summarize_remediation_activity_reports_status_variants(db_session):
+    workspace = get_or_create_default_workspace(db_session)
+    db_session.add_all(
+        [
+            WorkspaceAuditLog(
+                workspace_id=workspace.id,
+                actor_type="operator",
+                action="remediation.notification_lifecycle_recorded",
+                entity_type="remediation_notification",
+                entity_id="dns:reviewed",
+                entity_name=" Reviewed.Example. ",
+                details=json.dumps({"lifecycle_state": "previewed"}),
+                created_at=datetime(2026, 7, 1, 8, 0, 0, tzinfo=timezone.utc),
+            ),
+            WorkspaceAuditLog(
+                workspace_id=workspace.id,
+                actor_type="operator",
+                action="remediation.notification_lifecycle_recorded",
+                entity_type="remediation_notification",
+                entity_id="dns:hold",
+                entity_name="Hold.Example.",
+                details=json.dumps({"lifecycle_state": "rejected"}),
+                created_at=datetime(2026, 7, 1, 9, 0, 0),
+            ),
+            WorkspaceAuditLog(
+                workspace_id=workspace.id,
+                actor_type="operator",
+                action="remediation.notification_dispatch_enqueued",
+                entity_type="remediation_notification",
+                entity_id="dns:dispatch-requested",
+                entity_name="dispatch.example",
+                details=json.dumps({"delivery_enqueued": False}),
+                created_at=datetime(2026, 7, 1, 10, 0, 0),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    activity = remediation_dispatch.summarize_remediation_activity(
+        db_session,
+        workspace=workspace,
+        domains=["reviewed.example", "hold.example", "dispatch.example"],
+        row_limit=1,
+    )
+
+    reviewed = activity["domains"]["reviewed.example"]
+    assert reviewed["status"] == "reviewed"
+    assert reviewed["latest_state"] == "previewed"
+    assert reviewed["latest_at"] == "2026-07-01T08:00:00Z"
+    assert reviewed["needs_operator_follow_up"] is True
+
+    hold = activity["domains"]["hold.example"]
+    assert hold["status"] == "operator_hold"
+    assert hold["latest_state"] == "rejected"
+    assert hold["rejected"] == 1
+    assert hold["needs_operator_follow_up"] is True
+
+    dispatch_requested = activity["domains"]["dispatch.example"]
+    assert dispatch_requested["status"] == "activity"
+    assert dispatch_requested["latest_state"] == "dispatch_requested"
+    assert dispatch_requested["latest_label"] == "Dispatch requested"
+    assert activity["summary"]["domains_with_activity"] == 3
+    assert activity["summary"]["operator_holds"] == 1
+    assert activity["summary"]["needs_operator_follow_up"] == 2
 
 
 def test_build_remediation_dispatch_preview_fetches_context_when_not_preloaded(monkeypatch):
