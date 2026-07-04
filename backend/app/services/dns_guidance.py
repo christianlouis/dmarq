@@ -27,6 +27,18 @@ class DNSGuidanceRecord:
 
 
 @dataclass
+class MailAuthSetupDefaults:
+    """Operator-selected defaults for generated mail-authentication records."""
+
+    report_mailbox: Optional[str] = None
+    tls_report_mailbox: Optional[str] = None
+    policy: str = "none"
+    percentage: int = 100
+    adkim: str = "r"
+    aspf: str = "r"
+
+
+@dataclass
 class DNSLintFinding:
     """Stable machine-readable lint finding."""
 
@@ -89,12 +101,38 @@ def normalize_guidance_locale(locale: Optional[str]) -> str:
     return "en"
 
 
-def _target_records(domain: str, result: DomainDNSResult) -> List[DNSGuidanceRecord]:
+def _mailbox(default_value: Optional[str], fallback_local_part: str, domain: str) -> str:
+    value = (default_value or "").strip()
+    if value:
+        return value
+    return f"{fallback_local_part}@{domain}"
+
+
+def _dmarc_record_value(domain: str, defaults: MailAuthSetupDefaults) -> str:
+    policy = defaults.policy if defaults.policy in {"none", "quarantine", "reject"} else "none"
+    adkim = defaults.adkim if defaults.adkim in {"r", "s"} else "r"
+    aspf = defaults.aspf if defaults.aspf in {"r", "s"} else "r"
+    percentage = max(0, min(100, int(defaults.percentage or 100)))
+    report_mailbox = _mailbox(defaults.report_mailbox, "dmarc", domain)
+    return (
+        f"v=DMARC1; p={policy}; rua=mailto:{report_mailbox}; "
+        f"pct={percentage}; adkim={adkim}; aspf={aspf}"
+    )
+
+
+def _target_records(
+    domain: str,
+    result: DomainDNSResult,
+    *,
+    setup_defaults: Optional[MailAuthSetupDefaults] = None,
+) -> List[DNSGuidanceRecord]:
+    defaults = setup_defaults or MailAuthSetupDefaults()
     dmarc_value = result.dmarc_record or (
-        f"v=DMARC1; p=none; rua=mailto:dmarc@{domain}; adkim=r; aspf=r"
+        _dmarc_record_value(domain, defaults)
     )
     spf_value = result.spf_record or "v=spf1 -all"
     dkim_selector = (result.dkim_selectors or result.selectors_checked or ["selector1"])[0]
+    tls_report_mailbox = _mailbox(defaults.tls_report_mailbox, "tlsrpt", domain)
     return [
         DNSGuidanceRecord(
             code="target_dmarc",
@@ -134,7 +172,7 @@ def _target_records(domain: str, result: DomainDNSResult) -> List[DNSGuidanceRec
             code="target_tls_rpt",
             record_type="TXT",
             name=f"_smtp._tls.{domain}",
-            value=f"v=TLSRPTv1; rua=mailto:tlsrpt@{domain}",
+            value=f"v=TLSRPTv1; rua=mailto:{tls_report_mailbox}",
             purpose="SMTP TLS Reporting aggregate delivery.",
         ),
         DNSGuidanceRecord(
@@ -1419,12 +1457,13 @@ async def build_dns_guidance(
     monitored_selectors: Optional[List[str]] = None,
     observed_selectors: Optional[List[str]] = None,
     mail_service_records: Optional[List[Dict[str, str]]] = None,
+    setup_defaults: Optional[MailAuthSetupDefaults] = None,
     locale: Optional[str] = None,
 ) -> DNSGuidanceResult:
     """Build typed DNS lint findings and target records for a domain."""
     normalized_domain = domain.strip().strip(".").lower()
     dane_result = dane or DANEResult(errors=["No DANE/TLSA context was evaluated."])
-    targets = _target_records(normalized_domain, result)
+    targets = _target_records(normalized_domain, result, setup_defaults=setup_defaults)
     targets.append(_dane_target_record(normalized_domain, dane_result))
     findings: List[DNSLintFinding] = []
     findings.extend(_dmarc_findings(normalized_domain, result, targets))

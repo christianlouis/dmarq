@@ -116,6 +116,20 @@ SETTING_DEFAULTS: List[Dict[str, Any]] = [
         "value_type": "string",
         "category": "dmarc",
     },
+    {
+        "key": "dmarc.report_mailbox",
+        "value": "",
+        "description": "Central mailbox for DMARC aggregate reports used in generated rua records",
+        "value_type": "string",
+        "category": "dmarc",
+    },
+    {
+        "key": "dmarc.tls_report_mailbox",
+        "value": "",
+        "description": "Central mailbox for SMTP TLS reports used in generated TLS-RPT records",
+        "value_type": "string",
+        "category": "dmarc",
+    },
     # ── DNS ──────────────────────────────────────────────────────────────────
     {
         "key": "dns.resolver",

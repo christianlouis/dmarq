@@ -79,7 +79,7 @@
             {% call card_description() %}Default values applied when adding a new domain{% endcall %}
         {% endcall %}
         {% call card_content() %}
-            <form data-settings-save-category="dmarc" class="space-y-4">
+            <form id="dmarc-defaults" data-settings-save-category="dmarc" class="space-y-4">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div class="form-control w-full">
                         <label class="label"><span class="label-text font-medium">Default Policy</span></label>
@@ -114,6 +114,26 @@
                             <option value="r">Relaxed</option>
                             <option value="s">Strict</option>
                         </select>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="form-control w-full">
+                        <label class="label"><span class="label-text font-medium">Aggregate report mailbox</span></label>
+                        <input
+                            x-model="s['dmarc.report_mailbox']"
+                            type="email"
+                            placeholder="dmarc-reports@example.com"
+                            class="input input-bordered w-full" />
+                        <label class="label"><span class="label-text-alt text-muted-foreground">Used in generated DMARC rua records. Leave empty to use dmarc@domain.</span></label>
+                    </div>
+                    <div class="form-control w-full">
+                        <label class="label"><span class="label-text font-medium">TLS report mailbox</span></label>
+                        <input
+                            x-model="s['dmarc.tls_report_mailbox']"
+                            type="email"
+                            placeholder="tlsrpt@example.com"
+                            class="input input-bordered w-full" />
+                        <label class="label"><span class="label-text-alt text-muted-foreground">Used in generated SMTP TLS-RPT records. Leave empty to use tlsrpt@domain.</span></label>
                     </div>
                 </div>
                 <div class="flex justify-end">

@@ -26,6 +26,7 @@ from app.models.dns_cache import DNSCache, DNSRecordChange
 from app.models.domain import Domain
 from app.models.organization import Entitlement, Organization
 from app.models.report import DMARCReport, ReportRecord
+from app.models.setting import Setting
 from app.models.workspace import Workspace
 from app.services.bimi import BIMIResult
 from app.services.dane import DANEResult, TLSARecord, TLSASuggestion
@@ -506,6 +507,74 @@ def test_dns_lint_endpoint_returns_typed_findings_and_targets(authed_client: Tes
     assert change_plan["provider_write_available"] is False
     assert change_plan["provider_value_required"] is True
     assert change_plan["manual_steps"]
+
+
+def test_dns_lint_endpoint_uses_configured_mail_auth_defaults(
+    authed_client: TestClient,
+    db_session,
+):
+    db_session.add_all(
+        [
+            Setting(
+                key="dmarc.report_mailbox",
+                value="dmarc-reports@cklnet.com",
+                description="Central DMARC report mailbox",
+                value_type="string",
+                category="dmarc",
+            ),
+            Setting(
+                key="dmarc.tls_report_mailbox",
+                value="tls-reports@cklnet.com",
+                description="Central TLS report mailbox",
+                value_type="string",
+                category="dmarc",
+            ),
+            Setting(
+                key="dmarc.default_policy",
+                value="quarantine",
+                description="Default DMARC policy",
+                value_type="string",
+                category="dmarc",
+            ),
+            Setting(
+                key="dmarc.default_percentage",
+                value="25",
+                description="Default DMARC percentage",
+                value_type="integer",
+                category="dmarc",
+            ),
+        ]
+    )
+    db_session.commit()
+    result = DomainDNSResult(
+        dmarc=False,
+        spf=False,
+        dkim=False,
+        selectors_checked=["selector1"],
+        nameservers=["ns1.digitalocean.com", "ns2.digitalocean.com"],
+        dns_provider=detect_dns_provider(["ns1.digitalocean.com", "ns2.digitalocean.com"]),
+    )
+
+    with (
+        _mock_dns(result),
+        patch(
+            "app.api.api_v1.endpoints.domains.check_mta_sts_cached",
+            new=AsyncMock(return_value=(MTAStsResult(status="pass"), False, None)),
+        ),
+        patch(
+            "app.api.api_v1.endpoints.domains.check_bimi_cached",
+            new=AsyncMock(return_value=(BIMIResult(status="pass"), False, None)),
+        ),
+    ):
+        response = authed_client.get(f"/api/v1/domains/{DOMAIN}/dns/lint")
+
+    assert response.status_code == 200
+    targets = {record["code"]: record for record in response.json()["target_records"]}
+    assert targets["target_dmarc"]["value"] == (
+        "v=DMARC1; p=quarantine; rua=mailto:dmarc-reports@cklnet.com; "
+        "pct=25; adkim=r; aspf=r"
+    )
+    assert targets["target_tls_rpt"]["value"] == "v=TLSRPTv1; rua=mailto:tls-reports@cklnet.com"
 
 
 def test_dns_lint_endpoint_accepts_locale_for_operator_guidance(authed_client: TestClient):

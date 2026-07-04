@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Added in-product release metadata with version, image, git ref, build date, recent changes, and a link to the full changelog.
 - Added Cloudflare OAuth rights profiles for read-only zone import, read-only plus Radar enrichment, and full DNS repair.
+- Added configurable mail-authentication setup defaults so generated DMARC/TLS-RPT guidance can use central report mailboxes.
 - Added source intelligence context for sending IPs, including provider recognition, network details, Radar links, and report activity history.
 - Added human-approved DNS repair groundwork for provider-connected domains.
 - Added self-hosted demo refinements focused on the single-user, multiple-domain workflow.
