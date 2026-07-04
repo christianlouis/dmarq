@@ -21,6 +21,11 @@ on:
         required: false
         default: false
         type: boolean
+      deploy_gitops:
+        description: Also update GitOps manifests for this manually selected release
+        required: false
+        default: false
+        type: boolean
   schedule:
     # Weekly security scan on Mondays at 00:00 UTC
     - cron: '0 0 * * 1'
@@ -305,7 +310,7 @@ jobs:
     name: Update K8s Manifests
     runs-on: ubuntu-latest
     needs: [docker]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_gitops == 'true')
     permissions:
       contents: read
 
@@ -401,7 +406,7 @@ jobs:
     name: Promote Production K8s Manifest
     runs-on: ubuntu-latest
     needs: [docker]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_gitops == 'true')
     environment: dmarq-production-gitops
     permissions:
       contents: read
