@@ -230,10 +230,15 @@ def test_settings_cloudflare_oauth_uses_popup_with_full_window_fallback():
 
     assert "Request scopes:" in template
     assert "Cloudflare client permissions:" in template
-    assert "selectedCloudflareOAuthProfile()" in template
+    assert "selectedCloudflareOAuthDescription()" in template
+    assert "selectedCloudflareOAuthScopes()" in template
+    assert "selectedCloudflareOAuthHasWarning()" in template
     assert "selectedCloudflareOAuthPermissions()" in template
     assert "selectedCloudflareOAuthProfile()" in script
     assert "selectedCloudflareOAuthPermissions()" in script
+    assert "selectedCloudflareOAuthDescription()" in script
+    assert "selectedCloudflareOAuthScopes()" in script
+    assert "selectedCloudflareOAuthHasWarning()" in script
     assert "Requesting Cloudflare OAuth scopes:" in script
     assert "window.open(" in script
     assert "'dmarq-cloudflare-oauth'" in script
@@ -790,8 +795,10 @@ def test_settings_exposes_provider_agnostic_dns_import_without_html_injection():
     assert "selectedDnsProviderConnectionLabel()" in template
     assert "selectedDnsProviderConnectionHint()" in template
     assert "providerErrorDetail" in script
-    assert "returned no importable zones" in template
-    assert "discovery needs attention" in template
+    assert "dnsProviderNoImportableZonesTitle()" in template
+    assert "dnsProviderImportErrorTitle()" in template
+    assert "returned no importable zones" in script
+    assert "discovery needs attention" in script
     assert "Provider setup docs" in template
     assert "/api/v1/domains/dns/import/${encodeURIComponent(providerId)}/preview" in script
     assert "/api/v1/domains/dns/import/${encodeURIComponent(providerId)}" in script

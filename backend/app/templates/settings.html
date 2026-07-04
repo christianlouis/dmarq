@@ -214,17 +214,17 @@
                                     </template>
                                 </select>
                                 <div class="text-xs text-[#5f5c78]">
-                                    <p x-text="selectedCloudflareOAuthProfile()?.description || 'Choose how much Cloudflare access DMARQ should request.'"></p>
+                                    <p x-text="selectedCloudflareOAuthDescription()"></p>
                                     <p class="mt-1">
                                         Request scopes:
-                                        <span class="font-mono" x-text="selectedCloudflareOAuthProfile()?.scopes || 'zone.read dns.read'"></span>
+                                        <span class="font-mono" x-text="selectedCloudflareOAuthScopes()"></span>
                                     </p>
                                     <p class="mt-1" x-show="selectedCloudflareOAuthPermissions().length">
                                         Cloudflare client permissions:
                                         <span x-text="selectedCloudflareOAuthPermissions().join(', ')"></span>
                                     </p>
-                                    <p class="mt-1 text-warning" x-show="selectedCloudflareOAuthProfile()?.warning"
-                                        x-text="selectedCloudflareOAuthProfile()?.warning"></p>
+                                    <p class="mt-1 text-warning" x-show="selectedCloudflareOAuthHasWarning()"
+                                        x-text="selectedCloudflareOAuthWarning()"></p>
                                 </div>
                             </div>
                             <p class="mt-1 text-xs text-[#5f5c78]" x-show="cfOAuthStatus.scopes">
@@ -337,14 +337,14 @@
                     </div>
                     <template x-if="dnsProviderImportError">
                         <div class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                            <p class="font-semibold" x-text="`${selectedDnsProviderName()} discovery needs attention`"></p>
+                            <p class="font-semibold" x-text="dnsProviderImportErrorTitle()"></p>
                             <p class="mt-1" x-text="dnsProviderImportError"></p>
                             <p class="mt-1 text-xs" x-show="selectedDnsProviderSetupHint()" x-text="selectedDnsProviderSetupHint()"></p>
                         </div>
                     </template>
                     <template x-if="dnsProviderImportSummary && !dnsProviderImportError && importableDnsProviderZoneCount() === 0">
                         <div class="rounded-md border border-border bg-base-100 px-3 py-3 text-sm text-base-content/70">
-                            <p class="font-semibold text-base-content" x-text="`${selectedDnsProviderName()} returned no importable zones`"></p>
+                            <p class="font-semibold text-base-content" x-text="dnsProviderNoImportableZonesTitle()"></p>
                             <p class="mt-1" x-text="dnsProviderImportSummary"></p>
                             <p class="mt-1 text-xs" x-show="selectedDnsProviderSetupHint()" x-text="selectedDnsProviderSetupHint()"></p>
                         </div>
@@ -667,7 +667,7 @@
 
                     <template x-if="alertPreview !== null">
                         <div class="alert" :class="alertPreview > 0 ? 'alert-warning' : 'alert-success'">
-                            <span x-text="alertPreview > 0 ? `${alertPreview} active alert${alertPreview === 1 ? '' : 's'} found.` : 'No active alerts found.'"></span>
+                            <span x-text="alertPreviewLabel()"></span>
                         </div>
                     </template>
                 </div>
@@ -728,7 +728,7 @@
 
                     <template x-if="summaryPreview">
                         <div class="alert alert-info">
-                            <span x-text="`${summaryPreview.total_messages} messages, ${summaryPreview.reports_processed} reports, ${summaryPreview.alerts.length} active alerts.`"></span>
+                            <span x-text="summaryPreviewLabel()"></span>
                         </div>
                     </template>
                 </div>
@@ -803,7 +803,7 @@
                                 <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                                     <div>
                                         <div class="text-sm font-semibold" x-text="item.key"></div>
-                                        <div class="text-sm text-muted-foreground" x-text="`${item.old_value || '(empty)'} -> ${item.new_value || '(empty)'}`"></div>
+                                        <div class="text-sm text-muted-foreground" x-text="configAuditValueLabel(item)"></div>
                                     </div>
                                     <div class="text-xs text-muted-foreground" x-text="new Date(item.changed_at).toLocaleString()"></div>
                                 </div>
@@ -1073,14 +1073,14 @@
                     </div>
                     <div class="form-control w-full">
                         <label class="label"><span class="label-text font-medium">Model</span></label>
-                        <template x-if="aiModels.length">
+                        <template x-if="hasAIModels()">
                             <select x-model="s['ai.model']" class="input input-bordered w-full">
                                 <template x-for="model in aiModels" :key="model">
                                     <option :value="model" x-text="model"></option>
                                 </template>
                             </select>
                         </template>
-                        <template x-if="!aiModels.length">
+                        <template x-if="!hasAIModels()">
                             <input type="text" x-model="s['ai.model']" class="input input-bordered w-full" placeholder="Optional model name" />
                         </template>
                     </div>
@@ -1124,12 +1124,12 @@
                 <div class="rounded-lg border border-border p-3" x-show="aiConnectionResult">
                     <div class="flex items-start justify-between gap-3">
                         <div>
-                            <p class="text-sm font-medium" x-text="aiConnectionResult?.success ? 'Connection OK' : 'Connection failed'"></p>
-                            <p class="text-sm text-muted-foreground" x-text="aiConnectionResult?.message"></p>
+                            <p class="text-sm font-medium" x-text="aiConnectionStatusLabel()"></p>
+                            <p class="text-sm text-muted-foreground" x-text="aiConnectionMessage()"></p>
                         </div>
-                        <span class="badge" :class="aiConnectionResult?.success ? 'badge-success' : 'badge-error'" x-text="aiConnectionResult?.provider || 'AI'"></span>
+                        <span class="badge" :class="aiConnectionBadgeClass()" x-text="aiConnectionProviderLabel()"></span>
                     </div>
-                    <p class="mt-2 text-xs text-muted-foreground" x-show="aiModels.length" x-text="`${aiModels.length} model${aiModels.length === 1 ? '' : 's'} discovered.`"></p>
+                    <p class="mt-2 text-xs text-muted-foreground" x-show="hasAIModels()" x-text="aiModelsDiscoveredLabel()"></p>
                 </div>
                 <div class="form-control">
                     <label class="label cursor-pointer justify-start gap-3">
