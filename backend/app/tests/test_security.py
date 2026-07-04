@@ -4,6 +4,7 @@ Security-focused tests for DMARQ application.
 Covers API key management, domain validation, file upload limits, and XML parsing security.
 """
 
+import json
 import re
 from pathlib import Path
 
@@ -163,7 +164,9 @@ class TestSecurityHeaders:
     def test_base_template_uses_local_csp_alpine(self):
         """The bundled Alpine runtime should be the CSP-compatible local build."""
         template = Path(__file__).resolve().parents[1] / "templates" / "layouts" / "base.html"
+        package_json = Path(__file__).resolve().parents[2] / "package.json"
         body = template.read_text()
+        package = json.loads(package_json.read_text())
         alpine = (
             Path(__file__).resolve().parents[1] / "static" / "js" / "vendor" / "alpine.min.js"
         ).read_text()
@@ -177,7 +180,7 @@ class TestSecurityHeaders:
         assert 'src="/static/js/base-layout.js"' in body
         assert 'href="/static/css/app.css"' in body
         assert 'href="/static/css/page-utilities.css"' in body
-        assert "Using the x-html directive is prohibited in the CSP build" in alpine
+        assert "@alpinejs/csp" in package["devDependencies"]
         assert "new Function" not in alpine
 
     @pytest.mark.parametrize("template_name", ["login.html", "setup.html"])

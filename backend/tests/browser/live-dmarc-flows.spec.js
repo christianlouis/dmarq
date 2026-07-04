@@ -661,23 +661,13 @@ async function installCspViolationRecorder(page) {
   });
 }
 
-function isKnownStrictCspMigrationBlocker(violation) {
-  void violation;
-  return false;
-}
-
 test.beforeEach(async ({ page }) => {
   await installCspViolationRecorder(page);
   await installApiMocks(page);
 });
 
 test.afterEach(async ({ page }) => {
-  const violations = page.__dmarqCspViolations || [];
-  const unexpectedViolations = violations.filter(
-    (violation) => !isKnownStrictCspMigrationBlocker(violation)
-  );
-
-  expect(unexpectedViolations, 'unexpected CSP report-only violations').toEqual([]);
+  expect(page.__dmarqCspViolations || [], 'unexpected CSP report-only violations').toEqual([]);
 });
 
 test('dashboard becomes useful before false empty states appear', async ({ page }) => {
