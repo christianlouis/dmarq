@@ -18,6 +18,12 @@ document.addEventListener('alpine:init', () => {
                 this.bindControls();
                 this.loadUser();
             },
+            get showWorkspaceSwitcher() {
+                return this.workspaces.length > 1;
+            },
+            get showSignIn() {
+                return !this.user;
+            },
             bindControls() {
                 if (typeof document === 'undefined') return;
                 const hasElement = typeof Element !== 'undefined';
@@ -39,7 +45,7 @@ document.addEventListener('alpine:init', () => {
                 try {
                     const res = await fetch('/api/v1/auth/me');
                     if (res.ok) {
-                        this.user = await res.json();
+                        this.user = this.normalizeUser(await res.json());
                     }
                 } catch (_) {
                     // User identity is optional for public or setup views.
@@ -59,7 +65,9 @@ document.addEventListener('alpine:init', () => {
                         return;
                     }
                     const data = await res.json();
-                    this.workspaces = data.workspaces || [];
+                    this.workspaces = (data.workspaces || []).map((workspace) =>
+                        this.normalizeWorkspace(workspace)
+                    );
                     const saved = String(this.selectedWorkspaceId || '');
                     const selected = this.workspaces.find(
                         (workspace) => String(workspace.id) === saved && workspace.active
@@ -92,6 +100,27 @@ document.addEventListener('alpine:init', () => {
                 const prefix = workspace.organization ? `${workspace.organization.name} / ` : '';
                 const suffix = workspace.active ? '' : ' (inactive)';
                 return `${prefix}${workspace.name}${suffix}`;
+            },
+            normalizeUser(user) {
+                const profile = user || {};
+                const fullName = String(profile.full_name || '').trim();
+                const email = String(profile.email || '').trim();
+                const displayName = fullName || email || 'Unknown user';
+                return {
+                    ...profile,
+                    display_name: displayName,
+                    email_label: email,
+                    show_email: Boolean(fullName && email),
+                    avatar_alt: displayName,
+                    initial: displayName.slice(0, 1).toUpperCase() || '?',
+                    show_placeholder_avatar: !profile.picture,
+                };
+            },
+            normalizeWorkspace(workspace) {
+                return {
+                    ...workspace,
+                    disabled: !workspace.active,
+                };
             },
         };
     });

@@ -685,9 +685,15 @@ def test_report_detail_uses_external_page_script_for_csp_migration():
     assert "refresh_reputation=true" in script
     assert "reputationRefreshing" in template
     assert "reputationRefreshError" in template
-    assert "if (!refreshReputation) {\n                        this.reputationRefreshError = '';" in script
+    assert (
+        "if (!refreshReputation) {\n                        this.reputationRefreshError = '';"
+        in script
+    )
     assert "Reputation refresh timed out. Please try again in a moment." in script
-    assert "const detail = typeof data.detail === 'string' ? data.detail : data.detail?.message;" in script
+    assert (
+        "const detail = typeof data.detail === 'string' ? data.detail : data.detail?.message;"
+        in script
+    )
     assert "bindPageControls()" in script
     assert "event.target instanceof Element" in script
     assert "/api/v1/reports/${encodeURIComponent(this.reportId)}" in script
@@ -794,7 +800,7 @@ def test_settings_controls_are_bound_from_external_script():
     assert "@submit" not in template
     assert "@change" not in template
     assert "showAIKey = !showAIKey" not in template
-    assert 'testWebhook(hook.id)' not in template
+    assert "testWebhook(hook.id)" not in template
     assert "x-html" not in template
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
@@ -882,7 +888,7 @@ def test_mail_sources_form_actions_are_bound_from_external_script():
     assert 'x-on:click="showPassword = !showPassword"' not in template
     assert 'x-on:change="applyM365FolderSelection($event.target.value)"' not in template
     assert 'x-on:click="loadM365Folders()"' not in template
-    assert 'x-on:input="form.m365_folder_id = \'\'"' not in template
+    assert "x-on:input=\"form.m365_folder_id = ''\"" not in template
     assert 'x-on:click="testAdHoc()"' not in template
     assert 'x-on:click="connectGmail()"' not in template
     assert 'x-on:click="connectM365()"' not in template
@@ -958,11 +964,11 @@ def test_domain_details_exposes_migration_readiness_without_html_injection():
     assert "I am migrating data" in template
     assert "data-domain-detail-migration-action" in template
     assert "handleMigrationAction" in script
-    assert "@click=\"enableMigrationTools()\"" not in template
+    assert '@click="enableMigrationTools()"' not in template
     assert '@click="previewMigrationImport"' not in template
-    assert "@click=\"loadMigrationImportSample\"" not in template
-    assert "@click=\"applyMigrationPreviewBaseline\"" not in template
-    assert "@click=\"compareMigrationBaseline\"" not in template
+    assert '@click="loadMigrationImportSample"' not in template
+    assert '@click="applyMigrationPreviewBaseline"' not in template
+    assert '@click="compareMigrationBaseline"' not in template
     assert "x-html" not in template
 
 
@@ -1112,11 +1118,11 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     assert 'colspan="9"' in template
     assert "x-effect=\"$el.style.height = point.height + '%'" not in template
     assert 'aria-label="Recent sending volume"' in template
-    assert ':viewBox="\'0 0 \' + point.width + \' 100\'"' in template
-    assert "<template x-for=\"point in sourceVolumeBars(source)\"" in template
+    assert ":viewBox=\"'0 0 ' + point.width + ' 100'\"" in template
+    assert '<template x-for="point in sourceVolumeBars(source)"' in template
     assert "point.y" in template
     assert "point.width" in template
-    assert "<svg class=\"h-8 w-full overflow-visible\"" not in template
+    assert '<svg class="h-8 w-full overflow-visible"' not in template
     assert "x-html" not in template
     assert not _has_inline_style(template)
 
@@ -1128,7 +1134,10 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "loadInitialData()" in script
     assert "async fetchWithTimeout" in script
     assert "Promise.allSettled" in script
-    assert "const response = await this.fetchWithTimeout(\n                    `/api/v1/domains/${this.domainId}/stats`" in script
+    assert (
+        "const response = await this.fetchWithTimeout(\n                    `/api/v1/domains/${this.domainId}/stats`"
+        in script
+    )
     assert "The request timed out. Reload data or try again in a moment." in script
     assert "dnsRecordsLoading" in template
     assert "Checking DMARC record..." in template
@@ -1207,9 +1216,9 @@ def test_members_template_uses_membership_api_without_html_injection():
     assert 'x-effect="$el.style.width' not in template
     assert "invoice_delivery_label" in template
     assert 'x-text="membership.user.email"' in template
-    assert '@click=' not in template
-    assert '@change=' not in template
-    assert '@submit' not in template
+    assert "@click=" not in template
+    assert "@change=" not in template
+    assert "@submit" not in template
     assert "data-members-page" in template
     assert "data-members-scope" in template
     assert "data-members-invite-form" in template
@@ -1250,14 +1259,19 @@ def test_base_template_propagates_selected_workspace_context():
 
     assert 'src="/static/js/base-layout.js"' in template
     assert "data-multi-workspace-ui" in template
-    assert "multiWorkspaceUiEnabled" in template
+    assert 'x-data="userMenu"' in template
+    assert "userMenu({" not in template
+    assert "multiWorkspaceUiEnabled" in script
     assert "/api/v1/workspaces" in script
     assert "dmarq.selectedWorkspaceId" in script
     assert "X-DMARQ-Workspace-ID" in script
     assert "withoutWorkspaceContext(input, init)" in script
     assert "headers.delete(workspaceHeaderName)" in script
     assert "dmarq:workspace-changed" in script
-    assert "workspaces.length > 1" in template
+    assert "workspaces.length > 1" not in template
+    assert "showWorkspaceSwitcher" in template
+    assert "normalizeUser" in script
+    assert "normalizeWorkspace" in script
     assert "localStorage.removeItem('dmarq.selectedWorkspaceId')" in script
     assert "input instanceof URL" in script
     assert 'x-init="loadUser()"' not in template
@@ -1266,6 +1280,10 @@ def test_base_template_propagates_selected_workspace_context():
     assert "data-workspace-switcher" in template
     assert "bindControls()" in script
     assert "data-workspace-switcher" in script
+    assert "user.full_name || user.email" not in template
+    assert "(user.full_name || user.email || '?')[0].toUpperCase()" not in template
+    assert ':disabled="!workspace.active"' not in template
+    assert ':disabled="workspace.disabled"' in template
     assert "onclick=" not in template
     assert "data-release-modal-trigger" in template
     assert 'href="/static/css/app.css"' in template
