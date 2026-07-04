@@ -2552,6 +2552,33 @@ def test_cloudflare_oauth_callback_explains_invalid_scope(
     assert "window or tab" in response.text
 
 
+def test_cloudflare_oauth_callback_explains_legacy_user_read_invalid_scope(
+    authed_client: TestClient,
+):
+    with patch(
+        "app.api.api_v1.endpoints.domains.decode_cloudflare_oauth_state",
+        return_value={
+            "workspace_id": 1,
+            "return_to": "/settings",
+            "scope_profile": "read_only",
+        },
+    ):
+        response = authed_client.get(
+            "/api/v1/domains/cloudflare/oauth/callback"
+            "?error=invalid_scope"
+            "&error_description=The+OAuth+client+cannot+request+user.read"
+            "&state=state-token"
+        )
+
+    assert response.status_code == 400
+    assert "cannot request user.read" in response.text
+    assert "Selected profile:" in response.text
+    assert "read_only" in response.text
+    assert "zone.read dns.read" in response.text
+    assert "cloudflare_scope_profile=read_only" in response.text
+    assert "cloudflare_retry=1" in response.text
+
+
 def test_cloudflare_oauth_callback_explains_invalid_scope_with_bad_state(
     authed_client: TestClient,
 ):

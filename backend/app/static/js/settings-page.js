@@ -217,19 +217,34 @@ function settingsApp() {
             if (params.get('cloudflare_retry') === '1') {
                 this.s['cloudflare.oauth_scope_profile'] = 'read_only';
                 this.showFlash('Cloudflare retry is set to the read-only profile. Click Connect Cloudflare to continue.', true);
+                this.clearCloudflareOAuthQueryState(params);
                 return;
             }
             const profile = params.get('cloudflare_scope_profile');
             if (profile && this.isKnownCloudflareOAuthProfile(profile)) {
                 this.s['cloudflare.oauth_scope_profile'] = profile;
             }
+            if (profile) {
+                this.clearCloudflareOAuthQueryState(params);
+            }
+        },
+
+        clearCloudflareOAuthQueryState(params) {
+            params.delete('cloudflare_scope_profile');
+            params.delete('cloudflare_retry');
+            const query = params.toString();
+            window.history.replaceState(
+                {},
+                '',
+                window.location.pathname + (query ? `?${query}` : '')
+            );
         },
 
         isKnownCloudflareOAuthProfile(profileId) {
             const knownProfiles = new Set(
                 (this.cfOAuthStatus.scope_profiles || []).map(profile => profile.id)
             );
-            ['read_only', 'read_only_radar', 'full_dns_radar'].forEach(profile => knownProfiles.add(profile));
+            ['read_only', 'read_only_radar', 'full_dns_repair'].forEach(profile => knownProfiles.add(profile));
             return knownProfiles.has(profileId);
         },
 

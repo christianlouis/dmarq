@@ -197,9 +197,6 @@
                                         Cloudflare client permissions:
                                         <span x-text="selectedCloudflareOAuthPermissions().join(', ')"></span>
                                     </p>
-                                    <p class="mt-1 text-warning" x-show="selectedCloudflareOAuthRequiresAllowlisting()">
-                                        This profile must be enabled in the Cloudflare OAuth client's allowed permissions before Cloudflare will approve the request.
-                                    </p>
                                     <p class="mt-1 text-warning" x-show="selectedCloudflareOAuthProfile()?.warning"
                                         x-text="selectedCloudflareOAuthProfile()?.warning"></p>
                                 </div>
