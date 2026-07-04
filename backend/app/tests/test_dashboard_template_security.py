@@ -371,6 +371,7 @@ def test_reports_uses_external_page_script_for_csp_migration():
     assert "data-report-delete" in script
     assert "bindPageControls()" in script
     assert "event.target instanceof Element" in script
+    assert "Number.isNaN(date.getTime())" in script
     assert "/api/v1/reports" in script
     assert "deleteReport(domain, reportId)" in script
     assert "resetFilters()" in script
