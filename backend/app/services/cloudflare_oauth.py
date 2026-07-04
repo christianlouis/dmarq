@@ -19,6 +19,7 @@ CLOUDFLARE_AUTHORIZATION_URL = "https://dash.cloudflare.com/oauth2/auth"
 CLOUDFLARE_TOKEN_URL = "https://api.cloudflare.com/oauth2/token"
 CLOUDFLARE_DEFAULT_READ_SCOPES = "zone.read dns.read"
 CLOUDFLARE_DEFAULT_SCOPE_PROFILE = "read_only"
+CLOUDFLARE_ALLOWED_SCOPES = frozenset({"zone.read", "dns.read", "dns.write", "radar.read"})
 _STATE_ALGORITHM = "HS256"
 _STATE_TTL = timedelta(minutes=10)
 
@@ -44,6 +45,7 @@ class CloudflareScopeProfile:
     dns_write_enabled: bool = False
     radar_enabled: bool = False
     radar_requires_api_token: bool = False
+    requires_client_allowlisting: bool = False
     warning: Optional[str] = None
 
 
@@ -62,6 +64,7 @@ CLOUDFLARE_SCOPE_PROFILES: Dict[str, CloudflareScopeProfile] = {
         scopes="zone.read dns.read radar.read",
         required_permissions=("Zone Read", "DNS Read", "Account Radar Read"),
         radar_enabled=True,
+        requires_client_allowlisting=True,
         warning=(
             "Includes Account Radar Read for Cloudflare Radar IP lookups. The Cloudflare "
             "OAuth client must allow radar.read."
@@ -78,6 +81,7 @@ CLOUDFLARE_SCOPE_PROFILES: Dict[str, CloudflareScopeProfile] = {
         required_permissions=("Zone Read", "DNS Read", "DNS Write", "Account Radar Read"),
         dns_write_enabled=True,
         radar_enabled=True,
+        requires_client_allowlisting=True,
         warning=(
             "Only use this when you want DMARQ to prepare/apply confirmed DNS repairs "
             "and enrich sending IPs with Cloudflare Radar. The Cloudflare OAuth client "
@@ -108,6 +112,12 @@ def cloudflare_scopes_for_profile(profile: Optional[str]) -> str:
     return CLOUDFLARE_SCOPE_PROFILES[normalize_cloudflare_scope_profile(profile)].scopes
 
 
+def _sanitize_cloudflare_scopes(scopes: Optional[str]) -> str:
+    requested = str(scopes or "").replace(",", " ").split()
+    allowed = [scope for scope in requested if scope in CLOUDFLARE_ALLOWED_SCOPES]
+    return " ".join(dict.fromkeys(allowed)) or CLOUDFLARE_DEFAULT_READ_SCOPES
+
+
 def cloudflare_oauth_configured() -> bool:
     """Return whether a Cloudflare OAuth client can be used."""
     settings = get_settings()
@@ -125,7 +135,7 @@ def get_cloudflare_oauth_config() -> CloudflareOAuthConfig:
     return CloudflareOAuthConfig(
         client_id=settings.CLOUDFLARE_OAUTH_CLIENT_ID,
         client_secret=settings.CLOUDFLARE_OAUTH_CLIENT_SECRET,
-        scopes=settings.CLOUDFLARE_OAUTH_SCOPES or CLOUDFLARE_DEFAULT_READ_SCOPES,
+        scopes=_sanitize_cloudflare_scopes(settings.CLOUDFLARE_OAUTH_SCOPES),
     )
 
 

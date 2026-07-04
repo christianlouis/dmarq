@@ -155,6 +155,21 @@ Live DNS writes stay behind the separate DNS repair approval flow.
 | Linode DNS | Ready | `LINODE_API_TOKEN` or `LINODE_TOKEN` with Domains read-only access |
 | Akamai Edge DNS/FastDNS | Ready | EdgeGrid DNS credentials via `.edgerc` or `AKAMAI_*` variables, separate from Akamai EAA login |
 
+Cloudflare OAuth clients must explicitly allow every scope DMARQ can request.
+Configure the Cloudflare OAuth application with the profile you want operators
+to use:
+
+| DMARQ profile | OAuth scopes | Cloudflare client permissions |
+|---------------|--------------|-------------------------------|
+| Read-only discovery | `zone.read dns.read` | Zone Read, DNS Read |
+| Read-only + Radar context | `zone.read dns.read radar.read` | Zone Read, DNS Read, Account Radar Read |
+| Full DNS repair + Radar | `zone.read dns.read dns.write radar.read` | Zone Read, DNS Read, DNS Write, Account Radar Read |
+
+If Cloudflare returns `invalid_scope`, retry with the read-only profile first.
+Then update the Cloudflare OAuth application's allowed permissions before
+requesting Radar or DNS Write access again. DMARQ filters legacy unsupported
+scopes such as `user.read` from its own OAuth requests.
+
 For Route 53 self-hosted installs, use a local AWS profile or environment
 credentials with `route53:ListHostedZones`. Hosted/provider deployments should
 prefer role assumption with an external ID. Add `route53:ListResourceRecordSets`

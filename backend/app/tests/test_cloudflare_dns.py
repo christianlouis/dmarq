@@ -1981,6 +1981,10 @@ def _cloudflare_oauth_zone_read_settings():
     return _cloudflare_oauth_settings(CLOUDFLARE_OAUTH_SCOPES="zone.read")
 
 
+def _cloudflare_oauth_legacy_user_scope_settings():
+    return _cloudflare_oauth_settings(CLOUDFLARE_OAUTH_SCOPES="zone.read user.read dns.read")
+
+
 def _cloudflare_oauth_empty_scope_settings():
     return _cloudflare_oauth_settings(CLOUDFLARE_OAUTH_SCOPES="")
 
@@ -2052,6 +2056,24 @@ def test_cloudflare_oauth_authorization_url_uses_configured_scopes_without_profi
     assert "state=state-token" in result["authorization_url"]
 
 
+def test_cloudflare_oauth_authorization_url_drops_legacy_user_read_scope(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(
+        cloudflare_oauth,
+        "get_settings",
+        _cloudflare_oauth_legacy_user_scope_settings,
+    )
+
+    result = cloudflare_oauth.build_cloudflare_authorization_url(
+        redirect_uri="https://app.example.test/api/v1/domains/cloudflare/oauth/callback",
+        state="state-token",
+    )
+
+    assert result["scopes"] == "zone.read dns.read"
+    assert "user.read" not in result["authorization_url"]
+
+
 def test_cloudflare_oauth_authorization_url_profile_overrides_configured_scopes(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -2110,6 +2132,7 @@ def test_cloudflare_oauth_scope_profile_metadata_marks_full_dns_radar_enabled():
     ]
     assert full_profile["dns_write_enabled"] is True
     assert full_profile["radar_enabled"] is True
+    assert full_profile["requires_client_allowlisting"] is True
 
     radar_profile = profiles["read_only_radar"]
     assert radar_profile["scopes"] == "zone.read dns.read radar.read"
@@ -2120,6 +2143,10 @@ def test_cloudflare_oauth_scope_profile_metadata_marks_full_dns_radar_enabled():
     ]
     assert radar_profile["dns_write_enabled"] is False
     assert radar_profile["radar_enabled"] is True
+    assert radar_profile["requires_client_allowlisting"] is True
+
+    read_only_profile = profiles["read_only"]
+    assert read_only_profile["requires_client_allowlisting"] is False
 
 
 def test_cloudflare_oauth_config_requires_client_credentials(
@@ -2519,6 +2546,9 @@ def test_cloudflare_oauth_callback_explains_invalid_scope(
     assert "zone.read dns.read dns.write radar.read" in response.text
     assert "DNS Write" in response.text
     assert "Account Radar Read" in response.text
+    assert "Retry with read-only Cloudflare access" in response.text
+    assert "cloudflare_scope_profile=read_only" in response.text
+    assert "cloudflare_retry=1" in response.text
     assert "window or tab" in response.text
 
 
@@ -2541,6 +2571,7 @@ def test_cloudflare_oauth_callback_explains_invalid_scope_with_bad_state(
     assert "read_only" in response.text
     assert "zone.read dns.read" in response.text
     assert "DNS Write" not in response.text
+    assert "Retry with read-only Cloudflare access" in response.text
     assert "window or tab" in response.text
 
 

@@ -199,6 +199,7 @@ function settingsApp() {
                 const map = {};
                 rows.forEach(r => { map[r.key] = r.value ?? ''; });
                 this.s = map;
+                this.applyCloudflareOAuthQueryState();
                 await this.loadAlertHistory(false);
                 await this.loadConfigAudit(false);
                 await this.loadWebhooks(false);
@@ -208,6 +209,17 @@ function settingsApp() {
                 await this.loadAIProviderProfiles(false);
             } catch (err) {
                 this.showFlash('Error loading settings: ' + err.message, false);
+            }
+        },
+
+        applyCloudflareOAuthQueryState() {
+            const params = new URLSearchParams(window.location.search);
+            const profile = params.get('cloudflare_scope_profile');
+            if (profile) {
+                this.s['cloudflare.oauth_scope_profile'] = profile;
+            }
+            if (params.get('cloudflare_retry') === '1') {
+                this.showFlash('Cloudflare retry is set to the read-only profile. Click Connect Cloudflare to continue.', true);
             }
         },
 
@@ -719,6 +731,10 @@ function settingsApp() {
 
         selectedCloudflareOAuthPermissions() {
             return this.selectedCloudflareOAuthProfile()?.required_permissions || [];
+        },
+
+        selectedCloudflareOAuthRequiresAllowlisting() {
+            return Boolean(this.selectedCloudflareOAuthProfile()?.requires_client_allowlisting);
         },
 
         async connectCloudflare() {
