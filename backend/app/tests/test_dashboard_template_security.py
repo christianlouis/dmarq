@@ -303,6 +303,9 @@ def test_dashboard_uses_external_page_script_for_csp_migration():
 
     assert 'src="/static/js/chart.umd.min.js"' in template
     assert 'src="/static/js/dashboard-page.js"' in template
+    assert 'x-data="dashboardApp"' in template
+    assert "dashboardApp()" not in template
+    assert "Alpine.data('dashboardApp', dashboardApp)" in script
     assert "cdn.tailwindcss.com" not in template
     assert "enforcement-gauge-bg" in template
     assert ".enforcement-gauge-bg" in styles
@@ -715,7 +718,11 @@ def test_report_detail_uses_external_page_script_for_csp_migration():
     assert "/api/v1/reports/${encodeURIComponent(this.reportId)}" in script
     assert "deleteReport(domain, reportId)" in script
     assert "sourceLocation(record)" in script
-    assert 'x-data="reportDetailApp' in template
+    assert 'x-data="reportDetailApp"' in template
+    assert "reportDetailApp(" not in template
+    assert "Alpine.data('reportDetailApp', reportDetailApp)" in script
+    assert "data-report-detail-page" in template
+    assert "data-report-id" in template
     assert "x-cloak" in template
     assert '@click="fetchReport()"' not in template
     assert "this.loading = true;" in script
@@ -734,6 +741,9 @@ def test_settings_exposes_provider_agnostic_dns_import_without_html_injection():
     script = _settings_script()
 
     assert "data-settings-page" in template
+    assert 'x-data="settingsApp"' in template
+    assert "settingsApp()" not in template
+    assert "Alpine.data('settingsApp', settingsApp)" in script
     assert "DNS Provider Connectors" in template
     assert 'id="provider-integrations"' in template
     assert "Provider Domain Discovery" in template
@@ -827,6 +837,9 @@ def test_mail_sources_list_actions_are_bound_from_external_script():
 
     assert _has_script_src(template, "/static/js/mail-sources-page.js")
     assert "data-mail-sources-page" in template
+    assert 'x-data="mailSourcesApp"' in template
+    assert "mailSourcesApp()" not in template
+    assert "Alpine.data('mailSourcesApp', mailSourcesApp)" in script
     assert "data-mail-source-add" in template
     assert "data-mail-source-toggle" in template
     assert "data-mail-source-edit" in template
@@ -922,6 +935,10 @@ def test_domain_details_exposes_health_history_without_html_injection():
     assert "/posture/history?capture_current=false" in script
     assert "/posture/evidence/export?capture_current=false" in script
     assert "encodeURIComponent(this.domainId)" in script
+    assert 'x-data="domainDetailsApp"' in template
+    assert "domainDetailsApp(" not in template
+    assert "Alpine.data('domainDetailsApp', domainDetailsApp)" in script
+    assert "data-domain-id" in template
     assert "health-score-chart" in template
     assert "x-html" not in template
     assert _has_script_src(template, "/static/js/domain-details-page.js")
@@ -1216,7 +1233,9 @@ def test_members_template_uses_membership_api_without_html_injection():
     script = (Path(__file__).resolve().parents[1] / "static" / "js" / "members-page.js").read_text()
 
     assert _has_script_src(template, "/static/js/members-page.js")
-    assert "membershipApp()" in template
+    assert 'x-data="membershipApp"' in template
+    assert "membershipApp()" not in template
+    assert "Alpine.data('membershipApp', membershipApp)" in script
     assert 'x-init="init()"' not in template
     assert "/api/v1/organizations" in script
     assert "/api/v1/memberships/organizations/" in script

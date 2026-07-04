@@ -6,7 +6,7 @@
 {% block title %}DMARQ - Report Detail{% endblock %}
 
 {% block content %}
-<div class="space-y-6" x-data="reportDetailApp('{{ report_id }}')" x-cloak>
+<div class="space-y-6" x-data="reportDetailApp" data-report-detail-page data-report-id="{{ report_id }}" x-cloak>
     <nav class="text-sm text-[#5f5c78]">
         <ol class="flex items-center space-x-2">
             <li><a href="/" class="font-semibold hover:text-[#2f9da5]">Dashboard</a></li>

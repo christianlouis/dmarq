@@ -874,3 +874,9 @@ function mailSourcesApp() {
         },
     };
 }
+
+if (typeof document !== 'undefined') {
+    document.addEventListener('alpine:init', () => {
+        Alpine.data('mailSourcesApp', mailSourcesApp);
+    });
+}

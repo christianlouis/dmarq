@@ -1036,3 +1036,9 @@ function settingsApp() {
         },
     };
 }
+
+if (typeof document !== 'undefined') {
+    document.addEventListener('alpine:init', () => {
+        Alpine.data('settingsApp', settingsApp);
+    });
+}

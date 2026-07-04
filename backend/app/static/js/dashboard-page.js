@@ -1521,3 +1521,9 @@ function dashboardApp() {
         }
     }
 }
+
+if (typeof document !== 'undefined') {
+    document.addEventListener('alpine:init', () => {
+        Alpine.data('dashboardApp', dashboardApp);
+    });
+}

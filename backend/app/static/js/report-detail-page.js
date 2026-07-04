@@ -1,4 +1,4 @@
-function reportDetailApp(reportId) {
+function reportDetailApp(reportId = '') {
     return {
         reportId: reportId,
         report: null,
@@ -8,6 +8,7 @@ function reportDetailApp(reportId) {
         reputationRefreshError: '',
 
         async init() {
+            this.reportId = this.$el?.dataset?.reportId || this.reportId;
             this.bindPageControls();
             await this.fetchReport();
         },
@@ -226,4 +227,10 @@ function reportDetailApp(reportId) {
             return (reputation?.evidence || []).slice(0, 3);
         },
     };
+}
+
+if (typeof document !== 'undefined') {
+    document.addEventListener('alpine:init', () => {
+        Alpine.data('reportDetailApp', reportDetailApp);
+    });
 }

@@ -1,4 +1,4 @@
-function domainDetailsApp(domainId) {
+function domainDetailsApp(domainId = '') {
     return {
         domainId: domainId,
         stats: {
@@ -204,6 +204,7 @@ function domainDetailsApp(domainId) {
         refreshingPage: false,
 
         init() {
+            this.domainId = this.$el?.dataset?.domainId || this.domainId;
             this.bindPageControls();
             const storedVolumeScale = this.loadStoredVolumeScale();
             if (storedVolumeScale === 'linear' || storedVolumeScale === 'logarithmic') {
@@ -2183,4 +2184,10 @@ function domainDetailsApp(domainId) {
             return 'bg-red-100 text-red-800';
         }
     };
+}
+
+if (typeof document !== 'undefined') {
+    document.addEventListener('alpine:init', () => {
+        Alpine.data('domainDetailsApp', domainDetailsApp);
+    });
 }
