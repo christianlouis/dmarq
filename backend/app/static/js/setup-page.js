@@ -150,5 +150,30 @@ function setupWizard() {
                 this.saving = false;
             }
         },
+        get renderedSteps() {
+            return this.steps.map((step) => ({
+                ...step,
+                className: this.stepClass(step.id),
+                badgeClass: this.stepBadgeClass(step.id),
+            }));
+        },
+        get domainsConfiguredLabel() {
+            return `(${this.totalDomains} configured)`;
+        },
+        get mailSourcesEnabledLabel() {
+            return `(${this.enabledMailSources}/${this.totalMailSources} enabled)`;
+        },
+        get mailboxRecoverySteps() {
+            return Array.isArray(this.mailboxRecoveryHint?.recovery_steps)
+                ? this.mailboxRecoveryHint.recovery_steps
+                : [];
+        },
+        get hasMailboxRecoverySteps() {
+            return this.mailboxRecoverySteps.length > 0;
+        },
     };
 }
+
+document.addEventListener('alpine:init', () => {
+    Alpine.data('setupWizard', setupWizard);
+});

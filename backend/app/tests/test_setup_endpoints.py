@@ -98,6 +98,19 @@ class TestSetupPage:
 
         assert response.status_code == 200
         assert "First-run setup" in response.text
+        assert 'x-data="setupWizard" x-cloak' in response.text
+        assert "setupWizard()" not in response.text
+        assert "renderedSteps" in response.text
+        assert "step.className" in response.text
+        assert "step.badgeClass" in response.text
+        assert "domainsConfiguredLabel" in response.text
+        assert "mailSourcesEnabledLabel" in response.text
+        assert "hasMailboxRecoverySteps" in response.text
+        assert "mailboxRecoverySteps" in response.text
+        assert "stepClass(step.id)" not in response.text
+        assert "stepBadgeClass(step.id)" not in response.text
+        assert "`(${totalDomains} configured)`" not in response.text
+        assert "`(${enabledMailSources}/${totalMailSources} enabled)`" not in response.text
         assert '@submit.prevent="submitAdmin"' not in response.text
         assert '@submit.prevent="submitSystem"' not in response.text
         assert 'x-init="init()"' not in response.text
@@ -107,6 +120,12 @@ class TestSetupPage:
         assert 'data-app-name="DMARQ"' in response.text
         assert 'src="/static/js/setup-page.js"' in response.text
         assert "bindControls()" in script
+        assert "Alpine.data('setupWizard', setupWizard)" in script
+        assert "renderedSteps()" in script
+        assert "domainsConfiguredLabel()" in script
+        assert "mailSourcesEnabledLabel()" in script
+        assert "mailboxRecoverySteps()" in script
+        assert "hasMailboxRecoverySteps()" in script
         assert "data-setup-admin-form" in script
         assert "data-setup-system-form" in script
         assert "data-setup-back" in script
