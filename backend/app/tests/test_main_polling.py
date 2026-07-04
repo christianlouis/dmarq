@@ -24,12 +24,13 @@ async def test_cancel_background_task_ignores_completed_task():
         return "finished"
 
     task = asyncio.create_task(done())
-    await task
+    result = await task
 
     await _cancel_background_task(task, "test")
 
     assert task.done()
-    assert task.result() == "finished"
+    assert result == "finished"
+    assert task.result() == result
 
 
 class TestNextSleepSeconds:
