@@ -4,6 +4,7 @@ import dns.resolver
 import httpx
 import pytest
 
+from app.services.dns_resolver import PUBLIC_RECURSIVE_NAMESERVERS
 from app.services.source_reputation_feeds import (
     AbuseIPDBFeedProvider,
     DNSBLFeedProvider,
@@ -115,6 +116,19 @@ def test_feed_registry_exposes_safe_metadata_only():
     assert "query_zone" not in registry["spamcop_scbl"]
     assert "secret" not in registry["spamcop_scbl"]
     assert "secret" not in registry["abuseipdb"]
+
+
+def test_dnsbl_default_resolver_uses_public_recursive_nameservers():
+    provider = DNSBLFeedProvider(
+        FeedProviderConfig(
+            provider_id="demo_feed",
+            display_name="Demo Reputation Feed",
+            enabled=True,
+            query_zone="example.test",
+        )
+    )
+
+    assert provider._resolver.nameservers == list(PUBLIC_RECURSIVE_NAMESERVERS)
 
 
 class NoNameserversResolver:

@@ -39,6 +39,26 @@ def _decode_doh_txt_record(value: str) -> str:
     return text.strip('"')
 
 
+def _parse_csv_setting(value: Optional[str]) -> List[str]:
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _parse_doh_endpoint(value: str) -> Tuple[str, str, int]:
+    endpoint = value.strip()
+    if not endpoint:
+        raise LookupError("DNS-over-HTTPS hostname is not configured.")
+    url = endpoint if "://" in endpoint else f"https://{endpoint}"
+    parsed = urlparse(url)
+    if not parsed.hostname:
+        raise LookupError("DNS-over-HTTPS hostname is invalid.")
+    path = parsed.path or "/dns-query"
+    if parsed.query:
+        path = f"{path}?{parsed.query}"
+    return url, path, parsed.port or 443
+
+
 def _ip_to_arpa_name(ip: str) -> str:
     """Convert an IP address string to its reverse-DNS ARPA lookup name.
 
@@ -79,6 +99,25 @@ COMMON_DKIM_SELECTORS: List[str] = [
 # Seconds to wait for a single DNS query before giving up
 DNS_TIMEOUT: float = 5.0
 PUBLIC_RECURSIVE_NAMESERVERS: List[str] = ["1.1.1.1", "8.8.8.8"]
+QUAD9_NAMESERVERS: List[str] = ["9.9.9.9", "149.112.112.112", "2620:fe::fe", "2620:fe::9"]
+OPENDNS_NAMESERVERS: List[str] = [
+    "208.67.222.222",
+    "208.67.220.220",
+    "2620:119:35::35",
+    "2620:119:53::53",
+]
+DNS4EU_UNFILTERED_NAMESERVERS: List[str] = [
+    "86.54.11.100",
+    "86.54.11.200",
+    "2a13:1001::86:54:11:100",
+    "2a13:1001::86:54:11:200",
+]
+DNS4EU_PROTECTIVE_NAMESERVERS: List[str] = [
+    "86.54.11.1",
+    "86.54.11.201",
+    "2a13:1001::86:54:11:1",
+    "2a13:1001::86:54:11:201",
+]
 
 DMARC_POLICY_VALUES = {"none", "quarantine", "reject"}
 DMARCBIS_ACTIVE_TAGS = {
@@ -753,6 +792,152 @@ class PublicRecursiveDNSProvider(SystemDNSProvider):
         return []
 
 
+class ConfiguredRecursiveDNSProvider(PublicRecursiveDNSProvider):
+    """Recursive DNS provider backed by named public or deployment-specific resolvers."""
+
+    provider_label: str = "Configured DNS"
+
+    def __init__(
+        self,
+        *,
+        nameservers: Optional[List[str]] = None,
+        doh_hostname: Optional[str] = None,
+        dot_hostname: Optional[str] = None,
+        proxy_chaining_url: Optional[str] = None,
+    ) -> None:
+        self.nameservers = list(nameservers or [])
+        self.doh_hostname = doh_hostname
+        self.dot_hostname = dot_hostname
+        self.proxy_chaining_url = proxy_chaining_url
+
+    def _resolver(self) -> Any:
+        if not self.nameservers:
+            if self.doh_hostname:
+                raise LookupError(
+                    f"{self.provider_label} DNS servers are not configured; using DoH."
+                )
+            raise LookupError(
+                f"{self.provider_label} DNS servers or DoH hostname are not configured."
+            )
+        return super()._resolver()
+
+    async def _resolve(self, name: str, record_type: str) -> Any:
+        import dns.exception  # type: ignore[import]
+
+        if self.nameservers:
+            try:
+                return await super()._resolve(name, record_type)
+            except dns.exception.DNSException as exc:
+                if not self.doh_hostname:
+                    raise
+                logger.debug(
+                    "%s recursive DNS lookup failed for %s/%s; trying DoH fallback: %s",
+                    self.provider_label,
+                    _sanitize_for_log(name),
+                    record_type,
+                    exc,
+                )
+        if not self.doh_hostname:
+            raise LookupError(
+                f"{self.provider_label} DNS servers or DoH hostname are not configured."
+            )
+
+        import dns.asyncquery  # type: ignore[import]
+        import dns.exception  # type: ignore[import]
+        import dns.message  # type: ignore[import]
+        import dns.rcode  # type: ignore[import]
+
+        where, path, port = _parse_doh_endpoint(self.doh_hostname)
+        query = dns.message.make_query(name, record_type)
+        response = await dns.asyncquery.https(
+            query,
+            where=where,
+            path=path,
+            port=port,
+            timeout=DNS_TIMEOUT,
+        )
+        response_rcode = response.rcode()
+        if response_rcode != dns.rcode.NOERROR:
+            raise dns.exception.DNSException(
+                f"{self.provider_label} DoH lookup for {name}/{record_type} "
+                f"returned {dns.rcode.to_text(response_rcode)}"
+            )
+        records: List[Any] = []
+        for rrset in response.answer:
+            records.extend(rrset)
+        return records
+
+
+class AkamaiETPDNSProvider(ConfiguredRecursiveDNSProvider):
+    """DNS provider backed by deployment-specific Akamai ETP resolver settings."""
+
+    provider_label = "Akamai ETP"
+
+
+class Quad9DNSProvider(ConfiguredRecursiveDNSProvider):
+    """Quad9 secure recursive resolver profile."""
+
+    provider_label = "Quad9"
+
+    def __init__(self) -> None:
+        super().__init__(
+            nameservers=QUAD9_NAMESERVERS,
+            doh_hostname="https://dns.quad9.net/dns-query",
+            dot_hostname="dns.quad9.net",
+        )
+
+
+class OpenDNSProvider(ConfiguredRecursiveDNSProvider):
+    """Cisco OpenDNS recursive resolver profile."""
+
+    provider_label = "OpenDNS"
+
+    def __init__(self) -> None:
+        super().__init__(
+            nameservers=OPENDNS_NAMESERVERS,
+            doh_hostname="https://doh.opendns.com/dns-query",
+            dot_hostname="dns.opendns.com",
+        )
+
+
+class DNS4EUUnfilteredDNSProvider(ConfiguredRecursiveDNSProvider):
+    """DNS4EU unfiltered resolver profile for diagnostic DNS evidence."""
+
+    provider_label = "DNS4EU unfiltered"
+
+    def __init__(self) -> None:
+        super().__init__(
+            nameservers=DNS4EU_UNFILTERED_NAMESERVERS,
+            doh_hostname="https://unfiltered.joindns4.eu/dns-query",
+            dot_hostname="unfiltered.joindns4.eu",
+        )
+
+
+class DNS4EUProtectiveDNSProvider(ConfiguredRecursiveDNSProvider):
+    """DNS4EU protective resolver profile for optional European protective DNS checks."""
+
+    provider_label = "DNS4EU protective"
+
+    def __init__(self) -> None:
+        super().__init__(
+            nameservers=DNS4EU_PROTECTIVE_NAMESERVERS,
+            doh_hostname="https://protective.joindns4.eu/dns-query",
+            dot_hostname="protective.joindns4.eu",
+        )
+
+
+class InfobloxDNSProvider(ConfiguredRecursiveDNSProvider):
+    """Infoblox resolver profile supplied by enterprise deployment secrets."""
+
+    provider_label = "Infoblox"
+
+
+class CustomDNSProvider(ConfiguredRecursiveDNSProvider):
+    """Operator-defined recursive resolver profile supplied by deployment secrets."""
+
+    provider_label = "Custom DNS"
+
+
 class CloudflareDNSProvider(BaseDNSProvider):
     """DNS provider using Cloudflare DoH and, when configured, the REST API.
 
@@ -1260,6 +1445,33 @@ def get_default_provider(db: Any = None) -> BaseDNSProvider:
         return DemoDNSProvider()
 
     resolver = (_setting_value(db, "dns.resolver") or "").strip().lower()
+    if resolver == "quad9":
+        return Quad9DNSProvider()
+    if resolver == "opendns":
+        return OpenDNSProvider()
+    if resolver == "dns4eu_unfiltered":
+        return DNS4EUUnfilteredDNSProvider()
+    if resolver == "dns4eu_protective":
+        return DNS4EUProtectiveDNSProvider()
+    if resolver == "infoblox":
+        return InfobloxDNSProvider(
+            nameservers=_parse_csv_setting(settings.INFOBLOX_DNS_SERVERS),
+            doh_hostname=settings.INFOBLOX_DOH_HOSTNAME,
+            dot_hostname=settings.INFOBLOX_DOT_HOSTNAME,
+        )
+    if resolver == "custom":
+        return CustomDNSProvider(
+            nameservers=_parse_csv_setting(settings.DMARQ_DNS_CUSTOM_SERVERS),
+            doh_hostname=settings.DMARQ_DNS_CUSTOM_DOH_HOSTNAME,
+            dot_hostname=settings.DMARQ_DNS_CUSTOM_DOT_HOSTNAME,
+        )
+    if resolver == "akamai_etp":
+        return AkamaiETPDNSProvider(
+            nameservers=_parse_csv_setting(settings.AKAMAI_ETP_DNS_SERVERS),
+            doh_hostname=settings.AKAMAI_ETP_DOH_HOSTNAME,
+            dot_hostname=settings.AKAMAI_ETP_DOT_HOSTNAME,
+            proxy_chaining_url=settings.AKAMAI_ETP_PROXY_CHAINING_URL,
+        )
     if resolver == "cloudflare":
         api_token = _decrypt_setting_value(_setting_value(db, "cloudflare.api_token"))
         zone_id = _setting_value(db, "cloudflare.zone_id")

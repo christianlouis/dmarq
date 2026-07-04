@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.models.dns_cache import DNSCache
+from app.services.dns_resolver import PUBLIC_RECURSIVE_NAMESERVERS
 
 _CACHE_PROVIDER = "source-reputation-feed-v1"
 
@@ -102,9 +103,15 @@ class DNSBLFeedProvider:
     ) -> None:
         self.config = config
         self.timeout_seconds = timeout_seconds
-        self._resolver = resolver or dns.resolver.Resolver()
+        self._resolver = resolver or self._public_resolver()
         self._resolver.lifetime = timeout_seconds
         self._resolver.timeout = timeout_seconds
+
+    @staticmethod
+    def _public_resolver() -> dns.resolver.Resolver:
+        resolver = dns.resolver.Resolver(configure=False)
+        resolver.nameservers = list(PUBLIC_RECURSIVE_NAMESERVERS)
+        return resolver
 
     async def lookup_ip(self, ip: str) -> FeedLookupEvidence:
         checked_at = _utcnow_iso()

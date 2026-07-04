@@ -10,15 +10,24 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from app.core.config import get_settings
 from app.core.credential_encryption import encrypt_secret
 from app.models.setting import Setting
 from app.services.dns_provider_detection import detect_dns_provider
 from app.services.dns_resolver import (
+    AkamaiETPDNSProvider,
     BaseDNSProvider,
     CloudflareDNSProvider,
+    ConfiguredRecursiveDNSProvider,
+    CustomDNSProvider,
     DemoDNSProvider,
+    DNS4EUProtectiveDNSProvider,
+    DNS4EUUnfilteredDNSProvider,
     DomainDNSResult,
+    InfobloxDNSProvider,
+    OpenDNSProvider,
     PublicRecursiveDNSProvider,
+    Quad9DNSProvider,
     SystemDNSProvider,
     extract_dmarc_policy,
     get_default_provider,
@@ -702,8 +711,7 @@ async def test_cloudflare_provider_joins_split_doh_txt_chunks():
             {
                 "type": 16,
                 "data": (
-                    '"v=DMARC1; p=reject; ruf=mailto" '
-                    '":postmaster@example.com; sp=reject"'
+                    '"v=DMARC1; p=reject; ruf=mailto" ' '":postmaster@example.com; sp=reject"'
                 ),
             },
         ]
@@ -717,9 +725,7 @@ async def test_cloudflare_provider_joins_split_doh_txt_chunks():
         provider = CloudflareDNSProvider()
         records = await provider.lookup_txt("_dmarc.example.com")
 
-    assert records == [
-        "v=DMARC1; p=reject; ruf=mailto:postmaster@example.com; sp=reject"
-    ]
+    assert records == ["v=DMARC1; p=reject; ruf=mailto:postmaster@example.com; sp=reject"]
 
 
 @pytest.mark.asyncio
@@ -985,6 +991,199 @@ def test_get_default_provider_uses_cloudflare_settings(db_session):
     assert isinstance(provider, CloudflareDNSProvider)
     assert provider.api_token == "cf-token"
     assert provider.zone_id == "zone-1"
+
+
+@pytest.mark.parametrize(
+    ("setting_value", "expected_type", "expected_nameservers", "expected_doh"),
+    [
+        (
+            "quad9",
+            Quad9DNSProvider,
+            ["9.9.9.9", "149.112.112.112", "2620:fe::fe", "2620:fe::9"],
+            "https://dns.quad9.net/dns-query",
+        ),
+        (
+            "opendns",
+            OpenDNSProvider,
+            ["208.67.222.222", "208.67.220.220", "2620:119:35::35", "2620:119:53::53"],
+            "https://doh.opendns.com/dns-query",
+        ),
+        (
+            "dns4eu_unfiltered",
+            DNS4EUUnfilteredDNSProvider,
+            [
+                "86.54.11.100",
+                "86.54.11.200",
+                "2a13:1001::86:54:11:100",
+                "2a13:1001::86:54:11:200",
+            ],
+            "https://unfiltered.joindns4.eu/dns-query",
+        ),
+        (
+            "dns4eu_protective",
+            DNS4EUProtectiveDNSProvider,
+            [
+                "86.54.11.1",
+                "86.54.11.201",
+                "2a13:1001::86:54:11:1",
+                "2a13:1001::86:54:11:201",
+            ],
+            "https://protective.joindns4.eu/dns-query",
+        ),
+    ],
+)
+def test_get_default_provider_uses_static_recursive_profiles(
+    db_session, setting_value, expected_type, expected_nameservers, expected_doh
+):
+    db_session.add(Setting(key="dns.resolver", value=setting_value, category="dns"))
+    db_session.commit()
+
+    provider = get_default_provider(db_session)
+
+    assert isinstance(provider, expected_type)
+    assert provider.nameservers == expected_nameservers
+    assert provider.doh_hostname == expected_doh
+
+
+def test_get_default_provider_uses_akamai_etp_env_profile(db_session, monkeypatch):
+    monkeypatch.setenv("AKAMAI_ETP_DNS_SERVERS", "192.0.2.53, 2001:db8::53")
+    monkeypatch.setenv("AKAMAI_ETP_DOH_HOSTNAME", "resolver.example.test")
+    monkeypatch.setenv("AKAMAI_ETP_DOT_HOSTNAME", "dot-resolver.example.test")
+    monkeypatch.setenv("AKAMAI_ETP_PROXY_CHAINING_URL", "https://proxy.example.test:443")
+    get_settings.cache_clear()
+    db_session.add(Setting(key="dns.resolver", value="akamai_etp", category="dns"))
+    db_session.commit()
+
+    try:
+        provider = get_default_provider(db_session)
+    finally:
+        get_settings.cache_clear()
+
+    assert isinstance(provider, AkamaiETPDNSProvider)
+    assert provider.nameservers == ["192.0.2.53", "2001:db8::53"]
+    assert provider.doh_hostname == "resolver.example.test"
+    assert provider.dot_hostname == "dot-resolver.example.test"
+    assert provider.proxy_chaining_url == "https://proxy.example.test:443"
+
+
+def test_get_default_provider_uses_infoblox_env_profile(db_session, monkeypatch):
+    monkeypatch.setenv("INFOBLOX_DNS_SERVERS", "192.0.2.54,2001:db8::54")
+    monkeypatch.setenv("INFOBLOX_DOH_HOSTNAME", "https://infoblox.example.test/dns-query")
+    monkeypatch.setenv("INFOBLOX_DOT_HOSTNAME", "infoblox.example.test")
+    get_settings.cache_clear()
+    db_session.add(Setting(key="dns.resolver", value="infoblox", category="dns"))
+    db_session.commit()
+
+    try:
+        provider = get_default_provider(db_session)
+    finally:
+        get_settings.cache_clear()
+
+    assert isinstance(provider, InfobloxDNSProvider)
+    assert provider.nameservers == ["192.0.2.54", "2001:db8::54"]
+    assert provider.doh_hostname == "https://infoblox.example.test/dns-query"
+    assert provider.dot_hostname == "infoblox.example.test"
+
+
+def test_get_default_provider_uses_custom_env_profile(db_session, monkeypatch):
+    monkeypatch.setenv("DMARQ_DNS_CUSTOM_SERVERS", "192.0.2.55,2001:db8::55")
+    monkeypatch.setenv("DMARQ_DNS_CUSTOM_DOH_HOSTNAME", "https://resolver.example.test/dns-query")
+    monkeypatch.setenv("DMARQ_DNS_CUSTOM_DOT_HOSTNAME", "resolver.example.test")
+    get_settings.cache_clear()
+    db_session.add(Setting(key="dns.resolver", value="custom", category="dns"))
+    db_session.commit()
+
+    try:
+        provider = get_default_provider(db_session)
+    finally:
+        get_settings.cache_clear()
+
+    assert isinstance(provider, CustomDNSProvider)
+    assert provider.nameservers == ["192.0.2.55", "2001:db8::55"]
+    assert provider.doh_hostname == "https://resolver.example.test/dns-query"
+    assert provider.dot_hostname == "resolver.example.test"
+
+
+@pytest.mark.asyncio
+async def test_configured_provider_uses_doh_when_nameservers_are_not_configured():
+    import dns.rcode  # type: ignore[import]
+
+    class FakeTxt:
+        strings = [b"v=DMARC1; ", b"p=reject"]
+
+    class FakeResponse:
+        answer = [[FakeTxt()]]
+
+        def rcode(self):
+            return dns.rcode.NOERROR
+
+    provider = ConfiguredRecursiveDNSProvider(
+        doh_hostname="https://resolver.example.test/custom-dns"
+    )
+
+    with patch("dns.asyncquery.https", new=AsyncMock(return_value=FakeResponse())) as doh:
+        records = await provider.lookup_txt("_dmarc.example.com")
+
+    assert records == ["v=DMARC1; p=reject"]
+    doh.assert_awaited_once()
+    _, kwargs = doh.await_args
+    assert kwargs["where"] == "https://resolver.example.test/custom-dns"
+    assert kwargs["path"] == "/custom-dns"
+    assert kwargs["port"] == 443
+
+
+@pytest.mark.asyncio
+async def test_configured_provider_falls_back_to_doh_after_nameserver_failure():
+    import dns.exception  # type: ignore[import]
+    import dns.rcode  # type: ignore[import]
+
+    class FakeTxt:
+        strings = [b"v=spf1 ", b"include:example.net -all"]
+
+    class FakeResponse:
+        answer = [[FakeTxt()]]
+
+        def rcode(self):
+            return dns.rcode.NOERROR
+
+    provider = ConfiguredRecursiveDNSProvider(
+        nameservers=["192.0.2.53"],
+        doh_hostname="https://resolver.example.test:8443/custom-dns?profile=prod",
+    )
+
+    with patch(
+        "app.services.dns_resolver.PublicRecursiveDNSProvider._resolve",
+        new=AsyncMock(side_effect=dns.exception.DNSException("timeout")),
+    ) as recursive_lookup:
+        with patch("dns.asyncquery.https", new=AsyncMock(return_value=FakeResponse())) as doh:
+            records = await provider.lookup_txt("example.com")
+
+    assert records == ["v=spf1 include:example.net -all"]
+    recursive_lookup.assert_awaited_once_with("example.com", "TXT")
+    doh.assert_awaited_once()
+    _, kwargs = doh.await_args
+    assert kwargs["where"] == "https://resolver.example.test:8443/custom-dns?profile=prod"
+    assert kwargs["path"] == "/custom-dns?profile=prod"
+    assert kwargs["port"] == 8443
+
+
+@pytest.mark.asyncio
+async def test_configured_provider_raises_on_doh_error_response_code():
+    import dns.rcode  # type: ignore[import]
+
+    class FakeResponse:
+        answer = []
+
+        def rcode(self):
+            return dns.rcode.SERVFAIL
+
+    provider = ConfiguredRecursiveDNSProvider(
+        doh_hostname="https://resolver.example.test/dns-query"
+    )
+
+    with patch("dns.asyncquery.https", new=AsyncMock(return_value=FakeResponse())):
+        with pytest.raises(LookupError, match="SERVFAIL"):
+            await provider.lookup_txt("example.com")
 
 
 # ---------------------------------------------------------------------------

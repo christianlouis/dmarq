@@ -33,7 +33,11 @@ from app.services.bimi import BIMIResult
 from app.services.dane import DANEResult, TLSARecord, TLSASuggestion
 from app.services.dns_cache import _selectors_key, resolve_domain_dns_cached
 from app.services.dns_provider_detection import detect_dns_provider
-from app.services.dns_resolver import DomainDNSResult, PublicRecursiveDNSProvider
+from app.services.dns_resolver import (
+    DomainDNSResult,
+    PublicRecursiveDNSProvider,
+    SystemDNSProvider,
+)
 from app.services.mta_sts import MTAStsResult
 from app.services.remediation_dispatch import summarize_remediation_activity
 from app.services.report_persistence import save_parsed_report
@@ -1273,6 +1277,51 @@ async def test_dns_cache_uses_public_fallback_for_empty_primary_result(db_sessio
     assert "CloudflareDNSProvider" in (result.lookup_error or "")
     primary_check.assert_awaited_once()
     cloudflare_fallback.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_dns_cache_replaces_system_provider_with_public_resolver(db_session):
+    """Host/Kubernetes DNS must not be used for domain evidence lookups."""
+    system_provider = SystemDNSProvider()
+    system_check = AsyncMock(
+        return_value=DomainDNSResult(
+            dmarc=False,
+            spf=False,
+            dkim=False,
+            lookup_status="lookup_failed",
+            lookup_error="local resolver timeout",
+        )
+    )
+    public_result = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=reject",
+        spf=True,
+        spf_record="v=spf1 -all",
+        nameservers=["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"],
+        dns_provider=detect_dns_provider(["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"]),
+    )
+
+    with (
+        patch.object(system_provider, "check_domain", new=system_check),
+        patch(
+            "app.services.dns_cache.PublicRecursiveDNSProvider.check_domain",
+            new=AsyncMock(return_value=public_result),
+        ) as public_check,
+    ):
+        result, cached, _checked = await resolve_domain_dns_cached(
+            db_session,
+            system_provider,
+            DOMAIN,
+            selectors=[],
+        )
+
+    assert cached is False
+    assert result.dmarc is True
+    assert result.spf is True
+    cache_row = db_session.query(DNSCache).one()
+    assert cache_row.provider == "PublicRecursiveDNSProvider"
+    system_check.assert_not_awaited()
+    public_check.assert_awaited_once()
 
 
 @pytest.mark.asyncio

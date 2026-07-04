@@ -83,6 +83,16 @@ class Settings(BaseSettings):
     AKAMAI_ACCESS_TOKEN: Optional[str] = None
     AKAMAI_ACCOUNT_SWITCH_KEY: Optional[str] = None
     AKAMAI_ACCOUNT_KEY: Optional[str] = None
+    AKAMAI_ETP_DNS_SERVERS: Optional[str] = None
+    AKAMAI_ETP_DOH_HOSTNAME: Optional[str] = None
+    AKAMAI_ETP_DOT_HOSTNAME: Optional[str] = None
+    AKAMAI_ETP_PROXY_CHAINING_URL: Optional[str] = None
+    INFOBLOX_DNS_SERVERS: Optional[str] = None
+    INFOBLOX_DOH_HOSTNAME: Optional[str] = None
+    INFOBLOX_DOT_HOSTNAME: Optional[str] = None
+    DMARQ_DNS_CUSTOM_SERVERS: Optional[str] = None
+    DMARQ_DNS_CUSTOM_DOH_HOSTNAME: Optional[str] = None
+    DMARQ_DNS_CUSTOM_DOT_HOSTNAME: Optional[str] = None
     POSTMARK_ACCOUNT_TOKEN: Optional[str] = None
     WEBHOOK_SECRET: Optional[str] = None
     WEBHOOK_MAX_EMAIL_SIZE_MB: int = 25

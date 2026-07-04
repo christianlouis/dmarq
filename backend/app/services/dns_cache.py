@@ -258,6 +258,15 @@ def _fallback_candidates(provider: BaseDNSProvider) -> List[BaseDNSProvider]:
     ]
 
 
+def _normalize_dns_provider(provider: BaseDNSProvider) -> BaseDNSProvider:
+    if isinstance(provider, SystemDNSProvider) and not isinstance(
+        provider, PublicRecursiveDNSProvider
+    ):
+        logger.info("Replacing system DNS resolver with public recursive DNS provider.")
+        return PublicRecursiveDNSProvider()
+    return provider
+
+
 async def _run_dns_candidate(
     candidate: BaseDNSProvider,
     domain: str,
@@ -313,9 +322,10 @@ async def _resolve_with_fallback(  # noqa: C901
     selectors: List[str],
 ) -> DomainDNSResult:
     """Resolve DNS, checking independent resolvers before accepting an empty result."""
+    provider = _normalize_dns_provider(provider)
     if not isinstance(
         provider,
-        (SystemDNSProvider, PublicRecursiveDNSProvider, CloudflareDNSProvider),
+        (PublicRecursiveDNSProvider, CloudflareDNSProvider),
     ):
         return await provider.check_domain(domain, selectors=selectors)
 
@@ -380,6 +390,7 @@ async def resolve_domain_dns_cached(
 ) -> Tuple[DomainDNSResult, bool, datetime]:
     """Resolve DNS for a domain, reusing a fresh cached result when available."""
     now = _utcnow_naive()
+    provider = _normalize_dns_provider(provider)
     provider_name = provider.__class__.__name__
     selectors_key = _selectors_key(selectors)
     row = _cache_row(
@@ -461,6 +472,7 @@ def get_cached_domain_dns_result(
     selectors: List[str],
 ) -> Tuple[Optional[DomainDNSResult], bool, Optional[datetime]]:
     """Return the latest cached DNS result without performing network lookups."""
+    provider = _normalize_dns_provider(provider)
     row = _cache_row(
         db,
         domain=domain,
