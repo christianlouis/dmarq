@@ -760,6 +760,40 @@ function domainDetailsApp(domainId) {
             return (this.dnsGuidance.target_records || []).filter(record => codes.has(record.code));
         },
 
+        targetRecordByCode(code) {
+            return (this.dnsGuidance.target_records || []).find(record => record.code === code) || null;
+        },
+
+        get mailAuthWizardSteps() {
+            const stepDefinitions = [
+                {
+                    code: 'target_dmarc',
+                    label: 'DMARC reporting',
+                    action: 'Publish or verify the DMARC policy and aggregate-report mailbox.',
+                    reason: 'This tells receivers where to send DMARC aggregate reports and defines the current enforcement mode.',
+                },
+                {
+                    code: 'target_spf',
+                    label: 'SPF sender authorization',
+                    action: 'Publish exactly one SPF record that matches the legitimate sending services.',
+                    reason: 'This lets receivers verify whether the connecting sender is allowed to send for this domain.',
+                },
+                {
+                    code: 'target_dkim',
+                    label: 'DKIM signing',
+                    action: 'Publish each provider selector and confirm active senders sign with aligned DKIM.',
+                    reason: 'This keeps DMARC passing even when SPF alignment changes or mail is forwarded.',
+                },
+            ];
+            return stepDefinitions
+                .map((definition, index) => ({
+                    ...definition,
+                    index: index + 1,
+                    record: this.targetRecordByCode(definition.code),
+                }))
+                .filter(step => step.record);
+        },
+
         get optionalTransportTargetRecords() {
             const codes = new Set(['target_dmarc', 'target_spf', 'target_dkim']);
             return (this.dnsGuidance.target_records || []).filter(record => !codes.has(record.code));

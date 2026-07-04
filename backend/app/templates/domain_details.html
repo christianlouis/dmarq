@@ -1271,31 +1271,37 @@
                                 </div>
                             </template>
                         </div>
-                        <div class="mt-4">
+                        <div id="mail-auth-wizard" class="mt-4">
                             <div class="rounded-lg border border-[#d8ebe8] bg-[#f2fbf9] p-4">
                                 <div class="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
                                     <div>
-                                        <h4 class="text-sm font-semibold text-[#07071f]">Mail authentication setup</h4>
-                                        <p class="text-xs text-[#45505f]">Publish or verify these core DMARC, SPF, and DKIM records first.</p>
+                                        <h4 class="text-sm font-semibold text-[#07071f]">Mail authentication wizard</h4>
+                                        <p class="text-xs text-[#45505f]">Work through DMARC, SPF, and DKIM in this order before tightening enforcement.</p>
                                     </div>
                                     <a href="/settings#dmarc-defaults" class="btn btn-xs btn-outline">Edit defaults</a>
                                 </div>
-                                <div class="mt-3 grid gap-2">
-                                    <template x-for="record in mailAuthTargetRecords" :key="record.code">
+                                <div class="mt-3 grid gap-3">
+                                    <template x-for="step in mailAuthWizardSteps" :key="step.code">
                                         <div class="rounded border border-[#c7e3df] bg-white p-3">
-                                            <div class="flex flex-col gap-2 lg:flex-row lg:items-center">
+                                            <div class="flex flex-col gap-3 lg:flex-row lg:items-start">
+                                                <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#0f766e] text-sm font-semibold text-white"
+                                                     x-text="step.index"></div>
                                                 <div class="min-w-0 flex-1">
                                                     <div class="flex flex-wrap items-center gap-2">
-                                                        <code class="text-xs font-semibold" x-text="record.name"></code>
-                                                        <span class="badge badge-outline" x-text="record.record_type"></span>
-                                                        <span class="badge badge-ghost" x-text="record.priority"></span>
+                                                        <span class="text-sm font-semibold text-[#07071f]" x-text="step.label"></span>
+                                                        <span class="badge badge-outline" x-text="step.record.record_type"></span>
+                                                        <span class="badge badge-ghost" x-text="step.record.priority"></span>
                                                     </div>
-                                                    <code class="mt-2 block break-all rounded bg-base-200 p-2 text-xs" x-text="record.value"></code>
-                                                    <p class="mt-1 text-xs text-base-content/60" x-text="record.purpose"></p>
+                                                    <p class="mt-1 text-xs text-[#45505f]" x-text="step.action"></p>
+                                                    <p class="mt-1 text-xs text-base-content/60" x-text="step.reason"></p>
+                                                    <div class="mt-2 rounded bg-base-200 p-2">
+                                                        <code class="block break-all text-xs font-semibold" x-text="step.record.name"></code>
+                                                        <code class="mt-1 block break-all text-xs" x-text="step.record.value"></code>
+                                                    </div>
                                                 </div>
                                                 <button
-                                                    :data-domain-detail-copy-value="record.value"
-                                                    class="btn btn-xs btn-ghost"
+                                                    :data-domain-detail-copy-value="step.record.value"
+                                                    class="btn btn-xs btn-ghost lg:mt-1"
                                                     title="Copy DNS value"
                                                 >
                                                     Copy

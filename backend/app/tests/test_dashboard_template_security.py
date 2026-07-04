@@ -936,6 +936,13 @@ def test_domain_details_exposes_dns_provider_repair_context_without_html_injecti
     template = _domain_details_template()
     script = _domain_details_script()
 
+    assert 'id="mail-auth-wizard"' in template
+    assert "Mail authentication wizard" in template
+    assert "mailAuthWizardSteps" in template
+    assert "targetRecordByCode" in script
+    assert "target_dmarc" in script
+    assert "target_spf" in script
+    assert "target_dkim" in script
     assert "Provider repair readiness" in template
     assert "providerContextStatusLabel" in script
     assert "providerContextSummary" in script
