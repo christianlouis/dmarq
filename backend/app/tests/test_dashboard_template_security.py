@@ -623,11 +623,24 @@ def test_forensic_report_detail_uses_external_page_script_for_csp_migration():
     script = _forensic_report_detail_script()
 
     assert 'src="/static/js/forensic-report-detail-page.js"' in template
-    assert "forensicReportDetailApp" in template
+    assert 'x-data="forensicReportDetailApp"' in template
+    assert "forensicReportDetailApp(" not in template
+    assert "Alpine.data('forensicReportDetailApp', forensicReportDetailApp)" in script
     assert "/api/v1/forensics/${this.reportId}" in script
     assert "Forensic report not found" in script
     assert "feedbackHeaderEntries" in script
+    assert "showReport" in template
+    assert "showError" in template
+    assert "domainUrl" in template
+    assert "priorityBadgeClass" in template
+    assert "authenticationResultsLabel" in template
+    assert "hasNoFeedbackHeaderEntries" in template
+    assert "report.domain || report.reported_domain" not in template
+    assert "report.analysis?." not in template
+    assert "encodeURIComponent" not in template
+    assert "feedbackHeaderEntries.length === 0" not in template
     assert "data-forensic-report-detail-page" in template
+    assert "data-report-id" in template
     assert 'x-init="init()"' not in template
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
