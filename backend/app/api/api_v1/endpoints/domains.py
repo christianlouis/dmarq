@@ -196,7 +196,7 @@ def _setting_value(db: Session, key: str) -> Optional[str]:
 def _int_setting_value(db: Session, key: str, default: int) -> int:
     value = _setting_value(db, key)
     try:
-        return int(value or default)
+        return default if value in {None, ""} else int(value)
     except (TypeError, ValueError):
         return default
 

@@ -577,6 +577,44 @@ def test_dns_lint_endpoint_uses_configured_mail_auth_defaults(
     assert targets["target_tls_rpt"]["value"] == "v=TLSRPTv1; rua=mailto:tls-reports@cklnet.com"
 
 
+def test_int_setting_value_preserves_zero_and_falls_back(db_session):
+    db_session.add_all(
+        [
+            Setting(
+                key="dmarc.default_percentage_zero",
+                value="0",
+                description="Zero percentage",
+                value_type="integer",
+                category="dmarc",
+            ),
+            Setting(
+                key="dmarc.default_percentage_invalid",
+                value="not-an-int",
+                description="Invalid percentage",
+                value_type="integer",
+                category="dmarc",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    assert domains_endpoint._int_setting_value(
+        db_session,
+        "dmarc.default_percentage_zero",
+        100,
+    ) == 0
+    assert domains_endpoint._int_setting_value(
+        db_session,
+        "dmarc.default_percentage_invalid",
+        100,
+    ) == 100
+    assert domains_endpoint._int_setting_value(
+        db_session,
+        "dmarc.default_percentage_missing",
+        100,
+    ) == 100
+
+
 def test_dns_lint_endpoint_accepts_locale_for_operator_guidance(authed_client: TestClient):
     result = DomainDNSResult(
         dmarc=False,

@@ -112,7 +112,7 @@ def _dmarc_record_value(domain: str, defaults: MailAuthSetupDefaults) -> str:
     policy = defaults.policy if defaults.policy in {"none", "quarantine", "reject"} else "none"
     adkim = defaults.adkim if defaults.adkim in {"r", "s"} else "r"
     aspf = defaults.aspf if defaults.aspf in {"r", "s"} else "r"
-    percentage = max(0, min(100, int(defaults.percentage or 100)))
+    percentage = max(0, min(100, int(defaults.percentage)))
     report_mailbox = _mailbox(defaults.report_mailbox, "dmarc", domain)
     return (
         f"v=DMARC1; p={policy}; rua=mailto:{report_mailbox}; "

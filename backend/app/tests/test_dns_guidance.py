@@ -100,6 +100,30 @@ async def test_build_dns_guidance_uses_configured_mail_auth_defaults():
 
 
 @pytest.mark.asyncio
+async def test_build_dns_guidance_preserves_zero_dmarc_percentage():
+    provider = FakeDNSProvider({})
+    dns = DomainDNSResult(
+        dmarc=False,
+        spf=True,
+        spf_record="v=spf1 -all",
+        dkim=True,
+        dkim_selectors=["selector1"],
+    )
+
+    guidance = await build_dns_guidance(
+        "example.com",
+        provider,
+        dns,
+        MTAStsResult(status="pass"),
+        BIMIResult(status="pass"),
+        setup_defaults=MailAuthSetupDefaults(percentage=0),
+    )
+
+    targets = {record.code: record for record in guidance.target_records}
+    assert "pct=0" in targets["target_dmarc"].value
+
+
+@pytest.mark.asyncio
 async def test_build_dns_guidance_localizes_high_value_remediation_steps_to_german():
     provider = FakeDNSProvider({})
     dns = DomainDNSResult(
