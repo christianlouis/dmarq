@@ -949,7 +949,7 @@ function domainDetailsApp(domainId) {
             if (!verification) return '';
             const detail = verification.detail || '';
             if (!verification.recorded_at) return detail;
-            return `${detail} Last marker: ${this.formatDate(verification.recorded_at)}.`;
+            return `${detail} Last marker: ${this.formatIsoDate(verification.recorded_at)}.`;
         },
 
         remediationActionBusy(item, action = '') {
