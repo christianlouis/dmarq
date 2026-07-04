@@ -2784,7 +2784,7 @@ def test_source_recommendations_do_not_suggest_raw_spf_ip_for_unknown_forwarder(
 
 
 @pytest.mark.asyncio
-async def test_safe_ptr_lookup_skips_invalid_ips():
+async def test_safe_ptr_lookup_skips_invalid_ips(monkeypatch: pytest.MonkeyPatch):
     """PTR lookup refuses invalid source addresses before querying DNS."""
 
     class InvalidProvider:
@@ -2794,6 +2794,21 @@ async def test_safe_ptr_lookup_skips_invalid_ips():
     class FailingProvider:
         async def lookup_ptr(self, _ip):
             raise LookupError("no PTR")
+
+    class EmptyFallbackProvider:
+        async def lookup_ptr(self, _ip):
+            return None
+
+    monkeypatch.setattr(
+        domains_endpoint,
+        "PublicRecursiveDNSProvider",
+        lambda: EmptyFallbackProvider(),
+    )
+    monkeypatch.setattr(
+        domains_endpoint,
+        "CloudflareDNSProvider",
+        lambda: EmptyFallbackProvider(),
+    )
 
     assert (
         await domains_endpoint._safe_ptr_lookup(  # pylint: disable=protected-access
@@ -2807,6 +2822,32 @@ async def test_safe_ptr_lookup_skips_invalid_ips():
         )
         is None
     )
+
+
+@pytest.mark.asyncio
+async def test_safe_ptr_lookup_uses_public_fallback(monkeypatch: pytest.MonkeyPatch):
+    """PTR lookup falls back when the selected deployment resolver has no answer."""
+
+    class EmptyPrimaryProvider:
+        async def lookup_ptr(self, _ip):
+            return None
+
+    class WorkingFallbackProvider:
+        async def lookup_ptr(self, ip):
+            assert ip == "104.245.209.200"
+            return "mta200a-ord.mtasv.net."
+
+    monkeypatch.setattr(
+        domains_endpoint,
+        "PublicRecursiveDNSProvider",
+        lambda: WorkingFallbackProvider(),
+    )
+
+    hostname = await domains_endpoint._safe_ptr_lookup(  # pylint: disable=protected-access
+        EmptyPrimaryProvider(), "104.245.209.200"
+    )
+
+    assert hostname == "mta200a-ord.mtasv.net"
 
 
 @pytest.mark.asyncio

@@ -69,6 +69,25 @@ def test_identify_sender_does_not_treat_auth_domain_only_as_postmark():
     assert sender["status"] == "unknown"
 
 
+def test_identify_sender_does_not_treat_missing_ptr_auth_domain_as_postmark():
+    sender = identify_sender(
+        "104.245.209.200",
+        {
+            "spf_domains": ["pm.mtasv.net"],
+            "dkim_domains": ["pm.mtasv.net"],
+            "dkim_selectors": ["pm20250324"],
+            "dmarc_result": "pass",
+            "dmarc_fail_count": 0,
+        },
+        hostname=None,
+        domain="cklnet.com",
+    )
+
+    assert sender["id"] == "unknown-sender"
+    assert sender["name"] == "Unknown sender"
+    assert sender["status"] == "unknown"
+
+
 def test_identify_sender_keeps_owned_infrastructure_ahead_of_auth_domain_hint():
     sender = identify_sender(
         "2a01:4f8:c17:311b::1",
@@ -138,11 +157,16 @@ def test_identify_sender_flags_ambiguous_provider_evidence():
         "dmarc_result": "pass",
     }
 
-    sender = identify_sender("203.0.113.7", source, hostname=None, domain="example.com")
+    sender = identify_sender(
+        "203.0.113.7",
+        source,
+        hostname="relay.google.com.stripe.com",
+        domain="example.com",
+    )
 
     assert sender["id"] == "ambiguous-sender"
     assert sender["status"] == "ambiguous"
-    assert sender["confidence"] == 40
+    assert sender["confidence"] == 60
     assert "Confirm the service owner" in sender["remediation_hint"]
 
 
@@ -298,6 +322,39 @@ def test_build_source_intelligence_handles_no_data():
         "critical": 0,
         "warnings": 0,
     }
+
+
+def test_build_source_intelligence_uses_network_geo_overrides():
+    sources = [{"source_ip": "104.245.209.200", "count": 42, "dmarc_fail_count": 0}]
+
+    intelligence = build_source_intelligence(
+        "example.com",
+        [],
+        sources,
+        period_days=30,
+        geo_by_ip={
+            "104.245.209.200": {
+                "country": "United States",
+                "country_code": "US",
+                "region": "North America",
+                "asn": "AS23352",
+                "network": "SERVERCENTRAL - DEFT.COM, US",
+                "source": "team-cymru",
+            }
+        },
+    )
+
+    assert intelligence["regions"] == [
+        {
+            "region": "North America",
+            "country_codes": ["US"],
+            "message_count": 42,
+            "source_count": 1,
+            "failed_count": 0,
+            "failure_rate": 0.0,
+            "networks": ["SERVERCENTRAL - DEFT.COM, US"],
+        }
+    ]
 
 
 def test_build_source_intelligence_accepts_iso_report_dates():

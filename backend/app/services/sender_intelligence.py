@@ -434,11 +434,24 @@ def _add_rollup(target: Dict[str, Dict[str, Any]], record: Dict[str, Any]) -> No
     item["regions"].add(item["geo"]["region"])
 
 
-def _summarize_regions(sources: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _geo_for_source(
+    ip: str,
+    source: Dict[str, Any],
+    geo_by_ip: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    if geo_by_ip and ip in geo_by_ip:
+        return geo_by_ip[ip]
+    return source_geo_for(ip, source)
+
+
+def _summarize_regions(
+    sources: Iterable[Dict[str, Any]],
+    geo_by_ip: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
     regions: Dict[str, Dict[str, Any]] = {}
     for source in sources:
         ip = str(source.get("source_ip") or source.get("ip") or "unknown")
-        geo = source_geo_for(ip, source)
+        geo = _geo_for_source(ip, source, geo_by_ip)
         key = geo["region"]
         item = regions.setdefault(
             key,
@@ -595,6 +608,7 @@ def build_source_intelligence(
     sources: Iterable[Dict[str, Any]],
     *,
     period_days: int = 30,
+    geo_by_ip: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Build region summaries and anomaly hints for one domain."""
     source_rows = list(sources)
@@ -632,7 +646,7 @@ def build_source_intelligence(
         else:
             _add_rollup(baseline, row)
 
-    regions = _summarize_regions(source_rows)
+    regions = _summarize_regions(source_rows, geo_by_ip)
     baseline_regions = {
         region
         for item in baseline.values()
@@ -705,10 +719,10 @@ def _profile_score(
     # Authentication domains and DKIM selectors describe how the message passed
     # authentication, not necessarily which infrastructure originated it. A
     # forwarder can preserve a provider DKIM signature while sending from Yahoo,
-    # Microsoft, or self-hosted infrastructure. When PTR exists and does not
-    # match the provider, keep auth-domain/selector matches as weak context only
-    # so they cannot rename the sending host by themselves.
-    allow_auth_evidence = not host_values or bool(host_matches) or bool(extension_matches)
+    # Microsoft, or self-hosted infrastructure. Keep auth-domain/selector
+    # matches as context unless PTR or explicit report metadata already ties the
+    # source to the provider.
+    allow_auth_evidence = bool(host_matches) or bool(extension_matches)
 
     domain_matches = _contains_any(domain_values, profile.domain_tokens)
     if domain_matches and allow_auth_evidence:
