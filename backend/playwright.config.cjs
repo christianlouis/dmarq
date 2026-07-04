@@ -31,6 +31,7 @@ if (!useExternalServer) {
     env: {
       ...process.env,
       DMARQ_BROWSER_SMOKE_PORT: port,
+      CSP_REPORT_ONLY: process.env.CSP_REPORT_ONLY || 'true',
     },
   };
 }

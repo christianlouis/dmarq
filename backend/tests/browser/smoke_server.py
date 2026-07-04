@@ -13,7 +13,7 @@ os.environ.setdefault("ALLOW_AUTH_DISABLED_IN_PRODUCTION", "true")
 os.environ.setdefault("SECRET_KEY", "browser-smoke-secret-key-change-me")
 os.environ.setdefault(
     "DATABASE_URL",
-    f"sqlite:///{Path('/tmp/dmarq-browser-smoke.sqlite').as_posix()}",
+    f"sqlite:///{Path(f'/tmp/dmarq-browser-smoke-{os.getpid()}.sqlite').as_posix()}",
 )
 os.environ.setdefault("SOURCE_NETWORK_ENRICHMENT_ENABLED", "false")
 os.environ.setdefault("SOURCE_REPUTATION_FEEDS_ENABLED", "false")

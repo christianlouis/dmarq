@@ -521,13 +521,61 @@ async function installApiMocks(page) {
   });
 }
 
+async function installCspViolationRecorder(page) {
+  await page.addInitScript(() => {
+    window.__dmarqCspViolations = [];
+    document.addEventListener('securitypolicyviolation', (event) => {
+      window.__dmarqCspViolations.push({
+        blockedURI: event.blockedURI,
+        disposition: event.disposition,
+        effectiveDirective: event.effectiveDirective,
+        lineNumber: event.lineNumber,
+        originalPolicy: event.originalPolicy,
+        sample: event.sample,
+        sourceFile: event.sourceFile,
+        violatedDirective: event.violatedDirective,
+      });
+    });
+  });
+}
+
+function isKnownStrictCspMigrationBlocker(violation) {
+  const sourceFile = violation.sourceFile || '';
+  const blockedURI = violation.blockedURI || '';
+  const effectiveDirective = violation.effectiveDirective || violation.violatedDirective || '';
+
+  if (violation.disposition !== 'report') {
+    return false;
+  }
+
+  if (sourceFile.endsWith('/static/js/vendor/alpine.min.js')) {
+    return (
+      (effectiveDirective === 'script-src' && blockedURI === 'eval') ||
+      (effectiveDirective === 'style-src' && blockedURI === 'inline')
+    );
+  }
+
+  return false;
+}
+
 test.beforeEach(async ({ page }) => {
+  await installCspViolationRecorder(page);
   await installApiMocks(page);
+});
+
+test.afterEach(async ({ page }) => {
+  const violations = await page.evaluate(() => window.__dmarqCspViolations || []);
+  const unexpectedViolations = violations.filter(
+    (violation) => !isKnownStrictCspMigrationBlocker(violation)
+  );
+
+  expect(unexpectedViolations).toEqual([]);
 });
 
 test('dashboard becomes useful before false empty states appear', async ({ page }) => {
   const started = Date.now();
-  await page.goto('/dashboard');
+  const response = await page.goto('/dashboard');
+  expect(response.headers()['content-security-policy-report-only']).toContain("script-src 'self'");
 
   await expect(page.getByText('Fix DKIM alignment for owned infrastructure')).toBeVisible();
   await expect(page.getByText('cklnet.com').first()).toBeVisible();
