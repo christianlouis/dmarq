@@ -5,6 +5,33 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
+@pytest.mark.asyncio
+async def test_cancel_background_task_cancels_pending_task():
+    from app.main import _cancel_background_task
+
+    task = asyncio.create_task(asyncio.Event().wait())
+
+    await _cancel_background_task(task, "test")
+
+    assert task.cancelled()
+
+
+@pytest.mark.asyncio
+async def test_cancel_background_task_ignores_completed_task():
+    from app.main import _cancel_background_task
+
+    async def done():
+        return "finished"
+
+    task = asyncio.create_task(done())
+    await task
+
+    await _cancel_background_task(task, "test")
+
+    assert task.done()
+    assert task.result() == "finished"
+
+
 class TestNextSleepSeconds:
     def test_uses_shortest_enabled_source_interval_without_db_query(self):
         from app.main import _next_sleep_seconds

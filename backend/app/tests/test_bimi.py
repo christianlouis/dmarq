@@ -5,7 +5,12 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 
 from app.models.dns_cache import DNSCache
-from app.services.bimi import check_bimi, check_bimi_cached, parse_bimi_record
+from app.services.bimi import (
+    check_bimi,
+    check_bimi_cached,
+    check_bimi_with_fallback,
+    parse_bimi_record,
+)
 
 
 def test_parse_bimi_record_requires_single_bimi_record():
@@ -54,6 +59,61 @@ async def test_check_bimi_looks_up_default_selector():
     assert result.status == "pass"
     assert result.query_name == "default._bimi.example.com"
     provider.lookup_txt.assert_awaited_once_with("default._bimi.example.com")
+
+
+@pytest.mark.asyncio
+async def test_check_bimi_falls_back_after_dns_lookup_failure(monkeypatch):
+    primary = AsyncMock()
+    primary.lookup_txt = AsyncMock(side_effect=LookupError("local resolver timed out"))
+    fallback = AsyncMock()
+    fallback.lookup_txt = AsyncMock(return_value=["v=BIMI1; l=https://example.com/logo.svg"])
+
+    monkeypatch.setattr(
+        "app.services.bimi.dns_fallback_candidates",
+        lambda _provider: [primary, fallback],
+    )
+
+    result = await check_bimi_with_fallback("example.com", primary)
+
+    assert result.status == "pass"
+    assert result.logo_url == "https://example.com/logo.svg"
+    primary.lookup_txt.assert_awaited_once()
+    fallback.lookup_txt.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_check_bimi_returns_primary_dns_failure_when_all_resolvers_fail(monkeypatch):
+    primary = AsyncMock()
+    primary.lookup_txt = AsyncMock(side_effect=LookupError("primary timed out"))
+    fallback = AsyncMock()
+    fallback.lookup_txt = AsyncMock(side_effect=LookupError("fallback timed out"))
+
+    monkeypatch.setattr(
+        "app.services.bimi.dns_fallback_candidates",
+        lambda _provider: [primary, fallback],
+    )
+
+    result = await check_bimi_with_fallback("example.com", primary)
+
+    assert result.errors == ["BIMI DNS lookup failed: primary timed out"]
+    primary.lookup_txt.assert_awaited_once()
+    fallback.lookup_txt.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_check_bimi_reports_empty_fallback_candidates(monkeypatch):
+    provider = AsyncMock()
+    monkeypatch.setattr(
+        "app.services.bimi.dns_fallback_candidates",
+        lambda _provider: [],
+    )
+
+    result = await check_bimi_with_fallback("example.com", provider, selector="News")
+
+    assert result.selector == "news"
+    assert result.query_name == "news._bimi.example.com"
+    assert result.errors == ["BIMI DNS lookup failed for all configured resolvers."]
+    provider.lookup_txt.assert_not_awaited()
 
 
 @pytest.mark.asyncio

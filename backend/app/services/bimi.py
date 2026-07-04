@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.models.dns_cache import DNSCache
 from app.services.dns_cache import DEFAULT_DNS_CACHE_TTL_SECONDS
+from app.services.dns_fallbacks import dns_fallback_candidates
 from app.services.dns_resolver import BaseDNSProvider
 
 _CACHE_KEY_PREFIX = "bimi-v1"
@@ -139,6 +140,37 @@ async def check_bimi(
     return parsed
 
 
+def _dns_lookup_failed(result: BIMIResult) -> bool:
+    return any("DNS lookup failed" in error for error in result.errors)
+
+
+async def check_bimi_with_fallback(
+    domain: str,
+    provider: BaseDNSProvider,
+    *,
+    selector: str = "default",
+) -> BIMIResult:
+    """Resolve BIMI with public fallback if the primary resolver fails."""
+    normalized_selector = (selector or "default").strip().lower()
+    candidates = dns_fallback_candidates(provider)
+    if not candidates:
+        return BIMIResult(
+            selector=normalized_selector,
+            query_name=f"{normalized_selector}._bimi.{domain}",
+            errors=["BIMI DNS lookup failed for all configured resolvers."],
+        )
+
+    first_result = await check_bimi(domain, candidates[0], selector=selector)
+    if not _dns_lookup_failed(first_result):
+        return first_result
+
+    for candidate in candidates[1:]:
+        result = await check_bimi(domain, candidate, selector=selector)
+        if not _dns_lookup_failed(result):
+            return result
+    return first_result
+
+
 async def check_bimi_cached(
     db: Session,
     provider: BaseDNSProvider,
@@ -165,7 +197,7 @@ async def check_bimi_cached(
     if row and not refresh and _is_fresh(row, ttl_seconds, now):
         return _result_from_json(row.result_json), True, row.checked_at
 
-    result = await check_bimi(domain, provider, selector=normalized_selector)
+    result = await check_bimi_with_fallback(domain, provider, selector=normalized_selector)
     payload = json.dumps(asdict(result), sort_keys=True, separators=(",", ":"))
     if row is None:
         row = DNSCache(

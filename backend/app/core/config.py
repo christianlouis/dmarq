@@ -120,6 +120,9 @@ class Settings(BaseSettings):
     IPGEOLOCATION_TIMEOUT_SECONDS: float = 2.0
     CLOUDFLARE_RADAR_API_TOKEN: Optional[str] = None
     CLOUDFLARE_RADAR_TIMEOUT_SECONDS: float = 2.0
+    DNS_STARTUP_PREWARM_ENABLED: bool = True
+    DNS_STARTUP_PREWARM_LIMIT: int = 50
+    DNS_STARTUP_PREWARM_CONCURRENCY: int = 4
 
     # Optional Stripe Billing integration. Self-hosted and provider-billed
     # deployments work without these values.
