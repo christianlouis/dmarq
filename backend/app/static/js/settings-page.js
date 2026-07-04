@@ -647,6 +647,35 @@ function settingsApp() {
             return this.cfZones.filter(zone => !zone.imported).length;
         },
 
+        dnsProviderImportErrorTitle() {
+            return `${this.selectedDnsProviderName()} discovery needs attention`;
+        },
+
+        dnsProviderNoImportableZonesTitle() {
+            return `${this.selectedDnsProviderName()} returned no importable zones`;
+        },
+
+        alertPreviewLabel() {
+            if (!this.alertPreview) return 'No active alerts found.';
+            return `${this.alertPreview} active alert${this.alertPreview === 1 ? '' : 's'} found.`;
+        },
+
+        summaryPreviewLabel() {
+            const summary = this.summaryPreview || {};
+            const alerts = Array.isArray(summary.alerts) ? summary.alerts : [];
+            return [
+                `${summary.total_messages || 0} messages`,
+                `${summary.reports_processed || 0} reports`,
+                `${alerts.length} active alerts.`,
+            ].join(', ');
+        },
+
+        configAuditValueLabel(item) {
+            const oldValue = item && item.old_value ? item.old_value : '(empty)';
+            const newValue = item && item.new_value ? item.new_value : '(empty)';
+            return `${oldValue} -> ${newValue}`;
+        },
+
         providerErrorDetail(data, fallback) {
             const detail = data?.detail;
             if (typeof detail === 'string') return detail;
@@ -767,6 +796,60 @@ function settingsApp() {
 
         selectedCloudflareOAuthRequiresAllowlisting() {
             return Boolean(this.selectedCloudflareOAuthProfile()?.requires_client_allowlisting);
+        },
+
+        selectedCloudflareOAuthDescription() {
+            const profile = this.selectedCloudflareOAuthProfile();
+            return profile && profile.description
+                ? profile.description
+                : 'Choose how much Cloudflare access DMARQ should request.';
+        },
+
+        selectedCloudflareOAuthScopes() {
+            const profile = this.selectedCloudflareOAuthProfile();
+            return profile && profile.scopes ? profile.scopes : 'zone.read dns.read';
+        },
+
+        selectedCloudflareOAuthWarning() {
+            const profile = this.selectedCloudflareOAuthProfile();
+            return profile && profile.warning ? profile.warning : '';
+        },
+
+        selectedCloudflareOAuthHasWarning() {
+            return Boolean(this.selectedCloudflareOAuthWarning());
+        },
+
+        hasAIModels() {
+            return Array.isArray(this.aiModels) && this.aiModels.length > 0;
+        },
+
+        aiConnectionStatusLabel() {
+            return this.aiConnectionResult && this.aiConnectionResult.success
+                ? 'Connection OK'
+                : 'Connection failed';
+        },
+
+        aiConnectionMessage() {
+            return this.aiConnectionResult && this.aiConnectionResult.message
+                ? this.aiConnectionResult.message
+                : '';
+        },
+
+        aiConnectionBadgeClass() {
+            return this.aiConnectionResult && this.aiConnectionResult.success
+                ? 'badge-success'
+                : 'badge-error';
+        },
+
+        aiConnectionProviderLabel() {
+            return this.aiConnectionResult && this.aiConnectionResult.provider
+                ? this.aiConnectionResult.provider
+                : 'AI';
+        },
+
+        aiModelsDiscoveredLabel() {
+            const count = Array.isArray(this.aiModels) ? this.aiModels.length : 0;
+            return `${count} model${count === 1 ? '' : 's'} discovered.`;
         },
 
         async connectCloudflare() {
@@ -1035,4 +1118,10 @@ function settingsApp() {
             }, 4000);
         },
     };
+}
+
+if (typeof document !== 'undefined') {
+    document.addEventListener('alpine:init', () => {
+        Alpine.data('settingsApp', settingsApp);
+    });
 }

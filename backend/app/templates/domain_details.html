@@ -6,7 +6,7 @@
 {% block title %}DMARQ - {{ domain.name }} Details{% endblock %}
 
 {% block content %}
-<div class="space-y-6" x-data="domainDetailsApp('{{ domain_id }}')" data-domain-detail-page>
+<div class="space-y-6" x-data="domainDetailsApp" data-domain-detail-page data-domain-id="{{ domain_id }}">
     <nav class="text-sm text-[#5f5c78]">
         <ol class="flex items-center space-x-2">
             <li><a href="/" class="font-semibold hover:text-[#2f9da5]">Dashboard</a></li>

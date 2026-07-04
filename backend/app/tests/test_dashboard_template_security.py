@@ -230,10 +230,15 @@ def test_settings_cloudflare_oauth_uses_popup_with_full_window_fallback():
 
     assert "Request scopes:" in template
     assert "Cloudflare client permissions:" in template
-    assert "selectedCloudflareOAuthProfile()" in template
+    assert "selectedCloudflareOAuthDescription()" in template
+    assert "selectedCloudflareOAuthScopes()" in template
+    assert "selectedCloudflareOAuthHasWarning()" in template
     assert "selectedCloudflareOAuthPermissions()" in template
     assert "selectedCloudflareOAuthProfile()" in script
     assert "selectedCloudflareOAuthPermissions()" in script
+    assert "selectedCloudflareOAuthDescription()" in script
+    assert "selectedCloudflareOAuthScopes()" in script
+    assert "selectedCloudflareOAuthHasWarning()" in script
     assert "Requesting Cloudflare OAuth scopes:" in script
     assert "window.open(" in script
     assert "'dmarq-cloudflare-oauth'" in script
@@ -303,6 +308,9 @@ def test_dashboard_uses_external_page_script_for_csp_migration():
 
     assert 'src="/static/js/chart.umd.min.js"' in template
     assert 'src="/static/js/dashboard-page.js"' in template
+    assert 'x-data="dashboardApp"' in template
+    assert "dashboardApp()" not in template
+    assert "Alpine.data('dashboardApp', dashboardApp)" in script
     assert "cdn.tailwindcss.com" not in template
     assert "enforcement-gauge-bg" in template
     assert ".enforcement-gauge-bg" in styles
@@ -359,6 +367,9 @@ def test_alert_component_uses_external_close_control_for_csp_migration():
     script = _read_project_file("static", "js", "pages.js")
 
     assert 'x-on:click="close()"' not in template
+    assert 'x-data="alertComponent"' in template
+    assert "alertComponent()" not in template
+    assert "Alpine.data('alertComponent'" in script
     assert "data-alert-close" in template
     assert "data-alert-close" in script
     assert "bindControls()" in script
@@ -623,11 +634,24 @@ def test_forensic_report_detail_uses_external_page_script_for_csp_migration():
     script = _forensic_report_detail_script()
 
     assert 'src="/static/js/forensic-report-detail-page.js"' in template
-    assert "forensicReportDetailApp" in template
+    assert 'x-data="forensicReportDetailApp"' in template
+    assert "forensicReportDetailApp(" not in template
+    assert "Alpine.data('forensicReportDetailApp', forensicReportDetailApp)" in script
     assert "/api/v1/forensics/${this.reportId}" in script
     assert "Forensic report not found" in script
     assert "feedbackHeaderEntries" in script
+    assert "showReport" in template
+    assert "showError" in template
+    assert "domainUrl" in template
+    assert "priorityBadgeClass" in template
+    assert "authenticationResultsLabel" in template
+    assert "hasNoFeedbackHeaderEntries" in template
+    assert "report.domain || report.reported_domain" not in template
+    assert "report.analysis?." not in template
+    assert "encodeURIComponent" not in template
+    assert "feedbackHeaderEntries.length === 0" not in template
     assert "data-forensic-report-detail-page" in template
+    assert "data-report-id" in template
     assert 'x-init="init()"' not in template
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
@@ -664,7 +688,7 @@ def test_tls_reports_uses_external_page_script_for_csp_migration():
     assert 'x-text="failure.affected_domains_label"' in template
     assert 'x-text="failure.receiving_mx_hostnames_label"' in template
     assert ':href="item.domain_url"' in template
-    assert "viewBox=\"0 0 100 6\"" in template
+    assert 'viewBox="0 0 100 6"' in template
     assert not _has_inline_style(template)
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
@@ -685,15 +709,25 @@ def test_report_detail_uses_external_page_script_for_csp_migration():
     assert "refresh_reputation=true" in script
     assert "reputationRefreshing" in template
     assert "reputationRefreshError" in template
-    assert "if (!refreshReputation) {\n                        this.reputationRefreshError = '';" in script
+    assert (
+        "if (!refreshReputation) {\n                        this.reputationRefreshError = '';"
+        in script
+    )
     assert "Reputation refresh timed out. Please try again in a moment." in script
-    assert "const detail = typeof data.detail === 'string' ? data.detail : data.detail?.message;" in script
+    assert (
+        "const detail = typeof data.detail === 'string' ? data.detail : data.detail?.message;"
+        in script
+    )
     assert "bindPageControls()" in script
     assert "event.target instanceof Element" in script
     assert "/api/v1/reports/${encodeURIComponent(this.reportId)}" in script
     assert "deleteReport(domain, reportId)" in script
     assert "sourceLocation(record)" in script
-    assert 'x-data="reportDetailApp' in template
+    assert 'x-data="reportDetailApp"' in template
+    assert "reportDetailApp(" not in template
+    assert "Alpine.data('reportDetailApp', reportDetailApp)" in script
+    assert "data-report-detail-page" in template
+    assert "data-report-id" in template
     assert "x-cloak" in template
     assert '@click="fetchReport()"' not in template
     assert "this.loading = true;" in script
@@ -712,6 +746,9 @@ def test_settings_exposes_provider_agnostic_dns_import_without_html_injection():
     script = _settings_script()
 
     assert "data-settings-page" in template
+    assert 'x-data="settingsApp"' in template
+    assert "settingsApp()" not in template
+    assert "Alpine.data('settingsApp', settingsApp)" in script
     assert "DNS Provider Connectors" in template
     assert 'id="provider-integrations"' in template
     assert "Provider Domain Discovery" in template
@@ -758,8 +795,10 @@ def test_settings_exposes_provider_agnostic_dns_import_without_html_injection():
     assert "selectedDnsProviderConnectionLabel()" in template
     assert "selectedDnsProviderConnectionHint()" in template
     assert "providerErrorDetail" in script
-    assert "returned no importable zones" in template
-    assert "discovery needs attention" in template
+    assert "dnsProviderNoImportableZonesTitle()" in template
+    assert "dnsProviderImportErrorTitle()" in template
+    assert "returned no importable zones" in script
+    assert "discovery needs attention" in script
     assert "Provider setup docs" in template
     assert "/api/v1/domains/dns/import/${encodeURIComponent(providerId)}/preview" in script
     assert "/api/v1/domains/dns/import/${encodeURIComponent(providerId)}" in script
@@ -794,7 +833,7 @@ def test_settings_controls_are_bound_from_external_script():
     assert "@submit" not in template
     assert "@change" not in template
     assert "showAIKey = !showAIKey" not in template
-    assert 'testWebhook(hook.id)' not in template
+    assert "testWebhook(hook.id)" not in template
     assert "x-html" not in template
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
@@ -805,6 +844,9 @@ def test_mail_sources_list_actions_are_bound_from_external_script():
 
     assert _has_script_src(template, "/static/js/mail-sources-page.js")
     assert "data-mail-sources-page" in template
+    assert 'x-data="mailSourcesApp"' in template
+    assert "mailSourcesApp()" not in template
+    assert "Alpine.data('mailSourcesApp', mailSourcesApp)" in script
     assert "data-mail-source-add" in template
     assert "data-mail-source-toggle" in template
     assert "data-mail-source-edit" in template
@@ -882,7 +924,7 @@ def test_mail_sources_form_actions_are_bound_from_external_script():
     assert 'x-on:click="showPassword = !showPassword"' not in template
     assert 'x-on:change="applyM365FolderSelection($event.target.value)"' not in template
     assert 'x-on:click="loadM365Folders()"' not in template
-    assert 'x-on:input="form.m365_folder_id = \'\'"' not in template
+    assert "x-on:input=\"form.m365_folder_id = ''\"" not in template
     assert 'x-on:click="testAdHoc()"' not in template
     assert 'x-on:click="connectGmail()"' not in template
     assert 'x-on:click="connectM365()"' not in template
@@ -900,6 +942,10 @@ def test_domain_details_exposes_health_history_without_html_injection():
     assert "/posture/history?capture_current=false" in script
     assert "/posture/evidence/export?capture_current=false" in script
     assert "encodeURIComponent(this.domainId)" in script
+    assert 'x-data="domainDetailsApp"' in template
+    assert "domainDetailsApp(" not in template
+    assert "Alpine.data('domainDetailsApp', domainDetailsApp)" in script
+    assert "data-domain-id" in template
     assert "health-score-chart" in template
     assert "x-html" not in template
     assert _has_script_src(template, "/static/js/domain-details-page.js")
@@ -958,11 +1004,11 @@ def test_domain_details_exposes_migration_readiness_without_html_injection():
     assert "I am migrating data" in template
     assert "data-domain-detail-migration-action" in template
     assert "handleMigrationAction" in script
-    assert "@click=\"enableMigrationTools()\"" not in template
+    assert '@click="enableMigrationTools()"' not in template
     assert '@click="previewMigrationImport"' not in template
-    assert "@click=\"loadMigrationImportSample\"" not in template
-    assert "@click=\"applyMigrationPreviewBaseline\"" not in template
-    assert "@click=\"compareMigrationBaseline\"" not in template
+    assert '@click="loadMigrationImportSample"' not in template
+    assert '@click="applyMigrationPreviewBaseline"' not in template
+    assert '@click="compareMigrationBaseline"' not in template
     assert "x-html" not in template
 
 
@@ -1112,11 +1158,11 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     assert 'colspan="9"' in template
     assert "x-effect=\"$el.style.height = point.height + '%'" not in template
     assert 'aria-label="Recent sending volume"' in template
-    assert ':viewBox="\'0 0 \' + point.width + \' 100\'"' in template
-    assert "<template x-for=\"point in sourceVolumeBars(source)\"" in template
+    assert ":viewBox=\"'0 0 ' + point.width + ' 100'\"" in template
+    assert '<template x-for="point in sourceVolumeBars(source)"' in template
     assert "point.y" in template
     assert "point.width" in template
-    assert "<svg class=\"h-8 w-full overflow-visible\"" not in template
+    assert '<svg class="h-8 w-full overflow-visible"' not in template
     assert "x-html" not in template
     assert not _has_inline_style(template)
 
@@ -1128,7 +1174,10 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "loadInitialData()" in script
     assert "async fetchWithTimeout" in script
     assert "Promise.allSettled" in script
-    assert "const response = await this.fetchWithTimeout(\n                    `/api/v1/domains/${this.domainId}/stats`" in script
+    assert (
+        "const response = await this.fetchWithTimeout(\n                    `/api/v1/domains/${this.domainId}/stats`"
+        in script
+    )
     assert "The request timed out. Reload data or try again in a moment." in script
     assert "dnsRecordsLoading" in template
     assert "Checking DMARC record..." in template
@@ -1191,7 +1240,9 @@ def test_members_template_uses_membership_api_without_html_injection():
     script = (Path(__file__).resolve().parents[1] / "static" / "js" / "members-page.js").read_text()
 
     assert _has_script_src(template, "/static/js/members-page.js")
-    assert "membershipApp()" in template
+    assert 'x-data="membershipApp"' in template
+    assert "membershipApp()" not in template
+    assert "Alpine.data('membershipApp', membershipApp)" in script
     assert 'x-init="init()"' not in template
     assert "/api/v1/organizations" in script
     assert "/api/v1/memberships/organizations/" in script
@@ -1207,9 +1258,9 @@ def test_members_template_uses_membership_api_without_html_injection():
     assert 'x-effect="$el.style.width' not in template
     assert "invoice_delivery_label" in template
     assert 'x-text="membership.user.email"' in template
-    assert '@click=' not in template
-    assert '@change=' not in template
-    assert '@submit' not in template
+    assert "@click" not in template
+    assert "@change" not in template
+    assert "@submit" not in template
     assert "data-members-page" in template
     assert "data-members-scope" in template
     assert "data-members-invite-form" in template
@@ -1250,14 +1301,20 @@ def test_base_template_propagates_selected_workspace_context():
 
     assert 'src="/static/js/base-layout.js"' in template
     assert "data-multi-workspace-ui" in template
-    assert "multiWorkspaceUiEnabled" in template
+    assert 'x-data="userMenu"' in template
+    assert "userMenu({" not in template
+    assert "Alpine.data('userMenu', userMenu)" in script
+    assert "multiWorkspaceUiEnabled" in script
     assert "/api/v1/workspaces" in script
     assert "dmarq.selectedWorkspaceId" in script
     assert "X-DMARQ-Workspace-ID" in script
     assert "withoutWorkspaceContext(input, init)" in script
     assert "headers.delete(workspaceHeaderName)" in script
     assert "dmarq:workspace-changed" in script
-    assert "workspaces.length > 1" in template
+    assert "workspaces.length > 1" not in template
+    assert "showWorkspaceSwitcher" in template
+    assert "normalizeUser" in script
+    assert "normalizeWorkspace" in script
     assert "localStorage.removeItem('dmarq.selectedWorkspaceId')" in script
     assert "input instanceof URL" in script
     assert 'x-init="loadUser()"' not in template
@@ -1266,6 +1323,10 @@ def test_base_template_propagates_selected_workspace_context():
     assert "data-workspace-switcher" in template
     assert "bindControls()" in script
     assert "data-workspace-switcher" in script
+    assert "user.full_name || user.email" not in template
+    assert "(user.full_name || user.email || '?')[0].toUpperCase()" not in template
+    assert ':disabled="!workspace.active"' not in template
+    assert ':disabled="workspace.disabled"' in template
     assert "onclick=" not in template
     assert "data-release-modal-trigger" in template
     assert 'href="/static/css/app.css"' in template
@@ -1315,13 +1376,17 @@ def test_onboarding_template_uses_single_user_setup_story_by_default():
     assert "Connect Gmail or IMAP" in rendered
     assert "Apply setup" in rendered
     assert "One monitored domain with DMARC report and DNS setup tasks." in rendered
-    assert "multiWorkspaceUiEnabled: false" in rendered
+    assert 'data-multi-workspace-ui="false"' in rendered
     assert 'src="/static/js/onboarding-page.js"' in template
     assert "data-onboarding-page" in template
+    assert 'x-data="workspaceOnboarding"' in template
+    assert "workspaceOnboarding({" not in template
+    assert "Alpine.data('workspaceOnboarding', workspaceOnboarding)" in script
     assert "/api/v1/onboarding/preview" in script
     assert "/api/v1/onboarding/apply" in script
     assert "draftFields()" in script
     assert "normalizeDomain(value)" in script
+    assert "normalizeTasks(tasks)" in script
     assert "dmarq.selectedWorkspaceId" in script
     assert "bindControls()" in script
     assert "data-onboarding-preview" in template
@@ -1333,6 +1398,14 @@ def test_onboarding_template_uses_single_user_setup_story_by_default():
     assert '@click="previewPlan"' not in template
     assert '@click="applyPlan"' not in template
     assert '@click="form.mailSourcePath = ' not in template
+    assert "result?.workspace" not in template
+    assert "form.mailSourcePath ===" not in template
+    assert "tasks.length ?" not in template
+    assert "!tasks.length" not in template
+    assert "task.href || '#'" not in template
+    assert "showWorkspaceSwitchSuccess" in template
+    assert "taskPreviewLabel" in template
+    assert "showNoTasks" in template
     assert 'x-init="init()"' not in template
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
     assert "Account boundary" not in rendered
@@ -1348,7 +1421,7 @@ def test_onboarding_template_keeps_workspace_story_for_multi_workspace_mode():
     assert "Create workspace" in rendered
     assert "Organization and workspace" in rendered
     assert "Starter plan entitlement records" in rendered
-    assert "multiWorkspaceUiEnabled: true" in rendered
+    assert 'data-multi-workspace-ui="true"' in rendered
 
 
 def test_dashboard_hides_multi_user_demo_mode_controls():

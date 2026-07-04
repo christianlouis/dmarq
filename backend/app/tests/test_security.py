@@ -141,9 +141,7 @@ class TestSecurityHeaders:
 
         assert "'unsafe-eval'" in csp
         script_src = next(
-            part.strip()
-            for part in csp.split(";")
-            if part.strip().startswith("script-src ")
+            part.strip() for part in csp.split(";") if part.strip().startswith("script-src ")
         )
         assert "'unsafe-inline'" not in script_src
         assert script_src == "script-src 'self' 'unsafe-eval'"

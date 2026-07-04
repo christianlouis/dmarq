@@ -27,9 +27,39 @@ function workspaceOnboarding(options = {}) {
         get singleUserMode() {
             return !this.multiWorkspaceUiEnabled;
         },
+        get showWorkspaceSwitchSuccess() {
+            return this.multiWorkspaceUiEnabled && Boolean(this.result?.workspace);
+        },
+        get resultWorkspaceName() {
+            return this.result?.workspace?.name || '';
+        },
+        get showImapFields() {
+            return this.form.mailSourcePath === 'imap';
+        },
+        get showDnsOnlyNotice() {
+            return this.form.mailSourcePath === 'dns_only';
+        },
+        get imapButtonClass() {
+            return this.showImapFields ? 'btn-primary' : 'btn-outline';
+        },
+        get dnsOnlyButtonClass() {
+            return this.showDnsOnlyNotice ? 'btn-primary' : 'btn-outline';
+        },
+        get taskPreviewLabel() {
+            return this.tasks.length
+                ? `${this.tasks.length} task${this.tasks.length === 1 ? '' : 's'}`
+                : 'No preview yet';
+        },
+        get showNoTasks() {
+            return this.tasks.length === 0;
+        },
         init() {
             if (this.initialized) return;
             this.initialized = true;
+            const flag = this.$el?.dataset?.multiWorkspaceUi;
+            if (flag === 'true' || flag === 'false') {
+                this.multiWorkspaceUiEnabled = flag === 'true';
+            }
             this.draftFields().forEach((field) => {
                 const storedValue = localStorage.getItem(`dmarq.onboarding.${field}`);
                 if (storedValue !== null) {
@@ -144,13 +174,13 @@ function workspaceOnboarding(options = {}) {
                 }
                 if (mode === 'preview') {
                     this.plan = data.plan;
-                    this.tasks = data.plan?.tasks || [];
+                    this.tasks = this.normalizeTasks(data.plan?.tasks);
                     this.success = this.singleUserMode
                         ? 'Preview is ready. Review the task list before applying setup.'
                         : 'Preview is ready. Review the task list before creating the workspace.';
                 } else {
                     this.result = data.result;
-                    this.tasks = data.result?.tasks || [];
+                    this.tasks = this.normalizeTasks(data.result?.tasks);
                     this.success = this.singleUserMode
                         ? 'Mail health setup was applied.'
                         : 'Workspace onboarding was applied.';
@@ -175,6 +205,12 @@ function workspaceOnboarding(options = {}) {
             }
             return detail || '';
         },
+        normalizeTasks(tasks) {
+            return (tasks || []).map((task) => ({
+                ...task,
+                url: task.href || '#',
+            }));
+        },
         persistAppliedWorkspace(result) {
             if (!this.multiWorkspaceUiEnabled) return;
             const workspaceId = result?.workspace?.id;
@@ -190,4 +226,10 @@ function workspaceOnboarding(options = {}) {
             });
         },
     };
+}
+
+if (typeof document !== 'undefined') {
+    document.addEventListener('alpine:init', () => {
+        Alpine.data('workspaceOnboarding', workspaceOnboarding);
+    });
 }

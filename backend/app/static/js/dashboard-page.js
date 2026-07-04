@@ -67,6 +67,104 @@ function dashboardApp() {
             const domain = this.selectedDnsDomainRecord;
             return domain ? this.domainHref(domain) : '/domains';
         },
+
+        get healthScore() {
+            return this.healthSummary && this.healthSummary.score !== undefined && this.healthSummary.score !== null
+                ? this.healthSummary.score
+                : 0;
+        },
+
+        get healthGrade() {
+            return this.healthSummary && this.healthSummary.grade
+                ? this.healthSummary.grade
+                : 'F';
+        },
+
+        get healthStatus() {
+            return this.healthSummary && this.healthSummary.status
+                ? this.healthSummary.status
+                : 'unknown';
+        },
+
+        get healthAttentionDomains() {
+            return this.healthSummary && this.healthSummary.attention_domains
+                ? this.healthSummary.attention_domains
+                : 0;
+        },
+
+        get healthDomainCount() {
+            return this.healthSummary && this.healthSummary.domain_count
+                ? this.healthSummary.domain_count
+                : 0;
+        },
+
+        get hasHealthHistoryPoints() {
+            return Boolean(this.healthHistory && this.healthHistory.points && this.healthHistory.points.length);
+        },
+
+        get healthScoreDeltaClass() {
+            return this.healthHistory && (Number(this.healthHistory.score_delta) || 0) >= 0
+                ? 'text-[#247982]'
+                : 'text-[#b8431d]';
+        },
+
+        get healthScoreDeltaLabel() {
+            return this.formatScoreDelta(this.healthHistory ? this.healthHistory.score_delta : null);
+        },
+
+        get topHealthActions() {
+            const actions = this.healthSummary && Array.isArray(this.healthSummary.top_actions)
+                ? this.healthSummary.top_actions
+                : [];
+            return actions.slice(0, 3);
+        },
+
+        get hasTopHealthActions() {
+            return this.topHealthActions.length > 0;
+        },
+
+        get selectedDnsPolicyLabel() {
+            const record = this.selectedDnsDomainRecord;
+            return record && record.dmarc_policy ? `Policy: ${record.dmarc_policy}` : 'Policy: unknown';
+        },
+
+        get selectedDnsWarningsCount() {
+            const record = this.selectedDnsDomainRecord;
+            const warnings = record && Array.isArray(record.dmarc_warnings)
+                ? record.dmarc_warnings
+                : [];
+            return warnings.length;
+        },
+
+        get hasSelectedDnsWarnings() {
+            return this.selectedDnsWarningsCount > 0;
+        },
+
+        get selectedDnsWarningsPlural() {
+            return this.selectedDnsWarningsCount === 1 ? '' : 's';
+        },
+
+        get demoTourStepLabel() {
+            return `Step ${this.demoTourStepIndex + 1} of ${this.demoTourSteps.length}`;
+        },
+
+        get currentDemoTourTitle() {
+            const step = this.currentDemoTourStep();
+            return step ? step.title : '';
+        },
+
+        get currentDemoTourBody() {
+            const step = this.currentDemoTourStep();
+            return step ? step.body : '';
+        },
+
+        get isLastDemoTourStep() {
+            return this.demoTourStepIndex + 1 >= this.demoTourSteps.length;
+        },
+
+        get demoTourNextLabel() {
+            return this.isLastDemoTourStep ? 'Finish' : 'Next';
+        },
         
         init() {
             this.bindControls();
@@ -805,8 +903,28 @@ function dashboardApp() {
             return this.healthSummary?.remediation || {};
         },
 
+        domainActionHref(action) {
+            return action && action.domain
+                ? `/domains/${encodeURIComponent(action.domain)}`
+                : '/domains';
+        },
+
+        domainHealthHref(domainHealth) {
+            return domainHealth && domainHealth.domain
+                ? `/domains/${encodeURIComponent(domainHealth.domain)}`
+                : '/domains';
+        },
+
         domainRemediation(domainName) {
             return this.domainByName(domainName)?.remediation || {};
+        },
+
+        domainRemediationStatus(domainName) {
+            return this.domainRemediation(domainName).status || 'none';
+        },
+
+        hasDomainRemediation(domainName) {
+            return this.domainRemediationStatus(domainName) !== 'none';
         },
 
         remediationStatusLabel(status) {
@@ -1520,4 +1638,10 @@ function dashboardApp() {
             return svg;
         }
     }
+}
+
+if (typeof document !== 'undefined') {
+    document.addEventListener('alpine:init', () => {
+        Alpine.data('dashboardApp', dashboardApp);
+    });
 }

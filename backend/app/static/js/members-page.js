@@ -452,3 +452,9 @@ function membershipApp() {
         },
     };
 }
+
+if (typeof document !== 'undefined') {
+    document.addEventListener('alpine:init', () => {
+        Alpine.data('membershipApp', membershipApp);
+    });
+}

@@ -38,7 +38,7 @@
 </head>
 <body class="min-h-screen bg-[#f4f3f2] font-body antialiased text-[#07071f]">
     <header class="fixed inset-x-0 top-0 z-40 flex h-24 items-center bg-[#272a5f] px-5 text-white shadow-sm md:px-10"
-            x-data="userMenu({ multiWorkspaceUiEnabled: {{ multi_workspace_ui_enabled | tojson }} })"
+            x-data="userMenu"
             data-user-menu>
         <div class="flex flex-1 items-center">
             <a href="/" class="inline-flex items-center gap-4" aria-label="DMARQ Dashboard">
@@ -60,7 +60,7 @@
         </div>
         <div class="flex items-center gap-3">
             {% if multi_workspace_ui_enabled %}
-            <div class="hidden min-w-48 md:block" x-show="workspaces.length > 1" x-cloak>
+            <div class="hidden min-w-48 md:block" x-show="showWorkspaceSwitcher" x-cloak>
                 <label class="sr-only" for="workspace-switcher">Workspace</label>
                 <select id="workspace-switcher"
                         class="select select-sm w-full border-white/30 bg-white/95 text-[#272a5f]"
@@ -68,7 +68,7 @@
                         data-workspace-switcher>
                     <template x-for="workspace in workspaces" :key="workspace.id">
                         <option :value="workspace.id"
-                                :disabled="!workspace.active"
+                                :disabled="workspace.disabled"
                                 x-text="workspaceLabel(workspace)"></option>
                     </template>
                 </select>
@@ -91,17 +91,17 @@
                         <label tabindex="0" class="btn btn-ghost btn-circle avatar placeholder h-12 w-12 rounded-full border border-white/40 bg-white/90 text-[#272a5f] hover:bg-white">
                             <div class="rounded-full w-10">
                                 <template x-if="user.picture">
-                                    <img :src="user.picture" :alt="user.full_name || user.email" class="h-10 w-10 rounded-full object-cover">
+                                    <img :src="user.picture" :alt="user.avatar_alt" class="h-10 w-10 rounded-full object-cover">
                                 </template>
-                                <template x-if="!user.picture">
-                                    <span class="text-sm font-semibold" x-text="(user.full_name || user.email || '?')[0].toUpperCase()"></span>
+                                <template x-if="user.show_placeholder_avatar">
+                                    <span class="text-sm font-semibold" x-text="user.initial"></span>
                                 </template>
                             </div>
                         </label>
                         <ul tabindex="0" class="menu menu-sm dropdown-content mt-3 z-[1] p-2 shadow bg-base-100 text-base-content rounded-box w-56">
                             <li class="menu-title px-2 py-1">
-                                <span class="text-xs font-semibold truncate" x-text="user.full_name || user.email"></span>
-                                <span class="text-xs text-base-content/50 truncate" x-text="user.email" x-show="user.full_name"></span>
+                                <span class="text-xs font-semibold truncate" x-text="user.display_name"></span>
+                                <span class="text-xs text-base-content/50 truncate" x-text="user.email_label" x-show="user.show_email"></span>
                             </li>
                             <li><a href="/profile">Profile &amp; Security</a></li>
                             {% if multi_workspace_ui_enabled %}
@@ -127,7 +127,7 @@
                         </ul>
                     </div>
                 </template>
-                <template x-if="!user">
+                <template x-if="showSignIn">
                     <a href="/login" class="btn btn-ghost btn-sm">Sign in</a>
                 </template>
             </div>

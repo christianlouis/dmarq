@@ -4,7 +4,7 @@
 {% block title %}DMARQ - Forensic Report Detail{% endblock %}
 
 {% block content %}
-<div class="space-y-6" x-data="forensicReportDetailApp({{ report_id }})" data-forensic-report-detail-page>
+<div class="space-y-6" x-data="forensicReportDetailApp" data-forensic-report-detail-page data-report-id="{{ report_id }}">
     <nav class="text-sm text-[#5f5c78]">
         <ol class="flex items-center space-x-2">
             <li><a href="/" class="font-semibold hover:text-[#2f9da5]">Dashboard</a></li>
@@ -21,11 +21,11 @@
         </div>
     </template>
 
-    <template x-if="!loading && error">
+    <template x-if="showError">
         <div class="alert alert-error mb-6" x-text="error"></div>
     </template>
 
-    <template x-if="!loading && !error && report">
+    <template x-if="showReport">
         <div class="space-y-6">
             <div class="rounded-lg bg-white p-6 shadow-sm">
                 <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -33,14 +33,14 @@
                         <p class="mb-2 text-sm font-semibold uppercase tracking-wide text-[#ff6f3c]">Forensic sample</p>
                         <h1 class="text-3xl font-bold tracking-normal text-[#07071f]">Forensic Investigation</h1>
                         <p class="mt-2 text-[#5f5c78]">
-                            <span x-text="report.report_id"></span>
+                            <span x-text="reportExternalId"></span>
                             <span>&bull;</span>
-                            <span x-text="report.domain || report.reported_domain || 'unknown domain'"></span>
+                            <span x-text="reportDomain"></span>
                         </p>
                     </div>
                     <div class="flex flex-wrap gap-2">
                         <a href="/forensics" class="btn btn-outline btn-sm border-[#dfdfdf] text-[#272a5f] hover:border-[#2f9da5] hover:bg-[#f4f3f2]">Back to Forensics</a>
-                        <a class="btn btn-outline btn-sm border-[#dfdfdf] text-[#272a5f] hover:border-[#2f9da5] hover:bg-[#f4f3f2]" :href="'/domains/' + encodeURIComponent(report.domain || report.reported_domain)">Domain</a>
+                        <a class="btn btn-outline btn-sm border-[#dfdfdf] text-[#272a5f] hover:border-[#2f9da5] hover:bg-[#f4f3f2]" :href="domainUrl">Domain</a>
                     </div>
                 </div>
             </div>
@@ -49,28 +49,28 @@
                 {% call card() %}
                     {% call card_header() %}{% call card_title() %}Failure{% endcall %}{% endcall %}
                     {% call card_content() %}
-                        <div class="text-2xl font-bold uppercase text-[#ff6f3c]" x-text="report.auth_failure || 'unknown'"></div>
+                        <div class="text-2xl font-bold uppercase text-[#ff6f3c]" x-text="authFailureLabel"></div>
                         <p class="mt-1 text-sm text-[#5f5c78]">Authentication failure</p>
                     {% endcall %}
                 {% endcall %}
                 {% call card() %}
                     {% call card_header() %}{% call card_title() %}Delivery{% endcall %}{% endcall %}
                     {% call card_content() %}
-                        <div class="text-2xl font-bold uppercase text-[#120d36]" x-text="report.delivery_result || 'unknown'"></div>
+                        <div class="text-2xl font-bold uppercase text-[#120d36]" x-text="deliveryResultLabel"></div>
                         <p class="mt-1 text-sm text-[#5f5c78]">Receiver outcome</p>
                     {% endcall %}
                 {% endcall %}
                 {% call card() %}
                     {% call card_header() %}{% call card_title() %}Source IP{% endcall %}{% endcall %}
                     {% call card_content() %}
-                        <div class="text-xl font-bold font-mono text-[#120d36]" x-text="report.source_ip || '-'"></div>
+                        <div class="text-xl font-bold font-mono text-[#120d36]" x-text="sourceIpLabel"></div>
                         <p class="mt-1 text-sm text-[#5f5c78]">Observed sender</p>
                     {% endcall %}
                 {% endcall %}
                 {% call card() %}
                     {% call card_header() %}{% call card_title() %}Arrival{% endcall %}{% endcall %}
                     {% call card_content() %}
-                        <div class="text-sm font-semibold text-[#120d36]" x-text="formatDate(report.arrival_date || report.processed_at)"></div>
+                        <div class="text-sm font-semibold text-[#120d36]" x-text="arrivalLabel"></div>
                         <p class="mt-1 text-sm text-[#5f5c78]">Sample timestamp</p>
                     {% endcall %}
                 {% endcall %}
@@ -83,17 +83,17 @@
                             {% call card_title() %}Failure Sample Analysis{% endcall %}
                             {% call card_description() %}Privacy-preserving diagnosis from the redacted failure sample{% endcall %}
                         </div>
-                        <span class="badge uppercase" :class="priorityClass(report.analysis?.priority)" x-text="report.analysis?.priority || 'unknown'"></span>
+                        <span class="badge uppercase" :class="priorityBadgeClass" x-text="priorityLabel"></span>
                     </div>
                 {% endcall %}
                 {% call card_content() %}
                     <div class="space-y-4">
-                        <p class="font-medium" x-text="report.analysis?.diagnosis || 'No analysis is available for this sample.'"></p>
+                        <p class="font-medium" x-text="diagnosisLabel"></p>
                         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                             <div>
                                 <p class="text-sm font-semibold mb-2">Recommended Actions</p>
                                 <ul class="text-sm space-y-1 list-disc pl-4">
-                                    <template x-for="action in report.analysis?.recommendations || []" :key="action">
+                                    <template x-for="action in recommendations" :key="action">
                                         <li x-text="action"></li>
                                     </template>
                                 </ul>
@@ -101,13 +101,13 @@
                             <div>
                                 <p class="text-sm font-semibold mb-2">Signals</p>
                                 <ul class="text-sm space-y-1 list-disc pl-4">
-                                    <template x-for="signal in report.analysis?.signals || []" :key="signal">
+                                    <template x-for="signal in signals" :key="signal">
                                         <li x-text="signal"></li>
                                     </template>
                                 </ul>
                             </div>
                         </div>
-                        <p class="text-xs text-base-content/60" x-text="report.analysis?.privacy_note"></p>
+                        <p class="text-xs text-base-content/60" x-text="privacyNote"></p>
                     </div>
                 {% endcall %}
             {% endcall %}
@@ -122,7 +122,7 @@
                         <template x-for="item in identityFields" :key="item.label">
                             <div class="min-w-0">
                                 <p class="text-sm text-base-content/60" x-text="item.label"></p>
-                                <p class="font-medium break-words" :class="item.mono ? 'font-mono text-sm' : ''" x-text="item.value || '-'"></p>
+                                <p class="font-medium break-words" :class="item.css_class" x-text="item.display_value"></p>
                             </div>
                         </template>
                     </div>
@@ -134,7 +134,7 @@
                     {% call card_title() %}Authentication Results{% endcall %}
                 {% endcall %}
                 {% call card_content() %}
-                    <pre class="bg-base-200 rounded p-4 text-sm whitespace-pre-wrap break-words" x-text="report.authentication_results || 'No Authentication-Results header was included.'"></pre>
+                    <pre class="bg-base-200 rounded p-4 text-sm whitespace-pre-wrap break-words" x-text="authenticationResultsLabel"></pre>
                 {% endcall %}
             {% endcall %}
 
@@ -144,13 +144,13 @@
                 {% endcall %}
                 {% call card_content() %}
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <template x-if="feedbackHeaderEntries.length === 0">
+                        <template x-if="hasNoFeedbackHeaderEntries">
                             <p class="text-base-content/60">No additional feedback headers were included.</p>
                         </template>
-                        <template x-for="[key, value] in feedbackHeaderEntries" :key="key">
+                        <template x-for="entry in feedbackHeaderEntries" :key="entry.key">
                             <div class="min-w-0">
-                                <p class="text-sm text-base-content/60" x-text="labelize(key)"></p>
-                                <p class="font-medium break-words" x-text="value || '-'"></p>
+                                <p class="text-sm text-base-content/60" x-text="entry.label"></p>
+                                <p class="font-medium break-words" x-text="entry.value"></p>
                             </div>
                         </template>
                     </div>
