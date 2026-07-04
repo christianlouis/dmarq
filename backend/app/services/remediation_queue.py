@@ -238,8 +238,119 @@ def _dns_item(
     return item
 
 
+def _health_playbook(domain: str, action: Dict[str, Any]) -> Dict[str, Any]:
+    """Return deterministic operator steps for common health-score findings."""
+    action_type = str(action.get("type") or "")
+    default_step = str(action.get("next_step") or "Review the domain evidence.")
+
+    playbooks: Dict[str, Dict[str, Any]] = {
+        "low_compliance": {
+            "steps": [
+                "Open the sending-source table and sort by failed messages and last sent date.",
+                "For each active failing source, verify the IP, PTR hostname, ASN, and provider "
+                "owner before changing DNS.",
+                "If SPF passes but DKIM fails, repair DKIM signing or the DKIM selector for "
+                "that sender.",
+                "If DKIM passes but SPF fails, verify the envelope-from or return-path domain "
+                "before adding SPF includes or IPs.",
+                "Do not authorize receiver, mailbox, or forwarding IPs just because a preserved "
+                "DKIM signature passed.",
+                "Refresh reports after the next receiver report window and confirm the source "
+                "now passes DMARC.",
+            ],
+            "prerequisites": [
+                "Use recent report rows first; old senders may no longer need remediation.",
+                "Confirm whether each source is an authorized sender, a forwarder, or abuse.",
+            ],
+            "completion_criteria": (
+                "The active failing sources are owned and passing DMARC, or are intentionally "
+                "blocked by policy."
+            ),
+        },
+        "source_reputation_listed": {
+            "steps": [
+                "Open the affected sending sources and identify which IPs are listed.",
+                "Confirm whether each listed IP is still used by this domain and who owns it.",
+                "Pause DMARC policy tightening until the owner confirms the reputation finding.",
+                "Follow the named blacklist or provider delisting process with evidence from "
+                "the current mail server or provider account.",
+                "After delisting, send a small authenticated test and wait for fresh DMARC "
+                "reports before marking the issue resolved.",
+            ],
+            "prerequisites": [
+                "Use listing evidence from the configured reputation feed, not only local volume.",
+                "Do not delist or authorize sources that are not part of the mail estate.",
+            ],
+            "completion_criteria": (
+                "The listed source is either removed from sending, delisted by the provider, "
+                "or documented as intentionally blocked."
+            ),
+        },
+        "source_reputation_review": {
+            "steps": [
+                "Open the source details and review PTR, ASN, country, provider, and latest "
+                "send date.",
+                "Confirm whether the source belongs to a configured mail provider or owned "
+                "infrastructure.",
+                "If the source is legitimate, repair SPF/DKIM alignment before trusting it.",
+                "If the source is unknown or stale, keep it blocked and monitor whether it "
+                "reappears in fresh reports.",
+            ],
+            "prerequisites": [
+                "Use current source intelligence and report timestamps before making a change.",
+                "Require a human owner for every source that will be authorized.",
+            ],
+            "completion_criteria": (
+                "The suspicious source is assigned to an owner and fixed, or treated as "
+                "unauthorized traffic."
+            ),
+        },
+        "policy_none": {
+            "steps": [
+                "Confirm that all recent legitimate senders pass DMARC consistently.",
+                "Move the domain from p=none to p=quarantine with an appropriate pct value.",
+                "Monitor fresh reports for unexpected legitimate failures.",
+                "Move to p=reject only after failures are understood and accepted.",
+            ],
+            "prerequisites": [
+                "Do not tighten policy while active legitimate senders are failing.",
+                "Make sure rua reporting remains configured before and after policy changes.",
+            ],
+            "completion_criteria": "The domain enforces quarantine or reject without new failures.",
+        },
+    }
+
+    if action_type in playbooks:
+        return playbooks[action_type]
+    if action_type == "missing_dkim":
+        return {
+            "steps": [
+                "Identify the sender or provider for each missing selector from report evidence.",
+                "Fetch the exact DKIM TXT or CNAME value from that provider or mail server.",
+                "Publish the selector in authoritative DNS and refresh DMARQ DNS evidence.",
+                "Confirm fresh reports show DKIM pass for that sender before tightening DMARC.",
+            ],
+            "prerequisites": [
+                "Provider-specific DKIM targets must come from the mail provider or MTA.",
+                "Do not publish placeholder DKIM values.",
+            ],
+            "completion_criteria": "Observed legitimate senders have healthy DKIM selectors.",
+        }
+    return {
+        "steps": [default_step],
+        "prerequisites": [
+            "Confirm the sender or DNS owner before making changes.",
+            "Use report evidence to avoid trusting unknown senders by mistake.",
+        ],
+        "completion_criteria": (
+            "The underlying domain health action no longer appears in the remediation queue."
+        ),
+    }
+
+
 def _health_item(domain: str, action: Dict[str, Any]) -> Dict[str, Any]:
     state = "investigate" if action.get("type") == "low_compliance" else "manual_action"
+    playbook = _health_playbook(domain, action)
     item = {
         "id": f"health:{action.get('type')}",
         "source": "health_score",
@@ -248,13 +359,11 @@ def _health_item(domain: str, action: Dict[str, Any]) -> Dict[str, Any]:
         "confidence": "medium",
         "title": str(action.get("title") or "Review domain health"),
         "detail": str(action.get("detail") or ""),
-        "next_steps": [str(action.get("next_step") or "Review the domain evidence.")],
+        "next_steps": playbook["steps"],
         "evidence": _evidence_from_pairs(action.get("evidence") or []),
         "blast_radius": f"Observed DMARC traffic for {domain}",
-        "prerequisites": [
-            "Confirm the sender or DNS owner before making changes.",
-            "Use report evidence to avoid trusting unknown senders by mistake.",
-        ],
+        "prerequisites": playbook["prerequisites"],
+        "completion_criteria": playbook["completion_criteria"],
         "expected_health_score_impact": str(action.get("score_impact") or 0),
         "automation": {
             "eligible": False,
@@ -287,7 +396,10 @@ def _action_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
         ]
     elif state == "investigate":
         owner = "Mail operations owner"
-        completion = "Sender legitimacy is confirmed and the item is resolved or converted into a DNS repair."
+        completion = str(
+            item.get("completion_criteria")
+            or "Sender legitimacy is confirmed and the item is resolved or converted into a DNS repair."
+        )
         steps = steps or [
             "Review the report evidence and sending-source history.",
             "Confirm whether the sender is legitimate for this domain.",
@@ -303,8 +415,9 @@ def _action_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
         ]
     else:
         owner = "Mail operations owner"
-        completion = (
-            "The underlying domain health action no longer appears in the remediation queue."
+        completion = str(
+            item.get("completion_criteria")
+            or "The underlying domain health action no longer appears in the remediation queue."
         )
         steps = steps or ["Review the evidence and complete the recommended operator action."]
 

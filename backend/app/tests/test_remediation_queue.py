@@ -306,3 +306,88 @@ def test_remediation_queue_adds_generic_operator_guidance_for_health_actions():
             "owner": "Mail operations owner",
         },
     ]
+
+
+def test_remediation_queue_adds_specific_low_compliance_playbook():
+    queue = build_remediation_queue(
+        domain="cklnet.com",
+        health={
+            "actions": [
+                {
+                    "type": "low_compliance",
+                    "severity": "high",
+                    "title": "Investigate failing senders",
+                    "detail": "DMARC pass rate is 65.0%, below the 90% enforcement target.",
+                    "next_step": "Open the domain detail page.",
+                    "score_impact": 18,
+                    "evidence": [
+                        {"label": "pass_rate", "value": "65.0%"},
+                        {"label": "failed", "value": "42"},
+                    ],
+                }
+            ]
+        },
+        dns_guidance={"findings": [], "change_plans": []},
+    )
+
+    item = queue["items"][0]
+
+    assert queue["status"] == "needs_investigation"
+    assert item["state"] == "investigate"
+    assert "last sent date" in item["action_plan"]["steps"][0]
+    assert any("receiver, mailbox, or forwarding IPs" in step for step in item["next_steps"])
+    assert "active failing sources" in item["action_plan"]["completion_criteria"]
+    assert item["action_plan"]["automation_path"] == "investigate"
+
+
+def test_remediation_queue_adds_specific_reputation_playbook():
+    queue = build_remediation_queue(
+        domain="example.com",
+        health={
+            "actions": [
+                {
+                    "type": "source_reputation_listed",
+                    "severity": "critical",
+                    "title": "Review listed sending IPs",
+                    "detail": "1 observed sending source is listed.",
+                    "score_impact": 18,
+                    "evidence": [{"label": "listed_sources", "value": "1"}],
+                }
+            ]
+        },
+        dns_guidance={"findings": [], "change_plans": []},
+    )
+
+    item = queue["items"][0]
+
+    assert queue["status"] == "needs_manual_action"
+    assert item["state"] == "manual_action"
+    assert any("delisting process" in step for step in item["action_plan"]["steps"])
+    assert "delisted by the provider" in item["action_plan"]["completion_criteria"]
+    assert item["notification"]["state"] == "action_required"
+
+
+def test_remediation_queue_adds_specific_missing_dkim_playbook():
+    queue = build_remediation_queue(
+        domain="example.com",
+        health={
+            "actions": [
+                {
+                    "type": "missing_dkim",
+                    "severity": "high",
+                    "title": "Fix DKIM selector coverage",
+                    "detail": "DKIM selectors from report data are not fully healthy.",
+                    "score_impact": 12,
+                }
+            ]
+        },
+        dns_guidance={"findings": [], "change_plans": []},
+    )
+
+    item = queue["items"][0]
+
+    assert any("exact DKIM TXT or CNAME value" in step for step in item["next_steps"])
+    assert "Do not publish placeholder DKIM values." in item["action_plan"]["prerequisites"]
+    assert item["action_plan"]["completion_criteria"] == (
+        "Observed legitimate senders have healthy DKIM selectors."
+    )
