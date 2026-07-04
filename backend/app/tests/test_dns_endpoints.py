@@ -1091,6 +1091,40 @@ async def test_latest_cached_dns_evidence_ignores_selector_key_mismatch(db_sessi
 
 
 @pytest.mark.asyncio
+async def test_latest_cached_dns_evidence_skips_invalid_and_empty_rows(db_session):
+    """Only positive, readable DNS cache rows should be reused as summary evidence."""
+    mock_provider = AsyncMock()
+    for selectors, result_json, checked_at in (
+        (["broken"], "{", datetime(2026, 7, 4, 18, 2, 0)),
+        (
+            ["empty"],
+            json.dumps(asdict(DomainDNSResult()), sort_keys=True),
+            datetime(2026, 7, 4, 18, 1, 0),
+        ),
+    ):
+        db_session.add(
+            DNSCache(
+                domain=DOMAIN,
+                provider=mock_provider.__class__.__name__,
+                selectors_key=_selectors_key(selectors),
+                result_json=result_json,
+                checked_at=checked_at,
+            )
+        )
+    db_session.commit()
+
+    result, cached, checked_at = get_latest_cached_domain_dns_evidence(
+        db_session,
+        mock_provider,
+        DOMAIN,
+    )
+
+    assert result is None
+    assert cached is False
+    assert checked_at is None
+
+
+@pytest.mark.asyncio
 async def test_dns_cache_uses_public_fallback_for_configured_resolver(db_session, monkeypatch):
     """Configured resolver misses should not hide positive public DNS evidence."""
 
