@@ -1,4 +1,4 @@
-"""merge mail auth and backfill migration heads
+"""merge backfill checkpoints and dmarc mailbox migration heads
 
 Revision ID: d9e0f1a2b3c4
 Revises: c1d2e3f4a5b6, c8d9e0f1a2b3

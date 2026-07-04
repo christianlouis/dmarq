@@ -9,5 +9,6 @@ def test_alembic_revision_graph_has_single_head():
     backend_dir = Path(__file__).resolve().parents[2]
     config = Config(str(backend_dir / "alembic.ini"))
     script = ScriptDirectory.from_config(config)
+    heads = script.get_heads()
 
-    assert script.get_heads() == ["d9e0f1a2b3c4"]
+    assert len(heads) == 1, f"Expected a single Alembic head, got {heads}"
