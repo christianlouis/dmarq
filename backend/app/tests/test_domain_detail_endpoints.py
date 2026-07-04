@@ -2818,6 +2818,12 @@ async def test_safe_ptr_lookup_skips_invalid_ips(monkeypatch: pytest.MonkeyPatch
     )
     assert (
         await domains_endpoint._safe_ptr_lookup(  # pylint: disable=protected-access
+            InvalidProvider(), "10.0.0.1"
+        )
+        is None
+    )
+    assert (
+        await domains_endpoint._safe_ptr_lookup(  # pylint: disable=protected-access
             FailingProvider(), "203.0.113.7"
         )
         is None

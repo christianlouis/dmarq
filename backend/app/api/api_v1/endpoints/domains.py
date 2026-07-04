@@ -6371,15 +6371,25 @@ def _ptr_lookup_providers(provider: Any) -> List[Any]:
 async def _safe_ptr_lookup(provider: Any, ip: str, timeout: float = 3.0) -> Optional[str]:
     """Perform a PTR lookup for *ip*, returning ``None`` on any error or timeout."""
     try:
-        ipaddress.ip_address(ip)  # validate before making a DNS query
+        parsed_ip = ipaddress.ip_address(ip)  # validate before making a DNS query
     except ValueError:
+        return None
+    if not parsed_ip.is_global:
         return None
     for candidate in _ptr_lookup_providers(provider):
         try:
             hostname = await asyncio.wait_for(candidate.lookup_ptr(ip), timeout=timeout)
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
+            logger.debug(
+                "PTR lookup provider failed during sender enrichment",
+                extra={
+                    "provider": candidate.__class__.__name__,
+                    "ip": ip,
+                    "error": str(exc),
+                },
+            )
             continue
         if hostname:
             return str(hostname).rstrip(".")
