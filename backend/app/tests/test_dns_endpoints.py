@@ -21,7 +21,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 
 from app.api.api_v1.endpoints import domains as domains_endpoint
-from app.api.api_v1.endpoints.domains import _domain_names_for_summary, _spf_fix_hint
+from app.api.api_v1.endpoints.domains import (
+    _domain_names_for_summary,
+    _remediation_loop_state,
+    _spf_fix_hint,
+)
 from app.models.dns_cache import DNSCache, DNSRecordChange
 from app.models.domain import Domain
 from app.models.organization import Entitlement, Organization
@@ -2132,6 +2136,15 @@ def test_summary_includes_current_remediation_loop(
     assert loop["items"][0]["state"] == "needs_approval"
     assert loop["items"][0]["title"]
     assert loop["items"][0]["next_step"]
+
+
+@pytest.mark.parametrize(
+    "action_type",
+    ["source_reputation_listed", "source_reputation_review"],
+)
+def test_remediation_loop_classifies_reputation_actions_as_investigate(action_type: str):
+    """Reputation health actions should remain investigation work, not manual tasks."""
+    assert _remediation_loop_state({"type": action_type, "severity": "high"}) == "investigate"
 
 
 def test_summary_dns_failure_defaults_false(authed_client: TestClient, db_session):

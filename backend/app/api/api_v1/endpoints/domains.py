@@ -1716,6 +1716,10 @@ REMEDIATION_DNS_ACTION_TYPES = {
     "missing_dkim",
     "dmarc_lint",
 }
+REMEDIATION_REPUTATION_ACTION_TYPES = {
+    "source_reputation_listed",
+    "source_reputation_review",
+}
 REMEDIATION_SEVERITY_RANK = {
     "critical": 4,
     "high": 3,
@@ -1731,7 +1735,7 @@ def _remediation_loop_state(action: Dict[str, Any]) -> str:
     severity = str(action.get("severity") or "info")
     if action_type in REMEDIATION_DNS_ACTION_TYPES and severity in {"critical", "high"}:
         return "needs_approval"
-    if action_type in {"low_compliance", "source_reputation"}:
+    if action_type in {"low_compliance", *REMEDIATION_REPUTATION_ACTION_TYPES}:
         return "investigate"
     return "manual_action"
 
