@@ -143,6 +143,7 @@ def test_attach_remediation_dispatch_previews_adds_dashboard_summary(monkeypatch
     assert summary["dispatch_disabled"] == 0
     assert summary["dispatch_awaiting_acknowledgement"] == 1
     assert summary["dispatch_webhook_routes"] == 1
+    assert summary["dispatch_verified_fixed"] == 0
 
 
 def test_attach_remediation_dispatch_previews_counts_operator_held_items(monkeypatch):
@@ -219,6 +220,7 @@ def test_attach_remediation_dispatch_previews_counts_operator_held_items(monkeyp
     assert result["summary"]["dispatch_resolved"] == 1
     assert result["summary"]["dispatch_rejected"] == 0
     assert result["summary"]["dispatch_snoozed"] == 0
+    assert result["summary"]["dispatch_verified_fixed"] == 0
 
 
 def test_verification_state_covers_lifecycle_branches():
@@ -296,7 +298,76 @@ def test_attach_remediation_dispatch_previews_skips_empty_queues(monkeypatch):
         "dispatch_resolved": 0,
         "dispatch_rejected": 0,
         "dispatch_snoozed": 0,
+        "dispatch_verified_fixed": 0,
     }
+    assert result["verified_items"] == []
+
+
+def test_attach_remediation_dispatch_previews_reports_verified_fixed_items(db_session):
+    workspace = get_or_create_default_workspace(db_session)
+    db_session.add_all(
+        [
+            WorkspaceAuditLog(
+                workspace_id=workspace.id,
+                actor_type="operator",
+                action="remediation.notification_lifecycle_recorded",
+                entity_type="remediation_notification",
+                entity_id="dns:dmarc-missing",
+                entity_name=" Example.COM. ",
+                details=json.dumps(
+                    {
+                        "lifecycle_state": "resolved",
+                        "operator_note": "Record is now visible after propagation.",
+                    }
+                ),
+                created_at=datetime(2026, 7, 1, 8, 0, 0),
+            ),
+            WorkspaceAuditLog(
+                workspace_id=workspace.id,
+                actor_type="operator",
+                action="remediation.notification_lifecycle_recorded",
+                entity_type="remediation_notification",
+                entity_id="dns:still-present",
+                entity_name="example.com",
+                details=json.dumps({"lifecycle_state": "resolved"}),
+                created_at=datetime(2026, 7, 1, 9, 0, 0),
+            ),
+        ]
+    )
+    db_session.commit()
+    queue = {
+        "domain": "example.com",
+        "summary": {"total": 1},
+        "items": [
+            {
+                "id": "dns:still-present",
+                "notification": {"event": EVENT_REMEDIATION_APPROVAL_REQUIRED},
+            }
+        ],
+    }
+
+    result = remediation_dispatch.attach_remediation_dispatch_previews(
+        db_session,
+        workspace=workspace,
+        queue=queue,
+    )
+
+    assert result["summary"]["dispatch_verified_fixed"] == 1
+    assert result["verified_items"] == [
+        {
+            "item_id": "dns:dmarc-missing",
+            "state": "verified_fixed",
+            "verified": True,
+            "label": "Verified fixed",
+            "detail": (
+                "This remediation item was marked resolved and no longer appears "
+                "in the current remediation queue."
+            ),
+            "recorded_at": "2026-07-01T08:00:00Z",
+            "operator_note": "Record is now visible after propagation.",
+            "actor_type": "operator",
+        }
+    ]
 
 
 def test_notification_histories_return_sanitized_recent_audit_events(db_session):

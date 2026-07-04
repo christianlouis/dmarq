@@ -76,9 +76,11 @@ function domainDetailsApp(domainId) {
                 dispatch_blocked: 0,
                 dispatch_disabled: 0,
                 dispatch_awaiting_acknowledgement: 0,
-                dispatch_webhook_routes: 0
+                dispatch_webhook_routes: 0,
+                dispatch_verified_fixed: 0
             },
-            items: []
+            items: [],
+            verified_items: []
         },
         remediationAction: {
             itemId: '',
@@ -1402,9 +1404,11 @@ function domainDetailsApp(domainId) {
                     dispatch_blocked: 0,
                     dispatch_disabled: 0,
                     dispatch_awaiting_acknowledgement: 0,
-                    dispatch_webhook_routes: 0
+                    dispatch_webhook_routes: 0,
+                    dispatch_verified_fixed: 0
                 },
-                items: []
+                items: [],
+                verified_items: []
             };
         },
 

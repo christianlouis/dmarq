@@ -346,6 +346,61 @@ def _notification_histories(
     return histories
 
 
+def _verified_fixed_items(
+    db: Session,
+    *,
+    workspace: Workspace,
+    domain: str,
+    current_item_ids: Iterable[str],
+    limit: int = 5,
+) -> List[Dict[str, Any]]:
+    """Return resolved remediation markers whose items no longer appear in current evidence."""
+    if not hasattr(db, "query"):
+        return []
+    active_ids = {str(item_id or "") for item_id in current_item_ids if str(item_id or "")}
+    normalized_entity_name = func.lower(func.rtrim(func.trim(WorkspaceAuditLog.entity_name), "."))
+    rows = (
+        db.query(WorkspaceAuditLog)
+        .filter(
+            WorkspaceAuditLog.workspace_id == workspace.id,
+            WorkspaceAuditLog.action == "remediation.notification_lifecycle_recorded",
+            WorkspaceAuditLog.entity_type == "remediation_notification",
+            normalized_entity_name == normalize_domain_name(domain),
+        )
+        .order_by(WorkspaceAuditLog.created_at.desc(), WorkspaceAuditLog.id.desc())
+        .limit(max(limit * 4, limit))
+        .all()
+    )
+    verified: List[Dict[str, Any]] = []
+    seen: Set[str] = set()
+    for row in rows:
+        item_id = str(row.entity_id or "")
+        if not item_id or item_id in active_ids or item_id in seen:
+            continue
+        details = _audit_details(row)
+        if details.get("lifecycle_state") != "resolved":
+            continue
+        seen.add(item_id)
+        verified.append(
+            {
+                "item_id": item_id,
+                "state": "verified_fixed",
+                "verified": True,
+                "label": "Verified fixed",
+                "detail": (
+                    "This remediation item was marked resolved and no longer appears "
+                    "in the current remediation queue."
+                ),
+                "recorded_at": _audit_timestamp(row.created_at),
+                "operator_note": details.get("operator_note"),
+                "actor_type": row.actor_type,
+            }
+        )
+        if len(verified) >= limit:
+            break
+    return verified
+
+
 def _latest_lifecycle_marker_from_history(
     history: Sequence[Dict[str, Any]],
 ) -> Dict[str, Optional[str]]:
@@ -527,8 +582,16 @@ def attach_remediation_dispatch_previews(
     """Attach read-only dispatch readiness to every queue item notification."""
     domain = str(queue.get("domain") or "")
     items = list(queue.get("items", []))
+    item_ids = [str(item.get("id") or "") for item in items]
+    verified_fixed_items = _verified_fixed_items(
+        db,
+        workspace=workspace,
+        domain=domain,
+        current_item_ids=item_ids,
+    )
+    queue["verified_items"] = verified_fixed_items
     if not items:
-        _attach_dispatch_summary(queue, items)
+        _attach_dispatch_summary(queue, items, verified_fixed_items=verified_fixed_items)
         return queue
     settings = _settings(db)
     configured_events = _configured_events(settings.get(DISPATCH_EVENTS_KEY, ""))
@@ -538,7 +601,7 @@ def attach_remediation_dispatch_previews(
         db,
         workspace=workspace,
         domain=domain,
-        item_ids=[str(item.get("id") or "") for item in items],
+        item_ids=item_ids,
     )
     webhook_event_counts = _webhook_event_counts(
         endpoints,
@@ -565,6 +628,7 @@ def attach_remediation_dispatch_previews(
         queue,
         items,
         webhook_event_route_keys=webhook_event_route_keys,
+        verified_fixed_items=verified_fixed_items,
     )
     return queue
 
@@ -574,6 +638,7 @@ def _attach_dispatch_summary(
     items: Sequence[Dict[str, Any]],
     *,
     webhook_event_route_keys: Optional[Dict[str, Set[str]]] = None,
+    verified_fixed_items: Optional[Sequence[Dict[str, Any]]] = None,
 ) -> None:
     """Expose queue-level dispatch readiness counters for dashboards."""
     summary = dict(queue.get("summary") or {})
@@ -612,6 +677,7 @@ def _attach_dispatch_summary(
             "dispatch_snoozed": sum(
                 1 for dispatch in dispatches if dispatch.get("lifecycle_state") == "snoozed"
             ),
+            "dispatch_verified_fixed": len(verified_fixed_items or []),
         }
     )
     queue["summary"] = summary
