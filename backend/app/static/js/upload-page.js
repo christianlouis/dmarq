@@ -22,6 +22,26 @@ function uploadForm() {
             return this.files.filter((file) => file.status === 'error').length;
         },
 
+        get dropzoneClass() {
+            return this.dragover ? 'border-primary/50 bg-primary/5' : '';
+        },
+
+        get queuedFileLabel() {
+            return `${this.files.length} file${this.files.length !== 1 ? 's' : ''} queued`;
+        },
+
+        get allSuccessMessage() {
+            return `Successfully processed ${this.successCount} file${this.successCount !== 1 ? 's' : ''}.`;
+        },
+
+        get allErrorMessage() {
+            return `Failed to process ${this.errorCount} file${this.errorCount !== 1 ? 's' : ''}.`;
+        },
+
+        get mixedUploadMessage() {
+            return `${this.successCount} succeeded, ${this.errorCount} failed. See details above.`;
+        },
+
         bindControls() {
             const root = this.$root;
             if (!root || root.dataset.uploadControlsBound === 'true') return;
@@ -149,3 +169,7 @@ function uploadForm() {
         },
     };
 }
+
+document.addEventListener('alpine:init', () => {
+    Alpine.data('uploadForm', uploadForm);
+});

@@ -21,7 +21,7 @@
                 <!-- Drop Zone -->
                 <div
                     class="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-8 text-center hover:bg-muted/50 transition-colors cursor-pointer relative"
-                    x-bind:class="{'border-primary/50 bg-primary/5': dragover}"
+                    x-bind:class="dropzoneClass"
                     data-upload-dropzone
                 >
                     <div class="mb-4 text-muted-foreground">
@@ -47,7 +47,7 @@
                 <div x-show="files.length > 0" x-cloak class="space-y-2">
                     <!-- Queue header -->
                     <div class="flex items-center justify-between text-sm text-muted-foreground">
-                        <span x-text="`${files.length} file${files.length !== 1 ? 's' : ''} queued`"></span>
+                        <span x-text="queuedFileLabel"></span>
                         <button
                             type="button"
                             class="text-xs underline hover:text-foreground"
@@ -105,7 +105,7 @@
                             {% call alert(variant="success") %}
                                 {% call alert_title() %}All uploads complete{% endcall %}
                                 {% call alert_description() %}
-                                    <p x-text="`Successfully processed ${successCount} file${successCount !== 1 ? 's' : ''}.`"></p>
+                                    <p x-text="allSuccessMessage"></p>
                                 {% endcall %}
                             {% endcall %}
                         </template>
@@ -113,7 +113,7 @@
                             {% call alert(variant="error") %}
                                 {% call alert_title() %}Upload failed{% endcall %}
                                 {% call alert_description() %}
-                                    <p x-text="`Failed to process ${errorCount} file${errorCount !== 1 ? 's' : ''}.`"></p>
+                                    <p x-text="allErrorMessage"></p>
                                 {% endcall %}
                             {% endcall %}
                         </template>
@@ -121,7 +121,7 @@
                             {% call alert(variant="warning") %}
                                 {% call alert_title() %}Upload complete with errors{% endcall %}
                                 {% call alert_description() %}
-                                    <p x-text="`${successCount} succeeded, ${errorCount} failed. See details above.`"></p>
+                                    <p x-text="mixedUploadMessage"></p>
                                 {% endcall %}
                             {% endcall %}
                         </template>
