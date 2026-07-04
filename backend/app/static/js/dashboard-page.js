@@ -801,6 +801,36 @@ function dashboardApp() {
             return this.healthSummary?.domains || [];
         },
 
+        remediationTotals() {
+            return this.healthSummary?.remediation || {};
+        },
+
+        domainRemediation(domainName) {
+            return this.domainByName(domainName)?.remediation || {};
+        },
+
+        remediationStatusLabel(status) {
+            return {
+                resolved: 'Resolved',
+                dispatched: 'Dispatched',
+                reviewed: 'Reviewed',
+                operator_hold: 'Operator hold',
+                activity: 'Activity',
+                none: 'No activity'
+            }[String(status || 'none')] || 'Activity';
+        },
+
+        remediationStatusClass(status) {
+            return {
+                resolved: 'text-[#247982]',
+                dispatched: 'text-[#8a6418]',
+                reviewed: 'text-[#272a5f]',
+                operator_hold: 'text-[#b8431d]',
+                activity: 'text-[#5f5c78]',
+                none: 'text-[#5f5c78]'
+            }[String(status || 'none')] || 'text-[#5f5c78]';
+        },
+
         gradeClass(grade) {
             const value = String(grade || 'F');
             if (value.startsWith('A')) return 'bg-[#dff3e8] text-[#1f6f45]';
@@ -1371,6 +1401,7 @@ function dashboardApp() {
                 row.appendChild(this.createDomainNameCell(domain.domain_name));
                 row.appendChild(this.createTextCell(this.formatLargeNumber(domain.total_emails || 0)));
                 row.appendChild(this.createGradeCell(domain.health));
+                row.appendChild(this.createRemediationCell(domain.remediation));
                 row.appendChild(this.createPassRateCell(domain.pass_rate || 0));
                 row.appendChild(this.createTextCell(this.formatLargeNumber(domain.failed_count || 0)));
                 row.appendChild(this.createTextCell(this.formatLargeNumber(domain.report_count || 0)));
@@ -1408,6 +1439,32 @@ function dashboardApp() {
             score.className = 'text-xs text-muted-foreground whitespace-nowrap';
             score.textContent = `${health?.score ?? 0}/100`;
             wrapper.appendChild(score);
+
+            cell.appendChild(wrapper);
+            return cell;
+        },
+
+        createRemediationCell(remediation) {
+            const cell = document.createElement('td');
+            cell.className = 'table-cell';
+
+            const wrapper = document.createElement('div');
+            wrapper.className = 'flex flex-col gap-1';
+
+            const status = remediation?.status || 'none';
+            const badge = document.createElement('span');
+            badge.className = `inline-flex w-fit rounded-md bg-[#f8f7f6] px-2 py-1 text-xs font-semibold ${this.remediationStatusClass(status)}`;
+            badge.textContent = this.remediationStatusLabel(status);
+            wrapper.appendChild(badge);
+
+            const latest = document.createElement('span');
+            latest.className = 'text-xs text-muted-foreground whitespace-nowrap';
+            if (remediation?.latest_at) {
+                latest.textContent = new Date(remediation.latest_at).toLocaleString();
+            } else {
+                latest.textContent = 'No operator action';
+            }
+            wrapper.appendChild(latest);
 
             cell.appendChild(wrapper);
             return cell;

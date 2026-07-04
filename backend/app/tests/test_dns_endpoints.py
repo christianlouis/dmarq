@@ -28,15 +28,18 @@ from app.models.organization import Entitlement, Organization
 from app.models.report import DMARCReport, ReportRecord
 from app.models.setting import Setting
 from app.models.workspace import Workspace
+from app.models.workspace_access import WorkspaceAuditLog
 from app.services.bimi import BIMIResult
 from app.services.dane import DANEResult, TLSARecord, TLSASuggestion
 from app.services.dns_cache import _selectors_key, resolve_domain_dns_cached
 from app.services.dns_provider_detection import detect_dns_provider
 from app.services.dns_resolver import DomainDNSResult, SystemDNSProvider
 from app.services.mta_sts import MTAStsResult
+from app.services.remediation_dispatch import summarize_remediation_activity
 from app.services.report_persistence import save_parsed_report
 from app.services.report_store import ReportStore
 from app.services.source_reputation import DomainReputation
+from app.services.workspaces import get_or_create_default_workspace
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1992,6 +1995,78 @@ def test_summary_includes_dns_fields(authed_client: TestClient, db_session):
     assert domain["spf_status"] is True
     assert domain["dkim_status"] is True
     assert domain["dmarc_policy"] == "none"
+
+
+def test_summary_includes_remediation_activity(authed_client: TestClient, db_session):
+    """Dashboard summaries include remediation-loop audit state without rebuilding queues."""
+    _persist_minimal_report(db_session)
+    workspace = get_or_create_default_workspace(db_session)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    db_session.add_all(
+        [
+            WorkspaceAuditLog(
+                workspace_id=workspace.id,
+                actor_type="operator",
+                action="remediation.notification_dispatch_enqueued",
+                entity_type="remediation_notification",
+                entity_id="dns:dmarc-missing",
+                entity_name=f" {DOMAIN.upper()}. ",
+                details=json.dumps(
+                    {
+                        "delivery_enqueued": True,
+                        "delivery_count": 1,
+                        "dns_write_attempted": False,
+                        "sent": False,
+                    }
+                ),
+                created_at=now,
+            ),
+            WorkspaceAuditLog(
+                workspace_id=workspace.id,
+                actor_type="operator",
+                action="remediation.notification_lifecycle_recorded",
+                entity_type="remediation_notification",
+                entity_id="dns:dmarc-missing",
+                entity_name=f" {DOMAIN.upper()}. ",
+                details=json.dumps({"lifecycle_state": "resolved"}),
+                created_at=now + timedelta(seconds=1),
+            ),
+            WorkspaceAuditLog(
+                workspace_id=workspace.id,
+                actor_type="operator",
+                action="remediation.notification_lifecycle_recorded",
+                entity_type="remediation_notification",
+                entity_id="dns:quiet-domain",
+                entity_name=" Quiet.Example. ",
+                details=json.dumps({"lifecycle_state": "acknowledged"}),
+                created_at=now - timedelta(days=1),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    with _mock_dns():
+        response = authed_client.get("/api/v1/domains/summary?refresh=true")
+
+    assert response.status_code == 200
+    data = response.json()
+    domain = data["domains"][0]
+    assert domain["remediation"]["status"] == "resolved"
+    assert domain["remediation"]["latest_state"] == "resolved"
+    assert domain["remediation"]["latest_at"].endswith("Z")
+    assert domain["remediation"]["resolved"] == 1
+    assert domain["remediation"]["dispatch_enqueued"] == 1
+    assert data["health_summary"]["remediation"]["domains_with_activity"] == 1
+    assert data["health_summary"]["remediation"]["resolved"] == 1
+    assert data["health_summary"]["remediation"]["delivery_count"] == 1
+
+    activity = summarize_remediation_activity(
+        db_session,
+        workspace=workspace,
+        domains=[DOMAIN, "quiet.example"],
+        row_limit=1,
+    )
+    assert activity["domains"]["quiet.example"]["latest_state"] == "acknowledged"
 
 
 def test_summary_dns_failure_defaults_false(authed_client: TestClient, db_session):

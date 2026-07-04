@@ -100,7 +100,10 @@ from app.services.organizations import (
     OrganizationPlanLimitError,
     require_organization_plan_limit,
 )
-from app.services.remediation_dispatch import attach_remediation_dispatch_previews
+from app.services.remediation_dispatch import (
+    attach_remediation_dispatch_previews,
+    summarize_remediation_activity,
+)
 from app.services.remediation_queue import build_remediation_queue
 from app.services.report_persistence import (
     domain_summaries_from_db,
@@ -3243,6 +3246,12 @@ async def get_domains_summary(
         domain.name: domain
         for domain in workspace_domain_query(db, workspace).filter(Domain.name.in_(domains)).all()
     }
+    remediation_activity = summarize_remediation_activity(
+        db,
+        workspace=workspace,
+        domains=domains,
+    )
+    remediation_by_domain = remediation_activity["domains"]
 
     async def _dns_for_domain(domain_name: str) -> DomainDNSResult:
         manual_selectors = manual_selectors_by_domain.get(domain_name, [])
@@ -3320,6 +3329,7 @@ async def get_domains_summary(
             ),
             "dmarc_warnings": dns.dmarc_warnings,
             "dmarc_suggestions": dns.dmarc_suggestions,
+            "remediation": remediation_by_domain.get(domain_name, {}),
         }
         domain_row["health"] = score_domain_health(domain_row)
         domains_list.append(domain_row)
@@ -3331,13 +3341,16 @@ async def get_domains_summary(
     if total_emails > 0:
         overall_pass_rate = round((total_passed / total_emails) * 100, 1)
 
+    health_summary = build_health_summary(domains_list, domain_health)
+    health_summary["remediation"] = remediation_activity["summary"]
+
     return DomainSummaryResponse(
         total_domains=total_domains,
         total_emails=total_emails,
         overall_pass_rate=overall_pass_rate,
         reports_processed=total_reports,
         domains=domains_list,
-        health_summary=build_health_summary(domains_list, domain_health),
+        health_summary=health_summary,
     )
 
 
