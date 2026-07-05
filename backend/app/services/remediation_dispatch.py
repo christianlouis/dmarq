@@ -507,7 +507,7 @@ def _verified_fixed_items_result(
                     "the item if the same finding returns."
                 ),
                 "next_safe_action": (
-                    "Keep monitoring fresh report and DNS evidence before treating this "
+                    "Keep monitoring fresh reports and DNS evidence before treating this "
                     "repair as permanently closed."
                 ),
                 "evidence_needed": [
