@@ -277,7 +277,7 @@ async def callback(
 
     try:
         claims = client.getIdTokenClaims()
-        enforce_mfa_claims("logto", claims, settings)
+        enforce_mfa_claims(claims, settings)
     except HTTPException as exc:
         logger.warning("Logto callback rejected: %s", exc.detail)
         return RedirectResponse(url="/login?error=callback_failed", status_code=302)

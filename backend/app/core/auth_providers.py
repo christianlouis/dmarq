@@ -418,26 +418,24 @@ def mfa_claim_context(
 
 
 def enforce_mfa_claims(
-    provider: str,
     payload: Any,
     settings: Settings | None = None,
 ) -> tuple[bool, tuple[str, ...]]:
     """Return MFA claim context and enforce the deployment policy when required."""
     mfa_verified, mfa_claims = mfa_claim_context(payload, settings)
-    _enforce_mfa_policy(mfa_verified=mfa_verified, provider=provider, settings=settings)
+    _enforce_mfa_policy(mfa_verified=mfa_verified, settings=settings)
     return mfa_verified, mfa_claims
 
 
 def _enforce_mfa_policy(
     *,
     mfa_verified: bool,
-    provider: str,
     settings: Settings | None = None,
 ) -> None:
     cfg = settings or get_settings()
     if not _enabled_flag(getattr(cfg, "AUTH_REQUIRE_MFA", False)) or mfa_verified:
         return
-    logger.warning("Rejecting %s login because MFA assurance claims were not present", provider)
+    logger.warning("Rejecting external login because MFA assurance claims were not present")
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail=(
@@ -692,7 +690,7 @@ def normalize_external_claims(
             allowed_roles=set(ORGANIZATION_ROLE_ALIASES) | set(ROLE_PERMISSIONS),
         ),
     )
-    mfa_verified, mfa_claims = enforce_mfa_claims(provider, payload, cfg)
+    mfa_verified, mfa_claims = enforce_mfa_claims(payload, cfg)
     return ExternalIdentityClaims(
         provider=provider,
         subject=subject,
@@ -1003,7 +1001,6 @@ def trusted_proxy_claims_from_request(
     groups = _normalize_string_claims(request.headers.get(cfg.AUTH_TRUSTED_PROXY_GROUPS_HEADER))
     mfa_header = getattr(cfg, "AUTH_TRUSTED_PROXY_MFA_HEADER", "X-Authentik-Meta-Amr")
     mfa_verified, mfa_claims = enforce_mfa_claims(
-        provider,
         {"amr": request.headers.get(mfa_header)},
         cfg,
     )
