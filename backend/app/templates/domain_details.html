@@ -146,9 +146,25 @@
                                x-show="primaryRemediationStaleWarningText"
                                x-text="primaryRemediationStaleWarningText"></p>
                         </div>
-                        <a href="#remediation-queue" class="btn btn-sm border-0 bg-[#2f9da5] text-white hover:bg-[#272a5f]">
-                            Open queue
-                        </a>
+                        <div class="flex flex-wrap gap-2">
+                            <a x-show="primaryRemediationEvidenceHref"
+                               :href="primaryRemediationEvidenceHref"
+                               class="btn btn-outline btn-sm border-[#dfdfdf] text-[#272a5f] hover:border-[#2f9da5]">
+                                Open evidence
+                            </a>
+                            <button type="button"
+                                    x-show="primaryRemediationItem.evidence_refresh"
+                                    class="btn btn-outline btn-sm border-[#dfdfdf] text-[#272a5f] hover:border-[#2f9da5]"
+                                    :disabled="primaryRemediationItem.evidence_refresh?.safe_to_run === false || remediationActionBusy(primaryRemediationItem)"
+                                    :data-remediation-item-id="primaryRemediationItem.id"
+                                    data-domain-detail-remediation-refresh-evidence>
+                                <span x-show="remediationActionBusy(primaryRemediationItem, 'refresh_evidence')" class="loading loading-spinner loading-xs"></span>
+                                <span x-text="remediationEvidenceRefreshActionLabel(primaryRemediationItem.evidence_refresh)"></span>
+                            </button>
+                            <a href="#remediation-queue" class="btn btn-sm border-0 bg-[#2f9da5] text-white hover:bg-[#272a5f]">
+                                Open queue
+                            </a>
+                        </div>
                     </div>
                 </template>
                 <template x-if="!remediationQueueLoading && !remediationQueueError && !primaryRemediationItem">

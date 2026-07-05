@@ -1733,6 +1733,7 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "primaryRemediationFreshnessText" in script
     assert "primaryRemediationClosureGateText" in script
     assert "primaryRemediationStaleWarningText" in script
+    assert "primaryRemediationEvidenceHref" in script
     assert "Next remediation" in template
     assert "Loading next remediation..." in template
     assert "Next remediation could not be loaded." in template
@@ -1745,6 +1746,10 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "primaryRemediationFreshnessText" in template
     assert "primaryRemediationClosureGateText" in template
     assert "primaryRemediationStaleWarningText" in template
+    assert "primaryRemediationEvidenceHref" in template
+    assert "Open evidence" in template
+    assert 'data-domain-detail-remediation-refresh-evidence' in template
+    assert "remediationEvidenceRefreshActionLabel(primaryRemediationItem.evidence_refresh)" in template
     assert "item.state.split('_').join(' ')" in template
     assert "Repair readiness" in template
     assert "primaryRepairReadinessReasonText" in script

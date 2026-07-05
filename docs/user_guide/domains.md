@@ -149,7 +149,10 @@ read-only; it does not apply DNS changes or send provider requests. The top
 **Next remediation** panel mirrors the same repair-gate status so the operator
 can see the current blocker, readiness label, readiness score, next safe action,
 freshness requirement, closure gate, stale-evidence warning, and first
-readiness reason before opening the full queue.
+readiness reason before opening the full queue. When a focused read-only
+evidence refresh is available, the panel also links directly to the relevant
+evidence section and exposes the same safe refresh action as the full queue
+card.
 Repair progression also includes a readiness label, 0-100 readiness score,
 human-readable reasons, and blocker keys. Use this to separate work that is
 ready for provider preview from work that is blocked by missing provider values,

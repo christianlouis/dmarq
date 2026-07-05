@@ -719,6 +719,12 @@ function domainDetailsApp(domainId = '') {
                 '';
         },
 
+        get primaryRemediationEvidenceHref() {
+            const item = this.primaryRemediationItem;
+            if (!item?.evidence_refresh?.ui_anchor) return '';
+            return this.remediationEvidenceAnchorHref(item);
+        },
+
         get primaryRepairProgressionText() {
             const progression = this.primaryRemediationItem?.repair_progression;
             if (!progression) return 'Repair status will appear after the remediation queue finishes loading.';
