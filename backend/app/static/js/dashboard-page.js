@@ -1220,6 +1220,13 @@ function dashboardApp() {
             }[String(status || '')] || 'bg-[#f8f7f6] text-[#5f5c78]';
         },
 
+        remediationLoopEffectiveStatus(loop) {
+            if (!loop) return '';
+            const status = String(loop.status || '');
+            const loopStatus = String(loop.loop_status || '');
+            return status === 'needs_attention' && loopStatus ? loopStatus : (status || loopStatus);
+        },
+
         remediationIncidentLabel(value) {
             return this.formatDemoLabel(value || 'none');
         },

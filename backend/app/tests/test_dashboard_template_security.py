@@ -350,11 +350,11 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "Blocked before repair" in template
     assert "remediationLoop().next_action" in template
     assert (
-        "remediationLoopStatusClass(remediationLoop().status || remediationLoop().loop_status)"
+        "remediationLoopStatusClass(remediationLoopEffectiveStatus(remediationLoop()))"
         in template
     )
     assert (
-        "remediationLoopStatusLabel(remediationLoop().status || remediationLoop().loop_status)"
+        "remediationLoopStatusLabel(remediationLoopEffectiveStatus(remediationLoop()))"
         in template
     )
     assert "remediationIncidentLabel(remediationLoop().top_incident_type)" in template
@@ -441,6 +441,7 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "remediationTrackLabel(track)" in script
     assert "remediationLoopStatusLabel(status)" in script
     assert "remediationLoopStatusClass(status)" in script
+    assert "remediationLoopEffectiveStatus(loop)" in script
     assert "approval_ready: 'Needs approval'" in script
     assert "state === 'approval_ready' || state === 'needs_approval'" in script
     assert "remediationIncidentLabel(value)" in script
@@ -667,6 +668,8 @@ def test_domain_details_remediation_queue_shows_verification_context():
     assert "Remediation queue sort" in template
     assert "data-domain-detail-remediation-filter" in template
     assert "aria-pressed" in template
+    assert 'role="group"' in template
+    assert 'aria-label="Remediation queue filters"' in template
     assert 'role="status"' in template
     assert "domainDetailRemediationFilter" in script
     assert "remediationQueueFilterCount(filter.value)" in template
@@ -1583,10 +1586,21 @@ def test_domain_details_exposes_dns_provider_repair_context_without_html_injecti
     assert "item.provider_repair_plan.pre_apply_checks" in template
     assert "item.provider_repair_plan.post_apply_checks" in template
     assert "item.provider_repair_plan.operator_warning" in template
+    assert "Apply confirmation" in template
+    assert "Attempt history" in template
+    assert "remediationQueue.summary.provider_apply_verified" in template
+    assert "remediationQueue.summary.provider_apply_attempts" in template
     assert "providerRepairPlanHasChecks" in script
     assert "plan?.kind !== 'dns_provider_repair'" in script
+    assert "providerRepairConfirmationText" in script
+    assert "providerRepairAttemptHistoryText" in script
+    assert "providerRepairAttemptEntries" in script
+    assert "formatIsoDate(entry.created_at)" in script
+    assert "provider-attempt-" in template
     assert "{ value: 'provider_checks', label: 'Provider checks' }" in script
     assert "filter === 'provider_checks'" in script
+    assert "{ value: 'provider_history', label: 'Provider history' }" in script
+    assert "filter === 'provider_history'" in script
     assert "remediationQueue.summary.provider_pre_apply_checks" in template
     assert "providerContextStatusLabel" in script
     assert "providerContextSummary" in script
@@ -1632,7 +1646,8 @@ def test_domain_details_exposes_remediation_action_plans_without_html_injection(
     assert "'-dispatch-blocker-' + index" in template
     assert "blocked_reasons[0]" not in template
     assert "Remediation loop" in template
-    assert "remediationLoopStatusLabel" in template
+    assert "remediationLoopStatusLabel(remediationLoopEffectiveStatus(remediationQueue.loop))" in template
+    assert "remediationLoopEffectiveStatus(loop)" in script
     assert "remediationIncidentLabel" in template
     assert "remediationTrackLabel" in template
     assert "visibleRemediationDecisions(item)" in template

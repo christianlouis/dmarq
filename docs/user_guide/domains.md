@@ -166,9 +166,18 @@ before the repair is considered closed. It shows the connected provider,
 operation, record name/type, apply blockers, provider-value prerequisites, and
 manual fallback. It also lists before-apply checks, after-apply evidence
 checks, blast radius, and an operator warning so a preview cannot be mistaken
-for a completed repair. Public API and read-only MCP consumers see the same
-context without preview/apply links and with an explicit read-only approval
-gate.
+for a completed repair. The panel also shows the current apply-confirmation
+state. Ready provider repairs include the confirmation phrase an operator would
+need after reviewing the preview; blocked repairs explain which blockers must
+clear before a live-write confirmation should even be requested. Attempt
+history is shown separately so future provider apply audit entries can be
+reviewed without treating a preview as an apply. Public API and read-only MCP
+consumers see the same context without preview/apply links and with an explicit
+read-only approval gate. Those read-only responses also clear the confirmation
+phrase and mark `apply_confirmation` as blocked so external automation cannot
+mistake advisory context for a live-write affordance.
+When provider apply audit entries exist, the queue summary counts both recorded
+provider apply attempts and entries whose provider readback was verified.
 Each item also shows a notification profile such as approval required, action
 required, investigation required, or summary only. These labels explain how
 DMARQ would route the item into alerting or ticketing workflows; viewing the

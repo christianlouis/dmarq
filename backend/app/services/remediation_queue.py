@@ -542,6 +542,14 @@ def _provider_repair_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
         verification.get("next_check") or "Keep the item open until fresh evidence is available.",
     ]
     post_apply_checks = [str(check) for check in post_apply_checks if str(check)]
+    attempt_history = {
+        "source": "workspace_audit.domain.dns_change_applied",
+        "status": "no_provider_attempt_recorded",
+        "label": "No provider apply attempt recorded",
+        "latest_at": "",
+        "entries": [],
+        "next_step": "After a future approved provider apply, keep the audit trail attached to this remediation item.",
+    }
 
     if source != "dns_lint":
         return {
@@ -565,6 +573,16 @@ def _provider_repair_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
             "approval_gate": "No provider DNS apply gate for this item.",
             "pre_apply_checks": [],
             "post_apply_checks": [],
+            "apply_confirmation": {
+                "required": False,
+                "status": "not_applicable",
+                "label": "No provider apply",
+                "confirm_phrase": "",
+                "operator_prompt": "Provider apply is not available for this remediation item.",
+                "blocked_reasons": [],
+                "next_step": "Review the manual action plan and evidence instead.",
+            },
+            "attempt_history": attempt_history,
             "blast_radius": blast_radius,
             "operator_warning": "Do not change DNS from this item without a matching DNS finding.",
             "next_step": repair.get("next_safe_action")
@@ -593,6 +611,15 @@ def _provider_repair_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
             }
         ]
     apply_blocked = bool(not can_apply or blocked_reasons)
+    record_name = str(automation.get("record_name") or "")
+    record_type = str(automation.get("record_type") or "")
+    confirm_phrase = ""
+    if can_apply and not apply_blocked:
+        confirm_phrase = "APPLY"
+        if record_type:
+            confirm_phrase = f"{confirm_phrase} {record_type}"
+        if record_name:
+            confirm_phrase = f"{confirm_phrase} {record_name}"
 
     return {
         "kind": "dns_provider_repair",
@@ -609,8 +636,8 @@ def _provider_repair_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
         "preview_endpoint": str(automation.get("apply_endpoint") or "") if safe_preview else "",
         "apply_endpoint": str(automation.get("apply_endpoint") or "") if can_apply else "",
         "operation": str(automation.get("operation") or ""),
-        "record_name": str(automation.get("record_name") or ""),
-        "record_type": str(automation.get("record_type") or ""),
+        "record_name": record_name,
+        "record_type": record_type,
         "capability": "provider_preview" if safe_preview else "manual_dns",
         "approval_gate": (
             "Provider apply is available only after explicit operator approval."
@@ -619,6 +646,32 @@ def _provider_repair_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
         ),
         "pre_apply_checks": pre_apply_checks[:5],
         "post_apply_checks": post_apply_checks[:5],
+        "apply_confirmation": {
+            "required": True,
+            "status": (
+                "ready_for_operator_confirmation"
+                if can_apply and not apply_blocked
+                else "blocked"
+            ),
+            "label": (
+                "Operator confirmation required"
+                if can_apply and not apply_blocked
+                else "Confirmation blocked"
+            ),
+            "confirm_phrase": confirm_phrase,
+            "operator_prompt": (
+                "Review the provider preview, complete the before-apply checklist, then type the confirmation phrase before any live write."
+                if can_apply and not apply_blocked
+                else "Resolve provider blockers before asking an operator to confirm a live write."
+            ),
+            "blocked_reasons": blocked_reasons[:6],
+            "next_step": (
+                "Collect explicit operator approval after preview; do not close until the after-apply evidence checks pass."
+                if can_apply and not apply_blocked
+                else "Use the manual fallback or clear the blocked reasons before provider apply."
+            ),
+        },
+        "attempt_history": attempt_history,
         "blast_radius": blast_radius,
         "operator_warning": (
             "Preview does not mean fixed; close only after fresh DNS evidence confirms the change."
@@ -773,6 +826,8 @@ def _remediation_notification_payload(domain: str, item: Dict[str, Any]) -> Dict
     repair_progression = item.get("repair_progression") or {}
     evidence_refresh = item.get("evidence_refresh") or {}
     provider_repair_plan = item.get("provider_repair_plan") or {}
+    apply_confirmation = provider_repair_plan.get("apply_confirmation") or {}
+    attempt_history = provider_repair_plan.get("attempt_history") or {}
     return {
         "schema_version": "dmarq.remediation.notification.v1",
         "domain": domain,
@@ -840,6 +895,35 @@ def _remediation_notification_payload(domain: str, item: Dict[str, Any]) -> Dict
             "post_apply_checks": [
                 str(check) for check in provider_repair_plan.get("post_apply_checks", [])
             ][:5],
+            "apply_confirmation": {
+                "required": bool(apply_confirmation.get("required")),
+                "status": str(apply_confirmation.get("status") or ""),
+                "label": str(apply_confirmation.get("label") or ""),
+                "confirm_phrase": str(apply_confirmation.get("confirm_phrase") or ""),
+                "operator_prompt": str(apply_confirmation.get("operator_prompt") or ""),
+                "blocked_reasons": [
+                    str(reason)
+                    for reason in apply_confirmation.get("blocked_reasons", [])
+                ][:6],
+                "next_step": str(apply_confirmation.get("next_step") or ""),
+            },
+            "attempt_history": {
+                "source": str(attempt_history.get("source") or ""),
+                "status": str(attempt_history.get("status") or ""),
+                "label": str(attempt_history.get("label") or ""),
+                "latest_at": str(attempt_history.get("latest_at") or ""),
+                "entries": [
+                    {
+                        "state": str(entry.get("state") or ""),
+                        "label": str(entry.get("label") or ""),
+                        "created_at": str(entry.get("created_at") or ""),
+                        "detail": str(entry.get("detail") or ""),
+                    }
+                    for entry in attempt_history.get("entries", [])
+                    if isinstance(entry, dict)
+                ][:5],
+                "next_step": str(attempt_history.get("next_step") or ""),
+            },
             "blast_radius": str(provider_repair_plan.get("blast_radius") or ""),
             "operator_warning": str(provider_repair_plan.get("operator_warning") or ""),
             "next_step": str(provider_repair_plan.get("next_step") or ""),

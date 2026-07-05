@@ -94,6 +94,8 @@ function domainDetailsApp(domainId = '') {
                 provider_manual_fallback: 0,
                 provider_pre_apply_checks: 0,
                 provider_post_apply_checks: 0,
+                provider_apply_attempts: 0,
+                provider_apply_verified: 0,
                 evidence_refresh_required: 0,
                 evidence_refresh_dns: 0,
                 evidence_refresh_reports: 0,
@@ -131,6 +133,7 @@ function domainDetailsApp(domainId = '') {
             { value: 'preview_ready', label: 'Preview ready' },
             { value: 'provider_apply', label: 'Provider apply' },
             { value: 'provider_checks', label: 'Provider checks' },
+            { value: 'provider_history', label: 'Provider history' },
             { value: 'apply_blocked', label: 'Apply blocked' },
             { value: 'blocked', label: 'Blocked' },
             { value: 'needs_evidence', label: 'Needs evidence' },
@@ -1220,6 +1223,13 @@ function domainDetailsApp(domainId = '') {
             }[status] || 'Needs review';
         },
 
+        remediationLoopEffectiveStatus(loop) {
+            if (!loop) return '';
+            const status = String(loop.status || '');
+            const loopStatus = String(loop.loop_status || '');
+            return status === 'needs_attention' && loopStatus ? loopStatus : (status || loopStatus);
+        },
+
         humanizeToken(value) {
             return String(value || '')
                 .split('_')
@@ -1372,6 +1382,41 @@ function domainDetailsApp(domainId = '') {
                 (plan?.pre_apply_checks || []).length ||
                 (plan?.post_apply_checks || []).length
             );
+        },
+
+        providerRepairConfirmationText(plan) {
+            const confirmation = plan?.apply_confirmation || {};
+            if (!confirmation.required) return 'No live provider apply confirmation is available for this item.';
+            if (confirmation.status === 'ready_for_operator_confirmation') {
+                const phrase = confirmation.confirm_phrase ? ` Confirmation phrase: ${confirmation.confirm_phrase}.` : '';
+                return `${confirmation.operator_prompt || 'Operator confirmation is required before live provider apply.'}${phrase}`;
+            }
+            return confirmation.operator_prompt || confirmation.next_step || 'Provider apply confirmation is blocked.';
+        },
+
+        providerRepairAttemptHistoryText(plan) {
+            const history = plan?.attempt_history || {};
+            if ((history.entries || []).length) {
+                return history.label || 'Provider repair attempt history available';
+            }
+            return history.label || 'No provider apply attempt recorded';
+        },
+
+        providerRepairAttemptEntries(plan) {
+            const entries = plan?.attempt_history?.entries || [];
+            return entries.slice(0, 3).map(entry => {
+                const record = [entry.record_type, entry.record_name].filter(Boolean).join(' ');
+                const provider = entry.provider || 'provider';
+                const status = entry.verification_status || entry.state || 'recorded';
+                const createdAt = this.formatIsoDate(entry.created_at);
+                return {
+                    label: [entry.label || this.humanizeToken(entry.state || 'recorded'), provider, record]
+                        .filter(Boolean)
+                        .join(' - '),
+                    meta: [createdAt, status].filter(Boolean).join(' - '),
+                    detail: entry.detail || '',
+                };
+            });
         },
 
         verifiedFreshnessClass(verified) {
@@ -1564,6 +1609,9 @@ function domainDetailsApp(domainId = '') {
             }
             if (filter === 'provider_checks') {
                 return this.providerRepairPlanHasChecks(item.provider_repair_plan);
+            }
+            if (filter === 'provider_history') {
+                return (item.provider_repair_plan?.attempt_history?.entries || []).length > 0;
             }
             if (filter === 'apply_blocked') {
                 return Boolean(item.provider_repair_plan?.apply_blocked);
@@ -2261,6 +2309,8 @@ function domainDetailsApp(domainId = '') {
                     provider_manual_fallback: 0,
                     provider_pre_apply_checks: 0,
                     provider_post_apply_checks: 0,
+                    provider_apply_attempts: 0,
+                    provider_apply_verified: 0,
                     evidence_refresh_required: 0,
                     evidence_refresh_dns: 0,
                     evidence_refresh_reports: 0,

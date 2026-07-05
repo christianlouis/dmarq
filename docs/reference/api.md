@@ -824,10 +824,19 @@ post-change closure verification. Clients can show `safe_preview_available`,
 The object also includes `approval_gate`, `pre_apply_checks`,
 `post_apply_checks`, `blast_radius`, and `operator_warning` so clients can
 render the human review and evidence gates before any apply request exists.
+`apply_confirmation` describes the live-write confirmation status, confirmation
+phrase, operator prompt, blockers, and next step. `attempt_history` is the
+read-only audit slot for provider apply attempts; current read-only queues
+return an empty history when no approved apply has been recorded.
+Queue summaries include `provider_apply_attempts` and
+`provider_apply_verified` when provider apply audit history is attached.
 Read-only public API and MCP responses keep this context but remove
 `preview_endpoint` and `apply_endpoint`, set `can_apply_after_approval=false`,
 add `public_read_only_response` as an apply blocker, and label the approval
-gate as read-only.
+gate as read-only. They also clear `apply_confirmation.confirm_phrase`, set
+`apply_confirmation.status=read_only_blocked`, and include
+`public_read_only_response` in the confirmation blockers so external
+automation cannot reuse a live-write phrase from a read-only response.
 Each item also includes an `evidence_refresh` object. It tells clients which
 fresh evidence source is needed before closure (`dns`, `dmarc_reports`,
 `dmarc_reports_and_sources`, `source_reputation`, or `mail_provider`), whether

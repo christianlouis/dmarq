@@ -305,6 +305,8 @@ def test_attach_remediation_dispatch_previews_skips_empty_queues(monkeypatch):
         "dispatch_verified_fixed": 0,
         "dispatch_verified_fixed_visible": 0,
         "dispatch_verified_fixed_hidden": 0,
+        "provider_apply_attempts": 0,
+        "provider_apply_verified": 0,
     }
     assert result["verified_items"] == []
     assert result["verified_items_total"] == 0
@@ -609,6 +611,172 @@ def test_notification_histories_return_sanitized_recent_audit_events(db_session)
     assert history[1]["state"] == "acknowledged"
     assert history[1]["label"] == "Marked acknowledged"
     assert history[1]["operator_note"] == "Reviewed with DNS owner"
+
+
+def test_attach_remediation_dispatch_previews_adds_provider_apply_history(db_session):
+    workspace = get_or_create_default_workspace(db_session)
+    db_session.add(
+        WorkspaceAuditLog(
+            workspace_id=workspace.id,
+            actor_type="user",
+            actor_id="operator-1",
+            action="domain.dns_change_applied",
+            entity_type="domain",
+            entity_name="Example.COM.",
+            details=json.dumps(
+                {
+                    "provider": "cloudflare",
+                    "plan_id": "dmarc-missing",
+                    "applied": True,
+                    "mutation": {
+                        "provider": "cloudflare",
+                        "record_type": "TXT",
+                        "name": "_dmarc.example.com",
+                    },
+                    "verification": {
+                        "status": "verified",
+                        "verified": True,
+                    },
+                }
+            ),
+            created_at=datetime(2026, 7, 1, 9, 0, 0),
+        )
+    )
+    db_session.add(
+        WorkspaceAuditLog(
+            workspace_id=workspace.id,
+            actor_type="user",
+            actor_id="operator-1",
+            action="domain.dns_change_applied",
+            entity_type="domain",
+            entity_name="Example.COM.",
+            details=json.dumps(
+                {
+                    "provider": "cloudflare",
+                    "plan_id": "dmarc-missing",
+                    "applied": False,
+                    "mutation": {
+                        "provider": "cloudflare",
+                        "record_type": "TXT",
+                        "name": "_dmarc.example.com",
+                    },
+                    "verification": {
+                        "status": "verified",
+                        "verified": True,
+                    },
+                }
+            ),
+            created_at=datetime(2026, 7, 1, 10, 0, 0),
+        )
+    )
+    db_session.commit()
+
+    queue = {
+        "domain": "example.com",
+        "summary": {},
+        "items": [
+            {
+                "id": "dns:dmarc-missing",
+                "notification": {
+                    "event": EVENT_REMEDIATION_APPROVAL_REQUIRED,
+                    "payload_preview": {
+                        "provider_repair_plan": {
+                            "attempt_history": {"status": "stale_before_attach"}
+                        }
+                    },
+                },
+                "provider_repair_plan": {
+                    "kind": "dns_provider_repair",
+                    "plan_id": "dmarc-missing",
+                    "attempt_history": {"status": "no_provider_attempt_recorded"},
+                },
+            }
+        ],
+    }
+
+    result = remediation_dispatch.attach_remediation_dispatch_previews(
+        db_session,
+        workspace=workspace,
+        queue=queue,
+    )
+
+    history = result["items"][0]["provider_repair_plan"]["attempt_history"]
+    assert history["status"] == "apply_recorded"
+    assert history["label"] == "Provider apply recorded"
+    assert history["entries"][0]["provider"] == "cloudflare"
+    assert history["entries"][0]["record_name"] == "_dmarc.example.com"
+    assert history["entries"][0]["verification_status"] == "verified"
+    assert history["entries"][0]["state"] == "apply_recorded"
+    assert history["entries"][1]["state"] == "verified_after_apply"
+    assert "actor_id" not in history["entries"][0]
+    preview_history = result["items"][0]["notification"]["payload_preview"][
+        "provider_repair_plan"
+    ]["attempt_history"]
+    assert preview_history["status"] == "apply_recorded"
+    assert preview_history["entries"][0]["state"] == "apply_recorded"
+    assert result["summary"]["provider_apply_attempts"] == 2
+    assert result["summary"]["provider_apply_verified"] == 1
+
+
+def test_provider_repair_attempt_entry_handles_missing_plan_and_unverified_apply():
+    missing_plan = WorkspaceAuditLog(
+        workspace_id=1,
+        actor_type="user",
+        action="domain.dns_change_applied",
+        entity_type="domain",
+        entity_name="example.com",
+        details=json.dumps({"applied": True}),
+        created_at=datetime(2026, 7, 1, 9, 0, 0),
+    )
+    assert remediation_dispatch._provider_repair_attempt_entry(missing_plan) is None
+
+    unverified_apply = WorkspaceAuditLog(
+        workspace_id=1,
+        actor_type="user",
+        action="domain.dns_change_applied",
+        entity_type="domain",
+        entity_name="example.com",
+        details=json.dumps(
+            {
+                "provider": "cloudflare",
+                "plan_id": "dmarc-missing",
+                "applied": True,
+                "verification": {"status": "pending", "verified": False},
+            }
+        ),
+        created_at=datetime(2026, 7, 1, 9, 5, 0),
+    )
+
+    entry = remediation_dispatch._provider_repair_attempt_entry(unverified_apply)
+
+    assert entry is not None
+    assert entry["state"] == "apply_needs_verification"
+    assert entry["label"] == "Provider apply recorded"
+    assert entry["detail"].startswith("Provider apply was recorded")
+
+    no_apply = WorkspaceAuditLog(
+        workspace_id=1,
+        actor_type="user",
+        action="domain.dns_change_applied",
+        entity_type="domain",
+        entity_name="example.com",
+        details=json.dumps(
+            {
+                "provider": "cloudflare",
+                "plan_id": "dmarc-missing",
+                "applied": False,
+                "verification": {"status": "failed", "verified": False},
+            }
+        ),
+        created_at=datetime(2026, 7, 1, 9, 10, 0),
+    )
+
+    no_apply_entry = remediation_dispatch._provider_repair_attempt_entry(no_apply)
+
+    assert no_apply_entry is not None
+    assert no_apply_entry["state"] == "apply_not_recorded"
+    assert no_apply_entry["label"] == "Provider apply not recorded"
+    assert no_apply_entry["detail"].startswith("Provider apply was not recorded")
 
 
 def test_summarize_remediation_activity_handles_empty_domain_inputs(db_session):
