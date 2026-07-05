@@ -91,16 +91,17 @@ through the `/public` path and avoid UI-specific payloads.
 
 ### SCIM Provisioning
 
-SCIM endpoints live under `/api/v1/scim/v2` and require a workspace-scoped API
-token. Use `scim:read` for directory inspection and `scim:write` for
-provisioning, role mapping, activation, and deactivation. DMARQ stores the SCIM
-`externalId` as the local external identity link and maps SCIM groups such as
-`workspace_owner`, `operator`, `analyst`, and `auditor` to workspace roles.
-Organization role groups can be prefixed with `org:`.
+SCIM user endpoints live under `/api/v1/scim/v2` and require a workspace-scoped
+API token passed in the `X-API-Key` header. Use `scim:read` for directory
+inspection and `scim:write` for provisioning, role mapping, activation, and
+deactivation. DMARQ stores the SCIM `externalId` as the local external identity
+link and maps SCIM groups such as `workspace_owner`, `operator`, `analyst`, and
+`auditor` to workspace roles. Organization role groups can be prefixed with
+`org:`.
 
 | Endpoint | Required scope | Purpose |
 | --- | --- | --- |
-| `GET /scim/v2/ServiceProviderConfig` | none | Supported SCIM feature profile |
+| `GET /scim/v2/ServiceProviderConfig` | none | Public SCIM feature and authentication profile |
 | `GET /scim/v2/Users` | `scim:read` or `scim:write` | List users in the token workspace |
 | `POST /scim/v2/Users` | `scim:write` | Create or upsert a user and role membership |
 | `GET /scim/v2/Users/{id}` | `scim:read` or `scim:write` | Read one workspace-scoped user |

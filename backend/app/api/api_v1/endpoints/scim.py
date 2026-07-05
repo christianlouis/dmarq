@@ -17,7 +17,6 @@ from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceMembership
 from app.services.api_tokens import SCIM_READ_SCOPE, SCIM_WRITE_SCOPE
 from app.services.workspace_audit import record_workspace_audit_log
-from app.services.workspaces import assign_default_workspace_to_unscoped_rows
 
 router = APIRouter()
 
@@ -100,7 +99,10 @@ class ScimPatchRequest(BaseModel):
 def _workspace_for_token(db: Session, auth_context: Dict[str, Any]) -> Workspace:
     workspace_id = (auth_context or {}).get("workspace_id")
     if workspace_id is None:
-        return assign_default_workspace_to_unscoped_rows(db)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="SCIM token must be bound to a workspace",
+        )
     try:
         workspace_id = int(workspace_id)
     except (TypeError, ValueError) as exc:
@@ -210,7 +212,7 @@ def _upsert_memberships(
         membership.role = workspace_role
         membership.active = active
 
-    if workspace.organization_id is None:
+    if workspace.organization_id is None or organization_role is None:
         return
     organization_membership = (
         db.query(OrganizationMembership)
@@ -220,18 +222,17 @@ def _upsert_memberships(
         )
         .first()
     )
-    org_role = organization_role or workspace_role
     if organization_membership is None:
         db.add(
             OrganizationMembership(
                 organization_id=workspace.organization_id,
                 user_id=user.id,
-                role=org_role,
+                role=organization_role,
                 active=active,
             )
         )
     else:
-        organization_membership.role = org_role
+        organization_membership.role = organization_role
         organization_membership.active = active
 
 
@@ -289,9 +290,10 @@ def _upsert_scim_user(
     payload: ScimUserWrite,
     request: Request,
     auth_context: Dict[str, Any],
+    existing_user: Optional[User] = None,
 ) -> User:
     email = _primary_email(payload)
-    user = _find_user(db, payload=payload)
+    user = existing_user or _find_user(db, payload=payload)
     created = user is None
     if user is None:
         user = User(email=email, is_superuser=False)
@@ -344,6 +346,31 @@ def _upsert_scim_user(
     return user
 
 
+def _validate_replace_targets_user(db: Session, *, existing: User, payload: ScimUserWrite) -> None:
+    external_id = (payload.externalId or "").strip()
+    email = _primary_email(payload)
+    if external_id and existing.logto_id and external_id != existing.logto_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="SCIM payload externalId does not match the requested user",
+        )
+    if external_id:
+        conflicting_external = (
+            db.query(User).filter(User.logto_id == external_id, User.id != existing.id).first()
+        )
+        if conflicting_external is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="SCIM externalId belongs to a different user",
+            )
+    conflicting_email = db.query(User).filter(User.email == email, User.id != existing.id).first()
+    if conflicting_email is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="SCIM email belongs to a different user",
+        )
+
+
 def _user_or_404(db: Session, user_id: int, workspace: Workspace) -> User:
     membership = (
         db.query(WorkspaceMembership)
@@ -373,7 +400,13 @@ async def service_provider_config():
         "changePassword": {"supported": False},
         "sort": {"supported": False},
         "etag": {"supported": False},
-        "authenticationSchemes": [{"type": "oauthbearertoken", "name": "API token"}],
+        "authenticationSchemes": [
+            {
+                "type": "apikey",
+                "name": "X-API-Key",
+                "description": "Workspace-scoped DMARQ API token passed in the X-API-Key header.",
+            }
+        ],
     }
 
 
@@ -439,10 +472,14 @@ async def replace_scim_user(
     """Replace a SCIM user and membership role mapping."""
     workspace = _workspace_for_token(db, _auth)
     existing = _user_or_404(db, user_id, workspace)
-    if payload.externalId is None:
-        payload.externalId = existing.logto_id
+    _validate_replace_targets_user(db, existing=existing, payload=payload)
     user = _upsert_scim_user(
-        db, workspace=workspace, payload=payload, request=request, auth_context=_auth
+        db,
+        workspace=workspace,
+        payload=payload,
+        request=request,
+        auth_context=_auth,
+        existing_user=existing,
     )
     return _scim_user_to_dict(user, workspace)
 

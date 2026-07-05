@@ -14,14 +14,19 @@ from app.services.api_tokens import (
 from app.services.workspaces import get_or_create_default_workspace
 
 
-def _scim_token(db_session, *, scopes=None, workspace_id=None):
+def _scim_token(db_session, *, scopes=None, workspace_id=None, global_token=False):
     workspace = get_or_create_default_workspace(db_session)
+    if global_token:
+        token_workspace_id = None
+    else:
+        token_workspace_id = workspace_id if workspace_id is not None else workspace.id
     return create_api_token(
         db_session,
         name="scim",
         scopes=scopes or [SCIM_WRITE_SCOPE],
-        workspace_id=workspace_id if workspace_id is not None else workspace.id,
+        workspace_id=token_workspace_id,
         allowed_scopes=ALL_API_TOKEN_SCOPES,
+        global_token=global_token,
     )
 
 
@@ -137,3 +142,101 @@ def test_scim_token_is_workspace_scoped(client: TestClient, db_session):
 
     assert first_list.json()["totalResults"] == 1
     assert second_list.json()["totalResults"] == 0
+
+
+def test_scim_rejects_unscoped_api_token(client: TestClient, db_session):
+    """SCIM requires an explicit workspace binding instead of migrating legacy rows."""
+    token = _scim_token(db_session, workspace_id=None, global_token=True)
+
+    response = client.get("/api/v1/scim/v2/Users", headers={"X-API-Key": token.secret})
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "SCIM token must be bound to a workspace"
+
+
+def test_scim_workspace_role_does_not_create_organization_membership(
+    client: TestClient, db_session
+):
+    """Workspace roles must not be written into organization membership rows."""
+    organization = Organization(slug="scim-org-role", name="SCIM Org Role")
+    db_session.add(organization)
+    db_session.flush()
+    workspace = get_or_create_default_workspace(db_session)
+    workspace.organization_id = organization.id
+    db_session.commit()
+    token = _scim_token(db_session, workspace_id=workspace.id)
+
+    response = client.post(
+        "/api/v1/scim/v2/Users",
+        headers={"X-API-Key": token.secret},
+        json={"userName": "workspace-role@example.com", "groups": [{"display": "operator"}]},
+    )
+
+    assert response.status_code == 201
+    user = db_session.query(User).filter(User.email == "workspace-role@example.com").one()
+    assert db_session.query(OrganizationMembership).filter_by(user_id=user.id).first() is None
+
+
+def test_scim_explicit_org_role_creates_organization_membership(
+    client: TestClient, db_session
+):
+    """Only explicit SCIM org role groups write organization membership rows."""
+    organization = Organization(slug="scim-explicit-org", name="SCIM Explicit Org")
+    db_session.add(organization)
+    db_session.flush()
+    workspace = get_or_create_default_workspace(db_session)
+    workspace.organization_id = organization.id
+    db_session.commit()
+    token = _scim_token(db_session, workspace_id=workspace.id)
+
+    response = client.post(
+        "/api/v1/scim/v2/Users",
+        headers={"X-API-Key": token.secret},
+        json={
+            "userName": "org-role@example.com",
+            "groups": [{"display": "operator"}, {"display": "org:billing_admin"}],
+        },
+    )
+
+    assert response.status_code == 201
+    user = db_session.query(User).filter(User.email == "org-role@example.com").one()
+    org_membership = db_session.query(OrganizationMembership).filter_by(user_id=user.id).one()
+    assert org_membership.role == "billing_admin"
+
+
+def test_scim_replace_rejects_payload_for_different_user(client: TestClient, db_session):
+    """PUT /Users/{id} must not update a user selected by payload identifiers."""
+    token = _scim_token(db_session)
+    first = client.post(
+        "/api/v1/scim/v2/Users",
+        headers={"X-API-Key": token.secret},
+        json={"userName": "path-user@example.com", "externalId": "path-user"},
+    )
+    second = client.post(
+        "/api/v1/scim/v2/Users",
+        headers={"X-API-Key": token.secret},
+        json={"userName": "payload-user@example.com", "externalId": "payload-user"},
+    )
+
+    response = client.put(
+        f"/api/v1/scim/v2/Users/{first.json()['id']}",
+        headers={"X-API-Key": token.secret},
+        json={
+            "userName": "payload-user@example.com",
+            "externalId": "payload-user",
+            "active": True,
+        },
+    )
+
+    assert second.status_code == 201
+    assert response.status_code == 409
+
+
+def test_scim_service_provider_config_documents_api_key_auth(client: TestClient):
+    """The SCIM discovery metadata reflects the X-API-Key authentication contract."""
+    response = client.get("/api/v1/scim/v2/ServiceProviderConfig")
+
+    assert response.status_code == 200
+    auth_scheme = response.json()["authenticationSchemes"][0]
+    assert auth_scheme["type"] == "apikey"
+    assert auth_scheme["name"] == "X-API-Key"

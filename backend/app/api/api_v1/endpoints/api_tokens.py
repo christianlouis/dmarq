@@ -127,7 +127,7 @@ async def create_public_api_token(
     _auth: dict = Depends(require_admin_auth),
     selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ):
-    """Create a scoped API token for read-only automation."""
+    """Create a scoped API token for workspace automation."""
     workspace = _authorized_api_token_workspace(
         _auth,
         db,
