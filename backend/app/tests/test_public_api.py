@@ -9,6 +9,7 @@ from app.core.security import require_api_token_any_scope
 from app.models.alert import AlertHistory
 from app.models.api_token import APIToken
 from app.models.domain import Domain
+from app.models.health_score_snapshot import HealthScoreSnapshot
 from app.models.mail_source import MailSource
 from app.models.mail_source_import import MailSourceImport
 from app.models.organization import BillingAccount, Organization
@@ -89,6 +90,43 @@ def _persist_report(db_session):
 def _persist_failing_report(db_session, report=None, *, workspace_id=None):
     save_parsed_report(db_session, report or FAILING_REPORT, workspace_id=workspace_id)
     db_session.commit()
+
+
+def _stub_current_posture(monkeypatch):
+    async def fake_dns_health(db, store, domain_id, refresh=False):
+        return domains_endpoint.DNSHealthResponse(
+            status="healthy",
+            policy="reject",
+            compliance_rate=98,
+            total_emails=1000,
+            failed_emails=20,
+            checks=[],
+            recommendations=[],
+        )
+
+    async def fake_domain_grade(db, domain_id, store, refresh=False):
+        return {
+            "domain": domain_id,
+            "score": 96,
+            "grade": "A",
+            "status": "healthy",
+            "factors": {
+                "dns_posture": 100,
+                "policy_strength": 100,
+                "report_confidence": 90,
+            },
+            "actions": [
+                {
+                    "type": "monitoring",
+                    "severity": "low",
+                    "title": "Keep monitoring",
+                    "score_impact": 1,
+                }
+            ],
+        }
+
+    monkeypatch.setattr(domains_endpoint, "_build_domain_dns_health", fake_dns_health)
+    monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_domain_grade)
 
 
 def _sample_remediation_queue(domain=DOMAIN):
@@ -490,6 +528,27 @@ def test_public_api_rejects_token_without_required_scope(client: TestClient, db_
 
     assert response.status_code == 403
     assert response.json()["detail"] == f"API token requires scope: {READ_POSTURE_SCOPE}"
+
+
+def test_public_posture_endpoint_does_not_write_health_snapshots(
+    client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    """Stable public posture reads must not mutate health history."""
+    _persist_report(db_session)
+    _stub_current_posture(monkeypatch)
+    created = create_api_token(db_session, name="posture bot", scopes=[READ_POSTURE_SCOPE])
+    before = db_session.query(HealthScoreSnapshot).count()
+
+    response = client.get(
+        f"/api/v1/public/domains/{DOMAIN}/posture?refresh=true",
+        headers={"X-API-Key": created.secret},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["health"]["score"] == 96
+    assert db_session.query(HealthScoreSnapshot).count() == before
 
 
 def test_public_action_proposals_use_posture_scope(client: TestClient, db_session):

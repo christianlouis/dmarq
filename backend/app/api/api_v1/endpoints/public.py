@@ -74,11 +74,13 @@ async def public_domain_posture(
     _auth: dict = Depends(require_api_token_scope(READ_POSTURE_SCOPE)),
 ):
     """Return the stable evidence-first posture payload for one domain."""
-    return await domains.get_domain_posture_dashboard(
+    workspace = resolve_authorized_workspace(db, _auth, PERMISSION_REPORTS_READ)
+    return await domains._build_domain_posture_dashboard_for_workspace(
+        db,
+        workspace=workspace,
         domain_id=domain_id,
         refresh=refresh,
-        db=db,
-        _auth=_auth,
+        capture_snapshot=False,
     )
 
 

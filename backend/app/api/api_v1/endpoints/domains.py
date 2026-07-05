@@ -5111,6 +5111,24 @@ async def get_domain_posture_dashboard(
 ):
     """Return an evidence-first posture dashboard for a monitored domain."""
     workspace = _authorized_domain_read_workspace(_auth, db)
+    return await _build_domain_posture_dashboard_for_workspace(
+        db,
+        workspace=workspace,
+        domain_id=domain_id,
+        refresh=refresh,
+        capture_snapshot=not get_settings().DEMO_MODE,
+    )
+
+
+async def _build_domain_posture_dashboard_for_workspace(
+    db: Session,
+    *,
+    workspace: Workspace,
+    domain_id: str,
+    refresh: bool = False,
+    capture_snapshot: bool = True,
+) -> PostureDashboardResponse:
+    """Build a posture dashboard, optionally persisting the current health snapshot."""
     store = ReportStore.get_instance()
     hydrate_report_store_from_db(db, store)
     if not _domain_exists(db, store, domain_id, workspace):
@@ -5127,7 +5145,7 @@ async def get_domain_posture_dashboard(
         refresh=refresh,
     )
     summary = store.get_domain_summary(domain_id)
-    if not get_settings().DEMO_MODE:
+    if capture_snapshot:
         _record_health_snapshot_from_posture(
             db,
             workspace_id=workspace.id,
