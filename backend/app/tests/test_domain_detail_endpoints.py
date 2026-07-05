@@ -384,6 +384,23 @@ def test_export_domain_reports_returns_csv(seeded_client: TestClient):
     assert rows[0]["generator"] == "ExampleRUA 2.0"
 
 
+def test_export_domain_reports_accepts_numeric_domain_id(
+    seeded_client: TestClient,
+    db_session,
+):
+    """CSV export resolves numeric path IDs to the canonical domain name."""
+    domain = db_session.query(Domain).filter(Domain.name == DOMAIN).one()
+
+    response = seeded_client.get(f"/api/v1/domains/{domain.id}/reports/export")
+
+    assert response.status_code == 200
+    assert f'filename="{DOMAIN}-dmarc-reports.csv"' in response.headers["content-disposition"]
+    rows = list(csv.DictReader(StringIO(response.text)))
+    assert len(rows) == 1
+    assert rows[0]["domain"] == DOMAIN
+    assert rows[0]["report_id"] == "rpt-dict-policy"
+
+
 def test_export_domain_reports_filters_by_date_range(authed_client: TestClient):
     """CSV export only includes reports inside the requested date range."""
     ReportStore.get_instance().add_report(REPORT_DICT_POLICY)
