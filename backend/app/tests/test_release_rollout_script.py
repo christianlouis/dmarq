@@ -91,3 +91,16 @@ def test_release_workflow_skips_gitops_for_stale_main_runs():
         'if [ "${{ github.event_name }}" != "push" ] || '
         '[ "${{ github.ref }}" != "refs/heads/main" ]; then'
     ) in workflow
+
+
+def test_release_workflow_dispatches_gitops_deploy_after_release():
+    """Semantic-release commits must trigger the deploy workflow explicitly."""
+    workflow = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+
+    assert "actions: write" in workflow
+    assert "id: semantic" in workflow
+    assert "steps.semantic.outputs.released == 'true'" in workflow
+    assert "gh workflow run ci.yml" in workflow
+    assert 'release_ref="${RELEASE_TAG}"' in workflow
+    assert 'release_tag="${RELEASE_TAG}"' in workflow
+    assert "-f deploy_gitops=true" in workflow

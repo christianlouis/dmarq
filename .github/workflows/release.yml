@@ -10,6 +10,7 @@ jobs:
     name: Semantic Release
     runs-on: ubuntu-latest
     permissions:
+      actions: write
       contents: write
       id-token: write
 
@@ -25,6 +26,7 @@ jobs:
           python-version: "3.13"
 
       - name: Semantic Release
+        id: semantic
         uses: python-semantic-release/python-semantic-release@v10
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -33,3 +35,16 @@ jobs:
           tag: true
           push: true
           vcs_release: true
+
+      - name: Deploy released version through CI GitOps gate
+        if: steps.semantic.outputs.released == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.semantic.outputs.tag }}
+        run: |
+          gh workflow run ci.yml \
+            --ref main \
+            -f release_ref="${RELEASE_TAG}" \
+            -f release_tag="${RELEASE_TAG}" \
+            -f promote_stable=true \
+            -f deploy_gitops=true
