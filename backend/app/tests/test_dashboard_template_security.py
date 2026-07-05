@@ -329,6 +329,7 @@ def test_dashboard_remediation_loop_uses_resolved_language():
 
 def test_dashboard_remediation_cards_show_owner_and_completion_context():
     template = _dashboard_template()
+    script = _dashboard_script()
 
     assert "Owner" in template
     assert "Done when" in template
@@ -336,6 +337,12 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert 'x-text="item.owner"' in template
     assert 'x-text="item.completion_criteria"' in template
     assert 'x-text="item.verification_next_check"' in template
+    assert "remediationTrackLabel(item.remediation_track)" in template
+    assert "remediationRiskClass(item.risk_level)" in template
+    assert "item.priority_band || 'watch'" in template
+    assert "item.operator_decision_summary" in template
+    assert "remediationRiskClass(risk)" in script
+    assert "remediationTrackLabel(track)" in script
 
 
 def test_domain_details_remediation_queue_shows_verification_context():

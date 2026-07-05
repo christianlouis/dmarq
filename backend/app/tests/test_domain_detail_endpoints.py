@@ -862,6 +862,50 @@ def test_domain_remediation_queue_groups_dns_and_health_actions(
     ]
 
 
+def test_dashboard_remediation_loop_exposes_operator_decision_context():
+    """Workspace dashboard remediation cards use the same operator language as detail queues."""
+    loop = domains_endpoint._build_dashboard_remediation_loop(
+        [
+            {
+                "domain_name": "example.com",
+                "health": {
+                    "actions": [
+                        {
+                            "type": "missing_dmarc",
+                            "severity": "high",
+                            "title": "Publish DMARC",
+                            "detail": "No DMARC policy was found.",
+                            "next_step": "Publish a DMARC TXT record.",
+                            "score_impact": 30,
+                        },
+                        {
+                            "type": "source_reputation_review",
+                            "severity": "high",
+                            "title": "Review suspicious source",
+                            "detail": "A sending IP needs review.",
+                            "next_step": "Open source intelligence.",
+                            "score_impact": 10,
+                        },
+                    ]
+                },
+            }
+        ],
+        {"summary": {"resolved": 2, "verified_fixed": 1}},
+    )
+
+    assert loop["resolved"] == 2
+    assert loop["verified_fixed"] == 1
+    assert loop["track_provider_preview"] == 1
+    assert loop["track_reputation_review"] == 1
+    assert loop["items"][0]["priority_band"] == "high"
+    assert loop["items"][0]["safe_to_automate"] is True
+    assert loop["items"][0]["risk_level"] == "medium"
+    assert "Preview the exact DNS" in loop["items"][0]["operator_decision_summary"]
+    assert loop["items"][1]["remediation_track"] == "reputation_review"
+    assert loop["items"][1]["risk_level"] == "high"
+    assert loop["items"][1]["safe_to_automate"] is False
+
+
 def test_domain_remediation_dispatch_preview_becomes_eligible_without_enqueuing(
     seeded_client: TestClient,
     db_session,

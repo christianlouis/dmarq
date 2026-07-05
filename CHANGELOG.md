@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dashboard and domain detail pages now expose more actionable remediation context around DNS, DMARC, source authentication, and ownership state.
 - Remediation queues now expose incident families, loop state, priority scores, operator decisions, and provider/self-hosted/manual tracks across the domain detail UI, public API, and MCP.
 - Domain remediation cards now explain the verification method, freshness requirement, failure mode, and operator decision summary before an item can be treated as fixed.
+- Dashboard remediation cards now use the same priority-band, remediation-track, risk, and operator-decision language as the domain detail queue.
 - Reorganized repository: moved development docs (`AGENTS.md`, `ROADMAP.md`, `ISSUE_GENERATION_SUMMARY.md`, `generated_issues/`) into `docs/`
 - Added root-level `CHANGELOG.md` and `TODO.md`
 - Cleaned up root directory for clarity

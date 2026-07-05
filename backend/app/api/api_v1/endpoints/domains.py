@@ -1810,6 +1810,13 @@ REMEDIATION_STATE_PRIORITY = {
     "manual_action": 30,
     "investigate": 20,
 }
+REMEDIATION_TRACKS = {
+    "provider_preview",
+    "manual_dns",
+    "sender_investigation",
+    "reputation_review",
+    "self_hosted_or_provider",
+}
 
 
 def _remediation_loop_state(action: Dict[str, Any]) -> str:
@@ -1908,6 +1915,17 @@ def _remediation_priority_score(state: str, action: Dict[str, Any]) -> int:
     return severity + state_priority + min(impact, 50)
 
 
+def _remediation_priority_band(state: str, action: Dict[str, Any]) -> str:
+    score = _remediation_priority_score(state, action)
+    if score >= 400:
+        return "urgent"
+    if score >= 300:
+        return "high"
+    if score >= 200:
+        return "normal"
+    return "watch"
+
+
 def _remediation_operator_decisions(state: str) -> List[str]:
     defaults = ["previewed", "acknowledged", "snoozed", "resolved", "rejected"]
     if state == "needs_approval":
@@ -1915,6 +1933,27 @@ def _remediation_operator_decisions(state: str) -> List[str]:
     if state == "investigate":
         return ["mark_legitimate", "mark_unknown", "convert_to_manual_action", *defaults]
     return defaults
+
+
+def _remediation_risk_level(state: str, action: Dict[str, Any]) -> str:
+    if state == "investigate":
+        return "high"
+    severity = str(action.get("severity") or "info")
+    if state == "needs_approval" or severity in {"critical", "high"}:
+        return "medium"
+    return "low"
+
+
+def _remediation_safe_to_automate(state: str) -> bool:
+    return state == "needs_approval"
+
+
+def _remediation_operator_decision_summary(state: str) -> str:
+    if state == "needs_approval":
+        return "Preview the exact DNS or policy change, then explicitly approve or reject it."
+    if state == "investigate":
+        return "Classify the sender or reputation finding before changing DNS or policy."
+    return "Complete the manual action, refresh evidence, then mark the item resolved."
 
 
 def _dashboard_remediation_item(
@@ -1934,6 +1973,10 @@ def _dashboard_remediation_item(
         "incident_type": _remediation_incident_type(action),
         "remediation_track": _remediation_track_for_action(state, action),
         "priority_score": priority_score,
+        "priority_band": _remediation_priority_band(state, action),
+        "risk_level": _remediation_risk_level(state, action),
+        "safe_to_automate": _remediation_safe_to_automate(state),
+        "operator_decision_summary": _remediation_operator_decision_summary(state),
         "operator_decisions": _remediation_operator_decisions(state),
         "severity": str(action.get("severity") or "info"),
         "title": str(action.get("title") or "Review remediation item"),
@@ -1963,6 +2006,7 @@ def _build_dashboard_remediation_loop(
         "manual_action": 0,
         "investigate": 0,
     }
+    track_counters = {f"track_{track}": 0 for track in REMEDIATION_TRACKS}
     items: List[Dict[str, Any]] = []
 
     for domain in domains:
@@ -1971,7 +2015,9 @@ def _build_dashboard_remediation_loop(
         for action in health.get("actions") or []:
             state = _remediation_loop_state(action)
             counters[state] += 1
-            items.append(_dashboard_remediation_item(domain_name, action))
+            item = _dashboard_remediation_item(domain_name, action)
+            track_counters[f"track_{item['remediation_track']}"] += 1
+            items.append(item)
 
     items.sort(
         key=lambda item: (
@@ -1996,6 +2042,7 @@ def _build_dashboard_remediation_loop(
         next_action = "No current remediation work; keep importing reports and monitoring DNS."
     return {
         **counters,
+        **track_counters,
         "total_open": total_open,
         "loop_status": loop_status,
         "next_action": next_action,
@@ -2017,12 +2064,15 @@ def _domain_remediation_workload(domain: Dict[str, Any]) -> Dict[str, Any]:
         "manual_action": 0,
         "investigate": 0,
     }
+    track_counters = {f"track_{track}": 0 for track in REMEDIATION_TRACKS}
     items: List[Dict[str, Any]] = []
     domain_name = str(domain.get("domain_name") or domain.get("id") or "")
     for action in (domain.get("health") or {}).get("actions") or []:
         state = _remediation_loop_state(action)
         counters[state] += 1
-        items.append(_dashboard_remediation_item(domain_name, action, include_detail=False))
+        item = _dashboard_remediation_item(domain_name, action, include_detail=False)
+        track_counters[f"track_{item['remediation_track']}"] += 1
+        items.append(item)
 
     items.sort(
         key=lambda item: (
@@ -2034,6 +2084,7 @@ def _domain_remediation_workload(domain: Dict[str, Any]) -> Dict[str, Any]:
     total_open = counters["needs_approval"] + counters["manual_action"] + counters["investigate"]
     return {
         **counters,
+        **track_counters,
         "total_open": total_open,
         "what_dmarq_can_fix": counters["needs_approval"],
         "what_needs_approval": counters["needs_approval"],
