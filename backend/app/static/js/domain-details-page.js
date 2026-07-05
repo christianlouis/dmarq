@@ -83,6 +83,10 @@ function domainDetailsApp(domainId = '') {
                 self_hosted_guidance: 0,
                 manual_only: 0,
                 blocked_by_prerequisite: 0,
+                repair_preview_ready: 0,
+                repair_approval_pending: 0,
+                repair_blocked: 0,
+                repair_needs_evidence: 0,
                 dispatch_ready: 0,
                 dispatch_blocked: 0,
                 dispatch_disabled: 0,
@@ -572,6 +576,12 @@ function domainDetailsApp(domainId = '') {
             return this.remediationDispatchNextStep(dispatch);
         },
 
+        get primaryRepairProgressionText() {
+            const progression = this.primaryRemediationItem?.repair_progression;
+            if (!progression) return 'Repair status will appear after the remediation queue finishes loading.';
+            return this.repairProgressionNextStep(progression);
+        },
+
         get healthEvidenceExportUrl() {
             return `/api/v1/domains/${encodeURIComponent(this.domainId)}/posture/evidence/export?capture_current=false`;
         },
@@ -1012,6 +1022,37 @@ function domainDetailsApp(domainId = '') {
                 manual_only: 'Manual only'
             };
             return labels[value] || this.humanizeToken(value || 'manual_only');
+        },
+
+        repairProgressionClass(progression) {
+            const stage = String(progression?.stage || '');
+            if (stage === 'preview_ready') return 'bg-green-100 text-green-700';
+            if (stage === 'blocked') return 'bg-red-100 text-red-700';
+            if (stage === 'classification_required') return 'bg-blue-100 text-blue-700';
+            if (stage === 'manual_repair') return 'bg-yellow-100 text-yellow-800';
+            if (stage === 'reputation_review') return 'bg-purple-100 text-purple-700';
+            return 'bg-base-200 text-base-content/70';
+        },
+
+        repairProgressionLabel(progression) {
+            if (!progression) return 'Operator review';
+            return progression.label || this.humanizeToken(progression.stage || 'operator_review');
+        },
+
+        repairProgressionPreviewLabel(progression) {
+            if (progression?.can_preview) return 'provider preview available';
+            if (progression?.manual_fallback) return 'manual fallback only';
+            return 'not previewable yet';
+        },
+
+        repairProgressionVerificationLabel(progression) {
+            if (!progression?.verification_required) return 'not required';
+            return this.humanizeToken(progression.verification_status || 'pending evidence');
+        },
+
+        repairProgressionNextStep(progression) {
+            if (!progression) return 'Review the remediation queue before taking action.';
+            return progression.next_step || progression.summary || 'Review the repair gate before taking action.';
         },
 
         remediationRiskClass(value) {
@@ -1638,6 +1679,10 @@ function domainDetailsApp(domainId = '') {
                     notify_action_required: 0,
                     notify_investigation_required: 0,
                     notify_summary_only: 0,
+                    repair_preview_ready: 0,
+                    repair_approval_pending: 0,
+                    repair_blocked: 0,
+                    repair_needs_evidence: 0,
                     dispatch_ready: 0,
                     dispatch_blocked: 0,
                     dispatch_disabled: 0,

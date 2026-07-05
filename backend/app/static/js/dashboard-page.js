@@ -950,6 +950,26 @@ function dashboardApp() {
             }[String(track || '')] || 'Manual review';
         },
 
+        repairProgressionClass(progression) {
+            const stage = String(progression?.stage || '');
+            if (stage === 'preview_ready') return 'bg-green-100 text-green-700';
+            if (stage === 'blocked') return 'bg-red-100 text-red-700';
+            if (stage === 'classification_required') return 'bg-blue-100 text-blue-700';
+            if (stage === 'manual_repair') return 'bg-yellow-100 text-yellow-800';
+            if (stage === 'reputation_review') return 'bg-purple-100 text-purple-700';
+            return 'bg-[#f8f7f6] text-[#5f5c78]';
+        },
+
+        repairProgressionLabel(progression) {
+            if (!progression) return 'Operator review';
+            return progression.label || this.formatDemoLabel(progression.stage || 'operator_review');
+        },
+
+        repairProgressionNextStep(progression) {
+            if (!progression) return 'Open the remediation queue to review the next safe gate.';
+            return progression.next_step || progression.summary || 'Open the remediation queue to review the next safe gate.';
+        },
+
         domainActionHref(action) {
             return action && action.domain
                 ? `/domains/${encodeURIComponent(action.domain)}#remediation-queue`

@@ -244,6 +244,26 @@
                 <p class="mt-1 text-xs text-[#5f5c78]">Sender or report evidence to confirm</p>
             </div>
         </div>
+        <div class="mt-3 grid gap-3 md:grid-cols-3">
+            <div class="rounded-md border border-[#d8ebe8] bg-[#f2fbf9] p-4">
+                <p class="text-sm text-[#5f5c78]">Repair previews ready</p>
+                <p class="mt-2 text-2xl font-bold text-[#247982]"
+                   x-text="remediationLoop().repair_preview_ready || 0"></p>
+                <p class="mt-1 text-xs text-[#5f5c78]">Provider-backed proposals ready for review</p>
+            </div>
+            <div class="rounded-md border border-[#f5dfbd] bg-[#fff8ed] p-4">
+                <p class="text-sm text-[#5f5c78]">Need fresh evidence</p>
+                <p class="mt-2 text-2xl font-bold text-[#8a6418]"
+                   x-text="remediationLoop().repair_needs_evidence || 0"></p>
+                <p class="mt-1 text-xs text-[#5f5c78]">Items that must be verified before closure</p>
+            </div>
+            <div class="rounded-md border border-[#e6e3e1] p-4">
+                <p class="text-sm text-[#5f5c78]">Blocked before repair</p>
+                <p class="mt-2 text-2xl font-bold text-[#5f5c78]"
+                   x-text="remediationLoop().repair_blocked || 0"></p>
+                <p class="mt-1 text-xs text-[#5f5c78]">Missing provider values or prerequisites</p>
+            </div>
+        </div>
         <div class="mt-5 grid gap-3 lg:grid-cols-2" x-show="hasRemediationLoopItems()">
             <template x-for="item in remediationLoopItems()" :key="item.domain + item.type + item.title">
                 <a class="rounded-md border border-[#e6e3e1] p-4 transition hover:border-[#2f9da5] hover:shadow-sm"
@@ -279,6 +299,15 @@
                     </div>
                     <p class="mt-3 rounded border border-[#e6e3e1] bg-[#fbfaf9] p-3 text-xs text-[#5f5c78]"
                        x-text="item.operator_decision_summary"></p>
+                    <div class="mt-3 rounded border border-[#d5e9f8] bg-[#f7fbff] p-3 text-xs">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <p class="font-semibold uppercase tracking-wide text-[#24507a]">Repair gate</p>
+                            <span class="rounded px-2 py-1 font-semibold"
+                                  :class="repairProgressionClass(item.repair_progression)"
+                                  x-text="repairProgressionLabel(item.repair_progression)"></span>
+                        </div>
+                        <p class="mt-2 text-[#120d36]" x-text="repairProgressionNextStep(item.repair_progression)"></p>
+                    </div>
                     <div class="mt-3 rounded border border-[#e6e3e1] bg-[#fbfaf9] p-3 text-xs">
                         <p class="font-semibold uppercase tracking-wide text-[#8a879e]">Next verification</p>
                         <p class="mt-1 text-[#120d36]" x-text="item.verification_next_check"></p>

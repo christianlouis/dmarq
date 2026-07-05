@@ -1166,6 +1166,21 @@ class RemediationVerificationPlan(BaseModel):
     next_check: str
 
 
+class RemediationRepairProgression(BaseModel):
+    """Read-only safe repair gate for one remediation item."""
+
+    stage: str
+    label: str
+    summary: str
+    next_gate: str
+    next_step: str
+    can_preview: bool = False
+    can_apply_after_approval: bool = False
+    manual_fallback: bool = False
+    verification_required: bool = True
+    verification_status: str = ""
+
+
 class RemediationNotification(BaseModel):
     """Read-only notification routing metadata for one remediation item."""
 
@@ -1203,6 +1218,7 @@ class RemediationQueueItem(BaseModel):
     expected_health_score_impact: str
     action_plan: RemediationActionPlan
     verification_plan: RemediationVerificationPlan
+    repair_progression: RemediationRepairProgression
     automation: RemediationAutomation
     notification: RemediationNotification
 
@@ -1956,6 +1972,62 @@ def _remediation_operator_decision_summary(state: str) -> str:
     return "Complete the manual action, refresh evidence, then mark the item resolved."
 
 
+def _dashboard_repair_progression(state: str, action: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a conservative repair gate for dashboard health-action summaries."""
+    action_type = str(action.get("type") or "")
+    if state == "needs_approval":
+        return {
+            "stage": "preview_ready",
+            "label": "Preview ready",
+            "summary": "A guided repair can be reviewed from the domain remediation queue.",
+            "next_gate": "Human approval before apply",
+            "next_step": "Open the domain queue, preview the proposed repair, then approve or reject it.",
+            "can_preview": True,
+            "can_apply_after_approval": True,
+            "manual_fallback": True,
+            "verification_required": True,
+            "verification_status": "pending_operator_approval",
+        }
+    if state == "investigate":
+        if action_type in REMEDIATION_REPUTATION_ACTION_TYPES:
+            return {
+                "stage": "reputation_review",
+                "label": "Review reputation",
+                "summary": "Fresh reputation evidence is required before this can be closed.",
+                "next_gate": "Fresh reputation evidence",
+                "next_step": "Open source intelligence and confirm whether the sender is trusted.",
+                "can_preview": False,
+                "can_apply_after_approval": False,
+                "manual_fallback": False,
+                "verification_required": True,
+                "verification_status": "pending_report_evidence",
+            }
+        return {
+            "stage": "classification_required",
+            "label": "Classify sender",
+            "summary": "A human must classify the sender before DNS or policy changes are safe.",
+            "next_gate": "Sender classification",
+            "next_step": "Review recent source evidence and decide whether this sender is legitimate.",
+            "can_preview": False,
+            "can_apply_after_approval": False,
+            "manual_fallback": False,
+            "verification_required": True,
+            "verification_status": "pending_sender_review",
+        }
+    return {
+        "stage": "manual_repair",
+        "label": "Manual repair",
+        "summary": "The operator must complete this work and refresh evidence before closure.",
+        "next_gate": "Fresh evidence before closure",
+        "next_step": "Complete the manual action, then refresh DMARQ evidence.",
+        "can_preview": False,
+        "can_apply_after_approval": False,
+        "manual_fallback": True,
+        "verification_required": True,
+        "verification_status": "pending_report_evidence",
+    }
+
+
 def _dashboard_remediation_item(
     domain_name: str,
     action: Dict[str, Any],
@@ -1978,6 +2050,7 @@ def _dashboard_remediation_item(
         "safe_to_automate": _remediation_safe_to_automate(state),
         "operator_decision_summary": _remediation_operator_decision_summary(state),
         "operator_decisions": _remediation_operator_decisions(state),
+        "repair_progression": _dashboard_repair_progression(state, action),
         "severity": str(action.get("severity") or "info"),
         "title": str(action.get("title") or "Review remediation item"),
         "next_step": str(action.get("next_step") or "Review the domain evidence."),
@@ -2005,6 +2078,9 @@ def _build_dashboard_remediation_loop(
         "needs_approval": 0,
         "manual_action": 0,
         "investigate": 0,
+        "repair_preview_ready": 0,
+        "repair_blocked": 0,
+        "repair_needs_evidence": 0,
     }
     track_counters = {f"track_{track}": 0 for track in REMEDIATION_TRACKS}
     items: List[Dict[str, Any]] = []
@@ -2016,6 +2092,13 @@ def _build_dashboard_remediation_loop(
             state = _remediation_loop_state(action)
             counters[state] += 1
             item = _dashboard_remediation_item(domain_name, action)
+            repair_progression = item.get("repair_progression") or {}
+            if repair_progression.get("stage") == "preview_ready":
+                counters["repair_preview_ready"] += 1
+            if repair_progression.get("stage") == "blocked":
+                counters["repair_blocked"] += 1
+            if repair_progression.get("verification_required"):
+                counters["repair_needs_evidence"] += 1
             track_counters[f"track_{item['remediation_track']}"] += 1
             items.append(item)
 
@@ -2063,6 +2146,9 @@ def _domain_remediation_workload(domain: Dict[str, Any]) -> Dict[str, Any]:
         "needs_approval": 0,
         "manual_action": 0,
         "investigate": 0,
+        "repair_preview_ready": 0,
+        "repair_blocked": 0,
+        "repair_needs_evidence": 0,
     }
     track_counters = {f"track_{track}": 0 for track in REMEDIATION_TRACKS}
     items: List[Dict[str, Any]] = []
@@ -2071,6 +2157,13 @@ def _domain_remediation_workload(domain: Dict[str, Any]) -> Dict[str, Any]:
         state = _remediation_loop_state(action)
         counters[state] += 1
         item = _dashboard_remediation_item(domain_name, action, include_detail=False)
+        repair_progression = item.get("repair_progression") or {}
+        if repair_progression.get("stage") == "preview_ready":
+            counters["repair_preview_ready"] += 1
+        if repair_progression.get("stage") == "blocked":
+            counters["repair_blocked"] += 1
+        if repair_progression.get("verification_required"):
+            counters["repair_needs_evidence"] += 1
         track_counters[f"track_{item['remediation_track']}"] += 1
         items.append(item)
 

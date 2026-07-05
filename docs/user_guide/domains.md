@@ -101,7 +101,9 @@ safe gate. It tells the operator whether a connected provider preview is ready,
 whether a provider-specific value is still missing, whether a sending source
 must be classified first, whether the work is manual DNS, or whether fresh
 reputation/report/DNS evidence is still required before closure. This panel is
-read-only; it does not apply DNS changes or send provider requests.
+read-only; it does not apply DNS changes or send provider requests. The top
+**Next remediation** panel mirrors the same repair-gate status so the operator
+can see the current blocker before opening the full queue.
 Each item also shows a notification profile such as approval required, action
 required, investigation required, or summary only. These labels explain how
 DMARQ would route the item into alerting or ticketing workflows; viewing the

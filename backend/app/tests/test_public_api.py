@@ -182,6 +182,18 @@ def _sample_remediation_queue(domain=DOMAIN):
                     "evidence_needed": ["Fresh DNS returns the expected record."],
                     "next_check": "Refresh DNS posture after propagation.",
                 },
+                "repair_progression": {
+                    "stage": "preview_ready",
+                    "label": "Preview ready",
+                    "summary": "A connected DNS provider can prepare the exact mutation for review.",
+                    "next_gate": "Human approval before apply",
+                    "next_step": "Open the provider preview, compare old and new DNS values, then approve or reject.",
+                    "can_preview": True,
+                    "can_apply_after_approval": True,
+                    "manual_fallback": True,
+                    "verification_required": True,
+                    "verification_status": "pending_operator_approval",
+                },
                 "automation": {
                     "eligible": True,
                     "requires_approval": True,
@@ -630,6 +642,8 @@ def test_public_remediation_queue_is_read_only_and_posture_scoped(
     assert item["incident_type"] == "dmarc_policy_missing_or_weak"
     assert item["loop_state"] == "proposal_ready_for_approval"
     assert item["remediation_track"] == "provider_preview"
+    assert item["repair_progression"]["stage"] == "preview_ready"
+    assert item["repair_progression"]["can_apply_after_approval"] is True
     assert "approve_after_preview" in item["operator_decisions"]
     assert item["automation"]["eligible"] is True
     assert item["automation"]["apply_endpoint"] is None

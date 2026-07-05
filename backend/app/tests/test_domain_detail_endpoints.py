@@ -846,7 +846,13 @@ def test_domain_remediation_queue_groups_dns_and_health_actions(
     assert data["items"][0]["automation"]["provider"] == "cloudflare"
     assert data["items"][0]["verification_plan"]["status"] == "pending_operator_approval"
     assert "fresh DNS evidence" in data["items"][0]["verification_plan"]["summary"]
+    assert data["items"][0]["repair_progression"]["stage"] == "preview_ready"
+    assert data["items"][0]["repair_progression"]["can_preview"] is True
+    assert data["items"][0]["repair_progression"]["verification_status"] == (
+        "pending_operator_approval"
+    )
     assert data["items"][1]["verification_plan"]["status"] == "pending_sender_review"
+    assert data["items"][1]["repair_progression"]["stage"] == "classification_required"
     assert data["items"][1]["incident_type"] == "legitimate_sender_failing_alignment"
     assert data["items"][1]["loop_state"] == "evidence_review_required"
     assert data["items"][1]["remediation_track"] == "sender_investigation"
@@ -897,11 +903,17 @@ def test_dashboard_remediation_loop_exposes_operator_decision_context():
     assert loop["verified_fixed"] == 1
     assert loop["track_provider_preview"] == 1
     assert loop["track_reputation_review"] == 1
+    assert loop["repair_preview_ready"] == 1
+    assert loop["repair_needs_evidence"] == 2
+    assert loop["repair_blocked"] == 0
     assert loop["items"][0]["priority_band"] == "high"
     assert loop["items"][0]["safe_to_automate"] is True
     assert loop["items"][0]["risk_level"] == "medium"
+    assert loop["items"][0]["repair_progression"]["stage"] == "preview_ready"
+    assert loop["items"][0]["repair_progression"]["can_preview"] is True
     assert "Preview the exact DNS" in loop["items"][0]["operator_decision_summary"]
     assert loop["items"][1]["remediation_track"] == "reputation_review"
+    assert loop["items"][1]["repair_progression"]["stage"] == "reputation_review"
     assert loop["items"][1]["risk_level"] == "high"
     assert loop["items"][1]["safe_to_automate"] is False
 

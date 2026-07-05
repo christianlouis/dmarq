@@ -344,8 +344,21 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "remediationRiskClass(item.risk_level)" in template
     assert "item.priority_band || 'watch'" in template
     assert "item.operator_decision_summary" in template
+    assert "Repair previews ready" in template
+    assert "Need fresh evidence" in template
+    assert "Blocked before repair" in template
+    assert "remediationLoop().repair_preview_ready || 0" in template
+    assert "remediationLoop().repair_needs_evidence || 0" in template
+    assert "remediationLoop().repair_blocked || 0" in template
+    assert "Repair gate" in template
+    assert "repairProgressionClass(item.repair_progression)" in template
+    assert "repairProgressionLabel(item.repair_progression)" in template
+    assert "repairProgressionNextStep(item.repair_progression)" in template
     assert "remediationRiskClass(risk)" in script
     assert "remediationTrackLabel(track)" in script
+    assert "repairProgressionClass(progression)" in script
+    assert "repairProgressionLabel(progression)" in script
+    assert "repairProgressionNextStep(progression)" in script
 
 
 def test_domain_details_remediation_queue_shows_verification_context():
@@ -378,9 +391,18 @@ def test_domain_details_remediation_queue_shows_verification_context():
     assert "remediationQueue.summary.repair_needs_evidence" in template
     assert "remediationQueue.loop?.repair_blocked" in template
     assert "item.repair_progression.next_gate" in template
-    assert "item.repair_progression.can_preview" in template
-    assert "item.repair_progression.verification_required" in template
+    assert "repairProgressionPreviewLabel(item.repair_progression)" in template
+    assert "repairProgressionVerificationLabel(item.repair_progression)" in template
+    assert "Repair gate" in template
+    assert "primaryRepairProgressionText" in template
     assert "remediationRiskClass(value)" in script
+    assert "repairProgressionClass(progression)" in script
+    assert "repairProgressionLabel(progression)" in script
+    assert "repairProgressionPreviewLabel(progression)" in script
+    assert "repairProgressionVerificationLabel(progression)" in script
+    assert "repairProgressionNextStep(progression)" in script
+    assert "repair_preview_ready: 0" in script
+    assert "repair_needs_evidence: 0" in script
     assert "verifiedItemsTotalCount()" in script
     assert "verifiedItemsHiddenCount()" in script
     assert "hasMoreVisibleVerifiedItems()" in script
@@ -1230,7 +1252,8 @@ def test_domain_details_exposes_remediation_action_plans_without_html_injection(
     assert "item.action_plan.completion_criteria" in template
     assert "item.action_plan.safe_to_automate" in template
     assert "item.repair_progression" in template
-    assert "item.repair_progression.next_step" in template
+    assert "repairProgressionNextStep(item.repair_progression)" in template
+    assert "repairProgressionClass(item.repair_progression)" in template
     assert "Verification" in template
     assert "item.verification_plan.status" in template
     assert "item.verification_plan.evidence_needed" in template

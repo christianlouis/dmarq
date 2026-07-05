@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dashboard action-plan cards now deep-link to the selected domain remediation queue instead of the generic domain overview.
 - Remediation queue summaries now expose hidden verified-repair counts separately from the visible compact list.
 - Remediation notification payloads now include the same repair-progression gates shown in the UI, keeping webhook/ticket previews aligned with human review.
+- Domain remediation pages now show repair-progression gates in the top next-remediation panel and render preview/verification states as operator-readable labels.
+- Dashboard remediation-loop cards now expose the same repair-gate language and workspace counters for preview-ready, evidence-gated, and blocked repair work.
 - Reorganized repository: moved development docs (`AGENTS.md`, `ROADMAP.md`, `ISSUE_GENERATION_SUMMARY.md`, `generated_issues/`) into `docs/`
 - Added root-level `CHANGELOG.md` and `TODO.md`
 - Cleaned up root directory for clarity
@@ -50,6 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed report detail views so sender-IP reputation appears as a dedicated score and assessment column instead of being buried in source metadata.
 - Fixed DNS fallback behavior so independent public resolvers are checked in parallel before a transient timeout can make records appear missing.
 - Fixed domain sending-source loading so PTR and network enrichment run in parallel instead of pushing report-backed source rows past the UI timeout.
+- Fixed the remediation queue API schema so `repair_progression` is preserved in typed domain remediation responses.
 - Fixed the Cloudflare permissions picker so selecting the full DNS repair profile no longer falls back to read-only scopes.
 - Fixed the release modal coverage so recent operator-facing work is visible from inside the app.
 - Fixed the remaining Settings page startup hook so CSP hardening no longer depends on template-level page initialization.
