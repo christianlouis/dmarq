@@ -64,6 +64,16 @@ detected in the current reporting window. These entries are designed to point to
 the next DNS or sender-configuration action rather than act as a general alert
 feed.
 
+### Remediation Loop
+
+The remediation loop card turns current domain health findings into operator
+work. It separates operator-marked resolved work from evidence-verified fixed
+work and shows the current approval, manual-action, and investigation counts.
+Repair-gate counters distinguish provider previews that are ready for review,
+items that still need fresh evidence before closure, and findings that are
+blocked before repair. Each dashboard item links to the selected domain's
+remediation queue for the full evidence, approval, and verification flow.
+
 ### Demo Mode
 
 When `DEMO_MODE=true`, the dashboard uses generated rolling data for
