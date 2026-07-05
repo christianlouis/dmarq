@@ -111,6 +111,14 @@
                                         <span>·</span>
                                         <span x-text="formatCount(domain.emails_count, 'message')"></span>
                                         <span x-show="!domain.has_activity" class="badge badge-ghost badge-xs">empty</span>
+                                        <span x-show="domain.dns_state_label"
+                                              class="badge badge-xs"
+                                              :class="domain.dns_state_class"
+                                              x-text="domain.dns_state_label"></span>
+                                        <span x-show="domain.dns_checked_label" x-text="domain.dns_checked_label"></span>
+                                        <span x-show="domain.dns_lookup_error && domain.dns_lookup_status !== 'ok'"
+                                              class="max-w-md truncate"
+                                              x-text="domain.dns_lookup_error"></span>
                                     </div>
                                 {% endcall %}
                                 {% call td() %}

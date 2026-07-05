@@ -17,6 +17,10 @@ Imported reports appear in the same page as:
 - affected policy domains with failure rates
 - receiving MX hostnames and reason codes when reporters include them
 
+Use **Refresh** after importing new TLS-RPT attachments or changing the filter.
+If the summary refresh fails while data is already visible, DMARQ keeps the last
+loaded summary on screen and marks it as stale with a warning.
+
 ## API
 
 TLS reporting endpoints require the same admin authentication as other

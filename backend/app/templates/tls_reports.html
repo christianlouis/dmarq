@@ -61,6 +61,9 @@
                 </div>
             {% endcall %}
             {% call card_content() %}
+                <template x-if="showWarning">
+                    <div class="alert alert-warning mb-4" x-text="warning"></div>
+                </template>
                 <template x-if="loading">
                     <div class="py-12 text-center"><span class="loading loading-spinner loading-lg"></span></div>
                 </template>

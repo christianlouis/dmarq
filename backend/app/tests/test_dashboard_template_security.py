@@ -755,6 +755,8 @@ def test_reports_uses_external_page_script_for_csp_migration():
     assert '@click="deleteReport' not in template
     assert "data-report-delete" in template
     assert "data-report-delete" in script
+    assert "data-report-refresh" in template
+    assert "data-report-refresh" in script
     assert "bindPageControls()" in script
     assert "event.target instanceof Element" in script
     assert "Number.isNaN(date.getTime())" in script
@@ -773,6 +775,9 @@ def test_reports_page_distinguishes_loading_error_and_empty_states():
     assert "Reports could not be loaded." in script
     assert "No reports match this filter." in template
     assert "Retry loading reports" in template
+    assert "Showing the last loaded reports." in script
+    assert 'x-if="showWarning"' in template
+    assert "warning: ''" in script
     assert '@click="fetchReports()"' not in template
     assert '@click="resetFilters()"' not in template
     assert "data-report-retry-load" in template
@@ -815,9 +820,18 @@ def test_domains_uses_external_page_script_for_csp_migration():
     assert "visibleDomains()" in script
     assert "hiddenEmptyDomainCount()" in script
     assert "showEmptyDomainHint()" in script
+    assert "dnsStateLabel(domain)" in script
+    assert "dnsStateClass(domain)" in script
+    assert "dnsCheckedLabel(domain)" in script
+    assert "dns_lookup_status" in script
+    assert "dns_lookup_error" in script
     assert "visibleDomains()" in template
     assert "without reports or volume hidden" in template
     assert "Show empty domains" in template
+    assert "domain.dns_state_label" in template
+    assert "domain.dns_state_class" in template
+    assert "domain.dns_checked_label" in template
+    assert "domain.dns_lookup_error" in template
     assert "data-domain-create-open" in template
     assert "data-domain-create-open" in script
     assert "data-domain-create-dialog" in template
@@ -864,6 +878,8 @@ def test_domains_page_distinguishes_loading_error_and_empty_states():
 
     assert "Loading monitored domains..." in template
     assert "Domains could not be loaded." in script
+    assert "Domain refresh failed; showing the last loaded domain data." in script
+    assert "if (!refresh || this.domains.length === 0)" in script
     assert "No domains found. Add a domain to get started." in template
     assert "Retry loading domains" in template
     assert "All monitored domains are currently hidden" in template
@@ -1074,6 +1090,9 @@ def test_tls_reports_uses_external_page_script_for_csp_migration():
     assert "data-tls-upload-file" in template
     assert "data-tls-reports-page" in template
     assert "data-tls-refresh" in script
+    assert "Showing the last loaded TLS report summary." in script
+    assert "hasSummaryData(summary)" in script
+    assert 'x-if="showWarning"' in template
     assert "bindControls()" in script
     assert "normalizeSummary" in script
     assert "event.target instanceof Element" in script
@@ -1636,7 +1655,10 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     assert "this.sourceReputationRefreshError = '';" in script
     assert "keepExistingSourcesVisible" in script
     assert "this.sourcesLoading = !keepExistingSourcesVisible;" in script
-    assert "if (!options.preserveOnFailure) {\n                    this.sources = [];" in script
+    assert "Showing the last loaded sending sources." in script
+    assert "const hasExistingSources = (this.sources || []).length > 0;" in script
+    assert "if (!options.preserveOnFailure || !hasExistingSources) {" in script
+    assert "if (options.preserveOnFailure && hasExistingSources) {" in script
     assert "sourceSeenLabel" in script
     assert "sourceVolumeBars" in script
     assert "source.reputation.status" in template
@@ -1690,6 +1712,10 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "sourceIntelligence.loading" in template
     assert "Loading source intelligence..." in template
     assert "Source intelligence could not be loaded." in script
+    assert "sourceIntelligenceRefreshError" in script
+    assert "sourceIntelligenceRefreshError" in template
+    assert "Showing the last loaded source intelligence." in script
+    assert "preserveOnFailure: true" in script
     assert "remediationQueueLoading" in script
     assert "remediationQueueError" in script
     assert "primaryRemediationItem" in script

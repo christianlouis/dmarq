@@ -401,6 +401,11 @@ operational policy if long-term storage size matters.
 | `DMARQ_DNS_CUSTOM_SERVERS` | Comma-separated custom recursive resolver IP addresses for this deployment | - | `op://...` |
 | `DMARQ_DNS_CUSTOM_DOH_HOSTNAME` | Optional custom DNS-over-HTTPS hostname used when DNS server IPs are not configured or as fallback after resolver failure | - | `op://...` |
 | `DMARQ_DNS_CUSTOM_DOT_HOSTNAME` | Optional custom DNS-over-TLS hostname for operator context | - | `op://...` |
+| `DNS_STARTUP_PREWARM_ENABLED` | Refresh DNS cache rows shortly after startup without blocking the app boot path | `true` | `true` |
+| `DNS_STARTUP_PREWARM_LIMIT` | Maximum monitored domains prewarmed at startup; domains with observed reports and volume are prioritized first | `50` | `100` |
+| `DNS_STARTUP_PREWARM_CONCURRENCY` | Maximum concurrent startup DNS prewarm lookups | `4` | `6` |
+| `DNS_SUMMARY_REFRESH_CONCURRENCY` | Maximum concurrent live DNS refreshes when the domain list reload button recomputes DNS evidence | `6` | `8` |
+| `DNS_SUMMARY_REFRESH_TIMEOUT_SECONDS` | Per-domain timeout for live DNS summary refreshes | `10` | `8` |
 
 The `op://...` examples are intentional 1Password secret-reference placeholders
 for deployment environments that inject tenant-specific DNS resolver details at

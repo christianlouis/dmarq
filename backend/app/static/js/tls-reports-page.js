@@ -16,12 +16,16 @@ function tlsReportsApp() {
         selectedFile: null,
         filters: { domain: '', days: '30' },
         summary: emptySummary,
+        warning: '',
         init() {
             this.bindControls();
             this.refresh();
         },
         get showError() {
             return !this.loading && Boolean(this.error);
+        },
+        get showWarning() {
+            return !this.loading && Boolean(this.warning);
         },
         get showEmptyTrends() {
             return !this.loading && !this.error && this.summary.trends.length === 0;
@@ -108,8 +112,10 @@ function tlsReportsApp() {
             });
         },
         async refresh() {
+            const hadSummaryData = this.hasSummaryData(this.summary);
             this.loading = true;
             this.error = '';
+            this.warning = '';
             const params = new URLSearchParams({ days: this.filters.days, limit: '10' });
             if (this.filters.domain.trim()) params.set('domain', this.filters.domain.trim());
             try {
@@ -117,7 +123,12 @@ function tlsReportsApp() {
                 if (!response.ok) throw new Error('Unable to load TLS report summary');
                 this.summary = this.normalizeSummary(await response.json());
             } catch (err) {
-                this.error = err.message || 'Unable to load TLS report summary';
+                const message = err.message || 'Unable to load TLS report summary';
+                if (hadSummaryData) {
+                    this.warning = `${message}. Showing the last loaded TLS report summary.`;
+                } else {
+                    this.error = message;
+                }
             } finally {
                 this.loading = false;
             }
@@ -185,6 +196,16 @@ function tlsReportsApp() {
                 affected_domains: affectedDomains,
                 privacy: { ...emptySummary.privacy, ...(summary.privacy || {}) },
             };
+        },
+        hasSummaryData(summary) {
+            return Boolean(
+                summary?.totals?.reports
+                || summary?.totals?.successful_sessions
+                || summary?.totals?.failed_sessions
+                || summary?.trends?.length
+                || summary?.top_failures?.length
+                || summary?.affected_domains?.length
+            );
         },
         joinValues(values) {
             const joined = (values || []).filter(Boolean).join(', ');

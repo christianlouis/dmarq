@@ -39,6 +39,11 @@
                             Reset Filters
                         </button>
                     </div>
+                    <div class="w-full sm:w-auto flex items-end">
+                        <button type="button" class="btn btn-outline btn-md" data-report-refresh>
+                            Refresh
+                        </button>
+                    </div>
                 </div>
             {% endcall %}
         {% endcall %}
@@ -58,6 +63,9 @@
                 {% endcall %}
             {% endcall %}
             {% call card_content() %}
+                <template x-if="showWarning">
+                    <div class="alert alert-warning mb-4" x-text="warning"></div>
+                </template>
                 {% call table() %}
                     {% call thead() %}
                         {% call tr() %}

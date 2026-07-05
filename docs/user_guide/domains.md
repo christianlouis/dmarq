@@ -14,6 +14,18 @@ To add a new domain for DMARC monitoring in DMARQ:
 
 DMARQ will add the domain to your account and begin monitoring for DMARC reports related to this domain.
 
+The domain list hides domains with no reports and no observed message volume by
+default so historical or newly imported empty zones do not dominate daily
+triage. Use **Show empty domains** when you intentionally want to audit those
+domains.
+
+The list also shows compact DNS evidence badges. **Cached DNS** and
+**Fresh DNS** indicate normal evidence, **Fallback DNS** or **Partial DNS**
+means an independent resolver had to be used, **Last known DNS** means DMARQ is
+protecting the UI from a transient resolver failure with recently cached
+evidence, and **DNS failed** means the latest explicit refresh could not produce
+usable evidence.
+
 ## Domain Settings
 
 For each domain, you can configure several settings:
@@ -69,6 +81,11 @@ DMARQ provides a health check feature for each domain:
    - MTA-STS TXT and HTTPS policy validation
    - MX record confirmation
    - BIMI record validation (if applicable)
+
+The Domains page **Reload** action recomputes DNS evidence with bounded
+parallelism, so larger workspaces do not wait for every domain one after
+another. At application startup, DMARQ also prewarms DNS cache rows in the
+background and prioritizes domains that already have reports or message volume.
 
 ### Posture Dashboard
 

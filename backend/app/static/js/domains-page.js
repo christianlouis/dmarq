@@ -127,10 +127,15 @@ function domainsApp() {
                 this.emptyDomainsCount = Number(data.empty_domains_count || 0);
                 this.emptyDomainsHidden = Number(data.empty_domains_hidden || 0);
             } catch (error) {
-                this.domains = [];
-                this.emptyDomainsCount = 0;
-                this.emptyDomainsHidden = 0;
-                this.loadError = error.message || 'Domains could not be loaded.';
+                if (!refresh || this.domains.length === 0) {
+                    this.domains = [];
+                    this.emptyDomainsCount = 0;
+                    this.emptyDomainsHidden = 0;
+                    this.loadError = error.message || 'Domains could not be loaded.';
+                } else {
+                    this.loadError =
+                        'Domain refresh failed; showing the last loaded domain data.';
+                }
                 console.error('Error fetching domains:', error);
             } finally {
                 this.loading = false;
@@ -286,6 +291,10 @@ function domainsApp() {
                 spf_status: domain.spf_status ?? false,
                 dkim_status: domain.dkim_status ?? false,
                 dns_pending: Boolean(domain.dns_pending),
+                dns_lookup_status: domain.dns_lookup_status || 'ok',
+                dns_lookup_error: domain.dns_lookup_error || '',
+                dns_evidence_source: domain.dns_evidence_source || '',
+                dmarc_policy_source: domain.dmarc_policy_source || '',
                 dns_cached: Boolean(domain.dns_cached),
                 dns_checked_at: domain.dns_checked_at || null,
                 reports_count: domain.report_count,
@@ -307,6 +316,9 @@ function domainsApp() {
                 dmarc_status_class: this.dnsStatusClass(normalized, 'dmarc_status'),
                 spf_status_class: this.dnsStatusClass(normalized, 'spf_status'),
                 dkim_status_class: this.dnsStatusClass(normalized, 'dkim_status'),
+                dns_state_label: this.dnsStateLabel(normalized),
+                dns_state_class: this.dnsStateClass(normalized),
+                dns_checked_label: this.dnsCheckedLabel(normalized),
             };
         },
 
@@ -318,6 +330,34 @@ function domainsApp() {
         dmarcStatusText(domain) {
             if (domain.dns_pending) return 'Pending DNS refresh';
             return domain.dmarc_policy || 'Not configured';
+        },
+
+        dnsStateLabel(domain) {
+            if (domain.dns_pending) return 'DNS queued';
+            if (domain.dns_lookup_status === 'failed') return 'DNS failed';
+            if (domain.dns_lookup_status === 'stale_cache') return 'Last known DNS';
+            if (domain.dns_lookup_status === 'fallback') return 'Fallback DNS';
+            if (domain.dns_lookup_status === 'partial') return 'Partial DNS';
+            if (domain.dns_cached) return 'Cached DNS';
+            if (domain.dns_checked_at) return 'Fresh DNS';
+            return '';
+        },
+
+        dnsStateClass(domain) {
+            if (domain.dns_lookup_status === 'failed') return 'badge-error';
+            if (domain.dns_lookup_status === 'stale_cache') return 'badge-warning';
+            if (domain.dns_lookup_status === 'fallback' || domain.dns_lookup_status === 'partial') {
+                return 'badge-info';
+            }
+            if (domain.dns_pending) return 'badge-ghost';
+            return 'badge-outline';
+        },
+
+        dnsCheckedLabel(domain) {
+            if (!domain.dns_checked_at) return '';
+            const date = new Date(domain.dns_checked_at);
+            if (Number.isNaN(date.getTime())) return '';
+            return `checked ${date.toLocaleString()}`;
         },
 
         visibleDomains() {

@@ -39,8 +39,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed dashboard remediation state rendering so backend `approval_ready` queue items are labeled as needing approval and evidence anchors fall back safely if malformed.
 - Added report-detail reputation filters and record-level reputation next steps so risky, listed, authentication-review, unchecked, and clean source records can be isolated without leaving the report.
 - Added sending-source risk filters, compact reputation counters, activity badges, and logarithmic recent-volume bars on domain detail pages so current risky senders stand out from stale or low-volume history.
+- Added domain-list DNS state badges for queued, cached, fallback, partial, stale, and failed DNS evidence so resolver uncertainty is visible instead of silently degrading scores.
 
 ### Changed
+- Domain summary DNS refreshes now run with bounded concurrency instead of resolving each domain sequentially.
+- Startup DNS cache prewarming now prioritizes domains with observed reports and message volume before empty monitored domains.
 - Cloudflare OAuth profile selection now controls the requested scopes instead of being overridden by the legacy static scope setting.
 - The full Cloudflare DNS repair profile now requests DNS write access plus Radar read access so one-click repair and IP enrichment can work from the same consent flow.
 - Dashboard and domain detail pages now expose more actionable remediation context around DNS, DMARC, source authentication, and ownership state.
@@ -63,6 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cleaned up root directory for clarity
 
 ### Fixed
+- Aggregate and TLS report pages now keep the last loaded data visible when a manual refresh or API retry fails.
 - Retired stale roadmap issue-generator guidance and made the docs-site
   changelog point at the canonical root changelog.
 - Fixed remediation verified-repair totals so older resolved items are counted
@@ -76,6 +80,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed domain sending-source loading so PTR and network enrichment run in parallel instead of pushing report-backed source rows past the UI timeout.
 - Fixed the remediation queue API schema so `repair_progression` is preserved in typed domain remediation responses.
 - Fixed dashboard and domain remediation refresh failures so transient backend errors no longer blank already-loaded operator evidence.
+- Fixed domain-list refresh failures so a transient DNS/API error no longer clears the previously loaded domain rows.
+- Fixed sending-source refresh failures so existing source rows remain visible during date-window or reputation refresh retries.
+- Fixed source-intelligence refresh failures so previously loaded region and anomaly evidence stays visible while the retry warning is shown.
 - Fixed the Cloudflare permissions picker so selecting the full DNS repair profile no longer falls back to read-only scopes.
 - Fixed the release modal coverage so recent operator-facing work is visible from inside the app.
 - Fixed the remaining Settings page startup hook so CSP hardening no longer depends on template-level page initialization.

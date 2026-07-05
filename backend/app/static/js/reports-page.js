@@ -8,6 +8,7 @@ function reportsApp() {
         reports: [],
         loading: true,
         error: '',
+        warning: '',
 
         init() {
             this.bindPageControls();
@@ -34,7 +35,13 @@ function reportsApp() {
 
                 const retryButton = event.target.closest('[data-report-retry-load]');
                 if (retryButton && root.contains(retryButton)) {
-                    this.fetchReports();
+                    this.fetchReports({ preserveOnFailure: true });
+                    return;
+                }
+
+                const refreshButton = event.target.closest('[data-report-refresh]');
+                if (refreshButton && root.contains(refreshButton)) {
+                    this.fetchReports({ preserveOnFailure: true });
                     return;
                 }
 
@@ -56,6 +63,10 @@ function reportsApp() {
 
         get showError() {
             return !this.loading && Boolean(this.error);
+        },
+
+        get showWarning() {
+            return !this.loading && Boolean(this.warning);
         },
 
         get showReportCount() {
@@ -136,9 +147,12 @@ function reportsApp() {
             return 'bg-red-100 text-red-800';
         },
 
-        async fetchReports() {
+        async fetchReports(options = {}) {
+            const preserveOnFailure = Boolean(options.preserveOnFailure);
+            const hadReports = this.reports.length > 0;
             this.loading = true;
             this.error = '';
+            this.warning = '';
             try {
                 const response = await fetch('/api/v1/reports');
                 if (!response.ok) {
@@ -148,9 +162,15 @@ function reportsApp() {
                 this.reports = reports.map((report) => this.normalizeReport(report));
                 this.domains = [...new Set(this.reports.map((report) => report.domain))].sort();
             } catch (error) {
-                this.reports = [];
-                this.domains = [];
-                this.error = error.message || 'Reports could not be loaded.';
+                const message = error.message || 'Reports could not be loaded.';
+                if (preserveOnFailure && hadReports) {
+                    const separator = /[.!?]$/.test(message.trim()) ? ' ' : '. ';
+                    this.warning = `${message}${separator}Showing the last loaded reports.`;
+                } else {
+                    this.reports = [];
+                    this.domains = [];
+                    this.error = message;
+                }
                 console.error('Error fetching reports:', error);
             } finally {
                 this.loading = false;
