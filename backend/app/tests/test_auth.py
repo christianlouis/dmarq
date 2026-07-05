@@ -327,6 +327,25 @@ class TestExternalAuthProviders:
         assert verified is True
         assert claims == ("amr:single_factor", "amr:webauthn", "acr:urn:example:loa")
 
+    def test_mfa_claim_context_normalizes_object_and_scalar_claims(self):
+        settings = Settings(
+            AUTH_MFA_CLAIM_NAMES="amr,acr",
+            AUTH_MFA_CLAIM_VALUES="true",
+        )
+        payload = MagicMock()
+        payload.amr = ("single_factor", True)
+        payload.acr = {"unexpected": "shape"}
+
+        verified, claims = mfa_claim_context(payload, settings)
+
+        assert verified is True
+        assert claims == ("amr:single_factor", "amr:true")
+
+        verified, claims = mfa_claim_context({"amr": {"unexpected": "shape"}}, settings)
+
+        assert verified is False
+        assert claims == ()
+
     def test_normalize_external_claims_records_mfa_claims(self):
         claims = normalize_external_claims(
             "authentik",
@@ -809,6 +828,55 @@ class TestExternalAuthProviders:
 
         assert exc.value.status_code == 401
         assert "unvalidated ID-token claims" in exc.value.detail
+
+    @pytest.mark.asyncio
+    async def test_oidc_callback_accepts_required_mfa_from_userinfo(self):
+        provider = OIDCProviderConfig(
+            provider="oidc",
+            label="OpenID Connect",
+            issuer_url="https://idp.example.test",
+            client_id="client-id",
+            client_secret="client-secret",
+            redirect_uri=None,
+            scopes="openid email profile",
+            skip_ssl_verify=False,
+        )
+        settings = Settings(AUTH_REQUIRE_MFA=True)
+        request = MagicMock()
+        request.base_url = "https://dmarq.example.test/"
+        token_response = MagicMock()
+        token_response.raise_for_status = MagicMock()
+        token_response.json.return_value = {"access_token": "access-token"}
+        userinfo_response = MagicMock()
+        userinfo_response.raise_for_status = MagicMock()
+        userinfo_response.json.return_value = {
+            "sub": "oidc-user-1",
+            "email": "owner@example.com",
+            "amr": ["single_factor", "mfa"],
+        }
+
+        with (
+            patch(
+                "app.core.auth_providers.fetch_oidc_discovery",
+                new=AsyncMock(
+                    return_value={
+                        "token_endpoint": "https://idp.example.test/token",
+                        "userinfo_endpoint": "https://idp.example.test/userinfo",
+                    }
+                ),
+            ),
+            patch("httpx.AsyncClient.post", new=AsyncMock(return_value=token_response)),
+            patch("httpx.AsyncClient.get", new=AsyncMock(return_value=userinfo_response)),
+        ):
+            claims = await exchange_oidc_callback(
+                request,
+                provider,
+                code="callback-code",
+                settings=settings,
+            )
+
+        assert claims.mfa_verified is True
+        assert claims.mfa_claims == ("amr:single_factor", "amr:mfa")
 
 
 class TestAuthProviderEndpoint:
