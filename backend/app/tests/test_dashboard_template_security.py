@@ -128,6 +128,29 @@ def _run_dashboard_poll_summary(payload: dict[str, object]) -> str:
     return result.stdout
 
 
+def _run_dashboard_expression(expression: str) -> str:
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is required to execute dashboard-page.js behavior tests")
+
+    script_path = Path(__file__).resolve().parents[1] / "static" / "js" / "dashboard-page.js"
+    runner = textwrap.dedent("""
+        const fs = require('fs');
+        const script = fs.readFileSync(process.argv[1], 'utf8');
+        const expression = process.argv[2];
+        const dashboardAppFactory = new Function(`${script}\\nreturn dashboardApp;`)();
+        const app = dashboardAppFactory();
+        process.stdout.write(String(new Function('app', `return ${expression};`)(app)));
+        """)
+    result = subprocess.run(
+        [node, "-e", runner, str(script_path), expression],
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+    return result.stdout
+
+
 def _operations_template() -> str:
     return _read_project_file("templates", "operations.html")
 
@@ -287,6 +310,24 @@ def test_dashboard_exposes_workspace_health_history():
     assert "item.label.replaceAll('_', ' ')" in template
     assert "/api/v1/domains/summary/health/history" in script
     assert "fetchWorkspaceHealthHistory" in script
+
+
+def test_dashboard_remediation_cards_deep_link_to_domain_queue():
+    template = _dashboard_template()
+    script = _dashboard_script()
+
+    assert ':href="domainRemediationHref(item.domain)"' in template
+    assert "Open remediation queue" in template
+    assert "domainRemediationHref(domainName)" in script
+    assert "#remediation-queue" in script
+    assert "encodeURIComponent(domainName)" in script
+
+
+def test_dashboard_remediation_queue_href_encodes_domain_and_anchor():
+    assert (
+        _run_dashboard_expression("app.domainRemediationHref('mail.example/a b')")
+        == "/domains/mail.example%2Fa%20b#remediation-queue"
+    )
 
 
 def test_dashboard_clears_all_chart_instances():

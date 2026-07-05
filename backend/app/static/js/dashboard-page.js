@@ -938,6 +938,12 @@ function dashboardApp() {
                 : '/domains';
         },
 
+        domainRemediationHref(domainName) {
+            return domainName
+                ? `/domains/${encodeURIComponent(domainName)}#remediation-queue`
+                : '/domains';
+        },
+
         domainHealthHref(domainHealth) {
             return domainHealth && domainHealth.domain
                 ? `/domains/${encodeURIComponent(domainHealth.domain)}`
