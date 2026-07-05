@@ -192,12 +192,14 @@ def _summary(items: List[Dict[str, Any]]) -> Dict[str, int]:
         "provider_pre_apply_checks": sum(
             1
             for item in items
-            if (item.get("provider_repair_plan") or {}).get("pre_apply_checks")
+            if (item.get("provider_repair_plan") or {}).get("kind") == "dns_provider_repair"
+            and (item.get("provider_repair_plan") or {}).get("pre_apply_checks")
         ),
         "provider_post_apply_checks": sum(
             1
             for item in items
-            if (item.get("provider_repair_plan") or {}).get("post_apply_checks")
+            if (item.get("provider_repair_plan") or {}).get("kind") == "dns_provider_repair"
+            and (item.get("provider_repair_plan") or {}).get("post_apply_checks")
         ),
         "requires_fresh_evidence": sum(
             1 for item in items if (item.get("action_plan") or {}).get("requires_fresh_evidence")
@@ -562,7 +564,7 @@ def _provider_repair_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
             "capability": "manual_review",
             "approval_gate": "No provider DNS apply gate for this item.",
             "pre_apply_checks": [],
-            "post_apply_checks": post_apply_checks[:3],
+            "post_apply_checks": [],
             "blast_radius": blast_radius,
             "operator_warning": "Do not change DNS from this item without a matching DNS finding.",
             "next_step": repair.get("next_safe_action")
