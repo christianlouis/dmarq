@@ -116,6 +116,8 @@ def test_scim_patch_and_delete_deactivate_workspace_membership(client: TestClien
     assert reactivated.json()["active"] is True
     assert invalid.status_code == 422
     assert invalid.json()["detail"] == "SCIM active value must be a boolean"
+    db_session.refresh(membership)
+    assert membership.active is True
 
     deleted = client.delete(
         f"/api/v1/scim/v2/Users/{user_id}",
