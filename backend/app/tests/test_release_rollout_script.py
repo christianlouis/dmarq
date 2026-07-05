@@ -1,7 +1,6 @@
 import importlib.util
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -57,22 +56,34 @@ def test_release_rollout_compare_reports_drift():
     assert any("version expected 1.2.4" in failure for failure in failures)
     assert any("environment expected demo" in failure for failure in failures)
     assert any("build SHA expected prefix deadbee" in failure for failure in failures)
-    assert any("image expected ghcr.io/christianlouis/dmarq:deadbee" in failure for failure in failures)
+    assert any(
+        "image expected ghcr.io/christianlouis/dmarq:deadbee" in failure for failure in failures
+    )
 
 
 def test_release_workflow_build_metadata_uses_checked_out_ref():
     """Docker build metadata must describe the commit used to build the image."""
-    workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(
-        encoding="utf-8"
-    )
+    workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
     assert "FULL_SHA=$(git rev-parse HEAD)" in workflow
     assert "DMARQ_BUILD_SHA=${{ steps.release_ref.outputs.full_sha }}" in workflow
     assert "DMARQ_BUILD_REF=${{ steps.release_ref.outputs.build_ref }}" in workflow
     assert "DMARQ_BUILD_DATE=${{ steps.release_ref.outputs.build_date }}" in workflow
-    build_args = workflow.split("build-args: |", maxsplit=1)[1].split(
-        "cache-from:", maxsplit=1
-    )[0]
+    build_args = workflow.split("build-args: |", maxsplit=1)[1].split("cache-from:", maxsplit=1)[0]
     assert "github.sha" not in build_args
     assert "github.ref_name" not in build_args
     assert "github.event.head_commit.timestamp" not in build_args
+
+
+def test_release_workflow_skips_gitops_for_stale_main_runs():
+    """Older main CI runs must not roll GitOps manifests back after main advances."""
+    workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+    assert workflow.count("Confirm source ref is still current") == 2
+    assert workflow.count("https://api.github.com/repos/${{ github.repository }}/commits/main") == 2
+    assert workflow.count("Skipping GitOps update because main advanced") == 2
+    assert workflow.count("steps.source-ref.outputs.current == 'true'") == 6
+    assert (
+        'if [ "${{ github.event_name }}" != "push" ] || '
+        '[ "${{ github.ref }}" != "refs/heads/main" ]; then'
+    ) in workflow

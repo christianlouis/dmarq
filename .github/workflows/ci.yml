@@ -349,8 +349,30 @@ jobs:
             fi
           fi
 
+      - name: Confirm source ref is still current
+        id: source-ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" != "push" ] || [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          latest_sha="$(curl -fsSL \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository }}/commits/main" | jq -r '.sha')"
+          if [ "$latest_sha" != "${{ github.sha }}" ]; then
+            echo "::notice::Skipping GitOps update because main advanced to ${latest_sha} after this run started."
+            echo "current=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout k8s-cluster-state
-        if: steps.pat-check.outputs.available == 'true'
+        if: steps.pat-check.outputs.available == 'true' && steps.source-ref.outputs.current == 'true'
         uses: actions/checkout@v4
         with:
           repository: ${{ env.K8S_STATE_REPO }}
@@ -359,7 +381,7 @@ jobs:
           ref: main
 
       - name: Update image tags in GitOps manifests
-        if: steps.pat-check.outputs.available == 'true'
+        if: steps.pat-check.outputs.available == 'true' && steps.source-ref.outputs.current == 'true'
         uses: mikefarah/yq@v4.44.6
         env:
           IMAGE: ${{ steps.tag.outputs.image }}
@@ -376,7 +398,7 @@ jobs:
             done
 
       - name: Commit and push manifest update
-        if: steps.pat-check.outputs.available == 'true'
+        if: steps.pat-check.outputs.available == 'true' && steps.source-ref.outputs.current == 'true'
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
         run: |
@@ -446,8 +468,30 @@ jobs:
             fi
           fi
 
+      - name: Confirm source ref is still current
+        id: source-ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" != "push" ] || [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          latest_sha="$(curl -fsSL \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository }}/commits/main" | jq -r '.sha')"
+          if [ "$latest_sha" != "${{ github.sha }}" ]; then
+            echo "::notice::Skipping GitOps update because main advanced to ${latest_sha} after this run started."
+            echo "current=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout k8s-cluster-state
-        if: steps.pat-check.outputs.available == 'true'
+        if: steps.pat-check.outputs.available == 'true' && steps.source-ref.outputs.current == 'true'
         uses: actions/checkout@v4
         with:
           repository: ${{ env.K8S_STATE_REPO }}
@@ -456,7 +500,7 @@ jobs:
           ref: main
 
       - name: Update production image tag in GitOps manifest
-        if: steps.pat-check.outputs.available == 'true'
+        if: steps.pat-check.outputs.available == 'true' && steps.source-ref.outputs.current == 'true'
         uses: mikefarah/yq@v4.44.6
         env:
           IMAGE: ${{ steps.tag.outputs.image }}
@@ -469,7 +513,7 @@ jobs:
               "$manifest"
 
       - name: Commit and push production manifest update
-        if: steps.pat-check.outputs.available == 'true'
+        if: steps.pat-check.outputs.available == 'true' && steps.source-ref.outputs.current == 'true'
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
         run: |
