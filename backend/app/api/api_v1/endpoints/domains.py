@@ -1797,6 +1797,10 @@ def _remediation_loop_context(state: str, action: Dict[str, Any]) -> Dict[str, s
             "owner": "Domain DNS operator",
             "automation_path": "provider_preview",
             "completion_criteria": "DNS change is previewed, approved, applied, and verified.",
+            "verification_next_check": (
+                "Refresh DNS posture after provider propagation and confirm the item leaves "
+                "the queue."
+            ),
             "why": "A high-impact DNS or policy finding can move through a controlled approval path.",
         }
     if state == "investigate":
@@ -1809,6 +1813,10 @@ def _remediation_loop_context(state: str, action: Dict[str, Any]) -> Dict[str, s
             ),
             "automation_path": "investigate",
             "completion_criteria": "Sender legitimacy is confirmed before any DNS or policy change.",
+            "verification_next_check": (
+                "Wait for fresh receiver reports, then confirm the active source now passes "
+                "DMARC or is intentionally blocked."
+            ),
             "why": "This finding needs evidence review before DMARQ can suggest a safe repair.",
         }
     return {
@@ -1816,6 +1824,9 @@ def _remediation_loop_context(state: str, action: Dict[str, Any]) -> Dict[str, s
         "owner": "Mail or DNS operator",
         "automation_path": "manual",
         "completion_criteria": "The operator completes the recommended action and refreshes evidence.",
+        "verification_next_check": (
+            "Refresh domain health after the operator action and confirm the finding is gone."
+        ),
         "why": "This item is not safe or specific enough for one-click repair yet.",
     }
 
