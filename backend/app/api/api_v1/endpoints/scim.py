@@ -338,7 +338,14 @@ def _upsert_scim_user(
     if display_name:
         user.full_name = display_name
     user.is_verified = True
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="SCIM user conflicts with an existing identity",
+        ) from exc
     workspace_role, organization_role = _role_from_groups(payload.groups)
     _upsert_memberships(
         db,
@@ -466,7 +473,7 @@ async def list_scim_users(
     }
 
 
-@router.post("/Users", status_code=status.HTTP_201_CREATED)
+@router.post("/Users")
 async def create_scim_user(
     payload: ScimUserWrite,
     request: Request,
