@@ -755,6 +755,8 @@ def test_reports_uses_external_page_script_for_csp_migration():
     assert '@click="deleteReport' not in template
     assert "data-report-delete" in template
     assert "data-report-delete" in script
+    assert "data-report-refresh" in template
+    assert "data-report-refresh" in script
     assert "bindPageControls()" in script
     assert "event.target instanceof Element" in script
     assert "Number.isNaN(date.getTime())" in script
@@ -773,6 +775,9 @@ def test_reports_page_distinguishes_loading_error_and_empty_states():
     assert "Reports could not be loaded." in script
     assert "No reports match this filter." in template
     assert "Retry loading reports" in template
+    assert "Showing the last loaded reports." in script
+    assert 'x-if="showWarning"' in template
+    assert "warning: ''" in script
     assert '@click="fetchReports()"' not in template
     assert '@click="resetFilters()"' not in template
     assert "data-report-retry-load" in template
@@ -1085,6 +1090,9 @@ def test_tls_reports_uses_external_page_script_for_csp_migration():
     assert "data-tls-upload-file" in template
     assert "data-tls-reports-page" in template
     assert "data-tls-refresh" in script
+    assert "Showing the last loaded TLS report summary." in script
+    assert "hasSummaryData(summary)" in script
+    assert 'x-if="showWarning"' in template
     assert "bindControls()" in script
     assert "normalizeSummary" in script
     assert "event.target instanceof Element" in script

@@ -43,6 +43,10 @@ The report list shows:
 - Pass/fail statistics
 - DMARC policy applied
 
+Use **Refresh** to reload the aggregate report list from the backend. If the
+backend cannot answer temporarily, DMARQ keeps the last loaded reports visible
+and shows a warning instead of replacing the table with an empty state.
+
 ### Aggregate Report Details
 
 To view details of a specific aggregate report:

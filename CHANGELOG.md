@@ -66,6 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cleaned up root directory for clarity
 
 ### Fixed
+- Aggregate and TLS report pages now keep the last loaded data visible when a manual refresh or API retry fails.
 - Retired stale roadmap issue-generator guidance and made the docs-site
   changelog point at the canonical root changelog.
 - Fixed remediation verified-repair totals so older resolved items are counted
