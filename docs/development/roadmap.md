@@ -1,6 +1,6 @@
 # DMARQ Product Roadmap
 
-Last updated: 2026-07-01
+Last updated: 2026-07-05
 
 DMARQ has moved beyond its original MVP. The product now parses aggregate and
 forensic DMARC reports, imports from IMAP/Gmail/Microsoft 365, persists report
@@ -98,30 +98,17 @@ Completed or substantially delivered:
 - Demo deployment that rolls forward from main through CI/GitOps.
 - Kubernetes high-availability work for tolerating loss of one hardware host.
 
-The main open strategic issues are:
+Strategic issue status:
 
-- [Issue #12](https://github.com/christianlouis/dmarq/issues/12): user
-  management, SaaS, ISP/OEM, subscription, and billing tracker. Most foundation
-  slices are complete; the remaining active child is enterprise identity and
-  support-access hardening.
-- [Issue #304](https://github.com/christianlouis/dmarq/issues/304): health
-  score, A-F rating, and remediation action plan.
-- [Issue #305](https://github.com/christianlouis/dmarq/issues/305): competitive
-  parity tracker for DMARC monitoring platforms.
-- [Issue #310](https://github.com/christianlouis/dmarq/issues/310): DANE, ARC,
-  and ARF competitive protocol coverage. The first shipped slice is passive
-  DANE/TLSA posture with live STARTTLS SPKI hash suggestions for TLSA `3 1 1`
-  records when MX access succeeds; ARC and deeper ARF work remain separate
-  design slices.
-- [Issue #384](https://github.com/christianlouis/dmarq/issues/384): autonomous
-  mail health remediation loop with human approval.
-- [Issue #385](https://github.com/christianlouis/dmarq/issues/385): sender IP
-  reputation and blacklist monitoring. The first shipped slices provide passive,
-  cached source reputation evidence plus opt-in DNSBL and AbuseIPDB enrichment.
-- [Issue #386](https://github.com/christianlouis/dmarq/issues/386): ecosystem
-  integration roadmap.
-- [Issue #387](https://github.com/christianlouis/dmarq/issues/387):
-  localization and multilingual remediation guidance.
+| Issue | Status | Notes |
+| --- | --- | --- |
+| [#12](https://github.com/christianlouis/dmarq/issues/12) | open | Broad user-auth, SaaS, ISP/OEM, subscription, and billing tracker. Keep this parked for the self-hosted demo unless auth work is explicitly reactivated. |
+| [#243](https://github.com/christianlouis/dmarq/issues/243) | open | Enterprise identity, provisioning, and support-access hardening. Treat as the active child under #12. |
+| [#305](https://github.com/christianlouis/dmarq/issues/305) | complete as roadmap parent | Competitive-parity direction is now captured here and in the referenced product docs. New work should use focused child issues instead of reopening the parent. |
+| [#309](https://github.com/christianlouis/dmarq/issues/309) | complete for current read-only API/MCP scope | Stable public API and MCP read-only surfaces exist for health, reports, DNS, sources, remediation, alerts, usage, and export discovery. Future write or provider-admin tools need separate scoped issues. |
+| [#311](https://github.com/christianlouis/dmarq/issues/311) | complete for safe migration readiness | Parallel-reporting, parity checklist, historical export preview, idempotency metadata, and portability docs are in place. A future persisted historical-import writer should be a separate explicit issue. |
+| [#312](https://github.com/christianlouis/dmarq/issues/312) | parked | MSP/ISP/multi-tenant demo polish is intentionally not part of the current `demo.dmarq.org` single-user self-hosted story. |
+| [#384](https://github.com/christianlouis/dmarq/issues/384) | active | Continue with human-approved provider repair progression, operator verification history, and remediation notifications. |
 
 ## Roadmap Tracks
 
