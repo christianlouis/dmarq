@@ -1223,6 +1223,13 @@ function domainDetailsApp(domainId = '') {
             }[status] || 'Needs review';
         },
 
+        remediationLoopEffectiveStatus(loop) {
+            if (!loop) return '';
+            const status = String(loop.status || '');
+            const loopStatus = String(loop.loop_status || '');
+            return status === 'needs_attention' && loopStatus ? loopStatus : (status || loopStatus);
+        },
+
         humanizeToken(value) {
             return String(value || '')
                 .split('_')
@@ -1401,11 +1408,12 @@ function domainDetailsApp(domainId = '') {
                 const record = [entry.record_type, entry.record_name].filter(Boolean).join(' ');
                 const provider = entry.provider || 'provider';
                 const status = entry.verification_status || entry.state || 'recorded';
+                const createdAt = this.formatIsoDate(entry.created_at);
                 return {
                     label: [entry.label || this.humanizeToken(entry.state || 'recorded'), provider, record]
                         .filter(Boolean)
                         .join(' - '),
-                    meta: [entry.created_at, status].filter(Boolean).join(' - '),
+                    meta: [createdAt, status].filter(Boolean).join(' - '),
                     detail: entry.detail || '',
                 };
             });

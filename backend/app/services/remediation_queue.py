@@ -826,6 +826,8 @@ def _remediation_notification_payload(domain: str, item: Dict[str, Any]) -> Dict
     repair_progression = item.get("repair_progression") or {}
     evidence_refresh = item.get("evidence_refresh") or {}
     provider_repair_plan = item.get("provider_repair_plan") or {}
+    apply_confirmation = provider_repair_plan.get("apply_confirmation") or {}
+    attempt_history = provider_repair_plan.get("attempt_history") or {}
     return {
         "schema_version": "dmarq.remediation.notification.v1",
         "domain": domain,
@@ -894,51 +896,22 @@ def _remediation_notification_payload(domain: str, item: Dict[str, Any]) -> Dict
                 str(check) for check in provider_repair_plan.get("post_apply_checks", [])
             ][:5],
             "apply_confirmation": {
-                "required": bool(
-                    (provider_repair_plan.get("apply_confirmation") or {}).get("required")
-                ),
-                "status": str(
-                    (provider_repair_plan.get("apply_confirmation") or {}).get("status") or ""
-                ),
-                "label": str(
-                    (provider_repair_plan.get("apply_confirmation") or {}).get("label") or ""
-                ),
-                "confirm_phrase": str(
-                    (provider_repair_plan.get("apply_confirmation") or {}).get(
-                        "confirm_phrase"
-                    )
-                    or ""
-                ),
-                "operator_prompt": str(
-                    (provider_repair_plan.get("apply_confirmation") or {}).get(
-                        "operator_prompt"
-                    )
-                    or ""
-                ),
+                "required": bool(apply_confirmation.get("required")),
+                "status": str(apply_confirmation.get("status") or ""),
+                "label": str(apply_confirmation.get("label") or ""),
+                "confirm_phrase": str(apply_confirmation.get("confirm_phrase") or ""),
+                "operator_prompt": str(apply_confirmation.get("operator_prompt") or ""),
                 "blocked_reasons": [
                     str(reason)
-                    for reason in (provider_repair_plan.get("apply_confirmation") or {}).get(
-                        "blocked_reasons", []
-                    )
+                    for reason in apply_confirmation.get("blocked_reasons", [])
                 ][:6],
-                "next_step": str(
-                    (provider_repair_plan.get("apply_confirmation") or {}).get("next_step")
-                    or ""
-                ),
+                "next_step": str(apply_confirmation.get("next_step") or ""),
             },
             "attempt_history": {
-                "source": str(
-                    (provider_repair_plan.get("attempt_history") or {}).get("source") or ""
-                ),
-                "status": str(
-                    (provider_repair_plan.get("attempt_history") or {}).get("status") or ""
-                ),
-                "label": str(
-                    (provider_repair_plan.get("attempt_history") or {}).get("label") or ""
-                ),
-                "latest_at": str(
-                    (provider_repair_plan.get("attempt_history") or {}).get("latest_at") or ""
-                ),
+                "source": str(attempt_history.get("source") or ""),
+                "status": str(attempt_history.get("status") or ""),
+                "label": str(attempt_history.get("label") or ""),
+                "latest_at": str(attempt_history.get("latest_at") or ""),
                 "entries": [
                     {
                         "state": str(entry.get("state") or ""),
@@ -946,14 +919,10 @@ def _remediation_notification_payload(domain: str, item: Dict[str, Any]) -> Dict
                         "created_at": str(entry.get("created_at") or ""),
                         "detail": str(entry.get("detail") or ""),
                     }
-                    for entry in (provider_repair_plan.get("attempt_history") or {}).get(
-                        "entries", []
-                    )
+                    for entry in attempt_history.get("entries", [])
                     if isinstance(entry, dict)
                 ][:5],
-                "next_step": str(
-                    (provider_repair_plan.get("attempt_history") or {}).get("next_step") or ""
-                ),
+                "next_step": str(attempt_history.get("next_step") or ""),
             },
             "blast_radius": str(provider_repair_plan.get("blast_radius") or ""),
             "operator_warning": str(provider_repair_plan.get("operator_warning") or ""),

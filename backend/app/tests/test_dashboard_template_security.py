@@ -1595,6 +1595,7 @@ def test_domain_details_exposes_dns_provider_repair_context_without_html_injecti
     assert "providerRepairConfirmationText" in script
     assert "providerRepairAttemptHistoryText" in script
     assert "providerRepairAttemptEntries" in script
+    assert "formatIsoDate(entry.created_at)" in script
     assert "provider-attempt-" in template
     assert "{ value: 'provider_checks', label: 'Provider checks' }" in script
     assert "filter === 'provider_checks'" in script
@@ -1645,7 +1646,8 @@ def test_domain_details_exposes_remediation_action_plans_without_html_injection(
     assert "'-dispatch-blocker-' + index" in template
     assert "blocked_reasons[0]" not in template
     assert "Remediation loop" in template
-    assert "remediationLoopStatusLabel" in template
+    assert "remediationLoopStatusLabel(remediationLoopEffectiveStatus(remediationQueue.loop))" in template
+    assert "remediationLoopEffectiveStatus(loop)" in script
     assert "remediationIncidentLabel" in template
     assert "remediationTrackLabel" in template
     assert "visibleRemediationDecisions(item)" in template

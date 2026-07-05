@@ -13,6 +13,7 @@ from app.models.setting import Setting
 from app.models.webhook import WebhookEndpoint
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog
+from app.services.remediation_queue import _remediation_notification_payload
 from app.services.webhook_events import SUPPORTED_EVENT_TYPES, endpoint_matches_event
 from app.utils.domain_validator import normalize_domain_name
 
@@ -445,24 +446,34 @@ def _provider_repair_attempt_entry(row: WorkspaceAuditLog) -> Optional[Dict[str,
     applied = bool(details.get("applied"))
     applied_and_verified = applied and verified
     state = "verified_after_apply" if applied_and_verified else "apply_recorded"
+    label = "Verified provider apply" if applied_and_verified else "Provider apply recorded"
+    detail = (
+        "Provider readback verified the applied DNS value."
+        if applied_and_verified
+        else (
+            "Provider apply was recorded; keep the item open until readback "
+            "and fresh DNS evidence pass."
+        )
+    )
     if applied and not verified:
         state = "apply_needs_verification"
+    elif not applied and not verified:
+        state = "apply_not_recorded"
+        label = "Provider apply not recorded"
+        detail = (
+            "Provider apply was not recorded; keep the remediation item open "
+            "until a successful apply and readback evidence are available."
+        )
     return {
         "plan_id": plan_id,
         "state": state,
-        "label": (
-            "Verified provider apply" if applied_and_verified else "Provider apply recorded"
-        ),
+        "label": label,
         "created_at": _audit_timestamp(row.created_at),
         "provider": provider,
         "record_name": str(mutation.get("name") or ""),
         "record_type": str(mutation.get("record_type") or ""),
         "verification_status": str(verification.get("status") or ""),
-        "detail": (
-            "Provider readback verified the applied DNS value."
-            if applied_and_verified
-            else "Provider apply was recorded; keep the item open until readback and fresh DNS evidence pass."
-        ),
+        "detail": detail,
     }
 
 
@@ -887,6 +898,8 @@ def attach_remediation_dispatch_previews(
             item,
             provider_attempts.get(provider_plan_id, []),
         )
+        if "payload_preview" in notification:
+            notification["payload_preview"] = _remediation_notification_payload(domain, item)
         notification["history"] = item_history
         notification["dispatch"] = build_remediation_dispatch_preview(
             db,

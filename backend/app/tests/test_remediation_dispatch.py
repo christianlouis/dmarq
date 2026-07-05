@@ -677,7 +677,14 @@ def test_attach_remediation_dispatch_previews_adds_provider_apply_history(db_ses
         "items": [
             {
                 "id": "dns:dmarc-missing",
-                "notification": {"event": EVENT_REMEDIATION_APPROVAL_REQUIRED},
+                "notification": {
+                    "event": EVENT_REMEDIATION_APPROVAL_REQUIRED,
+                    "payload_preview": {
+                        "provider_repair_plan": {
+                            "attempt_history": {"status": "stale_before_attach"}
+                        }
+                    },
+                },
                 "provider_repair_plan": {
                     "kind": "dns_provider_repair",
                     "plan_id": "dmarc-missing",
@@ -702,6 +709,11 @@ def test_attach_remediation_dispatch_previews_adds_provider_apply_history(db_ses
     assert history["entries"][0]["state"] == "apply_recorded"
     assert history["entries"][1]["state"] == "verified_after_apply"
     assert "actor_id" not in history["entries"][0]
+    preview_history = result["items"][0]["notification"]["payload_preview"][
+        "provider_repair_plan"
+    ]["attempt_history"]
+    assert preview_history["status"] == "apply_recorded"
+    assert preview_history["entries"][0]["state"] == "apply_recorded"
     assert result["summary"]["provider_apply_attempts"] == 2
     assert result["summary"]["provider_apply_verified"] == 1
 
@@ -741,6 +753,30 @@ def test_provider_repair_attempt_entry_handles_missing_plan_and_unverified_apply
     assert entry["state"] == "apply_needs_verification"
     assert entry["label"] == "Provider apply recorded"
     assert entry["detail"].startswith("Provider apply was recorded")
+
+    no_apply = WorkspaceAuditLog(
+        workspace_id=1,
+        actor_type="user",
+        action="domain.dns_change_applied",
+        entity_type="domain",
+        entity_name="example.com",
+        details=json.dumps(
+            {
+                "provider": "cloudflare",
+                "plan_id": "dmarc-missing",
+                "applied": False,
+                "verification": {"status": "failed", "verified": False},
+            }
+        ),
+        created_at=datetime(2026, 7, 1, 9, 10, 0),
+    )
+
+    no_apply_entry = remediation_dispatch._provider_repair_attempt_entry(no_apply)
+
+    assert no_apply_entry is not None
+    assert no_apply_entry["state"] == "apply_not_recorded"
+    assert no_apply_entry["label"] == "Provider apply not recorded"
+    assert no_apply_entry["detail"].startswith("Provider apply was not recorded")
 
 
 def test_summarize_remediation_activity_handles_empty_domain_inputs(db_session):
