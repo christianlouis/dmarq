@@ -1206,11 +1206,14 @@ def test_domain_details_exposes_remediation_action_plans_without_html_injection(
     assert "item.action_plan.owner" in template
     assert "item.action_plan.steps" in template
     assert "item.action_plan.completion_criteria" in template
+    assert "item.action_plan.safe_to_automate" in template
     assert "Verification" in template
     assert "item.verification_plan.status" in template
     assert "item.verification_plan.evidence_needed" in template
     assert "item.verification_plan.next_check" in template
     assert "Notification dispatch" in template
+    assert "item.notification.dispatch.blocked_reasons" in template
+    assert "blocked_reasons[0]" not in template
     assert "Remediation loop" in template
     assert "remediationLoopStatusLabel" in template
     assert "remediationIncidentLabel" in template
@@ -1225,11 +1228,13 @@ def test_domain_details_exposes_remediation_action_plans_without_html_injection(
     assert "dispatchRemediationNotification(item)" not in template
     assert "handleRemediationAction" in script
     assert "remediationDecisionLabel" in script
+    assert "remediationActionNote(action)" in script
     assert "approve_after_preview" in script
     assert "mark_unknown" in script
     assert "humanizeToken" in script
     assert "/remediation/notifications/audit" in script
     assert "/remediation/notifications/dispatch" in script
+    assert "note" in script
     assert "No DNS changes were made" in script
     assert "x-html" not in template
 

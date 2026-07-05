@@ -324,6 +324,21 @@ function domainDetailsApp(domainId = '') {
             this.recordRemediationLifecycle(item, action);
         },
 
+        remediationActionNote(action) {
+            if (!window.prompt) {
+                return '';
+            }
+            const label = this.remediationDecisionLabel(action || 'decision');
+            const note = window.prompt(
+                `Optional operator note for "${label}" (leave blank to continue):`,
+                ''
+            );
+            if (note === null) {
+                return null;
+            }
+            return String(note || '').trim();
+        },
+
         handleMigrationAction(action) {
             const handlers = {
                 enable: () => this.enableMigrationTools(),
@@ -1654,6 +1669,10 @@ function domainDetailsApp(domainId = '') {
                 };
                 return;
             }
+            const note = this.remediationActionNote(lifecycleState);
+            if (note === null) {
+                return;
+            }
             this.remediationAction = {
                 itemId: item.id,
                 action: lifecycleState,
@@ -1671,7 +1690,8 @@ function domainDetailsApp(domainId = '') {
                             item_id: item.id,
                             lifecycle_state: lifecycleState,
                             event: notification.event,
-                            dedupe_key: notification.dedupe_key
+                            dedupe_key: notification.dedupe_key,
+                            note
                         })
                     }
                 );
@@ -1715,6 +1735,10 @@ function domainDetailsApp(domainId = '') {
             if (!window.confirm('Dispatch this remediation notification to the configured webhook route? This does not make DNS changes.')) {
                 return;
             }
+            const note = this.remediationActionNote('dispatch');
+            if (note === null) {
+                return;
+            }
             this.remediationAction = {
                 itemId: item.id,
                 action: 'dispatch',
@@ -1732,7 +1756,8 @@ function domainDetailsApp(domainId = '') {
                             item_id: item.id,
                             confirm: true,
                             event: notification.event,
-                            dedupe_key: notification.dedupe_key
+                            dedupe_key: notification.dedupe_key,
+                            note
                         })
                     }
                 );
