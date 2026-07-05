@@ -995,14 +995,17 @@ function domainDetailsApp(domainId = '') {
             return 'bg-base-200 text-base-content/70';
         },
 
-        verifiedItemsHiddenCount() {
-            const total = Number(
-                this.remediationQueue.verified_items_total ||
-                this.remediationQueue.summary?.dispatch_verified_fixed ||
+        verifiedItemsTotalCount() {
+            return Number(
+                this.remediationQueue.verified_items_total ??
+                this.remediationQueue.summary?.dispatch_verified_fixed ??
                 0
             );
+        },
+
+        verifiedItemsHiddenCount() {
             const visible = (this.remediationQueue.verified_items || []).length;
-            return Math.max(total - visible, 0);
+            return Math.max(this.verifiedItemsTotalCount() - visible, 0);
         },
 
         remediationDecisionLabel(value) {

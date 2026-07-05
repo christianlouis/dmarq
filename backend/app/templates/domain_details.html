@@ -424,7 +424,7 @@
                                     </p>
                                 </div>
                                 <span class="rounded bg-white px-2 py-1 text-xs font-semibold text-[#1f7c83]">
-                                    <span x-text="remediationQueue.verified_items_total || remediationQueue.summary.dispatch_verified_fixed || remediationQueue.verified_items.length"></span><span> no longer observed</span>
+                                    <span x-text="verifiedItemsTotalCount()"></span><span> no longer observed</span>
                                 </span>
                             </div>
                             <div class="mt-2 grid gap-2 md:grid-cols-2">
@@ -556,7 +556,7 @@
                                                 <span class="rounded bg-white px-2 py-1 text-xs font-semibold text-[#1f7c83]"
                                                       x-text="item.action_plan.owner"></span>
                                                 <span class="rounded px-2 py-1 text-xs font-semibold capitalize"
-                                                      :class="remediationRiskClass(item.action_plan.risk_level)"
+                                                      :class="remediationRiskClass(item.action_plan.risk_level || 'medium')"
                                                       x-text="item.action_plan.risk_level || 'medium'"></span>
                                             </div>
                                         </div>

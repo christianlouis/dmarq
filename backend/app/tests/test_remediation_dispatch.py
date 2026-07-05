@@ -439,6 +439,54 @@ def test_verified_fixed_total_counts_beyond_visible_limit(db_session):
     assert result["verified_items"][0]["item_id"] == "dns:fixed-44"
 
 
+def test_verified_fixed_ignores_items_with_newer_unresolved_lifecycle(db_session):
+    workspace = get_or_create_default_workspace(db_session)
+    db_session.add_all(
+        [
+            WorkspaceAuditLog(
+                workspace_id=workspace.id,
+                actor_type="operator",
+                action="remediation.notification_lifecycle_recorded",
+                entity_type="remediation_notification",
+                entity_id="dns:flapped",
+                entity_name="example.com",
+                details=json.dumps({"lifecycle_state": "resolved"}),
+                created_at=datetime(2026, 7, 1, 8, 0, 0),
+            ),
+            WorkspaceAuditLog(
+                workspace_id=workspace.id,
+                actor_type="operator",
+                action="remediation.notification_lifecycle_recorded",
+                entity_type="remediation_notification",
+                entity_id="dns:flapped",
+                entity_name="example.com",
+                details=json.dumps({"lifecycle_state": "acknowledged"}),
+                created_at=datetime(2026, 7, 1, 9, 0, 0),
+            ),
+            WorkspaceAuditLog(
+                workspace_id=workspace.id,
+                actor_type="operator",
+                action="remediation.notification_lifecycle_recorded",
+                entity_type="remediation_notification",
+                entity_id="dns:fixed",
+                entity_name="example.com",
+                details=json.dumps({"lifecycle_state": "resolved"}),
+                created_at=datetime(2026, 7, 1, 10, 0, 0),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    result = remediation_dispatch.attach_remediation_dispatch_previews(
+        db_session,
+        workspace=workspace,
+        queue={"domain": "example.com", "summary": {}, "items": []},
+    )
+
+    assert result["verified_items_total"] == 1
+    assert [item["item_id"] for item in result["verified_items"]] == ["dns:fixed"]
+
+
 def test_notification_histories_return_sanitized_recent_audit_events(db_session):
     workspace = get_or_create_default_workspace(db_session)
     db_session.add_all(

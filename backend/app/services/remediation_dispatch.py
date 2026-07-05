@@ -6,7 +6,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.models.setting import Setting
@@ -439,55 +439,78 @@ def _verified_fixed_items_result(
     normalized_entity_name = func.lower(
         func.rtrim(func.ltrim(func.trim(WorkspaceAuditLog.entity_name), "."), ".")
     )
-    rows = (
+    resolved_details = or_(
+        WorkspaceAuditLog.details.like('%"lifecycle_state": "resolved"%'),
+        WorkspaceAuditLog.details.like('%"lifecycle_state":"resolved"%'),
+    )
+    ranked_lifecycle_rows = (
         db.query(WorkspaceAuditLog)
+        .with_entities(
+            WorkspaceAuditLog.id.label("audit_id"),
+            func.row_number()
+            .over(
+                partition_by=WorkspaceAuditLog.entity_id,
+                order_by=(WorkspaceAuditLog.created_at.desc(), WorkspaceAuditLog.id.desc()),
+            )
+            .label("row_number"),
+        )
         .filter(
             WorkspaceAuditLog.workspace_id == workspace.id,
             WorkspaceAuditLog.action == "remediation.notification_lifecycle_recorded",
             WorkspaceAuditLog.entity_type == "remediation_notification",
+            WorkspaceAuditLog.entity_id.isnot(None),
             normalized_entity_name == normalized_domain,
         )
-        .order_by(WorkspaceAuditLog.created_at.desc(), WorkspaceAuditLog.id.desc())
-        .all()
+        .subquery()
     )
+    latest_lifecycle_ids = (
+        db.query(ranked_lifecycle_rows.c.audit_id)
+        .filter(ranked_lifecycle_rows.c.row_number == 1)
+        .subquery()
+    )
+    verified_query = (
+        db.query(WorkspaceAuditLog)
+        .filter(WorkspaceAuditLog.id.in_(latest_lifecycle_ids), resolved_details)
+        .order_by(WorkspaceAuditLog.created_at.desc(), WorkspaceAuditLog.id.desc())
+    )
+    if active_ids:
+        verified_query = verified_query.filter(WorkspaceAuditLog.entity_id.notin_(active_ids))
+    verified_total = verified_query.count()
+    rows = verified_query.limit(limit).all()
+
     verified: List[Dict[str, Any]] = []
-    verified_total = 0
-    seen: Set[str] = set()
     for row in rows:
         item_id = str(row.entity_id or "")
-        if not item_id or item_id in active_ids or item_id in seen:
+        if not item_id:
             continue
-        seen.add(item_id)
         details = _audit_details(row)
         if details.get("lifecycle_state") != "resolved":
             continue
-        verified_total += 1
-        if len(verified) < limit:
-            verified.append(
-                {
-                    "item_id": item_id,
-                    "state": "verified_fixed",
-                    "verified": True,
-                    "label": "Verified fixed",
-                    "detail": (
-                        "This remediation item was marked resolved and no longer appears "
-                        "in the current remediation queue."
-                    ),
-                    "verification_status": "no_longer_observed",
-                    "verification_method": "current_queue_absence",
-                    "next_check": (
-                        "Keep importing fresh DMARC reports and refresh DNS evidence; reopen "
-                        "the item if the same finding returns."
-                    ),
-                    "evidence_needed": [
-                        "The latest lifecycle marker for this item is resolved.",
-                        "The same item id is absent from the current remediation queue.",
-                    ],
-                    "recorded_at": _audit_timestamp(row.created_at),
-                    "operator_note": details.get("operator_note"),
-                    "actor_type": row.actor_type,
-                }
-            )
+        verified.append(
+            {
+                "item_id": item_id,
+                "state": "verified_fixed",
+                "verified": True,
+                "label": "Verified fixed",
+                "detail": (
+                    "This remediation item was marked resolved and no longer appears "
+                    "in the current remediation queue."
+                ),
+                "verification_status": "no_longer_observed",
+                "verification_method": "current_queue_absence",
+                "next_check": (
+                    "Keep importing fresh DMARC reports and refresh DNS evidence; reopen "
+                    "the item if the same finding returns."
+                ),
+                "evidence_needed": [
+                    "The latest lifecycle marker for this item is resolved.",
+                    "The same item id is absent from the current remediation queue.",
+                ],
+                "recorded_at": _audit_timestamp(row.created_at),
+                "operator_note": details.get("operator_note"),
+                "actor_type": row.actor_type,
+            }
+        )
     return {"items": verified, "total": verified_total}
 
 

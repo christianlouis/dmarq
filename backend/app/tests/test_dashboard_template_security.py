@@ -343,17 +343,20 @@ def test_domain_details_remediation_queue_shows_verification_context():
     script = _domain_details_script()
 
     assert "verified_items_total" in template
+    assert 'x-text="verifiedItemsTotalCount()"' in template
     assert "verifiedItemsHiddenCount()" in template
     assert "verified.verification_method" in template
     assert "verified.verification_status" in template
     assert "verified.next_check" in template
     assert "item.action_plan.operator_decision_summary" in template
     assert "item.action_plan.risk_level" in template
+    assert "remediationRiskClass(item.action_plan.risk_level || 'medium')" in template
     assert "item.priority_band" in template
     assert "item.verification_plan.verification_method" in template
     assert "item.verification_plan.freshness_requirement" in template
     assert "item.verification_plan.failure_mode" in template
     assert "remediationRiskClass(value)" in script
+    assert "verifiedItemsTotalCount()" in script
     assert "verifiedItemsHiddenCount()" in script
 
 
