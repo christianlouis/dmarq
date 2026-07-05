@@ -1476,9 +1476,10 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     assert "sourceReputationRefreshError" in template
     assert "this.sourceReputationRefreshError = '';" in script
     assert "keepExistingSourcesVisible" in script
-    assert "preserveOnFailure = Boolean(options.preserveOnFailure || keepExistingSourcesVisible)" in script
+    assert "preserveOnFailure = Boolean(options.preserveOnFailure ?? keepExistingSourcesVisible)" in script
     assert "this.sourcesLoading = !keepExistingSourcesVisible;" in script
     assert "if (!preserveOnFailure) {\n                    this.sources = [];" in script
+    assert "Sources could not be loaded." in script
     assert "sourceSeenLabel" in script
     assert "sourceVolumeBars" in script
     assert "source.reputation.status" in template

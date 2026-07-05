@@ -2354,7 +2354,7 @@ function domainDetailsApp(domainId = '') {
         async fetchSources(options = {}) {
             const refresh = Boolean(options.refresh);
             const keepExistingSourcesVisible = refresh && (this.sources || []).length > 0;
-            const preserveOnFailure = Boolean(options.preserveOnFailure || keepExistingSourcesVisible);
+            const preserveOnFailure = Boolean(options.preserveOnFailure ?? keepExistingSourcesVisible);
             this.sourcesLoading = !keepExistingSourcesVisible;
             this.sourcesError = '';
             try {
@@ -2376,7 +2376,7 @@ function domainDetailsApp(domainId = '') {
             } catch (error) {
                 if (!preserveOnFailure) {
                     this.sources = [];
-                    this.sourcesError = error.message || 'Sending sources could not be loaded.';
+                    this.sourcesError = error.message || 'Sources could not be loaded.';
                 }
                 if (preserveOnFailure) {
                     this.sourceReputationRefreshError = error.message || 'Source reputation could not be refreshed.';
