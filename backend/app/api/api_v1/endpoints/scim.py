@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -167,19 +168,51 @@ def _role_from_groups(groups: List[ScimGroupRef]) -> Tuple[str, Optional[str]]:
 
 
 def _find_user(
-    db: Session, *, user_id: Optional[int] = None, payload: Optional[ScimUserWrite] = None
+    db: Session,
+    *,
+    workspace: Workspace,
+    user_id: Optional[int] = None,
+    payload: Optional[ScimUserWrite] = None,
 ):
+    query = (
+        db.query(User)
+        .join(WorkspaceMembership, WorkspaceMembership.user_id == User.id)
+        .filter(WorkspaceMembership.workspace_id == workspace.id)
+    )
     if user_id is not None:
-        return db.query(User).filter(User.id == user_id).first()
+        return query.filter(User.id == user_id).first()
     assert payload is not None
     external_id = (payload.externalId or "").strip() or None
     email = _primary_email(payload)
-    query = db.query(User)
     if external_id:
         user = query.filter(User.logto_id == external_id).first()
         if user is not None:
             return user
     return query.filter(User.email == email).first()
+
+
+def _scim_active_from_memberships(user: User) -> bool:
+    memberships = getattr(user, "_scim_memberships", None)
+    if memberships is None:
+        return bool(user.is_active)
+    return any(membership.active for membership in memberships)
+
+
+def _coerce_scim_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes"}:
+            return True
+        if normalized in {"false", "0", "no"}:
+            return False
+    if isinstance(value, int) and value in {0, 1}:
+        return bool(value)
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail="SCIM active value must be a boolean",
+    )
 
 
 def _upsert_memberships(
@@ -252,7 +285,7 @@ def _scim_user_to_dict(user: User, workspace: Workspace) -> Dict[str, Any]:
         "id": str(user.id),
         "externalId": user.logto_id,
         "userName": user.email,
-        "active": bool(user.is_active),
+        "active": _scim_active_from_memberships(user),
         "name": {"formatted": user.full_name},
         "emails": [{"value": user.email, "primary": True}],
         "groups": groups,
@@ -280,7 +313,7 @@ def _load_workspace_memberships(db: Session, workspace: Workspace, users: List[U
     for row in rows:
         by_user.setdefault(row.user_id, []).append(row)
     for user in users:
-        setattr(user, "_scim_memberships", by_user.get(user.id, []))
+        user._scim_memberships = by_user.get(user.id, [])
 
 
 def _upsert_scim_user(
@@ -291,12 +324,12 @@ def _upsert_scim_user(
     request: Request,
     auth_context: Dict[str, Any],
     existing_user: Optional[User] = None,
-) -> User:
+) -> Tuple[User, bool]:
     email = _primary_email(payload)
-    user = existing_user or _find_user(db, payload=payload)
+    user = existing_user or _find_user(db, workspace=workspace, payload=payload)
     created = user is None
     if user is None:
-        user = User(email=email, is_superuser=False)
+        user = User(email=email, is_superuser=False, is_active=True)
         db.add(user)
     user.email = email
     if payload.externalId:
@@ -304,9 +337,15 @@ def _upsert_scim_user(
     display_name = _display_name(payload)
     if display_name:
         user.full_name = display_name
-    user.is_active = bool(payload.active)
     user.is_verified = True
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="SCIM user conflicts with an existing identity",
+        ) from exc
     workspace_role, organization_role = _role_from_groups(payload.groups)
     _upsert_memberships(
         db,
@@ -333,7 +372,7 @@ def _upsert_scim_user(
         entity_name=user.email,
         details={
             "external_id": bool(payload.externalId),
-            "active": user.is_active,
+            "active": payload.active,
             "workspace_role": workspace_role,
             "organization_role": organization_role,
         },
@@ -343,7 +382,7 @@ def _upsert_scim_user(
     db.commit()
     db.refresh(user)
     _load_workspace_memberships(db, workspace, [user])
-    return user
+    return user, created
 
 
 def _validate_replace_targets_user(db: Session, *, existing: User, payload: ScimUserWrite) -> None:
@@ -385,7 +424,7 @@ def _user_or_404(db: Session, user_id: int, workspace: Workspace) -> User:
     user = db.query(User).filter(User.id == user_id).first()
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SCIM user not found")
-    setattr(user, "_scim_memberships", [membership])
+    user._scim_memberships = [membership]
     return user
 
 
@@ -434,7 +473,7 @@ async def list_scim_users(
     }
 
 
-@router.post("/Users", status_code=status.HTTP_201_CREATED)
+@router.post("/Users")
 async def create_scim_user(
     payload: ScimUserWrite,
     request: Request,
@@ -443,10 +482,13 @@ async def create_scim_user(
 ):
     """Create or upsert a SCIM user in the token workspace."""
     workspace = _workspace_for_token(db, _auth)
-    user = _upsert_scim_user(
+    user, created = _upsert_scim_user(
         db, workspace=workspace, payload=payload, request=request, auth_context=_auth
     )
-    return _scim_user_to_dict(user, workspace)
+    return JSONResponse(
+        status_code=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        content=_scim_user_to_dict(user, workspace),
+    )
 
 
 @router.get("/Users/{user_id}")
@@ -473,7 +515,7 @@ async def replace_scim_user(
     workspace = _workspace_for_token(db, _auth)
     existing = _user_or_404(db, user_id, workspace)
     _validate_replace_targets_user(db, existing=existing, payload=payload)
-    user = _upsert_scim_user(
+    user, _created = _upsert_scim_user(
         db,
         workspace=workspace,
         payload=payload,
@@ -499,23 +541,24 @@ async def patch_scim_user(
     for operation in payload.Operations:
         path = (operation.path or "").strip().lower()
         if operation.op.strip().lower() in {"replace", "add"} and path == "active":
-            user.is_active = bool(operation.value)
+            active = _coerce_scim_bool(operation.value)
             for membership in getattr(user, "_scim_memberships", []):
-                membership.active = bool(operation.value)
+                membership.active = active
             changed = True
     if not changed:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Only active-state SCIM patch operations are supported",
         )
+    active = _scim_active_from_memberships(user)
     record_workspace_audit_log(
         db,
         workspace=workspace,
-        action="scim.user_deactivated" if not user.is_active else "scim.user_activated",
+        action="scim.user_deactivated" if not active else "scim.user_activated",
         entity_type="user",
         entity_id=user.id,
         entity_name=user.email,
-        details={"active": user.is_active},
+        details={"active": active},
         auth_context=_auth,
         request=request,
     )
@@ -535,7 +578,6 @@ async def deactivate_scim_user(
     """Deactivate a SCIM user without deleting audit history."""
     workspace = _workspace_for_token(db, _auth)
     user = _user_or_404(db, user_id, workspace)
-    user.is_active = False
     for membership in getattr(user, "_scim_memberships", []):
         membership.active = False
     record_workspace_audit_log(

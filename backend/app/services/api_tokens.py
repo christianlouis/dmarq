@@ -60,6 +60,9 @@ def normalize_scopes(
         raise ValueError(f"Unsupported API token scope: {', '.join(invalid)}")
     if not normalized:
         raise ValueError("At least one API token scope is required")
+    normalized_set = set(normalized)
+    if normalized_set & SCIM_SCOPES and normalized_set - SCIM_SCOPES:
+        raise ValueError("SCIM API token scopes cannot be combined with non-SCIM scopes")
     return normalized
 
 
