@@ -1131,10 +1131,24 @@ def test_report_detail_uses_external_page_script_for_csp_migration():
     assert "this.report = null;" in script
     assert "record.reputation.feed_status" in template
     assert "record.reputation.feed_summary" in template
+    assert "recordRiskFilter" in template
+    assert "filteredRecords" in template
+    assert "recordRiskCounts" in template
+    assert "recordRiskMatches(record, this.recordRiskFilter)" in script
+    assert "reputationAgeLabel(record.reputation)" in template
+    assert "reputationNextSteps(record.reputation)" in template
+    assert "recordSenderName(record)" in template
+    assert "recordSenderStatus(record)" in template
+    assert "recordSenderProvider(record)" in template
+    assert "recordSenderConfidence(record)" in template
+    assert "recordSenderEvidence(record)" in template
+    assert "recordSenderRemediationHint(record)" in template
+    assert "seenLabel(record.reputation.last_seen)" in template
     assert "Use Recalculate reputation" in template
     assert "reputationFeedClass" in script
     assert "reputationLabel" in script
     assert "reputationEvidencePreview" in script
+    assert "senderStatusClass" in script
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 
@@ -1710,6 +1724,13 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "remediationQueue.summary.approval_ready" in template
     assert "remediationQueue.summary.manual_action" in template
     assert "No sending sources match this filter." in template
+    assert "filters.sourceRiskFilter" in template
+    assert "sourceRiskCounts" in template
+    assert "sourceRiskMatches(source, this.filters.sourceRiskFilter)" in script
+    assert "sourceActivityLabel(source)" in template
+    assert "sourceActivityClass(source)" in template
+    assert "reputationAgeLabel(source.reputation)" in template
+    assert "Math.log10(count + 1)" in script
     assert (
         "(!sourceIntelligence.loading && !sourceIntelligence.error ? sourceIntelligence.regions.slice(0, 4) : [])"
         in template

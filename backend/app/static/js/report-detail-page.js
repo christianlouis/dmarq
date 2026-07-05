@@ -6,6 +6,7 @@ function reportDetailApp(reportId = '') {
         error: null,
         reputationRefreshing: false,
         reputationRefreshError: '',
+        recordRiskFilter: 'all',
 
         async init() {
             this.reportId = this.$el?.dataset?.reportId || this.reportId;
@@ -150,6 +151,50 @@ function reportDetailApp(reportId = '') {
             return 'text-error';
         },
 
+        get filteredRecords() {
+            const records = this.report?.records || [];
+            return records.filter((record) => this.recordRiskMatches(record, this.recordRiskFilter));
+        },
+
+        get recordRiskCounts() {
+            const records = this.report?.records || [];
+            return records.reduce(
+                (counts, record) => {
+                    counts.total += 1;
+                    if (this.recordReputationNeedsReview(record)) counts.risky += 1;
+                    if (record.reputation?.status === 'listed') counts.listed += 1;
+                    if (!record.reputation) counts.unchecked += 1;
+                    if (record.review_status === 'needs_review') counts.authReview += 1;
+                    return counts;
+                },
+                { total: 0, risky: 0, listed: 0, unchecked: 0, authReview: 0 }
+            );
+        },
+
+        recordRiskMatches(record, filter) {
+            if (!record || filter === 'all') return true;
+            if (filter === 'listed') return record.reputation?.status === 'listed';
+            if (filter === 'risky') return this.recordReputationNeedsReview(record);
+            if (filter === 'auth_review') return record.review_status === 'needs_review';
+            if (filter === 'unchecked') return !record.reputation;
+            if (filter === 'clean') return record.reputation?.status === 'clean';
+            return true;
+        },
+
+        recordReputationNeedsReview(record) {
+            const status = record?.reputation?.status || '';
+            const risk = Number(record?.reputation?.risk_score || 0);
+            return ['listed', 'critical', 'suspicious'].includes(status) || risk >= 50;
+        },
+
+        recordRiskLabel() {
+            const counts = this.recordRiskCounts;
+            if (this.recordRiskFilter === 'all') {
+                return `${counts.total} source record${counts.total === 1 ? '' : 's'}`;
+            }
+            return `${this.filteredRecords.length} of ${counts.total} source record${counts.total === 1 ? '' : 's'}`;
+        },
+
         resultClass(result) {
             if (result === 'pass') return 'bg-green-100 text-green-800';
             if (result === 'fail') return 'bg-red-100 text-red-800';
@@ -171,6 +216,44 @@ function reportDetailApp(reportId = '') {
         reviewStatusLabel(status) {
             if (status === 'needs_review') return 'Needs review';
             return 'Pass';
+        },
+
+        senderStatusClass(status) {
+            if (status === 'known') return 'bg-green-100 text-green-800';
+            if (status === 'ambiguous') return 'bg-yellow-100 text-yellow-800';
+            if (status === 'suspicious') return 'bg-red-100 text-red-800';
+            return 'bg-gray-100 text-gray-700';
+        },
+
+        recordSender(record) {
+            return record?.source_details?.sender || {};
+        },
+
+        recordSenderName(record) {
+            const sender = this.recordSender(record);
+            return sender.name || sender.label || 'Unknown sender';
+        },
+
+        recordSenderStatus(record) {
+            return this.recordSender(record).status || 'unknown';
+        },
+
+        recordSenderProvider(record) {
+            const sender = this.recordSender(record);
+            return sender.provider || sender.category || 'Unclassified';
+        },
+
+        recordSenderConfidence(record) {
+            return `${this.recordSender(record).confidence || 0}% confidence`;
+        },
+
+        recordSenderEvidence(record) {
+            const evidence = this.recordSender(record).evidence || [];
+            return evidence.length ? evidence[0] : '';
+        },
+
+        recordSenderRemediationHint(record) {
+            return this.recordSender(record).remediation_hint || '';
         },
 
         sourceLocation(record) {
@@ -238,8 +321,36 @@ function reportDetailApp(reportId = '') {
             return `checked ${date.toLocaleString()}`;
         },
 
+        reputationAgeLabel(reputation) {
+            if (!reputation?.checked_at) return 'reputation not checked';
+            const checked = new Date(reputation.checked_at);
+            if (Number.isNaN(checked.getTime())) return 'reputation timestamp unknown';
+            const ageHours = Math.max(0, Math.floor((Date.now() - checked.getTime()) / 3600000));
+            if (ageHours < 1) return 'reputation checked recently';
+            if (ageHours < 24) return `reputation checked ${ageHours}h ago`;
+            const ageDays = Math.floor(ageHours / 24);
+            return `reputation checked ${ageDays}d ago`;
+        },
+
         reputationEvidencePreview(reputation) {
             return (reputation?.evidence || []).slice(0, 3);
+        },
+
+        reputationNextSteps(reputation) {
+            return (reputation?.recommendations || []).slice(0, 2);
+        },
+
+        seenLabel(timestamp) {
+            if (!timestamp) return '';
+            const date = new Date(Number(timestamp) * 1000);
+            if (Number.isNaN(date.getTime())) return String(timestamp);
+            const diffDays = Math.floor((Date.now() - date.getTime()) / 86400000);
+            if (Number.isFinite(diffDays) && diffDays >= 0) {
+                if (diffDays === 0) return 'today';
+                if (diffDays === 1) return 'yesterday';
+                if (diffDays < 90) return `${diffDays} days ago`;
+            }
+            return date.toLocaleDateString();
         },
     };
 }

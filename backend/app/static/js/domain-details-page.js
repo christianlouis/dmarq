@@ -245,6 +245,7 @@ function domainDetailsApp(domainId = '') {
         filters: {
             dateRange: '30',
             sourceFilter: '',
+            sourceRiskFilter: 'all',
             exportStartDate: '',
             exportEndDate: ''
         },
@@ -545,10 +546,26 @@ function domainDetailsApp(domainId = '') {
             return Number(regionSources || this.sources.length || 0);
         },
 
+        get sourceRiskCounts() {
+            return (this.sources || []).reduce(
+                (counts, source) => {
+                    counts.total += 1;
+                    if (this.sourceReputationNeedsReview(source)) counts.risky += 1;
+                    if (source?.reputation?.status === 'listed') counts.listed += 1;
+                    if (!source?.reputation) counts.unchecked += 1;
+                    if (source?.dmarc === 'fail' || source?.dmarc === 'mixed') counts.authReview += 1;
+                    if (this.sourceActivityBucket(source) === 'recent') counts.recent += 1;
+                    return counts;
+                },
+                { total: 0, risky: 0, listed: 0, unchecked: 0, authReview: 0, recent: 0 }
+            );
+        },
+
         get filteredSources() {
             if (!this.sources) return [];
 
             return this.sources.filter(source => {
+                if (!this.sourceRiskMatches(source, this.filters.sourceRiskFilter)) return false;
                 if (!this.filters.sourceFilter) return true;
                 const needle = this.filters.sourceFilter.toLowerCase();
                 return [
@@ -574,6 +591,50 @@ function domainDetailsApp(domainId = '') {
                     ...(source.reputation?.listings || []),
                 ].some(value => String(value || '').toLowerCase().includes(needle));
             });
+        },
+
+        sourceRiskMatches(source, filter) {
+            if (!source || filter === 'all') return true;
+            if (filter === 'risky') return this.sourceReputationNeedsReview(source);
+            if (filter === 'listed') return source.reputation?.status === 'listed';
+            if (filter === 'auth_review') return source.dmarc === 'fail' || source.dmarc === 'mixed';
+            if (filter === 'unchecked') return !source.reputation;
+            if (filter === 'recent') return this.sourceActivityBucket(source) === 'recent';
+            if (filter === 'stale') return this.sourceActivityBucket(source) === 'stale';
+            if (filter === 'clean') return source.reputation?.status === 'clean';
+            return true;
+        },
+
+        sourceReputationNeedsReview(source) {
+            const status = source?.reputation?.status || '';
+            const risk = Number(source?.reputation?.risk_score || 0);
+            return ['listed', 'critical', 'suspicious'].includes(status) || risk >= 50;
+        },
+
+        sourceActivityBucket(source) {
+            if (!source?.last_seen) return 'unknown';
+            const date = new Date(Number(source.last_seen) * 1000);
+            if (Number.isNaN(date.getTime())) return 'unknown';
+            const diffDays = Math.floor((Date.now() - date.getTime()) / 86400000);
+            if (diffDays <= 14) return 'recent';
+            if (diffDays <= 90) return 'older';
+            return 'stale';
+        },
+
+        sourceActivityLabel(source) {
+            const bucket = this.sourceActivityBucket(source);
+            if (bucket === 'recent') return 'recent sender';
+            if (bucket === 'older') return 'older sender';
+            if (bucket === 'stale') return 'stale sender';
+            return 'activity unknown';
+        },
+
+        sourceActivityClass(source) {
+            const bucket = this.sourceActivityBucket(source);
+            if (bucket === 'recent') return 'bg-green-50 text-green-800';
+            if (bucket === 'older') return 'bg-amber-50 text-amber-800';
+            if (bucket === 'stale') return 'bg-base-200 text-base-content/70';
+            return 'bg-base-200 text-base-content/70';
         },
 
         get exportReportsUrl() {
@@ -1565,6 +1626,17 @@ function domainDetailsApp(domainId = '') {
             return `checked ${date.toLocaleString()}`;
         },
 
+        reputationAgeLabel(reputation) {
+            if (!reputation?.checked_at) return 'reputation not checked';
+            const checked = new Date(reputation.checked_at);
+            if (Number.isNaN(checked.getTime())) return 'reputation timestamp unknown';
+            const ageHours = Math.max(0, Math.floor((Date.now() - checked.getTime()) / 3600000));
+            if (ageHours < 1) return 'checked recently';
+            if (ageHours < 24) return `checked ${ageHours}h ago`;
+            const ageDays = Math.floor(ageHours / 24);
+            return `checked ${ageDays}d ago`;
+        },
+
         reputationEvidencePreview(reputation) {
             return (reputation?.evidence || []).slice(0, 3);
         },
@@ -1603,12 +1675,14 @@ function domainDetailsApp(domainId = '') {
         sourceVolumeBars(source) {
             const history = (source.volume_history || []).slice(-14);
             const max = Math.max(...history.map(point => Number(point.count || 0)), 1);
+            const logMax = Math.log10(max + 1);
             const slotWidth = 140 / Math.max(history.length, 1);
             const barWidth = Math.max(4, slotWidth - 2);
             return history.map((point, index) => {
                 const count = Number(point.count || 0);
                 const failed = Number(point.failed || 0);
-                const height = Math.max(12, Math.round((count / max) * 100));
+                const scaled = logMax > 0 ? Math.log10(count + 1) / logMax : 0;
+                const height = count > 0 ? Math.max(12, Math.round(scaled * 100)) : 4;
                 return {
                     ...point,
                     failed,
