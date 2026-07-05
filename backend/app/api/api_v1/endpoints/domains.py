@@ -6004,18 +6004,11 @@ async def export_domain_reports(
         )
 
     workspace = _authorized_domain_read_workspace(_auth, db)
-    store = ReportStore.get_instance()
-    hydrate_report_store_from_db(db, store)
-
-    if not _domain_exists(db, store, domain_id, workspace):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Domain not found",
-        )
+    domain_name, store = _single_domain_report_store_for_read(db, domain_id, workspace)
 
     reports = [
         report
-        for report in store.get_domain_reports(domain_id, limit=10000)
+        for report in store.get_domain_reports(domain_name, limit=10000)
         if _report_in_export_range(report, start_date, end_date)
     ]
 
@@ -6057,7 +6050,7 @@ async def export_domain_reports(
             policy = policy.get("p", "none")
         writer.writerow(
             [
-                domain_id,
+                domain_name,
                 report.get("report_id", "unknown"),
                 report.get("org_name", "Unknown Organization"),
                 _format_report_date(report.get("begin_timestamp") or report.get("begin_date")),
@@ -6080,7 +6073,7 @@ async def export_domain_reports(
             ]
         )
 
-    filename = f"{domain_id.replace('/', '_')}-dmarc-reports.csv"
+    filename = f"{domain_name.replace('/', '_')}-dmarc-reports.csv"
     return Response(
         content=output.getvalue(),
         media_type="text/csv",
