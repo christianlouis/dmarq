@@ -12,6 +12,19 @@ function dashboardApp() {
         dashboardRefreshError: '',
         domainSummaryLoadedAt: '',
         remediationRefreshRunning: false,
+        dashboardRemediationFilter: 'all',
+        dashboardRemediationSort: 'priority',
+        showAllDashboardRemediationItems: false,
+        dashboardRemediationFilterOptions: [
+            { value: 'all', label: 'All' },
+            { value: 'preview_ready', label: 'Preview ready' },
+            { value: 'fresh_evidence', label: 'Fresh evidence' },
+            { value: 'stale_evidence', label: 'Stale evidence' },
+            { value: 'blocked', label: 'Blocked' },
+            { value: 'waiting_operator', label: 'Waiting' },
+            { value: 'manual', label: 'Manual' },
+            { value: 'reputation', label: 'Reputation' }
+        ],
         selectedDnsDomain: '',
         triggerPollRunning: false,
         triggerPollStatus: '',
@@ -176,6 +189,11 @@ function dashboardApp() {
         
         init() {
             this.bindControls();
+            if (typeof this.$watch === 'function') {
+                this.$watch('dashboardRemediationSort', () => {
+                    this.showAllDashboardRemediationItems = false;
+                });
+            }
 
             // Fetch domain summary on page load
             this.fetchDomainSummary();
@@ -208,6 +226,13 @@ function dashboardApp() {
                 if (dnsDomain && root.contains(dnsDomain)) {
                     this.selectedDnsDomain = dnsDomain.value;
                     this.updateDnsHealth();
+                    return;
+                }
+
+                const remediationSort = event.target.closest('[data-dashboard-remediation-sort]');
+                if (remediationSort && root.contains(remediationSort)) {
+                    this.dashboardRemediationSort = remediationSort.value || 'priority';
+                    this.showAllDashboardRemediationItems = false;
                 }
             });
 
@@ -230,6 +255,20 @@ function dashboardApp() {
                 const dashboardRefresh = event.target.closest('[data-dashboard-refresh]');
                 if (dashboardRefresh && root.contains(dashboardRefresh)) {
                     this.fetchDomainSummary({ refresh: true });
+                    return;
+                }
+
+                const remediationFilter = event.target.closest('[data-dashboard-remediation-filter]');
+                if (remediationFilter && root.contains(remediationFilter)) {
+                    this.dashboardRemediationFilter =
+                        remediationFilter.dataset.dashboardRemediationFilter || 'all';
+                    this.showAllDashboardRemediationItems = false;
+                    return;
+                }
+
+                const remediationToggleAll = event.target.closest('[data-dashboard-remediation-toggle-all]');
+                if (remediationToggleAll && root.contains(remediationToggleAll)) {
+                    this.showAllDashboardRemediationItems = !this.showAllDashboardRemediationItems;
                     return;
                 }
 
@@ -937,8 +976,44 @@ function dashboardApp() {
             return this.healthSummary?.remediation_loop || {};
         },
 
-        remediationLoopItems() {
+        dashboardRemediationRawItems() {
             const items = this.remediationLoop().items;
+            return Array.isArray(items) ? items : [];
+        },
+
+        remediationLoopItems() {
+            const items = this.dashboardRemediationRawItems();
+            const filtered = items.filter(item =>
+                this.dashboardRemediationFilterMatches(item, this.dashboardRemediationFilter)
+            );
+            return this.sortedDashboardRemediationItems(filtered);
+        },
+
+        sortedDashboardRemediationItems(items) {
+            const list = Array.isArray(items) ? [...items] : [];
+            if (this.dashboardRemediationSort === 'readiness') {
+                return list.sort((a, b) => (
+                    this.repairReadinessScore(b?.repair_progression) -
+                    this.repairReadinessScore(a?.repair_progression) ||
+                    this.remediationLoopItemRank(a) - this.remediationLoopItemRank(b) ||
+                    (Number(b?.priority_score) || 0) - (Number(a?.priority_score) || 0)
+                ));
+            }
+            if (this.dashboardRemediationSort === 'freshness') {
+                return list.sort((a, b) => (
+                    this.dashboardRemediationEvidenceRank(a) -
+                    this.dashboardRemediationEvidenceRank(b) ||
+                    this.remediationLoopItemRank(a) - this.remediationLoopItemRank(b) ||
+                    (Number(b?.priority_score) || 0) - (Number(a?.priority_score) || 0)
+                ));
+            }
+            if (this.dashboardRemediationSort === 'severity') {
+                return list.sort((a, b) => (
+                    this.remediationSeverityWeight(b?.severity) - this.remediationSeverityWeight(a?.severity) ||
+                    this.remediationLoopItemRank(a) - this.remediationLoopItemRank(b) ||
+                    (Number(b?.priority_score) || 0) - (Number(a?.priority_score) || 0)
+                ));
+            }
             return Array.isArray(items)
                 ? [...items].sort((a, b) => (
                     this.remediationLoopItemRank(a) - this.remediationLoopItemRank(b) ||
@@ -948,7 +1023,89 @@ function dashboardApp() {
         },
 
         hasRemediationLoopItems() {
+            return this.dashboardRemediationRawItems().length > 0;
+        },
+
+        hasVisibleDashboardRemediationItems() {
             return this.remediationLoopItems().length > 0;
+        },
+
+        visibleDashboardRemediationItems() {
+            const items = this.remediationLoopItems();
+            return this.showAllDashboardRemediationItems ? items : items.slice(0, 6);
+        },
+
+        dashboardRemediationTotalCount() {
+            return this.dashboardRemediationRawItems().length;
+        },
+
+        dashboardRemediationFilteredCount() {
+            return this.remediationLoopItems().length;
+        },
+
+        dashboardRemediationHiddenCount() {
+            return Math.max(
+                this.dashboardRemediationFilteredCount() - this.visibleDashboardRemediationItems().length,
+                0
+            );
+        },
+
+        dashboardRemediationFilterLabel() {
+            const match = this.dashboardRemediationFilterOptions.find(
+                option => option.value === this.dashboardRemediationFilter
+            );
+            return match?.label || 'All';
+        },
+
+        dashboardRemediationFilterCount(filter) {
+            return this.dashboardRemediationRawItems().filter(item =>
+                this.dashboardRemediationFilterMatches(item, filter)
+            ).length;
+        },
+
+        dashboardRemediationFilterMatches(item, filterValue) {
+            if (!item || !filterValue || filterValue === 'all') return true;
+            const progression = item?.repair_progression || {};
+            const readinessLevel = String(progression.readiness_level || '');
+            const stage = String(progression.stage || '');
+            const track = String(item?.remediation_track || '');
+            const refresh = item?.evidence_refresh || {};
+            const refreshKey = String(refresh.refresh_key || '');
+            if (filterValue === 'preview_ready') {
+                return readinessLevel === 'ready_for_preview' || stage === 'preview_ready';
+            }
+            if (filterValue === 'fresh_evidence') {
+                return Boolean(refresh.required) ||
+                    Boolean(progression.verification_required) ||
+                    Boolean(item?.action_plan?.requires_fresh_evidence);
+            }
+            if (filterValue === 'stale_evidence') {
+                return Boolean(this.remediationStaleEvidenceText(item));
+            }
+            if (filterValue === 'blocked') {
+                return readinessLevel === 'blocked' ||
+                    stage === 'blocked' ||
+                    refresh.safe_to_run === false ||
+                    refreshKey === 'provider_value' ||
+                    (progression.blocked_by || []).length > 0;
+            }
+            if (filterValue === 'waiting_operator') {
+                return ['manual_action', 'investigate'].includes(String(item?.state || '')) ||
+                    readinessLevel === 'needs_operator_review' ||
+                    stage === 'operator_review';
+            }
+            if (filterValue === 'manual') {
+                return track === 'manual_dns' ||
+                    readinessLevel === 'manual_repair' ||
+                    stage === 'manual_repair';
+            }
+            if (filterValue === 'reputation') {
+                return track === 'reputation_review' ||
+                    readinessLevel === 'needs_reputation_review' ||
+                    stage === 'reputation_review' ||
+                    refreshKey === 'source_reputation';
+            }
+            return true;
         },
 
         remediationLoopItemRank(item) {
@@ -958,12 +1115,40 @@ function dashboardApp() {
             const state = String(item?.state || '');
             const track = String(item?.remediation_track || '');
             if (readinessLevel === 'ready_for_preview' || stage === 'preview_ready') return 0;
-            if (state === 'needs_approval') return 1;
+            if (state === 'approval_ready' || state === 'needs_approval') return 1;
             if (readinessLevel === 'blocked' || stage === 'blocked') return 2;
             if (readinessLevel === 'needs_reputation_review' || track === 'reputation_review') return 3;
             if (state === 'investigate') return 4;
             if (readinessLevel === 'manual_repair' || track === 'manual_dns' || state === 'manual_action') return 5;
             return 6;
+        },
+
+        dashboardRemediationEvidenceRank(item) {
+            const refresh = item?.evidence_refresh || {};
+            const key = String(refresh.refresh_key || '');
+            if (refresh.safe_to_run === false || key === 'provider_value') return 0;
+            if (refresh.required && key === 'dns') return 1;
+            if (refresh.required && key === 'source_reputation') return 2;
+            if (refresh.required) return 3;
+            return 4;
+        },
+
+        remediationSeverityWeight(severity) {
+            return {
+                critical: 5,
+                high: 4,
+                error: 4,
+                medium: 3,
+                warning: 3,
+                low: 2,
+                info: 1
+            }[String(severity || '').toLowerCase()] || 0;
+        },
+
+        remediationStaleEvidenceText(item) {
+            return item?.evidence_refresh?.stale_warning ||
+                item?.verification_plan?.stale_evidence_warning ||
+                '';
         },
 
         remediationLoopStatusLabel(status) {
@@ -992,6 +1177,7 @@ function dashboardApp() {
 
         remediationLoopStateLabel(state) {
             return {
+                approval_ready: 'Needs approval',
                 needs_approval: 'Needs approval',
                 manual_action: 'Manual action',
                 investigate: 'Investigate'
@@ -1000,6 +1186,7 @@ function dashboardApp() {
 
         remediationLoopStateClass(state) {
             return {
+                approval_ready: 'bg-[#edf7f7] text-[#247982]',
                 needs_approval: 'bg-[#edf7f7] text-[#247982]',
                 manual_action: 'bg-[#fff7df] text-[#8a6418]',
                 investigate: 'bg-[#fff1ea] text-[#b8431d]'
@@ -1110,6 +1297,15 @@ function dashboardApp() {
         domainRemediationHref(domainName) {
             return domainName
                 ? `/domains/${encodeURIComponent(domainName)}#remediation-queue`
+                : '/domains';
+        },
+
+        domainEvidenceHref(item) {
+            const domainName = item?.domain || '';
+            const rawAnchor = String(item?.evidence_refresh?.ui_anchor || '#remediation-queue');
+            const anchor = rawAnchor.startsWith('#') ? rawAnchor : '#remediation-queue';
+            return domainName
+                ? `/domains/${encodeURIComponent(domainName)}${anchor}`
                 : '/domains';
         },
 

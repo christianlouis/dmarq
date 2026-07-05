@@ -183,6 +183,13 @@ The dashboard remediation loop also mirrors the Fresh Evidence path from the
 domain queue. Its evidence-gated counters split the queue into DNS, report, and
 reputation refreshes, and each remediation card states the concrete read-only
 evidence action that should happen before the operator marks an item fixed.
+Use the dashboard remediation filters and sort control when the workspace has
+many active items. The dashboard can focus on preview-ready work, fresh evidence
+requirements, blocked items, manual repairs, or reputation review, and the
+compact card list can expand to show every matching item.
+Items with stale DNS, report, or reputation evidence can be filtered separately.
+When a remediation card knows the relevant evidence section, the dashboard links
+directly to that part of the domain detail page.
 
 ### Source Intelligence
 
