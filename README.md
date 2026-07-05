@@ -51,9 +51,9 @@ Included:
 - ✅ SMTP TLS report ingestion, trends, and top failure summaries
 - ✅ Best-effort passive DANE/TLSA MX checks with bounded live probing and read-only TLSA suggestions
 - ✅ Public demo mode with rolling synthetic `dmarq.org` and `dmarq.com` data
-- 🔭 Roadmap: domain mail-health scoring, human-approved repair loops, sender IP
-  reputation checks, DNS/mail provider imports, direct report intake workers,
-  ecosystem integrations, and localized remediation guidance
+- 🔭 Roadmap: deeper human-approved repair loops, DNS/mail provider imports,
+  direct report intake workers, ecosystem integrations, richer reputation feeds,
+  and localized remediation guidance
 
 Protocol boundary:
 
@@ -91,6 +91,8 @@ Protocol boundary:
 
 ### 🧭 Mail Health Direction
 - **Health Score & Grade**: Make domain sending health visible at a glance
+- **Evidence History & Exports**: Keep score history, report evidence, and
+  export paths available for audit and migration workflows
 - **Human-in-the-loop Repair**: Detect automatically, explain clearly, apply only after approval
 - **Provider & Self-hosted Guidance**: Work for Google/Microsoft/Postmark/SES-style senders and custom MTAs
 - **Sender Reputation**: Surface blacklist and reputation risks for sending IPs
@@ -206,14 +208,17 @@ explain the results, and help operators improve DMARC-adjacent DNS and mail
 sending health. Future work should strengthen that loop rather than turn DMARQ
 into a general-purpose mail gateway or a hidden automation platform.
 
-The current roadmap is organized around:
+Current shipped surfaces include health scoring, A-F style posture grading,
+score history, evidence exports, sender/source analytics, reputation indicators,
+and read-only public API/MCP access for evidence-linked automation.
+
+The active roadmap is organized around:
 
 - **Trustworthy report ingestion and DNS linting**
-- **Health score, A-F rating, and prioritized remediation**
-- **Human-approved DNS and provider repair workflows**
+- **Prioritized, human-approved DNS and provider repair workflows**
 - **Provider discovery, domain imports, and direct report intake**
-- **Sender identity, reputation, and blacklist monitoring**
-- **API/MCP automation for evidence-linked workflows**
+- **Deeper sender identity, commercial reputation feeds, and blacklist monitoring**
+- **API/MCP automation beyond the current read-only scope**
 - **Localized guidance, starting with German as the first non-English target**
 
 See the full [Roadmap](docs/development/roadmap.md) and [Milestones](docs/milestones.md).

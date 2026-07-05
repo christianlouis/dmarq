@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Documented shipped mail-health surfaces separately from future roadmap work
+  so health scoring, evidence exports, read-only API/MCP access, and sender
+  reputation no longer read as purely future features.
 - Added in-product release metadata with version, image, git ref, build date, recent changes, and a link to the full changelog.
 - Added a domain-level DMARC/SPF/DKIM mail-authentication wizard entry point that renders generated target records as ordered setup steps.
 - Added an explicit AI redaction mode for operators who want to preserve email addresses and domains in AI context while still protecting secrets and opaque tokens.
@@ -27,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cleaned up root directory for clarity
 
 ### Fixed
+- Retired stale roadmap issue-generator guidance and made the docs-site
+  changelog point at the canonical root changelog.
 - Fixed domain posture scoring so optional MTA-STS/BIMI gaps stay visible as actions without collapsing otherwise healthy DMARC/SPF/DKIM domains to an F-grade impression.
 - Fixed Docker release metadata so the in-product build SHA, ref, and date come from the checked-out image source instead of the workflow trigger commit.
 - Fixed Cloudflare OAuth recovery so invalid-scope callbacks offer a read-only retry path and stale legacy scopes such as `user.read` are filtered from DMARQ-generated requests.

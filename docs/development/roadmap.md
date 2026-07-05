@@ -83,6 +83,8 @@ Completed or substantially delivered:
   recommendations.
 - DNS health checks for DMARC/SPF/DKIM plus posture checks for MTA-STS, TLS-RPT,
   BIMI, and passive DANE/TLSA readiness.
+- Domain health scoring with A-F style grading, score factors, score history,
+  compliance evidence exports, and prioritized action-plan surfaces.
 - Passive sender IP reputation scoring from observed report evidence, known
   sender context, local/demo metadata, reserved-address detection, source
   anomalies, and an opt-in external DNSBL feed registry. Feed lookups are
@@ -97,6 +99,8 @@ Completed or substantially delivered:
 - Cloudflare read-only inspection, DNS snapshots, and DNS change history.
 - Notifications, alert rules, alert history, and Apprise delivery.
 - API tokens, webhooks, SIEM templates, and ticketing/chatops templates.
+- Public API and read-only MCP surfaces for posture, reports, DNS health,
+  source evidence, remediation queues, alerts, usage, and export discovery.
 - Workspace, RBAC vocabulary, audit-log, onboarding-template, and MSP operator
   foundations.
 - Demo deployment that rolls forward from main through CI/GitOps.
@@ -124,10 +128,11 @@ Deliverables:
 
 - Keep parser compatibility current with real-world aggregate and forensic
   report formats.
-- Add a dashboard-level health score, A-F rating, score breakdown, and
-  prioritized action plan.
-- Add named sender identification so raw source IPs become recognizable services
-  with provider-specific remediation.
+- Keep the shipped dashboard-level health score, A-F rating, score breakdown,
+  history, evidence exports, and prioritized action plan accurate as import and
+  DNS data models evolve.
+- Improve named sender identification so raw source IPs become recognizable
+  services with provider-specific remediation only when evidence is strong.
 - Keep demo data realistic for `dmarq.org` and `dmarq.com`, including
   30/60/90-day windows, ordinary sources, corner cases, and safe
   misconfiguration examples.
@@ -136,9 +141,8 @@ Deliverables:
 - Continue polishing detail views so the whole app feels useful, dense, and
   visually consistent.
 - Maintain export and data-access guarantees for a customer's own report data.
-- Add score history and compliance evidence exports for audit workflows.
-- Add sender IP reputation and blacklist signals as visible health-score
-  contributors.
+- Expand sender IP reputation and blacklist signals with better feeds,
+  operator-visible freshness, and clear uncertainty handling.
 - Group raw findings into remediation incidents: fixed, approval-ready, manual,
   or informational.
 
@@ -360,13 +364,15 @@ copying their lock-in patterns.
 
 Deliverables:
 
-- Implement health score, A-F rating, score factors, and score-driven action
-  plans.
-- Add named sender identification and provider-specific remediation.
-- Persist score history and expose audit-ready evidence exports.
+- Keep health score, A-F rating, score factors, score-driven action plans,
+  score history, and evidence exports aligned with live product behavior.
+- Improve named sender identification and provider-specific remediation,
+  including stronger evidence thresholds for shared infrastructure and
+  forwarding/receiver sources.
 - Expand advanced DNS linting for SPF, DKIM, DMARC, MTA-STS, TLS-RPT, and BIMI.
-- Productize public API and MCP tools for posture, reporting, DNS health,
-  action plans, and tenant summaries.
+- Extend public API and MCP tools beyond the current read-only posture,
+  reporting, DNS health, action plan, and export-discovery scope only when the
+  preview/confirmation/audit model is ready for writes.
 - Evaluate DANE, ARC, and ARF as passive validation/reporting features before
   deciding whether active hosted services belong in DMARQ.
 - Add migration and data-portability workflows from other DMARC tools.
@@ -375,7 +381,8 @@ Deliverables:
 - Add geo/source enrichment and anomaly detection views.
 - Design operator-approved DNS change plans and optional provider write
   integrations without changing the read-only default.
-- Add sender IP reputation and blacklist monitoring as a mail-health signal.
+- Expand sender IP reputation and blacklist monitoring beyond the current
+  passive/local/DNSBL foundation with richer commercial or community feeds.
 - Add an autonomous remediation loop that turns findings into human-approved
   repair plans and notifications.
 - Add multilingual remediation guidance so advice is actionable outside an
@@ -462,14 +469,15 @@ Outcome: commercial deployments are reliable enough to sell.
 Outcome: DMARQ becomes comparable with commercial DMARC monitoring products on
 the features buyers expect.
 
-- Build health score, A-F rating, and action plan first.
-- Add named sender identification and provider remediation.
-- Add score history and compliance evidence exports.
+- Keep the shipped health score, A-F rating, score history, evidence exports,
+  and action plans accurate against production data.
+- Improve named sender identification and provider remediation.
 - Expand DNS linting and guided configuration.
-- Productize API/MCP surfaces for posture and reporting.
+- Extend API/MCP surfaces beyond the current read-only posture and reporting
+  contract where useful.
 - Add migration, portability, geo/source intelligence, anomaly detection, and
   optional DNS change-plan workflows.
-- Add reputation/blacklist monitoring for sending IPs and source identities.
+- Expand reputation/blacklist monitoring for sending IPs and source identities.
 - Add localization support for remediation and notification text.
 
 ### Phase 8: Mail Health Autopilot
@@ -492,7 +500,8 @@ Outcome: DMARQ can guide operators from observation to safe repair.
 - [Issue #243](https://github.com/christianlouis/dmarq/issues/243):
   enterprise identity provisioning and support-access controls.
 - [Issue #304](https://github.com/christianlouis/dmarq/issues/304): health
-  score, A-F rating, and remediation action plan.
+  score, A-F rating, and remediation action plan. Current core scope is
+  complete; future refinements should use focused child issues.
 - [Issue #305](https://github.com/christianlouis/dmarq/issues/305):
   competitive parity tracker.
 - [Issue #306](https://github.com/christianlouis/dmarq/issues/306): named
@@ -502,7 +511,8 @@ Outcome: DMARQ can guide operators from observation to safe repair.
 - [Issue #308](https://github.com/christianlouis/dmarq/issues/308): advanced
   DNS linting and guided configuration.
 - [Issue #309](https://github.com/christianlouis/dmarq/issues/309): public API
-  and MCP tools for posture and reporting.
+  and MCP tools for posture and reporting. Current read-only scope is complete;
+  future write-capable automation needs separate scoped issues.
 - [Issue #310](https://github.com/christianlouis/dmarq/issues/310): DANE, ARC,
   and ARF competitive protocol coverage evaluation.
 - [Issue #311](https://github.com/christianlouis/dmarq/issues/311): migration
@@ -528,7 +538,9 @@ Outcome: DMARQ can guide operators from observation to safe repair.
 - [Issue #384](https://github.com/christianlouis/dmarq/issues/384):
   autonomous mail health remediation loop.
 - [Issue #385](https://github.com/christianlouis/dmarq/issues/385): sender IP
-  reputation and blacklist monitoring.
+  reputation and blacklist monitoring. Current passive and opt-in DNSBL
+  foundation is complete; deeper feed quality and UI configuration remain
+  follow-up work.
 - [Issue #386](https://github.com/christianlouis/dmarq/issues/386): ecosystem
   integration roadmap.
 - [Issue #387](https://github.com/christianlouis/dmarq/issues/387):

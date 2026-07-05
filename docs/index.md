@@ -31,8 +31,12 @@ The product direction is intentionally practical:
 - **Mailbox Integrations**: Automatically fetch reports from IMAP, Gmail, and Microsoft 365 inboxes
 - **Alerting**: Get notified about important authentication issues
 - **Easy Setup**: Web-based configuration wizard for quick onboarding
+- **Mail Health Score**: Review domain grades, score history, evidence exports,
+  sender/source analytics, and reputation indicators
+- **Read-only API and MCP**: Share posture, reports, findings, and action-plan
+  evidence with external tools without granting write access
 - **Human-in-the-loop Remediation**: Detect automatically, explain clearly, apply only after approval
-- **Roadmap**: Health scoring, sender reputation, provider imports, direct intake workers, and localized guidance
+- **Roadmap**: Deeper approved repair loops, provider imports, direct intake workers, richer reputation feeds, and localized guidance
 
 ## Getting Started
 
