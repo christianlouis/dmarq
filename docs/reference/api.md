@@ -801,18 +801,22 @@ prioritized items with state, severity, next steps, evidence, blast radius,
 prerequisites, expected health-score impact, automation eligibility, and
 read-only notification routing metadata. Items also expose stable remediation
 loop fields so product and automation surfaces can use the same language:
-`incident_type`, `loop_state`, `remediation_track`, `priority_score`, and
-`operator_decisions`. DNS items that have a concrete safe TXT/CNAME provider
-write are marked `approval_ready` and point to the same explicit preview/apply
-endpoint used by the DNS change-plan UI. Placeholder DKIM/SPF records that
-still need provider-specific values are surfaced as blocked by prerequisite
-instead of being presented as one-click repairs.
+`incident_type`, `loop_state`, `remediation_track`, `priority_score`,
+`priority_band`, and `operator_decisions`. Each `action_plan` also explains the
+owner, risk level, whether the item is safe for provider automation, and the
+operator decision that should happen next. DNS items that have a concrete safe
+TXT/CNAME provider write are marked `approval_ready` and point to the same
+explicit preview/apply endpoint used by the DNS change-plan UI. Placeholder
+DKIM/SPF records that still need provider-specific values are surfaced as
+blocked by prerequisite instead of being presented as one-click repairs.
 
 The top-level `loop` object summarizes what DMARQ can fix, what needs explicit
 approval, what needs manual action, what needs investigation, the current
 `status`, and the highest-priority incident. The queue `summary` mirrors these
 operator buckets with counters such as `provider_fix_available`,
-`self_hosted_guidance`, `manual_only`, and `blocked_by_prerequisite`.
+`self_hosted_guidance`, `manual_only`, `blocked_by_prerequisite`, and
+track-specific counters like `track_provider_preview`, `track_manual_dns`,
+`track_sender_investigation`, and `track_reputation_review`.
 
 Notification metadata includes the event name, channel, dedupe key, reason, and
 next state transition that an operator workflow can use. Each notification also
@@ -829,7 +833,12 @@ readiness counters, including `dispatch_ready`, `dispatch_blocked`,
 `dispatch_disabled`, `dispatch_awaiting_acknowledgement`, and
 `dispatch_webhook_routes`, so dashboards can separate immediately actionable
 notifications from items blocked by settings, routing, or operator
-acknowledgement.
+acknowledgement. Resolved items that no longer appear in the current queue are
+returned as `verified_items`; `verified_items_total` and
+`dispatch_verified_fixed` report the scanned total even when the compact UI
+only displays the most recent rows. Each verified item includes its
+verification method, status, evidence requirements, next check, timestamp, and
+operator note.
 
 Each notification also includes a compact `history` array derived from
 workspace audit events for the current queue item. The history lists recent

@@ -338,6 +338,25 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert 'x-text="item.verification_next_check"' in template
 
 
+def test_domain_details_remediation_queue_shows_verification_context():
+    template = _domain_details_template()
+    script = _domain_details_script()
+
+    assert "verified_items_total" in template
+    assert "verifiedItemsHiddenCount()" in template
+    assert "verified.verification_method" in template
+    assert "verified.verification_status" in template
+    assert "verified.next_check" in template
+    assert "item.action_plan.operator_decision_summary" in template
+    assert "item.action_plan.risk_level" in template
+    assert "item.priority_band" in template
+    assert "item.verification_plan.verification_method" in template
+    assert "item.verification_plan.freshness_requirement" in template
+    assert "item.verification_plan.failure_mode" in template
+    assert "remediationRiskClass(value)" in script
+    assert "verifiedItemsHiddenCount()" in script
+
+
 def test_dashboard_remediation_queue_href_encodes_domain_and_anchor():
     assert (
         _run_dashboard_expression("app.domainRemediationHref('mail.example/a b')")

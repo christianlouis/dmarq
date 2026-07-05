@@ -144,6 +144,7 @@ def test_attach_remediation_dispatch_previews_adds_dashboard_summary(monkeypatch
     assert summary["dispatch_awaiting_acknowledgement"] == 1
     assert summary["dispatch_webhook_routes"] == 1
     assert summary["dispatch_verified_fixed"] == 0
+    assert summary["dispatch_verified_fixed_visible"] == 0
 
 
 def test_attach_remediation_dispatch_previews_counts_operator_held_items(monkeypatch):
@@ -221,6 +222,7 @@ def test_attach_remediation_dispatch_previews_counts_operator_held_items(monkeyp
     assert result["summary"]["dispatch_rejected"] == 0
     assert result["summary"]["dispatch_snoozed"] == 0
     assert result["summary"]["dispatch_verified_fixed"] == 0
+    assert result["summary"]["dispatch_verified_fixed_visible"] == 0
 
 
 def test_verification_state_covers_lifecycle_branches():
@@ -299,8 +301,10 @@ def test_attach_remediation_dispatch_previews_skips_empty_queues(monkeypatch):
         "dispatch_rejected": 0,
         "dispatch_snoozed": 0,
         "dispatch_verified_fixed": 0,
+        "dispatch_verified_fixed_visible": 0,
     }
     assert result["verified_items"] == []
+    assert result["verified_items_total"] == 0
 
 
 def test_attach_remediation_dispatch_previews_reports_verified_fixed_items(db_session):
@@ -373,6 +377,8 @@ def test_attach_remediation_dispatch_previews_reports_verified_fixed_items(db_se
     )
 
     assert result["summary"]["dispatch_verified_fixed"] == 1
+    assert result["summary"]["dispatch_verified_fixed_visible"] == 1
+    assert result["verified_items_total"] == 1
     assert result["verified_items"] == [
         {
             "item_id": "dns:dmarc-missing",
@@ -383,6 +389,16 @@ def test_attach_remediation_dispatch_previews_reports_verified_fixed_items(db_se
                 "This remediation item was marked resolved and no longer appears "
                 "in the current remediation queue."
             ),
+            "verification_status": "no_longer_observed",
+            "verification_method": "current_queue_absence",
+            "next_check": (
+                "Keep importing fresh DMARC reports and refresh DNS evidence; reopen "
+                "the item if the same finding returns."
+            ),
+            "evidence_needed": [
+                "The latest lifecycle marker for this item is resolved.",
+                "The same item id is absent from the current remediation queue.",
+            ],
             "recorded_at": "2026-07-01T08:00:00Z",
             "operator_note": "Record is now visible after propagation.",
             "actor_type": "operator",

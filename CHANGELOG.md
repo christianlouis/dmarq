@@ -19,12 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added source intelligence context for sending IPs, including provider recognition, network details, Radar links, and report activity history.
 - Added human-approved DNS repair groundwork for provider-connected domains.
 - Added self-hosted demo refinements focused on the single-user, multiple-domain workflow.
+- Added richer remediation-loop verification context, including priority bands, risk labels, safe-automation flags, verified-fixed totals, and next-check evidence for resolved items that no longer appear in the active queue.
 
 ### Changed
 - Cloudflare OAuth profile selection now controls the requested scopes instead of being overridden by the legacy static scope setting.
 - The full Cloudflare DNS repair profile now requests DNS write access plus Radar read access so one-click repair and IP enrichment can work from the same consent flow.
 - Dashboard and domain detail pages now expose more actionable remediation context around DNS, DMARC, source authentication, and ownership state.
 - Remediation queues now expose incident families, loop state, priority scores, operator decisions, and provider/self-hosted/manual tracks across the domain detail UI, public API, and MCP.
+- Domain remediation cards now explain the verification method, freshness requirement, failure mode, and operator decision summary before an item can be treated as fixed.
 - Reorganized repository: moved development docs (`AGENTS.md`, `ROADMAP.md`, `ISSUE_GENERATION_SUMMARY.md`, `generated_issues/`) into `docs/`
 - Added root-level `CHANGELOG.md` and `TODO.md`
 - Cleaned up root directory for clarity

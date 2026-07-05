@@ -77,6 +77,13 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
         "notify_action_required": 0,
         "notify_investigation_required": 1,
         "notify_summary_only": 0,
+        "track_blocked_by_prerequisite": 0,
+        "track_manual_dns": 0,
+        "track_manual_only": 0,
+        "track_provider_preview": 1,
+        "track_reputation_review": 0,
+        "track_self_hosted_or_provider": 0,
+        "track_sender_investigation": 1,
     }
     assert queue["loop"] == {
         "domain": "example.com",
@@ -88,8 +95,16 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
         "what_needs_investigation": 1,
         "manual_only": 0,
         "blocked_by_prerequisite": 0,
+        "track_provider_preview": 1,
+        "track_manual_dns": 0,
+        "track_sender_investigation": 1,
+        "track_reputation_review": 0,
+        "track_self_hosted_or_provider": 0,
         "top_item_id": "dns:dmarc-missing",
         "top_incident_type": "dmarc_policy_missing_or_weak",
+        "top_loop_state": "proposal_ready_for_approval",
+        "top_remediation_track": "provider_preview",
+        "top_priority_band": "urgent",
         "top_priority_score": 455,
     }
     assert queue["items"][0]["id"] == "dns:dmarc-missing"
@@ -97,6 +112,7 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
     assert queue["items"][0]["loop_state"] == "proposal_ready_for_approval"
     assert queue["items"][0]["remediation_track"] == "provider_preview"
     assert queue["items"][0]["priority_score"] == 455
+    assert queue["items"][0]["priority_band"] == "urgent"
     assert queue["items"][0]["operator_decisions"][:2] == [
         "preview_change",
         "approve_after_preview",
@@ -108,6 +124,12 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
     )
     assert queue["items"][0]["action_plan"]["owner"] == "Domain DNS operator"
     assert queue["items"][0]["action_plan"]["automation_path"] == "provider_preview"
+    assert queue["items"][0]["action_plan"]["safe_to_automate"] is True
+    assert queue["items"][0]["action_plan"]["risk_level"] == "medium"
+    assert (
+        "Preview the exact DNS diff"
+        in queue["items"][0]["action_plan"]["operator_decision_summary"]
+    )
     assert queue["items"][0]["action_plan"]["guidance_paths"][0]["key"] == "provider"
     assert "cloudflare" in queue["items"][0]["action_plan"]["guidance_paths"][0]["label"].lower()
     assert queue["items"][0]["action_plan"]["guidance_paths"][1]["key"] == "manual"
@@ -117,6 +139,11 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
     )
     assert queue["items"][0]["action_plan"]["completion_criteria"]
     assert queue["items"][0]["verification_plan"]["status"] == "pending_operator_approval"
+    assert queue["items"][0]["verification_plan"]["verification_method"] == (
+        "provider_write_then_dns_refresh"
+    )
+    assert "Fresh DNS evidence" in queue["items"][0]["verification_plan"]["freshness_requirement"]
+    assert "Keep the item open" in queue["items"][0]["verification_plan"]["failure_mode"]
     assert "fresh DNS evidence" in queue["items"][0]["verification_plan"]["summary"]
     assert any(
         "provider preview was approved" in evidence
@@ -146,6 +173,16 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
         "loop_state": "proposal_ready_for_approval",
         "remediation_track": "provider_preview",
         "priority_score": 455,
+        "priority_band": "urgent",
+        "operator_decisions": [
+            "preview_change",
+            "approve_after_preview",
+            "previewed",
+            "acknowledged",
+            "snoozed",
+            "resolved",
+            "rejected",
+        ],
         "title": "Publish DMARC",
         "detail": "No DMARC TXT record was found.",
         "notification_state": "approval_required",
@@ -164,16 +201,32 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
         "action_plan": {
             "owner": "Domain DNS operator",
             "automation_path": "provider_preview",
+            "risk_level": "medium",
+            "safe_to_automate": True,
+            "operator_decision_summary": (
+                "Preview the exact DNS diff, then explicitly approve or reject the proposed repair."
+            ),
             "completion_criteria": "Provider preview is approved, applied, and verified by DMARQ.",
             "steps": [
                 "Open the DNS change plan and preview the provider mutation.",
                 "Confirm the zone, record name, old value, new value, and TTL.",
                 "Approve the change, then refresh DNS posture after propagation.",
             ],
+            "guidance_paths": [
+                {
+                    "key": "provider",
+                    "label": "cloudflare guided repair",
+                    "owner": "Domain DNS operator",
+                },
+                {"key": "manual", "label": "Manual DNS fallback", "owner": "Domain DNS operator"},
+            ],
         },
         "verification": {
             "label": "Verify after approved provider repair",
             "status": "pending_operator_approval",
+            "method": "provider_write_then_dns_refresh",
+            "freshness_requirement": "Fresh DNS evidence after provider propagation.",
+            "failure_mode": "Keep the item open if the expected record is not visible.",
             "summary": (
                 "DMARQ should only mark this fixed after the approved cloudflare write is "
                 "visible in fresh DNS evidence."

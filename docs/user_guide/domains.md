@@ -92,6 +92,8 @@ as approval-ready, manual, or investigate-only, and include the evidence,
 blast radius, prerequisites, and expected health-score impact. Approval-ready
 DNS items link back to the DNS change-plan review area; they still require an
 operator preview and explicit approval before any provider write is sent.
+Each item now also shows the remediation track, priority band, owner, risk
+level, safe-automation flag, and the exact operator decision DMARQ expects next.
 Each item also shows a notification profile such as approval required, action
 required, investigation required, or summary only. These labels explain how
 DMARQ would route the item into alerting or ticketing workflows; viewing the
@@ -107,6 +109,12 @@ only; DMARQ does not enqueue webhook deliveries or send notifications from the
 queue view. The queue header summarizes how many items are ready to notify,
 blocked, awaiting acknowledgement, or covered by webhook routes so operators can
 see the next action without opening every item.
+
+When an operator marks an item resolved and the same finding no longer appears
+in the current queue, the domain detail page lists it under evidence-verified
+repairs. That section shows how DMARQ verified the absence, what evidence was
+used, how many older verified repairs are hidden in the compact view, and what
+fresh reports or DNS checks should keep monitoring the fix.
 
 After a remediation notification is previewed or acknowledged, an operator can
 explicitly enqueue the notification through the dispatch API with
@@ -204,6 +212,11 @@ next to the evidence: an operator can see whether a recommendation is still
 waiting for review, already acknowledged, or already queued for the configured
 webhook route. The timeline is read-only and highlights that remediation
 notification handling does not perform DNS writes.
+
+Verification cards also show the method, freshness requirement, and failure
+mode for each item. For example, provider-backed DNS repairs require a human
+approval plus fresh DNS evidence after propagation; sender investigations wait
+for a new DMARC report window before a source can be considered fixed.
 
 If an operator selects a different provider than the nameserver-detected
 provider, DMARQ blocks the preview/apply request by default. The mismatch can be

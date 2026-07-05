@@ -86,10 +86,17 @@ function domainDetailsApp(domainId = '') {
                 dispatch_disabled: 0,
                 dispatch_awaiting_acknowledgement: 0,
                 dispatch_webhook_routes: 0,
-                dispatch_verified_fixed: 0
+                dispatch_verified_fixed: 0,
+                dispatch_verified_fixed_visible: 0,
+                track_provider_preview: 0,
+                track_manual_dns: 0,
+                track_sender_investigation: 0,
+                track_reputation_review: 0,
+                track_self_hosted_or_provider: 0
             },
             items: [],
-            verified_items: []
+            verified_items: [],
+            verified_items_total: 0
         },
         remediationQueueLoading: true,
         remediationQueueError: '',
@@ -980,6 +987,24 @@ function domainDetailsApp(domainId = '') {
             return labels[value] || this.humanizeToken(value || 'manual_only');
         },
 
+        remediationRiskClass(value) {
+            const risk = String(value || '').toLowerCase();
+            if (risk === 'high') return 'bg-red-100 text-red-700';
+            if (risk === 'medium') return 'bg-yellow-100 text-yellow-800';
+            if (risk === 'low') return 'bg-green-100 text-green-700';
+            return 'bg-base-200 text-base-content/70';
+        },
+
+        verifiedItemsHiddenCount() {
+            const total = Number(
+                this.remediationQueue.verified_items_total ||
+                this.remediationQueue.summary?.dispatch_verified_fixed ||
+                0
+            );
+            const visible = (this.remediationQueue.verified_items || []).length;
+            return Math.max(total - visible, 0);
+        },
+
         remediationDecisionLabel(value) {
             const labels = {
                 preview_change: 'Preview change',
@@ -1573,10 +1598,17 @@ function domainDetailsApp(domainId = '') {
                     dispatch_disabled: 0,
                     dispatch_awaiting_acknowledgement: 0,
                     dispatch_webhook_routes: 0,
-                    dispatch_verified_fixed: 0
+                    dispatch_verified_fixed: 0,
+                    dispatch_verified_fixed_visible: 0,
+                    track_provider_preview: 0,
+                    track_manual_dns: 0,
+                    track_sender_investigation: 0,
+                    track_reputation_review: 0,
+                    track_self_hosted_or_provider: 0
                 },
                 items: [],
-                verified_items: []
+                verified_items: [],
+                verified_items_total: 0
             };
         },
 

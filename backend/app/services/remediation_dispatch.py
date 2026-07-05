@@ -412,11 +412,29 @@ def _verified_fixed_items(
     limit: int = 5,
 ) -> List[Dict[str, Any]]:
     """Return resolved remediation markers whose items no longer appear in current evidence."""
+    return _verified_fixed_items_result(
+        db,
+        workspace=workspace,
+        domain=domain,
+        current_item_ids=current_item_ids,
+        limit=limit,
+    )["items"]
+
+
+def _verified_fixed_items_result(
+    db: Session,
+    *,
+    workspace: Workspace,
+    domain: str,
+    current_item_ids: Iterable[str],
+    limit: int = 5,
+) -> Dict[str, Any]:
+    """Return capped verified-fixed rows plus the scanned total count."""
     if not hasattr(db, "query"):
-        return []
+        return {"items": [], "total": 0}
     normalized_domain = normalize_domain_name(domain)
     if not normalized_domain:
-        return []
+        return {"items": [], "total": 0}
     active_ids = {str(item_id or "") for item_id in current_item_ids if str(item_id or "")}
     normalized_entity_name = func.lower(
         func.rtrim(func.ltrim(func.trim(WorkspaceAuditLog.entity_name), "."), ".")
@@ -430,10 +448,11 @@ def _verified_fixed_items(
             normalized_entity_name == normalized_domain,
         )
         .order_by(WorkspaceAuditLog.created_at.desc(), WorkspaceAuditLog.id.desc())
-        .limit(max(limit * 4, limit))
+        .limit(max(limit * 8, limit))
         .all()
     )
     verified: List[Dict[str, Any]] = []
+    verified_total = 0
     seen: Set[str] = set()
     for row in rows:
         item_id = str(row.entity_id or "")
@@ -443,24 +462,34 @@ def _verified_fixed_items(
         details = _audit_details(row)
         if details.get("lifecycle_state") != "resolved":
             continue
-        verified.append(
-            {
-                "item_id": item_id,
-                "state": "verified_fixed",
-                "verified": True,
-                "label": "Verified fixed",
-                "detail": (
-                    "This remediation item was marked resolved and no longer appears "
-                    "in the current remediation queue."
-                ),
-                "recorded_at": _audit_timestamp(row.created_at),
-                "operator_note": details.get("operator_note"),
-                "actor_type": row.actor_type,
-            }
-        )
-        if len(verified) >= limit:
-            break
-    return verified
+        verified_total += 1
+        if len(verified) < limit:
+            verified.append(
+                {
+                    "item_id": item_id,
+                    "state": "verified_fixed",
+                    "verified": True,
+                    "label": "Verified fixed",
+                    "detail": (
+                        "This remediation item was marked resolved and no longer appears "
+                        "in the current remediation queue."
+                    ),
+                    "verification_status": "no_longer_observed",
+                    "verification_method": "current_queue_absence",
+                    "next_check": (
+                        "Keep importing fresh DMARC reports and refresh DNS evidence; reopen "
+                        "the item if the same finding returns."
+                    ),
+                    "evidence_needed": [
+                        "The latest lifecycle marker for this item is resolved.",
+                        "The same item id is absent from the current remediation queue.",
+                    ],
+                    "recorded_at": _audit_timestamp(row.created_at),
+                    "operator_note": details.get("operator_note"),
+                    "actor_type": row.actor_type,
+                }
+            )
+    return {"items": verified, "total": verified_total}
 
 
 def _latest_lifecycle_marker_from_history(
@@ -649,15 +678,22 @@ def attach_remediation_dispatch_previews(
     domain = str(queue.get("domain") or "")
     items = list(queue.get("items", []))
     item_ids = [str(item.get("id") or "") for item in items]
-    verified_fixed_items = _verified_fixed_items(
+    verified_fixed_result = _verified_fixed_items_result(
         db,
         workspace=workspace,
         domain=domain,
         current_item_ids=item_ids,
     )
+    verified_fixed_items = verified_fixed_result["items"]
     queue["verified_items"] = verified_fixed_items
+    queue["verified_items_total"] = verified_fixed_result["total"]
     if not items:
-        _attach_dispatch_summary(queue, items, verified_fixed_items=verified_fixed_items)
+        _attach_dispatch_summary(
+            queue,
+            items,
+            verified_fixed_items=verified_fixed_items,
+            verified_fixed_total=verified_fixed_result["total"],
+        )
         return queue
     settings = _settings(db)
     configured_events = _configured_events(settings.get(DISPATCH_EVENTS_KEY, ""))
@@ -695,6 +731,7 @@ def attach_remediation_dispatch_previews(
         items,
         webhook_event_route_keys=webhook_event_route_keys,
         verified_fixed_items=verified_fixed_items,
+        verified_fixed_total=verified_fixed_result["total"],
     )
     return queue
 
@@ -705,6 +742,7 @@ def _attach_dispatch_summary(
     *,
     webhook_event_route_keys: Optional[Dict[str, Set[str]]] = None,
     verified_fixed_items: Optional[Sequence[Dict[str, Any]]] = None,
+    verified_fixed_total: Optional[int] = None,
 ) -> None:
     """Expose queue-level dispatch readiness counters for dashboards."""
     summary = dict(queue.get("summary") or {})
@@ -743,7 +781,12 @@ def _attach_dispatch_summary(
             "dispatch_snoozed": sum(
                 1 for dispatch in dispatches if dispatch.get("lifecycle_state") == "snoozed"
             ),
-            "dispatch_verified_fixed": len(verified_fixed_items or []),
+            "dispatch_verified_fixed": (
+                verified_fixed_total
+                if verified_fixed_total is not None
+                else len(verified_fixed_items or [])
+            ),
+            "dispatch_verified_fixed_visible": len(verified_fixed_items or []),
         }
     )
     queue["summary"] = summary
