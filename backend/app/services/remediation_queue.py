@@ -21,7 +21,7 @@ STATE_PRIORITY = {
     "investigate": 20,
     "informational": 10,
 }
-TRACKS = {
+TRACKS = (
     "provider_preview",
     "manual_dns",
     "sender_investigation",
@@ -29,7 +29,7 @@ TRACKS = {
     "self_hosted_or_provider",
     "blocked_by_prerequisite",
     "manual_only",
-}
+)
 INCIDENT_TYPES = {
     "low_compliance": "legitimate_sender_failing_alignment",
     "missing_dmarc": "dmarc_policy_missing_or_weak",
@@ -199,8 +199,9 @@ def _priority_score(item: Dict[str, Any]) -> int:
     return severity + state + automation + min(impact, 50)
 
 
-def _priority_band(item: Dict[str, Any]) -> str:
-    score = _priority_score(item)
+def _priority_band(item: Dict[str, Any], *, score: Optional[int] = None) -> str:
+    if score is None:
+        score = int(item.get("priority_score") or _priority_score(item))
     if score >= 400:
         return "urgent"
     if score >= 300:
@@ -238,8 +239,9 @@ def _apply_loop_metadata(items: List[Dict[str, Any]]) -> None:
         item["incident_type"] = _incident_type_for_item(item)
         item["loop_state"] = _loop_state_for_item(item)
         item["remediation_track"] = _remediation_track(item)
-        item["priority_score"] = _priority_score(item)
-        item["priority_band"] = _priority_band(item)
+        priority_score = _priority_score(item)
+        item["priority_score"] = priority_score
+        item["priority_band"] = _priority_band(item, score=priority_score)
         item["operator_decisions"] = _operator_decision_options(item)
 
 

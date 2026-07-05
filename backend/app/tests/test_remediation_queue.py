@@ -1,8 +1,18 @@
 from app.services.remediation_queue import (
+    TRACKS,
     _remediation_notification_payload,
     _summary,
     build_remediation_queue,
 )
+
+
+def test_remediation_summary_emits_track_counters_in_stable_order():
+    summary = _summary([])
+
+    track_keys = [key for key in summary if key.startswith("track_")]
+
+    assert isinstance(TRACKS, tuple)
+    assert track_keys == [f"track_{track}" for track in TRACKS]
 
 
 def test_remediation_queue_prioritizes_provider_ready_dns_plan():

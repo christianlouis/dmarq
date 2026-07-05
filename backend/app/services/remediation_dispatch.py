@@ -429,7 +429,7 @@ def _verified_fixed_items_result(
     current_item_ids: Iterable[str],
     limit: int = 5,
 ) -> Dict[str, Any]:
-    """Return capped verified-fixed rows plus the scanned total count."""
+    """Return capped verified-fixed rows plus the total latest resolved count."""
     if not hasattr(db, "query"):
         return {"items": [], "total": 0}
     normalized_domain = normalize_domain_name(domain)
@@ -448,7 +448,6 @@ def _verified_fixed_items_result(
             normalized_entity_name == normalized_domain,
         )
         .order_by(WorkspaceAuditLog.created_at.desc(), WorkspaceAuditLog.id.desc())
-        .limit(max(limit * 8, limit))
         .all()
     )
     verified: List[Dict[str, Any]] = []
