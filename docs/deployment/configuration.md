@@ -57,7 +57,7 @@ paths.
 | `AUTH_DISABLED` | Disable authentication entirely. Only use for local development or a separately protected deployment. | `false` | `true`, `false` |
 | `PUBLIC_BASE_URL` | Public URL used when building OAuth callback URLs behind a reverse proxy or ingress | Auto-detected | `https://dmarq.example.com` |
 | `MULTI_WORKSPACE_UI_ENABLED` | Show workspace switching and Members access-control navigation. Keep disabled for self-hosted single-workspace installs. | `false` | `true`, `false` |
-| `AUTH_REQUIRE_MFA` | Require an accepted MFA assurance claim from direct OIDC or trusted-proxy authentication before DMARQ issues a session. | `false` | `true`, `false` |
+| `AUTH_REQUIRE_MFA` | Require an accepted MFA assurance claim from Logto, direct OIDC, or trusted-proxy authentication before DMARQ issues a session. | `false` | `true`, `false` |
 | `AUTH_MFA_CLAIM_NAMES` | Comma-separated claim names to inspect for MFA assurance. Common OIDC claims are `amr` and `acr`. | `amr,acr` | `amr,acr` |
 | `AUTH_MFA_CLAIM_VALUES` | Comma-separated claim values accepted as MFA proof. Adjust this to the values emitted by your IdP. | `mfa,otp,totp,webauthn,hwk,swk,phr` | `mfa,webauthn` |
 

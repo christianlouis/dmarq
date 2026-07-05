@@ -210,6 +210,18 @@ class TestExternalAuthProviders:
         assert providers["cloudflare_access"]["auth_mode"] == "trusted_proxy"
         assert providers["akamai_eaa"]["status"] == "planned"
 
+    def test_auth_provider_registry_scopes_mfa_requirement_to_supported_providers(self):
+        settings = Settings(AUTH_REQUIRE_MFA=True)
+
+        providers = {entry["provider"]: entry for entry in auth_provider_registry(settings)}
+
+        assert providers["disabled"]["supports_mfa_policy"] is False
+        assert providers["disabled"]["mfa_policy"]["required"] is False
+        assert providers["local"]["supports_mfa_policy"] is False
+        assert providers["local"]["mfa_policy"]["required"] is False
+        assert providers["authentik"]["supports_mfa_policy"] is True
+        assert providers["authentik"]["mfa_policy"]["required"] is True
+
     def test_authentik_config_selects_direct_oidc_provider(self):
         settings = Settings(
             AUTH_MODE="authentik",

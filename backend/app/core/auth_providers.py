@@ -102,7 +102,8 @@ class AuthProviderOption:
             "active": getattr(cfg, "active_auth_provider", "unconfigured") == self.provider,
             "configured": auth_provider_configured(self.provider, cfg),
             "mfa_policy": {
-                "required": _enabled_flag(getattr(cfg, "AUTH_REQUIRE_MFA", False)),
+                "required": self.supports_mfa_policy
+                and _enabled_flag(getattr(cfg, "AUTH_REQUIRE_MFA", False)),
                 "claim_names": sorted(_split_csv(getattr(cfg, "AUTH_MFA_CLAIM_NAMES", ""))),
             },
         }
