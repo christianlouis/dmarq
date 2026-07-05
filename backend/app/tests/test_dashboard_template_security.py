@@ -1397,6 +1397,8 @@ def test_domain_details_exposes_remediation_action_plans_without_html_injection(
     assert "handleRemediationAction" in script
     assert "remediationDecisionLabel" in script
     assert "remediationActionNote(action)" in script
+    assert "remediationEvidenceRefreshError(key)" in script
+    assert "Evidence refresh incomplete:" in script
     assert "approve_after_preview" in script
     assert "mark_unknown" in script
     assert "humanizeToken" in script

@@ -1423,6 +1423,26 @@ function domainDetailsApp(domainId = '') {
             return this.remediationAction.error ? 'text-red-700' : 'text-green-700';
         },
 
+        remediationEvidenceRefreshError(key) {
+            const errors = [];
+            if (key === 'dns') {
+                errors.push(this.dnsRecordsError);
+            } else if (key === 'source_reputation') {
+                errors.push(this.sourceReputationRefreshError, this.sourceIntelligence?.error);
+            } else if (key === 'reports_and_sources') {
+                errors.push(
+                    this.reportsError,
+                    this.sourcesError,
+                    this.sourceReputationRefreshError,
+                    this.sourceIntelligence?.error
+                );
+            } else if (key === 'reports') {
+                errors.push(this.reportsError);
+            }
+            errors.push(this.remediationQueueRefreshError, this.remediationQueueError);
+            return errors.find(error => Boolean(error)) || '';
+        },
+
         remediationHistoryDotClass(entry) {
             if (entry?.delivery_enqueued) return 'bg-teal-500';
             if (['acknowledged', 'resolved'].includes(entry?.state)) return 'bg-green-500';
@@ -2019,6 +2039,17 @@ function domainDetailsApp(domainId = '') {
                     ]);
                 }
                 await this.fetchRemediationQueue({ refresh: true });
+                const refreshError = this.remediationEvidenceRefreshError(key);
+                if (refreshError) {
+                    this.remediationAction = {
+                        itemId: item.id,
+                        action: 'refresh_evidence',
+                        loading: false,
+                        message: '',
+                        error: `Evidence refresh incomplete: ${refreshError}`
+                    };
+                    return;
+                }
                 this.remediationAction = {
                     itemId: item.id,
                     action: 'refresh_evidence',
