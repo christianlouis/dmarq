@@ -150,7 +150,7 @@ responses are tenant-scoped, read-only, and evidence-linked.
 | Domain inventory | `reports:read` or `mcp:read` | `GET /public/domains`, `list_domains` | Domain summaries and aggregate counts only. |
 | Mail-health dashboard | `posture:read` or `mcp:read` | `GET /public/domains/{domain_id}/posture`, `domain_posture` | Includes score, grade, DNS health, and action guidance. |
 | Sending-source review | `reports:read` or `mcp:read` | `GET /public/domains/{domain_id}/sources`, `domain_sources` | Includes source intelligence and reputation posture without mailbox secrets. |
-| DNS review | `posture:read` or `mcp:read` | `dns_lint`, `dns_change_plan` | Change plans are read-only; public endpoints do not expose apply links. |
+| DNS review | `posture:read` or `mcp:read` | `GET /public/domains/{domain_id}/dns/lint`, `GET /public/domains/{domain_id}/dns/change-plan`, `dns_lint`, `dns_change_plan` | Change plans are read-only; public endpoints do not expose apply links. |
 | Human-in-the-loop remediation | `posture:read` or `mcp:read` | `GET /public/domains/{domain_id}/remediation`, `remediation_queue` | Queue items include evidence, action plans, automation eligibility, and verification context. |
 | Operational reporting | `reports:read`, `posture:read`, or `mcp:read` | `GET /public/usage`, `workspace_usage` | Workspace usage counts for capacity and monthly reviews. |
 | Alert export | `posture:read` or `mcp:read` | `GET /public/alerts`, `alert_history` | Sanitized alert lifecycle rows only. |
@@ -160,7 +160,7 @@ Example read-only remediation request:
 ```bash
 curl -sS \
   -H "X-API-Key: $DMARQ_API_TOKEN" \
-  "https://your-dmarq-instance.com/api/v1/public/domains/example.com/remediation"
+  "https://your-dmarq-instance.com/api/v1/public/domains/{domain_id}/remediation"
 ```
 
 Example MCP tool call:
