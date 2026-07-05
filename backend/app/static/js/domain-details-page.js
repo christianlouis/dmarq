@@ -1,3 +1,5 @@
+const VERIFIED_ITEMS_COMPACT_LIMIT = 4;
+
 function domainDetailsApp(domainId = '') {
     return {
         domainId: domainId,
@@ -1038,12 +1040,12 @@ function domainDetailsApp(domainId = '') {
         },
 
         hasMoreVisibleVerifiedItems() {
-            return (this.remediationQueue.verified_items || []).length > 4;
+            return (this.remediationQueue.verified_items || []).length > VERIFIED_ITEMS_COMPACT_LIMIT;
         },
 
         visibleVerifiedItems() {
             const items = this.remediationQueue.verified_items || [];
-            return this.showAllVerifiedRemediationItems ? items : items.slice(0, 4);
+            return this.showAllVerifiedRemediationItems ? items : items.slice(0, VERIFIED_ITEMS_COMPACT_LIMIT);
         },
 
         remediationDecisionLabel(value) {

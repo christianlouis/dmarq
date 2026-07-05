@@ -377,6 +377,7 @@ def test_domain_details_remediation_queue_shows_verification_context():
     assert "verifiedItemsTotalCount()" in script
     assert "verifiedItemsHiddenCount()" in script
     assert "hasMoreVisibleVerifiedItems()" in script
+    assert "VERIFIED_ITEMS_COMPACT_LIMIT = 4" in script
 
 
 def test_dashboard_remediation_queue_href_encodes_domain_and_anchor():
@@ -1287,7 +1288,7 @@ def test_domain_details_distinguishes_evidence_verified_repairs_without_html_inj
     assert "showAllVerifiedRemediationItems" in template
     assert "Show compact view" in template
     assert "Show all visible repairs" in template
-    assert "items.slice(0, 4)" in script
+    assert "items.slice(0, VERIFIED_ITEMS_COMPACT_LIMIT)" in script
     assert "verified.item_id" in template
     assert "verified.label" in template
     assert "verified.detail" in template
