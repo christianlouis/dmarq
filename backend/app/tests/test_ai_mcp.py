@@ -68,11 +68,29 @@ def _sample_remediation_queue(domain=DOMAIN):
     return {
         "domain": domain,
         "status": "needs_approval",
-        "summary": {"total": 1, "approval_ready": 1},
+        "summary": {
+            "total": 1,
+            "approval_ready": 1,
+            "provider_fix_available": 1,
+            "blocked_by_prerequisite": 0,
+        },
+        "loop": {
+            "status": "approval_required",
+            "next_action": "Preview and approve the highest-priority provider-backed repair.",
+            "what_dmarq_can_fix": 1,
+            "what_needs_approval": 1,
+            "top_item_id": "dns:dmarc_missing",
+            "top_incident_type": "dmarc_policy_missing_or_weak",
+        },
         "items": [
             {
                 "id": "dns:dmarc_missing",
                 "source": "dns_lint",
+                "incident_type": "dmarc_policy_missing_or_weak",
+                "loop_state": "proposal_ready_for_approval",
+                "remediation_track": "provider_preview",
+                "priority_score": 455,
+                "operator_decisions": ["preview_change", "approve_after_preview", "resolved"],
                 "state": "approval_ready",
                 "severity": "critical",
                 "confidence": "high",
@@ -1196,6 +1214,12 @@ async def test_mcp_read_only_tool_dispatch_covers_new_domain_tools(db_session: S
     assert intelligence_result["regions"] == []
     assert proposals["proposals"]
     assert remediation_result.domain == DOMAIN
+    assert remediation_result.loop["status"] == "approval_required"
+    assert remediation_result.loop["top_incident_type"] == "dmarc_policy_missing_or_weak"
+    assert remediation_result.items[0].incident_type == "dmarc_policy_missing_or_weak"
+    assert remediation_result.items[0].loop_state == "proposal_ready_for_approval"
+    assert remediation_result.items[0].remediation_track == "provider_preview"
+    assert "approve_after_preview" in remediation_result.items[0].operator_decisions
     assert remediation_result.items[0].automation.eligible is True
     assert remediation_result.items[0].automation.apply_endpoint is None
     assert (

@@ -1182,19 +1182,23 @@ def test_domain_details_exposes_remediation_action_plans_without_html_injection(
     assert "item.verification_plan.evidence_needed" in template
     assert "item.verification_plan.next_check" in template
     assert "Notification dispatch" in template
-    assert "Reviewed" in template
-    assert "Acknowledge" in template
-    assert "Resolve" in template
+    assert "Remediation loop" in template
+    assert "remediationLoopStatusLabel" in template
+    assert "remediationIncidentLabel" in template
+    assert "remediationTrackLabel" in template
+    assert "visibleRemediationDecisions(item)" in template
     assert "Dispatch" in template
-    assert 'data-domain-detail-remediation-action="previewed"' in template
-    assert 'data-domain-detail-remediation-action="acknowledged"' in template
-    assert 'data-domain-detail-remediation-action="resolved"' in template
+    assert ':data-domain-detail-remediation-action="decision"' in template
     assert 'data-domain-detail-remediation-action="dispatch"' in template
     assert "recordRemediationLifecycle(item, 'previewed')" not in template
     assert "recordRemediationLifecycle(item, 'acknowledged')" not in template
     assert "recordRemediationLifecycle(item, 'resolved')" not in template
     assert "dispatchRemediationNotification(item)" not in template
     assert "handleRemediationAction" in script
+    assert "remediationDecisionLabel" in script
+    assert "approve_after_preview" in script
+    assert "mark_unknown" in script
+    assert "humanizeToken" in script
     assert "/remediation/notifications/audit" in script
     assert "/remediation/notifications/dispatch" in script
     assert "No DNS changes were made" in script

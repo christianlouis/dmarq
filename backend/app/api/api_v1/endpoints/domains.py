@@ -154,6 +154,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 DOMAIN_SELECTOR_LOOKUP_CHUNK_SIZE = 500
 REMEDIATION_NOTIFICATION_LIFECYCLE_STATES = {
+    "preview_change",
+    "approve_after_preview",
+    "mark_legitimate",
+    "mark_unknown",
+    "convert_to_manual_action",
     "previewed",
     "acknowledged",
     "snoozed",
@@ -1174,6 +1179,11 @@ class RemediationQueueItem(BaseModel):
 
     id: str
     source: str
+    incident_type: str = "domain_health_action"
+    loop_state: str = "observed"
+    remediation_track: str = "manual_only"
+    priority_score: int = 0
+    operator_decisions: List[str] = Field(default_factory=list)
     state: str
     severity: str
     confidence: str
@@ -1196,6 +1206,7 @@ class RemediationQueueResponse(BaseModel):
     domain: str
     status: str
     summary: Dict[str, int]
+    loop: Dict[str, Any] = Field(default_factory=dict)
     items: List[RemediationQueueItem]
 
 
@@ -1768,12 +1779,27 @@ REMEDIATION_REPUTATION_ACTION_TYPES = {
     "source_reputation_listed",
     "source_reputation_review",
 }
+REMEDIATION_INCIDENT_TYPES = {
+    "low_compliance": "legitimate_sender_failing_alignment",
+    "missing_dmarc": "dmarc_policy_missing_or_weak",
+    "policy_none": "dmarc_policy_missing_or_weak",
+    "missing_spf": "spf_include_or_record_problem",
+    "missing_dkim": "missing_or_broken_dkim",
+    "source_reputation_listed": "sending_ip_reputation_risk",
+    "source_reputation_review": "sending_ip_reputation_risk",
+    "review_forwarding": "forwarding_or_receiver_alignment_review",
+}
 REMEDIATION_SEVERITY_RANK = {
     "critical": 4,
     "high": 3,
     "medium": 2,
     "low": 1,
     "info": 0,
+}
+REMEDIATION_STATE_PRIORITY = {
+    "needs_approval": 40,
+    "manual_action": 30,
+    "investigate": 20,
 }
 
 
@@ -1831,6 +1857,57 @@ def _remediation_loop_context(state: str, action: Dict[str, Any]) -> Dict[str, s
     }
 
 
+def _remediation_incident_type(action: Dict[str, Any]) -> str:
+    action_type = str(action.get("type") or "")
+    if action_type in REMEDIATION_DNS_ACTION_TYPES:
+        if "dkim" in action_type:
+            return "missing_or_broken_dkim"
+        if "spf" in action_type:
+            return "spf_include_or_record_problem"
+        return "dmarc_policy_missing_or_weak"
+    return REMEDIATION_INCIDENT_TYPES.get(action_type, "domain_health_action")
+
+
+def _remediation_item_loop_state(state: str) -> str:
+    if state == "needs_approval":
+        return "proposal_ready_for_approval"
+    if state == "investigate":
+        return "evidence_review_required"
+    return "operator_action_required"
+
+
+def _remediation_track_for_action(state: str, action: Dict[str, Any]) -> str:
+    action_type = str(action.get("type") or "")
+    if state == "needs_approval":
+        return "provider_preview"
+    if action_type in REMEDIATION_REPUTATION_ACTION_TYPES:
+        return "reputation_review"
+    if state == "investigate":
+        return "sender_investigation"
+    if action_type in REMEDIATION_DNS_ACTION_TYPES:
+        return "manual_dns"
+    return "self_hosted_or_provider"
+
+
+def _remediation_priority_score(state: str, action: Dict[str, Any]) -> int:
+    severity = REMEDIATION_SEVERITY_RANK.get(str(action.get("severity") or "info"), 0) * 100
+    state_priority = REMEDIATION_STATE_PRIORITY.get(state, 0)
+    try:
+        impact = abs(int(float(str(action.get("score_impact") or "0"))))
+    except ValueError:
+        impact = 0
+    return severity + state_priority + min(impact, 50)
+
+
+def _remediation_operator_decisions(state: str) -> List[str]:
+    defaults = ["previewed", "acknowledged", "snoozed", "resolved", "rejected"]
+    if state == "needs_approval":
+        return ["preview_change", "approve_after_preview", *defaults]
+    if state == "investigate":
+        return ["mark_legitimate", "mark_unknown", "convert_to_manual_action", *defaults]
+    return defaults
+
+
 def _dashboard_remediation_item(
     domain_name: str,
     action: Dict[str, Any],
@@ -1840,9 +1917,15 @@ def _dashboard_remediation_item(
     """Convert one health action into a dashboard remediation-loop item."""
     state = _remediation_loop_state(action)
     context = _remediation_loop_context(state, action)
+    priority_score = _remediation_priority_score(state, action)
     item = {
         "domain": domain_name,
         "state": state,
+        "loop_state": _remediation_item_loop_state(state),
+        "incident_type": _remediation_incident_type(action),
+        "remediation_track": _remediation_track_for_action(state, action),
+        "priority_score": priority_score,
+        "operator_decisions": _remediation_operator_decisions(state),
         "severity": str(action.get("severity") or "info"),
         "title": str(action.get("title") or "Review remediation item"),
         "next_step": str(action.get("next_step") or "Review the domain evidence."),
@@ -1885,14 +1968,32 @@ def _build_dashboard_remediation_loop(
         key=lambda item: (
             item["state"] != "needs_approval",
             -REMEDIATION_SEVERITY_RANK.get(str(item.get("severity") or "info"), 0),
-            -int(item.get("score_impact") or 0),
+            -int(item.get("priority_score") or 0),
             str(item.get("domain") or ""),
         )
     )
     total_open = counters["needs_approval"] + counters["manual_action"] + counters["investigate"]
+    if counters["needs_approval"]:
+        loop_status = "approval_required"
+        next_action = "Preview and approve the highest-priority DNS repair."
+    elif counters["investigate"]:
+        loop_status = "investigation_required"
+        next_action = "Classify active sender or reputation findings before changing DNS."
+    elif counters["manual_action"]:
+        loop_status = "manual_action_required"
+        next_action = "Complete the highest-priority manual remediation step."
+    else:
+        loop_status = "clear"
+        next_action = "No current remediation work; keep importing reports and monitoring DNS."
     return {
         **counters,
         "total_open": total_open,
+        "loop_status": loop_status,
+        "next_action": next_action,
+        "what_dmarq_can_fix": counters["needs_approval"],
+        "what_needs_approval": counters["needs_approval"],
+        "what_needs_manual_action": counters["manual_action"],
+        "what_needs_investigation": counters["investigate"],
         "dispatch_enqueued": int(activity_summary.get("dispatch_enqueued") or 0),
         "operator_follow_up": int(activity_summary.get("needs_operator_follow_up") or 0),
         "status": "clear" if total_open == 0 else "needs_attention",
@@ -1918,13 +2019,17 @@ def _domain_remediation_workload(domain: Dict[str, Any]) -> Dict[str, Any]:
         key=lambda item: (
             item["state"] != "needs_approval",
             -REMEDIATION_SEVERITY_RANK.get(str(item.get("severity") or "info"), 0),
-            -int(item.get("score_impact") or 0),
+            -int(item.get("priority_score") or 0),
         )
     )
     total_open = counters["needs_approval"] + counters["manual_action"] + counters["investigate"]
     return {
         **counters,
         "total_open": total_open,
+        "what_dmarq_can_fix": counters["needs_approval"],
+        "what_needs_approval": counters["needs_approval"],
+        "what_needs_manual_action": counters["manual_action"],
+        "what_needs_investigation": counters["investigate"],
         "status": "clear" if total_open == 0 else "needs_attention",
         "primary": items[0] if items else None,
     }

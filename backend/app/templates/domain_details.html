@@ -378,6 +378,12 @@
                             <span class="rounded bg-blue-100 px-2 py-1 font-semibold text-blue-700">
                                 <span x-text="remediationQueue.summary.investigate"></span><span> investigate</span>
                             </span>
+                            <span class="rounded bg-[#f2fbf9] px-2 py-1 font-semibold text-[#1f7c83]">
+                                <span x-text="remediationQueue.summary.provider_fix_available || 0"></span><span> provider fixes</span>
+                            </span>
+                            <span class="rounded bg-[#f4f3f2] px-2 py-1 font-semibold text-[#5f5c78]">
+                                <span x-text="remediationQueue.summary.blocked_by_prerequisite || 0"></span><span> blocked by prerequisites</span>
+                            </span>
                             <span class="rounded bg-teal-100 px-2 py-1 font-semibold text-teal-700">
                                 <span x-text="remediationQueue.summary.dispatch_ready || 0"></span><span> ready to notify</span>
                             </span>
@@ -450,6 +456,18 @@
                     </template>
                     <template x-if="!remediationQueueLoading && !remediationQueueError && remediationQueue.items.length > 0">
                         <div class="mt-4 grid gap-3 md:grid-cols-3">
+                            <div class="rounded-lg bg-white p-3 md:col-span-3">
+                                <div class="flex flex-wrap items-start justify-between gap-3">
+                                    <div>
+                                        <p class="text-xs font-semibold uppercase text-[#5f5c78]">Remediation loop</p>
+                                        <p class="mt-1 text-sm font-semibold text-[#120d36]" x-text="remediationLoopStatusLabel(remediationQueue.loop?.status)"></p>
+                                        <p class="mt-1 text-sm text-[#5f5c78]" x-text="remediationQueue.loop?.next_action || 'Review the highest priority remediation item.'"></p>
+                                    </div>
+                                    <span class="rounded bg-[#f4f3f2] px-2 py-1 text-xs font-semibold text-[#45505f]">
+                                        <span>Top: </span><span x-text="remediationIncidentLabel(remediationQueue.loop?.top_incident_type)"></span>
+                                    </span>
+                                </div>
+                            </div>
                             <div class="rounded-lg bg-white p-3">
                                 <p class="text-xs font-semibold uppercase text-[#5f5c78]">Notification readiness</p>
                                 <p class="mt-1 text-sm text-[#120d36]" x-text="remediationReadinessText"></p>
@@ -488,6 +506,13 @@
                                                 <span x-text="item.severity"></span>
                                             </span>
                                             <span class="text-xs text-[#5f5c78]" x-text="item.source.replace('_', ' ')"></span>
+                                            <span class="rounded bg-[#f4f3f2] px-2 py-1 text-xs font-semibold text-[#45505f]"
+                                                  x-text="remediationIncidentLabel(item.incident_type)"></span>
+                                            <span class="rounded bg-[#f2fbf9] px-2 py-1 text-xs font-semibold text-[#1f7c83]"
+                                                  x-text="remediationTrackLabel(item.remediation_track)"></span>
+                                            <span class="rounded bg-white px-2 py-1 text-xs font-semibold text-[#5f5c78]">
+                                                <span>priority </span><span x-text="item.priority_score || 0"></span>
+                                            </span>
                                             <span x-show="item.notification"
                                                   class="rounded px-2 py-1 text-xs font-semibold"
                                                   :class="remediationNotificationClass(item.notification.state)"
@@ -584,27 +609,14 @@
                                             </div>
                                         </template>
                                         <div class="mt-3 flex flex-wrap gap-2">
-                                            <button type="button"
-                                                    class="btn btn-xs btn-outline"
-                                                    :disabled="remediationActionBusy(item)"
-                                                    :data-remediation-item-id="item.id"
-                                                    data-domain-detail-remediation-action="previewed">
-                                                Reviewed
-                                            </button>
-                                            <button type="button"
-                                                    class="btn btn-xs btn-outline"
-                                                    :disabled="remediationActionBusy(item)"
-                                                    :data-remediation-item-id="item.id"
-                                                    data-domain-detail-remediation-action="acknowledged">
-                                                Acknowledge
-                                            </button>
-                                            <button type="button"
-                                                    class="btn btn-xs btn-outline"
-                                                    :disabled="remediationActionBusy(item)"
-                                                    :data-remediation-item-id="item.id"
-                                                    data-domain-detail-remediation-action="resolved">
-                                                Resolve
-                                            </button>
+                                            <template x-for="decision in visibleRemediationDecisions(item)" :key="item.id + '-decision-' + decision">
+                                                <button type="button"
+                                                        class="btn btn-xs btn-outline"
+                                                        :disabled="remediationActionBusy(item)"
+                                                        :data-remediation-item-id="item.id"
+                                                        :data-domain-detail-remediation-action="decision"
+                                                        x-text="remediationDecisionLabel(decision)"></button>
+                                            </template>
                                             <button type="button"
                                                     class="btn btn-xs btn-primary"
                                                     :disabled="remediationActionBusy(item) || !item.notification.dispatch.eligible"

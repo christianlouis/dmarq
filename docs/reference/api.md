@@ -799,24 +799,37 @@ can be previewed through a provider connector or why it remains manual-only.
 queue for a domain. It groups DNS change plans and health-score actions into
 prioritized items with state, severity, next steps, evidence, blast radius,
 prerequisites, expected health-score impact, automation eligibility, and
-read-only notification routing metadata. DNS items that have a concrete safe
-TXT/CNAME provider write are marked `approval_ready` and point to the same
-explicit preview/apply endpoint used by the DNS change-plan UI. Notification
-metadata includes the event name, channel, dedupe key, reason, and next state
-transition that an operator workflow can use. Each notification also includes a
-read-only `dispatch` preview showing whether the item would be eligible for a
-future dispatch step, which channel would be used, whether a previewed or
-acknowledged lifecycle marker is still required, how many enabled webhook
-endpoints match the event, and why dispatch is currently blocked. Each item
-also includes a sanitized `payload_preview` using schema
+read-only notification routing metadata. Items also expose stable remediation
+loop fields so product and automation surfaces can use the same language:
+`incident_type`, `loop_state`, `remediation_track`, `priority_score`, and
+`operator_decisions`. DNS items that have a concrete safe TXT/CNAME provider
+write are marked `approval_ready` and point to the same explicit preview/apply
+endpoint used by the DNS change-plan UI. Placeholder DKIM/SPF records that
+still need provider-specific values are surfaced as blocked by prerequisite
+instead of being presented as one-click repairs.
+
+The top-level `loop` object summarizes what DMARQ can fix, what needs explicit
+approval, what needs manual action, what needs investigation, the current
+`status`, and the highest-priority incident. The queue `summary` mirrors these
+operator buckets with counters such as `provider_fix_available`,
+`self_hosted_guidance`, `manual_only`, and `blocked_by_prerequisite`.
+
+Notification metadata includes the event name, channel, dedupe key, reason, and
+next state transition that an operator workflow can use. Each notification also
+includes a read-only `dispatch` preview showing whether the item would be
+eligible for a future dispatch step, which channel would be used, whether a
+previewed or acknowledged lifecycle marker is still required, how many enabled
+webhook endpoints match the event, and why dispatch is currently blocked. Each
+item also includes a sanitized `payload_preview` using schema
 `dmarq.remediation.notification.v1`; it is the deterministic data shape a
 future webhook, ticketing, or chatops delivery would receive. The endpoint does
 not perform DNS writes, enqueue webhook deliveries, or send notifications.
-The queue `summary` also exposes dispatch readiness counters, including
-`dispatch_ready`, `dispatch_blocked`, `dispatch_disabled`,
-`dispatch_awaiting_acknowledgement`, and `dispatch_webhook_routes`, so
-dashboards can separate immediately actionable notifications from items blocked
-by settings, routing, or operator acknowledgement.
+After dispatch previews are attached, the queue `summary` also exposes dispatch
+readiness counters, including `dispatch_ready`, `dispatch_blocked`,
+`dispatch_disabled`, `dispatch_awaiting_acknowledgement`, and
+`dispatch_webhook_routes`, so dashboards can separate immediately actionable
+notifications from items blocked by settings, routing, or operator
+acknowledgement.
 
 Each notification also includes a compact `history` array derived from
 workspace audit events for the current queue item. The history lists recent
@@ -830,10 +843,13 @@ troubleshooting.
 operator lifecycle marker for one current remediation item. The request accepts
 `item_id`, `lifecycle_state`, and optional `event`, `dedupe_key`, and `note`.
 Supported lifecycle states are `previewed`, `acknowledged`, `snoozed`,
-`resolved`, and `rejected`. If `event` or `dedupe_key` is supplied, it must
-match the current queue item's notification metadata. The response includes the
-sanitized workspace audit row. This endpoint is deliberately audit-only: it
-does not enqueue webhook deliveries, send notifications, or attempt DNS writes.
+`resolved`, `rejected`, plus workflow-specific decisions:
+`preview_change`, `approve_after_preview`, `mark_legitimate`, `mark_unknown`,
+and `convert_to_manual_action`. If `event` or `dedupe_key` is supplied, it
+must match the current queue item's notification metadata. The response
+includes the sanitized workspace audit row. This endpoint is deliberately
+audit-only: it does not enqueue webhook deliveries, send notifications, or
+attempt DNS writes.
 
 `POST /domains/{domain_id}/remediation/notifications/dispatch` enqueues
 webhook deliveries for one current remediation item after explicit operator

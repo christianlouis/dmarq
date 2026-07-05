@@ -15,6 +15,22 @@ DNS_AUTOMATION_OPERATIONS = {"create", "update"}
 DNS_AUTOMATION_RECORD_TYPES = {"TXT", "CNAME"}
 SEVERITY_RANK = {"critical": 4, "high": 3, "medium": 2, "low": 1, "info": 0}
 DNS_SEVERITY = {"error": "critical", "warning": "medium", "info": "low"}
+STATE_PRIORITY = {
+    "approval_ready": 40,
+    "manual_action": 30,
+    "investigate": 20,
+    "informational": 10,
+}
+INCIDENT_TYPES = {
+    "low_compliance": "legitimate_sender_failing_alignment",
+    "missing_dmarc": "dmarc_policy_missing_or_weak",
+    "policy_none": "dmarc_policy_missing_or_weak",
+    "missing_spf": "spf_include_or_record_problem",
+    "missing_dkim": "missing_or_broken_dkim",
+    "source_reputation_listed": "sending_ip_reputation_risk",
+    "source_reputation_review": "sending_ip_reputation_risk",
+    "review_forwarding": "forwarding_or_receiver_alignment_review",
+}
 HEALTH_DNS_EQUIVALENTS = {
     "missing_dmarc": {"dmarc_missing"},
     "missing_spf": {"spf_missing"},
@@ -74,6 +90,21 @@ def _summary(items: List[Dict[str, Any]]) -> Dict[str, int]:
         "manual_action": sum(1 for item in items if item["state"] == "manual_action"),
         "investigate": sum(1 for item in items if item["state"] == "investigate"),
         "informational": sum(1 for item in items if item["state"] == "informational"),
+        "provider_fix_available": sum(
+            1 for item in items if item.get("automation", {}).get("eligible")
+        ),
+        "self_hosted_guidance": sum(
+            1
+            for item in items
+            if any(
+                path.get("key") == "self_hosted"
+                for path in item.get("action_plan", {}).get("guidance_paths", [])
+            )
+        ),
+        "manual_only": sum(1 for item in items if _remediation_track(item) == "manual_only"),
+        "blocked_by_prerequisite": sum(
+            1 for item in items if _remediation_track(item) == "blocked_by_prerequisite"
+        ),
         "notify_approval_required": sum(
             1 for item in items if item.get("notification", {}).get("state") == "approval_required"
         ),
@@ -88,6 +119,124 @@ def _summary(items: List[Dict[str, Any]]) -> Dict[str, int]:
         "notify_summary_only": sum(
             1 for item in items if item.get("notification", {}).get("state") == "summary_only"
         ),
+    }
+
+
+def _incident_type_for_item(item: Dict[str, Any]) -> str:
+    """Classify remediation work into stable product incident families."""
+    source = str(item.get("source") or "")
+    item_id = str(item.get("id") or "")
+    if source == "dns_lint" or item_id.startswith("dns:"):
+        if "dkim" in item_id:
+            return "missing_or_broken_dkim"
+        if "spf" in item_id:
+            return "spf_include_or_record_problem"
+        if "dmarc" in item_id:
+            return "dmarc_policy_missing_or_weak"
+        return "mail_provider_requires_dns_records"
+    action_type = item_id.removeprefix("health:")
+    return INCIDENT_TYPES.get(action_type, "domain_health_action")
+
+
+def _loop_state_for_item(item: Dict[str, Any]) -> str:
+    """Return the autonomous-loop state without implying unsupervised changes."""
+    if item.get("automation", {}).get("eligible"):
+        return "proposal_ready_for_approval"
+    state = str(item.get("state") or "")
+    if state == "investigate":
+        return "evidence_review_required"
+    if state == "manual_action":
+        return "operator_action_required"
+    return "observed"
+
+
+def _remediation_track(item: Dict[str, Any]) -> str:
+    """Summarize the safest next lane for this item."""
+    if item.get("automation", {}).get("eligible"):
+        return "provider_preview"
+    if item.get("state") == "investigate":
+        return "sender_investigation"
+    if str(item.get("incident_type") or "") == "sending_ip_reputation_risk":
+        return "reputation_review"
+    if str(item.get("source") or "") == "dns_lint":
+        if any(
+            "provider-specific" in str(prerequisite).lower()
+            for prerequisite in item.get("prerequisites", [])
+        ):
+            return "blocked_by_prerequisite"
+        return "manual_dns"
+    if any(
+        path.get("key") == "self_hosted"
+        for path in item.get("action_plan", {}).get("guidance_paths", [])
+    ):
+        return "self_hosted_or_provider"
+    return "manual_only"
+
+
+def _priority_score(item: Dict[str, Any]) -> int:
+    """Return deterministic ordering and dashboard priority score."""
+    severity = SEVERITY_RANK.get(str(item.get("severity") or "info"), 0) * 100
+    state = STATE_PRIORITY.get(str(item.get("state") or ""), 0)
+    automation = 15 if item.get("automation", {}).get("eligible") else 0
+    try:
+        impact = abs(int(float(str(item.get("expected_health_score_impact") or "0"))))
+    except ValueError:
+        impact = 0
+    return severity + state + automation + min(impact, 50)
+
+
+def _operator_decision_options(item: Dict[str, Any]) -> List[str]:
+    """Return allowed human-in-the-loop actions for UI and integrations."""
+    options = ["previewed", "acknowledged", "snoozed", "resolved", "rejected"]
+    if item.get("automation", {}).get("eligible"):
+        return ["preview_change", "approve_after_preview", *options]
+    if item.get("state") == "investigate":
+        return ["mark_legitimate", "mark_unknown", "convert_to_manual_action", *options]
+    return options
+
+
+def _apply_loop_metadata(items: List[Dict[str, Any]]) -> None:
+    for item in items:
+        item["incident_type"] = _incident_type_for_item(item)
+        item["loop_state"] = _loop_state_for_item(item)
+        item["remediation_track"] = _remediation_track(item)
+        item["priority_score"] = _priority_score(item)
+        item["operator_decisions"] = _operator_decision_options(item)
+
+
+def _loop_summary(domain: str, items: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Return dashboard-ready remediation loop state for this domain."""
+    summary = _summary(items)
+    next_item = items[0] if items else None
+    if not items:
+        status = "clear"
+        next_action = "No current remediation work; keep importing reports and monitoring DNS."
+    elif summary["approval_ready"]:
+        status = "approval_required"
+        next_action = "Preview and approve the highest-priority provider-backed repair."
+    elif summary["investigate"]:
+        status = "investigation_required"
+        next_action = (
+            "Classify the highest-priority sender or reputation finding before changing DNS."
+        )
+    else:
+        status = "manual_action_required"
+        next_action = (
+            "Complete the highest-priority manual provider or self-hosted remediation step."
+        )
+    return {
+        "domain": domain,
+        "status": status,
+        "next_action": next_action,
+        "what_dmarq_can_fix": summary["provider_fix_available"],
+        "what_needs_approval": summary["approval_ready"],
+        "what_needs_manual_action": summary["manual_action"],
+        "what_needs_investigation": summary["investigate"],
+        "manual_only": summary["manual_only"],
+        "blocked_by_prerequisite": summary["blocked_by_prerequisite"],
+        "top_item_id": next_item.get("id") if next_item else None,
+        "top_incident_type": next_item.get("incident_type") if next_item else None,
+        "top_priority_score": next_item.get("priority_score") if next_item else 0,
     }
 
 
@@ -150,6 +299,10 @@ def _remediation_notification_payload(domain: str, item: Dict[str, Any]) -> Dict
         "state": str(item.get("state") or ""),
         "severity": str(item.get("severity") or "info"),
         "confidence": str(item.get("confidence") or "medium"),
+        "incident_type": str(item.get("incident_type") or ""),
+        "loop_state": str(item.get("loop_state") or ""),
+        "remediation_track": str(item.get("remediation_track") or ""),
+        "priority_score": int(item.get("priority_score") or 0),
         "title": str(item.get("title") or ""),
         "detail": str(item.get("detail") or ""),
         "notification_state": str(notification.get("state") or "summary_only"),
@@ -221,6 +374,10 @@ def _dns_item(
         prerequisites.append("Preview the provider mutation before approving the write.")
     else:
         prerequisites.append("Use the manual DNS-provider steps; provider write is not ready.")
+    if plan.get("provider_value_required"):
+        prerequisites.append(
+            "Provider-specific record value is required before DMARQ can preview a write."
+        )
     if recommended_provider:
         prerequisites.append(f"Use the detected provider path for {recommended_provider}.")
 
@@ -657,11 +814,13 @@ def build_remediation_queue(
             continue
         items.append(_health_item(domain, action))
 
+    _apply_loop_metadata(items)
     _attach_notification_profiles(domain, items)
     items.sort(
         key=lambda item: (
             item["state"] != "approval_ready",
             -SEVERITY_RANK.get(item["severity"], 0),
+            -int(item.get("priority_score") or 0),
             item["id"],
         )
     )
@@ -669,5 +828,6 @@ def build_remediation_queue(
         "domain": domain,
         "status": _queue_status(items),
         "summary": _summary(items),
+        "loop": _loop_summary(domain, items),
         "items": items,
     }

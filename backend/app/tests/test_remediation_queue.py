@@ -68,12 +68,38 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
         "manual_action": 0,
         "investigate": 1,
         "informational": 0,
+        "provider_fix_available": 1,
+        "self_hosted_guidance": 1,
+        "manual_only": 0,
+        "blocked_by_prerequisite": 0,
         "notify_approval_required": 1,
         "notify_action_required": 0,
         "notify_investigation_required": 1,
         "notify_summary_only": 0,
     }
+    assert queue["loop"] == {
+        "domain": "example.com",
+        "status": "approval_required",
+        "next_action": "Preview and approve the highest-priority provider-backed repair.",
+        "what_dmarq_can_fix": 1,
+        "what_needs_approval": 1,
+        "what_needs_manual_action": 0,
+        "what_needs_investigation": 1,
+        "manual_only": 0,
+        "blocked_by_prerequisite": 0,
+        "top_item_id": "dns:dmarc-missing",
+        "top_incident_type": "dmarc_policy_missing_or_weak",
+        "top_priority_score": 455,
+    }
     assert queue["items"][0]["id"] == "dns:dmarc-missing"
+    assert queue["items"][0]["incident_type"] == "dmarc_policy_missing_or_weak"
+    assert queue["items"][0]["loop_state"] == "proposal_ready_for_approval"
+    assert queue["items"][0]["remediation_track"] == "provider_preview"
+    assert queue["items"][0]["priority_score"] == 455
+    assert queue["items"][0]["operator_decisions"][:2] == [
+        "preview_change",
+        "approve_after_preview",
+    ]
     assert queue["items"][0]["state"] == "approval_ready"
     assert queue["items"][0]["automation"]["eligible"] is True
     assert queue["items"][0]["automation"]["apply_endpoint"] == (
@@ -115,6 +141,10 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
         "state": "approval_ready",
         "severity": "critical",
         "confidence": "high",
+        "incident_type": "dmarc_policy_missing_or_weak",
+        "loop_state": "proposal_ready_for_approval",
+        "remediation_track": "provider_preview",
+        "priority_score": 455,
         "title": "Publish DMARC",
         "detail": "No DMARC TXT record was found.",
         "notification_state": "approval_required",
@@ -159,6 +189,10 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
         "evidence": [{"label": "finding", "value": "_dmarc.example.com"}],
     }
     assert queue["items"][1]["notification"]["state"] == "investigation_required"
+    assert queue["items"][1]["incident_type"] == "legitimate_sender_failing_alignment"
+    assert queue["items"][1]["loop_state"] == "evidence_review_required"
+    assert queue["items"][1]["remediation_track"] == "sender_investigation"
+    assert "mark_legitimate" in queue["items"][1]["operator_decisions"]
     assert queue["items"][1]["notification"]["event"] == (
         "dmarq.remediation.investigation_required"
     )
@@ -205,8 +239,13 @@ def test_remediation_queue_keeps_placeholder_plan_manual():
 
     assert queue["status"] == "needs_manual_action"
     assert queue["summary"]["manual_action"] == 1
+    assert queue["summary"]["blocked_by_prerequisite"] == 1
     assert queue["summary"]["notify_summary_only"] == 1
+    assert queue["loop"]["status"] == "manual_action_required"
+    assert queue["loop"]["blocked_by_prerequisite"] == 1
     assert queue["items"][0]["state"] == "manual_action"
+    assert queue["items"][0]["remediation_track"] == "blocked_by_prerequisite"
+    assert queue["items"][0]["loop_state"] == "operator_action_required"
     assert queue["items"][0]["automation"]["eligible"] is False
     assert queue["items"][0]["automation"]["apply_endpoint"] is None
     assert queue["items"][0]["action_plan"]["automation_path"] == "manual"
