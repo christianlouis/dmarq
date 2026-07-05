@@ -838,9 +838,11 @@ notifications from items blocked by settings, routing, or operator
 acknowledgement. Resolved items that no longer appear in the current queue are
 returned as `verified_items`; `verified_items_total` and
 `dispatch_verified_fixed` report the scanned total even when the compact UI
-only displays the most recent rows. Each verified item includes its
-verification method, status, evidence requirements, next check, timestamp, and
-operator note.
+only displays the most recent rows. `dispatch_verified_fixed_visible` counts
+the returned rows, and `dispatch_verified_fixed_hidden` reports how many older
+verified repairs were omitted from the compact response. Each verified item
+includes its verification method, status, evidence requirements, next check,
+timestamp, and operator note.
 
 Each notification also includes a compact `history` array derived from
 workspace audit events for the current queue item. The history lists recent

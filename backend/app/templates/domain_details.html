@@ -364,8 +364,11 @@
                         <div>
                             <h3 class="font-semibold text-[#07071f]">Remediation Queue</h3>
                             <p class="mt-1 text-sm text-[#5f5c78]">Prioritized fixes with evidence, prerequisites, and approval status.</p>
+                            <p class="mt-1 text-xs text-[#5f5c78]" x-show="remediationQueueLoadedAt">
+                                <span>Updated </span><span x-text="formatIsoDate(remediationQueueLoadedAt)"></span>
+                            </p>
                         </div>
-                        <div class="flex flex-wrap gap-2 text-xs" x-show="!remediationQueueLoading && !remediationQueueError">
+                        <div class="flex flex-wrap items-center gap-2 text-xs" x-show="!remediationQueueLoading && !remediationQueueError">
                             <span class="rounded bg-white px-2 py-1 font-semibold text-[#272a5f]">
                                 <span x-text="remediationQueue.summary.total"></span><span> open</span>
                             </span>
@@ -393,6 +396,12 @@
                             <span class="rounded bg-teal-100 px-2 py-1 font-semibold text-teal-700">
                                 <span x-text="remediationQueue.summary.dispatch_verified_fixed || 0"></span><span> verified fixed</span>
                             </span>
+                            <button type="button"
+                                    class="btn btn-outline btn-xs"
+                                    :disabled="remediationQueueLoading"
+                                    data-domain-detail-remediation-refresh>
+                                Refresh queue
+                            </button>
                         </div>
                     </div>
                     <template x-if="remediationQueueLoading">
@@ -428,7 +437,7 @@
                                 </span>
                             </div>
                             <div class="mt-2 grid gap-2 md:grid-cols-2">
-                                <template x-for="verified in remediationQueue.verified_items.slice(0, 4)"
+                                <template x-for="verified in visibleVerifiedItems()"
                                           :key="'verified-' + verified.item_id">
                                     <div class="rounded border border-[#d8ebe8] bg-white px-3 py-2 text-xs">
                                         <div class="flex flex-wrap items-center justify-between gap-2">
@@ -471,9 +480,20 @@
                                     </div>
                                 </template>
                             </div>
-                            <p class="mt-2 text-xs text-[#5f5c78]" x-show="verifiedItemsHiddenCount() > 0">
-                                <span>+</span><span x-text="verifiedItemsHiddenCount()"></span><span> older verified repairs hidden from this compact view.</span>
-                            </p>
+                            <div class="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs"
+                                 x-show="verifiedItemsHiddenCount() > 0 || showAllVerifiedRemediationItems">
+                                <p class="text-[#5f5c78]" x-show="!showAllVerifiedRemediationItems && verifiedItemsHiddenCount() > 0">
+                                    <span>+</span><span x-text="verifiedItemsHiddenCount()"></span><span> older verified repairs hidden from this compact view.</span>
+                                </p>
+                                <p class="text-[#5f5c78]" x-show="showAllVerifiedRemediationItems">
+                                    <span>Showing </span><span x-text="(remediationQueue.verified_items || []).length"></span><span> recent verified repairs.</span>
+                                </p>
+                                <button type="button"
+                                        class="btn btn-outline btn-xs"
+                                        data-domain-detail-verified-repairs-toggle
+                                        x-text="showAllVerifiedRemediationItems ? 'Show compact view' : 'Show all visible repairs'">
+                                </button>
+                            </div>
                         </div>
                     </template>
                     <template x-if="!remediationQueueLoading && !remediationQueueError && remediationQueue.items.length > 0">

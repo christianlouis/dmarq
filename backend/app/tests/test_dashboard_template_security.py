@@ -355,6 +355,14 @@ def test_domain_details_remediation_queue_shows_verification_context():
     assert 'x-text="verifiedItemsTotalCount()"' in template
     assert "verified_items_total" in script
     assert "verifiedItemsHiddenCount()" in template
+    assert "visibleVerifiedItems()" in template
+    assert "data-domain-detail-remediation-refresh" in template
+    assert "data-domain-detail-verified-repairs-toggle" in template
+    assert "fetchRemediationQueue()" in script
+    assert "showAllVerifiedRemediationItems = !this.showAllVerifiedRemediationItems" in script
+    assert "remediationQueueLoadedAt" in template
+    assert "formatIsoDate(remediationQueueLoadedAt)" in template
+    assert "remediationQueueLoadedAt" in script
     assert "verified.verification_method" in template
     assert "verified.verification_status" in template
     assert "verified.next_check" in template
@@ -1267,8 +1275,13 @@ def test_domain_details_distinguishes_evidence_verified_repairs_without_html_inj
     ) in template
     assert "Keep monitoring this repair; no DNS or mail settings were changed" in template
     assert "const visible = (this.remediationQueue.verified_items || []).length" in script
+    assert "dispatch_verified_fixed_hidden" in script
     assert "this.verifiedItemsTotalCount() - visible" in script
-    assert "remediationQueue.verified_items.slice(0, 4)" in template
+    assert "visibleVerifiedItems()" in template
+    assert "showAllVerifiedRemediationItems" in template
+    assert "Show compact view" in template
+    assert "Show all visible repairs" in template
+    assert "items.slice(0, 4)" in script
     assert "verified.item_id" in template
     assert "verified.label" in template
     assert "verified.detail" in template
@@ -1378,10 +1391,8 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "Remediation queue could not be loaded." in script
     assert "Retry remediation queue" in template
     assert "data-domain-detail-remediation-retry" in template
-    assert (
-        '<div class="flex flex-wrap gap-2 text-xs" x-show="!remediationQueueLoading && !remediationQueueError">'
-        in template
-    )
+    assert 'x-show="!remediationQueueLoading && !remediationQueueError"' in template
+    assert "flex flex-wrap items-center gap-2 text-xs" in template
     assert "remediationQueue.summary.total" in template
     assert "remediationQueue.summary.approval_ready" in template
     assert "remediationQueue.summary.manual_action" in template

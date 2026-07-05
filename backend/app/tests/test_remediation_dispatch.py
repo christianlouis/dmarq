@@ -145,6 +145,7 @@ def test_attach_remediation_dispatch_previews_adds_dashboard_summary(monkeypatch
     assert summary["dispatch_webhook_routes"] == 1
     assert summary["dispatch_verified_fixed"] == 0
     assert summary["dispatch_verified_fixed_visible"] == 0
+    assert summary["dispatch_verified_fixed_hidden"] == 0
 
 
 def test_attach_remediation_dispatch_previews_counts_operator_held_items(monkeypatch):
@@ -223,6 +224,7 @@ def test_attach_remediation_dispatch_previews_counts_operator_held_items(monkeyp
     assert result["summary"]["dispatch_snoozed"] == 0
     assert result["summary"]["dispatch_verified_fixed"] == 0
     assert result["summary"]["dispatch_verified_fixed_visible"] == 0
+    assert result["summary"]["dispatch_verified_fixed_hidden"] == 0
 
 
 def test_verification_state_covers_lifecycle_branches():
@@ -302,6 +304,7 @@ def test_attach_remediation_dispatch_previews_skips_empty_queues(monkeypatch):
         "dispatch_snoozed": 0,
         "dispatch_verified_fixed": 0,
         "dispatch_verified_fixed_visible": 0,
+        "dispatch_verified_fixed_hidden": 0,
     }
     assert result["verified_items"] == []
     assert result["verified_items_total"] == 0
@@ -435,6 +438,7 @@ def test_verified_fixed_total_counts_beyond_visible_limit(db_session):
     assert result["verified_items_total"] == 45
     assert result["summary"]["dispatch_verified_fixed"] == 45
     assert result["summary"]["dispatch_verified_fixed_visible"] == 5
+    assert result["summary"]["dispatch_verified_fixed_hidden"] == 40
     assert len(result["verified_items"]) == 5
     assert result["verified_items"][0]["item_id"] == "dns:fixed-44"
 

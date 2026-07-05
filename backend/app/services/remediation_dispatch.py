@@ -807,6 +807,15 @@ def _attach_dispatch_summary(
                 else len(verified_fixed_items or [])
             ),
             "dispatch_verified_fixed_visible": len(verified_fixed_items or []),
+            "dispatch_verified_fixed_hidden": max(
+                (
+                    verified_fixed_total
+                    if verified_fixed_total is not None
+                    else len(verified_fixed_items or [])
+                )
+                - len(verified_fixed_items or []),
+                0,
+            ),
         }
     )
     queue["summary"] = summary

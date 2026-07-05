@@ -92,6 +92,8 @@ as approval-ready, manual, or investigate-only, and include the evidence,
 blast radius, prerequisites, and expected health-score impact. Approval-ready
 DNS items link back to the DNS change-plan review area; they still require an
 operator preview and explicit approval before any provider write is sent.
+Use **Refresh queue** to reload the remediation queue from the backend after
+new reports, DNS checks, or operator lifecycle changes are available.
 Each item now also shows the remediation track, priority band, owner, risk
 level, safe-automation flag, and the exact operator decision DMARQ expects next.
 Each item also shows a notification profile such as approval required, action
@@ -116,7 +118,9 @@ When an operator marks an item resolved and the same finding no longer appears
 in the current queue, the domain detail page lists it under evidence-verified
 repairs. That section shows how DMARQ verified the absence, what evidence was
 used, how many older verified repairs are hidden in the compact view, and what
-fresh reports or DNS checks should keep monitoring the fix.
+fresh reports or DNS checks should keep monitoring the fix. The compact view
+shows the newest verified repairs first and can be expanded to show every
+verified repair returned by the backend response.
 
 After a remediation notification is previewed or acknowledged, an operator can
 explicitly enqueue the notification through the dispatch API with
