@@ -349,8 +349,8 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "Waiting on operator" in template
     assert "Blocked before repair" in template
     assert "remediationLoop().next_action" in template
-    assert "remediationLoopStatusClass(remediationLoop().status || remediationLoop().loop_status)" in template
-    assert "remediationLoopStatusLabel(remediationLoop().status || remediationLoop().loop_status)" in template
+    assert "remediationLoopStatusClass(remediationLoopEffectiveStatus(remediationLoop()))" in template
+    assert "remediationLoopStatusLabel(remediationLoopEffectiveStatus(remediationLoop()))" in template
     assert "remediationIncidentLabel(remediationLoop().top_incident_type)" in template
     assert "data-dashboard-remediation-refresh" in template
     assert "data-dashboard-remediation-refresh" in script
@@ -394,6 +394,7 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "remediationTrackLabel(track)" in script
     assert "remediationLoopStatusLabel(status)" in script
     assert "remediationLoopStatusClass(status)" in script
+    assert "remediationLoopEffectiveStatus(loop)" in script
     assert "remediationIncidentLabel(value)" in script
     assert "remediationLoopItemRank(item)" in script
     assert "[...items].sort" in script
@@ -451,6 +452,8 @@ def test_domain_details_remediation_queue_shows_verification_context():
     assert "Remediation queue sort" in template
     assert "data-domain-detail-remediation-filter" in template
     assert "aria-pressed" in template
+    assert 'role="group"' in template
+    assert 'aria-label="Remediation queue filters"' in template
     assert 'role="status"' in template
     assert "domainDetailRemediationFilter" in script
     assert "remediationQueueFilterCount(filter.value)" in template
@@ -1473,8 +1476,9 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     assert "sourceReputationRefreshError" in template
     assert "this.sourceReputationRefreshError = '';" in script
     assert "keepExistingSourcesVisible" in script
+    assert "preserveOnFailure = Boolean(options.preserveOnFailure || keepExistingSourcesVisible)" in script
     assert "this.sourcesLoading = !keepExistingSourcesVisible;" in script
-    assert "if (!options.preserveOnFailure) {\n                    this.sources = [];" in script
+    assert "if (!preserveOnFailure) {\n                    this.sources = [];" in script
     assert "sourceSeenLabel" in script
     assert "sourceVolumeBars" in script
     assert "source.reputation.status" in template

@@ -952,7 +952,7 @@ function dashboardApp() {
             const state = String(item?.state || '');
             const track = String(item?.remediation_track || '');
             if (readinessLevel === 'ready_for_preview' || stage === 'preview_ready') return 0;
-            if (state === 'needs_approval') return 1;
+            if (state === 'needs_approval' || state === 'approval_ready') return 1;
             if (readinessLevel === 'blocked' || stage === 'blocked') return 2;
             if (readinessLevel === 'needs_reputation_review' || track === 'reputation_review') return 3;
             if (state === 'investigate') return 4;
@@ -978,6 +978,13 @@ function dashboardApp() {
                 manual_action_required: 'bg-[#fff7df] text-[#8a6418]',
                 investigation_required: 'bg-[#fff1ea] text-[#b8431d]'
             }[String(status || '')] || 'bg-[#f8f7f6] text-[#5f5c78]';
+        },
+
+        remediationLoopEffectiveStatus(loop) {
+            if (!loop) return '';
+            const status = String(loop.status || '');
+            const loopStatus = String(loop.loop_status || '');
+            return status === 'needs_attention' && loopStatus ? loopStatus : (status || loopStatus);
         },
 
         remediationIncidentLabel(value) {

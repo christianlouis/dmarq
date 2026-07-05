@@ -1248,10 +1248,10 @@ function domainDetailsApp(domainId = '') {
                 return readinessLevel === 'ready_for_preview' || stage === 'preview_ready';
             }
             if (filter === 'blocked') {
-                return readinessLevel === 'blocked' || stage === 'blocked' || (progression.blocked_by || []).length > 0;
+                return readinessLevel === 'blocked' || stage === 'blocked';
             }
             if (filter === 'needs_evidence') {
-                return Boolean(progression.verification_required) || stage === 'operator_review' || readinessLevel === 'needs_operator_review';
+                return stage === 'operator_review' || readinessLevel === 'needs_operator_review';
             }
             if (filter === 'notify_ready') {
                 return Boolean(item.notification?.dispatch?.eligible);
@@ -2354,6 +2354,7 @@ function domainDetailsApp(domainId = '') {
         async fetchSources(options = {}) {
             const refresh = Boolean(options.refresh);
             const keepExistingSourcesVisible = refresh && (this.sources || []).length > 0;
+            const preserveOnFailure = Boolean(options.preserveOnFailure || keepExistingSourcesVisible);
             this.sourcesLoading = !keepExistingSourcesVisible;
             this.sourcesError = '';
             try {
@@ -2373,11 +2374,11 @@ function domainDetailsApp(domainId = '') {
                 this.sources = (data.sources || []).map(source => this.normalizeSource(source));
                 this.sourceReputationRefreshError = '';
             } catch (error) {
-                if (!options.preserveOnFailure) {
+                if (!preserveOnFailure) {
                     this.sources = [];
                     this.sourcesError = error.message || 'Sending sources could not be loaded.';
                 }
-                if (options.preserveOnFailure) {
+                if (preserveOnFailure) {
                     this.sourceReputationRefreshError = error.message || 'Source reputation could not be refreshed.';
                 }
                 console.error('Error fetching sources:', error);

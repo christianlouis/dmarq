@@ -614,6 +614,8 @@
                         <p class="mt-4 text-sm text-[#5f5c78]">No remediation items are queued for this domain.</p>
                     </template>
                     <div class="mt-4 flex flex-wrap gap-2"
+                         role="group"
+                         aria-label="Remediation queue filters"
                          x-show="!remediationQueueLoading && !remediationQueueError && remediationQueue.items.length > 0">
                         <label class="flex items-center gap-2 rounded border border-[#e6e3e1] bg-white px-3 py-2 text-xs font-semibold text-[#5f5c78]">
                             <span>Sort</span>
