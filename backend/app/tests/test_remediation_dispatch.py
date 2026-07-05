@@ -439,6 +439,12 @@ def test_verified_fixed_freshness_marks_old_absence_stale():
         "freshness_status": "unknown_queue_absence_age",
         "freshness_label": "Queue absence age unknown",
     }
+    assert remediation_dispatch._verified_fixed_freshness(
+        datetime(2026, 7, 14, 12, 0, 0), now=datetime(2026, 7, 15, 12, 0, 0)
+    ) == {
+        "freshness_status": "current_queue_absence",
+        "freshness_label": "Fresh queue absence",
+    }
 
 
 def test_verified_fixed_total_counts_beyond_visible_limit(db_session):
