@@ -202,6 +202,27 @@ def _sample_remediation_queue(domain=DOMAIN):
                     "apply_endpoint": "/api/v1/domains/example.com/dns/change-plan/apply",
                     "reason": "Safe provider-backed DNS preview is available.",
                 },
+                "provider_repair_plan": {
+                    "kind": "dns_provider_repair",
+                    "provider": "cloudflare",
+                    "provider_label": "cloudflare",
+                    "plan_id": "plan-1",
+                    "stage": "preview_ready",
+                    "safe_preview_available": True,
+                    "can_apply_after_approval": True,
+                    "apply_requires_approval": True,
+                    "apply_blocked": False,
+                    "blocked_reasons": [],
+                    "manual_fallback": True,
+                    "preview_endpoint": "/api/v1/domains/example.com/dns/change-plan/apply",
+                    "apply_endpoint": "/api/v1/domains/example.com/dns/change-plan/apply",
+                    "operation": "create",
+                    "record_name": "_dmarc.example.com",
+                    "record_type": "TXT",
+                    "capability": "provider_preview",
+                    "next_step": "Open the provider preview, compare old and new DNS values, then approve or reject.",
+                    "completion_gate": "Close only after approved provider apply and fresh DNS evidence agree.",
+                },
                 "notification": {
                     "state": "approval_required",
                     "event": "dmarq.remediation.approval_required",
@@ -647,6 +668,12 @@ def test_public_remediation_queue_is_read_only_and_posture_scoped(
     assert "approve_after_preview" in item["operator_decisions"]
     assert item["automation"]["eligible"] is True
     assert item["automation"]["apply_endpoint"] is None
+    assert item["provider_repair_plan"]["safe_preview_available"] is True
+    assert item["provider_repair_plan"]["can_apply_after_approval"] is False
+    assert item["provider_repair_plan"]["apply_blocked"] is True
+    assert item["provider_repair_plan"]["preview_endpoint"] == ""
+    assert item["provider_repair_plan"]["apply_endpoint"] == ""
+    assert "public_read_only_response" in item["provider_repair_plan"]["blocked_reasons"]
     assert item["notification"]["payload_preview"]["automation"]["apply_endpoint"] is None
 
 

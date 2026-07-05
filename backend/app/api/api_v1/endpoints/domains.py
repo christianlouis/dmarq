@@ -603,6 +603,16 @@ def read_only_remediation_queue_response(payload: Any) -> "RemediationQueueRespo
         automation = item.get("automation") or {}
         automation["apply_endpoint"] = None
         item["automation"] = automation
+        provider_repair_plan = item.get("provider_repair_plan") or {}
+        provider_repair_plan["preview_endpoint"] = ""
+        provider_repair_plan["apply_endpoint"] = ""
+        if provider_repair_plan:
+            provider_repair_plan["can_apply_after_approval"] = False
+            provider_repair_plan["apply_blocked"] = True
+            blocked = list(provider_repair_plan.get("blocked_reasons") or [])
+            blocked.append("public_read_only_response")
+            provider_repair_plan["blocked_reasons"] = list(dict.fromkeys(blocked))
+        item["provider_repair_plan"] = provider_repair_plan
 
         if "repair_progression" not in item:
             verification = item.get("verification_plan") or {}
@@ -654,6 +664,16 @@ def read_only_remediation_queue_response(payload: Any) -> "RemediationQueueRespo
         preview_automation["apply_endpoint"] = None
         if preview_automation:
             preview["automation"] = preview_automation
+        preview_provider_plan = preview.get("provider_repair_plan") or {}
+        if preview_provider_plan:
+            preview_provider_plan["preview_endpoint"] = ""
+            preview_provider_plan["apply_endpoint"] = ""
+            preview_provider_plan["can_apply_after_approval"] = False
+            preview_provider_plan["apply_blocked"] = True
+            blocked = list(preview_provider_plan.get("blocked_reasons") or [])
+            blocked.append("public_read_only_response")
+            preview_provider_plan["blocked_reasons"] = list(dict.fromkeys(blocked))
+            preview["provider_repair_plan"] = preview_provider_plan
         if preview:
             notification["payload_preview"] = preview
         item["notification"] = notification
@@ -1241,6 +1261,30 @@ class RemediationRepairProgression(BaseModel):
     verification_status: str = ""
 
 
+class RemediationProviderRepairPlan(BaseModel):
+    """Read-only provider repair capability and apply gating for one remediation item."""
+
+    kind: str = "not_provider_repair"
+    provider: str = ""
+    provider_label: str = ""
+    plan_id: Optional[str] = None
+    stage: str = "not_applicable"
+    safe_preview_available: bool = False
+    can_apply_after_approval: bool = False
+    apply_requires_approval: bool = True
+    apply_blocked: bool = True
+    blocked_reasons: List[str] = Field(default_factory=list)
+    manual_fallback: bool = False
+    preview_endpoint: str = ""
+    apply_endpoint: str = ""
+    operation: str = ""
+    record_name: str = ""
+    record_type: str = ""
+    capability: str = "manual_review"
+    next_step: str = ""
+    completion_gate: str = ""
+
+
 class RemediationEvidenceRefresh(BaseModel):
     """Read-only refresh path for the evidence needed to close one remediation item."""
 
@@ -1295,6 +1339,9 @@ class RemediationQueueItem(BaseModel):
     action_plan: RemediationActionPlan
     verification_plan: RemediationVerificationPlan
     repair_progression: RemediationRepairProgression
+    provider_repair_plan: RemediationProviderRepairPlan = Field(
+        default_factory=RemediationProviderRepairPlan
+    )
     evidence_refresh: RemediationEvidenceRefresh = Field(default_factory=RemediationEvidenceRefresh)
     automation: RemediationAutomation
     notification: RemediationNotification

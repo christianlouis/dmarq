@@ -91,6 +91,11 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
         "repair_waiting_on_operator": 1,
         "repair_readiness_blocked": 0,
         "repair_readiness_score": 80,
+        "provider_preview_available": 1,
+        "provider_apply_after_approval": 1,
+        "provider_apply_blocked": 0,
+        "provider_value_missing": 0,
+        "provider_manual_fallback": 1,
         "requires_fresh_evidence": 2,
         "rollback_guidance": 2,
         "closure_gate_required": 2,
@@ -135,6 +140,11 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
         "repair_waiting_on_operator": 1,
         "repair_readiness_blocked": 0,
         "repair_readiness_score": 80,
+        "provider_preview_available": 1,
+        "provider_apply_after_approval": 1,
+        "provider_apply_blocked": 0,
+        "provider_value_missing": 0,
+        "provider_manual_fallback": 1,
         "requires_fresh_evidence": 2,
         "rollback_guidance": 2,
         "closure_gate_required": 2,
@@ -189,6 +199,29 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
         "next_safe_action": (
             "Open the provider preview, compare old and new DNS values, then approve or reject."
         ),
+    }
+    assert queue["items"][0]["provider_repair_plan"] == {
+        "kind": "dns_provider_repair",
+        "provider": "cloudflare",
+        "provider_label": "cloudflare",
+        "plan_id": "dmarc-missing",
+        "stage": "preview_ready",
+        "safe_preview_available": True,
+        "can_apply_after_approval": True,
+        "apply_requires_approval": True,
+        "apply_blocked": False,
+        "blocked_reasons": [],
+        "manual_fallback": True,
+        "preview_endpoint": "/api/v1/domains/example.com/dns/change-plan/apply",
+        "apply_endpoint": "/api/v1/domains/example.com/dns/change-plan/apply",
+        "operation": "create",
+        "record_name": "_dmarc.example.com",
+        "record_type": "TXT",
+        "capability": "provider_preview",
+        "next_step": (
+            "Open the provider preview, compare old and new DNS values, then approve or reject."
+        ),
+        "completion_gate": "Close only after approved provider apply and fresh DNS evidence agree.",
     }
     assert queue["items"][0]["state"] == "approval_ready"
     assert queue["items"][0]["automation"]["eligible"] is True
@@ -343,6 +376,32 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
             "provider": "cloudflare",
             "plan_id": "dmarc-missing",
             "apply_endpoint": "/api/v1/domains/example.com/dns/change-plan/apply",
+            "operation": "create",
+            "record_name": "_dmarc.example.com",
+            "record_type": "TXT",
+        },
+        "provider_repair_plan": {
+            "kind": "dns_provider_repair",
+            "provider": "cloudflare",
+            "provider_label": "cloudflare",
+            "plan_id": "dmarc-missing",
+            "stage": "preview_ready",
+            "safe_preview_available": True,
+            "can_apply_after_approval": True,
+            "apply_requires_approval": True,
+            "apply_blocked": False,
+            "blocked_reasons": [],
+            "manual_fallback": True,
+            "preview_endpoint": "/api/v1/domains/example.com/dns/change-plan/apply",
+            "apply_endpoint": "/api/v1/domains/example.com/dns/change-plan/apply",
+            "operation": "create",
+            "record_name": "_dmarc.example.com",
+            "record_type": "TXT",
+            "capability": "provider_preview",
+            "next_step": (
+                "Open the provider preview, compare old and new DNS values, then approve or reject."
+            ),
+            "completion_gate": "Close only after approved provider apply and fresh DNS evidence agree.",
         },
         "action_plan": {
             "owner": "Domain DNS operator",
@@ -460,6 +519,11 @@ def test_remediation_queue_keeps_placeholder_plan_manual():
     assert queue["summary"]["repair_waiting_on_operator"] == 0
     assert queue["summary"]["repair_readiness_blocked"] == 1
     assert queue["summary"]["repair_readiness_score"] == 20
+    assert queue["summary"]["provider_preview_available"] == 0
+    assert queue["summary"]["provider_apply_after_approval"] == 0
+    assert queue["summary"]["provider_apply_blocked"] == 1
+    assert queue["summary"]["provider_value_missing"] == 1
+    assert queue["summary"]["provider_manual_fallback"] == 1
     assert queue["summary"]["closure_gate_required"] == 1
     assert queue["summary"]["rollback_guidance"] == 1
     assert queue["summary"]["notify_summary_only"] == 1
@@ -488,6 +552,13 @@ def test_remediation_queue_keeps_placeholder_plan_manual():
     assert queue["items"][0]["repair_progression"]["readiness_level"] == "blocked"
     assert queue["items"][0]["repair_progression"]["readiness_score"] == 20
     assert "provider_specific_value" in queue["items"][0]["repair_progression"]["blocked_by"]
+    assert queue["items"][0]["provider_repair_plan"]["kind"] == "dns_provider_repair"
+    assert queue["items"][0]["provider_repair_plan"]["safe_preview_available"] is False
+    assert queue["items"][0]["provider_repair_plan"]["apply_blocked"] is True
+    assert "provider_specific_value" in queue["items"][0]["provider_repair_plan"]["blocked_reasons"]
+    assert queue["items"][0]["provider_repair_plan"]["record_name"] == (
+        "pm._domainkey.example.com"
+    )
     assert queue["items"][0]["notification"]["state"] == "summary_only"
     assert queue["items"][0]["notification"]["event"] == "dmarq.remediation.summary"
     assert queue["items"][0]["notification"]["payload_preview"]["event_type"] == (

@@ -87,6 +87,11 @@ function domainDetailsApp(domainId = '') {
                 repair_approval_pending: 0,
                 repair_blocked: 0,
                 repair_needs_evidence: 0,
+                provider_preview_available: 0,
+                provider_apply_after_approval: 0,
+                provider_apply_blocked: 0,
+                provider_value_missing: 0,
+                provider_manual_fallback: 0,
                 evidence_refresh_required: 0,
                 evidence_refresh_dns: 0,
                 evidence_refresh_reports: 0,
@@ -122,6 +127,8 @@ function domainDetailsApp(domainId = '') {
         remediationQueueFilterOptions: [
             { value: 'all', label: 'All' },
             { value: 'preview_ready', label: 'Preview ready' },
+            { value: 'provider_apply', label: 'Provider apply' },
+            { value: 'apply_blocked', label: 'Apply blocked' },
             { value: 'blocked', label: 'Blocked' },
             { value: 'needs_evidence', label: 'Needs evidence' },
             { value: 'fresh_evidence', label: 'Fresh evidence' },
@@ -693,6 +700,14 @@ function domainDetailsApp(domainId = '') {
             const dispatch = this.primaryRemediationItem?.notification?.dispatch;
             if (!dispatch) return 'No operator notification configured for this item yet.';
             return this.remediationDispatchNextStep(dispatch);
+        },
+
+        get primaryProviderRepairText() {
+            return this.providerRepairPlanSummary(this.primaryRemediationItem?.provider_repair_plan);
+        },
+
+        get primaryProviderRepairBlockedText() {
+            return this.providerRepairPlanBlockedText(this.primaryRemediationItem?.provider_repair_plan);
         },
 
         get primaryRemediationVerificationStatusLabel() {
@@ -1304,6 +1319,50 @@ function domainDetailsApp(domainId = '') {
             return Number.isFinite(score) ? Math.max(0, Math.min(100, Math.round(score))) : 0;
         },
 
+        providerRepairPlanClass(plan) {
+            if (plan?.safe_preview_available && plan?.can_apply_after_approval && !plan?.apply_blocked) {
+                return 'bg-green-100 text-green-700';
+            }
+            if (plan?.safe_preview_available) return 'bg-blue-100 text-blue-700';
+            if (plan?.apply_blocked) return 'bg-yellow-100 text-yellow-800';
+            return 'bg-base-200 text-base-content/70';
+        },
+
+        providerRepairPlanLabel(plan) {
+            if (!plan || plan.kind === 'not_provider_repair') return 'No provider repair';
+            if (plan.safe_preview_available && plan.can_apply_after_approval && !plan.apply_blocked) {
+                return 'Ready after approval';
+            }
+            if (plan.safe_preview_available) return 'Preview available';
+            if (plan.blocked_reasons?.includes('provider_specific_value')) return 'Provider value needed';
+            if (plan.apply_blocked) return 'Apply blocked';
+            return this.humanizeToken(plan.capability || 'manual review');
+        },
+
+        providerRepairPlanSummary(plan) {
+            if (!plan || plan.kind === 'not_provider_repair') {
+                return 'This item is not a provider DNS repair; review the action plan and evidence path.';
+            }
+            const provider = plan.provider_label || plan.provider || 'DNS provider';
+            if (plan.safe_preview_available && plan.can_apply_after_approval && !plan.apply_blocked) {
+                return `${provider} can preview this DNS repair, but apply still requires explicit operator approval.`;
+            }
+            if (plan.safe_preview_available) {
+                return `${provider} can prepare a read-only preview; approval and fresh DNS verification are still required.`;
+            }
+            if (plan.blocked_reasons?.includes('provider_specific_value')) {
+                return 'Collect the provider-specific DNS value before DMARQ can prepare a safe preview.';
+            }
+            if (plan.manual_fallback) return 'Use the manual DNS fallback and refresh evidence after propagation.';
+            return plan.next_step || 'Review current evidence before changing provider or DNS settings.';
+        },
+
+        providerRepairPlanBlockedText(plan) {
+            const blocked = plan?.blocked_reasons || [];
+            if (!blocked.length) return '';
+            return `Blocked by ${blocked.slice(0, 4).map(value => this.humanizeToken(value)).join(', ')}.`;
+        },
+
         verifiedFreshnessClass(verified) {
             const status = String(verified?.freshness_status || '');
             if (status === 'current_queue_absence') return 'bg-teal-100 text-teal-700';
@@ -1487,6 +1546,14 @@ function domainDetailsApp(domainId = '') {
             const refreshKey = String(refresh.refresh_key || '');
             if (filter === 'preview_ready') {
                 return readinessLevel === 'ready_for_preview' || stage === 'preview_ready';
+            }
+            if (filter === 'provider_apply') {
+                return Boolean(item.provider_repair_plan?.can_apply_after_approval) ||
+                    Boolean(item.provider_repair_plan?.safe_preview_available);
+            }
+            if (filter === 'apply_blocked') {
+                return Boolean(item.provider_repair_plan?.apply_blocked) ||
+                    (item.provider_repair_plan?.blocked_reasons || []).length > 0;
             }
             if (filter === 'blocked') {
                 return readinessLevel === 'blocked' ||
@@ -2174,6 +2241,11 @@ function domainDetailsApp(domainId = '') {
                     repair_approval_pending: 0,
                     repair_blocked: 0,
                     repair_needs_evidence: 0,
+                    provider_preview_available: 0,
+                    provider_apply_after_approval: 0,
+                    provider_apply_blocked: 0,
+                    provider_value_missing: 0,
+                    provider_manual_fallback: 0,
                     evidence_refresh_required: 0,
                     evidence_refresh_dns: 0,
                     evidence_refresh_reports: 0,
