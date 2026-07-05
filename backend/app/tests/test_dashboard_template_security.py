@@ -1613,6 +1613,12 @@ def test_domain_details_distinguishes_evidence_verified_repairs_without_html_inj
     assert "verified.item_id" in template
     assert "verified.label" in template
     assert "verified.freshness_label" in template
+    assert "verifiedFreshnessClass(verified)" in template
+    assert "verifiedFreshnessWarning(verified)" in template
+    assert "verifiedFreshnessClass(verified)" in script
+    assert "verifiedFreshnessWarning(verified)" in script
+    assert "Freshness gate" in template
+    assert "Refresh the remediation queue and evidence before relying on this repair" in script
     assert "verified.detail" in template
     assert "Closure gate" in template
     assert "verified.closure_gate" in template
@@ -1724,6 +1730,9 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "primaryRemediationReadinessContext" in script
     assert "primaryRemediationBlockedText" in script
     assert "primaryRemediationDispatchText" in script
+    assert "primaryRemediationFreshnessText" in script
+    assert "primaryRemediationClosureGateText" in script
+    assert "primaryRemediationStaleWarningText" in script
     assert "Next remediation" in template
     assert "Loading next remediation..." in template
     assert "Next remediation could not be loaded." in template
@@ -1732,6 +1741,10 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "repairReadinessLabel(primaryRemediationItem.repair_progression)" in template
     assert "repairReadinessScore(primaryRemediationItem.repair_progression)" in template
     assert "Next safe action" in template
+    assert "Freshness required" in template
+    assert "primaryRemediationFreshnessText" in template
+    assert "primaryRemediationClosureGateText" in template
+    assert "primaryRemediationStaleWarningText" in template
     assert "item.state.split('_').join(' ')" in template
     assert "Repair readiness" in template
     assert "primaryRepairReadinessReasonText" in script

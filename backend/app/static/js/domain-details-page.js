@@ -695,6 +695,30 @@ function domainDetailsApp(domainId = '') {
             return this.remediationDispatchNextStep(dispatch);
         },
 
+        get primaryRemediationFreshnessText() {
+            const item = this.primaryRemediationItem;
+            if (!item) return '';
+            return item.verification_plan?.freshness_requirement ||
+                item.evidence_refresh?.label ||
+                'Fresh report, DNS, or source evidence is required before closure.';
+        },
+
+        get primaryRemediationClosureGateText() {
+            const item = this.primaryRemediationItem;
+            if (!item) return '';
+            return item.verification_plan?.closure_gate ||
+                item.evidence_refresh?.completion_signal ||
+                'Keep this item open until fresh evidence removes the finding.';
+        },
+
+        get primaryRemediationStaleWarningText() {
+            const item = this.primaryRemediationItem;
+            if (!item) return '';
+            return item.verification_plan?.stale_evidence_warning ||
+                item.evidence_refresh?.stale_warning ||
+                '';
+        },
+
         get primaryRepairProgressionText() {
             const progression = this.primaryRemediationItem?.repair_progression;
             if (!progression) return 'Repair status will appear after the remediation queue finishes loading.';
@@ -1213,6 +1237,25 @@ function domainDetailsApp(domainId = '') {
         repairReadinessScore(progression) {
             const score = Number(progression?.readiness_score || 0);
             return Number.isFinite(score) ? Math.max(0, Math.min(100, Math.round(score))) : 0;
+        },
+
+        verifiedFreshnessClass(verified) {
+            const status = String(verified?.freshness_status || '');
+            if (status === 'current_queue_absence') return 'bg-teal-100 text-teal-700';
+            if (status === 'stale_queue_absence') return 'bg-yellow-100 text-yellow-800';
+            if (status === 'unknown_queue_absence_age') return 'bg-orange-100 text-orange-700';
+            return 'bg-[#f6f8fb] text-[#45505f]';
+        },
+
+        verifiedFreshnessWarning(verified) {
+            const status = String(verified?.freshness_status || '');
+            if (status === 'stale_queue_absence') {
+                return 'Refresh the remediation queue and evidence before relying on this repair as still fixed.';
+            }
+            if (status === 'unknown_queue_absence_age') {
+                return 'Queue absence age is unknown; refresh evidence before treating this as current.';
+            }
+            return '';
         },
 
         remediationEvidenceRefreshClass(refresh) {
