@@ -6,18 +6,25 @@ import asyncio
 import logging
 from typing import List
 
+from sqlalchemy import func
+
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.models.domain import Domain
+from app.models.report import DMARCReport, ReportRecord
 from app.services.dns_cache import resolve_domain_dns_cached
 from app.services.dns_resolver import get_default_provider
 
 logger = logging.getLogger(__name__)
 
 
-def _domain_selectors(domain: Domain) -> List[str]:
-    raw = domain.dkim_selectors or ""
+def _selectors_from_raw(raw_selectors: str | None) -> List[str]:
+    raw = raw_selectors or ""
     return [selector.strip() for selector in raw.split(",") if selector.strip()]
+
+
+def _domain_selectors(domain: Domain) -> List[str]:
+    return _selectors_from_raw(domain.dkim_selectors)
 
 
 def _canonical_domain_name(name: str) -> str:
@@ -60,17 +67,35 @@ async def prewarm_dns_cache() -> None:
 
     db = SessionLocal()
     try:
-        domains = (
-            db.query(Domain)
+        report_count = func.count(func.distinct(DMARCReport.id))
+        message_count = func.coalesce(func.sum(ReportRecord.count), 0)
+        activity_score = message_count + (report_count * 1000)
+        last_report_end = func.max(DMARCReport.end_date)
+        rows = (
+            db.query(
+                Domain.id,
+                Domain.name,
+                Domain.dkim_selectors,
+                activity_score.label("activity_score"),
+                last_report_end.label("last_report_end"),
+            )
+            .outerjoin(DMARCReport, DMARCReport.domain_id == Domain.id)
+            .outerjoin(ReportRecord, ReportRecord.report_id == DMARCReport.id)
             .filter(Domain.active.is_(True))
-            .order_by(Domain.updated_at.desc(), Domain.id.asc())
+            .group_by(Domain.id, Domain.name, Domain.dkim_selectors, Domain.updated_at)
+            .order_by(
+                activity_score.desc(),
+                last_report_end.desc(),
+                Domain.updated_at.desc(),
+                Domain.id.asc(),
+            )
             .limit(limit)
             .all()
         )
         candidates = [
-            (domain.id, canonical_name, _domain_selectors(domain))
-            for domain in domains
-            if domain.name and (canonical_name := _canonical_domain_name(domain.name))
+            (row.id, canonical_name, _selectors_from_raw(row.dkim_selectors))
+            for row in rows
+            if row.name and (canonical_name := _canonical_domain_name(row.name))
         ]
     finally:
         db.close()

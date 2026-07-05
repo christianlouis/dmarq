@@ -815,9 +815,18 @@ def test_domains_uses_external_page_script_for_csp_migration():
     assert "visibleDomains()" in script
     assert "hiddenEmptyDomainCount()" in script
     assert "showEmptyDomainHint()" in script
+    assert "dnsStateLabel(domain)" in script
+    assert "dnsStateClass(domain)" in script
+    assert "dnsCheckedLabel(domain)" in script
+    assert "dns_lookup_status" in script
+    assert "dns_lookup_error" in script
     assert "visibleDomains()" in template
     assert "without reports or volume hidden" in template
     assert "Show empty domains" in template
+    assert "domain.dns_state_label" in template
+    assert "domain.dns_state_class" in template
+    assert "domain.dns_checked_label" in template
+    assert "domain.dns_lookup_error" in template
     assert "data-domain-create-open" in template
     assert "data-domain-create-open" in script
     assert "data-domain-create-dialog" in template
@@ -864,6 +873,8 @@ def test_domains_page_distinguishes_loading_error_and_empty_states():
 
     assert "Loading monitored domains..." in template
     assert "Domains could not be loaded." in script
+    assert "Domain refresh failed; showing the last loaded domain data." in script
+    assert "if (!refresh || this.domains.length === 0)" in script
     assert "No domains found. Add a domain to get started." in template
     assert "Retry loading domains" in template
     assert "All monitored domains are currently hidden" in template

@@ -19,7 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.database import get_db
+from app.core.database import SessionLocal, get_db
 from app.core.security import require_admin_auth
 from app.models.domain import Domain
 from app.models.report import DMARCReport, ReportRecord
@@ -3859,6 +3859,7 @@ async def _resolve_summary_dns_result(
     selectors: List[str],
     *,
     refresh: bool,
+    timeout_seconds: float = 10.0,
 ) -> DomainDNSResult:
     if not refresh:
         cached_result, cached, checked_at = get_cached_domain_dns_result(
@@ -3899,7 +3900,7 @@ async def _resolve_summary_dns_result(
                 selectors=selectors,
                 refresh=refresh,
             ),
-            timeout=10.0,
+            timeout=timeout_seconds,
         )
         return _with_dns_summary_metadata(
             result,
@@ -3910,6 +3911,91 @@ async def _resolve_summary_dns_result(
     except (asyncio.TimeoutError, LookupError, OSError) as exc:
         logger.warning("DNS check failed for %s: %s", domain_name, exc)
         return _failed_dns_summary_result(f"DNS lookup failed: {exc}")
+
+
+def _dns_summary_refresh_timeout(settings: Any) -> float:
+    return max(1.0, float(settings.DNS_SUMMARY_REFRESH_TIMEOUT_SECONDS or 10.0))
+
+
+def _dns_summary_refresh_concurrency(settings: Any) -> int:
+    return max(1, int(settings.DNS_SUMMARY_REFRESH_CONCURRENCY or 1))
+
+
+def _reuse_request_session_for_dns(db: Session) -> bool:
+    # Test suites often override the request session with an in-memory SQLite
+    # connection. That database is not visible from the global SessionLocal
+    # factory, so keep those calls on the request session.
+    return str(db.get_bind().url) == "sqlite://"
+
+
+async def _resolve_summary_dns_result_for_domain(
+    db: Session,
+    provider: Any,
+    domain_name: str,
+    selectors: List[str],
+    *,
+    refresh: bool,
+    timeout_seconds: float,
+) -> DomainDNSResult:
+    if not refresh:
+        return await _resolve_summary_dns_result(
+            db,
+            provider,
+            domain_name,
+            selectors,
+            refresh=False,
+            timeout_seconds=timeout_seconds,
+        )
+
+    use_request_session = _reuse_request_session_for_dns(db)
+    dns_db = db if use_request_session else SessionLocal()
+    try:
+        return await _resolve_summary_dns_result(
+            dns_db,
+            provider,
+            domain_name,
+            selectors,
+            refresh=True,
+            timeout_seconds=timeout_seconds,
+        )
+    finally:
+        if not use_request_session:
+            dns_db.close()
+
+
+async def _resolve_summary_dns_results(
+    db: Session,
+    provider: Any,
+    domains: List[str],
+    selectors_by_domain: Dict[str, List[str]],
+    *,
+    refresh: bool,
+    timeout_seconds: float,
+    concurrency: int,
+) -> List[DomainDNSResult]:
+    async def _resolve_one(domain_name: str) -> DomainDNSResult:
+        return await _resolve_summary_dns_result_for_domain(
+            db,
+            provider,
+            domain_name,
+            selectors_by_domain.get(domain_name, []),
+            refresh=refresh,
+            timeout_seconds=timeout_seconds,
+        )
+
+    if not refresh:
+        results = []
+        for domain_name in domains:
+            results.append(await _resolve_one(domain_name))
+        return results
+
+    semaphore = asyncio.Semaphore(concurrency)
+
+    async def _bounded(domain_name: str) -> DomainDNSResult:
+        async with semaphore:
+            return await _resolve_one(domain_name)
+
+    return await asyncio.gather(*(_bounded(domain_name) for domain_name in domains))
 
 
 @router.get("/summary", response_model=DomainSummaryResponse)
@@ -3932,7 +4018,8 @@ async def get_domains_summary(
     """
     selected_workspace_id = parse_selected_workspace_id(selected_workspace)
     workspace = _authorized_domain_read_workspace(_auth, db, selected_workspace_id)
-    demo_mode = get_settings().DEMO_MODE
+    settings = get_settings()
+    demo_mode = settings.DEMO_MODE
     store: Optional[ReportStore] = None
     report_selectors_by_domain: Dict[str, List[str]] = {}
     if demo_mode:
@@ -3980,24 +4067,26 @@ async def get_domains_summary(
         for domain in workspace_domain_query(db, workspace).filter(Domain.name.in_(domains)).all()
     }
 
-    async def _dns_for_domain(domain_name: str) -> DomainDNSResult:
+    selectors_by_summary_domain: Dict[str, List[str]] = {}
+    for domain_name in domains:
         manual_selectors = manual_selectors_by_domain.get(domain_name, [])
         if demo_mode and store is not None:
             report_selectors = _get_selectors_from_reports(store, domain_name)
         else:
             report_selectors = report_selectors_by_domain.get(domain_name, [])
-        combined = list(dict.fromkeys(manual_selectors + report_selectors))
-        return await _resolve_summary_dns_result(
-            db,
-            provider,
-            domain_name,
-            combined,
-            refresh=refresh,
+        selectors_by_summary_domain[domain_name] = list(
+            dict.fromkeys(manual_selectors + report_selectors)
         )
 
-    dns_results = []
-    for domain_name in domains:
-        dns_results.append(await _dns_for_domain(domain_name))
+    dns_results = await _resolve_summary_dns_results(
+        db,
+        provider,
+        domains,
+        selectors_by_summary_domain,
+        refresh=refresh,
+        timeout_seconds=_dns_summary_refresh_timeout(settings),
+        concurrency=_dns_summary_refresh_concurrency(settings),
+    )
 
     # Calculate overall statistics
     total_domains = len(domains)
