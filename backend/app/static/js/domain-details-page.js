@@ -106,9 +106,24 @@ function domainDetailsApp(domainId = '') {
             verified_items_total: 0
         },
         remediationQueueLoading: true,
+        remediationQueueRefreshing: false,
         remediationQueueError: '',
+        remediationQueueRefreshError: '',
         showAllVerifiedRemediationItems: false,
+        showAllRemediationQueueItems: false,
         remediationQueueLoadedAt: '',
+        remediationQueueFilter: 'all',
+        remediationQueueSort: 'priority',
+        remediationQueueFilterOptions: [
+            { value: 'all', label: 'All' },
+            { value: 'preview_ready', label: 'Preview ready' },
+            { value: 'blocked', label: 'Blocked' },
+            { value: 'needs_evidence', label: 'Needs evidence' },
+            { value: 'notify_ready', label: 'Ready to notify' },
+            { value: 'waiting_operator', label: 'Waiting' },
+            { value: 'manual', label: 'Manual' },
+            { value: 'reputation', label: 'Reputation' }
+        ],
         remediationAction: {
             itemId: '',
             action: '',
@@ -244,6 +259,9 @@ function domainDetailsApp(domainId = '') {
                 this.fetchSources();
                 this.fetchSourceIntelligence();
             });
+            this.$watch('remediationQueueSort', () => {
+                this.showAllRemediationQueueItems = false;
+            });
         },
 
         bindPageControls() {
@@ -281,15 +299,22 @@ function domainDetailsApp(domainId = '') {
                 } else if (button.matches('[data-domain-detail-remediation-action]')) {
                     event.preventDefault();
                     this.handleRemediationAction(button);
+                } else if (button.matches('[data-domain-detail-remediation-filter]')) {
+                    event.preventDefault();
+                    this.remediationQueueFilter = button.dataset.domainDetailRemediationFilter || 'all';
+                    this.showAllRemediationQueueItems = false;
                 } else if (
                     button.matches('[data-domain-detail-remediation-retry]') ||
                     button.matches('[data-domain-detail-remediation-refresh]')
                 ) {
                     event.preventDefault();
-                    this.fetchRemediationQueue();
+                    this.fetchRemediationQueue({ refresh: true });
                 } else if (button.matches('[data-domain-detail-verified-repairs-toggle]')) {
                     event.preventDefault();
                     this.showAllVerifiedRemediationItems = !this.showAllVerifiedRemediationItems;
+                } else if (button.matches('[data-domain-detail-remediation-toggle-all]')) {
+                    event.preventDefault();
+                    this.showAllRemediationQueueItems = !this.showAllRemediationQueueItems;
                 } else if (button.matches('[data-domain-detail-migration-action]')) {
                     event.preventDefault();
                     this.handleMigrationAction(button.dataset.domainDetailMigrationAction);
@@ -406,7 +431,7 @@ function domainDetailsApp(domainId = '') {
             window.setTimeout(() => {
                 Promise.allSettled([
                     this.fetchPosture(),
-                    this.fetchRemediationQueue(),
+                    this.fetchRemediationQueue({ refresh: true }),
                     this.fetchHealthHistory(),
                     this.fetchMtaSts(),
                     this.fetchBimi()
@@ -441,7 +466,7 @@ function domainDetailsApp(domainId = '') {
                     this.fetchDNSHealth({ refresh: true }),
                     this.fetchDNSGuidance({ refresh: true }),
                     this.fetchPosture({ refresh: true }),
-                    this.fetchRemediationQueue(),
+                    this.fetchRemediationQueue({ refresh: true }),
                     this.fetchHealthHistory(),
                     this.fetchMtaSts({ refresh: true }),
                     this.fetchBimi({ refresh: true }),
@@ -598,6 +623,11 @@ function domainDetailsApp(domainId = '') {
             const progression = this.primaryRemediationItem?.repair_progression;
             if (!progression) return 'Repair status will appear after the remediation queue finishes loading.';
             return this.repairProgressionNextStep(progression);
+        },
+
+        get primaryRepairReadinessReasonText() {
+            const progression = this.primaryRemediationItem?.repair_progression;
+            return this.repairReadinessReason(progression);
         },
 
         get healthEvidenceExportUrl() {
@@ -1073,6 +1103,22 @@ function domainDetailsApp(domainId = '') {
             return progression.next_step || progression.summary || 'Review the repair gate before taking action.';
         },
 
+        repairProgressionNextSafeAction(progression) {
+            if (!progression) return 'Review the remediation queue before taking action.';
+            return progression.next_safe_action || this.repairProgressionNextStep(progression);
+        },
+
+        repairReadinessReason(progression) {
+            const reasons = progression?.readiness_reasons || [];
+            return reasons[0] || 'Review current report, DNS, and provider evidence before closing this item.';
+        },
+
+        repairReadinessBlockedText(progression) {
+            const blockedBy = progression?.blocked_by || [];
+            if (!blockedBy.length) return '';
+            return `Blocked by ${blockedBy.slice(0, 3).map(value => this.humanizeToken(value)).join(', ')}.`;
+        },
+
         repairReadinessClass(progression) {
             const level = String(progression?.readiness_level || '');
             if (level === 'ready_for_preview') return 'bg-green-100 text-green-700';
@@ -1125,6 +1171,108 @@ function domainDetailsApp(domainId = '') {
         visibleVerifiedItems() {
             const items = this.remediationQueue.verified_items || [];
             return this.showAllVerifiedRemediationItems ? items : items.slice(0, VERIFIED_ITEMS_COMPACT_LIMIT);
+        },
+
+        visibleRemediationQueueItems() {
+            const items = this.filteredRemediationQueueItems(this.remediationQueueFilter);
+            return this.showAllRemediationQueueItems ? items : items.slice(0, 6);
+        },
+
+        remediationQueueTotalCount() {
+            return (this.remediationQueue.items || []).length;
+        },
+
+        remediationQueueFilteredCount() {
+            return this.filteredRemediationQueueItems(this.remediationQueueFilter).length;
+        },
+
+        remediationQueueHiddenCount() {
+            return Math.max(this.remediationQueueFilteredCount() - this.visibleRemediationQueueItems().length, 0);
+        },
+
+        remediationQueueFilterLabel() {
+            const match = this.remediationQueueFilterOptions.find(option => option.value === this.remediationQueueFilter);
+            return match?.label || 'All';
+        },
+
+        filteredRemediationQueueItems(filterValue) {
+            const filter = filterValue || 'all';
+            const items = this.remediationQueue.items || [];
+            return this.sortedRemediationQueueItems(
+                items.filter(item => this.remediationQueueFilterMatches(item, filter))
+            );
+        },
+
+        sortedRemediationQueueItems(items) {
+            const severityWeight = {
+                critical: 5,
+                high: 4,
+                error: 4,
+                medium: 3,
+                warning: 3,
+                low: 2,
+                info: 1
+            };
+            const score = item => Number(item?.priority_score || 0);
+            const readiness = item => this.repairReadinessScore(item?.repair_progression);
+            const severity = item => severityWeight[String(item?.severity || '').toLowerCase()] || 0;
+            const list = [...(items || [])];
+            if (this.remediationQueueSort === 'readiness') {
+                return list.sort((left, right) => (
+                    readiness(right) - readiness(left) ||
+                    score(right) - score(left) ||
+                    severity(right) - severity(left)
+                ));
+            }
+            if (this.remediationQueueSort === 'severity') {
+                return list.sort((left, right) => (
+                    severity(right) - severity(left) ||
+                    score(right) - score(left) ||
+                    readiness(right) - readiness(left)
+                ));
+            }
+            return list.sort((left, right) => (
+                score(right) - score(left) ||
+                severity(right) - severity(left) ||
+                readiness(right) - readiness(left)
+            ));
+        },
+
+        remediationQueueFilterMatches(item, filter) {
+            if (!item || filter === 'all') return true;
+            const progression = item.repair_progression || {};
+            const readinessLevel = String(progression.readiness_level || '');
+            const stage = String(progression.stage || '');
+            const track = String(item.remediation_track || '');
+            if (filter === 'preview_ready') {
+                return readinessLevel === 'ready_for_preview' || stage === 'preview_ready';
+            }
+            if (filter === 'blocked') {
+                return readinessLevel === 'blocked' || stage === 'blocked' || (progression.blocked_by || []).length > 0;
+            }
+            if (filter === 'needs_evidence') {
+                return Boolean(progression.verification_required) || stage === 'operator_review' || readinessLevel === 'needs_operator_review';
+            }
+            if (filter === 'notify_ready') {
+                return Boolean(item.notification?.dispatch?.eligible);
+            }
+            if (filter === 'waiting_operator') {
+                const dispatchStatus = this.remediationDispatchStatus(item.notification?.dispatch);
+                return dispatchStatus === 'blocked' ||
+                    item.notification?.dispatch?.requires_acknowledgement ||
+                    stage === 'operator_review';
+            }
+            if (filter === 'manual') {
+                return track === 'manual_dns' || readinessLevel === 'manual_repair' || stage === 'manual_repair';
+            }
+            if (filter === 'reputation') {
+                return track === 'reputation_review' || readinessLevel === 'needs_reputation_review' || stage === 'reputation_review';
+            }
+            return true;
+        },
+
+        remediationQueueFilterCount(filter) {
+            return this.filteredRemediationQueueItems(filter).length;
         },
 
         remediationDecisionLabel(value) {
@@ -1695,7 +1843,9 @@ function domainDetailsApp(domainId = '') {
 
         resetRemediationQueue() {
             this.showAllVerifiedRemediationItems = false;
+            this.showAllRemediationQueueItems = false;
             this.remediationQueueLoadedAt = '';
+            this.remediationQueueRefreshError = '';
             this.remediationQueue = {
                 status: 'unavailable',
                 loop: {
@@ -1741,10 +1891,23 @@ function domainDetailsApp(domainId = '') {
             };
         },
 
-        async fetchRemediationQueue() {
-            this.remediationQueueLoading = true;
+        hasRemediationQueueData() {
+            return Boolean(
+                (this.remediationQueue.items || []).length ||
+                (this.remediationQueue.verified_items || []).length ||
+                this.remediationQueueLoadedAt
+            );
+        },
+
+        async fetchRemediationQueue(options = {}) {
+            const refresh = Boolean(options.refresh);
+            const keepExistingQueueVisible = refresh && this.hasRemediationQueueData();
+            this.remediationQueueLoading = !keepExistingQueueVisible;
+            this.remediationQueueRefreshing = refresh;
             this.remediationQueueError = '';
+            this.remediationQueueRefreshError = '';
             this.showAllVerifiedRemediationItems = false;
+            this.showAllRemediationQueueItems = false;
             try {
                 const response = await this.fetchWithTimeout(
                     `/api/v1/domains/${encodeURIComponent(this.domainId)}/remediation`
@@ -1755,18 +1918,27 @@ function domainDetailsApp(domainId = '') {
                         status: response.status,
                         statusText: response.statusText
                     });
-                    this.remediationQueueError = 'Remediation queue could not be loaded.';
-                    this.resetRemediationQueue();
+                    if (keepExistingQueueVisible) {
+                        this.remediationQueueRefreshError = 'Remediation queue refresh failed. Keeping the current queue visible.';
+                    } else {
+                        this.remediationQueueError = 'Remediation queue could not be loaded.';
+                        this.resetRemediationQueue();
+                    }
                     return;
                 }
                 this.remediationQueue = await response.json();
                 this.remediationQueueLoadedAt = new Date().toISOString();
             } catch (error) {
                 console.error('Error fetching remediation queue:', error);
-                this.remediationQueueError = error.message || 'Remediation queue could not be loaded.';
-                this.resetRemediationQueue();
+                if (keepExistingQueueVisible) {
+                    this.remediationQueueRefreshError = error.message || 'Remediation queue refresh failed. Keeping the current queue visible.';
+                } else {
+                    this.remediationQueueError = error.message || 'Remediation queue could not be loaded.';
+                    this.resetRemediationQueue();
+                }
             } finally {
                 this.remediationQueueLoading = false;
+                this.remediationQueueRefreshing = false;
             }
         },
 
@@ -2180,15 +2352,17 @@ function domainDetailsApp(domainId = '') {
         },
         
         async fetchSources(options = {}) {
-            this.sourcesLoading = true;
+            const refresh = Boolean(options.refresh);
+            const keepExistingSourcesVisible = refresh && (this.sources || []).length > 0;
+            this.sourcesLoading = !keepExistingSourcesVisible;
             this.sourcesError = '';
             try {
                 const params = new URLSearchParams({ days: this.sourceDateWindow() });
-                if (options.refresh) params.set('refresh', 'true');
+                if (refresh) params.set('refresh', 'true');
                 const response = await this.fetchWithTimeout(
                     `/api/v1/domains/${encodeURIComponent(this.domainId)}/sources?${params.toString()}`,
                     {},
-                    options.refresh ? 60000 : 45000
+                    refresh ? 60000 : 45000
                 );
                 if (!response.ok) {
                     const data = await response.json().catch(() => ({}));

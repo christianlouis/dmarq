@@ -73,9 +73,17 @@ Repair-gate counters distinguish provider previews that are ready for review,
 items that still need fresh evidence before closure, and findings that are
 blocked before repair. The dashboard also separates items waiting on an operator
 for sender classification, manual repair, reputation review, or general operator
-review. Each card shows the same readiness label and 0-100 score used on the
-domain remediation queue, then links to the selected domain for the full
-evidence, approval, and verification flow.
+review. The section header shows the loop status, top incident family, next
+action, and the last successful summary refresh time so operators can triage the
+queue before reading every card. Use **Refresh queue** when new reports, DNS
+refreshes, or operator markers should be reflected immediately. A failed manual
+refresh keeps the previously loaded dashboard visible and shows a refresh warning
+instead of replacing the page with an empty state. Cards are sorted so provider
+previews and approval-ready work appear before blocked, reputation,
+investigation, and manual work. Each card shows the same readiness label and
+0-100 score used on the domain remediation queue. Cards also show the next safe
+action, first readiness reason, and blocker summary before linking to the
+selected domain for the full evidence, approval, and verification flow.
 
 ### Demo Mode
 

@@ -348,6 +348,27 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "Need fresh evidence" in template
     assert "Waiting on operator" in template
     assert "Blocked before repair" in template
+    assert "remediationLoop().next_action" in template
+    assert "remediationLoopStatusClass(remediationLoop().status || remediationLoop().loop_status)" in template
+    assert "remediationLoopStatusLabel(remediationLoop().status || remediationLoop().loop_status)" in template
+    assert "remediationIncidentLabel(remediationLoop().top_incident_type)" in template
+    assert "data-dashboard-remediation-refresh" in template
+    assert "data-dashboard-remediation-refresh" in script
+    assert "remediationRefreshRunning" in script
+    assert "dashboardRefreshError" in script
+    assert "Showing the previously loaded dashboard data." in script
+    assert "fetchDomainSummary({ refresh: true })" in script
+    assert "dashboardLoading = !refresh || !this.hasDomainData" in script
+    assert "remediationRefreshRunning ? 'Refreshing...' : 'Refresh queue'" in template
+    assert "Dashboard refresh failed" in template
+    assert "dashboardRefreshError && hasDomainData" in template
+    assert '@click="fetchDomainSummary()"' not in template
+    assert "domainSummaryLoadedAt" in script
+    assert "domainSummaryLoadedAtLabel" in script
+    assert "domainSummaryLoadedAtLabel" in template
+    assert "No active remediation work queued" in template
+    assert "Keep importing reports and refreshing DNS evidence" in template
+    assert 'x-show="!hasRemediationLoopItems()"' in template
     assert (
         "remediationLoop().repair_ready_for_preview || remediationLoop().repair_preview_ready || 0"
         in template
@@ -362,14 +383,27 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "repairProgressionClass(item.repair_progression)" in template
     assert "repairProgressionLabel(item.repair_progression)" in template
     assert "repairProgressionNextStep(item.repair_progression)" in template
+    assert "repairProgressionNextSafeAction(item.repair_progression)" in template
+    assert "repairReadinessReason(item.repair_progression)" in template
+    assert "repairReadinessBlockedText(item.repair_progression)" in template
+    assert "Next safe action" in template
     assert "repairReadinessClass(item.repair_progression)" in template
     assert "repairReadinessLabel(item.repair_progression)" in template
     assert "repairReadinessScore(item.repair_progression)" in template
     assert "remediationRiskClass(risk)" in script
     assert "remediationTrackLabel(track)" in script
+    assert "remediationLoopStatusLabel(status)" in script
+    assert "remediationLoopStatusClass(status)" in script
+    assert "remediationIncidentLabel(value)" in script
+    assert "remediationLoopItemRank(item)" in script
+    assert "[...items].sort" in script
+    assert "this.remediationLoopItemRank(a) - this.remediationLoopItemRank(b)" in script
     assert "repairProgressionClass(progression)" in script
     assert "repairProgressionLabel(progression)" in script
     assert "repairProgressionNextStep(progression)" in script
+    assert "repairProgressionNextSafeAction(progression)" in script
+    assert "repairReadinessReason(progression)" in script
+    assert "repairReadinessBlockedText(progression)" in script
     assert "repairReadinessClass(progression)" in script
     assert "repairReadinessLabel(progression)" in script
     assert "repairReadinessScore(progression)" in script
@@ -385,7 +419,50 @@ def test_domain_details_remediation_queue_shows_verification_context():
     assert "visibleVerifiedItems()" in template
     assert "data-domain-detail-remediation-refresh" in template
     assert "data-domain-detail-verified-repairs-toggle" in template
-    assert "fetchRemediationQueue()" in script
+    assert "fetchRemediationQueue({ refresh: true })" in script
+    assert "remediationQueueRefreshing" in script
+    assert "remediationQueueRefreshError" in script
+    assert "hasRemediationQueueData()" in script
+    assert "keepExistingQueueVisible" in script
+    assert "Remediation queue refresh failed. Keeping the current queue visible." in script
+    assert "remediationQueueRefreshing ? 'Refreshing...' : 'Refresh queue'" in template
+    assert "remediationQueueRefreshError" in template
+    assert "remediationQueueFilterOptions" in script
+    assert "remediationQueueFilter: 'all'" in script
+    assert "{ value: 'notify_ready', label: 'Ready to notify' }" in script
+    assert "{ value: 'waiting_operator', label: 'Waiting' }" in script
+    assert "remediationQueueSort: 'priority'" in script
+    assert "sortedRemediationQueueItems(items)" in script
+    assert "visibleRemediationQueueItems()" in script
+    assert "filteredRemediationQueueItems(filterValue)" in script
+    assert "remediationQueueFilterMatches(item, filter)" in script
+    assert "filter === 'notify_ready'" in script
+    assert "filter === 'waiting_operator'" in script
+    assert "item.notification?.dispatch?.eligible" in script
+    assert "remediationQueueFilterCount(filter)" in script
+    assert "remediationQueueFilteredCount()" in script
+    assert "remediationQueueTotalCount()" in script
+    assert "showAllRemediationQueueItems" in script
+    assert "remediationQueueHiddenCount()" in script
+    assert "remediationQueueFilterLabel()" in script
+    assert "remediationQueueFilterOptions" in template
+    assert 'x-model="remediationQueueSort"' in template
+    assert "Repair readiness" in template
+    assert "Remediation queue sort" in template
+    assert "data-domain-detail-remediation-filter" in template
+    assert "aria-pressed" in template
+    assert 'role="status"' in template
+    assert "domainDetailRemediationFilter" in script
+    assert "remediationQueueFilterCount(filter.value)" in template
+    assert "remediationQueueFilteredCount()" in template
+    assert "remediationQueueTotalCount()" in template
+    assert "remediationQueueFilterLabel()" in template
+    assert "visibleRemediationQueueItems()" in template
+    assert "data-domain-detail-remediation-toggle-all" in template
+    assert "Show all matching items" in template
+    assert "Show compact queue" in template
+    assert "remediationQueueHiddenCount()" in template
+    assert "No remediation items match this filter" in template
     assert "showAllVerifiedRemediationItems = !this.showAllVerifiedRemediationItems" in script
     assert "remediationQueueLoadedAt" in template
     assert "formatIsoDate(remediationQueueLoadedAt)" in template
@@ -1395,6 +1472,8 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     assert "sourceReputationRefreshing" in template
     assert "sourceReputationRefreshError" in template
     assert "this.sourceReputationRefreshError = '';" in script
+    assert "keepExistingSourcesVisible" in script
+    assert "this.sourcesLoading = !keepExistingSourcesVisible;" in script
     assert "if (!options.preserveOnFailure) {\n                    this.sources = [];" in script
     assert "sourceSeenLabel" in script
     assert "sourceVolumeBars" in script
@@ -1466,6 +1545,12 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "repairReadinessScore(primaryRemediationItem.repair_progression)" in template
     assert "Next safe action" in template
     assert "item.state.split('_').join(' ')" in template
+    assert "Repair readiness" in template
+    assert "primaryRepairReadinessReasonText" in script
+    assert "repairReadinessLabel(primaryRemediationItem.repair_progression)" in template
+    assert "repairReadinessScore(primaryRemediationItem.repair_progression)" in template
+    assert "repairReadinessReason(progression)" in script
+    assert "repairReadinessBlockedText(progression)" in script
     assert 'href="#remediation-queue"' in template
     assert 'id="remediation-queue"' in template
     assert "Loading remediation queue..." in template
@@ -1489,7 +1574,7 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "(!sourcesLoading && !sourcesError ? filteredSources : [])" in template
     assert "(!reportsLoading && !reportsError ? reports : [])" in template
     assert (
-        "(!remediationQueueLoading && !remediationQueueError ? remediationQueue.items.slice(0, 6) : [])"
+        "(!remediationQueueLoading && !remediationQueueError ? visibleRemediationQueueItems() : [])"
         in template
     )
     assert (
@@ -1736,6 +1821,7 @@ def test_dashboard_distinguishes_loading_error_and_empty_states():
     assert "Dashboard could not be loaded" in template
     assert "dashboardLoading" in script
     assert "dashboardError" in script
+    assert "dashboardRefreshError" in script
     assert "Dashboard data could not be loaded." in script
     assert 'x-show="!dashboardLoading && !dashboardError && !hasDomainData"' in template
 

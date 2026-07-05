@@ -93,7 +93,17 @@ blast radius, prerequisites, and expected health-score impact. Approval-ready
 DNS items link back to the DNS change-plan review area; they still require an
 operator preview and explicit approval before any provider write is sent.
 Use **Refresh queue** to reload the remediation queue from the backend after
-new reports, DNS checks, or operator lifecycle changes are available.
+new reports, DNS checks, or operator lifecycle changes are available. If a
+manual refresh fails, DMARQ keeps the currently loaded queue on screen and shows
+a refresh warning so an operator does not lose context during a transient API or
+network problem.
+Use the queue filters to focus on all work, preview-ready repairs, blocked
+repairs, evidence-gated items, notification-ready work, operator-waiting items,
+manual work, or reputation review without losing the underlying prioritized
+queue. The filter bar shows how many matching items are visible, how many match
+the selected view, and how many remain in the full queue. Operators can sort the
+same filtered queue by priority, repair readiness, or severity, and expand the
+compact six-item list to show every matching item.
 Each item now also shows the remediation track, priority band, owner, risk
 level, safe-automation flag, and the exact operator decision DMARQ expects next.
 Action plans include decision checkpoints and a rollback or fallback note so an
@@ -112,8 +122,9 @@ must be classified first, whether the work is manual DNS, or whether fresh
 reputation/report/DNS evidence is still required before closure. This panel is
 read-only; it does not apply DNS changes or send provider requests. The top
 **Next remediation** panel mirrors the same repair-gate status so the operator
-can see the current blocker, readiness label, readiness score, and next safe
-action before opening the full queue.
+can see the current blocker, readiness label, readiness score, next safe action,
+and first readiness reason before
+opening the full queue.
 Repair progression also includes a readiness label, 0-100 readiness score,
 human-readable reasons, and blocker keys. Use this to separate work that is
 ready for provider preview from work that is blocked by missing provider values,
@@ -184,6 +195,10 @@ prefix data explains who appears to operate the sending infrastructure; optional
 reputation feeds can add DNSBL, blocklist, or abuse-confidence evidence when an
 administrator has enabled those providers. A clean Geo/ASN lookup is not the
 same thing as a clean reputation result.
+When you use **Refresh reputation**, DMARQ recalculates cached IP reputation
+evidence. If the refresh times out or a provider is unavailable, the page keeps
+the previously loaded sending-source rows visible and shows the refresh error
+separately.
 
 Known sender matching recognizes common provider evidence from DMARC reports,
 reverse DNS, and authentication domains. The built-in profiles include Google

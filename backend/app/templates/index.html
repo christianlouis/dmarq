@@ -32,6 +32,14 @@
         <p class="mt-1" x-text="dashboardError"></p>
     </div>
 
+    <div x-show="!dashboardLoading && dashboardRefreshError && hasDomainData"
+         x-cloak
+         class="rounded-lg border border-[#ffcfbd] bg-[#fff2ec] p-4 text-sm text-[#8a2d0d]"
+         role="status">
+        <p class="font-semibold">Dashboard refresh failed</p>
+        <p class="mt-1" x-text="dashboardRefreshError"></p>
+    </div>
+
     <div class="rounded-lg bg-white p-4 shadow-sm" x-show="hasDomainData" x-cloak data-tour="date-filter">
         <div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div class="grid gap-1">
@@ -212,8 +220,27 @@
             <div>
                 <p class="text-xs font-semibold uppercase tracking-wide text-[#2f9da5]">Remediation Loop</p>
                 <h2 class="mt-1 text-2xl font-semibold tracking-normal text-[#07071f]">Current fix queue</h2>
+                <p class="mt-2 text-sm text-[#5f5c78]" x-text="remediationLoop().next_action || 'Keep importing reports and monitoring DNS.'"></p>
+                <p class="mt-1 text-xs text-[#5f5c78]" x-show="domainSummaryLoadedAt">
+                    <span>Updated </span><span x-text="domainSummaryLoadedAtLabel"></span>
+                </p>
             </div>
-            <a href="/domains" class="text-sm font-semibold text-[#2f9da5] hover:text-[#272a5f]">Open domain worklist</a>
+            <div class="flex flex-wrap items-center gap-2">
+                <span class="rounded px-2 py-1 text-xs font-semibold"
+                      :class="remediationLoopStatusClass(remediationLoop().status || remediationLoop().loop_status)"
+                      x-text="remediationLoopStatusLabel(remediationLoop().status || remediationLoop().loop_status)"></span>
+                <span class="rounded bg-[#f4f3f2] px-2 py-1 text-xs font-semibold text-[#45505f]">
+                    <span>Top: </span><span x-text="remediationIncidentLabel(remediationLoop().top_incident_type)"></span>
+                </span>
+                <button type="button"
+                        class="rounded border border-[#dfdfdf] bg-white px-3 py-2 text-sm font-semibold text-[#272a5f] hover:border-[#2f9da5] disabled:opacity-60"
+                        :disabled="dashboardLoading || remediationRefreshRunning"
+                        data-dashboard-remediation-refresh>
+                    <span x-show="remediationRefreshRunning" class="loading loading-spinner loading-xs"></span>
+                    <span x-text="remediationRefreshRunning ? 'Refreshing...' : 'Refresh queue'"></span>
+                </button>
+                <a href="/domains" class="text-sm font-semibold text-[#2f9da5] hover:text-[#272a5f]">Open domain worklist</a>
+            </div>
         </div>
         <div class="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             <div class="rounded-md border border-[#e6e3e1] p-4">
@@ -321,6 +348,13 @@
                                 <span x-text="repairReadinessScore(item.repair_progression)"></span><span>/100 readiness</span>
                             </span>
                         </div>
+                        <p class="mt-2 rounded bg-white px-2 py-1 text-[#120d36]">
+                            <span class="font-semibold">Next safe action: </span>
+                            <span x-text="repairProgressionNextSafeAction(item.repair_progression)"></span>
+                        </p>
+                        <p class="mt-2 text-[#45505f]" x-text="repairReadinessReason(item.repair_progression)"></p>
+                        <p class="mt-1 text-[#7a4a00]" x-show="repairReadinessBlockedText(item.repair_progression)"
+                           x-text="repairReadinessBlockedText(item.repair_progression)"></p>
                     </div>
                     <div class="mt-3 rounded border border-[#e6e3e1] bg-[#fbfaf9] p-3 text-xs">
                         <p class="font-semibold uppercase tracking-wide text-[#8a879e]">Next verification</p>
@@ -332,6 +366,14 @@
                     </p>
                 </a>
             </template>
+        </div>
+        <div class="mt-5 rounded-md border border-[#d8ebe8] bg-[#f2fbf9] p-4 text-sm"
+             x-show="!hasRemediationLoopItems()">
+            <p class="font-semibold text-[#120d36]">No active remediation work queued</p>
+            <p class="mt-1 text-[#5f5c78]">
+                DMARQ did not find a current fix that needs approval, manual action, or sender investigation.
+                Keep importing reports and refreshing DNS evidence so new issues appear here.
+            </p>
         </div>
     </section>
 
