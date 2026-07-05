@@ -335,17 +335,18 @@ function domainDetailsApp(domainId = '') {
 
         remediationActionNote(action) {
             if (!window.prompt) {
-                return '';
+                return undefined;
             }
             const label = this.remediationDecisionLabel(action || 'decision');
             const note = window.prompt(
-                `Optional operator note for "${label}" (leave blank to continue):`,
+                `Optional operator note for "${label}" (leave blank to continue, max 500 chars):`,
                 ''
             );
             if (note === null) {
                 return null;
             }
-            return String(note || '').trim();
+            const trimmed = String(note || '').trim();
+            return trimmed ? trimmed.slice(0, 500) : undefined;
         },
 
         handleMigrationAction(action) {
@@ -1036,6 +1037,10 @@ function domainDetailsApp(domainId = '') {
             return Math.max(this.verifiedItemsTotalCount() - visible, 0);
         },
 
+        hasMoreVisibleVerifiedItems() {
+            return (this.remediationQueue.verified_items || []).length > 4;
+        },
+
         visibleVerifiedItems() {
             const items = this.remediationQueue.verified_items || [];
             return this.showAllVerifiedRemediationItems ? items : items.slice(0, 4);
@@ -1704,18 +1709,21 @@ function domainDetailsApp(domainId = '') {
                 error: ''
             };
             try {
+                const payload = {
+                    item_id: item.id,
+                    lifecycle_state: lifecycleState,
+                    event: notification.event,
+                    dedupe_key: notification.dedupe_key
+                };
+                if (note !== undefined) {
+                    payload.note = note;
+                }
                 const response = await fetch(
                     `/api/v1/domains/${encodeURIComponent(this.domainId)}/remediation/notifications/audit`,
                     {
                         method: 'POST',
                         headers: this.workspaceHeaders(),
-                        body: JSON.stringify({
-                            item_id: item.id,
-                            lifecycle_state: lifecycleState,
-                            event: notification.event,
-                            dedupe_key: notification.dedupe_key,
-                            note
-                        })
+                        body: JSON.stringify(payload)
                     }
                 );
                 const data = await response.json().catch(() => ({}));
@@ -1770,18 +1778,21 @@ function domainDetailsApp(domainId = '') {
                 error: ''
             };
             try {
+                const payload = {
+                    item_id: item.id,
+                    confirm: true,
+                    event: notification.event,
+                    dedupe_key: notification.dedupe_key
+                };
+                if (note !== undefined) {
+                    payload.note = note;
+                }
                 const response = await fetch(
                     `/api/v1/domains/${encodeURIComponent(this.domainId)}/remediation/notifications/dispatch`,
                     {
                         method: 'POST',
                         headers: this.workspaceHeaders(),
-                        body: JSON.stringify({
-                            item_id: item.id,
-                            confirm: true,
-                            event: notification.event,
-                            dedupe_key: notification.dedupe_key,
-                            note
-                        })
+                        body: JSON.stringify(payload)
                     }
                 );
                 const data = await response.json().catch(() => ({}));

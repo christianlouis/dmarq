@@ -481,9 +481,12 @@
                                 </template>
                             </div>
                             <div class="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs"
-                                 x-show="verifiedItemsHiddenCount() > 0 || showAllVerifiedRemediationItems">
+                                 x-show="hasMoreVisibleVerifiedItems() || verifiedItemsHiddenCount() > 0 || showAllVerifiedRemediationItems">
                                 <p class="text-[#5f5c78]" x-show="!showAllVerifiedRemediationItems && verifiedItemsHiddenCount() > 0">
                                     <span>+</span><span x-text="verifiedItemsHiddenCount()"></span><span> older verified repairs hidden from this compact view.</span>
+                                </p>
+                                <p class="text-[#5f5c78]" x-show="!showAllVerifiedRemediationItems && verifiedItemsHiddenCount() === 0 && hasMoreVisibleVerifiedItems()">
+                                    <span>Additional recent verified repairs are available in this view.</span>
                                 </p>
                                 <p class="text-[#5f5c78]" x-show="showAllVerifiedRemediationItems">
                                     <span>Showing </span><span x-text="(remediationQueue.verified_items || []).length"></span><span> recent verified repairs.</span>
@@ -677,8 +680,8 @@
                                         <p class="mt-2 text-sm text-[#120d36]" x-text="remediationDispatchNextStep(item.notification.dispatch)"></p>
                                         <template x-if="(item.notification.dispatch.blocked_reasons || []).length">
                                             <ul class="mt-2 space-y-1 text-xs text-[#5f5c78]">
-                                                <template x-for="reason in item.notification.dispatch.blocked_reasons"
-                                                          :key="item.id + '-dispatch-blocker-' + reason">
+                                                <template x-for="(reason, index) in item.notification.dispatch.blocked_reasons"
+                                                          :key="item.id + '-dispatch-blocker-' + index">
                                                     <li class="flex gap-2">
                                                         <span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#b45309]"></span>
                                                         <span x-text="reason"></span>
