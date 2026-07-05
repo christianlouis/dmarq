@@ -1011,7 +1011,8 @@ function domainDetailsApp(domainId = '') {
                     'mark_unknown',
                     'convert_to_manual_action',
                     'resolved',
-                    'snoozed'
+                    'snoozed',
+                    'rejected'
                 ],
                 manual_action: [
                     'acknowledged',

@@ -2315,6 +2315,24 @@ def test_summary_includes_current_remediation_loop(
     assert domain["remediation_workload"]["primary"]["title"]
 
 
+def test_dashboard_remediation_loop_is_clear_without_current_actions():
+    """Empty dashboard input should publish a stable no-work remediation loop."""
+    loop = domains_endpoint._build_dashboard_remediation_loop(
+        domains=[{"domain_name": DOMAIN, "health": {"actions": []}}],
+        remediation_activity={"summary": {"resolved": 2, "verified_fixed": 1}},
+    )
+
+    assert loop["status"] == "clear"
+    assert loop["loop_status"] == "clear"
+    assert loop["next_action"] == (
+        "No current remediation work; keep importing reports and monitoring DNS."
+    )
+    assert loop["total_open"] == 0
+    assert loop["items"] == []
+    assert loop["resolved"] == 2
+    assert loop["verified_fixed"] == 1
+
+
 @pytest.mark.parametrize(
     "action_type",
     ["source_reputation_listed", "source_reputation_review"],
