@@ -706,6 +706,43 @@ def test_attach_remediation_dispatch_previews_adds_provider_apply_history(db_ses
     assert result["summary"]["provider_apply_verified"] == 1
 
 
+def test_provider_repair_attempt_entry_handles_missing_plan_and_unverified_apply():
+    missing_plan = WorkspaceAuditLog(
+        workspace_id=1,
+        actor_type="user",
+        action="domain.dns_change_applied",
+        entity_type="domain",
+        entity_name="example.com",
+        details=json.dumps({"applied": True}),
+        created_at=datetime(2026, 7, 1, 9, 0, 0),
+    )
+    assert remediation_dispatch._provider_repair_attempt_entry(missing_plan) is None
+
+    unverified_apply = WorkspaceAuditLog(
+        workspace_id=1,
+        actor_type="user",
+        action="domain.dns_change_applied",
+        entity_type="domain",
+        entity_name="example.com",
+        details=json.dumps(
+            {
+                "provider": "cloudflare",
+                "plan_id": "dmarc-missing",
+                "applied": True,
+                "verification": {"status": "pending", "verified": False},
+            }
+        ),
+        created_at=datetime(2026, 7, 1, 9, 5, 0),
+    )
+
+    entry = remediation_dispatch._provider_repair_attempt_entry(unverified_apply)
+
+    assert entry is not None
+    assert entry["state"] == "apply_needs_verification"
+    assert entry["label"] == "Provider apply recorded"
+    assert entry["detail"].startswith("Provider apply was recorded")
+
+
 def test_summarize_remediation_activity_handles_empty_domain_inputs(db_session):
     workspace = get_or_create_default_workspace(db_session)
 
