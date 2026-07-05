@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.models.api_token import APIToken
-from app.models.organization import Organization
+from app.models.organization import Organization, OrganizationMembership
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog, WorkspaceMembership
@@ -177,9 +177,7 @@ def test_scim_workspace_role_does_not_create_organization_membership(
     assert db_session.query(OrganizationMembership).filter_by(user_id=user.id).first() is None
 
 
-def test_scim_explicit_org_role_creates_organization_membership(
-    client: TestClient, db_session
-):
+def test_scim_explicit_org_role_creates_organization_membership(client: TestClient, db_session):
     """Only explicit SCIM org role groups write organization membership rows."""
     organization = Organization(slug="scim-explicit-org", name="SCIM Explicit Org")
     db_session.add(organization)
