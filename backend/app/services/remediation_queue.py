@@ -140,6 +140,8 @@ def _remediation_notification_payload(domain: str, item: Dict[str, Any]) -> Dict
     """Return the sanitized event payload that would be sent for a queue item."""
     notification = item.get("notification") or {}
     automation = item.get("automation") or {}
+    action_plan = item.get("action_plan") or {}
+    verification_plan = item.get("verification_plan") or {}
     return {
         "schema_version": "dmarq.remediation.notification.v1",
         "domain": domain,
@@ -162,6 +164,23 @@ def _remediation_notification_payload(domain: str, item: Dict[str, Any]) -> Dict
             "provider": automation.get("provider"),
             "plan_id": automation.get("plan_id"),
             "apply_endpoint": automation.get("apply_endpoint"),
+        },
+        "action_plan": {
+            "owner": str(action_plan.get("owner") or ""),
+            "automation_path": str(action_plan.get("automation_path") or ""),
+            "completion_criteria": str(action_plan.get("completion_criteria") or ""),
+            "steps": [str(step) for step in action_plan.get("steps", []) if str(step).strip()][:5],
+        },
+        "verification": {
+            "label": str(verification_plan.get("label") or ""),
+            "status": str(verification_plan.get("status") or ""),
+            "summary": str(verification_plan.get("summary") or ""),
+            "next_check": str(verification_plan.get("next_check") or ""),
+            "evidence_needed": [
+                str(evidence)
+                for evidence in verification_plan.get("evidence_needed", [])
+                if str(evidence).strip()
+            ][:5],
         },
         "evidence": [
             {"label": str(row.get("label") or "evidence"), "value": str(row.get("value") or "")}
