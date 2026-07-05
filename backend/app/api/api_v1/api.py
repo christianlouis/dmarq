@@ -20,6 +20,7 @@ from app.api.api_v1.endpoints import (
     provider,
     public,
     reports,
+    scim,
     settings,
     setup,
     stats,
@@ -39,6 +40,7 @@ api_router.include_router(api_tokens.router, prefix="/api-tokens", tags=["api-to
 api_router.include_router(audit.router, prefix="/audit", tags=["audit"])
 api_router.include_router(health.router, tags=["health"])
 api_router.include_router(public.router, prefix="/public", tags=["public-api"])
+api_router.include_router(scim.router, prefix="/scim/v2", tags=["scim"])
 api_router.include_router(domains.router, prefix="/domains", tags=["domains"])
 api_router.include_router(reports.router, prefix="/reports", tags=["reports"])
 api_router.include_router(forensics.router, prefix="/forensics", tags=["forensics"])

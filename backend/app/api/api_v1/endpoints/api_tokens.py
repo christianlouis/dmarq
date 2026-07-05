@@ -10,6 +10,7 @@ from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.api_token import APIToken
 from app.services.api_tokens import (
+    ALL_API_TOKEN_SCOPES,
     PUBLIC_READ_SCOPES,
     create_api_token,
     revoke_api_token,
@@ -114,7 +115,7 @@ async def list_api_tokens(
     )
     return APITokenListResponse(
         tokens=[APITokenResponse(**token_to_dict(row)) for row in rows],
-        available_scopes=sorted(PUBLIC_READ_SCOPES),
+        available_scopes=sorted(ALL_API_TOKEN_SCOPES),
     )
 
 
@@ -126,7 +127,7 @@ async def create_public_api_token(
     _auth: dict = Depends(require_admin_auth),
     selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
 ):
-    """Create a scoped API token for read-only automation."""
+    """Create a scoped API token for workspace automation."""
     workspace = _authorized_api_token_workspace(
         _auth,
         db,
@@ -139,6 +140,7 @@ async def create_public_api_token(
             name=payload.name,
             scopes=payload.scopes,
             workspace_id=workspace.id,
+            allowed_scopes=ALL_API_TOKEN_SCOPES,
         )
     except ValueError as exc:
         raise HTTPException(
