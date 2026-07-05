@@ -88,6 +88,25 @@ through the `/public` path and avoid UI-specific payloads.
 | `GET /public/domains/{domain_id}/action-proposals` | `posture:read` | Reviewable read-only remediation proposals |
 | `GET /public/alerts` | `posture:read` | Sanitized alert history for monitored workspace domains |
 | `GET /public/tls-reports/summary` | `tls-reports:read` | SMTP TLS report trends and failure groups |
+
+### SCIM Provisioning
+
+SCIM endpoints live under `/api/v1/scim/v2` and require a workspace-scoped API
+token. Use `scim:read` for directory inspection and `scim:write` for
+provisioning, role mapping, activation, and deactivation. DMARQ stores the SCIM
+`externalId` as the local external identity link and maps SCIM groups such as
+`workspace_owner`, `operator`, `analyst`, and `auditor` to workspace roles.
+Organization role groups can be prefixed with `org:`.
+
+| Endpoint | Required scope | Purpose |
+| --- | --- | --- |
+| `GET /scim/v2/ServiceProviderConfig` | none | Supported SCIM feature profile |
+| `GET /scim/v2/Users` | `scim:read` or `scim:write` | List users in the token workspace |
+| `POST /scim/v2/Users` | `scim:write` | Create or upsert a user and role membership |
+| `GET /scim/v2/Users/{id}` | `scim:read` or `scim:write` | Read one workspace-scoped user |
+| `PUT /scim/v2/Users/{id}` | `scim:write` | Replace profile, active state, and role mapping |
+| `PATCH /scim/v2/Users/{id}` | `scim:write` | Activate or deactivate a user |
+| `DELETE /scim/v2/Users/{id}` | `scim:write` | Deactivate a user without deleting audit history |
 | `POST /mcp` | `mcp:read` | Read-only MCP-style JSON-RPC tool endpoint |
 
 Successful public API calls update the token's last-used timestamp, source IP,
