@@ -266,7 +266,7 @@ function domainDetailsApp(domainId = '') {
             this.loadInitialData();
 
             this.$watch('filters.dateRange', () => {
-                this.fetchSources();
+                this.fetchSources({ preserveOnFailure: true });
                 this.fetchSourceIntelligence({ preserveOnFailure: true });
             });
             this.$watch('remediationQueueSort', () => {
@@ -429,7 +429,7 @@ function domainDetailsApp(domainId = '') {
             ]);
 
             Promise.allSettled([
-                this.fetchSources(),
+                this.fetchSources({ preserveOnFailure: true }),
                 this.fetchSourceIntelligence({ preserveOnFailure: true })
             ]);
 
@@ -488,7 +488,7 @@ function domainDetailsApp(domainId = '') {
                     this.fetchBimi({ refresh: true }),
                     this.fetchSelectors(),
                     this.fetchReports(),
-                    this.fetchSources({ refresh: true }),
+                    this.fetchSources({ refresh: true, preserveOnFailure: true }),
                     this.fetchSourceIntelligence({ preserveOnFailure: true })
                 ]);
             } finally {
@@ -2612,7 +2612,8 @@ function domainDetailsApp(domainId = '') {
         
         async fetchSources(options = {}) {
             const refresh = Boolean(options.refresh);
-            const keepExistingSourcesVisible = refresh && (this.sources || []).length > 0;
+            const keepExistingSourcesVisible =
+                (refresh || options.preserveOnFailure) && (this.sources || []).length > 0;
             this.sourcesLoading = !keepExistingSourcesVisible;
             this.sourcesError = '';
             try {
@@ -2637,7 +2638,9 @@ function domainDetailsApp(domainId = '') {
                     this.sourcesError = error.message || 'Sending sources could not be loaded.';
                 }
                 if (options.preserveOnFailure) {
-                    this.sourceReputationRefreshError = error.message || 'Source reputation could not be refreshed.';
+                    this.sourceReputationRefreshError =
+                        (error.message || 'Sending sources could not be refreshed.') +
+                        ' Showing the last loaded sending sources.';
                 }
                 console.error('Error fetching sources:', error);
             } finally {

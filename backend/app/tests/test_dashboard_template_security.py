@@ -1647,6 +1647,7 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     assert "this.sourceReputationRefreshError = '';" in script
     assert "keepExistingSourcesVisible" in script
     assert "this.sourcesLoading = !keepExistingSourcesVisible;" in script
+    assert "Showing the last loaded sending sources." in script
     assert "if (!options.preserveOnFailure) {\n                    this.sources = [];" in script
     assert "sourceSeenLabel" in script
     assert "sourceVolumeBars" in script
