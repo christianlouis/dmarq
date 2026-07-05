@@ -324,6 +324,15 @@ def test_dashboard_remediation_loop_uses_resolved_language():
     assert "remediationLoop().resolved || remediationLoop().fixed || 0" in template
 
 
+def test_dashboard_remediation_cards_show_owner_and_completion_context():
+    template = _dashboard_template()
+
+    assert "Owner" in template
+    assert "Done when" in template
+    assert 'x-text="item.owner"' in template
+    assert 'x-text="item.completion_criteria"' in template
+
+
 def test_dashboard_remediation_queue_href_encodes_domain_and_anchor():
     assert (
         _run_dashboard_expression("app.domainRemediationHref('mail.example/a b')")
