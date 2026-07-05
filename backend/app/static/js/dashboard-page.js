@@ -227,6 +227,12 @@ function dashboardApp() {
                     return;
                 }
 
+                const dashboardRefresh = event.target.closest('[data-dashboard-refresh]');
+                if (dashboardRefresh && root.contains(dashboardRefresh)) {
+                    this.fetchDomainSummary({ refresh: true });
+                    return;
+                }
+
                 const triggerPoll = event.target.closest('[data-dashboard-trigger-poll]');
                 if (triggerPoll && root.contains(triggerPoll)) {
                     this.triggerPollNow();
@@ -1075,6 +1081,26 @@ function dashboardApp() {
             return Number.isFinite(score) ? Math.max(0, Math.min(100, Math.round(score))) : 0;
         },
 
+        evidenceRefreshLabel(refresh) {
+            const key = String(refresh?.refresh_key || refresh?.source || '');
+            return {
+                dns: 'Refresh DNS evidence',
+                reports: 'Refresh report evidence',
+                reports_and_sources: 'Refresh report and source evidence',
+                source_reputation: 'Refresh source reputation',
+                provider_value: 'Provider value required'
+            }[key] || 'Refresh evidence';
+        },
+
+        evidenceRefreshClass(refresh) {
+            const key = String(refresh?.refresh_key || '');
+            if (refresh?.safe_to_run === false || key === 'provider_value') return 'bg-red-100 text-red-700';
+            if (key === 'dns') return 'bg-blue-100 text-blue-700';
+            if (key === 'source_reputation') return 'bg-purple-100 text-purple-700';
+            if (key === 'reports_and_sources') return 'bg-green-100 text-green-700';
+            return 'bg-white text-[#5f5c78]';
+        },
+
         domainActionHref(action) {
             return action && action.domain
                 ? `/domains/${encodeURIComponent(action.domain)}#remediation-queue`
@@ -1774,6 +1800,15 @@ function dashboardApp() {
                 action.className = 'max-w-48 truncate text-xs text-muted-foreground';
                 action.textContent = workload.primary.title;
                 wrapper.appendChild(action);
+            }
+
+            if (workload?.primary?.evidence_refresh?.required) {
+                const evidence = document.createElement('span');
+                evidence.className = 'max-w-56 truncate text-xs font-semibold text-[#247982]';
+                evidence.textContent = workload.primary.evidence_refresh.safe_to_run === false
+                    ? 'Evidence: provider value required'
+                    : `Evidence: ${this.evidenceRefreshLabel(workload.primary.evidence_refresh)}`;
+                wrapper.appendChild(evidence);
             }
 
             cell.appendChild(wrapper);

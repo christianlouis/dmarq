@@ -31,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added dashboard remediation sorting, last-refresh context, a queue refresh control, and domain remediation filters for preview-ready, blocked, evidence-gated, manual, and reputation-review work.
 - Added domain remediation queue sorting by priority, repair readiness, or severity, plus filters for notification-ready and operator-waiting work.
 - Added an expandable domain remediation queue view so operators can open every matching item instead of only seeing the compact six-item list.
+- Added fresh-evidence refresh paths to remediation items so operators can see whether DNS, reports, source intelligence, reputation, or provider values must be refreshed before closure.
+- Added dashboard fresh-evidence counters and remediation-card refresh paths so workspace triage shows whether DNS, reports, reputation, or provider prerequisites should be handled next.
 
 ### Changed
 - Cloudflare OAuth profile selection now controls the requested scopes instead of being overridden by the legacy static scope setting.
@@ -48,6 +50,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dashboard remediation-loop cards now expose the same repair-gate language and workspace counters for preview-ready, evidence-gated, and blocked repair work.
 - Dashboard and domain remediation views now show repair-readiness counters and per-item readiness scores before an operator opens or dispatches remediation work.
 - Dashboard, domain remediation queue, and sending-source reputation refreshes now keep previously loaded evidence visible while a manual refresh runs.
+- Dashboard remediation rows now expose the top incident and fresh-evidence action directly in the workspace view, and the domain-compliance refresh control reloads the backend summary again.
+- Domain remediation cards now offer focused read-only evidence refresh actions that reload the relevant backend data and rebuild the queue without applying DNS or provider writes.
 - Reorganized repository: moved development docs (`AGENTS.md`, `ROADMAP.md`, `ISSUE_GENERATION_SUMMARY.md`, `generated_issues/`) into `docs/`
 - Added root-level `CHANGELOG.md` and `TODO.md`
 - Cleaned up root directory for clarity

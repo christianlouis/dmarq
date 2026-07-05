@@ -815,6 +815,14 @@ TXT/CNAME provider write are marked `approval_ready` and point to the same
 explicit preview/apply endpoint used by the DNS change-plan UI. Placeholder
 DKIM/SPF records that still need provider-specific values are surfaced as
 blocked by prerequisite instead of being presented as one-click repairs.
+Each item also includes an `evidence_refresh` object. It tells clients which
+fresh evidence source is needed before closure (`dns`, `dmarc_reports`,
+`dmarc_reports_and_sources`, `source_reputation`, or `mail_provider`), whether
+the refresh is safe to run from the UI, the recommended read-only refresh
+action, the completion signal, the stale-evidence warning, and the UI anchor or
+read-only endpoint hint that should be used. Provider-specific prerequisites
+are marked `safe_to_run=false`; clients should show the instruction but avoid
+presenting it as an executable refresh.
 
 The top-level `loop` object summarizes what DMARQ can fix, what needs explicit
 approval, what needs manual action, what needs investigation, the current
@@ -826,7 +834,13 @@ track-specific counters like `track_provider_preview`, `track_manual_dns`,
 repair-progression counters such as `repair_preview_ready`, `repair_blocked`,
 and `repair_needs_evidence`, so clients can distinguish a ready provider
 preview from a finding that still needs sender classification, provider values,
-or fresh report/DNS evidence.
+or fresh report/DNS evidence. Fresh-evidence counters such as
+`evidence_refresh_dns`, `evidence_refresh_reports`,
+`evidence_refresh_reputation`, and `evidence_refresh_prerequisite` explain what
+kind of read-only refresh or prerequisite the operator should handle next.
+The workspace dashboard `health_summary.remediation_loop` and each domain row's
+`remediation_workload` expose the same `evidence_refresh` object and counters,
+so clients can present the correct refresh path before opening the detail queue.
 
 Notification metadata includes the event name, channel, dedupe key, reason, and
 next state transition that an operator workflow can use. Each notification also

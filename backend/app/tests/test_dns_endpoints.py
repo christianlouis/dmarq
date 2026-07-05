@@ -2288,9 +2288,13 @@ def test_summary_includes_current_remediation_loop(
     assert "approve_after_preview" in loop["items"][0]["operator_decisions"]
     assert loop["repair_preview_ready"] >= 2
     assert loop["repair_needs_evidence"] >= 2
+    assert loop["evidence_refresh_required"] >= 2
+    assert loop["evidence_refresh_dns"] >= 2
     assert loop["repair_blocked"] == 0
     assert loop["items"][0]["repair_progression"]["stage"] == "preview_ready"
     assert loop["items"][0]["repair_progression"]["can_preview"] is True
+    assert loop["items"][0]["evidence_refresh"]["refresh_key"] == "dns"
+    assert loop["items"][0]["evidence_refresh"]["safe_to_run"] is True
     assert loop["items"][0]["state_label"] == "Needs approval"
     assert loop["items"][0]["owner"] == "Domain DNS operator"
     assert loop["items"][0]["automation_path"] == "provider_preview"
@@ -2306,6 +2310,7 @@ def test_summary_includes_current_remediation_loop(
     assert domain["remediation_workload"]["needs_approval"] >= 2
     assert domain["remediation_workload"]["repair_preview_ready"] >= 2
     assert domain["remediation_workload"]["repair_needs_evidence"] >= 2
+    assert domain["remediation_workload"]["evidence_refresh_dns"] >= 2
     assert domain["remediation_workload"]["total_open"] >= 2
     assert domain["remediation_workload"]["primary"]["state"] == "needs_approval"
     assert domain["remediation_workload"]["primary"]["loop_state"] == (
@@ -2315,6 +2320,7 @@ def test_summary_includes_current_remediation_loop(
         "preview_ready"
     )
     assert domain["remediation_workload"]["primary"]["remediation_track"] == ("provider_preview")
+    assert domain["remediation_workload"]["primary"]["evidence_refresh"]["refresh_key"] == "dns"
     assert domain["remediation_workload"]["primary"]["state_label"] == "Needs approval"
     assert domain["remediation_workload"]["primary"]["owner"] == "Domain DNS operator"
     assert domain["remediation_workload"]["primary"]["automation_path"] == "provider_preview"
