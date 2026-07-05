@@ -2279,6 +2279,7 @@ def test_summary_includes_current_remediation_loop(
     assert loop["items"][0]["owner"] == "Domain DNS operator"
     assert loop["items"][0]["automation_path"] == "provider_preview"
     assert loop["items"][0]["completion_criteria"]
+    assert "Refresh DNS posture" in loop["items"][0]["verification_next_check"]
     assert loop["items"][0]["why"]
     assert loop["items"][0]["title"]
     assert loop["items"][0]["next_step"]
@@ -2290,6 +2291,10 @@ def test_summary_includes_current_remediation_loop(
     assert domain["remediation_workload"]["primary"]["state_label"] == "Needs approval"
     assert domain["remediation_workload"]["primary"]["owner"] == "Domain DNS operator"
     assert domain["remediation_workload"]["primary"]["automation_path"] == "provider_preview"
+    assert (
+        "Refresh DNS posture"
+        in domain["remediation_workload"]["primary"]["verification_next_check"]
+    )
     assert domain["remediation_workload"]["primary"]["title"]
 
 
@@ -2345,6 +2350,7 @@ def test_dashboard_remediation_item_includes_context_for_non_approval_states(
         assert item[key] == value
     assert item["domain"] == DOMAIN
     assert item["completion_criteria"]
+    assert item["verification_next_check"]
     assert item["why"]
 
 

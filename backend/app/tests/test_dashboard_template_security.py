@@ -332,8 +332,10 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
 
     assert "Owner" in template
     assert "Done when" in template
+    assert "Next verification" in template
     assert 'x-text="item.owner"' in template
     assert 'x-text="item.completion_criteria"' in template
+    assert 'x-text="item.verification_next_check"' in template
 
 
 def test_dashboard_remediation_queue_href_encodes_domain_and_anchor():
