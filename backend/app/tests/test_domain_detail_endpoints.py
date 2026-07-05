@@ -909,6 +909,10 @@ def test_dashboard_remediation_loop_exposes_operator_decision_context():
     assert loop["evidence_refresh_dns"] == 1
     assert loop["evidence_refresh_reputation"] == 1
     assert loop["evidence_refresh_reports"] == 0
+    assert loop["verification_pending_operator_approval"] == 1
+    assert loop["verification_pending_sender_review"] == 0
+    assert loop["verification_pending_reputation_review"] == 1
+    assert loop["verification_blocked_by_prerequisite"] == 0
     assert loop["top_incident_type"] == "dmarc_policy_missing_or_weak"
     assert loop["repair_blocked"] == 0
     assert loop["repair_ready_for_preview"] == 1
@@ -924,11 +928,28 @@ def test_dashboard_remediation_loop_exposes_operator_decision_context():
     assert loop["items"][0]["repair_progression"]["readiness_score"] == 80
     assert loop["items"][0]["evidence_refresh"]["refresh_key"] == "dns"
     assert loop["items"][0]["evidence_refresh"]["safe_to_run"] is True
+    assert loop["items"][0]["verification_plan"]["status"] == "pending_operator_approval"
+    assert loop["items"][0]["verification_plan"]["verification_method"] == (
+        "provider_write_then_dns_refresh"
+    )
+    assert "Fresh DNS evidence" in loop["items"][0]["verification_plan"]["freshness_requirement"]
+    assert "approved provider apply" in loop["items"][0]["verification_plan"]["closure_gate"]
+    assert "DNS propagation evidence" in (
+        loop["items"][0]["verification_plan"]["stale_evidence_warning"]
+    )
     assert "Preview the exact DNS" in loop["items"][0]["operator_decision_summary"]
     assert loop["items"][1]["remediation_track"] == "reputation_review"
     assert loop["items"][1]["repair_progression"]["stage"] == "reputation_review"
     assert loop["items"][1]["repair_progression"]["readiness_level"] == "needs_reputation_review"
     assert loop["items"][1]["evidence_refresh"]["refresh_key"] == "source_reputation"
+    assert loop["items"][1]["verification_plan"]["status"] == "pending_reputation_review"
+    assert loop["items"][1]["verification_plan"]["verification_method"] == (
+        "fresh_reputation_evidence"
+    )
+    assert "Fresh reputation" in (
+        loop["items"][1]["verification_plan"]["freshness_requirement"]
+    )
+    assert "fresh reputation evidence" in loop["items"][1]["verification_plan"]["closure_gate"]
     assert loop["items"][1]["risk_level"] == "high"
     assert loop["items"][1]["safe_to_automate"] is False
 
@@ -966,6 +987,8 @@ def test_dashboard_remediation_loop_counts_provider_specific_prerequisite_blocks
     assert loop["repair_needs_evidence"] == 1
     assert loop["evidence_refresh_required"] == 1
     assert loop["evidence_refresh_prerequisite"] == 1
+    assert loop["verification_pending_operator_approval"] == 0
+    assert loop["verification_blocked_by_prerequisite"] == 1
     assert loop["repair_ready_for_preview"] == 0
     assert loop["repair_waiting_on_operator"] == 0
     assert loop["repair_readiness_blocked"] == 1
@@ -976,6 +999,13 @@ def test_dashboard_remediation_loop_counts_provider_specific_prerequisite_blocks
     assert loop["items"][0]["repair_progression"]["readiness_level"] == "blocked"
     assert loop["items"][0]["evidence_refresh"]["refresh_key"] == "provider_value"
     assert loop["items"][0]["evidence_refresh"]["safe_to_run"] is False
+    assert loop["items"][0]["verification_plan"]["status"] == "blocked_by_prerequisite"
+    assert loop["items"][0]["verification_plan"]["verification_method"] == (
+        "provider_specific_value_then_health_rebuild"
+    )
+    assert "provider-specific target value" in (
+        loop["items"][0]["verification_plan"]["stale_evidence_warning"]
+    )
     assert "provider-specific value" in loop["items"][0]["repair_progression"]["summary"]
 
 

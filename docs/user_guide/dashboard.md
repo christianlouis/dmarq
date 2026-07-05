@@ -82,8 +82,12 @@ instead of replacing the page with an empty state. Cards are sorted so provider
 previews and approval-ready work appear before blocked, reputation,
 investigation, and manual work. Each card shows the same readiness label and
 0-100 score used on the domain remediation queue. Cards also show the next safe
-action, first readiness reason, and blocker summary before linking to the
-selected domain for the full evidence, approval, and verification flow.
+action, first readiness reason, freshness requirement, closure gate, and blocker
+summary before linking to the selected domain for the full evidence, approval,
+and verification flow. Filter chips let you isolate preview-ready repairs,
+approval verification, sender review, report-evidence follow-up, blocked work,
+manual work, reputation review, and stale-evidence cases without opening every
+domain.
 
 ### Demo Mode
 

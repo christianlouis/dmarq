@@ -2059,6 +2059,115 @@ def _remediation_operator_decision_summary(state: str) -> str:
     return "Complete the manual action, refresh evidence, then mark the item resolved."
 
 
+def _dashboard_verification_plan(
+    state: str,
+    action: Dict[str, Any],
+    context: Dict[str, str],
+) -> Dict[str, Any]:
+    """Return dashboard-safe read-only evidence checks before closure."""
+    track = _remediation_track_for_action(state, action)
+    if track == "blocked_by_prerequisite":
+        return {
+            "label": "Collect provider value first",
+            "status": "blocked_by_prerequisite",
+            "verification_method": "provider_specific_value_then_health_rebuild",
+            "freshness_requirement": (
+                "The exact provider-specific DKIM, SPF, DMARC, or CNAME target value."
+            ),
+            "failure_mode": "Keep the item blocked until the missing provider value is known.",
+            "closure_gate": (
+                "Close only after the provider value is published and fresh evidence removes the finding."
+            ),
+            "stale_evidence_warning": (
+                "Do not approve or close this until the provider-specific target value is known."
+            ),
+            "summary": "This repair is blocked until DMARQ has the exact provider value.",
+            "evidence_needed": [
+                "Provider-specific target value",
+                "Fresh DNS posture after publishing",
+                "Finding disappears from the remediation queue",
+            ],
+            "next_check": context["verification_next_check"],
+        }
+    if track == "reputation_review":
+        return {
+            "label": "Verify reputation evidence",
+            "status": "pending_reputation_review",
+            "verification_method": "fresh_reputation_evidence",
+            "freshness_requirement": "Fresh reputation or blacklist evidence for this source.",
+            "failure_mode": "Keep investigating if the source remains listed, risky, or unchecked.",
+            "closure_gate": (
+                "Close only after fresh reputation evidence and newer reports support the treatment."
+            ),
+            "stale_evidence_warning": (
+                "Old blacklist or reputation checks can be wrong after provider remediation."
+            ),
+            "summary": "Reputation items need fresh source-intelligence evidence before closure.",
+            "evidence_needed": [
+                "Fresh source reputation lookup",
+                "Current blacklist or risk result",
+                "Newer report evidence for the sender",
+            ],
+            "next_check": context["verification_next_check"],
+        }
+    if state == "needs_approval":
+        return {
+            "label": "Verify after approved repair",
+            "status": "pending_operator_approval",
+            "verification_method": "provider_write_then_dns_refresh",
+            "freshness_requirement": "Fresh DNS evidence after provider propagation.",
+            "failure_mode": "Keep the item open if the expected record is not visible.",
+            "closure_gate": "Close only after approved provider apply and fresh DNS evidence agree.",
+            "stale_evidence_warning": (
+                "Do not close this from the preview alone; DNS propagation evidence is required."
+            ),
+            "summary": "Provider-backed repairs require explicit approval and fresh DNS evidence.",
+            "evidence_needed": [
+                "Operator-approved provider preview",
+                "Fresh DNS posture after propagation",
+                "Finding disappears from the remediation queue",
+            ],
+            "next_check": context["verification_next_check"],
+        }
+    if state == "investigate":
+        return {
+            "label": "Verify with fresh sender evidence",
+            "status": "pending_sender_review",
+            "verification_method": "fresh_dmarc_report_window",
+            "freshness_requirement": "A newer receiver report covering the active sender.",
+            "failure_mode": "Keep investigating if the source remains unknown, failing, or stale.",
+            "closure_gate": (
+                "Close only after sender classification and newer reports confirm the treatment."
+            ),
+            "stale_evidence_warning": (
+                "Old report rows can describe senders that no longer send mail for this domain."
+            ),
+            "summary": "Investigation items need sender classification and fresh report evidence.",
+            "evidence_needed": [
+                "Sender classification decision",
+                "Fresh receiver report window",
+                "Expected DMARC pass or intentional block",
+            ],
+            "next_check": context["verification_next_check"],
+        }
+    return {
+        "label": "Verify after manual action",
+        "status": "pending_report_evidence",
+        "verification_method": "fresh_health_rebuild",
+        "freshness_requirement": "Fresh DMARC reports or DNS checks after the operator action.",
+        "failure_mode": "Keep the item open if the same health action is still present.",
+        "closure_gate": "Close only after fresh health evidence removes the same finding.",
+        "stale_evidence_warning": "Do not close from an operator note alone; refresh evidence first.",
+        "summary": "Manual remediation needs fresh report or DNS evidence before closure.",
+        "evidence_needed": [
+            "Operator action is complete",
+            "Fresh domain health rebuild",
+            "Finding disappears from the remediation queue",
+        ],
+        "next_check": context["verification_next_check"],
+    }
+
+
 def _dashboard_repair_progression_with_readiness(
     progression: Dict[str, Any],
     *,
@@ -2221,6 +2330,7 @@ def _dashboard_remediation_item(
         "safe_to_automate": _remediation_safe_to_automate(state),
         "operator_decision_summary": _remediation_operator_decision_summary(state),
         "operator_decisions": _remediation_operator_decisions(state),
+        "verification_plan": _dashboard_verification_plan(state, action, context),
         "repair_progression": _dashboard_repair_progression(state, action),
         "severity": str(action.get("severity") or "info"),
         "source": str(action.get("source") or "domain_health"),
@@ -2277,6 +2387,25 @@ def _increment_evidence_refresh_counters(
         counters["evidence_refresh_prerequisite"] += 1
 
 
+def _increment_verification_plan_counters(
+    counters: Dict[str, int],
+    item: Dict[str, Any],
+) -> None:
+    """Count the closure-proof state each dashboard remediation item requires."""
+    verification = item.get("verification_plan") or {}
+    status = str(verification.get("status") or "")
+    if status == "pending_operator_approval":
+        counters["verification_pending_operator_approval"] += 1
+    elif status == "pending_sender_review":
+        counters["verification_pending_sender_review"] += 1
+    elif status == "pending_reputation_review":
+        counters["verification_pending_reputation_review"] += 1
+    elif status == "pending_report_evidence":
+        counters["verification_pending_report_evidence"] += 1
+    elif status == "blocked_by_prerequisite":
+        counters["verification_blocked_by_prerequisite"] += 1
+
+
 def _build_dashboard_remediation_loop(
     domains: List[Dict[str, Any]],
     remediation_activity: Dict[str, Any],
@@ -2304,6 +2433,11 @@ def _build_dashboard_remediation_loop(
         "evidence_refresh_reports": 0,
         "evidence_refresh_reputation": 0,
         "evidence_refresh_prerequisite": 0,
+        "verification_pending_operator_approval": 0,
+        "verification_pending_sender_review": 0,
+        "verification_pending_reputation_review": 0,
+        "verification_pending_report_evidence": 0,
+        "verification_blocked_by_prerequisite": 0,
     }
     track_counters = {f"track_{track}": 0 for track in REMEDIATION_TRACKS}
     items: List[Dict[str, Any]] = []
@@ -2317,6 +2451,7 @@ def _build_dashboard_remediation_loop(
             item = _dashboard_remediation_item(domain_name, action)
             _increment_repair_counters(counters, item)
             _increment_evidence_refresh_counters(counters, item)
+            _increment_verification_plan_counters(counters, item)
             track_counters[f"track_{item['remediation_track']}"] += 1
             items.append(item)
 
@@ -2377,6 +2512,11 @@ def _domain_remediation_workload(domain: Dict[str, Any]) -> Dict[str, Any]:
         "evidence_refresh_reports": 0,
         "evidence_refresh_reputation": 0,
         "evidence_refresh_prerequisite": 0,
+        "verification_pending_operator_approval": 0,
+        "verification_pending_sender_review": 0,
+        "verification_pending_reputation_review": 0,
+        "verification_pending_report_evidence": 0,
+        "verification_blocked_by_prerequisite": 0,
     }
     track_counters = {f"track_{track}": 0 for track in REMEDIATION_TRACKS}
     items: List[Dict[str, Any]] = []
@@ -2387,6 +2527,7 @@ def _domain_remediation_workload(domain: Dict[str, Any]) -> Dict[str, Any]:
         item = _dashboard_remediation_item(domain_name, action, include_detail=False)
         _increment_repair_counters(counters, item)
         _increment_evidence_refresh_counters(counters, item)
+        _increment_verification_plan_counters(counters, item)
         track_counters[f"track_{item['remediation_track']}"] += 1
         items.append(item)
 

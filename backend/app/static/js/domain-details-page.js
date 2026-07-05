@@ -695,6 +695,53 @@ function domainDetailsApp(domainId = '') {
             return this.remediationDispatchNextStep(dispatch);
         },
 
+        get primaryRemediationVerificationStatusLabel() {
+            return this.verificationPlanStatusLabel(this.primaryRemediationItem?.verification_plan);
+        },
+
+        get primaryRemediationVerificationStatusClass() {
+            return this.verificationPlanStatusClass(this.primaryRemediationItem?.verification_plan);
+        },
+
+        get primaryRemediationEvidenceNeededText() {
+            return this.verificationPlanEvidenceNeededText(this.primaryRemediationItem?.verification_plan);
+        },
+
+        get primaryRemediationFailureModeText() {
+            return this.primaryRemediationItem?.verification_plan?.failure_mode ||
+                'Keep this item open until fresh evidence confirms the finding is gone.';
+        },
+
+        get primaryRemediationFreshnessText() {
+            const item = this.primaryRemediationItem;
+            if (!item) return '';
+            return item.verification_plan?.freshness_requirement ||
+                item.evidence_refresh?.label ||
+                'Fresh report, DNS, or source evidence is required before closure.';
+        },
+
+        get primaryRemediationClosureGateText() {
+            const item = this.primaryRemediationItem;
+            if (!item) return '';
+            return item.verification_plan?.closure_gate ||
+                item.evidence_refresh?.completion_signal ||
+                'Keep this item open until fresh evidence removes the finding.';
+        },
+
+        get primaryRemediationStaleWarningText() {
+            const item = this.primaryRemediationItem;
+            if (!item) return '';
+            return item.verification_plan?.stale_evidence_warning ||
+                item.evidence_refresh?.stale_warning ||
+                '';
+        },
+
+        get primaryRemediationEvidenceHref() {
+            const item = this.primaryRemediationItem;
+            if (!item?.evidence_refresh?.ui_anchor) return '';
+            return this.remediationEvidenceAnchorHref(item);
+        },
+
         get primaryRepairProgressionText() {
             const progression = this.primaryRemediationItem?.repair_progression;
             if (!progression) return 'Repair status will appear after the remediation queue finishes loading.';
@@ -1091,10 +1138,52 @@ function domainDetailsApp(domainId = '') {
         },
 
         remediationStateClass(state) {
-            if (state === 'approval_ready') return 'bg-green-100 text-green-700';
+            if (state === 'approval_ready' || state === 'needs_approval') return 'bg-green-100 text-green-700';
             if (state === 'manual_action') return 'bg-yellow-100 text-yellow-800';
             if (state === 'investigate') return 'bg-blue-100 text-blue-700';
             return 'bg-base-200 text-base-content/70';
+        },
+
+        remediationStateLabel(state) {
+            const labels = {
+                approval_ready: 'Needs approval',
+                needs_approval: 'Needs approval',
+                manual_action: 'Manual action',
+                investigate: 'Investigate'
+            };
+            return labels[state] || this.humanizeToken(state || 'review');
+        },
+
+        verificationPlanStatusLabel(plan) {
+            const status = typeof plan === 'string' ? plan : plan?.status;
+            const labels = {
+                pending_operator_approval: 'Needs approval',
+                pending_sender_review: 'Sender review',
+                pending_reputation_review: 'Reputation review',
+                pending_report_evidence: 'Fresh evidence',
+                blocked_by_prerequisite: 'Blocked'
+            };
+            return labels[status] || 'Verification needed';
+        },
+
+        verificationPlanStatusClass(plan) {
+            const status = typeof plan === 'string' ? plan : plan?.status;
+            const classes = {
+                pending_operator_approval: 'bg-green-100 text-green-700',
+                pending_sender_review: 'bg-blue-100 text-blue-700',
+                pending_reputation_review: 'bg-purple-100 text-purple-700',
+                pending_report_evidence: 'bg-yellow-100 text-yellow-800',
+                blocked_by_prerequisite: 'bg-red-100 text-red-700'
+            };
+            return classes[status] || 'bg-base-200 text-base-content/70';
+        },
+
+        verificationPlanEvidenceNeededText(plan) {
+            const evidence = plan?.evidence_needed || [];
+            if (Array.isArray(evidence) && evidence.length) {
+                return evidence.slice(0, 3).join(' · ');
+            }
+            return 'Fresh DNS, report, or source evidence.';
         },
 
         remediationNotificationClass(state) {
@@ -1215,6 +1304,25 @@ function domainDetailsApp(domainId = '') {
             return Number.isFinite(score) ? Math.max(0, Math.min(100, Math.round(score))) : 0;
         },
 
+        verifiedFreshnessClass(verified) {
+            const status = String(verified?.freshness_status || '');
+            if (status === 'current_queue_absence') return 'bg-teal-100 text-teal-700';
+            if (status === 'stale_queue_absence') return 'bg-yellow-100 text-yellow-800';
+            if (status === 'unknown_queue_absence_age') return 'bg-orange-100 text-orange-700';
+            return 'bg-[#f6f8fb] text-[#45505f]';
+        },
+
+        verifiedFreshnessWarning(verified) {
+            const status = String(verified?.freshness_status || '');
+            if (status === 'stale_queue_absence') {
+                return 'Refresh the remediation queue and evidence before relying on this repair as still fixed.';
+            }
+            if (status === 'unknown_queue_absence_age') {
+                return 'Queue absence age is unknown; refresh evidence before treating this as current.';
+            }
+            return '';
+        },
+
         remediationEvidenceRefreshClass(refresh) {
             const key = String(refresh?.refresh_key || '');
             if (key === 'dns') return 'bg-blue-100 text-blue-700';
@@ -1266,6 +1374,19 @@ function domainDetailsApp(domainId = '') {
         visibleVerifiedItems() {
             const items = this.remediationQueue.verified_items || [];
             return this.showAllVerifiedRemediationItems ? items : items.slice(0, VERIFIED_ITEMS_COMPACT_LIMIT);
+        },
+
+        verifiedFreshnessCounts() {
+            return (this.remediationQueue.verified_items || []).reduce(
+                (counts, item) => {
+                    const status = String(item?.freshness_status || '');
+                    if (status === 'current_queue_absence') counts.current += 1;
+                    else if (status === 'stale_queue_absence') counts.stale += 1;
+                    else counts.unknown += 1;
+                    return counts;
+                },
+                { current: 0, stale: 0, unknown: 0 }
+            );
         },
 
         visibleRemediationQueueItems() {

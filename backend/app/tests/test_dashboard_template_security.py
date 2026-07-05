@@ -364,6 +364,9 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "data-dashboard-remediation-refresh" in script
     assert "dashboardRemediationFilterOptions" in script
     assert "{ value: 'fresh_evidence', label: 'Fresh evidence' }" in script
+    assert "{ value: 'approval_verification', label: 'Approval' }" in script
+    assert "{ value: 'sender_review', label: 'Sender review' }" in script
+    assert "{ value: 'report_evidence', label: 'Report evidence' }" in script
     assert "{ value: 'stale_evidence', label: 'Stale evidence' }" in script
     assert "dashboardRemediationSort: 'priority'" in script
     assert "showAllDashboardRemediationItems" in script
@@ -411,6 +414,12 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
         "remediationLoop().repair_readiness_blocked || remediationLoop().repair_blocked || 0"
         in template
     )
+    assert "remediationLoop().verification_pending_operator_approval || 0" in template
+    assert "remediationLoop().verification_pending_report_evidence || 0" in template
+    assert "remediationLoop().verification_pending_sender_review || 0" in template
+    assert "remediationLoop().verification_pending_reputation_review || 0" in template
+    assert "remediationLoop().verification_blocked_by_prerequisite || 0" in template
+    assert "provider values required" in template
     assert "Repair gate" in template
     assert "repairProgressionClass(item.repair_progression)" in template
     assert "repairProgressionLabel(item.repair_progression)" in template
@@ -419,6 +428,12 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "repairReadinessReason(item.repair_progression)" in template
     assert "repairReadinessBlockedText(item.repair_progression)" in template
     assert "Next safe action" in template
+    assert "item.verification_plan?.freshness_requirement" in template
+    assert "item.verification_plan?.closure_gate" in template
+    assert "verificationPlanStatusClass(item.verification_plan)" in template
+    assert "verificationPlanStatusLabel(item.verification_plan)" in template
+    assert "verificationPlanFailureMode(item.verification_plan)" in template
+    assert "verificationPlanEvidenceNeededText(item.verification_plan)" in template
     assert "repairReadinessClass(item.repair_progression)" in template
     assert "repairReadinessLabel(item.repair_progression)" in template
     assert "repairReadinessScore(item.repair_progression)" in template
@@ -433,6 +448,9 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "[...items].sort" in script
     assert "this.remediationLoopItemRank(a) - this.remediationLoopItemRank(b)" in script
     assert "dashboardRemediationFilterMatches(item, filterValue)" in script
+    assert "verificationStatus === 'pending_operator_approval'" in script
+    assert "verificationStatus === 'pending_sender_review'" in script
+    assert "verificationStatus === 'pending_report_evidence'" in script
     assert "dashboardRemediationEvidenceRank(item)" in script
     assert "remediationSeverityWeight(severity)" in script
     assert "remediationStaleEvidenceText(item)" in script
@@ -449,6 +467,11 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "repairReadinessClass(progression)" in script
     assert "repairReadinessLabel(progression)" in script
     assert "repairReadinessScore(progression)" in script
+    assert "verificationPlanStatusLabel(plan)" in script
+    assert "pending_reputation_review: 'Reputation review'" in script
+    assert "verificationPlanStatusClass(plan)" in script
+    assert "verificationPlanFailureMode(plan)" in script
+    assert "verificationPlanEvidenceNeededText(plan)" in script
 
 
 def test_dashboard_remediation_filters_and_sorts_cards():
@@ -485,7 +508,8 @@ def test_dashboard_remediation_filters_and_sorts_cards():
                         required: true,
                         refresh_key: 'provider_value',
                         safe_to_run: false
-                    }
+                    },
+                    verification_plan: { status: 'blocked_by_prerequisite' }
                 },
                 {
                     domain: 'reputation.example',
@@ -502,7 +526,51 @@ def test_dashboard_remediation_filters_and_sorts_cards():
                         required: true,
                         refresh_key: 'source_reputation',
                         safe_to_run: true
-                    }
+                    },
+                    verification_plan: { status: 'pending_reputation_review' }
+                },
+                {
+                    domain: 'approval.example',
+                    state: 'needs_approval',
+                    priority_score: 5,
+                    severity: 'high',
+                    repair_progression: {
+                        readiness_level: 'ready_for_preview',
+                        stage: 'preview_ready',
+                        readiness_score: 90
+                    },
+                    evidence_refresh: {
+                        required: true,
+                        refresh_key: 'dns',
+                        safe_to_run: true
+                    },
+                    verification_plan: { status: 'pending_operator_approval' }
+                },
+                {
+                    domain: 'sender.example',
+                    state: 'investigate',
+                    remediation_track: 'sender_classification',
+                    priority_score: 3,
+                    severity: 'medium',
+                    repair_progression: {
+                        readiness_level: 'needs_classification',
+                        stage: 'classification_required',
+                        readiness_score: 20
+                    },
+                    verification_plan: { status: 'pending_sender_review' }
+                },
+                {
+                    domain: 'report.example',
+                    state: 'manual_action',
+                    remediation_track: 'manual_dns',
+                    priority_score: 2,
+                    severity: 'low',
+                    repair_progression: {
+                        readiness_level: 'manual_repair',
+                        stage: 'manual_repair',
+                        readiness_score: 45
+                    },
+                    verification_plan: { status: 'pending_report_evidence' }
                 }
             ] } };
             app.dashboardRemediationFilter = 'fresh_evidence';
@@ -510,12 +578,15 @@ def test_dashboard_remediation_filters_and_sorts_cards():
             return [
                 app.dashboardRemediationFilterCount('blocked'),
                 app.dashboardRemediationFilterCount('reputation'),
+                app.dashboardRemediationFilterCount('approval_verification'),
+                app.dashboardRemediationFilterCount('sender_review'),
+                app.dashboardRemediationFilterCount('report_evidence'),
                 app.dashboardRemediationFilteredCount(),
                 app.visibleDashboardRemediationItems()[0].domain
             ].join('|');
         })()""")
 
-    assert result == "1|1|3|blocked.example"
+    assert result == "1|1|1|1|1|4|blocked.example"
 
 
 def test_dashboard_remediation_stale_evidence_links_to_evidence_anchor():
@@ -1613,6 +1684,15 @@ def test_domain_details_distinguishes_evidence_verified_repairs_without_html_inj
     assert "verified.item_id" in template
     assert "verified.label" in template
     assert "verified.freshness_label" in template
+    assert "verifiedFreshnessClass(verified)" in template
+    assert "verifiedFreshnessWarning(verified)" in template
+    assert "verifiedFreshnessClass(verified)" in script
+    assert "verifiedFreshnessWarning(verified)" in script
+    assert "verifiedFreshnessCounts()" in template
+    assert "verifiedFreshnessCounts()" in script
+    assert "unknown age" in template
+    assert "Freshness gate" in template
+    assert "Refresh the remediation queue and evidence before relying on this repair" in script
     assert "verified.detail" in template
     assert "Closure gate" in template
     assert "verified.closure_gate" in template
@@ -1724,15 +1804,44 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "primaryRemediationReadinessContext" in script
     assert "primaryRemediationBlockedText" in script
     assert "primaryRemediationDispatchText" in script
+    assert "primaryRemediationFreshnessText" in script
+    assert "primaryRemediationClosureGateText" in script
+    assert "primaryRemediationStaleWarningText" in script
+    assert "primaryRemediationEvidenceHref" in script
+    assert "primaryRemediationVerificationStatusLabel" in script
+    assert "primaryRemediationVerificationStatusClass" in script
+    assert "primaryRemediationEvidenceNeededText" in script
+    assert "primaryRemediationFailureModeText" in script
+    assert "remediationStateLabel(state)" in script
+    assert "needs_approval: 'Needs approval'" in script
+    assert "verificationPlanStatusLabel(plan)" in script
+    assert "verificationPlanStatusClass(plan)" in script
+    assert "verificationPlanEvidenceNeededText(plan)" in script
     assert "Next remediation" in template
     assert "Loading next remediation..." in template
     assert "Next remediation could not be loaded." in template
     assert "No remediation queued" in template
-    assert "primaryRemediationItem.state.split('_').join(' ')" in template
+    assert "remediationStateLabel(primaryRemediationItem.state)" in template
+    assert "remediationStateLabel(item.state)" in template
+    assert "primaryRemediationItem.state.split('_').join(' ')" not in template
+    assert "item.state.split('_').join(' ')" not in template
     assert "repairReadinessLabel(primaryRemediationItem.repair_progression)" in template
     assert "repairReadinessScore(primaryRemediationItem.repair_progression)" in template
     assert "Next safe action" in template
-    assert "item.state.split('_').join(' ')" in template
+    assert "Freshness required" in template
+    assert "primaryRemediationFreshnessText" in template
+    assert "primaryRemediationClosureGateText" in template
+    assert "primaryRemediationStaleWarningText" in template
+    assert "primaryRemediationEvidenceHref" in template
+    assert "primaryRemediationVerificationStatusClass" in template
+    assert "primaryRemediationVerificationStatusLabel" in template
+    assert "primaryRemediationEvidenceNeededText" in template
+    assert "primaryRemediationFailureModeText" in template
+    assert "Evidence needed:" in template
+    assert "If not fixed:" in template
+    assert "Open evidence" in template
+    assert 'data-domain-detail-remediation-refresh-evidence' in template
+    assert "remediationEvidenceRefreshActionLabel(primaryRemediationItem.evidence_refresh)" in template
     assert "Repair readiness" in template
     assert "primaryRepairReadinessReasonText" in script
     assert "repairReadinessLabel(primaryRemediationItem.repair_progression)" in template

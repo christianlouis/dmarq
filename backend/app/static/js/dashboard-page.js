@@ -19,6 +19,9 @@ function dashboardApp() {
             { value: 'all', label: 'All' },
             { value: 'preview_ready', label: 'Preview ready' },
             { value: 'fresh_evidence', label: 'Fresh evidence' },
+            { value: 'approval_verification', label: 'Approval' },
+            { value: 'sender_review', label: 'Sender review' },
+            { value: 'report_evidence', label: 'Report evidence' },
             { value: 'stale_evidence', label: 'Stale evidence' },
             { value: 'blocked', label: 'Blocked' },
             { value: 'waiting_operator', label: 'Waiting' },
@@ -1071,6 +1074,7 @@ function dashboardApp() {
             const track = String(item?.remediation_track || '');
             const refresh = item?.evidence_refresh || {};
             const refreshKey = String(refresh.refresh_key || '');
+            const verificationStatus = String(item?.verification_plan?.status || '');
             if (filterValue === 'preview_ready') {
                 return readinessLevel === 'ready_for_preview' || stage === 'preview_ready';
             }
@@ -1078,6 +1082,17 @@ function dashboardApp() {
                 return Boolean(refresh.required) ||
                     Boolean(progression.verification_required) ||
                     Boolean(item?.action_plan?.requires_fresh_evidence);
+            }
+            if (filterValue === 'approval_verification') {
+                return verificationStatus === 'pending_operator_approval' ||
+                    (!verificationStatus &&
+                        ['approval_ready', 'needs_approval'].includes(String(item?.state || '')));
+            }
+            if (filterValue === 'sender_review') {
+                return verificationStatus === 'pending_sender_review';
+            }
+            if (filterValue === 'report_evidence') {
+                return verificationStatus === 'pending_report_evidence';
             }
             if (filterValue === 'stale_evidence') {
                 return Boolean(this.remediationStaleEvidenceText(item));
@@ -1149,6 +1164,40 @@ function dashboardApp() {
             return item?.evidence_refresh?.stale_warning ||
                 item?.verification_plan?.stale_evidence_warning ||
                 '';
+        },
+
+        verificationPlanStatusLabel(plan) {
+            const status = typeof plan === 'string' ? plan : plan?.status;
+            return {
+                pending_operator_approval: 'Needs approval',
+                pending_sender_review: 'Sender review',
+                pending_reputation_review: 'Reputation review',
+                pending_report_evidence: 'Fresh evidence',
+                blocked_by_prerequisite: 'Blocked'
+            }[String(status || '')] || 'Verification needed';
+        },
+
+        verificationPlanStatusClass(plan) {
+            const status = typeof plan === 'string' ? plan : plan?.status;
+            return {
+                pending_operator_approval: 'bg-[#edf7f7] text-[#247982]',
+                pending_sender_review: 'bg-blue-100 text-blue-700',
+                pending_reputation_review: 'bg-purple-100 text-purple-700',
+                pending_report_evidence: 'bg-yellow-100 text-yellow-800',
+                blocked_by_prerequisite: 'bg-red-100 text-red-700'
+            }[String(status || '')] || 'bg-[#f8f7f6] text-[#5f5c78]';
+        },
+
+        verificationPlanFailureMode(plan) {
+            return plan?.failure_mode || 'Keep this open until fresh evidence confirms the finding is gone.';
+        },
+
+        verificationPlanEvidenceNeededText(plan) {
+            const evidence = plan?.evidence_needed || [];
+            if (Array.isArray(evidence) && evidence.length) {
+                return evidence.slice(0, 3).join(' · ');
+            }
+            return 'Fresh DNS, report, or source evidence.';
         },
 
         remediationLoopStatusLabel(status) {

@@ -26,6 +26,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added remediation verification closure gates and stale-evidence warnings so resolved items are not confused with evidence-verified repairs.
 - Added queue-level closure-gate and rollback-guidance counters to highlight remediation items that still need fresh evidence or a recovery path.
 - Added remediation repair-readiness levels, scores, reasons, and blockers so operators can distinguish preview-ready work from manual, blocked, classification, and reputation-review work.
+- Added first-screen remediation freshness and closure-gate context so the top domain action panel shows what evidence must be current before closure.
+- Added top-panel remediation evidence controls so operators can open the relevant evidence section or run the safe read-only evidence refresh without scrolling.
+- Added verified-repair freshness counters so stale or unknown repair-history evidence is visible before opening individual entries.
+- Added dashboard remediation verification freshness and closure gates so workspace cards match domain-level repair semantics.
+- Added dashboard remediation verification plans in the API so workspace cards and domain queue cards share the same closure semantics.
+- Added dashboard remediation verification counters for operator approval, sender review, reputation review, fresh-evidence checks, and missing provider values.
+- Added dashboard remediation verification badges, failure modes, and evidence-needed summaries to keep closure guidance visible on each card.
+- Added dashboard remediation summary breakdowns for approval waits, sender/reputation review, manual evidence checks, and missing provider values.
+- Added dashboard remediation filters for approval verification, sender review, and report-evidence follow-up work.
+- Added explicit domain-detail remediation state labels so approval-ready items do not expose raw internal state names.
+- Added top-level domain remediation verification status, evidence-needed, and failure-mode context before the full remediation queue.
 - Added next-remediation readiness context and verified-repair freshness gates so operators see the next safe action before opening or closing remediation work.
 - Added dashboard remediation-card readiness reasons, blockers, and next-safe-action text so operators can triage fixes before opening the domain queue.
 - Added dashboard remediation sorting, last-refresh context, a queue refresh control, and domain remediation filters for preview-ready, blocked, evidence-gated, manual, and reputation-review work.
