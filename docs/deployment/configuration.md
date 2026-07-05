@@ -57,6 +57,16 @@ paths.
 | `AUTH_DISABLED` | Disable authentication entirely. Only use for local development or a separately protected deployment. | `false` | `true`, `false` |
 | `PUBLIC_BASE_URL` | Public URL used when building OAuth callback URLs behind a reverse proxy or ingress | Auto-detected | `https://dmarq.example.com` |
 | `MULTI_WORKSPACE_UI_ENABLED` | Show workspace switching and Members access-control navigation. Keep disabled for self-hosted single-workspace installs. | `false` | `true`, `false` |
+| `AUTH_REQUIRE_MFA` | Require an accepted MFA assurance claim from direct OIDC or trusted-proxy authentication before DMARQ issues a session. | `false` | `true`, `false` |
+| `AUTH_MFA_CLAIM_NAMES` | Comma-separated claim names to inspect for MFA assurance. Common OIDC claims are `amr` and `acr`. | `amr,acr` | `amr,acr` |
+| `AUTH_MFA_CLAIM_VALUES` | Comma-separated claim values accepted as MFA proof. Adjust this to the values emitted by your IdP. | `mfa,otp,totp,webauthn,hwk,swk,phr` | `mfa,webauthn` |
+
+When `AUTH_REQUIRE_MFA=true`, DMARQ does not perform MFA itself. It verifies
+that the upstream identity provider or trusted proxy explicitly states that MFA
+was used. For OIDC providers, this usually comes through `amr` values such as
+`mfa`, `otp`, or `webauthn`. For trusted-proxy deployments, configure the proxy
+to forward a dedicated assurance header and strip any inbound spoofed copy of
+that header before the request reaches DMARQ.
 
 #### Logto
 
@@ -131,6 +141,7 @@ owner.
 | `AUTH_TRUSTED_PROXY_SUBJECT_HEADER` | Header containing the stable user id | `X-Authentik-Uid` | `X-Authentik-Uid` |
 | `AUTH_TRUSTED_PROXY_NAME_HEADER` | Header containing display name | `X-Authentik-Name` | `X-Authentik-Name` |
 | `AUTH_TRUSTED_PROXY_USERNAME_HEADER` | Header containing username | `X-Authentik-Username` | `X-Authentik-Username` |
+| `AUTH_TRUSTED_PROXY_MFA_HEADER` | Header containing MFA assurance values when `AUTH_REQUIRE_MFA=true` | `X-Authentik-Meta-Amr` | `X-SSO-Amr` |
 | `AUTH_TRUSTED_PROXY_ALLOWED_EMAILS` | Optional comma-separated email allowlist | - | `admin@example.com` |
 | `AUTH_TRUSTED_PROXY_ALLOWED_DOMAINS` | Optional comma-separated domain allowlist | - | `example.com` |
 | `AUTH_TRUSTED_PROXY_GROUP_WORKSPACE_ROLE_MAP` | Optional trusted-proxy group to DMARQ workspace role mapping. Use comma- or semicolon-separated `group=workspace-slug:role` entries. | - | `dmarq-admins=primary:workspace_owner` |

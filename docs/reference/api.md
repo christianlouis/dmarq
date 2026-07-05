@@ -13,7 +13,9 @@ the setup UI. It contains provider metadata and configured/active booleans, but
 never returns client secrets. Each provider entry includes its `provider`,
 `label`, `auth_mode`, `status`, deployment model, setup hint, secret field names,
 docs URL, `supports_direct_oidc`, `supports_trusted_proxy`,
-`supports_single_user`, `supports_multi_user`, and configured/active state.
+`supports_single_user`, `supports_multi_user`, `supports_mfa_policy`,
+configured/active state, and an `mfa_policy` summary containing the current
+requirement flag plus the claim names DMARQ will inspect.
 
 Current ready providers include `disabled` (`No app auth`), `logto`,
 `authentik` (`Authentik OIDC`), `oidc` (`Generic OIDC`), and

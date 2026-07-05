@@ -165,6 +165,9 @@ class Settings(BaseSettings):
     OIDC_ALLOWED_DOMAINS: Optional[str] = None
     OIDC_GROUP_WORKSPACE_ROLE_MAP: Optional[str] = None
     OIDC_GROUP_ORGANIZATION_ROLE_MAP: Optional[str] = None
+    AUTH_REQUIRE_MFA: bool = False
+    AUTH_MFA_CLAIM_NAMES: str = "amr,acr"
+    AUTH_MFA_CLAIM_VALUES: str = "mfa,otp,totp,webauthn,hwk,swk,phr"
 
     AUTHENTIK_ISSUER_URL: Optional[str] = None
     AUTHENTIK_CLIENT_ID: Optional[str] = None
@@ -185,6 +188,7 @@ class Settings(BaseSettings):
     AUTH_TRUSTED_PROXY_USERNAME_HEADER: str = "X-Authentik-Username"
     AUTH_TRUSTED_PROXY_SUBJECT_HEADER: str = "X-Authentik-Uid"
     AUTH_TRUSTED_PROXY_GROUPS_HEADER: str = "X-Authentik-Groups"
+    AUTH_TRUSTED_PROXY_MFA_HEADER: str = "X-Authentik-Meta-Amr"
     AUTH_TRUSTED_PROXY_ALLOWED_EMAILS: Optional[str] = None
     AUTH_TRUSTED_PROXY_ALLOWED_DOMAINS: Optional[str] = None
     AUTH_TRUSTED_PROXY_GROUP_WORKSPACE_ROLE_MAP: Optional[str] = None

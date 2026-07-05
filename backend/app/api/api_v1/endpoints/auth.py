@@ -31,6 +31,7 @@ from app.core.auth_providers import (
     build_oidc_authorization_url,
     configured_oidc_provider,
     decode_oidc_state,
+    enforce_mfa_claims,
     exchange_oidc_callback,
     sync_external_user,
     trusted_proxy_claims_from_request,
@@ -225,7 +226,7 @@ async def _handle_external_oidc_callback(
         return RedirectResponse(url="/login?error=callback_failed", status_code=302)
 
     try:
-        claims = await exchange_oidc_callback(request, provider, code=code)
+        claims = await exchange_oidc_callback(request, provider, code=code, settings=settings)
         user = sync_external_user(claims, db)
     except HTTPException as exc:
         logger.warning("%s callback rejected: %s", provider.label, exc.detail)
@@ -276,6 +277,10 @@ async def callback(
 
     try:
         claims = client.getIdTokenClaims()
+        enforce_mfa_claims("logto", claims, settings)
+    except HTTPException as exc:
+        logger.warning("Logto callback rejected: %s", exc.detail)
+        return RedirectResponse(url="/login?error=callback_failed", status_code=302)
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.warning("Failed to extract ID-token claims: %s", exc)
         return RedirectResponse(url="/login?error=token_error", status_code=302)
