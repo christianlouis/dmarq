@@ -1055,6 +1055,26 @@ function domainDetailsApp(domainId = '') {
             return progression.next_step || progression.summary || 'Review the repair gate before taking action.';
         },
 
+        repairReadinessClass(progression) {
+            const level = String(progression?.readiness_level || '');
+            if (level === 'ready_for_preview') return 'bg-green-100 text-green-700';
+            if (level === 'blocked') return 'bg-red-100 text-red-700';
+            if (level === 'needs_classification') return 'bg-blue-100 text-blue-700';
+            if (level === 'needs_reputation_review') return 'bg-purple-100 text-purple-700';
+            if (level === 'manual_repair') return 'bg-yellow-100 text-yellow-800';
+            return 'bg-base-200 text-base-content/70';
+        },
+
+        repairReadinessLabel(progression) {
+            if (!progression) return 'Needs operator review';
+            return progression.readiness_label || this.humanizeToken(progression.readiness_level || 'needs_operator_review');
+        },
+
+        repairReadinessScore(progression) {
+            const score = Number(progression?.readiness_score || 0);
+            return Number.isFinite(score) ? Math.max(0, Math.min(100, Math.round(score))) : 0;
+        },
+
         remediationRiskClass(value) {
             const risk = String(value || '').toLowerCase();
             if (risk === 'high') return 'bg-red-100 text-red-700';

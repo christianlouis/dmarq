@@ -113,6 +113,11 @@ reputation/report/DNS evidence is still required before closure. This panel is
 read-only; it does not apply DNS changes or send provider requests. The top
 **Next remediation** panel mirrors the same repair-gate status so the operator
 can see the current blocker before opening the full queue.
+Repair progression also includes a readiness label, 0-100 readiness score,
+human-readable reasons, and blocker keys. Use this to separate work that is
+ready for provider preview from work that is blocked by missing provider values,
+sender classification, reputation evidence, or the required fresh-evidence
+closure gate.
 Each item also shows a notification profile such as approval required, action
 required, investigation required, or summary only. These labels explain how
 DMARQ would route the item into alerting or ticketing workflows; viewing the

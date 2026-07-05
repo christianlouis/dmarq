@@ -112,6 +112,10 @@ from app.services.remediation_dispatch import (
     summarize_remediation_activity,
 )
 from app.services.remediation_queue import build_remediation_queue
+from app.services.remediation_readiness import (
+    OPERATOR_REVIEW_READINESS_LEVELS,
+    repair_readiness_for_stage,
+)
 from app.services.report_persistence import (
     domain_summaries_from_db,
     hydrate_domain_report_store_from_db,
@@ -1223,6 +1227,12 @@ class RemediationRepairProgression(BaseModel):
     summary: str
     next_gate: str
     next_step: str
+    readiness_level: str = "needs_operator_review"
+    readiness_label: str = "Needs operator review"
+    readiness_score: int = 0
+    readiness_reasons: List[str] = Field(default_factory=list)
+    blocked_by: List[str] = Field(default_factory=list)
+    next_safe_action: str = ""
     can_preview: bool = False
     can_apply_after_approval: bool = False
     manual_fallback: bool = False
@@ -2031,73 +2041,144 @@ def _remediation_operator_decision_summary(state: str) -> str:
     return "Complete the manual action, refresh evidence, then mark the item resolved."
 
 
+def _dashboard_repair_progression_with_readiness(
+    progression: Dict[str, Any],
+    *,
+    verification_status: str,
+) -> Dict[str, Any]:
+    """Add dashboard-safe read-only repair readiness metadata."""
+    stage = str(progression.get("stage") or "operator_review")
+    reasons: List[str] = []
+    blocked_by: List[str] = []
+    readiness = repair_readiness_for_stage(stage)
+
+    if stage == "preview_ready":
+        reasons.extend(
+            [
+                "A guided repair can be previewed from the domain queue.",
+                "A human approval gate is required before apply.",
+            ]
+        )
+    elif stage == "blocked":
+        blocked_by.append("provider_specific_value")
+        reasons.append("The provider-specific target value is missing.")
+    elif stage == "classification_required":
+        blocked_by.append("sender_classification")
+        reasons.append("The sender must be classified before DNS or policy changes are safe.")
+    elif stage == "reputation_review":
+        blocked_by.append("fresh_reputation_evidence")
+        reasons.append("Fresh reputation or blacklist evidence is required before closure.")
+    elif stage == "manual_repair":
+        reasons.append("The operator must complete the work outside DMARQ, then refresh evidence.")
+    else:
+        reasons.append("The item needs fresh evidence and operator context before closure.")
+
+    if progression.get("verification_required"):
+        blocked_by.append("fresh_evidence_before_closure")
+        reasons.append("Fresh evidence is required before DMARQ can call this fixed.")
+    if verification_status and verification_status != "verified":
+        blocked_by.append(verification_status)
+
+    return {
+        **progression,
+        **readiness,
+        "readiness_reasons": reasons[:5],
+        "blocked_by": list(dict.fromkeys(blocked_by))[:5],
+        "next_safe_action": str(
+            progression.get("next_step")
+            or progression.get("summary")
+            or "Open the remediation queue to review the next safe gate."
+        ),
+    }
+
+
 def _dashboard_repair_progression(state: str, action: Dict[str, Any]) -> Dict[str, Any]:
     """Return a conservative repair gate for dashboard health-action summaries."""
     action_type = str(action.get("type") or "")
     if _remediation_track_for_action(state, action) == "blocked_by_prerequisite":
-        return {
-            "stage": "blocked",
-            "label": "Blocked by prerequisite",
-            "summary": "DMARQ needs a provider-specific value before this can become a safe repair.",
-            "next_gate": "Provider value required",
-            "next_step": "Fetch the exact DKIM, SPF, DMARC, or CNAME target from the mail provider first.",
-            "can_preview": False,
-            "can_apply_after_approval": False,
-            "manual_fallback": True,
-            "verification_required": True,
-            "verification_status": "pending_dns_refresh",
-        }
+        verification_status = "pending_dns_refresh"
+        return _dashboard_repair_progression_with_readiness(
+            {
+                "stage": "blocked",
+                "label": "Blocked by prerequisite",
+                "summary": "DMARQ needs a provider-specific value before this can become a safe repair.",
+                "next_gate": "Provider value required",
+                "next_step": "Fetch the exact DKIM, SPF, DMARC, or CNAME target from the mail provider first.",
+                "can_preview": False,
+                "can_apply_after_approval": False,
+                "manual_fallback": True,
+                "verification_required": True,
+                "verification_status": verification_status,
+            },
+            verification_status=verification_status,
+        )
     if state == "needs_approval":
-        return {
-            "stage": "preview_ready",
-            "label": "Preview ready",
-            "summary": "A guided repair can be reviewed from the domain remediation queue.",
-            "next_gate": "Human approval before apply",
-            "next_step": "Open the domain queue, preview the proposed repair, then approve or reject it.",
-            "can_preview": True,
-            "can_apply_after_approval": True,
-            "manual_fallback": True,
-            "verification_required": True,
-            "verification_status": "pending_operator_approval",
-        }
+        verification_status = "pending_operator_approval"
+        return _dashboard_repair_progression_with_readiness(
+            {
+                "stage": "preview_ready",
+                "label": "Preview ready",
+                "summary": "A guided repair can be reviewed from the domain remediation queue.",
+                "next_gate": "Human approval before apply",
+                "next_step": "Open the domain queue, preview the proposed repair, then approve or reject it.",
+                "can_preview": True,
+                "can_apply_after_approval": True,
+                "manual_fallback": True,
+                "verification_required": True,
+                "verification_status": verification_status,
+            },
+            verification_status=verification_status,
+        )
     if state == "investigate":
         if action_type in REMEDIATION_REPUTATION_ACTION_TYPES:
-            return {
-                "stage": "reputation_review",
-                "label": "Review reputation",
-                "summary": "Fresh reputation evidence is required before this can be closed.",
-                "next_gate": "Fresh reputation evidence",
-                "next_step": "Open source intelligence and confirm whether the sender is trusted.",
+            verification_status = "pending_report_evidence"
+            return _dashboard_repair_progression_with_readiness(
+                {
+                    "stage": "reputation_review",
+                    "label": "Review reputation",
+                    "summary": "Fresh reputation evidence is required before this can be closed.",
+                    "next_gate": "Fresh reputation evidence",
+                    "next_step": "Open source intelligence and confirm whether the sender is trusted.",
+                    "can_preview": False,
+                    "can_apply_after_approval": False,
+                    "manual_fallback": False,
+                    "verification_required": True,
+                    "verification_status": verification_status,
+                },
+                verification_status=verification_status,
+            )
+        verification_status = "pending_sender_review"
+        return _dashboard_repair_progression_with_readiness(
+            {
+                "stage": "classification_required",
+                "label": "Classify sender",
+                "summary": "A human must classify the sender before DNS or policy changes are safe.",
+                "next_gate": "Sender classification",
+                "next_step": "Review recent source evidence and decide whether this sender is legitimate.",
                 "can_preview": False,
                 "can_apply_after_approval": False,
                 "manual_fallback": False,
                 "verification_required": True,
-                "verification_status": "pending_report_evidence",
-            }
-        return {
-            "stage": "classification_required",
-            "label": "Classify sender",
-            "summary": "A human must classify the sender before DNS or policy changes are safe.",
-            "next_gate": "Sender classification",
-            "next_step": "Review recent source evidence and decide whether this sender is legitimate.",
+                "verification_status": verification_status,
+            },
+            verification_status=verification_status,
+        )
+    verification_status = "pending_report_evidence"
+    return _dashboard_repair_progression_with_readiness(
+        {
+            "stage": "manual_repair",
+            "label": "Manual repair",
+            "summary": "The operator must complete this work and refresh evidence before closure.",
+            "next_gate": "Fresh evidence before closure",
+            "next_step": "Complete the manual action, then refresh DMARQ evidence.",
             "can_preview": False,
             "can_apply_after_approval": False,
-            "manual_fallback": False,
+            "manual_fallback": True,
             "verification_required": True,
-            "verification_status": "pending_sender_review",
-        }
-    return {
-        "stage": "manual_repair",
-        "label": "Manual repair",
-        "summary": "The operator must complete this work and refresh evidence before closure.",
-        "next_gate": "Fresh evidence before closure",
-        "next_step": "Complete the manual action, then refresh DMARQ evidence.",
-        "can_preview": False,
-        "can_apply_after_approval": False,
-        "manual_fallback": True,
-        "verification_required": True,
-        "verification_status": "pending_report_evidence",
-    }
+            "verification_status": verification_status,
+        },
+        verification_status=verification_status,
+    )
 
 
 def _dashboard_remediation_item(
@@ -2144,6 +2225,17 @@ def _increment_repair_counters(counters: Dict[str, int], item: Dict[str, Any]) -
         counters["repair_blocked"] += 1
     if repair_progression.get("verification_required"):
         counters["repair_needs_evidence"] += 1
+    readiness_level = str(repair_progression.get("readiness_level") or "")
+    if readiness_level == "ready_for_preview":
+        counters["repair_ready_for_preview"] += 1
+    if readiness_level == "blocked":
+        counters["repair_readiness_blocked"] += 1
+    if readiness_level in OPERATOR_REVIEW_READINESS_LEVELS:
+        counters["repair_waiting_on_operator"] += 1
+    counters["repair_readiness_score"] = max(
+        counters["repair_readiness_score"],
+        int(repair_progression.get("readiness_score") or 0),
+    )
 
 
 def _build_dashboard_remediation_loop(
@@ -2164,6 +2256,10 @@ def _build_dashboard_remediation_loop(
         "repair_preview_ready": 0,
         "repair_blocked": 0,
         "repair_needs_evidence": 0,
+        "repair_ready_for_preview": 0,
+        "repair_waiting_on_operator": 0,
+        "repair_readiness_blocked": 0,
+        "repair_readiness_score": 0,
     }
     track_counters = {f"track_{track}": 0 for track in REMEDIATION_TRACKS}
     items: List[Dict[str, Any]] = []
@@ -2226,6 +2322,10 @@ def _domain_remediation_workload(domain: Dict[str, Any]) -> Dict[str, Any]:
         "repair_preview_ready": 0,
         "repair_blocked": 0,
         "repair_needs_evidence": 0,
+        "repair_ready_for_preview": 0,
+        "repair_waiting_on_operator": 0,
+        "repair_readiness_blocked": 0,
+        "repair_readiness_score": 0,
     }
     track_counters = {f"track_{track}": 0 for track in REMEDIATION_TRACKS}
     items: List[Dict[str, Any]] = []

@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added remediation action-plan decision checkpoints and rollback guidance so operators can review evidence freshness and recovery paths before approving or closing a repair.
 - Added remediation verification closure gates and stale-evidence warnings so resolved items are not confused with evidence-verified repairs.
 - Added queue-level closure-gate and rollback-guidance counters to highlight remediation items that still need fresh evidence or a recovery path.
+- Added remediation repair-readiness levels, scores, reasons, and blockers so operators can distinguish preview-ready work from manual, blocked, classification, and reputation-review work.
 
 ### Changed
 - Cloudflare OAuth profile selection now controls the requested scopes instead of being overridden by the legacy static scope setting.
@@ -40,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remediation notification payloads now include the same repair-progression gates shown in the UI, keeping webhook/ticket previews aligned with human review.
 - Domain remediation pages now show repair-progression gates in the top next-remediation panel and render preview/verification states as operator-readable labels.
 - Dashboard remediation-loop cards now expose the same repair-gate language and workspace counters for preview-ready, evidence-gated, and blocked repair work.
+- Dashboard and domain remediation views now show repair-readiness counters and per-item readiness scores before an operator opens or dispatches remediation work.
 - Reorganized repository: moved development docs (`AGENTS.md`, `ROADMAP.md`, `ISSUE_GENERATION_SUMMARY.md`, `generated_issues/`) into `docs/`
 - Added root-level `CHANGELOG.md` and `TODO.md`
 - Cleaned up root directory for clarity

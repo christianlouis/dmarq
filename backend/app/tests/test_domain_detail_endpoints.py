@@ -906,14 +906,21 @@ def test_dashboard_remediation_loop_exposes_operator_decision_context():
     assert loop["repair_preview_ready"] == 1
     assert loop["repair_needs_evidence"] == 2
     assert loop["repair_blocked"] == 0
+    assert loop["repair_ready_for_preview"] == 1
+    assert loop["repair_waiting_on_operator"] == 1
+    assert loop["repair_readiness_blocked"] == 0
+    assert loop["repair_readiness_score"] == 80
     assert loop["items"][0]["priority_band"] == "high"
     assert loop["items"][0]["safe_to_automate"] is True
     assert loop["items"][0]["risk_level"] == "medium"
     assert loop["items"][0]["repair_progression"]["stage"] == "preview_ready"
     assert loop["items"][0]["repair_progression"]["can_preview"] is True
+    assert loop["items"][0]["repair_progression"]["readiness_level"] == "ready_for_preview"
+    assert loop["items"][0]["repair_progression"]["readiness_score"] == 80
     assert "Preview the exact DNS" in loop["items"][0]["operator_decision_summary"]
     assert loop["items"][1]["remediation_track"] == "reputation_review"
     assert loop["items"][1]["repair_progression"]["stage"] == "reputation_review"
+    assert loop["items"][1]["repair_progression"]["readiness_level"] == "needs_reputation_review"
     assert loop["items"][1]["risk_level"] == "high"
     assert loop["items"][1]["safe_to_automate"] is False
 
@@ -949,9 +956,14 @@ def test_dashboard_remediation_loop_counts_provider_specific_prerequisite_blocks
     assert loop["repair_blocked"] == 1
     assert loop["repair_preview_ready"] == 0
     assert loop["repair_needs_evidence"] == 1
+    assert loop["repair_ready_for_preview"] == 0
+    assert loop["repair_waiting_on_operator"] == 0
+    assert loop["repair_readiness_blocked"] == 1
+    assert loop["repair_readiness_score"] == 20
     assert loop["items"][0]["remediation_track"] == "blocked_by_prerequisite"
     assert loop["items"][0]["repair_progression"]["stage"] == "blocked"
     assert loop["items"][0]["repair_progression"]["can_preview"] is False
+    assert loop["items"][0]["repair_progression"]["readiness_level"] == "blocked"
     assert "provider-specific value" in loop["items"][0]["repair_progression"]["summary"]
 
 

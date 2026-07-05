@@ -970,6 +970,26 @@ function dashboardApp() {
             return progression.next_step || progression.summary || 'Open the remediation queue to review the next safe gate.';
         },
 
+        repairReadinessClass(progression) {
+            const level = String(progression?.readiness_level || '');
+            if (level === 'ready_for_preview') return 'bg-green-100 text-green-700';
+            if (level === 'blocked') return 'bg-red-100 text-red-700';
+            if (level === 'needs_classification') return 'bg-blue-100 text-blue-700';
+            if (level === 'needs_reputation_review') return 'bg-purple-100 text-purple-700';
+            if (level === 'manual_repair') return 'bg-yellow-100 text-yellow-800';
+            return 'bg-[#f8f7f6] text-[#5f5c78]';
+        },
+
+        repairReadinessLabel(progression) {
+            if (!progression) return 'Needs operator review';
+            return progression.readiness_label || this.formatDemoLabel(progression.readiness_level || 'needs_operator_review');
+        },
+
+        repairReadinessScore(progression) {
+            const score = Number(progression?.readiness_score || 0);
+            return Number.isFinite(score) ? Math.max(0, Math.min(100, Math.round(score))) : 0;
+        },
+
         domainActionHref(action) {
             return action && action.domain
                 ? `/domains/${encodeURIComponent(action.domain)}#remediation-queue`
@@ -1655,7 +1675,8 @@ function dashboardApp() {
             latest.className = 'text-xs text-muted-foreground whitespace-nowrap';
             if (workload?.primary?.state) {
                 const track = this.remediationTrackLabel(workload.primary.remediation_track);
-                latest.textContent = `${this.remediationLoopStateLabel(workload.primary.state)} · ${track}`;
+                const readiness = this.repairReadinessLabel(workload.primary.repair_progression);
+                latest.textContent = `${this.remediationLoopStateLabel(workload.primary.state)} · ${track} · ${readiness}`;
             } else if (remediation?.latest_at) {
                 latest.textContent = new Date(remediation.latest_at).toLocaleString();
             } else {
