@@ -851,8 +851,8 @@ returned as `verified_items`; `verified_items_total` and
 only displays the most recent rows. `dispatch_verified_fixed_visible` counts
 the returned rows, and `dispatch_verified_fixed_hidden` reports how many older
 verified repairs were omitted from the compact response. Each verified item
-includes its verification method, status, evidence requirements, next check,
-timestamp, and operator note.
+includes its verification method, status, freshness label, closure gate, next
+safe action, evidence requirements, next check, timestamp, and operator note.
 
 Each notification also includes a compact `history` array derived from
 workspace audit events for the current queue item. The history lists recent

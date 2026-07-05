@@ -570,6 +570,24 @@ function domainDetailsApp(domainId = '') {
             return (item.next_steps || [])[0] || 'Review the evidence and decide whether this fix is still needed.';
         },
 
+        get primaryRemediationNextSafeAction() {
+            const item = this.primaryRemediationItem;
+            if (!item) return '';
+            return item.repair_progression?.next_safe_action || this.primaryRemediationNextStep;
+        },
+
+        get primaryRemediationReadinessContext() {
+            const reasons = this.primaryRemediationItem?.repair_progression?.readiness_reasons || [];
+            return reasons[0] || 'Review current evidence before opening, dispatching, or closing this remediation.';
+        },
+
+        get primaryRemediationBlockedText() {
+            const blockedBy = this.primaryRemediationItem?.repair_progression?.blocked_by || [];
+            if (!blockedBy.length) return 'No readiness blocker is currently recorded.';
+            const labels = blockedBy.slice(0, 3).map(reason => this.humanizeToken(reason));
+            return `Blocked by ${labels.join(', ')}.`;
+        },
+
         get primaryRemediationDispatchText() {
             const dispatch = this.primaryRemediationItem?.notification?.dispatch;
             if (!dispatch) return 'No operator notification configured for this item yet.';

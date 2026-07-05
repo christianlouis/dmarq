@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set
 
 from sqlalchemy import func, or_, select
@@ -83,6 +83,7 @@ HISTORY_ACTIONS = {
     "remediation.notification_lifecycle_recorded",
     "remediation.notification_dispatch_enqueued",
 }
+VERIFIED_FIXED_STALE_AFTER = timedelta(days=7)
 
 
 def _truthy(value: Optional[str], *, default: bool = False) -> bool:
@@ -166,6 +167,32 @@ def _audit_timestamp(value: Any) -> Optional[str]:
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
     return value.isoformat().replace("+00:00", "Z")
+
+
+def _verified_fixed_freshness(
+    recorded_at: Any, *, now: Optional[datetime] = None
+) -> Dict[str, str]:
+    if not isinstance(recorded_at, datetime):
+        return {
+            "freshness_status": "unknown_queue_absence_age",
+            "freshness_label": "Queue absence age unknown",
+        }
+    if recorded_at.tzinfo is None:
+        recorded_at = recorded_at.replace(tzinfo=timezone.utc)
+    if now is None:
+        now = datetime.now(timezone.utc)
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+
+    if now - recorded_at > VERIFIED_FIXED_STALE_AFTER:
+        return {
+            "freshness_status": "stale_queue_absence",
+            "freshness_label": "Stale queue absence",
+        }
+    return {
+        "freshness_status": "current_queue_absence",
+        "freshness_label": "Fresh queue absence",
+    }
 
 
 def _history_entry(row: WorkspaceAuditLog) -> Optional[Dict[str, Any]]:
@@ -484,6 +511,7 @@ def _verified_fixed_items_result(
         details = _audit_details(row)
         if details.get("lifecycle_state") != "resolved":
             continue
+        freshness = _verified_fixed_freshness(row.created_at)
         verified.append(
             {
                 "item_id": item_id,
@@ -496,9 +524,18 @@ def _verified_fixed_items_result(
                 ),
                 "verification_status": "no_longer_observed",
                 "verification_method": "current_queue_absence",
+                **freshness,
+                "closure_gate": (
+                    "Closed only while the latest remediation queue and imported evidence "
+                    "keep this finding absent."
+                ),
                 "next_check": (
                     "Keep importing fresh DMARC reports and refresh DNS evidence; reopen "
                     "the item if the same finding returns."
+                ),
+                "next_safe_action": (
+                    "Keep monitoring fresh reports and DNS evidence before treating this "
+                    "repair as permanently closed."
                 ),
                 "evidence_needed": [
                     "The latest lifecycle marker for this item is resolved.",

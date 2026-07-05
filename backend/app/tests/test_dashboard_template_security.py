@@ -1354,7 +1354,12 @@ def test_domain_details_distinguishes_evidence_verified_repairs_without_html_inj
     assert "items.slice(0, VERIFIED_ITEMS_COMPACT_LIMIT)" in script
     assert "verified.item_id" in template
     assert "verified.label" in template
+    assert "verified.freshness_label" in template
     assert "verified.detail" in template
+    assert "Closure gate" in template
+    assert "verified.closure_gate" in template
+    assert "Next safe action" in template
+    assert "verified.next_safe_action" in template
     assert "verified.operator_note" in template
     assert "formatIsoDate(verified.recorded_at)" in template
     assert "verified.actor_type" in template
@@ -1448,12 +1453,18 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "remediationQueueError" in script
     assert "primaryRemediationItem" in script
     assert "primaryRemediationNextStep" in script
+    assert "primaryRemediationNextSafeAction" in script
+    assert "primaryRemediationReadinessContext" in script
+    assert "primaryRemediationBlockedText" in script
     assert "primaryRemediationDispatchText" in script
     assert "Next remediation" in template
     assert "Loading next remediation..." in template
     assert "Next remediation could not be loaded." in template
     assert "No remediation queued" in template
     assert "primaryRemediationItem.state.split('_').join(' ')" in template
+    assert "repairReadinessLabel(primaryRemediationItem.repair_progression)" in template
+    assert "repairReadinessScore(primaryRemediationItem.repair_progression)" in template
+    assert "Next safe action" in template
     assert "item.state.split('_').join(' ')" in template
     assert 'href="#remediation-queue"' in template
     assert 'id="remediation-queue"' in template

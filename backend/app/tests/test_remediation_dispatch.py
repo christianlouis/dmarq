@@ -312,6 +312,7 @@ def test_attach_remediation_dispatch_previews_skips_empty_queues(monkeypatch):
 
 def test_attach_remediation_dispatch_previews_reports_verified_fixed_items(db_session):
     workspace = get_or_create_default_workspace(db_session)
+    resolved_at = datetime.now(timezone.utc) - timedelta(days=1)
     db_session.add_all(
         [
             WorkspaceAuditLog(
@@ -327,7 +328,7 @@ def test_attach_remediation_dispatch_previews_reports_verified_fixed_items(db_se
                         "operator_note": "Record is now visible after propagation.",
                     }
                 ),
-                created_at=datetime(2026, 7, 1, 8, 0, 0),
+                created_at=resolved_at,
             ),
             WorkspaceAuditLog(
                 workspace_id=workspace.id,
@@ -394,19 +395,56 @@ def test_attach_remediation_dispatch_previews_reports_verified_fixed_items(db_se
             ),
             "verification_status": "no_longer_observed",
             "verification_method": "current_queue_absence",
+            "freshness_status": "current_queue_absence",
+            "freshness_label": "Fresh queue absence",
+            "closure_gate": (
+                "Closed only while the latest remediation queue and imported evidence "
+                "keep this finding absent."
+            ),
             "next_check": (
                 "Keep importing fresh DMARC reports and refresh DNS evidence; reopen "
                 "the item if the same finding returns."
+            ),
+            "next_safe_action": (
+                "Keep monitoring fresh reports and DNS evidence before treating this "
+                "repair as permanently closed."
             ),
             "evidence_needed": [
                 "The latest lifecycle marker for this item is resolved.",
                 "The same item id is absent from the current remediation queue.",
             ],
-            "recorded_at": "2026-07-01T08:00:00Z",
+            "recorded_at": remediation_dispatch._audit_timestamp(resolved_at),
             "operator_note": "Record is now visible after propagation.",
             "actor_type": "operator",
         }
     ]
+
+
+def test_verified_fixed_freshness_marks_old_absence_stale():
+    now = datetime(2026, 7, 15, 12, 0, 0, tzinfo=timezone.utc)
+
+    assert remediation_dispatch._verified_fixed_freshness(
+        now - timedelta(days=1), now=now
+    ) == {
+        "freshness_status": "current_queue_absence",
+        "freshness_label": "Fresh queue absence",
+    }
+    assert remediation_dispatch._verified_fixed_freshness(
+        now - timedelta(days=8), now=now
+    ) == {
+        "freshness_status": "stale_queue_absence",
+        "freshness_label": "Stale queue absence",
+    }
+    assert remediation_dispatch._verified_fixed_freshness(None, now=now) == {
+        "freshness_status": "unknown_queue_absence_age",
+        "freshness_label": "Queue absence age unknown",
+    }
+    assert remediation_dispatch._verified_fixed_freshness(
+        datetime(2026, 7, 14, 12, 0, 0), now=datetime(2026, 7, 15, 12, 0, 0)
+    ) == {
+        "freshness_status": "current_queue_absence",
+        "freshness_label": "Fresh queue absence",
+    }
 
 
 def test_verified_fixed_total_counts_beyond_visible_limit(db_session):
