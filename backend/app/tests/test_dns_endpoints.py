@@ -2234,9 +2234,11 @@ def test_summary_includes_remediation_activity(authed_client: TestClient, db_ses
     assert domain["remediation"]["dispatch_enqueued"] == 1
     assert data["health_summary"]["remediation"]["domains_with_activity"] == 1
     assert data["health_summary"]["remediation"]["resolved"] == 1
+    assert data["health_summary"]["remediation"]["verified_fixed"] == 0
     assert data["health_summary"]["remediation"]["delivery_count"] == 1
     assert data["health_summary"]["remediation_loop"]["resolved"] == 1
     assert data["health_summary"]["remediation_loop"]["fixed"] == 1
+    assert data["health_summary"]["remediation_loop"]["verified_fixed"] == 0
 
     activity = summarize_remediation_activity(
         db_session,

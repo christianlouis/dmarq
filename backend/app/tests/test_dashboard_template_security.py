@@ -322,6 +322,9 @@ def test_dashboard_remediation_loop_uses_resolved_language():
     assert "Resolved" in template
     assert "Operator-marked resolved items" in template
     assert "remediationLoop().resolved || remediationLoop().fixed || 0" in template
+    assert "Verified fixed" in template
+    assert "Resolved items no longer observed" in template
+    assert "remediationLoop().verified_fixed || 0" in template
 
 
 def test_dashboard_remediation_cards_show_owner_and_completion_context():
