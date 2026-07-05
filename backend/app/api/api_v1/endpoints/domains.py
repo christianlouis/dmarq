@@ -1838,8 +1838,10 @@ def _build_dashboard_remediation_loop(
     remediation_activity: Dict[str, Any],
 ) -> Dict[str, Any]:
     """Return a visible remediation-loop summary for the workspace dashboard."""
+    resolved_count = int((remediation_activity.get("summary") or {}).get("resolved") or 0)
     counters = {
-        "fixed": int((remediation_activity.get("summary") or {}).get("resolved") or 0),
+        "resolved": resolved_count,
+        "fixed": resolved_count,
         "needs_approval": 0,
         "manual_action": 0,
         "investigate": 0,
