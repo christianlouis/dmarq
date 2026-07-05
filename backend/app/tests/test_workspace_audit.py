@@ -572,6 +572,8 @@ def test_support_access_grants_are_customer_visible_and_audited(
         assert visible.json()["grants"][0]["id"] == grant_id
 
     with _client_as_user(test_app, db_session, analyst) as client:
+        list_denied = client.get("/api/v1/audit/support-access/grants")
+        assert list_denied.status_code == 403
         denied = client.post(
             "/api/v1/audit/support-access/grants",
             json={
@@ -583,6 +585,16 @@ def test_support_access_grants_are_customer_visible_and_audited(
         assert denied.status_code == 403
 
     with _client_as_user(test_app, db_session, owner) as client:
+        invalid_scope = client.post(
+            "/api/v1/audit/support-access/grants",
+            json={
+                "approved_principal": "support@dmarq.example",
+                "reason": "Reject misleading support scope",
+                "expires_at": expires_at,
+                "scope": "admin",
+            },
+        )
+        assert invalid_scope.status_code == 422
         revoked = client.post(
             f"/api/v1/audit/support-access/grants/{grant_id}/revoke",
             json={"reason": "Investigation finished"},
@@ -608,6 +620,32 @@ def test_support_access_grants_are_customer_visible_and_audited(
     ]
     assert rows[0].ip_address == "203.0.113.42"
     assert "customer_visible" in rows[0].details
+
+
+def test_support_access_grants_deny_jwt_without_bootstrapping_default_workspace(
+    test_app,
+    db_session: Session,
+):
+    """Support grant writes cannot migrate legacy rows before authorization."""
+    unscoped_domain = Domain(name="unscoped-support-access.example", active=True)
+    db_session.add(unscoped_domain)
+    db_session.commit()
+    expires_at = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+
+    with _client_as_jwt(test_app, db_session, "unknown-support-sub") as client:
+        response = client.post(
+            "/api/v1/audit/support-access/grants",
+            json={
+                "approved_principal": "support@dmarq.example",
+                "reason": "Should not mutate before authorization",
+                "expires_at": expires_at,
+            },
+        )
+
+    assert response.status_code == 403
+    assert db_session.query(Workspace).count() == 0
+    db_session.refresh(unscoped_domain)
+    assert unscoped_domain.workspace_id is None
 
 
 def test_mail_source_changes_create_workspace_audit_without_secret_values(

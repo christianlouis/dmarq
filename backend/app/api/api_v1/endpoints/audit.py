@@ -84,6 +84,7 @@ ENTERPRISE_AUDIT_EXPORT_FIELDS = [
 SUPPORT_ACCESS_ENTITY_TYPE = "support_access_grant"
 SUPPORT_ACCESS_CREATED_ACTION = "support_access.grant_created"
 SUPPORT_ACCESS_REVOKED_ACTION = "support_access.grant_revoked"
+SUPPORT_ACCESS_SCOPE = "read_only_diagnostics"
 
 
 def _authorized_audit_workspace(
@@ -118,12 +119,24 @@ def _authorized_support_admin_workspace(
     selected_workspace_id: Optional[int] = None,
 ):
     """Resolve the workspace for explicit support-access administration."""
-    return resolve_authorized_workspace(
-        db,
-        auth_context,
-        PERMISSION_WORKSPACE_ADMIN,
-        selected_workspace_id=selected_workspace_id,
-    )
+    if selected_workspace_id is not None:
+        return resolve_authorized_workspace(
+            db,
+            auth_context,
+            PERMISSION_WORKSPACE_ADMIN,
+            selected_workspace_id=selected_workspace_id,
+        )
+
+    workspace = get_default_workspace(db)
+    if workspace is None:
+        if (auth_context or {}).get("auth_type") not in {"api_key", "disabled"}:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Workspace permission required: {PERMISSION_WORKSPACE_ADMIN}",
+            )
+        workspace = assign_default_workspace_to_unscoped_rows(db, commit=False)
+    require_workspace_permission(auth_context, PERMISSION_WORKSPACE_ADMIN, db, workspace)
+    return assign_default_workspace_to_unscoped_rows(db, commit=False)
 
 
 def _parse_timestamp(value: Any) -> Optional[datetime]:
@@ -281,6 +294,11 @@ async def create_support_access_grant(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="expires_at must be a future timestamp",
+        )
+    if payload.scope != SUPPORT_ACCESS_SCOPE:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"scope must be {SUPPORT_ACCESS_SCOPE}",
         )
     grant_id = uuid4().hex
     record_workspace_audit_log(
