@@ -373,6 +373,13 @@ def test_domain_details_remediation_queue_shows_verification_context():
     assert "item.verification_plan.verification_method" in template
     assert "item.verification_plan.freshness_requirement" in template
     assert "item.verification_plan.failure_mode" in template
+    assert "Repair progression" in template
+    assert "remediationQueue.summary.repair_preview_ready" in template
+    assert "remediationQueue.summary.repair_needs_evidence" in template
+    assert "remediationQueue.loop?.repair_blocked" in template
+    assert "item.repair_progression.next_gate" in template
+    assert "item.repair_progression.can_preview" in template
+    assert "item.repair_progression.verification_required" in template
     assert "remediationRiskClass(value)" in script
     assert "verifiedItemsTotalCount()" in script
     assert "verifiedItemsHiddenCount()" in script
@@ -1222,6 +1229,8 @@ def test_domain_details_exposes_remediation_action_plans_without_html_injection(
     assert "item.action_plan.steps" in template
     assert "item.action_plan.completion_criteria" in template
     assert "item.action_plan.safe_to_automate" in template
+    assert "item.repair_progression" in template
+    assert "item.repair_progression.next_step" in template
     assert "Verification" in template
     assert "item.verification_plan.status" in template
     assert "item.verification_plan.evidence_needed" in template

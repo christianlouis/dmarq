@@ -802,7 +802,13 @@ prerequisites, expected health-score impact, automation eligibility, and
 read-only notification routing metadata. Items also expose stable remediation
 loop fields so product and automation surfaces can use the same language:
 `incident_type`, `loop_state`, `remediation_track`, `priority_score`,
-`priority_band`, and `operator_decisions`. Each `action_plan` also explains the
+`priority_band`, `operator_decisions`, and `repair_progression`. The
+`repair_progression` object is read-only and explains the current safe repair
+stage (`preview_ready`, `blocked`, `classification_required`,
+`manual_repair`, `reputation_review`, or `operator_review`), the next approval
+gate, whether a provider preview is available, whether an apply could happen
+after explicit approval, whether a manual fallback exists, and which fresh
+verification status still has to clear. Each `action_plan` also explains the
 owner, risk level, whether the item is safe for provider automation, and the
 operator decision that should happen next. DNS items that have a concrete safe
 TXT/CNAME provider write are marked `approval_ready` and point to the same
@@ -816,7 +822,11 @@ approval, what needs manual action, what needs investigation, the current
 operator buckets with counters such as `provider_fix_available`,
 `self_hosted_guidance`, `manual_only`, `blocked_by_prerequisite`, and
 track-specific counters like `track_provider_preview`, `track_manual_dns`,
-`track_sender_investigation`, and `track_reputation_review`.
+`track_sender_investigation`, and `track_reputation_review`. They also expose
+repair-progression counters such as `repair_preview_ready`, `repair_blocked`,
+and `repair_needs_evidence`, so clients can distinguish a ready provider
+preview from a finding that still needs sender classification, provider values,
+or fresh report/DNS evidence.
 
 Notification metadata includes the event name, channel, dedupe key, reason, and
 next state transition that an operator workflow can use. Each notification also

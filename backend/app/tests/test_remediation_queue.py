@@ -83,6 +83,10 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
         "self_hosted_guidance": 1,
         "manual_only": 0,
         "blocked_by_prerequisite": 0,
+        "repair_preview_ready": 1,
+        "repair_approval_pending": 0,
+        "repair_blocked": 0,
+        "repair_needs_evidence": 2,
         "notify_approval_required": 1,
         "notify_action_required": 0,
         "notify_investigation_required": 1,
@@ -110,6 +114,10 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
         "track_sender_investigation": 1,
         "track_reputation_review": 0,
         "track_self_hosted_or_provider": 0,
+        "repair_preview_ready": 1,
+        "repair_approval_pending": 0,
+        "repair_blocked": 0,
+        "repair_needs_evidence": 2,
         "top_item_id": "dns:dmarc-missing",
         "top_incident_type": "dmarc_policy_missing_or_weak",
         "top_loop_state": "proposal_ready_for_approval",
@@ -127,6 +135,20 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
         "preview_change",
         "approve_after_preview",
     ]
+    assert queue["items"][0]["repair_progression"] == {
+        "stage": "preview_ready",
+        "label": "Preview ready",
+        "summary": "A connected DNS provider can prepare the exact mutation for review.",
+        "next_gate": "Human approval before apply",
+        "next_step": (
+            "Open the provider preview, compare old and new DNS values, then approve or reject."
+        ),
+        "can_preview": True,
+        "can_apply_after_approval": True,
+        "manual_fallback": True,
+        "verification_required": True,
+        "verification_status": "pending_operator_approval",
+    }
     assert queue["items"][0]["state"] == "approval_ready"
     assert queue["items"][0]["automation"]["eligible"] is True
     assert queue["items"][0]["automation"]["apply_endpoint"] == (
@@ -193,6 +215,20 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
             "resolved",
             "rejected",
         ],
+        "repair_progression": {
+            "stage": "preview_ready",
+            "label": "Preview ready",
+            "summary": "A connected DNS provider can prepare the exact mutation for review.",
+            "next_gate": "Human approval before apply",
+            "next_step": (
+                "Open the provider preview, compare old and new DNS values, then approve or reject."
+            ),
+            "can_preview": True,
+            "can_apply_after_approval": True,
+            "manual_fallback": True,
+            "verification_required": True,
+            "verification_status": "pending_operator_approval",
+        },
         "title": "Publish DMARC",
         "detail": "No DMARC TXT record was found.",
         "notification_state": "approval_required",
@@ -304,6 +340,8 @@ def test_remediation_queue_keeps_placeholder_plan_manual():
     assert queue["status"] == "needs_manual_action"
     assert queue["summary"]["manual_action"] == 1
     assert queue["summary"]["blocked_by_prerequisite"] == 1
+    assert queue["summary"]["repair_blocked"] == 1
+    assert queue["summary"]["repair_needs_evidence"] == 1
     assert queue["summary"]["notify_summary_only"] == 1
     assert queue["loop"]["status"] == "manual_action_required"
     assert queue["loop"]["blocked_by_prerequisite"] == 1
@@ -318,6 +356,9 @@ def test_remediation_queue_keeps_placeholder_plan_manual():
         "self_hosted",
     }
     assert queue["items"][0]["action_plan"]["completion_criteria"]
+    assert queue["items"][0]["repair_progression"]["stage"] == "blocked"
+    assert queue["items"][0]["repair_progression"]["can_preview"] is False
+    assert queue["items"][0]["repair_progression"]["manual_fallback"] is True
     assert queue["items"][0]["notification"]["state"] == "summary_only"
     assert queue["items"][0]["notification"]["event"] == "dmarq.remediation.summary"
     assert queue["items"][0]["notification"]["payload_preview"]["event_type"] == (
@@ -396,6 +437,10 @@ def test_remediation_queue_requires_recommended_provider_for_automation():
     assert queue["items"][0]["automation"]["eligible"] is False
     assert queue["items"][0]["automation"]["provider"] is None
     assert queue["items"][0]["automation"]["apply_endpoint"] is None
+    assert queue["items"][0]["repair_progression"]["stage"] == "manual_repair"
+    assert queue["items"][0]["repair_progression"]["next_gate"] == (
+        "Operator applies DNS manually"
+    )
     assert queue["items"][0]["action_plan"]["owner"] == "Domain DNS operator"
     assert queue["items"][0]["action_plan"]["steps"]
     assert queue["items"][0]["notification"]["state"] == "action_required"
