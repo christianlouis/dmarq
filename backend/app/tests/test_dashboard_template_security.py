@@ -338,6 +338,28 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert 'x-text="item.verification_next_check"' in template
 
 
+def test_domain_details_remediation_queue_shows_verification_context():
+    template = _domain_details_template()
+    script = _domain_details_script()
+
+    assert 'x-text="verifiedItemsTotalCount()"' in template
+    assert "verified_items_total" in script
+    assert "verifiedItemsHiddenCount()" in template
+    assert "verified.verification_method" in template
+    assert "verified.verification_status" in template
+    assert "verified.next_check" in template
+    assert "item.action_plan.operator_decision_summary" in template
+    assert "item.action_plan.risk_level" in template
+    assert "remediationRiskClass(item.action_plan.risk_level || 'medium')" in template
+    assert "item.priority_band" in template
+    assert "item.verification_plan.verification_method" in template
+    assert "item.verification_plan.freshness_requirement" in template
+    assert "item.verification_plan.failure_mode" in template
+    assert "remediationRiskClass(value)" in script
+    assert "verifiedItemsTotalCount()" in script
+    assert "verifiedItemsHiddenCount()" in script
+
+
 def test_dashboard_remediation_queue_href_encodes_domain_and_anchor():
     assert (
         _run_dashboard_expression("app.domainRemediationHref('mail.example/a b')")
@@ -1219,6 +1241,7 @@ def test_domain_details_investigation_actions_include_rejection_option():
 
 def test_domain_details_distinguishes_evidence_verified_repairs_without_html_injection():
     template = _domain_details_template()
+    script = _domain_details_script()
 
     assert "Evidence-verified repairs" in template
     assert (
@@ -1226,7 +1249,8 @@ def test_domain_details_distinguishes_evidence_verified_repairs_without_html_inj
         "in the current remediation queue."
     ) in template
     assert "Keep monitoring this repair; no DNS or mail settings were changed" in template
-    assert "remediationQueue.verified_items.length" in template
+    assert "const visible = (this.remediationQueue.verified_items || []).length" in script
+    assert "this.verifiedItemsTotalCount() - visible" in script
     assert "remediationQueue.verified_items.slice(0, 4)" in template
     assert "verified.item_id" in template
     assert "verified.label" in template

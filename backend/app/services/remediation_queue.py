@@ -21,6 +21,15 @@ STATE_PRIORITY = {
     "investigate": 20,
     "informational": 10,
 }
+TRACKS = (
+    "provider_preview",
+    "manual_dns",
+    "sender_investigation",
+    "reputation_review",
+    "self_hosted_or_provider",
+    "blocked_by_prerequisite",
+    "manual_only",
+)
 INCIDENT_TYPES = {
     "low_compliance": "legitimate_sender_failing_alignment",
     "missing_dmarc": "dmarc_policy_missing_or_weak",
@@ -84,7 +93,7 @@ def _queue_status(items: List[Dict[str, Any]]) -> str:
 
 
 def _summary(items: List[Dict[str, Any]]) -> Dict[str, int]:
-    return {
+    summary = {
         "total": len(items),
         "approval_ready": sum(1 for item in items if item["state"] == "approval_ready"),
         "manual_action": sum(1 for item in items if item["state"] == "manual_action"),
@@ -120,6 +129,11 @@ def _summary(items: List[Dict[str, Any]]) -> Dict[str, int]:
             1 for item in items if item.get("notification", {}).get("state") == "summary_only"
         ),
     }
+    for track in TRACKS:
+        summary[f"track_{track}"] = sum(
+            1 for item in items if item.get("remediation_track") == track
+        )
+    return summary
 
 
 def _incident_type_for_item(item: Dict[str, Any]) -> str:
@@ -185,6 +199,18 @@ def _priority_score(item: Dict[str, Any]) -> int:
     return severity + state + automation + min(impact, 50)
 
 
+def _priority_band(item: Dict[str, Any], *, score: Optional[int] = None) -> str:
+    if score is None:
+        score = int(item.get("priority_score") or _priority_score(item))
+    if score >= 400:
+        return "urgent"
+    if score >= 300:
+        return "high"
+    if score >= 200:
+        return "normal"
+    return "watch"
+
+
 def _operator_decision_options(item: Dict[str, Any]) -> List[str]:
     """Return allowed human-in-the-loop actions for UI and integrations."""
     options = ["previewed", "acknowledged", "snoozed", "resolved", "rejected"]
@@ -195,12 +221,27 @@ def _operator_decision_options(item: Dict[str, Any]) -> List[str]:
     return options
 
 
+def _operator_decision_summary(item: Dict[str, Any]) -> str:
+    remediation_track = str(item.get("remediation_track") or _remediation_track(item))
+    if item.get("automation", {}).get("eligible"):
+        return "Preview the exact DNS diff, then explicitly approve or reject the proposed repair."
+    if item.get("state") == "investigate":
+        return "Classify the sender before authorizing DNS, suppressing alerts, or marking the item fixed."
+    if remediation_track == "blocked_by_prerequisite":
+        return (
+            "Collect the missing provider-specific value before this can become a repair proposal."
+        )
+    return "Acknowledge the work, complete it manually, then mark it resolved only after fresh evidence confirms it."
+
+
 def _apply_loop_metadata(items: List[Dict[str, Any]]) -> None:
     for item in items:
         item["incident_type"] = _incident_type_for_item(item)
         item["loop_state"] = _loop_state_for_item(item)
         item["remediation_track"] = _remediation_track(item)
-        item["priority_score"] = _priority_score(item)
+        priority_score = _priority_score(item)
+        item["priority_score"] = priority_score
+        item["priority_band"] = _priority_band(item, score=priority_score)
         item["operator_decisions"] = _operator_decision_options(item)
 
 
@@ -234,8 +275,16 @@ def _loop_summary(domain: str, items: List[Dict[str, Any]]) -> Dict[str, Any]:
         "what_needs_investigation": summary["investigate"],
         "manual_only": summary["manual_only"],
         "blocked_by_prerequisite": summary["blocked_by_prerequisite"],
+        "track_provider_preview": summary["track_provider_preview"],
+        "track_manual_dns": summary["track_manual_dns"],
+        "track_sender_investigation": summary["track_sender_investigation"],
+        "track_reputation_review": summary["track_reputation_review"],
+        "track_self_hosted_or_provider": summary["track_self_hosted_or_provider"],
         "top_item_id": next_item.get("id") if next_item else None,
         "top_incident_type": next_item.get("incident_type") if next_item else None,
+        "top_loop_state": next_item.get("loop_state") if next_item else None,
+        "top_remediation_track": next_item.get("remediation_track") if next_item else None,
+        "top_priority_band": next_item.get("priority_band") if next_item else None,
         "top_priority_score": next_item.get("priority_score") if next_item else 0,
     }
 
@@ -303,6 +352,10 @@ def _remediation_notification_payload(domain: str, item: Dict[str, Any]) -> Dict
         "loop_state": str(item.get("loop_state") or ""),
         "remediation_track": str(item.get("remediation_track") or ""),
         "priority_score": int(item.get("priority_score") or 0),
+        "priority_band": str(item.get("priority_band") or "watch"),
+        "operator_decisions": [
+            str(decision) for decision in item.get("operator_decisions", []) if str(decision)
+        ][:8],
         "title": str(item.get("title") or ""),
         "detail": str(item.get("detail") or ""),
         "notification_state": str(notification.get("state") or "summary_only"),
@@ -321,12 +374,27 @@ def _remediation_notification_payload(domain: str, item: Dict[str, Any]) -> Dict
         "action_plan": {
             "owner": str(action_plan.get("owner") or ""),
             "automation_path": str(action_plan.get("automation_path") or ""),
+            "risk_level": str(action_plan.get("risk_level") or ""),
+            "safe_to_automate": bool(action_plan.get("safe_to_automate")),
+            "operator_decision_summary": str(action_plan.get("operator_decision_summary") or ""),
             "completion_criteria": str(action_plan.get("completion_criteria") or ""),
             "steps": [str(step) for step in action_plan.get("steps", []) if str(step).strip()][:5],
+            "guidance_paths": [
+                {
+                    "key": str(path.get("key") or ""),
+                    "label": str(path.get("label") or ""),
+                    "owner": str(path.get("owner") or ""),
+                }
+                for path in action_plan.get("guidance_paths", [])
+                if str(path.get("key") or "")
+            ][:3],
         },
         "verification": {
             "label": str(verification_plan.get("label") or ""),
             "status": str(verification_plan.get("status") or ""),
+            "method": str(verification_plan.get("verification_method") or ""),
+            "freshness_requirement": str(verification_plan.get("freshness_requirement") or ""),
+            "failure_mode": str(verification_plan.get("failure_mode") or ""),
             "summary": str(verification_plan.get("summary") or ""),
             "next_check": str(verification_plan.get("next_check") or ""),
             "evidence_needed": [
@@ -587,6 +655,8 @@ def _action_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
     if automation.get("eligible"):
         owner = "Domain DNS operator"
         completion = "Provider preview is approved, applied, and verified by DMARQ."
+        risk_level = "medium"
+        safe_to_automate = True
         steps = [
             "Open the DNS change plan and preview the provider mutation.",
             "Confirm the zone, record name, old value, new value, and TTL.",
@@ -594,6 +664,8 @@ def _action_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
         ]
     elif state == "investigate":
         owner = "Mail operations owner"
+        risk_level = "high"
+        safe_to_automate = False
         completion = str(
             item.get("completion_criteria")
             or "Sender legitimacy is confirmed and the item is resolved or converted into a DNS repair."
@@ -605,6 +677,8 @@ def _action_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
         ]
     elif source == "dns_lint":
         owner = "Domain DNS operator"
+        risk_level = "medium"
+        safe_to_automate = False
         completion = "The DNS lint finding is no longer present after refresh."
         steps = steps or [
             "Open the DNS guidance section.",
@@ -613,6 +687,8 @@ def _action_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
         ]
     else:
         owner = "Mail operations owner"
+        risk_level = "medium" if item.get("severity") in {"critical", "high"} else "low"
+        safe_to_automate = False
         completion = str(
             item.get("completion_criteria")
             or "The underlying domain health action no longer appears in the remediation queue."
@@ -632,6 +708,9 @@ def _action_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
         "steps": steps[:6],
         "completion_criteria": completion,
         "automation_path": automation_path,
+        "risk_level": risk_level,
+        "safe_to_automate": safe_to_automate,
+        "operator_decision_summary": _operator_decision_summary(item),
         "guidance_paths": _guidance_paths_for_item(
             item,
             owner=owner,
@@ -651,6 +730,9 @@ def _verification_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "label": "Verify after approved provider repair",
             "status": "pending_operator_approval",
+            "verification_method": "provider_write_then_dns_refresh",
+            "freshness_requirement": "Fresh DNS evidence after provider propagation.",
+            "failure_mode": "Keep the item open if the expected record is not visible.",
             "summary": (
                 f"DMARQ should only mark this fixed after the approved {provider} write is "
                 "visible in fresh DNS evidence."
@@ -667,6 +749,9 @@ def _verification_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "label": "Verify DNS evidence after manual repair",
             "status": "pending_dns_refresh",
+            "verification_method": "manual_dns_refresh",
+            "freshness_requirement": "Fresh resolver evidence after DNS TTL and propagation.",
+            "failure_mode": "Keep the manual action open if the lint finding remains.",
             "summary": (
                 "Manual DNS changes are complete only when DMARQ can read the corrected record "
                 "from trusted resolver evidence."
@@ -683,6 +768,9 @@ def _verification_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "label": "Verify sender evidence before repair",
             "status": "pending_sender_review",
+            "verification_method": "fresh_dmarc_report_window",
+            "freshness_requirement": "A new receiver report covering the active sender.",
+            "failure_mode": "Keep investigating if the sender remains unknown, failing, or stale.",
             "summary": (
                 "Investigation items are not fixed until the sender is classified and fresh "
                 "DMARC reports prove the chosen treatment."
@@ -698,6 +786,9 @@ def _verification_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "label": "Verify domain health after operator action",
         "status": "pending_report_evidence",
+        "verification_method": "fresh_health_rebuild",
+        "freshness_requirement": "Fresh DMARC reports or DNS checks after the operator action.",
+        "failure_mode": "Keep the item open if the same health action is still present.",
         "summary": (
             "Health items should stay open until fresh DMARC or DNS evidence confirms the "
             "underlying finding is gone."

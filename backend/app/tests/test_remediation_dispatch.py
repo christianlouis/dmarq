@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from app.models.workspace_access import WorkspaceAuditLog
@@ -144,6 +144,7 @@ def test_attach_remediation_dispatch_previews_adds_dashboard_summary(monkeypatch
     assert summary["dispatch_awaiting_acknowledgement"] == 1
     assert summary["dispatch_webhook_routes"] == 1
     assert summary["dispatch_verified_fixed"] == 0
+    assert summary["dispatch_verified_fixed_visible"] == 0
 
 
 def test_attach_remediation_dispatch_previews_counts_operator_held_items(monkeypatch):
@@ -221,6 +222,7 @@ def test_attach_remediation_dispatch_previews_counts_operator_held_items(monkeyp
     assert result["summary"]["dispatch_rejected"] == 0
     assert result["summary"]["dispatch_snoozed"] == 0
     assert result["summary"]["dispatch_verified_fixed"] == 0
+    assert result["summary"]["dispatch_verified_fixed_visible"] == 0
 
 
 def test_verification_state_covers_lifecycle_branches():
@@ -299,8 +301,10 @@ def test_attach_remediation_dispatch_previews_skips_empty_queues(monkeypatch):
         "dispatch_rejected": 0,
         "dispatch_snoozed": 0,
         "dispatch_verified_fixed": 0,
+        "dispatch_verified_fixed_visible": 0,
     }
     assert result["verified_items"] == []
+    assert result["verified_items_total"] == 0
 
 
 def test_attach_remediation_dispatch_previews_reports_verified_fixed_items(db_session):
@@ -373,6 +377,8 @@ def test_attach_remediation_dispatch_previews_reports_verified_fixed_items(db_se
     )
 
     assert result["summary"]["dispatch_verified_fixed"] == 1
+    assert result["summary"]["dispatch_verified_fixed_visible"] == 1
+    assert result["verified_items_total"] == 1
     assert result["verified_items"] == [
         {
             "item_id": "dns:dmarc-missing",
@@ -383,11 +389,102 @@ def test_attach_remediation_dispatch_previews_reports_verified_fixed_items(db_se
                 "This remediation item was marked resolved and no longer appears "
                 "in the current remediation queue."
             ),
+            "verification_status": "no_longer_observed",
+            "verification_method": "current_queue_absence",
+            "next_check": (
+                "Keep importing fresh DMARC reports and refresh DNS evidence; reopen "
+                "the item if the same finding returns."
+            ),
+            "evidence_needed": [
+                "The latest lifecycle marker for this item is resolved.",
+                "The same item id is absent from the current remediation queue.",
+            ],
             "recorded_at": "2026-07-01T08:00:00Z",
             "operator_note": "Record is now visible after propagation.",
             "actor_type": "operator",
         }
     ]
+
+
+def test_verified_fixed_total_counts_beyond_visible_limit(db_session):
+    workspace = get_or_create_default_workspace(db_session)
+    base_time = datetime(2026, 7, 1, 8, 0, 0)
+    db_session.add_all(
+        [
+            WorkspaceAuditLog(
+                workspace_id=workspace.id,
+                actor_type="operator",
+                action="remediation.notification_lifecycle_recorded",
+                entity_type="remediation_notification",
+                entity_id=f"dns:fixed-{index}",
+                entity_name="example.com",
+                details=json.dumps({"lifecycle_state": "resolved"}),
+                created_at=base_time + timedelta(minutes=index),
+            )
+            for index in range(45)
+        ]
+    )
+    db_session.commit()
+
+    result = remediation_dispatch.attach_remediation_dispatch_previews(
+        db_session,
+        workspace=workspace,
+        queue={"domain": "example.com", "summary": {}, "items": []},
+    )
+
+    assert result["verified_items_total"] == 45
+    assert result["summary"]["dispatch_verified_fixed"] == 45
+    assert result["summary"]["dispatch_verified_fixed_visible"] == 5
+    assert len(result["verified_items"]) == 5
+    assert result["verified_items"][0]["item_id"] == "dns:fixed-44"
+
+
+def test_verified_fixed_ignores_items_with_newer_unresolved_lifecycle(db_session):
+    workspace = get_or_create_default_workspace(db_session)
+    db_session.add_all(
+        [
+            WorkspaceAuditLog(
+                workspace_id=workspace.id,
+                actor_type="operator",
+                action="remediation.notification_lifecycle_recorded",
+                entity_type="remediation_notification",
+                entity_id="dns:flapped",
+                entity_name="example.com",
+                details=json.dumps({"lifecycle_state": "resolved"}),
+                created_at=datetime(2026, 7, 1, 8, 0, 0),
+            ),
+            WorkspaceAuditLog(
+                workspace_id=workspace.id,
+                actor_type="operator",
+                action="remediation.notification_lifecycle_recorded",
+                entity_type="remediation_notification",
+                entity_id="dns:flapped",
+                entity_name="example.com",
+                details=json.dumps({"lifecycle_state": "acknowledged"}),
+                created_at=datetime(2026, 7, 1, 9, 0, 0),
+            ),
+            WorkspaceAuditLog(
+                workspace_id=workspace.id,
+                actor_type="operator",
+                action="remediation.notification_lifecycle_recorded",
+                entity_type="remediation_notification",
+                entity_id="dns:fixed",
+                entity_name="example.com",
+                details=json.dumps({"lifecycle_state": "resolved"}),
+                created_at=datetime(2026, 7, 1, 10, 0, 0),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    result = remediation_dispatch.attach_remediation_dispatch_previews(
+        db_session,
+        workspace=workspace,
+        queue={"domain": "example.com", "summary": {}, "items": []},
+    )
+
+    assert result["verified_items_total"] == 1
+    assert [item["item_id"] for item in result["verified_items"]] == ["dns:fixed"]
 
 
 def test_notification_histories_return_sanitized_recent_audit_events(db_session):

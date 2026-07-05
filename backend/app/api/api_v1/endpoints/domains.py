@@ -1148,6 +1148,9 @@ class RemediationActionPlan(BaseModel):
     guidance_paths: List[RemediationGuidancePath] = Field(default_factory=list)
     completion_criteria: str
     automation_path: str
+    risk_level: str = "medium"
+    safe_to_automate: bool = False
+    operator_decision_summary: str = ""
 
 
 class RemediationVerificationPlan(BaseModel):
@@ -1155,6 +1158,9 @@ class RemediationVerificationPlan(BaseModel):
 
     label: str
     status: str
+    verification_method: str = ""
+    freshness_requirement: str = ""
+    failure_mode: str = ""
     summary: str
     evidence_needed: List[str] = Field(default_factory=list)
     next_check: str
@@ -1183,6 +1189,7 @@ class RemediationQueueItem(BaseModel):
     loop_state: str = "observed"
     remediation_track: str = "manual_only"
     priority_score: int = 0
+    priority_band: str = "watch"
     operator_decisions: List[str] = Field(default_factory=list)
     state: str
     severity: str
@@ -1208,6 +1215,8 @@ class RemediationQueueResponse(BaseModel):
     summary: Dict[str, int]
     loop: Dict[str, Any] = Field(default_factory=dict)
     items: List[RemediationQueueItem]
+    verified_items: List[Dict[str, Any]] = Field(default_factory=list)
+    verified_items_total: int = 0
 
 
 class RemediationNotificationAuditRequest(BaseModel):
