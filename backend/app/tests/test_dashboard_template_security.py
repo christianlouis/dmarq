@@ -342,8 +342,8 @@ def test_domain_details_remediation_queue_shows_verification_context():
     template = _domain_details_template()
     script = _domain_details_script()
 
-    assert "verified_items_total" in template
     assert 'x-text="verifiedItemsTotalCount()"' in template
+    assert "verified_items_total" in script
     assert "verifiedItemsHiddenCount()" in template
     assert "verified.verification_method" in template
     assert "verified.verification_status" in template
@@ -1241,6 +1241,7 @@ def test_domain_details_investigation_actions_include_rejection_option():
 
 def test_domain_details_distinguishes_evidence_verified_repairs_without_html_injection():
     template = _domain_details_template()
+    script = _domain_details_script()
 
     assert "Evidence-verified repairs" in template
     assert (
@@ -1248,7 +1249,8 @@ def test_domain_details_distinguishes_evidence_verified_repairs_without_html_inj
         "in the current remediation queue."
     ) in template
     assert "Keep monitoring this repair; no DNS or mail settings were changed" in template
-    assert "remediationQueue.verified_items.length" in template
+    assert "const visible = (this.remediationQueue.verified_items || []).length" in script
+    assert "this.verifiedItemsTotalCount() - visible" in script
     assert "remediationQueue.verified_items.slice(0, 4)" in template
     assert "verified.item_id" in template
     assert "verified.label" in template
