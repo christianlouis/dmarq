@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List, Optional, Set
 
+from app.services.remediation_readiness import (
+    OPERATOR_REVIEW_READINESS_LEVELS,
+    repair_readiness_for_stage,
+)
 from app.services.webhook_events import (
     EVENT_REMEDIATION_APPROVAL_REQUIRED,
     EVENT_REMEDIATION_INVESTIGATION_REQUIRED,
@@ -141,12 +145,7 @@ def _summary(items: List[Dict[str, Any]]) -> Dict[str, int]:
             1
             for item in items
             if (item.get("repair_progression") or {}).get("readiness_level")
-            in {
-                "needs_classification",
-                "needs_reputation_review",
-                "manual_repair",
-                "needs_operator_review",
-            }
+            in OPERATOR_REVIEW_READINESS_LEVELS
         ),
         "repair_readiness_blocked": sum(
             1
@@ -303,11 +302,9 @@ def _repair_progression_with_readiness(
     stage = str(progression.get("stage") or "operator_review")
     reasons: List[str] = []
     blocked_by: List[str] = []
+    readiness = repair_readiness_for_stage(stage)
 
     if stage == "preview_ready":
-        readiness_level = "ready_for_preview"
-        readiness_label = "Ready for provider preview"
-        readiness_score = 80
         reasons.extend(
             [
                 "A connected DNS provider can produce an exact change preview.",
@@ -315,32 +312,17 @@ def _repair_progression_with_readiness(
             ]
         )
     elif stage == "blocked":
-        readiness_level = "blocked"
-        readiness_label = "Blocked before repair"
-        readiness_score = 20
         blocked_by.append("provider_specific_value")
         reasons.append("The provider-specific target value is missing.")
     elif stage == "classification_required":
-        readiness_level = "needs_classification"
-        readiness_label = "Needs sender classification"
-        readiness_score = 35
         blocked_by.append("sender_classification")
         reasons.append("The sender must be classified before DNS or policy changes are safe.")
     elif stage == "reputation_review":
-        readiness_level = "needs_reputation_review"
-        readiness_label = "Needs reputation review"
-        readiness_score = 40
         blocked_by.append("fresh_reputation_evidence")
         reasons.append("Fresh reputation or blacklist evidence is required before closure.")
     elif stage == "manual_repair":
-        readiness_level = "manual_repair"
-        readiness_label = "Manual repair path"
-        readiness_score = 50
         reasons.append("The item has operator guidance but no connected safe write path.")
     else:
-        readiness_level = "needs_operator_review"
-        readiness_label = "Needs operator review"
-        readiness_score = 30
         reasons.append("The item needs fresh evidence and operator context before closure.")
 
     if progression.get("verification_required"):
@@ -352,9 +334,7 @@ def _repair_progression_with_readiness(
 
     return {
         **progression,
-        "readiness_level": readiness_level,
-        "readiness_label": readiness_label,
-        "readiness_score": readiness_score,
+        **readiness,
         "readiness_reasons": reasons[:5],
         "blocked_by": list(dict.fromkeys(blocked_by))[:5],
         "next_safe_action": str(
