@@ -1226,6 +1226,17 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "Source intelligence could not be loaded." in script
     assert "remediationQueueLoading" in script
     assert "remediationQueueError" in script
+    assert "primaryRemediationItem" in script
+    assert "primaryRemediationNextStep" in script
+    assert "primaryRemediationDispatchText" in script
+    assert "Next remediation" in template
+    assert "Loading next remediation..." in template
+    assert "Next remediation could not be loaded." in template
+    assert "No remediation queued" in template
+    assert "primaryRemediationItem.state.split('_').join(' ')" in template
+    assert "item.state.split('_').join(' ')" in template
+    assert 'href="#remediation-queue"' in template
+    assert 'id="remediation-queue"' in template
     assert "Loading remediation queue..." in template
     assert "Remediation queue could not be loaded." in script
     assert "Retry remediation queue" in template

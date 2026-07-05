@@ -512,6 +512,23 @@ function domainDetailsApp(domainId = '') {
             return 'No remediation notifications need operator dispatch.';
         },
 
+        get primaryRemediationItem() {
+            if (this.remediationQueueLoading || this.remediationQueueError) return null;
+            return (this.remediationQueue.items || [])[0] || null;
+        },
+
+        get primaryRemediationNextStep() {
+            const item = this.primaryRemediationItem;
+            if (!item) return '';
+            return (item.next_steps || [])[0] || 'Review the evidence and decide whether this fix is still needed.';
+        },
+
+        get primaryRemediationDispatchText() {
+            const dispatch = this.primaryRemediationItem?.notification?.dispatch;
+            if (!dispatch) return 'No operator notification configured for this item yet.';
+            return this.remediationDispatchNextStep(dispatch);
+        },
+
         get healthEvidenceExportUrl() {
             return `/api/v1/domains/${encodeURIComponent(this.domainId)}/posture/evidence/export?capture_current=false`;
         },
