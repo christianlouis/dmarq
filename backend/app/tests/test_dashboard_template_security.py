@@ -309,10 +309,13 @@ def test_dashboard_remediation_cards_deep_link_to_domain_queue():
     template = _dashboard_template()
     script = _dashboard_script()
 
+    assert ':href="domainActionHref(action)"' in template
     assert ':href="domainRemediationHref(item.domain)"' in template
     assert "Open remediation queue" in template
+    assert "domainActionHref(action)" in script
     assert "domainRemediationHref(domainName)" in script
     assert "#remediation-queue" in script
+    assert "encodeURIComponent(action.domain)" in script
     assert "encodeURIComponent(domainName)" in script
 
 

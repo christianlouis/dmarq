@@ -952,7 +952,7 @@ function dashboardApp() {
 
         domainActionHref(action) {
             return action && action.domain
-                ? `/domains/${encodeURIComponent(action.domain)}`
+                ? `/domains/${encodeURIComponent(action.domain)}#remediation-queue`
                 : '/domains';
         },
 

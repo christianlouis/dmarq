@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dashboard remediation cards now use the same priority-band, remediation-track, risk, and operator-decision language as the domain detail queue.
 - Domain remediation actions now capture optional operator notes and show every notification dispatch blocker instead of only the first reason.
 - Domain remediation cards now show confidence and prerequisite context before the operator opens or approves a repair.
+- Dashboard action-plan cards now deep-link to the selected domain remediation queue instead of the generic domain overview.
 - Reorganized repository: moved development docs (`AGENTS.md`, `ROADMAP.md`, `ISSUE_GENERATION_SUMMARY.md`, `generated_issues/`) into `docs/`
 - Added root-level `CHANGELOG.md` and `TODO.md`
 - Cleaned up root directory for clarity
