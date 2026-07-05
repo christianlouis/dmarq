@@ -9,6 +9,9 @@ function dashboardApp() {
         healthHistory: null,
         dashboardLoading: true,
         dashboardError: '',
+        dashboardRefreshError: '',
+        domainSummaryLoadedAt: '',
+        remediationRefreshRunning: false,
         selectedDnsDomain: '',
         triggerPollRunning: false,
         triggerPollStatus: '',
@@ -165,6 +168,11 @@ function dashboardApp() {
         get demoTourNextLabel() {
             return this.isLastDemoTourStep ? 'Finish' : 'Next';
         },
+
+        get domainSummaryLoadedAtLabel() {
+            if (!this.domainSummaryLoadedAt) return '';
+            return new Date(this.domainSummaryLoadedAt).toLocaleString();
+        },
         
         init() {
             this.bindControls();
@@ -210,6 +218,12 @@ function dashboardApp() {
                 if (customApply && root.contains(customApply)) {
                     this.fetchDashboardStats();
                     this.fetchWorkspaceHealthHistory();
+                    return;
+                }
+
+                const remediationRefresh = event.target.closest('[data-dashboard-remediation-refresh]');
+                if (remediationRefresh && root.contains(remediationRefresh)) {
+                    this.fetchDomainSummary({ refresh: true });
                     return;
                 }
 
@@ -365,7 +379,7 @@ function dashboardApp() {
                 this.triggerPollStatus = 'success';
                 this.triggerPollMessage = this.summarizePollResults(data);
                 await this.getReportIntakeStatus();
-                await this.fetchDomainSummary();
+                await this.fetchDomainSummary({ refresh: true });
             } catch (error) {
                 this.triggerPollStatus = 'error';
                 this.triggerPollMessage = error.message || 'Could not trigger polling.';
@@ -374,16 +388,20 @@ function dashboardApp() {
             }
         },
         
-        async fetchDomainSummary() {
-            this.dashboardLoading = true;
+        async fetchDomainSummary(options = {}) {
+            const refresh = Boolean(options.refresh);
+            this.dashboardLoading = !refresh || !this.hasDomainData;
+            this.remediationRefreshRunning = refresh;
             this.dashboardError = '';
+            this.dashboardRefreshError = '';
             try {
                 const response = await fetch('/api/v1/domains/summary');
                 if (!response.ok) {
                     throw new Error('Dashboard data could not be loaded. Check the API service and try again.');
                 }
                 const data = await response.json();
-                
+                this.domainSummaryLoadedAt = new Date().toISOString();
+
                 if (data && data.domains && data.domains.length > 0) {
                     this.domains = data.domains || [];
                     this.healthSummary = data.health_summary || null;
@@ -411,7 +429,12 @@ function dashboardApp() {
                 }
             } catch (error) {
                 console.error('Error fetching domain summary:', error);
-                this.dashboardError = error.message || 'Dashboard data could not be loaded.';
+                const message = error.message || 'Dashboard data could not be loaded.';
+                if (refresh && this.hasDomainData) {
+                    this.dashboardRefreshError = `${message} Showing the previously loaded dashboard data.`;
+                    return;
+                }
+                this.dashboardError = message;
                 this.domains = [];
                 this.healthSummary = null;
                 this.healthHistory = null;
@@ -422,6 +445,7 @@ function dashboardApp() {
                 this.populateTopSources([]);
             } finally {
                 this.dashboardLoading = false;
+                this.remediationRefreshRunning = false;
             }
         },
 
@@ -909,11 +933,55 @@ function dashboardApp() {
 
         remediationLoopItems() {
             const items = this.remediationLoop().items;
-            return Array.isArray(items) ? items : [];
+            return Array.isArray(items)
+                ? [...items].sort((a, b) => (
+                    this.remediationLoopItemRank(a) - this.remediationLoopItemRank(b) ||
+                    (Number(b?.priority_score) || 0) - (Number(a?.priority_score) || 0)
+                ))
+                : [];
         },
 
         hasRemediationLoopItems() {
             return this.remediationLoopItems().length > 0;
+        },
+
+        remediationLoopItemRank(item) {
+            const progression = item?.repair_progression || {};
+            const readinessLevel = String(progression.readiness_level || '');
+            const stage = String(progression.stage || '');
+            const state = String(item?.state || '');
+            const track = String(item?.remediation_track || '');
+            if (readinessLevel === 'ready_for_preview' || stage === 'preview_ready') return 0;
+            if (state === 'needs_approval') return 1;
+            if (readinessLevel === 'blocked' || stage === 'blocked') return 2;
+            if (readinessLevel === 'needs_reputation_review' || track === 'reputation_review') return 3;
+            if (state === 'investigate') return 4;
+            if (readinessLevel === 'manual_repair' || track === 'manual_dns' || state === 'manual_action') return 5;
+            return 6;
+        },
+
+        remediationLoopStatusLabel(status) {
+            return {
+                clear: 'Clear',
+                needs_attention: 'Needs attention',
+                approval_required: 'Approval required',
+                manual_action_required: 'Manual action required',
+                investigation_required: 'Investigation required'
+            }[String(status || '')] || 'Review';
+        },
+
+        remediationLoopStatusClass(status) {
+            return {
+                clear: 'bg-green-100 text-green-700',
+                needs_attention: 'bg-yellow-100 text-yellow-800',
+                approval_required: 'bg-[#edf7f7] text-[#247982]',
+                manual_action_required: 'bg-[#fff7df] text-[#8a6418]',
+                investigation_required: 'bg-[#fff1ea] text-[#b8431d]'
+            }[String(status || '')] || 'bg-[#f8f7f6] text-[#5f5c78]';
+        },
+
+        remediationIncidentLabel(value) {
+            return this.formatDemoLabel(value || 'none');
         },
 
         remediationLoopStateLabel(state) {
@@ -968,6 +1036,23 @@ function dashboardApp() {
         repairProgressionNextStep(progression) {
             if (!progression) return 'Open the remediation queue to review the next safe gate.';
             return progression.next_step || progression.summary || 'Open the remediation queue to review the next safe gate.';
+        },
+
+        repairProgressionNextSafeAction(progression) {
+            if (!progression) return 'Open the remediation queue to review the next safe action.';
+            return progression.next_safe_action || this.repairProgressionNextStep(progression);
+        },
+
+        repairReadinessReason(progression) {
+            const reasons = progression?.readiness_reasons || [];
+            return reasons[0] || 'Review the current remediation evidence before opening, dispatching, or closing this item.';
+        },
+
+        repairReadinessBlockedText(progression) {
+            const blockedBy = progression?.blocked_by || [];
+            if (!blockedBy.length) return '';
+            const labels = blockedBy.slice(0, 3).map(value => this.formatDemoLabel(value));
+            return `Blocked by ${labels.join(', ')}.`;
         },
 
         repairReadinessClass(progression) {

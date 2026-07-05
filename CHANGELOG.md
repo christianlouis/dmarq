@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added queue-level closure-gate and rollback-guidance counters to highlight remediation items that still need fresh evidence or a recovery path.
 - Added remediation repair-readiness levels, scores, reasons, and blockers so operators can distinguish preview-ready work from manual, blocked, classification, and reputation-review work.
 - Added next-remediation readiness context and verified-repair freshness gates so operators see the next safe action before opening or closing remediation work.
+- Added dashboard remediation-card readiness reasons, blockers, and next-safe-action text so operators can triage fixes before opening the domain queue.
+- Added dashboard remediation sorting, last-refresh context, a queue refresh control, and domain remediation filters for preview-ready, blocked, evidence-gated, manual, and reputation-review work.
+- Added domain remediation queue sorting by priority, repair readiness, or severity, plus filters for notification-ready and operator-waiting work.
+- Added an expandable domain remediation queue view so operators can open every matching item instead of only seeing the compact six-item list.
 
 ### Changed
 - Cloudflare OAuth profile selection now controls the requested scopes instead of being overridden by the legacy static scope setting.
@@ -43,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Domain remediation pages now show repair-progression gates in the top next-remediation panel and render preview/verification states as operator-readable labels.
 - Dashboard remediation-loop cards now expose the same repair-gate language and workspace counters for preview-ready, evidence-gated, and blocked repair work.
 - Dashboard and domain remediation views now show repair-readiness counters and per-item readiness scores before an operator opens or dispatches remediation work.
+- Dashboard, domain remediation queue, and sending-source reputation refreshes now keep previously loaded evidence visible while a manual refresh runs.
 - Reorganized repository: moved development docs (`AGENTS.md`, `ROADMAP.md`, `ISSUE_GENERATION_SUMMARY.md`, `generated_issues/`) into `docs/`
 - Added root-level `CHANGELOG.md` and `TODO.md`
 - Cleaned up root directory for clarity
@@ -59,6 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed DNS fallback behavior so independent public resolvers are checked in parallel before a transient timeout can make records appear missing.
 - Fixed domain sending-source loading so PTR and network enrichment run in parallel instead of pushing report-backed source rows past the UI timeout.
 - Fixed the remediation queue API schema so `repair_progression` is preserved in typed domain remediation responses.
+- Fixed dashboard and domain remediation refresh failures so transient backend errors no longer blank already-loaded operator evidence.
 - Fixed the Cloudflare permissions picker so selecting the full DNS repair profile no longer falls back to read-only scopes.
 - Fixed the release modal coverage so recent operator-facing work is visible from inside the app.
 - Fixed the remaining Settings page startup hook so CSP hardening no longer depends on template-level page initialization.
