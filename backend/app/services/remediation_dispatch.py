@@ -443,13 +443,16 @@ def _provider_repair_attempt_entry(row: WorkspaceAuditLog) -> Optional[Dict[str,
         return None
     verified = bool(verification.get("verified"))
     applied = bool(details.get("applied"))
-    state = "verified_after_apply" if applied and verified else "apply_recorded"
+    applied_and_verified = applied and verified
+    state = "verified_after_apply" if applied_and_verified else "apply_recorded"
     if applied and not verified:
         state = "apply_needs_verification"
     return {
         "plan_id": plan_id,
         "state": state,
-        "label": "Verified provider apply" if verified else "Provider apply recorded",
+        "label": (
+            "Verified provider apply" if applied_and_verified else "Provider apply recorded"
+        ),
         "created_at": _audit_timestamp(row.created_at),
         "provider": provider,
         "record_name": str(mutation.get("name") or ""),
@@ -457,7 +460,7 @@ def _provider_repair_attempt_entry(row: WorkspaceAuditLog) -> Optional[Dict[str,
         "verification_status": str(verification.get("status") or ""),
         "detail": (
             "Provider readback verified the applied DNS value."
-            if verified
+            if applied_and_verified
             else "Provider apply was recorded; keep the item open until readback and fresh DNS evidence pass."
         ),
     }
@@ -974,7 +977,8 @@ def _attach_dispatch_summary(
             "provider_apply_verified": sum(
                 1
                 for history in provider_attempt_histories
-                if history.get("status") == "verified_after_apply"
+                for entry in history.get("entries") or []
+                if entry.get("state") == "verified_after_apply"
             ),
         }
     )

@@ -642,6 +642,33 @@ def test_attach_remediation_dispatch_previews_adds_provider_apply_history(db_ses
             created_at=datetime(2026, 7, 1, 9, 0, 0),
         )
     )
+    db_session.add(
+        WorkspaceAuditLog(
+            workspace_id=workspace.id,
+            actor_type="user",
+            actor_id="operator-1",
+            action="domain.dns_change_applied",
+            entity_type="domain",
+            entity_name="Example.COM.",
+            details=json.dumps(
+                {
+                    "provider": "cloudflare",
+                    "plan_id": "dmarc-missing",
+                    "applied": False,
+                    "mutation": {
+                        "provider": "cloudflare",
+                        "record_type": "TXT",
+                        "name": "_dmarc.example.com",
+                    },
+                    "verification": {
+                        "status": "verified",
+                        "verified": True,
+                    },
+                }
+            ),
+            created_at=datetime(2026, 7, 1, 10, 0, 0),
+        )
+    )
     db_session.commit()
 
     queue = {
@@ -667,13 +694,15 @@ def test_attach_remediation_dispatch_previews_adds_provider_apply_history(db_ses
     )
 
     history = result["items"][0]["provider_repair_plan"]["attempt_history"]
-    assert history["status"] == "verified_after_apply"
-    assert history["label"] == "Verified provider apply"
+    assert history["status"] == "apply_recorded"
+    assert history["label"] == "Provider apply recorded"
     assert history["entries"][0]["provider"] == "cloudflare"
     assert history["entries"][0]["record_name"] == "_dmarc.example.com"
     assert history["entries"][0]["verification_status"] == "verified"
+    assert history["entries"][0]["state"] == "apply_recorded"
+    assert history["entries"][1]["state"] == "verified_after_apply"
     assert "actor_id" not in history["entries"][0]
-    assert result["summary"]["provider_apply_attempts"] == 1
+    assert result["summary"]["provider_apply_attempts"] == 2
     assert result["summary"]["provider_apply_verified"] == 1
 
 
