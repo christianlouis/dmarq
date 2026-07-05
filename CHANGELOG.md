@@ -37,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added domain remediation fresh-evidence and provider-value queue filters plus freshness sorting so closure-blocking evidence work is easier to isolate on domain detail pages.
 - Added stale-evidence remediation filters and direct dashboard links into the relevant domain evidence section, such as DNS records or sending sources.
 - Fixed dashboard remediation state rendering so backend `approval_ready` queue items are labeled as needing approval and evidence anchors fall back safely if malformed.
+- Added report-detail reputation filters and record-level reputation next steps so risky, listed, authentication-review, unchecked, and clean source records can be isolated without leaving the report.
+- Added sending-source risk filters, compact reputation counters, activity badges, and logarithmic recent-volume bars on domain detail pages so current risky senders stand out from stale or low-volume history.
 
 ### Changed
 - Cloudflare OAuth profile selection now controls the requested scopes instead of being overridden by the legacy static scope setting.
@@ -69,6 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed Docker release metadata so the in-product build SHA, ref, and date come from the checked-out image source instead of the workflow trigger commit.
 - Fixed Cloudflare OAuth recovery so invalid-scope callbacks offer a read-only retry path and stale legacy scopes such as `user.read` are filtered from DMARQ-generated requests.
 - Fixed report detail views so sender-IP reputation appears as a dedicated score and assessment column instead of being buried in source metadata.
+- Fixed sending-source reputation visibility so checked age, listed/feed evidence, and recommended next steps are shown beside the source rows operators already review.
 - Fixed DNS fallback behavior so independent public resolvers are checked in parallel before a transient timeout can make records appear missing.
 - Fixed domain sending-source loading so PTR and network enrichment run in parallel instead of pushing report-backed source rows past the UI timeout.
 - Fixed the remediation queue API schema so `repair_progression` is preserved in typed domain remediation responses.

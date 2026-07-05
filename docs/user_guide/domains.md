@@ -204,6 +204,14 @@ that host, how many distinct report days include the source, and a compact
 recent volume history. Use this to separate current infrastructure from stale
 legacy traffic: a source that last sent yesterday deserves different treatment
 than a one-off sender that appeared three months ago.
+The recent-volume bars use a logarithmic scale so an occasional large outbound
+day does not hide smaller but still recent sender activity.
+
+Use the source filters to switch from all sources to reputation-review,
+listed-only, authentication-review, unchecked reputation, recently active, stale,
+or clean-reputation views. The source table also shows compact counters for the
+same categories, so an operator can see whether the page is mostly historical
+noise or has current risky senders that need action.
 
 Use these findings before editing DNS. A new source is not automatically a
 trusted sender; confirm the service owner first, then update SPF or DKIM only

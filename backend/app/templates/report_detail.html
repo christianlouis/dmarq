@@ -251,7 +251,7 @@
                 {% call card_header() %}
                     {% call card_title() %}Records{% endcall %}
                     {% call card_description() %}
-                        <span x-text="report.records.length"></span> IP source(s) in this report
+                        <span x-text="recordRiskLabel()"></span> in this report
                     {% endcall %}
                 {% endcall %}
                 {% call card_content() %}
@@ -259,6 +259,36 @@
                        x-cloak
                        class="mb-4 rounded-md border border-[#ffcfbd] bg-[#fff2ec] px-3 py-2 text-sm text-[#8a2d0d]"
                        x-text="reputationRefreshError"></p>
+                    <div class="mb-4 flex flex-col gap-3 rounded-md border border-[#e6e3e1] bg-[#fbfbfb] p-3 lg:flex-row lg:items-center lg:justify-between">
+                        <div class="flex flex-wrap gap-2 text-xs">
+                            <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-semibold text-base-content/80">
+                                <span x-text="recordRiskCounts.total"></span><span class="ml-1">records</span>
+                            </span>
+                            <span class="inline-flex items-center rounded-full bg-[#fff2ec] px-2 py-0.5 font-semibold text-[#8a2d0d]">
+                                <span x-text="recordRiskCounts.risky"></span><span class="ml-1">reputation review</span>
+                            </span>
+                            <span class="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 font-semibold text-red-800">
+                                <span x-text="recordRiskCounts.listed"></span><span class="ml-1">listed</span>
+                            </span>
+                            <span class="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 font-semibold text-amber-800">
+                                <span x-text="recordRiskCounts.authReview"></span><span class="ml-1">auth review</span>
+                            </span>
+                            <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-semibold text-base-content/70">
+                                <span x-text="recordRiskCounts.unchecked"></span><span class="ml-1">unchecked</span>
+                            </span>
+                        </div>
+                        <label class="flex items-center gap-2 text-sm text-[#5f5c78]">
+                            <span class="font-medium">View</span>
+                            <select x-model="recordRiskFilter" class="select select-sm select-bordered">
+                                <option value="all">All records</option>
+                                <option value="risky">Reputation review</option>
+                                <option value="listed">Listed only</option>
+                                <option value="auth_review">Authentication review</option>
+                                <option value="unchecked">Unchecked reputation</option>
+                                <option value="clean">Clean reputation</option>
+                            </select>
+                        </label>
+                    </div>
                     {% call table() %}
                         {% call thead() %}
                             {% call tr() %}
@@ -281,14 +311,33 @@
                                     </td>
                                 </tr>
                             </template>
-                            <template x-for="(record, index) in report.records" :key="index">
+                            <template x-if="report.records.length > 0 && filteredRecords.length === 0">
+                                <tr>
+                                    <td colspan="9" class="text-center py-4">
+                                        <div class="text-muted-foreground">No records match this reputation view.</div>
+                                    </td>
+                                </tr>
+                            </template>
+                            <template x-for="(record, index) in filteredRecords" :key="index">
                                 {% call tr() %}
                                     {% call td() %}
                                         <span class="font-mono text-sm" x-text="record.source_ip"></span>
                                     {% endcall %}
                                     {% call td() %}
                                         <div class="min-w-64 max-w-sm space-y-1 text-xs text-[#5f5c78]">
-                                            <div class="font-semibold text-[#120d36]" x-text="record.source_details?.sender?.name || record.source_details?.sender?.label || 'Unknown sender'"></div>
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                <span class="font-semibold text-[#120d36]" x-text="recordSenderName(record)"></span>
+                                                <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
+                                                      :class="senderStatusClass(recordSenderStatus(record))"
+                                                      x-text="recordSenderStatus(record)"></span>
+                                            </div>
+                                            <div>
+                                                <span x-text="recordSenderProvider(record)"></span>
+                                                <span> · </span>
+                                                <span x-text="recordSenderConfidence(record)"></span>
+                                            </div>
+                                            <p x-show="recordSenderEvidence(record)" x-text="recordSenderEvidence(record)"></p>
+                                            <p x-show="recordSenderRemediationHint(record)" class="text-[#120d36]" x-text="recordSenderRemediationHint(record)"></p>
                                             <div x-show="record.source_details?.hostname">
                                                 PTR: <span class="font-mono" x-text="record.source_details.hostname"></span>
                                             </div>
@@ -329,6 +378,11 @@
                                                class="inline-flex text-primary hover:underline">Open in Cloudflare Radar</a>
                                             <div x-show="record.source_details?.network_error && !record.source_details?.asn && !record.source_details?.network"
                                                  x-text="record.source_details.network_error"></div>
+                                            <div x-show="record.reputation?.first_seen || record.reputation?.last_seen">
+                                                <span x-show="record.reputation?.last_seen">Last sent <span x-text="seenLabel(record.reputation.last_seen)"></span></span>
+                                                <span x-show="record.reputation?.first_seen && record.reputation?.last_seen"> · </span>
+                                                <span x-show="record.reputation?.first_seen">First seen <span x-text="seenLabel(record.reputation.first_seen)"></span></span>
+                                            </div>
                                         </div>
                                     {% endcall %}
                                     {% call td() %}
@@ -348,11 +402,22 @@
                                                               x-text="record.reputation.feed_summary || 'Local reputation evidence only'"></span>
                                                     </div>
                                                     <div class="leading-relaxed" x-text="reputationDetail(record.reputation)"></div>
-                                                    <div class="text-muted-foreground" x-text="reputationCheckedLabel(record.reputation)"></div>
+                                                    <div class="text-muted-foreground">
+                                                        <span x-text="reputationCheckedLabel(record.reputation)"></span>
+                                                        <span> · </span>
+                                                        <span x-text="reputationAgeLabel(record.reputation)"></span>
+                                                    </div>
                                                     <template x-if="record.reputation.listings?.length">
                                                         <div class="font-semibold text-[#ff6f3c]">
                                                             DNSBL: <span x-text="record.reputation.listings.join(', ')"></span>
                                                         </div>
+                                                    </template>
+                                                    <template x-if="reputationNextSteps(record.reputation).length">
+                                                        <ul class="space-y-1 text-[#5f5c78]">
+                                                            <template x-for="step in reputationNextSteps(record.reputation)" :key="step">
+                                                                <li x-text="step"></li>
+                                                            </template>
+                                                        </ul>
                                                     </template>
                                                     <div class="flex flex-wrap gap-1" x-show="reputationEvidencePreview(record.reputation).length">
                                                         <template x-for="item in reputationEvidencePreview(record.reputation)" :key="item.label + item.value">

@@ -2155,6 +2155,16 @@
                             placeholder="Filter sources..." 
                             class="input input-sm input-bordered max-w-xs"
                         >
+                        <select x-model="filters.sourceRiskFilter" class="select select-sm select-bordered">
+                            <option value="all">All sources</option>
+                            <option value="risky">Reputation review</option>
+                            <option value="listed">Listed only</option>
+                            <option value="auth_review">Authentication review</option>
+                            <option value="unchecked">Unchecked reputation</option>
+                            <option value="recent">Recently active</option>
+                            <option value="stale">Stale senders</option>
+                            <option value="clean">Clean reputation</option>
+                        </select>
                         <button type="button"
                                 class="btn btn-sm btn-default"
                                 data-domain-detail-refresh-reputation
@@ -2170,6 +2180,26 @@
                    x-cloak
                    class="mb-4 rounded-md border border-[#ffcfbd] bg-[#fff2ec] px-3 py-2 text-sm text-[#8a2d0d]"
                    x-text="sourceReputationRefreshError"></p>
+                <div class="mb-4 flex flex-wrap gap-2 text-xs" x-show="!sourcesLoading && !sourcesError">
+                    <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-semibold text-base-content/80">
+                        <span x-text="sourceRiskCounts.total"></span><span class="ml-1">sources</span>
+                    </span>
+                    <span class="inline-flex items-center rounded-full bg-[#fff2ec] px-2 py-0.5 font-semibold text-[#8a2d0d]">
+                        <span x-text="sourceRiskCounts.risky"></span><span class="ml-1">reputation review</span>
+                    </span>
+                    <span class="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 font-semibold text-red-800">
+                        <span x-text="sourceRiskCounts.listed"></span><span class="ml-1">listed</span>
+                    </span>
+                    <span class="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 font-semibold text-amber-800">
+                        <span x-text="sourceRiskCounts.authReview"></span><span class="ml-1">auth review</span>
+                    </span>
+                    <span class="inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 font-semibold text-green-800">
+                        <span x-text="sourceRiskCounts.recent"></span><span class="ml-1">recent</span>
+                    </span>
+                    <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-semibold text-base-content/70">
+                        <span x-text="sourceRiskCounts.unchecked"></span><span class="ml-1">unchecked reputation</span>
+                    </span>
+                </div>
                 {% call table() %}
                     {% call thead() %}
                         {% call tr() %}
@@ -2228,6 +2258,9 @@
                                                   :class="source.anomalies.some(anomaly => anomaly.severity === 'error') ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'"
                                                   x-text="source.anomalies.length === 1 ? '1 anomaly' : source.anomalies.length + ' anomalies'"></span>
                                         </template>
+                                        <span class="mt-1 inline-flex w-fit rounded-full px-2 py-0.5 text-xs font-semibold"
+                                              :class="sourceActivityClass(source)"
+                                              x-text="sourceActivityLabel(source)"></span>
                                     </div>
                                 {% endcall %}
                                 {% call td() %}
@@ -2313,7 +2346,11 @@
                                                     ></span>
                                                 </div>
                                                 <p class="text-muted-foreground" x-text="source.reputation.status_detail || source.reputation.summary"></p>
-                                                <p class="text-muted-foreground" x-text="reputationCheckedLabel(source.reputation)"></p>
+                                                <p class="text-muted-foreground">
+                                                    <span x-text="reputationCheckedLabel(source.reputation)"></span>
+                                                    <span> · </span>
+                                                    <span x-text="reputationAgeLabel(source.reputation)"></span>
+                                                </p>
                                                 <template x-if="source.reputation?.listings?.length">
                                                     <p class="font-medium text-[#ff6f3c]">
                                                         <span>Listed on </span>

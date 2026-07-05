@@ -55,6 +55,17 @@ To view details of a specific aggregate report:
    - Sending sources (by domain and IP)
    - Pass/fail rates by source
 
+The report detail page also shows sender-IP reputation next to each source
+record when reputation evidence has been calculated. Use the record view filter
+to focus on listed sources, reputation-review items, authentication-review
+items, unchecked reputation, or clean sources. This keeps a report with many
+passing records usable when only one IP needs deliverability or blacklist
+attention.
+Each record also shows the sender-recognition status, confidence, matching
+evidence, and first/last observed dates when that context is available. Treat a
+low-confidence sender match as a prompt to verify PTR, ASN, authenticated
+domains, and provider account evidence before changing SPF or DKIM.
+
 ### Forensic Reports
 
 To view forensic reports (when available):
