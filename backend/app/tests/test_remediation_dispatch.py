@@ -435,6 +435,10 @@ def test_verified_fixed_freshness_marks_old_absence_stale():
         "freshness_status": "stale_queue_absence",
         "freshness_label": "Stale queue absence",
     }
+    assert remediation_dispatch._verified_fixed_freshness(None, now=now) == {
+        "freshness_status": "unknown_queue_absence_age",
+        "freshness_label": "Queue absence age unknown",
+    }
 
 
 def test_verified_fixed_total_counts_beyond_visible_limit(db_session):
