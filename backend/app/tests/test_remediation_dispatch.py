@@ -486,6 +486,7 @@ def test_summarize_remediation_activity_handles_empty_domain_inputs(db_session):
             "domains_with_activity": 0,
             "dispatch_enqueued": 0,
             "resolved": 0,
+            "verified_fixed": 0,
             "operator_holds": 0,
             "needs_operator_follow_up": 0,
             "delivery_count": 0,
@@ -559,6 +560,49 @@ def test_summarize_remediation_activity_reports_status_variants(db_session):
     assert activity["summary"]["domains_with_activity"] == 3
     assert activity["summary"]["operator_holds"] == 1
     assert activity["summary"]["needs_operator_follow_up"] == 2
+
+
+def test_summarize_remediation_activity_counts_verified_fixed_items(db_session):
+    workspace = get_or_create_default_workspace(db_session)
+    db_session.add_all(
+        [
+            WorkspaceAuditLog(
+                workspace_id=workspace.id,
+                actor_type="operator",
+                action="remediation.notification_lifecycle_recorded",
+                entity_type="remediation_notification",
+                entity_id="health:missing_dkim",
+                entity_name="Fixed.Example",
+                details=json.dumps({"lifecycle_state": "resolved"}),
+                created_at=datetime(2026, 7, 1, 8, 0, 0, tzinfo=timezone.utc),
+            ),
+            WorkspaceAuditLog(
+                workspace_id=workspace.id,
+                actor_type="operator",
+                action="remediation.notification_lifecycle_recorded",
+                entity_type="remediation_notification",
+                entity_id="health:low_compliance",
+                entity_name="Fixed.Example",
+                details=json.dumps({"lifecycle_state": "resolved"}),
+                created_at=datetime(2026, 7, 1, 9, 0, 0, tzinfo=timezone.utc),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    activity = remediation_dispatch.summarize_remediation_activity(
+        db_session,
+        workspace=workspace,
+        domains=["fixed.example"],
+        active_item_ids_by_domain={"fixed.example": ["health:low_compliance"]},
+    )
+
+    domain = activity["domains"]["fixed.example"]
+    assert domain["resolved"] == 2
+    assert domain["verified_fixed"] == 1
+    assert activity["summary"]["resolved"] == 2
+    assert activity["summary"]["verified_fixed"] == 1
+    assert activity["summary"]["needs_operator_follow_up"] == 0
 
 
 def test_build_remediation_dispatch_preview_fetches_context_when_not_preloaded(monkeypatch):

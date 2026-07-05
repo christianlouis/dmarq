@@ -160,6 +160,7 @@ def _history_entry(row: WorkspaceAuditLog) -> Optional[Dict[str, Any]]:
         label = f"Lifecycle {lifecycle_state.replace('_', ' ')}"
 
     return {
+        "item_id": str(row.entity_id or ""),
         "action": action,
         "state": state,
         "label": label,
@@ -185,13 +186,19 @@ def _empty_domain_activity(domain: str) -> Dict[str, Any]:
         "resolved": 0,
         "rejected": 0,
         "snoozed": 0,
+        "verified_fixed": 0,
         "dispatch_enqueued": 0,
         "delivery_count": 0,
         "needs_operator_follow_up": False,
     }
 
 
-def _apply_activity_entry(summary: Dict[str, Any], entry: Dict[str, Any]) -> None:
+def _apply_activity_entry(
+    summary: Dict[str, Any],
+    entry: Dict[str, Any],
+    *,
+    active_item_ids: Optional[Set[str]] = None,
+) -> None:
     state = str(entry.get("state") or "")
     if summary["latest_state"] is None:
         summary["latest_state"] = state
@@ -199,6 +206,10 @@ def _apply_activity_entry(summary: Dict[str, Any], entry: Dict[str, Any]) -> Non
         summary["latest_at"] = entry.get("created_at")
     if state in {"previewed", "acknowledged", "resolved", "rejected", "snoozed"}:
         summary[state] += 1
+    if state == "resolved" and active_item_ids is not None:
+        item_id = str(entry.get("item_id") or "")
+        if item_id.startswith("health:") and item_id not in active_item_ids:
+            summary["verified_fixed"] += 1
     if state == "delivery_enqueued":
         summary["dispatch_enqueued"] += 1
         summary["delivery_count"] += _safe_int(entry.get("delivery_count"))
@@ -235,6 +246,7 @@ def _remediation_activity_totals(summaries: Dict[str, Dict[str, Any]]) -> Dict[s
         ),
         "dispatch_enqueued": sum(summary["dispatch_enqueued"] for summary in summaries.values()),
         "resolved": sum(summary["resolved"] for summary in summaries.values()),
+        "verified_fixed": sum(summary["verified_fixed"] for summary in summaries.values()),
         "operator_holds": sum(
             summary["rejected"] + summary["snoozed"] for summary in summaries.values()
         ),
@@ -250,6 +262,7 @@ def summarize_remediation_activity(
     *,
     workspace: Workspace,
     domains: Iterable[str],
+    active_item_ids_by_domain: Optional[Dict[str, Iterable[str]]] = None,
     row_limit: int = 500,
 ) -> Dict[str, Any]:
     """Summarize remediation audit activity without rebuilding domain queues."""
@@ -266,12 +279,20 @@ def summarize_remediation_activity(
                 "domains_with_activity": 0,
                 "dispatch_enqueued": 0,
                 "resolved": 0,
+                "verified_fixed": 0,
                 "operator_holds": 0,
                 "needs_operator_follow_up": 0,
                 "delivery_count": 0,
             },
             "domains": summaries,
         }
+    active_item_ids = {
+        normalize_domain_name(domain): {
+            str(item_id or "") for item_id in item_ids if str(item_id or "").strip()
+        }
+        for domain, item_ids in (active_item_ids_by_domain or {}).items()
+        if normalize_domain_name(domain)
+    }
 
     normalized_entity_name = func.lower(func.rtrim(func.trim(WorkspaceAuditLog.entity_name), "."))
     rows: List[WorkspaceAuditLog] = []
@@ -297,7 +318,11 @@ def summarize_remediation_activity(
         entry = _history_entry(row)
         if entry is None:
             continue
-        _apply_activity_entry(summaries[domain], entry)
+        _apply_activity_entry(
+            summaries[domain],
+            entry,
+            active_item_ids=active_item_ids.get(domain),
+        )
 
     for summary in summaries.values():
         _finalize_activity_summary(summary)

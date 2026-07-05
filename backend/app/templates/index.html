@@ -109,6 +109,11 @@
                         <span class="font-semibold text-[#247982]"
                               x-text="remediationTotals().resolved || 0"></span>
                     </div>
+                    <div class="flex items-center justify-between gap-3">
+                        <span class="text-[#5f5c78]">Verified fixed</span>
+                        <span class="font-semibold text-[#247982]"
+                              x-text="remediationTotals().verified_fixed || 0"></span>
+                    </div>
                 </div>
                 <div class="mt-5 border-t border-[#dfdfdf] pt-4" x-show="hasHealthHistoryPoints">
                     <div class="mb-3 flex items-center justify-between gap-3">
@@ -209,7 +214,13 @@
             </div>
             <a href="/domains" class="text-sm font-semibold text-[#2f9da5] hover:text-[#272a5f]">Open domain worklist</a>
         </div>
-        <div class="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div class="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <div class="rounded-md border border-[#e6e3e1] p-4">
+                <p class="text-sm text-[#5f5c78]">Verified fixed</p>
+                <p class="mt-2 text-3xl font-bold text-[#247982]"
+                   x-text="remediationLoop().verified_fixed || 0"></p>
+                <p class="mt-1 text-xs text-[#5f5c78]">Resolved items no longer observed</p>
+            </div>
             <div class="rounded-md border border-[#e6e3e1] p-4">
                 <p class="text-sm text-[#5f5c78]">Resolved</p>
                 <p class="mt-2 text-3xl font-bold text-[#247982]"

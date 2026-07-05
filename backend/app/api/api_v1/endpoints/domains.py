@@ -1838,10 +1838,13 @@ def _build_dashboard_remediation_loop(
     remediation_activity: Dict[str, Any],
 ) -> Dict[str, Any]:
     """Return a visible remediation-loop summary for the workspace dashboard."""
-    resolved_count = int((remediation_activity.get("summary") or {}).get("resolved") or 0)
+    activity_summary = remediation_activity.get("summary") or {}
+    resolved_count = int(activity_summary.get("resolved") or 0)
+    verified_fixed_count = int(activity_summary.get("verified_fixed") or 0)
     counters = {
         "resolved": resolved_count,
         "fixed": resolved_count,
+        "verified_fixed": verified_fixed_count,
         "needs_approval": 0,
         "manual_action": 0,
         "investigate": 0,
@@ -1868,12 +1871,8 @@ def _build_dashboard_remediation_loop(
     return {
         **counters,
         "total_open": total_open,
-        "dispatch_enqueued": int(
-            (remediation_activity.get("summary") or {}).get("dispatch_enqueued") or 0
-        ),
-        "operator_follow_up": int(
-            (remediation_activity.get("summary") or {}).get("needs_operator_follow_up") or 0
-        ),
+        "dispatch_enqueued": int(activity_summary.get("dispatch_enqueued") or 0),
+        "operator_follow_up": int(activity_summary.get("needs_operator_follow_up") or 0),
         "status": "clear" if total_open == 0 else "needs_attention",
         "items": items[:5],
     }
@@ -3477,12 +3476,6 @@ async def get_domains_summary(
         domain.name: domain
         for domain in workspace_domain_query(db, workspace).filter(Domain.name.in_(domains)).all()
     }
-    remediation_activity = summarize_remediation_activity(
-        db,
-        workspace=workspace,
-        domains=domains,
-    )
-    remediation_by_domain = remediation_activity["domains"]
 
     async def _dns_for_domain(domain_name: str) -> DomainDNSResult:
         manual_selectors = manual_selectors_by_domain.get(domain_name, [])
@@ -3561,11 +3554,30 @@ async def get_domains_summary(
             ),
             "dmarc_warnings": dns.dmarc_warnings,
             "dmarc_suggestions": dns.dmarc_suggestions,
-            "remediation": remediation_by_domain.get(domain_name, {}),
+            "remediation": {},
         }
         domain_row["health"] = score_domain_health(domain_row)
         domain_row["remediation_workload"] = _domain_remediation_workload(domain_row)
         domains_list.append(domain_row)
+
+    active_remediation_item_ids = {
+        str(domain.get("domain_name") or domain.get("id") or ""): [
+            f"health:{action.get('type')}"
+            for action in (domain.get("health") or {}).get("actions") or []
+            if str(action.get("type") or "").strip()
+        ]
+        for domain in domains_list
+    }
+    remediation_activity = summarize_remediation_activity(
+        db,
+        workspace=workspace,
+        domains=domains,
+        active_item_ids_by_domain=active_remediation_item_ids,
+    )
+    remediation_by_domain = remediation_activity["domains"]
+    for domain_row in domains_list:
+        domain_name = str(domain_row.get("domain_name") or domain_row.get("id") or "")
+        domain_row["remediation"] = remediation_by_domain.get(domain_name, {})
 
     domain_health = [domain["health"] for domain in domains_list]
 
