@@ -1552,8 +1552,7 @@ function domainDetailsApp(domainId = '') {
                     Boolean(item.provider_repair_plan?.safe_preview_available);
             }
             if (filter === 'apply_blocked') {
-                return Boolean(item.provider_repair_plan?.apply_blocked) ||
-                    (item.provider_repair_plan?.blocked_reasons || []).length > 0;
+                return Boolean(item.provider_repair_plan?.apply_blocked);
             }
             if (filter === 'blocked') {
                 return readinessLevel === 'blocked' ||

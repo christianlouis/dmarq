@@ -599,20 +599,24 @@ def read_only_dns_change_plan_response(payload: Any) -> DNSChangePlanResponse:
 def read_only_remediation_queue_response(payload: Any) -> "RemediationQueueResponse":
     """Return remediation queue data without public write affordances."""
     data = payload.model_dump() if hasattr(payload, "model_dump") else copy.deepcopy(payload)
+    summary = data.get("summary") or {}
+    if "provider_apply_after_approval" in summary:
+        summary["provider_apply_after_approval"] = 0
+    data["summary"] = summary
     for item in data.get("items") or []:
         automation = item.get("automation") or {}
         automation["apply_endpoint"] = None
         item["automation"] = automation
         provider_repair_plan = item.get("provider_repair_plan") or {}
-        provider_repair_plan["preview_endpoint"] = ""
-        provider_repair_plan["apply_endpoint"] = ""
         if provider_repair_plan:
+            provider_repair_plan["preview_endpoint"] = ""
+            provider_repair_plan["apply_endpoint"] = ""
             provider_repair_plan["can_apply_after_approval"] = False
             provider_repair_plan["apply_blocked"] = True
             blocked = list(provider_repair_plan.get("blocked_reasons") or [])
             blocked.append("public_read_only_response")
             provider_repair_plan["blocked_reasons"] = list(dict.fromkeys(blocked))
-        item["provider_repair_plan"] = provider_repair_plan
+            item["provider_repair_plan"] = provider_repair_plan
 
         if "repair_progression" not in item:
             verification = item.get("verification_plan") or {}
@@ -1271,8 +1275,8 @@ class RemediationProviderRepairPlan(BaseModel):
     stage: str = "not_applicable"
     safe_preview_available: bool = False
     can_apply_after_approval: bool = False
-    apply_requires_approval: bool = True
-    apply_blocked: bool = True
+    apply_requires_approval: bool = False
+    apply_blocked: bool = False
     blocked_reasons: List[str] = Field(default_factory=list)
     manual_fallback: bool = False
     preview_endpoint: str = ""

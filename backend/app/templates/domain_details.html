@@ -825,7 +825,7 @@
                                         </template>
                                     </div>
                                 </template>
-                                <template x-if="item.provider_repair_plan">
+                                <template x-if="item.provider_repair_plan && item.provider_repair_plan.kind !== 'not_provider_repair'">
                                     <div class="mt-3 rounded border border-[#e7ddfb] bg-[#fbf9ff] p-3">
                                         <div class="flex flex-wrap items-center justify-between gap-2">
                                             <p class="text-xs font-semibold uppercase text-[#5b3d91]">Provider repair plan</p>
