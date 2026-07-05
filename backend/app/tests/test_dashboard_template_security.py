@@ -411,6 +411,12 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
         "remediationLoop().repair_readiness_blocked || remediationLoop().repair_blocked || 0"
         in template
     )
+    assert "remediationLoop().verification_pending_operator_approval || 0" in template
+    assert "remediationLoop().verification_pending_report_evidence || 0" in template
+    assert "remediationLoop().verification_pending_sender_review || 0" in template
+    assert "remediationLoop().verification_pending_reputation_review || 0" in template
+    assert "remediationLoop().verification_blocked_by_prerequisite || 0" in template
+    assert "provider values required" in template
     assert "Repair gate" in template
     assert "repairProgressionClass(item.repair_progression)" in template
     assert "repairProgressionLabel(item.repair_progression)" in template

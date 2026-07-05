@@ -259,6 +259,10 @@
                 <p class="text-sm text-[#5f5c78]">Needs approval</p>
                 <p class="mt-2 text-3xl font-bold text-[#120d36]" x-text="remediationLoop().needs_approval || 0"></p>
                 <p class="mt-1 text-xs text-[#5f5c78]">DNS or policy changes to review</p>
+                <p class="mt-2 text-xs text-[#45505f]">
+                    <span x-text="remediationLoop().verification_pending_operator_approval || 0"></span>
+                    <span> waiting for explicit approval</span>
+                </p>
             </div>
             <div class="rounded-md border border-[#e6e3e1] p-4">
                 <p class="text-sm text-[#5f5c78]">Manual action</p>
@@ -289,6 +293,8 @@
                     <span x-text="remediationLoop().evidence_refresh_reports || 0"></span><span> reports</span>
                     <span> · </span>
                     <span x-text="remediationLoop().evidence_refresh_reputation || 0"></span><span> reputation</span>
+                    <span> · </span>
+                    <span x-text="remediationLoop().verification_pending_report_evidence || 0"></span><span> manual evidence</span>
                 </p>
             </div>
             <div class="rounded-md border border-[#d5e9f8] bg-[#f7fbff] p-4">
@@ -296,12 +302,21 @@
                 <p class="mt-2 text-2xl font-bold text-[#24507a]"
                    x-text="remediationLoop().repair_waiting_on_operator || 0"></p>
                 <p class="mt-1 text-xs text-[#5f5c78]">Classification, manual repair, reputation, or review</p>
+                <p class="mt-2 text-xs text-[#24507a]">
+                    <span x-text="remediationLoop().verification_pending_sender_review || 0"></span><span> sender</span>
+                    <span> · </span>
+                    <span x-text="remediationLoop().verification_pending_reputation_review || 0"></span><span> reputation</span>
+                </p>
             </div>
             <div class="rounded-md border border-[#e6e3e1] p-4">
                 <p class="text-sm text-[#5f5c78]">Blocked before repair</p>
                 <p class="mt-2 text-2xl font-bold text-[#5f5c78]"
                    x-text="remediationLoop().repair_readiness_blocked || remediationLoop().repair_blocked || 0"></p>
                 <p class="mt-1 text-xs text-[#5f5c78]">Missing provider values or prerequisites</p>
+                <p class="mt-2 text-xs text-[#5f5c78]">
+                    <span x-text="remediationLoop().verification_blocked_by_prerequisite || 0"></span>
+                    <span> provider values required</span>
+                </p>
             </div>
         </div>
         <div class="mt-5 flex flex-wrap items-center gap-2" x-show="hasRemediationLoopItems()">
