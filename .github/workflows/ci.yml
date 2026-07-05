@@ -359,11 +359,16 @@ jobs:
             exit 0
           fi
 
-          latest_sha="$(curl -fsSL \
+          if ! latest_sha="$(curl -fsSL \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${{ github.repository }}/commits/main" | jq -r '.sha')"
+            "https://api.github.com/repos/${{ github.repository }}/commits/main" | jq -r '.sha')"; then
+            echo "::notice::Skipping GitOps update because the current main SHA could not be resolved."
+            echo "current=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           if [ "$latest_sha" != "${{ github.sha }}" ]; then
             echo "::notice::Skipping GitOps update because main advanced to ${latest_sha} after this run started."
             echo "current=false" >> "$GITHUB_OUTPUT"
@@ -478,11 +483,16 @@ jobs:
             exit 0
           fi
 
-          latest_sha="$(curl -fsSL \
+          if ! latest_sha="$(curl -fsSL \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${{ github.repository }}/commits/main" | jq -r '.sha')"
+            "https://api.github.com/repos/${{ github.repository }}/commits/main" | jq -r '.sha')"; then
+            echo "::notice::Skipping GitOps update because the current main SHA could not be resolved."
+            echo "current=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           if [ "$latest_sha" != "${{ github.sha }}" ]; then
             echo "::notice::Skipping GitOps update because main advanced to ${latest_sha} after this run started."
             echo "current=false" >> "$GITHUB_OUTPUT"
