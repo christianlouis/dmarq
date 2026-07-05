@@ -312,6 +312,7 @@ def test_attach_remediation_dispatch_previews_skips_empty_queues(monkeypatch):
 
 def test_attach_remediation_dispatch_previews_reports_verified_fixed_items(db_session):
     workspace = get_or_create_default_workspace(db_session)
+    resolved_at = datetime.now(timezone.utc) - timedelta(days=1)
     db_session.add_all(
         [
             WorkspaceAuditLog(
@@ -327,7 +328,7 @@ def test_attach_remediation_dispatch_previews_reports_verified_fixed_items(db_se
                         "operator_note": "Record is now visible after propagation.",
                     }
                 ),
-                created_at=datetime(2026, 7, 1, 8, 0, 0),
+                created_at=resolved_at,
             ),
             WorkspaceAuditLog(
                 workspace_id=workspace.id,
@@ -412,11 +413,28 @@ def test_attach_remediation_dispatch_previews_reports_verified_fixed_items(db_se
                 "The latest lifecycle marker for this item is resolved.",
                 "The same item id is absent from the current remediation queue.",
             ],
-            "recorded_at": "2026-07-01T08:00:00Z",
+            "recorded_at": remediation_dispatch._audit_timestamp(resolved_at),
             "operator_note": "Record is now visible after propagation.",
             "actor_type": "operator",
         }
     ]
+
+
+def test_verified_fixed_freshness_marks_old_absence_stale():
+    now = datetime(2026, 7, 15, 12, 0, 0, tzinfo=timezone.utc)
+
+    assert remediation_dispatch._verified_fixed_freshness(
+        now - timedelta(days=1), now=now
+    ) == {
+        "freshness_status": "current_queue_absence",
+        "freshness_label": "Fresh queue absence",
+    }
+    assert remediation_dispatch._verified_fixed_freshness(
+        now - timedelta(days=8), now=now
+    ) == {
+        "freshness_status": "stale_queue_absence",
+        "freshness_label": "Stale queue absence",
+    }
 
 
 def test_verified_fixed_total_counts_beyond_visible_limit(db_session):
