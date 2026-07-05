@@ -95,6 +95,30 @@ def test_scim_patch_and_delete_deactivate_workspace_membership(client: TestClien
     assert user.is_active is True
     assert membership.active is False
 
+    reactivated = client.patch(
+        f"/api/v1/scim/v2/Users/{user_id}",
+        headers={"X-API-Key": token.secret},
+        json={
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "add", "path": "active", "value": 1}],
+        },
+    )
+    invalid = client.patch(
+        f"/api/v1/scim/v2/Users/{user_id}",
+        headers={"X-API-Key": token.secret},
+        json={
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "Replace", "path": "active", "value": "later"}],
+        },
+    )
+
+    assert reactivated.status_code == 200
+    assert reactivated.json()["active"] is True
+    assert invalid.status_code == 422
+    assert invalid.json()["detail"] == "SCIM active value must be a boolean"
+    db_session.refresh(membership)
+    assert membership.active is True
+
     deleted = client.delete(
         f"/api/v1/scim/v2/Users/{user_id}",
         headers={"X-API-Key": token.secret},
@@ -102,6 +126,7 @@ def test_scim_patch_and_delete_deactivate_workspace_membership(client: TestClien
 
     assert deleted.status_code == 200
     actions = [row.action for row in db_session.query(WorkspaceAuditLog).all()]
+    assert actions.count("scim.user_activated") == 1
     assert actions.count("scim.user_deactivated") == 2
 
 
