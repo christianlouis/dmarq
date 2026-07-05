@@ -2058,6 +2058,10 @@
                 </div>
             {% endcall %}
             {% call card_content() %}
+                <p x-show="sourceIntelligenceRefreshError"
+                   x-cloak
+                   class="mb-4 rounded-md border border-[#f2d18c] bg-[#fff8e8] p-3 text-sm text-[#7a4d05]"
+                   x-text="sourceIntelligenceRefreshError"></p>
                 <div class="grid gap-4 lg:grid-cols-2">
                     <div>
                         <h3 class="mb-3 text-sm font-semibold uppercase tracking-wide text-[#5f5c78]">Top regions</h3>

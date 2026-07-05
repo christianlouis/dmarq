@@ -80,6 +80,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed the remediation queue API schema so `repair_progression` is preserved in typed domain remediation responses.
 - Fixed dashboard and domain remediation refresh failures so transient backend errors no longer blank already-loaded operator evidence.
 - Fixed domain-list refresh failures so a transient DNS/API error no longer clears the previously loaded domain rows.
+- Fixed source-intelligence refresh failures so previously loaded region and anomaly evidence stays visible while the retry warning is shown.
 - Fixed the Cloudflare permissions picker so selecting the full DNS repair profile no longer falls back to read-only scopes.
 - Fixed the release modal coverage so recent operator-facing work is visible from inside the app.
 - Fixed the remaining Settings page startup hook so CSP hardening no longer depends on template-level page initialization.

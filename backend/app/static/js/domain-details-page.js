@@ -177,6 +177,7 @@ function domainDetailsApp(domainId = '') {
             loading: true,
             error: ''
         },
+        sourceIntelligenceRefreshError: '',
         ownership: {
             loading: false,
             error: '',
@@ -266,7 +267,7 @@ function domainDetailsApp(domainId = '') {
 
             this.$watch('filters.dateRange', () => {
                 this.fetchSources();
-                this.fetchSourceIntelligence();
+                this.fetchSourceIntelligence({ preserveOnFailure: true });
             });
             this.$watch('remediationQueueSort', () => {
                 this.showAllRemediationQueueItems = false;
@@ -429,7 +430,7 @@ function domainDetailsApp(domainId = '') {
 
             Promise.allSettled([
                 this.fetchSources(),
-                this.fetchSourceIntelligence()
+                this.fetchSourceIntelligence({ preserveOnFailure: true })
             ]);
 
             window.setTimeout(() => {
@@ -488,7 +489,7 @@ function domainDetailsApp(domainId = '') {
                     this.fetchSelectors(),
                     this.fetchReports(),
                     this.fetchSources({ refresh: true }),
-                    this.fetchSourceIntelligence()
+                    this.fetchSourceIntelligence({ preserveOnFailure: true })
                 ]);
             } finally {
                 this.refreshingPage = false;
@@ -2155,13 +2156,13 @@ function domainDetailsApp(domainId = '') {
                 } else if (key === 'source_reputation') {
                     await Promise.allSettled([
                         this.refreshSourceReputation(),
-                        this.fetchSourceIntelligence()
+                        this.fetchSourceIntelligence({ preserveOnFailure: true })
                     ]);
                 } else if (key === 'reports_and_sources') {
                     await Promise.allSettled([
                         this.fetchReports(),
                         this.fetchSources({ refresh: true, preserveOnFailure: true }),
-                        this.fetchSourceIntelligence()
+                        this.fetchSourceIntelligence({ preserveOnFailure: true })
                     ]);
                 } else if (key === 'reports') {
                     await Promise.allSettled([
@@ -2644,9 +2645,10 @@ function domainDetailsApp(domainId = '') {
             }
         },
 
-        async fetchSourceIntelligence() {
+        async fetchSourceIntelligence(options = {}) {
             this.sourceIntelligence.loading = true;
             this.sourceIntelligence.error = '';
+            this.sourceIntelligenceRefreshError = '';
             try {
                 const response = await this.fetchWithTimeout(
                     `/api/v1/domains/${encodeURIComponent(this.domainId)}/source-intelligence?days=${this.sourceDateWindow()}`,
@@ -2665,13 +2667,27 @@ function domainDetailsApp(domainId = '') {
                     error: ''
                 };
             } catch (error) {
-                this.sourceIntelligence = {
-                    regions: [],
-                    anomalies: [],
-                    summary: {},
-                    loading: false,
-                    error: error.message || 'Source intelligence could not be loaded.'
-                };
+                const message = error.message || 'Source intelligence could not be loaded.';
+                const hasExistingEvidence =
+                    (this.sourceIntelligence.regions || []).length > 0 ||
+                    (this.sourceIntelligence.anomalies || []).length > 0;
+                if (options.preserveOnFailure || hasExistingEvidence) {
+                    this.sourceIntelligence = {
+                        ...this.sourceIntelligence,
+                        loading: false,
+                        error: ''
+                    };
+                    this.sourceIntelligenceRefreshError =
+                        `${message} Showing the last loaded source intelligence.`;
+                } else {
+                    this.sourceIntelligence = {
+                        regions: [],
+                        anomalies: [],
+                        summary: {},
+                        loading: false,
+                        error: message
+                    };
+                }
                 console.error('Error fetching source intelligence:', error);
             } finally {
                 this.sourceIntelligence.loading = false;

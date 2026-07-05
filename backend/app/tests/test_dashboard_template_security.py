@@ -1701,6 +1701,10 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "sourceIntelligence.loading" in template
     assert "Loading source intelligence..." in template
     assert "Source intelligence could not be loaded." in script
+    assert "sourceIntelligenceRefreshError" in script
+    assert "sourceIntelligenceRefreshError" in template
+    assert "Showing the last loaded source intelligence." in script
+    assert "preserveOnFailure: true" in script
     assert "remediationQueueLoading" in script
     assert "remediationQueueError" in script
     assert "primaryRemediationItem" in script
