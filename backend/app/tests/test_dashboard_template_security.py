@@ -1221,6 +1221,7 @@ def test_domain_details_distinguishes_evidence_verified_repairs_without_html_inj
     assert "verified.detail" in template
     assert "verified.verification_status" in template
     assert "verified.verification_method" in template
+    assert "String(verified.verification_method || '').replaceAll('_', ' ')" in template
     assert "verified.next_check" in template
     assert "verified.evidence_needed" in template
     assert "verified.operator_note" in template

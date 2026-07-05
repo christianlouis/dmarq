@@ -442,7 +442,7 @@
                                                   x-text="verified.verification_status ? verified.verification_status.replaceAll('_', ' ') : 'verified'"></span>
                                             <span class="rounded bg-[#f6f8fb] px-2 py-1 text-[#45505f]"
                                                   x-show="verified.verification_method"
-                                                  x-text="verified.verification_method.replaceAll('_', ' ')"></span>
+                                                  x-text="String(verified.verification_method || '').replaceAll('_', ' ')"></span>
                                         </div>
                                         <p class="mt-2 text-[#5f5c78]">
                                             <span x-text="verified.next_check || 'Keep monitoring this repair; no DNS or mail settings were changed by this verification marker.'"></span>
