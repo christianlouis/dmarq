@@ -1205,6 +1205,18 @@ def test_domain_details_exposes_remediation_action_plans_without_html_injection(
     assert "x-html" not in template
 
 
+def test_domain_details_investigation_actions_include_rejection_option():
+    """The UI should expose every investigation lifecycle decision from the API."""
+    script = _domain_details_script()
+    investigate_start = script.index("investigate: [")
+    investigate_end = script.index("],", investigate_start)
+    investigate_actions = script[investigate_start:investigate_end]
+
+    assert "'mark_legitimate'" in investigate_actions
+    assert "'convert_to_manual_action'" in investigate_actions
+    assert "'rejected'" in investigate_actions
+
+
 def test_domain_details_distinguishes_evidence_verified_repairs_without_html_injection():
     template = _domain_details_template()
 

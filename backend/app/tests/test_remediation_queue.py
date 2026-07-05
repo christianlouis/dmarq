@@ -1,5 +1,6 @@
 from app.services.remediation_queue import (
     _remediation_notification_payload,
+    _summary,
     build_remediation_queue,
 )
 
@@ -338,6 +339,29 @@ def test_remediation_queue_requires_recommended_provider_for_automation():
     assert queue["items"][0]["notification"]["event"] == (
         "dmarq.remediation.manual_action_required"
     )
+
+
+def test_remediation_summary_uses_stored_tracks_after_metadata_application():
+    """Summary counters should match each item's published remediation track."""
+    summary = _summary(
+        [
+            {
+                "state": "manual_action",
+                "source": "dns_lint",
+                "remediation_track": "manual_only",
+                "notification": {"state": "summary_only"},
+            },
+            {
+                "state": "manual_action",
+                "source": "health_score",
+                "remediation_track": "blocked_by_prerequisite",
+                "notification": {"state": "summary_only"},
+            },
+        ]
+    )
+
+    assert summary["manual_only"] == 1
+    assert summary["blocked_by_prerequisite"] == 1
 
 
 def test_remediation_queue_adds_generic_operator_guidance_for_health_actions():

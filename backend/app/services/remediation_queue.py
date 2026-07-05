@@ -101,9 +101,9 @@ def _summary(items: List[Dict[str, Any]]) -> Dict[str, int]:
                 for path in item.get("action_plan", {}).get("guidance_paths", [])
             )
         ),
-        "manual_only": sum(1 for item in items if _remediation_track(item) == "manual_only"),
+        "manual_only": sum(1 for item in items if item.get("remediation_track") == "manual_only"),
         "blocked_by_prerequisite": sum(
-            1 for item in items if _remediation_track(item) == "blocked_by_prerequisite"
+            1 for item in items if item.get("remediation_track") == "blocked_by_prerequisite"
         ),
         "notify_approval_required": sum(
             1 for item in items if item.get("notification", {}).get("state") == "approval_required"
