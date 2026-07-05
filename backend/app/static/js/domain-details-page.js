@@ -695,6 +695,23 @@ function domainDetailsApp(domainId = '') {
             return this.remediationDispatchNextStep(dispatch);
         },
 
+        get primaryRemediationVerificationStatusLabel() {
+            return this.verificationPlanStatusLabel(this.primaryRemediationItem?.verification_plan);
+        },
+
+        get primaryRemediationVerificationStatusClass() {
+            return this.verificationPlanStatusClass(this.primaryRemediationItem?.verification_plan);
+        },
+
+        get primaryRemediationEvidenceNeededText() {
+            return this.verificationPlanEvidenceNeededText(this.primaryRemediationItem?.verification_plan);
+        },
+
+        get primaryRemediationFailureModeText() {
+            return this.primaryRemediationItem?.verification_plan?.failure_mode ||
+                'Keep this item open until fresh evidence confirms the finding is gone.';
+        },
+
         get primaryRemediationFreshnessText() {
             const item = this.primaryRemediationItem;
             if (!item) return '';
@@ -1135,6 +1152,38 @@ function domainDetailsApp(domainId = '') {
                 investigate: 'Investigate'
             };
             return labels[state] || this.humanizeToken(state || 'review');
+        },
+
+        verificationPlanStatusLabel(plan) {
+            const status = typeof plan === 'string' ? plan : plan?.status;
+            const labels = {
+                pending_operator_approval: 'Needs approval',
+                pending_sender_review: 'Sender review',
+                pending_reputation_review: 'Reputation review',
+                pending_report_evidence: 'Fresh evidence',
+                blocked_by_prerequisite: 'Blocked'
+            };
+            return labels[status] || 'Verification needed';
+        },
+
+        verificationPlanStatusClass(plan) {
+            const status = typeof plan === 'string' ? plan : plan?.status;
+            const classes = {
+                pending_operator_approval: 'bg-green-100 text-green-700',
+                pending_sender_review: 'bg-blue-100 text-blue-700',
+                pending_reputation_review: 'bg-purple-100 text-purple-700',
+                pending_report_evidence: 'bg-yellow-100 text-yellow-800',
+                blocked_by_prerequisite: 'bg-red-100 text-red-700'
+            };
+            return classes[status] || 'bg-base-200 text-base-content/70';
+        },
+
+        verificationPlanEvidenceNeededText(plan) {
+            const evidence = plan?.evidence_needed || [];
+            if (Array.isArray(evidence) && evidence.length) {
+                return evidence.slice(0, 3).join(' · ');
+            }
+            return 'Fresh DNS, report, or source evidence.';
         },
 
         remediationNotificationClass(state) {
