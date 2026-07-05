@@ -205,6 +205,12 @@ waiting for review, already acknowledged, or already queued for the configured
 webhook route. The timeline is read-only and highlights that remediation
 notification handling does not perform DNS writes.
 
+The same remediation section also highlights evidence-verified repairs. These
+are items an operator marked resolved that no longer appear in the current
+remediation queue. DMARQ shows the verification status, verification method,
+next check, and evidence needed so operators can distinguish current evidence
+from manual bookkeeping.
+
 If an operator selects a different provider than the nameserver-detected
 provider, DMARQ blocks the preview/apply request by default. The mismatch can be
 overridden only with an explicit confirmation that the selected provider

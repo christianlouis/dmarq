@@ -379,10 +379,20 @@ def test_attach_remediation_dispatch_previews_reports_verified_fixed_items(db_se
             "state": "verified_fixed",
             "verified": True,
             "label": "Verified fixed",
+            "verification_status": "no_longer_observed",
+            "verification_method": "current_queue_absence",
             "detail": (
                 "This remediation item was marked resolved and no longer appears "
                 "in the current remediation queue."
             ),
+            "next_check": (
+                "Keep monitoring new DMARC reports and DNS refreshes; reopen only if "
+                "the same finding returns."
+            ),
+            "evidence_needed": [
+                "Current remediation queue does not contain this item ID.",
+                "Latest operator lifecycle marker is resolved.",
+            ],
             "recorded_at": "2026-07-01T08:00:00Z",
             "operator_note": "Record is now visible after propagation.",
             "actor_type": "operator",

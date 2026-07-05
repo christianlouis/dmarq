@@ -1219,6 +1219,10 @@ def test_domain_details_distinguishes_evidence_verified_repairs_without_html_inj
     assert "verified.item_id" in template
     assert "verified.label" in template
     assert "verified.detail" in template
+    assert "verified.verification_status" in template
+    assert "verified.verification_method" in template
+    assert "verified.next_check" in template
+    assert "verified.evidence_needed" in template
     assert "verified.operator_note" in template
     assert "formatIsoDate(verified.recorded_at)" in template
     assert "verified.actor_type" in template

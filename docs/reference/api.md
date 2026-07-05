@@ -831,6 +831,12 @@ readiness counters, including `dispatch_ready`, `dispatch_blocked`,
 notifications from items blocked by settings, routing, or operator
 acknowledgement.
 
+When a previously resolved remediation item no longer appears in the current
+queue, the response includes it in `verified_items`. These entries include
+`verification_status`, `verification_method`, `next_check`, and bounded
+`evidence_needed` text so clients can explain why the repair is evidence
+verified instead of only operator-marked resolved.
+
 Each notification also includes a compact `history` array derived from
 workspace audit events for the current queue item. The history lists recent
 lifecycle markers and explicit dispatch enqueue events with timestamp, actor

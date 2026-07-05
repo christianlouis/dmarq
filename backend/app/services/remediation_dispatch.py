@@ -449,10 +449,20 @@ def _verified_fixed_items(
                 "state": "verified_fixed",
                 "verified": True,
                 "label": "Verified fixed",
+                "verification_status": "no_longer_observed",
+                "verification_method": "current_queue_absence",
                 "detail": (
                     "This remediation item was marked resolved and no longer appears "
                     "in the current remediation queue."
                 ),
+                "next_check": (
+                    "Keep monitoring new DMARC reports and DNS refreshes; reopen only if "
+                    "the same finding returns."
+                ),
+                "evidence_needed": [
+                    "Current remediation queue does not contain this item ID.",
+                    "Latest operator lifecycle marker is resolved.",
+                ],
                 "recorded_at": _audit_timestamp(row.created_at),
                 "operator_note": details.get("operator_note"),
                 "actor_type": row.actor_type,

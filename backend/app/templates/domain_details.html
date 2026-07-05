@@ -437,9 +437,25 @@
                                                   x-text="verified.label"></span>
                                         </div>
                                         <p class="mt-2 text-[#45505f]" x-text="verified.detail"></p>
+                                        <div class="mt-2 flex flex-wrap gap-2">
+                                            <span class="rounded bg-[#edf7f5] px-2 py-1 font-semibold text-[#1f7c83]"
+                                                  x-text="verified.verification_status ? verified.verification_status.replaceAll('_', ' ') : 'verified'"></span>
+                                            <span class="rounded bg-[#f6f8fb] px-2 py-1 text-[#45505f]"
+                                                  x-show="verified.verification_method"
+                                                  x-text="verified.verification_method.replaceAll('_', ' ')"></span>
+                                        </div>
                                         <p class="mt-2 text-[#5f5c78]">
-                                            <span>Keep monitoring this repair; no DNS or mail settings were changed by this verification marker.</span>
+                                            <span x-text="verified.next_check || 'Keep monitoring this repair; no DNS or mail settings were changed by this verification marker.'"></span>
                                         </p>
+                                        <ul class="mt-2 space-y-1 text-[#45505f]" x-show="(verified.evidence_needed || []).length">
+                                            <template x-for="evidence in (verified.evidence_needed || []).slice(0, 3)"
+                                                      :key="verified.item_id + '-verified-evidence-' + evidence">
+                                                <li class="flex gap-2">
+                                                    <span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[#2f9da5]"></span>
+                                                    <span x-text="evidence"></span>
+                                                </li>
+                                            </template>
+                                        </ul>
                                         <p class="mt-2 rounded bg-[#f6f8fb] px-2 py-1 text-[#45505f]"
                                            x-show="verified.operator_note"
                                            x-text="verified.operator_note"></p>

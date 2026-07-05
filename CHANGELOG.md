@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Documented shipped mail-health surfaces separately from future roadmap work
   so health scoring, evidence exports, read-only API/MCP access, and sender
   reputation no longer read as purely future features.
+- Added explicit verification metadata to evidence-verified remediation repairs
+  so operators can see why a previously resolved item is no longer considered
+  active.
 - Added in-product release metadata with version, image, git ref, build date, recent changes, and a link to the full changelog.
 - Added a domain-level DMARC/SPF/DKIM mail-authentication wizard entry point that renders generated target records as ordered setup steps.
 - Added an explicit AI redaction mode for operators who want to preserve email addresses and domains in AI context while still protecting secrets and opaque tokens.
