@@ -88,6 +88,7 @@ function domainDetailsApp(domainId = '') {
                 dispatch_webhook_routes: 0,
                 dispatch_verified_fixed: 0,
                 dispatch_verified_fixed_visible: 0,
+                dispatch_verified_fixed_hidden: 0,
                 track_provider_preview: 0,
                 track_manual_dns: 0,
                 track_sender_investigation: 0,
@@ -100,6 +101,8 @@ function domainDetailsApp(domainId = '') {
         },
         remediationQueueLoading: true,
         remediationQueueError: '',
+        showAllVerifiedRemediationItems: false,
+        remediationQueueLoadedAt: '',
         remediationAction: {
             itemId: '',
             action: '',
@@ -272,9 +275,15 @@ function domainDetailsApp(domainId = '') {
                 } else if (button.matches('[data-domain-detail-remediation-action]')) {
                     event.preventDefault();
                     this.handleRemediationAction(button);
-                } else if (button.matches('[data-domain-detail-remediation-retry]')) {
+                } else if (
+                    button.matches('[data-domain-detail-remediation-retry]') ||
+                    button.matches('[data-domain-detail-remediation-refresh]')
+                ) {
                     event.preventDefault();
                     this.fetchRemediationQueue();
+                } else if (button.matches('[data-domain-detail-verified-repairs-toggle]')) {
+                    event.preventDefault();
+                    this.showAllVerifiedRemediationItems = !this.showAllVerifiedRemediationItems;
                 } else if (button.matches('[data-domain-detail-migration-action]')) {
                     event.preventDefault();
                     this.handleMigrationAction(button.dataset.domainDetailMigrationAction);
@@ -322,6 +331,21 @@ function domainDetailsApp(domainId = '') {
                 return;
             }
             this.recordRemediationLifecycle(item, action);
+        },
+
+        remediationActionNote(action) {
+            if (!window.prompt) {
+                return '';
+            }
+            const label = this.remediationDecisionLabel(action || 'decision');
+            const note = window.prompt(
+                `Optional operator note for "${label}" (leave blank to continue):`,
+                ''
+            );
+            if (note === null) {
+                return null;
+            }
+            return String(note || '').trim();
         },
 
         handleMigrationAction(action) {
@@ -1004,8 +1028,17 @@ function domainDetailsApp(domainId = '') {
         },
 
         verifiedItemsHiddenCount() {
+            const hidden = this.remediationQueue.summary?.dispatch_verified_fixed_hidden;
+            if (hidden !== undefined && hidden !== null) {
+                return Math.max(Number(hidden) || 0, 0);
+            }
             const visible = (this.remediationQueue.verified_items || []).length;
             return Math.max(this.verifiedItemsTotalCount() - visible, 0);
+        },
+
+        visibleVerifiedItems() {
+            const items = this.remediationQueue.verified_items || [];
+            return this.showAllVerifiedRemediationItems ? items : items.slice(0, 4);
         },
 
         remediationDecisionLabel(value) {
@@ -1575,6 +1608,8 @@ function domainDetailsApp(domainId = '') {
         },
 
         resetRemediationQueue() {
+            this.showAllVerifiedRemediationItems = false;
+            this.remediationQueueLoadedAt = '';
             this.remediationQueue = {
                 status: 'unavailable',
                 loop: {
@@ -1603,6 +1638,7 @@ function domainDetailsApp(domainId = '') {
                     dispatch_webhook_routes: 0,
                     dispatch_verified_fixed: 0,
                     dispatch_verified_fixed_visible: 0,
+                    dispatch_verified_fixed_hidden: 0,
                     track_provider_preview: 0,
                     track_manual_dns: 0,
                     track_sender_investigation: 0,
@@ -1618,6 +1654,7 @@ function domainDetailsApp(domainId = '') {
         async fetchRemediationQueue() {
             this.remediationQueueLoading = true;
             this.remediationQueueError = '';
+            this.showAllVerifiedRemediationItems = false;
             try {
                 const response = await this.fetchWithTimeout(
                     `/api/v1/domains/${encodeURIComponent(this.domainId)}/remediation`
@@ -1633,6 +1670,7 @@ function domainDetailsApp(domainId = '') {
                     return;
                 }
                 this.remediationQueue = await response.json();
+                this.remediationQueueLoadedAt = new Date().toISOString();
             } catch (error) {
                 console.error('Error fetching remediation queue:', error);
                 this.remediationQueueError = error.message || 'Remediation queue could not be loaded.';
@@ -1654,6 +1692,10 @@ function domainDetailsApp(domainId = '') {
                 };
                 return;
             }
+            const note = this.remediationActionNote(lifecycleState);
+            if (note === null) {
+                return;
+            }
             this.remediationAction = {
                 itemId: item.id,
                 action: lifecycleState,
@@ -1671,7 +1713,8 @@ function domainDetailsApp(domainId = '') {
                             item_id: item.id,
                             lifecycle_state: lifecycleState,
                             event: notification.event,
-                            dedupe_key: notification.dedupe_key
+                            dedupe_key: notification.dedupe_key,
+                            note
                         })
                     }
                 );
@@ -1715,6 +1758,10 @@ function domainDetailsApp(domainId = '') {
             if (!window.confirm('Dispatch this remediation notification to the configured webhook route? This does not make DNS changes.')) {
                 return;
             }
+            const note = this.remediationActionNote('dispatch');
+            if (note === null) {
+                return;
+            }
             this.remediationAction = {
                 itemId: item.id,
                 action: 'dispatch',
@@ -1732,7 +1779,8 @@ function domainDetailsApp(domainId = '') {
                             item_id: item.id,
                             confirm: true,
                             event: notification.event,
-                            dedupe_key: notification.dedupe_key
+                            dedupe_key: notification.dedupe_key,
+                            note
                         })
                     }
                 );

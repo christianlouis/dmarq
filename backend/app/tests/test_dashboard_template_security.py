@@ -309,10 +309,13 @@ def test_dashboard_remediation_cards_deep_link_to_domain_queue():
     template = _dashboard_template()
     script = _dashboard_script()
 
+    assert ':href="domainActionHref(action)"' in template
     assert ':href="domainRemediationHref(item.domain)"' in template
     assert "Open remediation queue" in template
+    assert "domainActionHref(action)" in script
     assert "domainRemediationHref(domainName)" in script
     assert "#remediation-queue" in script
+    assert "encodeURIComponent(action.domain)" in script
     assert "encodeURIComponent(domainName)" in script
 
 
@@ -329,6 +332,7 @@ def test_dashboard_remediation_loop_uses_resolved_language():
 
 def test_dashboard_remediation_cards_show_owner_and_completion_context():
     template = _dashboard_template()
+    script = _dashboard_script()
 
     assert "Owner" in template
     assert "Done when" in template
@@ -336,6 +340,12 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert 'x-text="item.owner"' in template
     assert 'x-text="item.completion_criteria"' in template
     assert 'x-text="item.verification_next_check"' in template
+    assert "remediationTrackLabel(item.remediation_track)" in template
+    assert "remediationRiskClass(item.risk_level)" in template
+    assert "item.priority_band || 'watch'" in template
+    assert "item.operator_decision_summary" in template
+    assert "remediationRiskClass(risk)" in script
+    assert "remediationTrackLabel(track)" in script
 
 
 def test_domain_details_remediation_queue_shows_verification_context():
@@ -345,6 +355,14 @@ def test_domain_details_remediation_queue_shows_verification_context():
     assert 'x-text="verifiedItemsTotalCount()"' in template
     assert "verified_items_total" in script
     assert "verifiedItemsHiddenCount()" in template
+    assert "visibleVerifiedItems()" in template
+    assert "data-domain-detail-remediation-refresh" in template
+    assert "data-domain-detail-verified-repairs-toggle" in template
+    assert "fetchRemediationQueue()" in script
+    assert "showAllVerifiedRemediationItems = !this.showAllVerifiedRemediationItems" in script
+    assert "remediationQueueLoadedAt" in template
+    assert "formatIsoDate(remediationQueueLoadedAt)" in template
+    assert "remediationQueueLoadedAt" in script
     assert "verified.verification_method" in template
     assert "verified.verification_status" in template
     assert "verified.next_check" in template
@@ -1196,14 +1214,19 @@ def test_domain_details_exposes_remediation_action_plans_without_html_injection(
 
     assert "Remediation Queue" in template
     assert "Action plan" in template
+    assert "item.confidence" in template
     assert "item.action_plan.owner" in template
+    assert "item.action_plan.prerequisites" in template
     assert "item.action_plan.steps" in template
     assert "item.action_plan.completion_criteria" in template
+    assert "item.action_plan.safe_to_automate" in template
     assert "Verification" in template
     assert "item.verification_plan.status" in template
     assert "item.verification_plan.evidence_needed" in template
     assert "item.verification_plan.next_check" in template
     assert "Notification dispatch" in template
+    assert "item.notification.dispatch.blocked_reasons" in template
+    assert "blocked_reasons[0]" not in template
     assert "Remediation loop" in template
     assert "remediationLoopStatusLabel" in template
     assert "remediationIncidentLabel" in template
@@ -1218,11 +1241,13 @@ def test_domain_details_exposes_remediation_action_plans_without_html_injection(
     assert "dispatchRemediationNotification(item)" not in template
     assert "handleRemediationAction" in script
     assert "remediationDecisionLabel" in script
+    assert "remediationActionNote(action)" in script
     assert "approve_after_preview" in script
     assert "mark_unknown" in script
     assert "humanizeToken" in script
     assert "/remediation/notifications/audit" in script
     assert "/remediation/notifications/dispatch" in script
+    assert "note" in script
     assert "No DNS changes were made" in script
     assert "x-html" not in template
 
@@ -1250,8 +1275,13 @@ def test_domain_details_distinguishes_evidence_verified_repairs_without_html_inj
     ) in template
     assert "Keep monitoring this repair; no DNS or mail settings were changed" in template
     assert "const visible = (this.remediationQueue.verified_items || []).length" in script
+    assert "dispatch_verified_fixed_hidden" in script
     assert "this.verifiedItemsTotalCount() - visible" in script
-    assert "remediationQueue.verified_items.slice(0, 4)" in template
+    assert "visibleVerifiedItems()" in template
+    assert "showAllVerifiedRemediationItems" in template
+    assert "Show compact view" in template
+    assert "Show all visible repairs" in template
+    assert "items.slice(0, 4)" in script
     assert "verified.item_id" in template
     assert "verified.label" in template
     assert "verified.detail" in template
@@ -1361,10 +1391,8 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "Remediation queue could not be loaded." in script
     assert "Retry remediation queue" in template
     assert "data-domain-detail-remediation-retry" in template
-    assert (
-        '<div class="flex flex-wrap gap-2 text-xs" x-show="!remediationQueueLoading && !remediationQueueError">'
-        in template
-    )
+    assert 'x-show="!remediationQueueLoading && !remediationQueueError"' in template
+    assert "flex flex-wrap items-center gap-2 text-xs" in template
     assert "remediationQueue.summary.total" in template
     assert "remediationQueue.summary.approval_ready" in template
     assert "remediationQueue.summary.manual_action" in template

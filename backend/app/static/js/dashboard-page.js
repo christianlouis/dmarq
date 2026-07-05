@@ -932,9 +932,27 @@ function dashboardApp() {
             }[String(state || '')] || 'bg-[#f8f7f6] text-[#5f5c78]';
         },
 
+        remediationRiskClass(risk) {
+            return {
+                high: 'bg-red-100 text-red-700',
+                medium: 'bg-yellow-100 text-yellow-800',
+                low: 'bg-green-100 text-green-700'
+            }[String(risk || '').toLowerCase()] || 'bg-[#f8f7f6] text-[#5f5c78]';
+        },
+
+        remediationTrackLabel(track) {
+            return {
+                provider_preview: 'Provider preview',
+                manual_dns: 'Manual DNS',
+                sender_investigation: 'Sender investigation',
+                reputation_review: 'Reputation review',
+                self_hosted_or_provider: 'Provider or self-hosted'
+            }[String(track || '')] || 'Manual review';
+        },
+
         domainActionHref(action) {
             return action && action.domain
-                ? `/domains/${encodeURIComponent(action.domain)}`
+                ? `/domains/${encodeURIComponent(action.domain)}#remediation-queue`
                 : '/domains';
         },
 
@@ -1616,7 +1634,8 @@ function dashboardApp() {
             const latest = document.createElement('span');
             latest.className = 'text-xs text-muted-foreground whitespace-nowrap';
             if (workload?.primary?.state) {
-                latest.textContent = this.remediationLoopStateLabel(workload.primary.state);
+                const track = this.remediationTrackLabel(workload.primary.remediation_track);
+                latest.textContent = `${this.remediationLoopStateLabel(workload.primary.state)} · ${track}`;
             } else if (remediation?.latest_at) {
                 latest.textContent = new Date(remediation.latest_at).toLocaleString();
             } else {

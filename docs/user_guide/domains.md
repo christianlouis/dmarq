@@ -92,6 +92,8 @@ as approval-ready, manual, or investigate-only, and include the evidence,
 blast radius, prerequisites, and expected health-score impact. Approval-ready
 DNS items link back to the DNS change-plan review area; they still require an
 operator preview and explicit approval before any provider write is sent.
+Use **Refresh queue** to reload the remediation queue from the backend after
+new reports, DNS checks, or operator lifecycle changes are available.
 Each item now also shows the remediation track, priority band, owner, risk
 level, safe-automation flag, and the exact operator decision DMARQ expects next.
 Each item also shows a notification profile such as approval required, action
@@ -106,22 +108,33 @@ whether remediation dispatch is enabled, whether the event is configured, if a
 previewed or acknowledged audit marker is still required, and whether an
 enabled webhook endpoint is subscribed to the event. This is a readiness check
 only; DMARQ does not enqueue webhook deliveries or send notifications from the
-queue view. The queue header summarizes how many items are ready to notify,
-blocked, awaiting acknowledgement, or covered by webhook routes so operators can
-see the next action without opening every item.
+queue view. The UI lists every dispatch blocker, not only the first one, so
+operators can fix settings, routing, acknowledgement, and webhook coverage in
+one pass. The queue header summarizes how many items are ready to notify,
+blocked, awaiting acknowledgement, or covered by webhook routes so operators
+can see the next action without opening every item.
 
 When an operator marks an item resolved and the same finding no longer appears
 in the current queue, the domain detail page lists it under evidence-verified
 repairs. That section shows how DMARQ verified the absence, what evidence was
 used, how many older verified repairs are hidden in the compact view, and what
-fresh reports or DNS checks should keep monitoring the fix.
+fresh reports or DNS checks should keep monitoring the fix. The compact view
+shows the newest verified repairs first and can be expanded to show every
+verified repair returned by the backend response.
 
 After a remediation notification is previewed or acknowledged, an operator can
 explicitly enqueue the notification through the dispatch API with
 `confirm=true`. Dispatch currently means "create persisted webhook delivery
 rows for configured endpoints"; it does not send from the queue view and does
 not apply DNS changes. The delivery history can then be inspected through the
-webhook delivery state.
+webhook delivery state. Lifecycle markers and dispatch requests may include an
+operator note; DMARQ stores that note in the audit trail and shows it in the
+recent operator history.
+
+Dashboard action-plan cards and remediation-loop cards both deep-link into the
+selected domain's remediation queue. Use those links when triaging workspace
+health: they keep the operator on the evidence and approval surface instead of
+dropping them on a generic domain overview.
 
 ### Source Intelligence
 
