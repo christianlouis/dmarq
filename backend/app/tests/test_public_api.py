@@ -238,7 +238,16 @@ def _sample_remediation_queue(domain=DOMAIN):
                         "automation": {
                             "eligible": True,
                             "apply_endpoint": ("/api/v1/domains/example.com/dns/change-plan/apply"),
-                        }
+                        },
+                        "provider_repair_plan": {
+                            "kind": "dns_provider_repair",
+                            "provider": "cloudflare",
+                            "can_apply_after_approval": True,
+                            "apply_blocked": False,
+                            "blocked_reasons": [],
+                            "preview_endpoint": "/api/v1/domains/example.com/dns/change-plan/apply",
+                            "apply_endpoint": "/api/v1/domains/example.com/dns/change-plan/apply",
+                        },
                     },
                     "history": [],
                     "dispatch": {"eligible": False, "reason": "disabled"},
@@ -680,6 +689,12 @@ def test_public_remediation_queue_is_read_only_and_posture_scoped(
     assert item["provider_repair_plan"]["apply_endpoint"] == ""
     assert "public_read_only_response" in item["provider_repair_plan"]["blocked_reasons"]
     assert item["notification"]["payload_preview"]["automation"]["apply_endpoint"] is None
+    notification_plan = item["notification"]["payload_preview"]["provider_repair_plan"]
+    assert notification_plan["can_apply_after_approval"] is False
+    assert notification_plan["apply_blocked"] is True
+    assert notification_plan["preview_endpoint"] == ""
+    assert notification_plan["apply_endpoint"] == ""
+    assert "public_read_only_response" in notification_plan["blocked_reasons"]
 
 
 def test_read_only_remediation_queue_keeps_missing_provider_plan_not_applicable():
