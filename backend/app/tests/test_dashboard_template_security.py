@@ -419,6 +419,8 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "repairReadinessReason(item.repair_progression)" in template
     assert "repairReadinessBlockedText(item.repair_progression)" in template
     assert "Next safe action" in template
+    assert "item.verification_plan?.freshness_requirement" in template
+    assert "item.verification_plan?.closure_gate" in template
     assert "repairReadinessClass(item.repair_progression)" in template
     assert "repairReadinessLabel(item.repair_progression)" in template
     assert "repairReadinessScore(item.repair_progression)" in template

@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added first-screen remediation freshness and closure-gate context so the top domain action panel shows what evidence must be current before closure.
 - Added top-panel remediation evidence controls so operators can open the relevant evidence section or run the safe read-only evidence refresh without scrolling.
 - Added verified-repair freshness counters so stale or unknown repair-history evidence is visible before opening individual entries.
+- Added dashboard remediation verification freshness and closure gates so workspace cards match domain-level repair semantics.
 - Added next-remediation readiness context and verified-repair freshness gates so operators see the next safe action before opening or closing remediation work.
 - Added dashboard remediation-card readiness reasons, blockers, and next-safe-action text so operators can triage fixes before opening the domain queue.
 - Added dashboard remediation sorting, last-refresh context, a queue refresh control, and domain remediation filters for preview-ready, blocked, evidence-gated, manual, and reputation-review work.
