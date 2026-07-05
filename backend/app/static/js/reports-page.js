@@ -164,7 +164,8 @@ function reportsApp() {
             } catch (error) {
                 const message = error.message || 'Reports could not be loaded.';
                 if (preserveOnFailure && hadReports) {
-                    this.warning = `${message} Showing the last loaded reports.`;
+                    const separator = /[.!?]$/.test(message.trim()) ? ' ' : '. ';
+                    this.warning = `${message}${separator}Showing the last loaded reports.`;
                 } else {
                     this.reports = [];
                     this.domains = [];

@@ -1656,7 +1656,9 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     assert "keepExistingSourcesVisible" in script
     assert "this.sourcesLoading = !keepExistingSourcesVisible;" in script
     assert "Showing the last loaded sending sources." in script
-    assert "if (!options.preserveOnFailure) {\n                    this.sources = [];" in script
+    assert "const hasExistingSources = (this.sources || []).length > 0;" in script
+    assert "if (!options.preserveOnFailure || !hasExistingSources) {" in script
+    assert "if (options.preserveOnFailure && hasExistingSources) {" in script
     assert "sourceSeenLabel" in script
     assert "sourceVolumeBars" in script
     assert "source.reputation.status" in template

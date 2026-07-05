@@ -2633,11 +2633,12 @@ function domainDetailsApp(domainId = '') {
                 this.sources = (data.sources || []).map(source => this.normalizeSource(source));
                 this.sourceReputationRefreshError = '';
             } catch (error) {
-                if (!options.preserveOnFailure) {
+                const hasExistingSources = (this.sources || []).length > 0;
+                if (!options.preserveOnFailure || !hasExistingSources) {
                     this.sources = [];
                     this.sourcesError = error.message || 'Sending sources could not be loaded.';
                 }
-                if (options.preserveOnFailure) {
+                if (options.preserveOnFailure && hasExistingSources) {
                     this.sourceReputationRefreshError =
                         (error.message || 'Sending sources could not be refreshed.') +
                         ' Showing the last loaded sending sources.';
@@ -2673,8 +2674,9 @@ function domainDetailsApp(domainId = '') {
                 const message = error.message || 'Source intelligence could not be loaded.';
                 const hasExistingEvidence =
                     (this.sourceIntelligence.regions || []).length > 0 ||
-                    (this.sourceIntelligence.anomalies || []).length > 0;
-                if (options.preserveOnFailure || hasExistingEvidence) {
+                    (this.sourceIntelligence.anomalies || []).length > 0 ||
+                    Object.keys(this.sourceIntelligence.summary || {}).length > 0;
+                if (hasExistingEvidence) {
                     this.sourceIntelligence = {
                         ...this.sourceIntelligence,
                         loading: false,
