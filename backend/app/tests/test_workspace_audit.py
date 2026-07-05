@@ -1,6 +1,7 @@
 import csv
 import json
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from io import StringIO
 
 from fastapi.testclient import TestClient
@@ -528,6 +529,120 @@ def test_workspace_audit_logs_deny_jwt_without_bootstrapping_default_workspace(
         response = client.get("/api/v1/audit/logs")
         assert response.status_code == 403
 
+    assert db_session.query(Workspace).count() == 0
+    db_session.refresh(unscoped_domain)
+    assert unscoped_domain.workspace_id is None
+
+
+def test_support_access_grants_are_customer_visible_and_audited(
+    test_app,
+    db_session: Session,
+):
+    """Support access requires an explicit time-boxed grant and remains visible."""
+    workspace = get_or_create_default_workspace(db_session)
+    owner = _add_user(db_session, "support-owner@example.com")
+    auditor = _add_user(db_session, "support-auditor@example.com")
+    analyst = _add_user(db_session, "support-analyst@example.com")
+    _add_membership(db_session, workspace, owner, ROLE_WORKSPACE_OWNER)
+    _add_membership(db_session, workspace, auditor, ROLE_AUDITOR)
+    _add_membership(db_session, workspace, analyst, ROLE_ANALYST)
+    db_session.commit()
+
+    expires_at = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+    with _client_as_user(test_app, db_session, owner) as client:
+        created = client.post(
+            "/api/v1/audit/support-access/grants",
+            json={
+                "approved_principal": "support@dmarq.example",
+                "reason": "Investigate sender intelligence regression",
+                "expires_at": expires_at,
+            },
+            headers={"x-forwarded-for": "203.0.113.42"},
+        )
+        assert created.status_code == 201
+        grant = created.json()["grants"][0]
+        assert grant["approved_principal"] == "support@dmarq.example"
+        assert grant["status"] == "active"
+        assert grant["scope"] == "read_only_diagnostics"
+        grant_id = grant["id"]
+
+    with _client_as_user(test_app, db_session, auditor) as client:
+        visible = client.get("/api/v1/audit/support-access/grants")
+        assert visible.status_code == 200
+        assert visible.json()["grants"][0]["id"] == grant_id
+
+    with _client_as_user(test_app, db_session, analyst) as client:
+        list_denied = client.get("/api/v1/audit/support-access/grants")
+        assert list_denied.status_code == 403
+        denied = client.post(
+            "/api/v1/audit/support-access/grants",
+            json={
+                "approved_principal": "support@dmarq.example",
+                "reason": "Should not be allowed",
+                "expires_at": expires_at,
+            },
+        )
+        assert denied.status_code == 403
+
+    with _client_as_user(test_app, db_session, owner) as client:
+        invalid_scope = client.post(
+            "/api/v1/audit/support-access/grants",
+            json={
+                "approved_principal": "support@dmarq.example",
+                "reason": "Reject misleading support scope",
+                "expires_at": expires_at,
+                "scope": "admin",
+            },
+        )
+        assert invalid_scope.status_code == 422
+        revoked = client.post(
+            f"/api/v1/audit/support-access/grants/{grant_id}/revoke",
+            json={"reason": "Investigation finished"},
+        )
+        assert revoked.status_code == 200
+        assert revoked.json()["grants"][0]["status"] == "revoked"
+        active = client.get("/api/v1/audit/support-access/grants")
+        assert active.status_code == 200
+        assert active.json()["grants"] == []
+        all_grants = client.get("/api/v1/audit/support-access/grants?include_inactive=true")
+        assert all_grants.status_code == 200
+        assert all_grants.json()["grants"][0]["status"] == "revoked"
+
+    rows = (
+        db_session.query(WorkspaceAuditLog)
+        .filter(WorkspaceAuditLog.entity_type == "support_access_grant")
+        .order_by(WorkspaceAuditLog.id)
+        .all()
+    )
+    assert [row.action for row in rows] == [
+        "support_access.grant_created",
+        "support_access.grant_revoked",
+    ]
+    assert rows[0].ip_address == "203.0.113.42"
+    assert "customer_visible" in rows[0].details
+
+
+def test_support_access_grants_deny_jwt_without_bootstrapping_default_workspace(
+    test_app,
+    db_session: Session,
+):
+    """Support grant writes cannot migrate legacy rows before authorization."""
+    unscoped_domain = Domain(name="unscoped-support-access.example", active=True)
+    db_session.add(unscoped_domain)
+    db_session.commit()
+    expires_at = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+
+    with _client_as_jwt(test_app, db_session, "unknown-support-sub") as client:
+        response = client.post(
+            "/api/v1/audit/support-access/grants",
+            json={
+                "approved_principal": "support@dmarq.example",
+                "reason": "Should not mutate before authorization",
+                "expires_at": expires_at,
+            },
+        )
+
+    assert response.status_code == 403
     assert db_session.query(Workspace).count() == 0
     db_session.refresh(unscoped_domain)
     assert unscoped_domain.workspace_id is None

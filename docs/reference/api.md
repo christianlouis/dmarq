@@ -267,6 +267,21 @@ filters:
 
 Audit details redact secret-like fields before they are stored.
 
+#### Support Access Grants
+
+```text
+GET /audit/support-access/grants
+POST /audit/support-access/grants
+POST /audit/support-access/grants/{grant_id}/revoke
+```
+
+Support access is explicit and customer-visible. A workspace owner can approve a
+time-boxed read-only diagnostics grant for a named support principal, and every
+create/revoke action is written to the workspace audit log and enterprise audit
+export. Listing grants requires `audit:read`; creating or revoking grants
+requires `workspace:admin`. These endpoints do not enable silent
+impersonation.
+
 ### Workspace Onboarding
 
 Workspace onboarding endpoints require administrator access and render/apply
