@@ -2059,6 +2059,93 @@ def _remediation_operator_decision_summary(state: str) -> str:
     return "Complete the manual action, refresh evidence, then mark the item resolved."
 
 
+def _dashboard_verification_plan(
+    state: str,
+    action: Dict[str, Any],
+    context: Dict[str, str],
+) -> Dict[str, Any]:
+    """Return dashboard-safe read-only evidence checks before closure."""
+    if _remediation_track_for_action(state, action) == "blocked_by_prerequisite":
+        return {
+            "label": "Collect provider value first",
+            "status": "blocked_by_prerequisite",
+            "verification_method": "provider_specific_value_then_health_rebuild",
+            "freshness_requirement": (
+                "The exact provider-specific DKIM, SPF, DMARC, or CNAME target value."
+            ),
+            "failure_mode": "Keep the item blocked until the missing provider value is known.",
+            "closure_gate": (
+                "Close only after the provider value is published and fresh evidence removes the finding."
+            ),
+            "stale_evidence_warning": (
+                "Do not approve or close this until the provider-specific target value is known."
+            ),
+            "summary": "This repair is blocked until DMARQ has the exact provider value.",
+            "evidence_needed": [
+                "Provider-specific target value",
+                "Fresh DNS posture after publishing",
+                "Finding disappears from the remediation queue",
+            ],
+            "next_check": context["verification_next_check"],
+        }
+    if state == "needs_approval":
+        return {
+            "label": "Verify after approved repair",
+            "status": "pending_operator_approval",
+            "verification_method": "provider_write_then_dns_refresh",
+            "freshness_requirement": "Fresh DNS evidence after provider propagation.",
+            "failure_mode": "Keep the item open if the expected record is not visible.",
+            "closure_gate": "Close only after approved provider apply and fresh DNS evidence agree.",
+            "stale_evidence_warning": (
+                "Do not close this from the preview alone; DNS propagation evidence is required."
+            ),
+            "summary": "Provider-backed repairs require explicit approval and fresh DNS evidence.",
+            "evidence_needed": [
+                "Operator-approved provider preview",
+                "Fresh DNS posture after propagation",
+                "Finding disappears from the remediation queue",
+            ],
+            "next_check": context["verification_next_check"],
+        }
+    if state == "investigate":
+        return {
+            "label": "Verify with fresh sender evidence",
+            "status": "pending_sender_review",
+            "verification_method": "fresh_dmarc_report_window",
+            "freshness_requirement": "A newer receiver report covering the active sender.",
+            "failure_mode": "Keep investigating if the source remains unknown, failing, or stale.",
+            "closure_gate": (
+                "Close only after sender classification and newer reports confirm the treatment."
+            ),
+            "stale_evidence_warning": (
+                "Old report rows can describe senders that no longer send mail for this domain."
+            ),
+            "summary": "Investigation items need sender classification and fresh report evidence.",
+            "evidence_needed": [
+                "Sender classification decision",
+                "Fresh receiver report window",
+                "Expected DMARC pass or intentional block",
+            ],
+            "next_check": context["verification_next_check"],
+        }
+    return {
+        "label": "Verify after manual action",
+        "status": "pending_report_evidence",
+        "verification_method": "fresh_health_rebuild",
+        "freshness_requirement": "Fresh DMARC reports or DNS checks after the operator action.",
+        "failure_mode": "Keep the item open if the same health action is still present.",
+        "closure_gate": "Close only after fresh health evidence removes the same finding.",
+        "stale_evidence_warning": "Do not close from an operator note alone; refresh evidence first.",
+        "summary": "Manual remediation needs fresh report or DNS evidence before closure.",
+        "evidence_needed": [
+            "Operator action is complete",
+            "Fresh domain health rebuild",
+            "Finding disappears from the remediation queue",
+        ],
+        "next_check": context["verification_next_check"],
+    }
+
+
 def _dashboard_repair_progression_with_readiness(
     progression: Dict[str, Any],
     *,
@@ -2221,6 +2308,7 @@ def _dashboard_remediation_item(
         "safe_to_automate": _remediation_safe_to_automate(state),
         "operator_decision_summary": _remediation_operator_decision_summary(state),
         "operator_decisions": _remediation_operator_decisions(state),
+        "verification_plan": _dashboard_verification_plan(state, action, context),
         "repair_progression": _dashboard_repair_progression(state, action),
         "severity": str(action.get("severity") or "info"),
         "source": str(action.get("source") or "domain_health"),

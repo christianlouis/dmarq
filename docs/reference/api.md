@@ -841,6 +841,10 @@ kind of read-only refresh or prerequisite the operator should handle next.
 The workspace dashboard `health_summary.remediation_loop` and each domain row's
 `remediation_workload` expose the same `evidence_refresh` object and counters,
 so clients can present the correct refresh path before opening the detail queue.
+Dashboard remediation items also include `verification_plan` with the method,
+freshness requirement, failure mode, closure gate, stale-evidence warning,
+needed evidence, and next check; clients should show it as read-only closure
+guidance before treating an item as fixed.
 
 Notification metadata includes the event name, channel, dedupe key, reason, and
 next state transition that an operator workflow can use. Each notification also
