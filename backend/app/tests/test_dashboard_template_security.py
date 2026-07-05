@@ -316,6 +316,14 @@ def test_dashboard_remediation_cards_deep_link_to_domain_queue():
     assert "encodeURIComponent(domainName)" in script
 
 
+def test_dashboard_remediation_loop_uses_resolved_language():
+    template = _dashboard_template()
+
+    assert "Resolved" in template
+    assert "Operator-marked resolved items" in template
+    assert "remediationLoop().resolved || remediationLoop().fixed || 0" in template
+
+
 def test_dashboard_remediation_queue_href_encodes_domain_and_anchor():
     assert (
         _run_dashboard_expression("app.domainRemediationHref('mail.example/a b')")

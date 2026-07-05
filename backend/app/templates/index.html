@@ -211,9 +211,10 @@
         </div>
         <div class="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <div class="rounded-md border border-[#e6e3e1] p-4">
-                <p class="text-sm text-[#5f5c78]">Fixed</p>
-                <p class="mt-2 text-3xl font-bold text-[#247982]" x-text="remediationLoop().fixed || 0"></p>
-                <p class="mt-1 text-xs text-[#5f5c78]">Operator-marked and verified items</p>
+                <p class="text-sm text-[#5f5c78]">Resolved</p>
+                <p class="mt-2 text-3xl font-bold text-[#247982]"
+                   x-text="remediationLoop().resolved || remediationLoop().fixed || 0"></p>
+                <p class="mt-1 text-xs text-[#5f5c78]">Operator-marked resolved items</p>
             </div>
             <div class="rounded-md border border-[#e6e3e1] p-4">
                 <p class="text-sm text-[#5f5c78]">Needs approval</p>
