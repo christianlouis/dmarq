@@ -28,6 +28,13 @@ DEFAULT_DISPATCH_EVENTS = {
 }
 ACKNOWLEDGED_LIFECYCLE_STATES = {"previewed", "acknowledged"}
 OPERATOR_HELD_LIFECYCLE_STATES = {"resolved", "rejected", "snoozed"}
+LIFECYCLE_HISTORY_LABELS = {
+    "previewed": "Marked reviewed",
+    "acknowledged": "Marked acknowledged",
+    "resolved": "Marked resolved",
+    "rejected": "Marked rejected",
+    "snoozed": "Marked snoozed",
+}
 BLOCKED_REASON_NEXT_STEPS = (
     (
         "Remediation dispatch is disabled",
@@ -157,7 +164,10 @@ def _history_entry(row: WorkspaceAuditLog) -> Optional[Dict[str, Any]]:
         if not lifecycle_state:
             return None
         state = lifecycle_state
-        label = f"Lifecycle {lifecycle_state.replace('_', ' ')}"
+        label = LIFECYCLE_HISTORY_LABELS.get(
+            lifecycle_state,
+            f"Marked {lifecycle_state.replace('_', ' ')}",
+        )
 
     return {
         "item_id": str(row.entity_id or ""),

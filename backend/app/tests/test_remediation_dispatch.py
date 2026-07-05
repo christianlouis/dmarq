@@ -468,6 +468,7 @@ def test_notification_histories_return_sanitized_recent_audit_events(db_session)
     assert "deliveries" not in history[0]
     assert "actor_id" not in history[0]
     assert history[1]["state"] == "acknowledged"
+    assert history[1]["label"] == "Marked acknowledged"
     assert history[1]["operator_note"] == "Reviewed with DNS owner"
 
 
