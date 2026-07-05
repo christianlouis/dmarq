@@ -84,7 +84,10 @@ investigation, and manual work. Each card shows the same readiness label and
 0-100 score used on the domain remediation queue. Cards also show the next safe
 action, first readiness reason, freshness requirement, closure gate, and blocker
 summary before linking to the selected domain for the full evidence, approval,
-and verification flow.
+and verification flow. Filter chips let you isolate preview-ready repairs,
+approval verification, sender review, report-evidence follow-up, blocked work,
+manual work, reputation review, and stale-evidence cases without opening every
+domain.
 
 ### Demo Mode
 
