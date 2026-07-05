@@ -1135,6 +1135,7 @@ def test_report_detail_uses_external_page_script_for_csp_migration():
     assert "filteredRecords" in template
     assert "recordRiskCounts" in template
     assert "recordRiskMatches(record, this.recordRiskFilter)" in script
+    assert "recordRiskLabel()" in template
     assert "reputationAgeLabel(record.reputation)" in template
     assert "reputationNextSteps(record.reputation)" in template
     assert "recordSenderName(record)" in template

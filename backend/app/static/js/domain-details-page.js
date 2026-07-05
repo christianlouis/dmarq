@@ -1619,17 +1619,24 @@ function domainDetailsApp(domainId = '') {
             return `risk ${reputation.risk_score}/100`;
         },
 
-        reputationCheckedLabel(reputation) {
-            if (!reputation?.checked_at) return 'not checked yet';
+        parsedReputationCheckedAt(reputation) {
+            if (!reputation?.checked_at) return null;
             const date = new Date(reputation.checked_at);
-            if (Number.isNaN(date.getTime())) return reputation.checked_at;
+            return Number.isNaN(date.getTime()) ? null : date;
+        },
+
+        reputationCheckedLabel(reputation) {
+            const checkedAt = reputation?.checked_at;
+            const date = this.parsedReputationCheckedAt(reputation);
+            if (!checkedAt) return 'not checked yet';
+            if (!date) return checkedAt;
             return `checked ${date.toLocaleString()}`;
         },
 
         reputationAgeLabel(reputation) {
             if (!reputation?.checked_at) return 'reputation not checked';
-            const checked = new Date(reputation.checked_at);
-            if (Number.isNaN(checked.getTime())) return 'reputation timestamp unknown';
+            const checked = this.parsedReputationCheckedAt(reputation);
+            if (!checked) return 'reputation timestamp unknown';
             const ageHours = Math.max(0, Math.floor((Date.now() - checked.getTime()) / 3600000));
             if (ageHours < 1) return 'checked recently';
             if (ageHours < 24) return `checked ${ageHours}h ago`;
