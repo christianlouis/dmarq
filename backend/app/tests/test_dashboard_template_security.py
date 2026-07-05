@@ -1203,7 +1203,9 @@ def test_domain_details_exposes_remediation_action_plans_without_html_injection(
 
     assert "Remediation Queue" in template
     assert "Action plan" in template
+    assert "item.confidence" in template
     assert "item.action_plan.owner" in template
+    assert "item.action_plan.prerequisites" in template
     assert "item.action_plan.steps" in template
     assert "item.action_plan.completion_criteria" in template
     assert "item.action_plan.safe_to_automate" in template
