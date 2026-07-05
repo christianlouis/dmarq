@@ -71,8 +71,11 @@ work. It separates operator-marked resolved work from evidence-verified fixed
 work and shows the current approval, manual-action, and investigation counts.
 Repair-gate counters distinguish provider previews that are ready for review,
 items that still need fresh evidence before closure, and findings that are
-blocked before repair. Each dashboard item links to the selected domain's
-remediation queue for the full evidence, approval, and verification flow.
+blocked before repair. The dashboard also separates items waiting on an operator
+for sender classification, manual repair, or reputation review. Each card shows
+the same readiness label and 0-100 score used on the domain remediation queue,
+then links to the selected domain for the full evidence, approval, and
+verification flow.
 
 ### Demo Mode
 

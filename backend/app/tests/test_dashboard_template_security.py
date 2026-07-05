@@ -346,19 +346,33 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "item.operator_decision_summary" in template
     assert "Repair previews ready" in template
     assert "Need fresh evidence" in template
+    assert "Waiting on operator" in template
     assert "Blocked before repair" in template
-    assert "remediationLoop().repair_preview_ready || 0" in template
+    assert (
+        "remediationLoop().repair_ready_for_preview || remediationLoop().repair_preview_ready || 0"
+        in template
+    )
     assert "remediationLoop().repair_needs_evidence || 0" in template
-    assert "remediationLoop().repair_blocked || 0" in template
+    assert "remediationLoop().repair_waiting_on_operator || 0" in template
+    assert (
+        "remediationLoop().repair_readiness_blocked || remediationLoop().repair_blocked || 0"
+        in template
+    )
     assert "Repair gate" in template
     assert "repairProgressionClass(item.repair_progression)" in template
     assert "repairProgressionLabel(item.repair_progression)" in template
     assert "repairProgressionNextStep(item.repair_progression)" in template
+    assert "repairReadinessClass(item.repair_progression)" in template
+    assert "repairReadinessLabel(item.repair_progression)" in template
+    assert "repairReadinessScore(item.repair_progression)" in template
     assert "remediationRiskClass(risk)" in script
     assert "remediationTrackLabel(track)" in script
     assert "repairProgressionClass(progression)" in script
     assert "repairProgressionLabel(progression)" in script
     assert "repairProgressionNextStep(progression)" in script
+    assert "repairReadinessClass(progression)" in script
+    assert "repairReadinessLabel(progression)" in script
+    assert "repairReadinessScore(progression)" in script
 
 
 def test_domain_details_remediation_queue_shows_verification_context():
@@ -388,6 +402,12 @@ def test_domain_details_remediation_queue_shows_verification_context():
     assert "item.verification_plan.failure_mode" in template
     assert "Repair progression" in template
     assert "remediationQueue.summary.repair_preview_ready" in template
+    assert "remediationQueue.loop?.repair_ready_for_preview" in template
+    assert "remediationQueue.loop?.repair_waiting_on_operator" in template
+    assert "remediationQueue.loop?.repair_readiness_blocked" in template
+    assert "remediationQueue.loop?.repair_readiness_score" in template
+    assert "item.repair_progression.readiness_reasons" in template
+    assert "item.repair_progression.blocked_by" in template
     assert "remediationQueue.summary.repair_needs_evidence" in template
     assert "remediationQueue.loop?.repair_blocked" in template
     assert "item.repair_progression.next_gate" in template
