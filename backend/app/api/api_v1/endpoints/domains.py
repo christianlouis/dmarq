@@ -596,6 +596,48 @@ def read_only_dns_change_plan_response(payload: Any) -> DNSChangePlanResponse:
     )
 
 
+def _read_only_provider_repair_plan(plan: Dict[str, Any]) -> Dict[str, Any]:
+    """Strip provider write affordances from public and MCP remediation data."""
+    sanitized = dict(plan)
+    sanitized["preview_endpoint"] = ""
+    sanitized["apply_endpoint"] = ""
+    sanitized["can_apply_after_approval"] = False
+    sanitized["apply_blocked"] = True
+    sanitized["approval_gate"] = (
+        "Public and MCP responses are read-only; open the authenticated domain "
+        "workflow for provider approval."
+    )
+    sanitized["operator_warning"] = (
+        "This response intentionally omits provider write endpoints."
+    )
+    blocked = list(sanitized.get("blocked_reasons") or [])
+    blocked.append("public_read_only_response")
+    sanitized["blocked_reasons"] = list(dict.fromkeys(blocked))
+    confirmation = dict(sanitized.get("apply_confirmation") or {})
+    confirmation.update(
+        {
+            "required": bool(confirmation.get("required")),
+            "status": "read_only_blocked",
+            "label": "Read-only response",
+            "confirm_phrase": "",
+            "operator_prompt": (
+                "Open the authenticated domain workflow to review the provider preview "
+                "and collect operator approval."
+            ),
+            "blocked_reasons": list(
+                dict.fromkeys(
+                    [*(confirmation.get("blocked_reasons") or []), "public_read_only_response"]
+                )
+            ),
+            "next_step": (
+                "Use the authenticated domain workflow for any provider write action."
+            ),
+        }
+    )
+    sanitized["apply_confirmation"] = confirmation
+    return sanitized
+
+
 def read_only_remediation_queue_response(payload: Any) -> "RemediationQueueResponse":
     """Return remediation queue data without public write affordances."""
     data = payload.model_dump() if hasattr(payload, "model_dump") else copy.deepcopy(payload)
@@ -609,21 +651,9 @@ def read_only_remediation_queue_response(payload: Any) -> "RemediationQueueRespo
         item["automation"] = automation
         provider_repair_plan = item.get("provider_repair_plan") or {}
         if provider_repair_plan:
-            provider_repair_plan["preview_endpoint"] = ""
-            provider_repair_plan["apply_endpoint"] = ""
-            provider_repair_plan["can_apply_after_approval"] = False
-            provider_repair_plan["apply_blocked"] = True
-            provider_repair_plan["approval_gate"] = (
-                "Public and MCP responses are read-only; open the authenticated domain "
-                "workflow for provider approval."
+            item["provider_repair_plan"] = _read_only_provider_repair_plan(
+                provider_repair_plan
             )
-            provider_repair_plan["operator_warning"] = (
-                "This response intentionally omits provider write endpoints."
-            )
-            blocked = list(provider_repair_plan.get("blocked_reasons") or [])
-            blocked.append("public_read_only_response")
-            provider_repair_plan["blocked_reasons"] = list(dict.fromkeys(blocked))
-            item["provider_repair_plan"] = provider_repair_plan
 
         if "repair_progression" not in item:
             verification = item.get("verification_plan") or {}
@@ -677,21 +707,9 @@ def read_only_remediation_queue_response(payload: Any) -> "RemediationQueueRespo
             preview["automation"] = preview_automation
         preview_provider_plan = preview.get("provider_repair_plan") or {}
         if preview_provider_plan:
-            preview_provider_plan["preview_endpoint"] = ""
-            preview_provider_plan["apply_endpoint"] = ""
-            preview_provider_plan["can_apply_after_approval"] = False
-            preview_provider_plan["apply_blocked"] = True
-            preview_provider_plan["approval_gate"] = (
-                "Public and MCP responses are read-only; open the authenticated domain "
-                "workflow for provider approval."
+            preview["provider_repair_plan"] = _read_only_provider_repair_plan(
+                preview_provider_plan
             )
-            preview_provider_plan["operator_warning"] = (
-                "This response intentionally omits provider write endpoints."
-            )
-            blocked = list(preview_provider_plan.get("blocked_reasons") or [])
-            blocked.append("public_read_only_response")
-            preview_provider_plan["blocked_reasons"] = list(dict.fromkeys(blocked))
-            preview["provider_repair_plan"] = preview_provider_plan
         if preview:
             notification["payload_preview"] = preview
         item["notification"] = notification
@@ -1302,6 +1320,8 @@ class RemediationProviderRepairPlan(BaseModel):
     approval_gate: str = ""
     pre_apply_checks: List[str] = Field(default_factory=list)
     post_apply_checks: List[str] = Field(default_factory=list)
+    apply_confirmation: Dict[str, Any] = Field(default_factory=dict)
+    attempt_history: Dict[str, Any] = Field(default_factory=dict)
     blast_radius: str = ""
     operator_warning: str = ""
     next_step: str = ""

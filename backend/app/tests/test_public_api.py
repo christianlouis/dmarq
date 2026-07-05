@@ -224,6 +224,15 @@ def _sample_remediation_queue(domain=DOMAIN):
                     "record_name": "_dmarc.example.com",
                     "record_type": "TXT",
                     "capability": "provider_preview",
+                    "apply_confirmation": {
+                        "required": True,
+                        "status": "ready_for_operator_confirmation",
+                        "label": "Operator confirmation required",
+                        "confirm_phrase": "APPLY TXT _dmarc.example.com",
+                        "operator_prompt": "Type the phrase before applying.",
+                        "blocked_reasons": [],
+                        "next_step": "Collect explicit operator approval.",
+                    },
                     "next_step": "Open the provider preview, compare old and new DNS values, then approve or reject.",
                     "completion_gate": "Close only after approved provider apply and fresh DNS evidence agree.",
                 },
@@ -248,6 +257,15 @@ def _sample_remediation_queue(domain=DOMAIN):
                             "blocked_reasons": [],
                             "preview_endpoint": "/api/v1/domains/example.com/dns/change-plan/apply",
                             "apply_endpoint": "/api/v1/domains/example.com/dns/change-plan/apply",
+                            "apply_confirmation": {
+                                "required": True,
+                                "status": "ready_for_operator_confirmation",
+                                "label": "Operator confirmation required",
+                                "confirm_phrase": "APPLY TXT _dmarc.example.com",
+                                "operator_prompt": "Type the phrase before applying.",
+                                "blocked_reasons": [],
+                                "next_step": "Collect explicit operator approval.",
+                            },
                         },
                     },
                     "history": [],
@@ -691,6 +709,12 @@ def test_public_remediation_queue_is_read_only_and_posture_scoped(
     assert "public_read_only_response" in item["provider_repair_plan"]["blocked_reasons"]
     assert "read-only" in item["provider_repair_plan"]["approval_gate"]
     assert "omits provider write endpoints" in item["provider_repair_plan"]["operator_warning"]
+    assert item["provider_repair_plan"]["apply_confirmation"]["status"] == "read_only_blocked"
+    assert item["provider_repair_plan"]["apply_confirmation"]["confirm_phrase"] == ""
+    assert (
+        "public_read_only_response"
+        in item["provider_repair_plan"]["apply_confirmation"]["blocked_reasons"]
+    )
     assert item["notification"]["payload_preview"]["automation"]["apply_endpoint"] is None
     preview_plan = item["notification"]["payload_preview"]["provider_repair_plan"]
     assert preview_plan["can_apply_after_approval"] is False
@@ -698,6 +722,8 @@ def test_public_remediation_queue_is_read_only_and_posture_scoped(
     assert preview_plan["preview_endpoint"] == ""
     assert preview_plan["apply_endpoint"] == ""
     assert "public_read_only_response" in preview_plan["blocked_reasons"]
+    assert preview_plan["apply_confirmation"]["status"] == "read_only_blocked"
+    assert preview_plan["apply_confirmation"]["confirm_phrase"] == ""
 
 
 def test_read_only_remediation_queue_keeps_missing_provider_plan_not_applicable():

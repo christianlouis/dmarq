@@ -143,6 +143,15 @@ def _sample_remediation_queue(domain=DOMAIN):
                     "record_name": "_dmarc.example.com",
                     "record_type": "TXT",
                     "capability": "provider_preview",
+                    "apply_confirmation": {
+                        "required": True,
+                        "status": "ready_for_operator_confirmation",
+                        "label": "Operator confirmation required",
+                        "confirm_phrase": "APPLY TXT _dmarc.example.com",
+                        "operator_prompt": "Type the phrase before applying.",
+                        "blocked_reasons": [],
+                        "next_step": "Collect explicit operator approval.",
+                    },
                     "next_step": "Open the provider preview, compare old and new DNS values, then approve or reject.",
                     "completion_gate": "Close only after approved provider apply and fresh DNS evidence agree.",
                 },
@@ -1253,6 +1262,20 @@ async def test_mcp_read_only_tool_dispatch_covers_new_domain_tools(db_session: S
         in remediation_result.items[0].provider_repair_plan.blocked_reasons
     )
     assert "read-only" in remediation_result.items[0].provider_repair_plan.approval_gate
+    assert (
+        remediation_result.items[0].provider_repair_plan.apply_confirmation["status"]
+        == "read_only_blocked"
+    )
+    assert (
+        remediation_result.items[0].provider_repair_plan.apply_confirmation["confirm_phrase"]
+        == ""
+    )
+    assert (
+        "public_read_only_response"
+        in remediation_result.items[0].provider_repair_plan.apply_confirmation[
+            "blocked_reasons"
+        ]
+    )
     assert (
         "omits provider write endpoints"
         in remediation_result.items[0].provider_repair_plan.operator_warning

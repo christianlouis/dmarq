@@ -54,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added explicit remediation provider-repair plans so DNS queue items show preview availability, apply-after-approval readiness, apply blockers, provider-value prerequisites, record metadata, and manual fallback without changing live DNS behavior.
 - Added remediation provider repair checklists so DNS repair items show before-apply checks, after-apply evidence checks, blast radius, and operator warnings before any provider write path is exposed.
 - Added a domain remediation filter and summary counter for provider repair checklists so operator-review work can be isolated quickly.
+- Added remediation provider apply-confirmation metadata and attempt-history placeholders so future live DNS repair controls have an explicit confirmation phrase, blocker list, and audit-trail slot before any write behavior is enabled.
 
 ### Changed
 - Domain summary DNS refreshes now run with bounded concurrency instead of resolving each domain sequentially.
@@ -77,6 +78,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Domain remediation cards now offer focused read-only evidence refresh actions that reload the relevant backend data and rebuild the queue without applying DNS or provider writes.
 - Public API and read-only MCP remediation queues now strip provider preview/apply endpoints from both item data and notification payload previews while keeping read-only provider-repair context visible.
 - Public API and read-only MCP remediation queues now label provider repair approval gates as read-only and warn that provider write endpoints are intentionally omitted.
+- Public API and read-only MCP remediation queues now also clear provider apply confirmation phrases and mark confirmation metadata as read-only blocked.
+- Domain remediation provider-repair cards now show the operator confirmation prompt and current provider-apply history state alongside the existing pre/post apply checks.
+- Domain remediation provider-repair cards now render provider apply audit entries with provider, record, timestamp, verification status, and detail when history exists.
+- Domain remediation queues now include a provider-history filter so previously recorded provider apply attempts can be isolated from preview-only work.
+- Domain remediation queue summaries now count provider apply attempts and verified provider applies from audit history.
 - Reorganized repository: moved development docs (`AGENTS.md`, `ROADMAP.md`, `ISSUE_GENERATION_SUMMARY.md`, `generated_issues/`) into `docs/`
 - Added root-level `CHANGELOG.md` and `TODO.md`
 - Cleaned up root directory for clarity

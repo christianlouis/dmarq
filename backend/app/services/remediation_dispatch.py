@@ -83,6 +83,7 @@ HISTORY_ACTIONS = {
     "remediation.notification_lifecycle_recorded",
     "remediation.notification_dispatch_enqueued",
 }
+PROVIDER_REPAIR_HISTORY_ACTION = "domain.dns_change_applied"
 VERIFIED_FIXED_STALE_AFTER = timedelta(days=7)
 
 
@@ -430,6 +431,100 @@ def _notification_histories(
     return histories
 
 
+def _provider_repair_attempt_entry(row: WorkspaceAuditLog) -> Optional[Dict[str, Any]]:
+    details = _audit_details(row)
+    mutation = details.get("mutation") if isinstance(details.get("mutation"), dict) else {}
+    verification = (
+        details.get("verification") if isinstance(details.get("verification"), dict) else {}
+    )
+    provider = str(details.get("provider") or mutation.get("provider") or "")
+    plan_id = str(details.get("plan_id") or "")
+    if not plan_id:
+        return None
+    verified = bool(verification.get("verified"))
+    applied = bool(details.get("applied"))
+    state = "verified_after_apply" if applied and verified else "apply_recorded"
+    if applied and not verified:
+        state = "apply_needs_verification"
+    return {
+        "plan_id": plan_id,
+        "state": state,
+        "label": "Verified provider apply" if verified else "Provider apply recorded",
+        "created_at": _audit_timestamp(row.created_at),
+        "provider": provider,
+        "record_name": str(mutation.get("name") or ""),
+        "record_type": str(mutation.get("record_type") or ""),
+        "verification_status": str(verification.get("status") or ""),
+        "detail": (
+            "Provider readback verified the applied DNS value."
+            if verified
+            else "Provider apply was recorded; keep the item open until readback and fresh DNS evidence pass."
+        ),
+    }
+
+
+def _provider_repair_attempt_histories(
+    db: Session,
+    *,
+    workspace: Workspace,
+    domain: str,
+    plan_ids: Iterable[str],
+    limit_per_plan: int = 3,
+) -> Dict[str, List[Dict[str, Any]]]:
+    ids = {str(plan_id or "") for plan_id in plan_ids if str(plan_id or "").strip()}
+    if not ids:
+        return {}
+    normalized_domain = normalize_domain_name(domain)
+    normalized_entity_name = func.lower(func.rtrim(func.trim(WorkspaceAuditLog.entity_name), "."))
+    rows = (
+        db.query(WorkspaceAuditLog)
+        .filter(
+            WorkspaceAuditLog.workspace_id == workspace.id,
+            WorkspaceAuditLog.action == PROVIDER_REPAIR_HISTORY_ACTION,
+            WorkspaceAuditLog.entity_type == "domain",
+            normalized_entity_name == normalized_domain,
+        )
+        .order_by(WorkspaceAuditLog.created_at.desc(), WorkspaceAuditLog.id.desc())
+        .limit(max(len(ids) * limit_per_plan * 3, limit_per_plan))
+        .all()
+    )
+    histories: Dict[str, List[Dict[str, Any]]] = {plan_id: [] for plan_id in ids}
+    for row in rows:
+        entry = _provider_repair_attempt_entry(row)
+        if entry is None:
+            continue
+        plan_id = str(entry.get("plan_id") or "")
+        if plan_id not in histories or len(histories[plan_id]) >= limit_per_plan:
+            continue
+        histories[plan_id].append(entry)
+    return histories
+
+
+def _attach_provider_repair_attempt_history(
+    item: Dict[str, Any],
+    history: Sequence[Dict[str, Any]],
+) -> None:
+    plan = item.get("provider_repair_plan") or {}
+    if plan.get("kind") != "dns_provider_repair":
+        return
+    entries = [dict(entry) for entry in history][:3]
+    if not entries:
+        return
+    latest = entries[0]
+    plan["attempt_history"] = {
+        "source": "workspace_audit.domain.dns_change_applied",
+        "status": str(latest.get("state") or "apply_recorded"),
+        "label": str(latest.get("label") or "Provider apply recorded"),
+        "latest_at": str(latest.get("created_at") or ""),
+        "entries": entries,
+        "next_step": str(
+            latest.get("detail")
+            or "Refresh DNS evidence and keep the remediation item open until verification passes."
+        ),
+    }
+    item["provider_repair_plan"] = plan
+
+
 def _verified_fixed_items(
     db: Session,
     *,
@@ -762,6 +857,17 @@ def attach_remediation_dispatch_previews(
         domain=domain,
         item_ids=item_ids,
     )
+    provider_plan_ids = [
+        str((item.get("provider_repair_plan") or {}).get("plan_id") or "")
+        for item in items
+        if (item.get("provider_repair_plan") or {}).get("kind") == "dns_provider_repair"
+    ]
+    provider_attempts = _provider_repair_attempt_histories(
+        db,
+        workspace=workspace,
+        domain=domain,
+        plan_ids=provider_plan_ids,
+    )
     webhook_event_counts = _webhook_event_counts(
         endpoints,
         configured_events | event_types,
@@ -773,6 +879,11 @@ def attach_remediation_dispatch_previews(
     for item in items:
         notification = item.setdefault("notification", {})
         item_history = histories.get(str(item.get("id") or ""), [])
+        provider_plan_id = str((item.get("provider_repair_plan") or {}).get("plan_id") or "")
+        _attach_provider_repair_attempt_history(
+            item,
+            provider_attempts.get(provider_plan_id, []),
+        )
         notification["history"] = item_history
         notification["dispatch"] = build_remediation_dispatch_preview(
             db,
@@ -810,6 +921,10 @@ def _attach_dispatch_summary(
     ]
     dispatches = [notification.get("dispatch") or {} for notification in notifications]
     blocked = [dispatch for dispatch in dispatches if dispatch.get("blocked_reasons")]
+    provider_attempt_histories = [
+        (item.get("provider_repair_plan") or {}).get("attempt_history") or {}
+        for item in items
+    ]
     awaiting_ack = [
         dispatch
         for dispatch in blocked
@@ -852,6 +967,14 @@ def _attach_dispatch_summary(
                 )
                 - len(verified_fixed_items or []),
                 0,
+            ),
+            "provider_apply_attempts": sum(
+                len(history.get("entries") or []) for history in provider_attempt_histories
+            ),
+            "provider_apply_verified": sum(
+                1
+                for history in provider_attempt_histories
+                if history.get("status") == "verified_after_apply"
             ),
         }
     )

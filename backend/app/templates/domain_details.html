@@ -479,6 +479,12 @@
                             <span class="rounded bg-[#f4f3f2] px-2 py-1 font-semibold text-[#5f5c78]">
                                 <span x-text="remediationQueue.summary.provider_pre_apply_checks || 0"></span><span> provider checklists</span>
                             </span>
+                            <span class="rounded bg-[#f2fbf9] px-2 py-1 font-semibold text-[#1f7c83]">
+                                <span x-text="remediationQueue.summary.provider_apply_verified || 0"></span><span> verified provider applies</span>
+                            </span>
+                            <span class="rounded bg-[#f4f3f2] px-2 py-1 font-semibold text-[#5f5c78]">
+                                <span x-text="remediationQueue.summary.provider_apply_attempts || 0"></span><span> provider apply history</span>
+                            </span>
                             <span class="rounded bg-[#fff8ed] px-2 py-1 font-semibold text-[#7a4a00]">
                                 <span x-text="remediationQueue.summary.repair_needs_evidence || 0"></span><span> need evidence</span>
                             </span>
@@ -703,6 +709,8 @@
                         <p class="mt-4 text-sm text-[#5f5c78]">No remediation items are queued for this domain.</p>
                     </template>
                     <div class="mt-4 flex flex-wrap gap-2"
+                         role="group"
+                         aria-label="Remediation queue filters"
                          x-show="!remediationQueueLoading && !remediationQueueError && remediationQueue.items.length > 0">
                         <label class="flex items-center gap-2 rounded border border-[#e6e3e1] bg-white px-3 py-2 text-xs font-semibold text-[#5f5c78]">
                             <span>Sort</span>
@@ -860,6 +868,28 @@
                                             <span class="font-semibold">Completion gate: </span>
                                             <span x-text="item.provider_repair_plan.completion_gate"></span>
                                         </p>
+                                        <div class="mt-2 grid gap-2 text-xs md:grid-cols-2">
+                                            <div class="rounded bg-white px-3 py-2 text-[#45505f]">
+                                                <p class="font-semibold text-[#120d36]">Apply confirmation</p>
+                                                <p class="mt-1" x-text="providerRepairConfirmationText(item.provider_repair_plan)"></p>
+                                            </div>
+                                            <div class="rounded bg-white px-3 py-2 text-[#45505f]">
+                                                <p class="font-semibold text-[#120d36]">Attempt history</p>
+                                                <p class="mt-1" x-text="providerRepairAttemptHistoryText(item.provider_repair_plan)"></p>
+                                                <ul class="mt-2 space-y-1" x-show="providerRepairAttemptEntries(item.provider_repair_plan).length">
+                                                    <template x-for="(entry, index) in providerRepairAttemptEntries(item.provider_repair_plan)"
+                                                              :key="`provider-attempt-${item.id}-${index}`">
+                                                        <li class="rounded border border-[#e3e0f4] bg-[#f8f7ff] px-2 py-1">
+                                                            <p class="font-semibold text-[#120d36]" x-text="entry.label"></p>
+                                                            <p class="text-[#5f5c78]" x-show="entry.meta" x-text="entry.meta"></p>
+                                                            <p class="text-[#5f5c78]" x-show="entry.detail" x-text="entry.detail"></p>
+                                                        </li>
+                                                    </template>
+                                                </ul>
+                                                <p class="mt-1 text-[#5f5c78]" x-show="item.provider_repair_plan.attempt_history?.next_step"
+                                                   x-text="item.provider_repair_plan.attempt_history?.next_step"></p>
+                                            </div>
+                                        </div>
                                         <p class="mt-2 text-xs font-semibold text-[#7a4a00]"
                                            x-show="providerRepairPlanBlockedText(item.provider_repair_plan)"
                                            x-text="providerRepairPlanBlockedText(item.provider_repair_plan)"></p>

@@ -232,6 +232,32 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
             "Close only after approved provider apply and fresh DNS evidence agree.",
             "Refresh DNS posture after provider propagation, then rebuild the queue.",
         ],
+        "apply_confirmation": {
+            "required": True,
+            "status": "ready_for_operator_confirmation",
+            "label": "Operator confirmation required",
+            "confirm_phrase": "APPLY TXT _dmarc.example.com",
+            "operator_prompt": (
+                "Review the provider preview, complete the before-apply checklist, "
+                "then type the confirmation phrase before any live write."
+            ),
+            "blocked_reasons": [],
+            "next_step": (
+                "Collect explicit operator approval after preview; do not close until "
+                "the after-apply evidence checks pass."
+            ),
+        },
+        "attempt_history": {
+            "source": "workspace_audit.domain.dns_change_applied",
+            "status": "no_provider_attempt_recorded",
+            "label": "No provider apply attempt recorded",
+            "latest_at": "",
+            "entries": [],
+            "next_step": (
+                "After a future approved provider apply, keep the audit trail attached "
+                "to this remediation item."
+            ),
+        },
         "blast_radius": "DNS record _dmarc.example.com (TXT)",
         "operator_warning": (
             "Preview does not mean fixed; close only after fresh DNS evidence confirms the change."
@@ -426,6 +452,32 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
                 "Close only after approved provider apply and fresh DNS evidence agree.",
                 "Refresh DNS posture after provider propagation, then rebuild the queue.",
             ],
+            "apply_confirmation": {
+                "required": True,
+                "status": "ready_for_operator_confirmation",
+                "label": "Operator confirmation required",
+                "confirm_phrase": "APPLY TXT _dmarc.example.com",
+                "operator_prompt": (
+                    "Review the provider preview, complete the before-apply checklist, "
+                    "then type the confirmation phrase before any live write."
+                ),
+                "blocked_reasons": [],
+                "next_step": (
+                    "Collect explicit operator approval after preview; do not close until "
+                    "the after-apply evidence checks pass."
+                ),
+            },
+            "attempt_history": {
+                "source": "workspace_audit.domain.dns_change_applied",
+                "status": "no_provider_attempt_recorded",
+                "label": "No provider apply attempt recorded",
+                "latest_at": "",
+                "entries": [],
+                "next_step": (
+                    "After a future approved provider apply, keep the audit trail attached "
+                    "to this remediation item."
+                ),
+            },
             "blast_radius": "DNS record _dmarc.example.com (TXT)",
             "operator_warning": (
                 "Preview does not mean fixed; close only after fresh DNS evidence confirms the change."
@@ -588,6 +640,25 @@ def test_remediation_queue_keeps_placeholder_plan_manual():
     assert queue["items"][0]["provider_repair_plan"]["safe_preview_available"] is False
     assert queue["items"][0]["provider_repair_plan"]["apply_blocked"] is True
     assert "provider_specific_value" in queue["items"][0]["provider_repair_plan"]["blocked_reasons"]
+    assert queue["items"][0]["provider_repair_plan"]["apply_confirmation"] == {
+        "required": True,
+        "status": "blocked",
+        "label": "Confirmation blocked",
+        "confirm_phrase": "",
+        "operator_prompt": (
+            "Resolve provider blockers before asking an operator to confirm a live write."
+        ),
+        "blocked_reasons": [
+            "provider_specific_value",
+            "fresh_evidence_before_closure",
+            "pending_dns_refresh",
+            "provider_preview_not_available",
+        ],
+        "next_step": "Use the manual fallback or clear the blocked reasons before provider apply.",
+    }
+    assert queue["items"][0]["provider_repair_plan"]["attempt_history"]["status"] == (
+        "no_provider_attempt_recorded"
+    )
     assert queue["items"][0]["provider_repair_plan"]["record_name"] == (
         "pm._domainkey.example.com"
     )
