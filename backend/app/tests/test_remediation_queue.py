@@ -130,6 +130,32 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
             "plan_id": "dmarc-missing",
             "apply_endpoint": "/api/v1/domains/example.com/dns/change-plan/apply",
         },
+        "action_plan": {
+            "owner": "Domain DNS operator",
+            "automation_path": "provider_preview",
+            "completion_criteria": "Provider preview is approved, applied, and verified by DMARQ.",
+            "steps": [
+                "Open the DNS change plan and preview the provider mutation.",
+                "Confirm the zone, record name, old value, new value, and TTL.",
+                "Approve the change, then refresh DNS posture after propagation.",
+            ],
+        },
+        "verification": {
+            "label": "Verify after approved provider repair",
+            "status": "pending_operator_approval",
+            "summary": (
+                "DMARQ should only mark this fixed after the approved cloudflare write is "
+                "visible in fresh DNS evidence."
+            ),
+            "next_check": (
+                "Refresh DNS posture after provider propagation, then rebuild the queue."
+            ),
+            "evidence_needed": [
+                "The provider preview was approved and applied by a human operator.",
+                "A fresh DNS lookup returns the expected record value from authoritative evidence.",
+                "The remediation item disappears from the current queue after DNS refresh.",
+            ],
+        },
         "evidence": [{"label": "finding", "value": "_dmarc.example.com"}],
     }
     assert queue["items"][1]["notification"]["state"] == "investigation_required"
