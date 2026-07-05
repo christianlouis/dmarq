@@ -599,6 +599,50 @@ def read_only_remediation_queue_response(payload: Any) -> "RemediationQueueRespo
         automation["apply_endpoint"] = None
         item["automation"] = automation
 
+        if "repair_progression" not in item:
+            verification = item.get("verification_plan") or {}
+            if automation.get("eligible"):
+                item["repair_progression"] = {
+                    "stage": "preview_ready",
+                    "label": "Preview ready",
+                    "summary": (
+                        "A connected DNS provider can prepare the exact mutation for review."
+                    ),
+                    "next_gate": "Human approval before apply",
+                    "next_step": (
+                        "Open the provider preview, compare old and new DNS values, "
+                        "then approve or reject."
+                    ),
+                    "can_preview": True,
+                    "can_apply_after_approval": True,
+                    "manual_fallback": True,
+                    "verification_required": True,
+                    "verification_status": str(
+                        verification.get("status") or "pending_operator_approval"
+                    ),
+                }
+            else:
+                item["repair_progression"] = {
+                    "stage": "operator_review",
+                    "label": "Operator review",
+                    "summary": (
+                        "The remediation remains manual until current evidence proves it "
+                        "is fixed."
+                    ),
+                    "next_gate": "Fresh evidence before closure",
+                    "next_step": (
+                        "Complete the operator action and import fresh reports or DNS "
+                        "checks before marking fixed."
+                    ),
+                    "can_preview": False,
+                    "can_apply_after_approval": False,
+                    "manual_fallback": True,
+                    "verification_required": True,
+                    "verification_status": str(
+                        verification.get("status") or "pending_report_evidence"
+                    ),
+                }
+
         notification = item.get("notification") or {}
         preview = notification.get("payload_preview") or {}
         preview_automation = preview.get("automation") or {}
@@ -2086,6 +2130,17 @@ def _dashboard_remediation_item(
     return item
 
 
+def _increment_repair_counters(counters: Dict[str, int], item: Dict[str, Any]) -> None:
+    """Count overlapping repair-gate facets for dashboard summaries."""
+    repair_progression = item.get("repair_progression") or {}
+    if repair_progression.get("stage") == "preview_ready":
+        counters["repair_preview_ready"] += 1
+    if repair_progression.get("stage") == "blocked":
+        counters["repair_blocked"] += 1
+    if repair_progression.get("verification_required"):
+        counters["repair_needs_evidence"] += 1
+
+
 def _build_dashboard_remediation_loop(
     domains: List[Dict[str, Any]],
     remediation_activity: Dict[str, Any],
@@ -2115,13 +2170,7 @@ def _build_dashboard_remediation_loop(
             state = _remediation_loop_state(action)
             counters[state] += 1
             item = _dashboard_remediation_item(domain_name, action)
-            repair_progression = item.get("repair_progression") or {}
-            if repair_progression.get("stage") == "preview_ready":
-                counters["repair_preview_ready"] += 1
-            if repair_progression.get("stage") == "blocked":
-                counters["repair_blocked"] += 1
-            if repair_progression.get("verification_required"):
-                counters["repair_needs_evidence"] += 1
+            _increment_repair_counters(counters, item)
             track_counters[f"track_{item['remediation_track']}"] += 1
             items.append(item)
 
@@ -2180,13 +2229,7 @@ def _domain_remediation_workload(domain: Dict[str, Any]) -> Dict[str, Any]:
         state = _remediation_loop_state(action)
         counters[state] += 1
         item = _dashboard_remediation_item(domain_name, action, include_detail=False)
-        repair_progression = item.get("repair_progression") or {}
-        if repair_progression.get("stage") == "preview_ready":
-            counters["repair_preview_ready"] += 1
-        if repair_progression.get("stage") == "blocked":
-            counters["repair_blocked"] += 1
-        if repair_progression.get("verification_required"):
-            counters["repair_needs_evidence"] += 1
+        _increment_repair_counters(counters, item)
         track_counters[f"track_{item['remediation_track']}"] += 1
         items.append(item)
 
