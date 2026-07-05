@@ -613,6 +613,13 @@ def read_only_remediation_queue_response(payload: Any) -> "RemediationQueueRespo
             provider_repair_plan["apply_endpoint"] = ""
             provider_repair_plan["can_apply_after_approval"] = False
             provider_repair_plan["apply_blocked"] = True
+            provider_repair_plan["approval_gate"] = (
+                "Public and MCP responses are read-only; open the authenticated domain "
+                "workflow for provider approval."
+            )
+            provider_repair_plan["operator_warning"] = (
+                "This response intentionally omits provider write endpoints."
+            )
             blocked = list(provider_repair_plan.get("blocked_reasons") or [])
             blocked.append("public_read_only_response")
             provider_repair_plan["blocked_reasons"] = list(dict.fromkeys(blocked))
@@ -674,6 +681,13 @@ def read_only_remediation_queue_response(payload: Any) -> "RemediationQueueRespo
             preview_provider_plan["apply_endpoint"] = ""
             preview_provider_plan["can_apply_after_approval"] = False
             preview_provider_plan["apply_blocked"] = True
+            preview_provider_plan["approval_gate"] = (
+                "Public and MCP responses are read-only; open the authenticated domain "
+                "workflow for provider approval."
+            )
+            preview_provider_plan["operator_warning"] = (
+                "This response intentionally omits provider write endpoints."
+            )
             blocked = list(preview_provider_plan.get("blocked_reasons") or [])
             blocked.append("public_read_only_response")
             preview_provider_plan["blocked_reasons"] = list(dict.fromkeys(blocked))
@@ -1285,6 +1299,11 @@ class RemediationProviderRepairPlan(BaseModel):
     record_name: str = ""
     record_type: str = ""
     capability: str = "manual_review"
+    approval_gate: str = ""
+    pre_apply_checks: List[str] = Field(default_factory=list)
+    post_apply_checks: List[str] = Field(default_factory=list)
+    blast_radius: str = ""
+    operator_warning: str = ""
     next_step: str = ""
     completion_gate: str = ""
 

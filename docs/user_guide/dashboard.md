@@ -91,7 +91,9 @@ domain.
 Open the domain detail queue for the full provider-repair plan. That view shows
 whether a DNS item has a safe provider preview, can be applied only after
 explicit approval, is blocked by missing provider values, or should fall back to
-manual DNS work.
+manual DNS work. Provider repair items also expose before-apply and after-apply
+checklists so operators can review the blast radius and required evidence before
+approving or closing a repair.
 
 ### Demo Mode
 

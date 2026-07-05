@@ -52,6 +52,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added sending-source risk filters, compact reputation counters, activity badges, and logarithmic recent-volume bars on domain detail pages so current risky senders stand out from stale or low-volume history.
 - Added domain-list DNS state badges for queued, cached, fallback, partial, stale, and failed DNS evidence so resolver uncertainty is visible instead of silently degrading scores.
 - Added explicit remediation provider-repair plans so DNS queue items show preview availability, apply-after-approval readiness, apply blockers, provider-value prerequisites, record metadata, and manual fallback without changing live DNS behavior.
+- Added remediation provider repair checklists so DNS repair items show before-apply checks, after-apply evidence checks, blast radius, and operator warnings before any provider write path is exposed.
+- Added a domain remediation filter and summary counter for provider repair checklists so operator-review work can be isolated quickly.
 
 ### Changed
 - Domain summary DNS refreshes now run with bounded concurrency instead of resolving each domain sequentially.
@@ -74,6 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dashboard remediation rows now expose the top incident and fresh-evidence action directly in the workspace view, and the domain-compliance refresh control reloads the backend summary again.
 - Domain remediation cards now offer focused read-only evidence refresh actions that reload the relevant backend data and rebuild the queue without applying DNS or provider writes.
 - Public API and read-only MCP remediation queues now strip provider preview/apply endpoints from both item data and notification payload previews while keeping read-only provider-repair context visible.
+- Public API and read-only MCP remediation queues now label provider repair approval gates as read-only and warn that provider write endpoints are intentionally omitted.
 - Reorganized repository: moved development docs (`AGENTS.md`, `ROADMAP.md`, `ISSUE_GENERATION_SUMMARY.md`, `generated_issues/`) into `docs/`
 - Added root-level `CHANGELOG.md` and `TODO.md`
 - Cleaned up root directory for clarity

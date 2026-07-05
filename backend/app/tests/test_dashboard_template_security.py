@@ -1578,6 +1578,15 @@ def test_domain_details_exposes_dns_provider_repair_context_without_html_injecti
     assert "target_spf" in script
     assert "target_dkim" in script
     assert "Provider repair readiness" in template
+    assert "Before apply" in template
+    assert "After apply" in template
+    assert "item.provider_repair_plan.pre_apply_checks" in template
+    assert "item.provider_repair_plan.post_apply_checks" in template
+    assert "item.provider_repair_plan.operator_warning" in template
+    assert "providerRepairPlanHasChecks" in script
+    assert "{ value: 'provider_checks', label: 'Provider checks' }" in script
+    assert "filter === 'provider_checks'" in script
+    assert "remediationQueue.summary.provider_pre_apply_checks" in template
     assert "providerContextStatusLabel" in script
     assert "providerContextSummary" in script
     assert "providerContextSteps" in script

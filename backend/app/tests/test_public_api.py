@@ -679,6 +679,8 @@ def test_public_remediation_queue_is_read_only_and_posture_scoped(
     assert item["provider_repair_plan"]["preview_endpoint"] == ""
     assert item["provider_repair_plan"]["apply_endpoint"] == ""
     assert "public_read_only_response" in item["provider_repair_plan"]["blocked_reasons"]
+    assert "read-only" in item["provider_repair_plan"]["approval_gate"]
+    assert "omits provider write endpoints" in item["provider_repair_plan"]["operator_warning"]
     assert item["notification"]["payload_preview"]["automation"]["apply_endpoint"] is None
 
 

@@ -821,9 +821,13 @@ post-change closure verification. Clients can show `safe_preview_available`,
 `can_apply_after_approval`, `apply_blocked`, `blocked_reasons`, `provider`,
 `plan_id`, `operation`, `record_name`, `record_type`, and
 `manual_fallback` without inferring that a DNS mutation has already happened.
+The object also includes `approval_gate`, `pre_apply_checks`,
+`post_apply_checks`, `blast_radius`, and `operator_warning` so clients can
+render the human review and evidence gates before any apply request exists.
 Read-only public API and MCP responses keep this context but remove
 `preview_endpoint` and `apply_endpoint`, set `can_apply_after_approval=false`,
-and add `public_read_only_response` as an apply blocker.
+add `public_read_only_response` as an apply blocker, and label the approval
+gate as read-only.
 Each item also includes an `evidence_refresh` object. It tells clients which
 fresh evidence source is needed before closure (`dns`, `dmarc_reports`,
 `dmarc_reports_and_sources`, `source_reputation`, or `mail_provider`), whether

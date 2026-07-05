@@ -189,6 +189,16 @@ def _summary(items: List[Dict[str, Any]]) -> Dict[str, int]:
             if (item.get("provider_repair_plan") or {}).get("kind") == "dns_provider_repair"
             and (item.get("provider_repair_plan") or {}).get("manual_fallback")
         ),
+        "provider_pre_apply_checks": sum(
+            1
+            for item in items
+            if (item.get("provider_repair_plan") or {}).get("pre_apply_checks")
+        ),
+        "provider_post_apply_checks": sum(
+            1
+            for item in items
+            if (item.get("provider_repair_plan") or {}).get("post_apply_checks")
+        ),
         "requires_fresh_evidence": sum(
             1 for item in items if (item.get("action_plan") or {}).get("requires_fresh_evidence")
         ),
@@ -517,6 +527,19 @@ def _provider_repair_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
     source = str(item.get("source") or "")
     stage = str(repair.get("stage") or "operator_review")
     blocked_reasons = list(repair.get("blocked_by") or [])
+    verification = item.get("verification_plan") or {}
+    blast_radius = str(item.get("blast_radius") or "")
+    pre_apply_checks = [
+        "Confirm the authoritative zone and record owner.",
+        "Compare the current DNS value, proposed value, record type, and TTL.",
+        "Confirm a human operator explicitly approved this repair.",
+    ]
+    post_apply_checks = [
+        verification.get("closure_gate")
+        or "Refresh DNS evidence after propagation and rebuild the remediation queue.",
+        verification.get("next_check") or "Keep the item open until fresh evidence is available.",
+    ]
+    post_apply_checks = [str(check) for check in post_apply_checks if str(check)]
 
     if source != "dns_lint":
         return {
@@ -537,9 +560,14 @@ def _provider_repair_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
             "record_name": "",
             "record_type": "",
             "capability": "manual_review",
+            "approval_gate": "No provider DNS apply gate for this item.",
+            "pre_apply_checks": [],
+            "post_apply_checks": post_apply_checks[:3],
+            "blast_radius": blast_radius,
+            "operator_warning": "Do not change DNS from this item without a matching DNS finding.",
             "next_step": repair.get("next_safe_action")
             or "Review sender, report, reputation, or policy evidence before DNS changes.",
-            "completion_gate": (item.get("verification_plan") or {}).get("closure_gate") or "",
+            "completion_gate": verification.get("closure_gate") or "",
         }
 
     if not provider:
@@ -582,12 +610,23 @@ def _provider_repair_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
         "record_name": str(automation.get("record_name") or ""),
         "record_type": str(automation.get("record_type") or ""),
         "capability": "provider_preview" if safe_preview else "manual_dns",
+        "approval_gate": (
+            "Provider apply is available only after explicit operator approval."
+            if can_apply
+            else "Provider apply is blocked; use manual fallback or resolve blockers first."
+        ),
+        "pre_apply_checks": pre_apply_checks[:5],
+        "post_apply_checks": post_apply_checks[:5],
+        "blast_radius": blast_radius,
+        "operator_warning": (
+            "Preview does not mean fixed; close only after fresh DNS evidence confirms the change."
+        ),
         "next_step": str(
             repair.get("next_safe_action")
             or repair.get("next_step")
             or "Review the DNS record change and collect fresh evidence before closure."
         ),
-        "completion_gate": (item.get("verification_plan") or {}).get("closure_gate") or "",
+        "completion_gate": verification.get("closure_gate") or "",
     }
 
 
@@ -658,6 +697,8 @@ def _loop_summary(domain: str, items: List[Dict[str, Any]]) -> Dict[str, Any]:
         "provider_apply_blocked": summary["provider_apply_blocked"],
         "provider_value_missing": summary["provider_value_missing"],
         "provider_manual_fallback": summary["provider_manual_fallback"],
+        "provider_pre_apply_checks": summary["provider_pre_apply_checks"],
+        "provider_post_apply_checks": summary["provider_post_apply_checks"],
         "requires_fresh_evidence": summary["requires_fresh_evidence"],
         "rollback_guidance": summary["rollback_guidance"],
         "closure_gate_required": summary["closure_gate_required"],
@@ -790,6 +831,15 @@ def _remediation_notification_payload(domain: str, item: Dict[str, Any]) -> Dict
             "record_name": str(provider_repair_plan.get("record_name") or ""),
             "record_type": str(provider_repair_plan.get("record_type") or ""),
             "capability": str(provider_repair_plan.get("capability") or ""),
+            "approval_gate": str(provider_repair_plan.get("approval_gate") or ""),
+            "pre_apply_checks": [
+                str(check) for check in provider_repair_plan.get("pre_apply_checks", [])
+            ][:5],
+            "post_apply_checks": [
+                str(check) for check in provider_repair_plan.get("post_apply_checks", [])
+            ][:5],
+            "blast_radius": str(provider_repair_plan.get("blast_radius") or ""),
+            "operator_warning": str(provider_repair_plan.get("operator_warning") or ""),
             "next_step": str(provider_repair_plan.get("next_step") or ""),
             "completion_gate": str(provider_repair_plan.get("completion_gate") or ""),
         },

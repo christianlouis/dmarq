@@ -92,6 +92,8 @@ function domainDetailsApp(domainId = '') {
                 provider_apply_blocked: 0,
                 provider_value_missing: 0,
                 provider_manual_fallback: 0,
+                provider_pre_apply_checks: 0,
+                provider_post_apply_checks: 0,
                 evidence_refresh_required: 0,
                 evidence_refresh_dns: 0,
                 evidence_refresh_reports: 0,
@@ -128,6 +130,7 @@ function domainDetailsApp(domainId = '') {
             { value: 'all', label: 'All' },
             { value: 'preview_ready', label: 'Preview ready' },
             { value: 'provider_apply', label: 'Provider apply' },
+            { value: 'provider_checks', label: 'Provider checks' },
             { value: 'apply_blocked', label: 'Apply blocked' },
             { value: 'blocked', label: 'Blocked' },
             { value: 'needs_evidence', label: 'Needs evidence' },
@@ -1363,6 +1366,13 @@ function domainDetailsApp(domainId = '') {
             return `Blocked by ${blocked.slice(0, 4).map(value => this.humanizeToken(value)).join(', ')}.`;
         },
 
+        providerRepairPlanHasChecks(plan) {
+            return Boolean(
+                (plan?.pre_apply_checks || []).length ||
+                (plan?.post_apply_checks || []).length
+            );
+        },
+
         verifiedFreshnessClass(verified) {
             const status = String(verified?.freshness_status || '');
             if (status === 'current_queue_absence') return 'bg-teal-100 text-teal-700';
@@ -1550,6 +1560,9 @@ function domainDetailsApp(domainId = '') {
             if (filter === 'provider_apply') {
                 return Boolean(item.provider_repair_plan?.can_apply_after_approval) ||
                     Boolean(item.provider_repair_plan?.safe_preview_available);
+            }
+            if (filter === 'provider_checks') {
+                return this.providerRepairPlanHasChecks(item.provider_repair_plan);
             }
             if (filter === 'apply_blocked') {
                 return Boolean(item.provider_repair_plan?.apply_blocked);
@@ -2245,6 +2258,8 @@ function domainDetailsApp(domainId = '') {
                     provider_apply_blocked: 0,
                     provider_value_missing: 0,
                     provider_manual_fallback: 0,
+                    provider_pre_apply_checks: 0,
+                    provider_post_apply_checks: 0,
                     evidence_refresh_required: 0,
                     evidence_refresh_dns: 0,
                     evidence_refresh_reports: 0,
