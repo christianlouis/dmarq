@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -59,6 +60,8 @@ class ExternalIdentityClaims:
     groups: tuple[str, ...] = ()
     workspace_roles: tuple[tuple[str, str], ...] = ()
     organization_roles: tuple[tuple[str, str], ...] = ()
+    mfa_verified: bool = False
+    mfa_claims: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -77,6 +80,7 @@ class AuthProviderOption:
     supports_trusted_proxy: bool = False
     supports_single_user: bool = False
     supports_multi_user: bool = False
+    supports_mfa_policy: bool = False
 
     def as_dict(self, settings: Settings | None = None) -> dict[str, Any]:
         """Return JSON/template-safe provider metadata."""
@@ -94,8 +98,14 @@ class AuthProviderOption:
             "supports_trusted_proxy": self.supports_trusted_proxy,
             "supports_single_user": self.supports_single_user,
             "supports_multi_user": self.supports_multi_user,
+            "supports_mfa_policy": self.supports_mfa_policy,
             "active": getattr(cfg, "active_auth_provider", "unconfigured") == self.provider,
             "configured": auth_provider_configured(self.provider, cfg),
+            "mfa_policy": {
+                "required": self.supports_mfa_policy
+                and _enabled_flag(getattr(cfg, "AUTH_REQUIRE_MFA", False)),
+                "claim_names": sorted(_split_csv(getattr(cfg, "AUTH_MFA_CLAIM_NAMES", ""))),
+            },
         }
 
 
@@ -137,6 +147,7 @@ AUTH_PROVIDER_OPTIONS: tuple[AuthProviderOption, ...] = (
         supports_direct_oidc=True,
         supports_single_user=True,
         supports_multi_user=True,
+        supports_mfa_policy=True,
     ),
     AuthProviderOption(
         provider="authentik",
@@ -153,6 +164,7 @@ AUTH_PROVIDER_OPTIONS: tuple[AuthProviderOption, ...] = (
         supports_direct_oidc=True,
         supports_single_user=True,
         supports_multi_user=True,
+        supports_mfa_policy=True,
     ),
     AuthProviderOption(
         provider="trusted_proxy",
@@ -168,6 +180,7 @@ AUTH_PROVIDER_OPTIONS: tuple[AuthProviderOption, ...] = (
         supports_trusted_proxy=True,
         supports_single_user=True,
         supports_multi_user=True,
+        supports_mfa_policy=True,
     ),
     AuthProviderOption(
         provider="oidc",
@@ -184,6 +197,7 @@ AUTH_PROVIDER_OPTIONS: tuple[AuthProviderOption, ...] = (
         supports_direct_oidc=True,
         supports_single_user=True,
         supports_multi_user=True,
+        supports_mfa_policy=True,
     ),
     AuthProviderOption(
         provider="keycloak",
@@ -197,6 +211,7 @@ AUTH_PROVIDER_OPTIONS: tuple[AuthProviderOption, ...] = (
         supports_direct_oidc=True,
         supports_single_user=True,
         supports_multi_user=True,
+        supports_mfa_policy=True,
     ),
     AuthProviderOption(
         provider="entra_id",
@@ -210,6 +225,7 @@ AUTH_PROVIDER_OPTIONS: tuple[AuthProviderOption, ...] = (
         supports_direct_oidc=True,
         supports_single_user=True,
         supports_multi_user=True,
+        supports_mfa_policy=True,
     ),
     AuthProviderOption(
         provider="google_workspace",
@@ -223,6 +239,7 @@ AUTH_PROVIDER_OPTIONS: tuple[AuthProviderOption, ...] = (
         supports_direct_oidc=True,
         supports_single_user=True,
         supports_multi_user=True,
+        supports_mfa_policy=True,
     ),
     AuthProviderOption(
         provider="cloudflare_access",
@@ -238,6 +255,7 @@ AUTH_PROVIDER_OPTIONS: tuple[AuthProviderOption, ...] = (
         supports_trusted_proxy=True,
         supports_single_user=True,
         supports_multi_user=True,
+        supports_mfa_policy=True,
     ),
     AuthProviderOption(
         provider="akamai_eaa",
@@ -253,6 +271,7 @@ AUTH_PROVIDER_OPTIONS: tuple[AuthProviderOption, ...] = (
         supports_trusted_proxy=True,
         supports_single_user=True,
         supports_multi_user=True,
+        supports_mfa_policy=True,
     ),
 )
 
@@ -311,6 +330,119 @@ def _split_csv(value: Optional[str]) -> set[str]:
     if not value:
         return set()
     return {item.strip().lower() for item in value.split(",") if item.strip()}
+
+
+def _split_csv_sequence(value: Optional[str]) -> tuple[str, ...]:
+    if not value:
+        return ()
+    normalized: list[str] = []
+    seen = set()
+    for item in value.split(","):
+        text = item.strip().lower()
+        if text and text not in seen:
+            normalized.append(text)
+            seen.add(text)
+    return tuple(normalized)
+
+
+def _enabled_flag(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return False
+
+
+def _claim_value(payload: Any, name: str) -> Any:
+    if isinstance(payload, Mapping):
+        return payload.get(name)
+    value = getattr(payload, name, None)
+    if isinstance(value, (str, int, float, bool, list, tuple, set)):
+        return value
+    return None
+
+
+def _flatten_claim_values(value: Any) -> tuple[str, ...]:
+    """Return claim values as lower-case tokens without exposing raw claim payloads."""
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        raw_values = re.split(r"[\s,]+", value)
+    elif isinstance(value, (list, tuple, set)):
+        raw_values = []
+        for item in value:
+            raw_values.extend(_flatten_claim_values(item))
+    elif isinstance(value, (int, float, bool)):
+        raw_values = [str(value)]
+    else:
+        return ()
+
+    normalized: list[str] = []
+    seen = set()
+    for item in raw_values:
+        text = str(item).strip().lower()
+        if text and text not in seen:
+            normalized.append(text)
+            seen.add(text)
+    return tuple(normalized)
+
+
+def _mfa_claim_names(settings: Settings | None = None) -> tuple[str, ...]:
+    cfg = settings or get_settings()
+    return _split_csv_sequence(getattr(cfg, "AUTH_MFA_CLAIM_NAMES", "amr,acr"))
+
+
+def _mfa_claim_values(settings: Settings | None = None) -> set[str]:
+    cfg = settings or get_settings()
+    return _split_csv(getattr(cfg, "AUTH_MFA_CLAIM_VALUES", "mfa,otp,totp,webauthn,hwk,swk,phr"))
+
+
+def mfa_claim_context(
+    payload: Any, settings: Settings | None = None
+) -> tuple[bool, tuple[str, ...]]:
+    """Return whether IdP claims satisfy the configured MFA policy."""
+    names = _mfa_claim_names(settings)
+    accepted = _mfa_claim_values(settings)
+    observed: list[str] = []
+    seen = set()
+    verified = False
+    for name in names:
+        for value in _flatten_claim_values(_claim_value(payload, name)):
+            claim = f"{name}:{value}"
+            if claim not in seen:
+                observed.append(claim)
+                seen.add(claim)
+            if value in accepted:
+                verified = True
+    return verified, tuple(observed)
+
+
+def enforce_mfa_claims(
+    payload: Any,
+    settings: Settings | None = None,
+) -> tuple[bool, tuple[str, ...]]:
+    """Return MFA claim context and enforce the deployment policy when required."""
+    mfa_verified, mfa_claims = mfa_claim_context(payload, settings)
+    _enforce_mfa_policy(mfa_verified=mfa_verified, settings=settings)
+    return mfa_verified, mfa_claims
+
+
+def _enforce_mfa_policy(
+    *,
+    mfa_verified: bool,
+    settings: Settings | None = None,
+) -> None:
+    cfg = settings or get_settings()
+    if not _enabled_flag(getattr(cfg, "AUTH_REQUIRE_MFA", False)) or mfa_verified:
+        return
+    logger.warning("Rejecting external login because MFA assurance claims were not present")
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=(
+            "This DMARQ deployment requires MFA at the identity provider, but the "
+            "login did not include an accepted MFA assurance claim."
+        ),
+    )
 
 
 def email_allowed(
@@ -452,6 +584,7 @@ async def exchange_oidc_callback(
     provider: OIDCProviderConfig,
     *,
     code: str,
+    settings: Settings | None = None,
 ) -> ExternalIdentityClaims:
     """Exchange an authorization code and return normalized user claims."""
     metadata = await fetch_oidc_discovery(provider)
@@ -506,6 +639,7 @@ async def exchange_oidc_callback(
         allowed_domains=provider.allowed_domains,
         group_workspace_role_map=provider.group_workspace_role_map,
         group_organization_role_map=provider.group_organization_role_map,
+        settings=settings,
     )
 
 
@@ -517,8 +651,10 @@ def normalize_external_claims(
     allowed_domains: Optional[str] = None,
     group_workspace_role_map: Optional[str] = None,
     group_organization_role_map: Optional[str] = None,
+    settings: Settings | None = None,
 ) -> ExternalIdentityClaims:
     """Normalize provider-specific claim JSON into the DMARQ user shape."""
+    cfg = settings or get_settings()
     subject = str(payload.get("sub") or payload.get("uid") or "").strip()
     email = str(payload.get("email") or "").strip().lower()
     if not subject:
@@ -554,6 +690,7 @@ def normalize_external_claims(
             allowed_roles=set(ORGANIZATION_ROLE_ALIASES) | set(ROLE_PERMISSIONS),
         ),
     )
+    mfa_verified, mfa_claims = enforce_mfa_claims(payload, cfg)
     return ExternalIdentityClaims(
         provider=provider,
         subject=subject,
@@ -565,6 +702,8 @@ def normalize_external_claims(
         groups=groups,
         workspace_roles=workspace_roles,
         organization_roles=organization_roles,
+        mfa_verified=mfa_verified,
+        mfa_claims=mfa_claims,
     )
 
 
@@ -860,6 +999,11 @@ def trusted_proxy_claims_from_request(
         return None
     provider = (cfg.AUTH_TRUSTED_PROXY_PROVIDER or "trusted_proxy").strip().lower()
     groups = _normalize_string_claims(request.headers.get(cfg.AUTH_TRUSTED_PROXY_GROUPS_HEADER))
+    mfa_header = getattr(cfg, "AUTH_TRUSTED_PROXY_MFA_HEADER", "X-Authentik-Meta-Amr")
+    mfa_verified, mfa_claims = enforce_mfa_claims(
+        {"amr": request.headers.get(mfa_header)},
+        cfg,
+    )
     return ExternalIdentityClaims(
         provider=provider,
         subject=subject or email,
@@ -878,6 +1022,8 @@ def trusted_proxy_claims_from_request(
             cfg.AUTH_TRUSTED_PROXY_GROUP_ORGANIZATION_ROLE_MAP,
             allowed_roles=set(ORGANIZATION_ROLE_ALIASES) | set(ROLE_PERMISSIONS),
         ),
+        mfa_verified=mfa_verified,
+        mfa_claims=mfa_claims,
     )
 
 
@@ -896,4 +1042,5 @@ def trusted_proxy_auth_context(
         "email": claims.email,
         "name": claims.name,
         "username": claims.username,
+        "mfa_verified": claims.mfa_verified,
     }

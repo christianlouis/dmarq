@@ -33,10 +33,11 @@ from app.core.auth_providers import (
     create_oidc_state,
     decode_oidc_state,
     exchange_oidc_callback,
+    mfa_claim_context,
     normalize_external_claims,
     sync_external_user,
-    trusted_proxy_claims_from_request,
     trusted_proxy_auth_context,
+    trusted_proxy_claims_from_request,
 )
 from app.core.config import Settings, get_settings
 from app.core.logto import (
@@ -201,10 +202,25 @@ class TestExternalAuthProviders:
         assert providers["logto"]["auth_mode"] == "logto"
         assert providers["authentik"]["configured"] is True
         assert providers["authentik"]["active"] is True
+        assert providers["authentik"]["supports_mfa_policy"] is True
+        assert providers["authentik"]["mfa_policy"]["required"] is False
+        assert providers["authentik"]["mfa_policy"]["claim_names"] == ["acr", "amr"]
         assert providers["oidc"]["auth_mode"] == "oidc"
         assert providers["keycloak"]["status"] == "ready_via_generic_oidc"
         assert providers["cloudflare_access"]["auth_mode"] == "trusted_proxy"
         assert providers["akamai_eaa"]["status"] == "planned"
+
+    def test_auth_provider_registry_scopes_mfa_requirement_to_supported_providers(self):
+        settings = Settings(AUTH_REQUIRE_MFA=True)
+
+        providers = {entry["provider"]: entry for entry in auth_provider_registry(settings)}
+
+        assert providers["disabled"]["supports_mfa_policy"] is False
+        assert providers["disabled"]["mfa_policy"]["required"] is False
+        assert providers["local"]["supports_mfa_policy"] is False
+        assert providers["local"]["mfa_policy"]["required"] is False
+        assert providers["authentik"]["supports_mfa_policy"] is True
+        assert providers["authentik"]["mfa_policy"]["required"] is True
 
     def test_authentik_config_selects_direct_oidc_provider(self):
         settings = Settings(
@@ -296,6 +312,52 @@ class TestExternalAuthProviders:
             )
 
         assert exc.value.status_code == 403
+
+    def test_mfa_claim_context_accepts_common_oidc_assurance_claims(self):
+        settings = Settings(AUTH_MFA_CLAIM_NAMES="amr,acr")
+
+        verified, claims = mfa_claim_context(
+            {
+                "amr": ["single_factor", "webauthn"],
+                "acr": "urn:example:loa",
+            },
+            settings,
+        )
+
+        assert verified is True
+        assert claims == ("amr:single_factor", "amr:webauthn", "acr:urn:example:loa")
+
+    def test_normalize_external_claims_records_mfa_claims(self):
+        claims = normalize_external_claims(
+            "authentik",
+            {
+                "sub": "authentik-user-1",
+                "email": "owner@example.com",
+                "amr": ["single_factor", "mfa"],
+            },
+            allowed_domains="example.com",
+        )
+
+        assert claims.mfa_verified is True
+        assert claims.mfa_claims == ("amr:single_factor", "amr:mfa")
+
+    def test_normalize_external_claims_enforces_required_mfa(self):
+        settings = Settings(AUTH_REQUIRE_MFA=True)
+
+        with pytest.raises(HTTPException) as exc:
+            normalize_external_claims(
+                "authentik",
+                {
+                    "sub": "authentik-user-1",
+                    "email": "owner@example.com",
+                    "amr": ["single_factor"],
+                },
+                allowed_domains="example.com",
+                settings=settings,
+            )
+
+        assert exc.value.status_code == 403
+        assert "requires MFA" in exc.value.detail
 
     def test_normalize_external_claims_extracts_idp_role_claims(self):
         claims = normalize_external_claims(
@@ -646,6 +708,7 @@ class TestExternalAuthProviders:
             "email": "owner@example.com",
             "name": "Owner",
             "username": "owner",
+            "mfa_verified": False,
         }
 
     def test_trusted_proxy_claims_apply_group_role_mappings(self):
@@ -670,6 +733,43 @@ class TestExternalAuthProviders:
         assert claims.groups == ("dmarq-admins", "other")
         assert claims.workspace_roles == (("primary", "workspace_owner"),)
         assert claims.organization_roles == (("customer-one", "organization_owner"),)
+
+    def test_trusted_proxy_claims_enforce_required_mfa_header(self):
+        settings = Settings(
+            AUTH_MODE="trusted_proxy",
+            AUTH_REQUIRE_MFA=True,
+            AUTH_TRUSTED_PROXY_ALLOWED_DOMAINS="example.com",
+            AUTH_TRUSTED_PROXY_MFA_HEADER="X-SSO-Amr",
+        )
+        request = MagicMock()
+        request.headers = {
+            "X-Authentik-Email": "owner@example.com",
+            "X-Authentik-Uid": "authentik-user-1",
+            "X-SSO-Amr": "single_factor,mfa",
+        }
+
+        claims = trusted_proxy_claims_from_request(request, settings)
+
+        assert claims is not None
+        assert claims.mfa_verified is True
+        assert claims.mfa_claims == ("amr:single_factor", "amr:mfa")
+
+    def test_trusted_proxy_claims_reject_missing_required_mfa_header(self):
+        settings = Settings(
+            AUTH_MODE="trusted_proxy",
+            AUTH_REQUIRE_MFA=True,
+            AUTH_TRUSTED_PROXY_ALLOWED_DOMAINS="example.com",
+        )
+        request = MagicMock()
+        request.headers = {
+            "X-Authentik-Email": "owner@example.com",
+            "X-Authentik-Uid": "authentik-user-1",
+        }
+
+        with pytest.raises(HTTPException) as exc:
+            trusted_proxy_claims_from_request(request, settings)
+
+        assert exc.value.status_code == 403
 
     @pytest.mark.asyncio
     async def test_oidc_callback_rejects_unverified_id_token_without_userinfo(self):
@@ -850,6 +950,41 @@ class TestCallbackEndpoint:
         assert res.headers["location"] == "/"
         set_cookie = res.headers.get("set-cookie", "")
         assert SESSION_COOKIE in set_cookie
+
+    def test_callback_enforces_required_logto_mfa_claim(self, client: TestClient):
+        """Required MFA blocks Logto callbacks without accepted assurance claims."""
+        claims = self._make_mock_claims()
+        mock_client = self._mock_client(claims=claims)
+
+        with patch("app.api.api_v1.endpoints.auth.settings") as mock_settings:
+            mock_settings.logto_configured = True
+            mock_settings.AUTH_REQUIRE_MFA = True
+            mock_settings.AUTH_MFA_CLAIM_NAMES = "amr,acr"
+            mock_settings.AUTH_MFA_CLAIM_VALUES = "mfa,otp,totp,webauthn"
+            with patch("app.api.api_v1.endpoints.auth.make_logto_client", return_value=mock_client):
+                res = client.get("/api/v1/auth/callback?code=good", follow_redirects=False)
+
+        assert res.status_code == 302
+        assert "callback_failed" in res.headers["location"]
+        assert SESSION_COOKIE not in res.headers.get("set-cookie", "")
+
+    def test_callback_accepts_logto_mfa_amr_claim(self, client: TestClient):
+        """Required MFA allows Logto callbacks that include an accepted amr value."""
+        claims = self._make_mock_claims()
+        claims.amr = ["single_factor", "mfa"]
+        mock_client = self._mock_client(claims=claims)
+
+        with patch("app.api.api_v1.endpoints.auth.settings") as mock_settings:
+            mock_settings.logto_configured = True
+            mock_settings.AUTH_REQUIRE_MFA = True
+            mock_settings.AUTH_MFA_CLAIM_NAMES = "amr,acr"
+            mock_settings.AUTH_MFA_CLAIM_VALUES = "mfa,otp,totp,webauthn"
+            with patch("app.api.api_v1.endpoints.auth.make_logto_client", return_value=mock_client):
+                res = client.get("/api/v1/auth/callback?code=good", follow_redirects=False)
+
+        assert res.status_code == 302
+        assert res.headers["location"] == "/"
+        assert SESSION_COOKIE in res.headers.get("set-cookie", "")
 
     def test_callback_success_respects_logto_next_cookie(self, client: TestClient):
         """After a successful callback the user is redirected to the stored next URL."""
