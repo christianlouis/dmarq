@@ -90,7 +90,7 @@
                                 <p class="text-xs font-semibold uppercase text-[#5f5c78]">Next remediation</p>
                                 <span class="rounded px-2 py-1 text-xs font-semibold capitalize"
                                       :class="remediationStateClass(primaryRemediationItem.state)"
-                                      x-text="primaryRemediationItem.state.replace('_', ' ')"></span>
+                                      x-text="primaryRemediationItem.state.split('_').join(' ')"></span>
                                 <span class="inline-flex items-center gap-1 text-xs font-semibold uppercase text-[#5f5c78]">
                                     <span class="h-2 w-2 rounded-full"
                                           :class="remediationSeverityDotClass(primaryRemediationItem.severity)"></span>
@@ -472,7 +472,7 @@
                                         <div class="flex flex-wrap items-center gap-2">
                                             <span class="rounded px-2 py-1 text-xs font-semibold capitalize"
                                                   :class="remediationStateClass(item.state)"
-                                                  x-text="item.state.replace('_', ' ')"></span>
+                                                  x-text="item.state.split('_').join(' ')"></span>
                                             <span class="inline-flex items-center gap-1 text-xs font-semibold uppercase text-[#5f5c78]">
                                                 <span class="h-2 w-2 rounded-full"
                                                       :class="remediationSeverityDotClass(item.severity)"></span>

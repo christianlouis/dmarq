@@ -1233,6 +1233,8 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "Loading next remediation..." in template
     assert "Next remediation could not be loaded." in template
     assert "No remediation queued" in template
+    assert "primaryRemediationItem.state.split('_').join(' ')" in template
+    assert "item.state.split('_').join(' ')" in template
     assert 'href="#remediation-queue"' in template
     assert 'id="remediation-queue"' in template
     assert "Loading remediation queue..." in template
