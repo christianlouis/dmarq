@@ -82,6 +82,8 @@ function domainDetailsApp(domainId = '') {
             items: [],
             verified_items: []
         },
+        remediationQueueLoading: true,
+        remediationQueueError: '',
         remediationAction: {
             itemId: '',
             action: '',
@@ -254,6 +256,9 @@ function domainDetailsApp(domainId = '') {
                 } else if (button.matches('[data-domain-detail-remediation-action]')) {
                     event.preventDefault();
                     this.handleRemediationAction(button);
+                } else if (button.matches('[data-domain-detail-remediation-retry]')) {
+                    event.preventDefault();
+                    this.fetchRemediationQueue();
                 } else if (button.matches('[data-domain-detail-migration-action]')) {
                     event.preventDefault();
                     this.handleMigrationAction(button.dataset.domainDetailMigrationAction);
@@ -1446,21 +1451,29 @@ function domainDetailsApp(domainId = '') {
         },
 
         async fetchRemediationQueue() {
+            this.remediationQueueLoading = true;
+            this.remediationQueueError = '';
             try {
-                const response = await fetch(`/api/v1/domains/${encodeURIComponent(this.domainId)}/remediation`);
+                const response = await this.fetchWithTimeout(
+                    `/api/v1/domains/${encodeURIComponent(this.domainId)}/remediation`
+                );
                 if (!response.ok) {
                     console.error('Error fetching remediation queue:', {
                         domainId: this.domainId,
                         status: response.status,
                         statusText: response.statusText
                     });
+                    this.remediationQueueError = 'Remediation queue could not be loaded.';
                     this.resetRemediationQueue();
                     return;
                 }
                 this.remediationQueue = await response.json();
             } catch (error) {
                 console.error('Error fetching remediation queue:', error);
+                this.remediationQueueError = error.message || 'Remediation queue could not be loaded.';
                 this.resetRemediationQueue();
+            } finally {
+                this.remediationQueueLoading = false;
             }
         },
 
