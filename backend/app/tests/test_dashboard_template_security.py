@@ -571,6 +571,9 @@ def test_domain_details_remediation_queue_shows_verification_context():
     assert "remediationQueueSort: 'priority'" in script
     assert "sortedRemediationQueueItems(items)" in script
     assert "remediationEvidenceRefreshRank(item)" in script
+    assert "remediationEvidenceAnchorHref(item)" in script
+    assert "rawAnchor.startsWith('#')" in script
+    assert ':href="remediationEvidenceAnchorHref(item)"' in template
     assert "visibleRemediationQueueItems()" in script
     assert "filteredRemediationQueueItems(filterValue)" in script
     assert "remediationQueueFilterMatches(item, filter)" in script

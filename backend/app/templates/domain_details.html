@@ -900,7 +900,7 @@
                                                 <span x-text="remediationEvidenceRefreshActionLabel(item.evidence_refresh)"></span>
                                             </button>
                                             <a x-show="item.evidence_refresh.ui_anchor"
-                                               :href="item.evidence_refresh.ui_anchor"
+                                               :href="remediationEvidenceAnchorHref(item)"
                                                class="rounded bg-white px-2 py-1 text-xs font-semibold text-[#1f7c83]">
                                                 Open evidence section
                                             </a>

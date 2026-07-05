@@ -339,8 +339,7 @@
         </p>
         <div class="mt-5 grid gap-3 lg:grid-cols-2" x-show="hasVisibleDashboardRemediationItems()">
             <template x-for="item in visibleDashboardRemediationItems()" :key="item.domain + item.type + item.title">
-                <a class="rounded-md border border-[#e6e3e1] p-4 transition hover:border-[#2f9da5] hover:shadow-sm"
-                   :href="domainRemediationHref(item.domain)">
+                <article class="rounded-md border border-[#e6e3e1] p-4 transition hover:border-[#2f9da5] hover:shadow-sm">
                     <div class="flex items-start justify-between gap-3">
                         <div class="min-w-0">
                             <span class="inline-flex rounded-md px-2 py-1 text-xs font-semibold"
@@ -424,9 +423,13 @@
                     </div>
                     <p class="mt-2 text-xs text-[#5f5c78]">
                         <span x-text="item.domain"></span>
-                        <span> · Open remediation queue</span>
+                        <span> · </span>
+                        <a class="font-semibold text-[#1f7c83]"
+                           :href="domainRemediationHref(item.domain)">
+                            Open remediation queue
+                        </a>
                     </p>
-                </a>
+                </article>
             </template>
         </div>
         <p class="mt-4 rounded border border-[#e6e3e1] bg-white p-4 text-sm text-[#5f5c78]"

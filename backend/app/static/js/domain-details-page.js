@@ -1289,6 +1289,11 @@ function domainDetailsApp(domainId = '') {
             return 4;
         },
 
+        remediationEvidenceAnchorHref(item) {
+            const rawAnchor = String(item?.evidence_refresh?.ui_anchor || '#remediation-queue');
+            return rawAnchor.startsWith('#') ? rawAnchor : '#remediation-queue';
+        },
+
         remediationQueueFilterMatches(item, filter) {
             if (!item || filter === 'all') return true;
             const progression = item.repair_progression || {};
