@@ -918,6 +918,43 @@ def test_dashboard_remediation_loop_exposes_operator_decision_context():
     assert loop["items"][1]["safe_to_automate"] is False
 
 
+def test_dashboard_remediation_loop_counts_provider_specific_prerequisite_blocks():
+    """Dashboard repair-gate counters include blocked DNS repair prerequisites."""
+    loop = domains_endpoint._build_dashboard_remediation_loop(
+        [
+            {
+                "domain_name": "example.com",
+                "health": {
+                    "actions": [
+                        {
+                            "type": "missing_dkim",
+                            "source": "dns_lint",
+                            "severity": "high",
+                            "title": "Publish DKIM",
+                            "detail": "No DKIM selector was found.",
+                            "next_step": "Collect the provider-specific DKIM value.",
+                            "score_impact": 25,
+                            "prerequisites": [
+                                "A provider-specific final value is required before automation is safe."
+                            ],
+                        }
+                    ]
+                },
+            }
+        ],
+        {"summary": {}},
+    )
+
+    assert loop["track_blocked_by_prerequisite"] == 1
+    assert loop["repair_blocked"] == 1
+    assert loop["repair_preview_ready"] == 0
+    assert loop["repair_needs_evidence"] == 1
+    assert loop["items"][0]["remediation_track"] == "blocked_by_prerequisite"
+    assert loop["items"][0]["repair_progression"]["stage"] == "blocked"
+    assert loop["items"][0]["repair_progression"]["can_preview"] is False
+    assert "provider-specific value" in loop["items"][0]["repair_progression"]["summary"]
+
+
 def test_domain_remediation_dispatch_preview_becomes_eligible_without_enqueuing(
     seeded_client: TestClient,
     db_session,

@@ -1829,6 +1829,7 @@ REMEDIATION_STATE_PRIORITY = {
 REMEDIATION_TRACKS = {
     "provider_preview",
     "manual_dns",
+    "blocked_by_prerequisite",
     "sender_investigation",
     "reputation_review",
     "self_hosted_or_provider",
@@ -1910,6 +1911,15 @@ def _remediation_item_loop_state(state: str) -> str:
 
 def _remediation_track_for_action(state: str, action: Dict[str, Any]) -> str:
     action_type = str(action.get("type") or "")
+    if (
+        str(action.get("source") or "") == "dns_lint"
+        and action_type in REMEDIATION_DNS_ACTION_TYPES
+        and any(
+            "provider-specific" in str(prerequisite).lower()
+            for prerequisite in action.get("prerequisites") or []
+        )
+    ):
+        return "blocked_by_prerequisite"
     if state == "needs_approval":
         return "provider_preview"
     if action_type in REMEDIATION_REPUTATION_ACTION_TYPES:
@@ -1975,6 +1985,19 @@ def _remediation_operator_decision_summary(state: str) -> str:
 def _dashboard_repair_progression(state: str, action: Dict[str, Any]) -> Dict[str, Any]:
     """Return a conservative repair gate for dashboard health-action summaries."""
     action_type = str(action.get("type") or "")
+    if _remediation_track_for_action(state, action) == "blocked_by_prerequisite":
+        return {
+            "stage": "blocked",
+            "label": "Blocked by prerequisite",
+            "summary": "DMARQ needs a provider-specific value before this can become a safe repair.",
+            "next_gate": "Provider value required",
+            "next_step": "Fetch the exact DKIM, SPF, DMARC, or CNAME target from the mail provider first.",
+            "can_preview": False,
+            "can_apply_after_approval": False,
+            "manual_fallback": True,
+            "verification_required": True,
+            "verification_status": "pending_dns_refresh",
+        }
     if state == "needs_approval":
         return {
             "stage": "preview_ready",
