@@ -1175,6 +1175,10 @@ def test_domain_details_exposes_remediation_action_plans_without_html_injection(
     assert "item.action_plan.owner" in template
     assert "item.action_plan.steps" in template
     assert "item.action_plan.completion_criteria" in template
+    assert "Verification" in template
+    assert "item.verification_plan.status" in template
+    assert "item.verification_plan.evidence_needed" in template
+    assert "item.verification_plan.next_check" in template
     assert "Notification dispatch" in template
     assert "Reviewed" in template
     assert "Acknowledge" in template

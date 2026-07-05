@@ -1145,6 +1145,16 @@ class RemediationActionPlan(BaseModel):
     automation_path: str
 
 
+class RemediationVerificationPlan(BaseModel):
+    """Read-only evidence checks before a remediation item is treated as fixed."""
+
+    label: str
+    status: str
+    summary: str
+    evidence_needed: List[str] = Field(default_factory=list)
+    next_check: str
+
+
 class RemediationNotification(BaseModel):
     """Read-only notification routing metadata for one remediation item."""
 
@@ -1175,6 +1185,7 @@ class RemediationQueueItem(BaseModel):
     prerequisites: List[str] = Field(default_factory=list)
     expected_health_score_impact: str
     action_plan: RemediationActionPlan
+    verification_plan: RemediationVerificationPlan
     automation: RemediationAutomation
     notification: RemediationNotification
 

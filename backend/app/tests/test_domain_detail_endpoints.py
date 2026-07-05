@@ -817,6 +817,10 @@ def test_domain_remediation_queue_groups_dns_and_health_actions(
     assert data["items"][0]["id"] == "dns:dmarc-missing"
     assert data["items"][0]["automation"]["eligible"] is True
     assert data["items"][0]["automation"]["provider"] == "cloudflare"
+    assert data["items"][0]["verification_plan"]["status"] == "pending_operator_approval"
+    assert "fresh DNS evidence" in data["items"][0]["verification_plan"]["summary"]
+    assert data["items"][1]["verification_plan"]["status"] == "pending_sender_review"
+    assert "receiver report window" in data["items"][1]["verification_plan"]["next_check"]
     dispatch = data["items"][0]["notification"]["dispatch"]
     assert dispatch["enabled"] is False
     assert dispatch["eligible"] is False

@@ -89,6 +89,14 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
         in " ".join(queue["items"][0]["action_plan"]["steps"]).lower()
     )
     assert queue["items"][0]["action_plan"]["completion_criteria"]
+    assert queue["items"][0]["verification_plan"]["status"] == "pending_operator_approval"
+    assert "fresh DNS evidence" in queue["items"][0]["verification_plan"]["summary"]
+    assert any(
+        "provider preview was approved" in evidence
+        for evidence in queue["items"][0]["verification_plan"]["evidence_needed"]
+    )
+    assert queue["items"][1]["verification_plan"]["status"] == "pending_sender_review"
+    assert "next receiver report window" in queue["items"][1]["verification_plan"]["next_check"]
     notification = queue["items"][0]["notification"]
     assert notification == {
         "state": "approval_required",

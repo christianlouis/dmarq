@@ -119,6 +119,13 @@ def _sample_remediation_queue(domain=DOMAIN):
                     "completion_criteria": "DMARC resolves.",
                     "automation_path": "Preview the DNS write in DMARQ.",
                 },
+                "verification_plan": {
+                    "label": "Verify DNS evidence after manual repair",
+                    "status": "pending_dns_refresh",
+                    "summary": "DMARC must resolve from fresh DNS evidence.",
+                    "evidence_needed": ["Fresh DNS returns the expected record."],
+                    "next_check": "Refresh DNS posture after propagation.",
+                },
                 "automation": {
                     "eligible": True,
                     "requires_approval": True,
