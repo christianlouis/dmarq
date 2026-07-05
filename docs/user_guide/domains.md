@@ -112,7 +112,8 @@ must be classified first, whether the work is manual DNS, or whether fresh
 reputation/report/DNS evidence is still required before closure. This panel is
 read-only; it does not apply DNS changes or send provider requests. The top
 **Next remediation** panel mirrors the same repair-gate status so the operator
-can see the current blocker before opening the full queue.
+can see the current blocker, readiness label, readiness score, and next safe
+action before opening the full queue.
 Repair progression also includes a readiness label, 0-100 readiness score,
 human-readable reasons, and blocker keys. Use this to separate work that is
 ready for provider preview from work that is blocked by missing provider values,
@@ -140,9 +141,11 @@ When an operator marks an item resolved and the same finding no longer appears
 in the current queue, the domain detail page lists it under evidence-verified
 repairs. That section shows how DMARQ verified the absence, what evidence was
 used, how many older verified repairs are hidden in the compact view, and what
-fresh reports or DNS checks should keep monitoring the fix. The compact view
-shows the newest verified repairs first and can be expanded to show every
-verified repair returned by the backend response.
+fresh reports or DNS checks should keep monitoring the fix. It also shows the
+closure gate and next safe action so an operator can tell that a resolved marker
+is still conditional on fresh evidence staying clean. The compact view shows
+the newest verified repairs first and can be expanded to show every verified
+repair returned by the backend response.
 
 After a remediation notification is previewed or acknowledged, an operator can
 explicitly enqueue the notification through the dispatch API with

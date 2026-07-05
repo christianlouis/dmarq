@@ -394,9 +394,19 @@ def test_attach_remediation_dispatch_previews_reports_verified_fixed_items(db_se
             ),
             "verification_status": "no_longer_observed",
             "verification_method": "current_queue_absence",
+            "freshness_status": "current_queue_absence",
+            "freshness_label": "Fresh queue absence",
+            "closure_gate": (
+                "Closed only while the latest remediation queue and imported evidence "
+                "keep this finding absent."
+            ),
             "next_check": (
                 "Keep importing fresh DMARC reports and refresh DNS evidence; reopen "
                 "the item if the same finding returns."
+            ),
+            "next_safe_action": (
+                "Keep monitoring fresh report and DNS evidence before treating this "
+                "repair as permanently closed."
             ),
             "evidence_needed": [
                 "The latest lifecycle marker for this item is resolved.",

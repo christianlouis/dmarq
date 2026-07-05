@@ -496,9 +496,19 @@ def _verified_fixed_items_result(
                 ),
                 "verification_status": "no_longer_observed",
                 "verification_method": "current_queue_absence",
+                "freshness_status": "current_queue_absence",
+                "freshness_label": "Fresh queue absence",
+                "closure_gate": (
+                    "Closed only while the latest remediation queue and imported evidence "
+                    "keep this finding absent."
+                ),
                 "next_check": (
                     "Keep importing fresh DMARC reports and refresh DNS evidence; reopen "
                     "the item if the same finding returns."
+                ),
+                "next_safe_action": (
+                    "Keep monitoring fresh report and DNS evidence before treating this "
+                    "repair as permanently closed."
                 ),
                 "evidence_needed": [
                     "The latest lifecycle marker for this item is resolved.",
