@@ -238,7 +238,17 @@ def _sample_remediation_queue(domain=DOMAIN):
                         "automation": {
                             "eligible": True,
                             "apply_endpoint": ("/api/v1/domains/example.com/dns/change-plan/apply"),
-                        }
+                        },
+                        "provider_repair_plan": {
+                            "kind": "dns_provider_repair",
+                            "provider": "cloudflare",
+                            "safe_preview_available": True,
+                            "can_apply_after_approval": True,
+                            "apply_blocked": False,
+                            "blocked_reasons": [],
+                            "preview_endpoint": "/api/v1/domains/example.com/dns/change-plan/apply",
+                            "apply_endpoint": "/api/v1/domains/example.com/dns/change-plan/apply",
+                        },
                     },
                     "history": [],
                     "dispatch": {"eligible": False, "reason": "disabled"},
@@ -682,6 +692,12 @@ def test_public_remediation_queue_is_read_only_and_posture_scoped(
     assert "read-only" in item["provider_repair_plan"]["approval_gate"]
     assert "omits provider write endpoints" in item["provider_repair_plan"]["operator_warning"]
     assert item["notification"]["payload_preview"]["automation"]["apply_endpoint"] is None
+    preview_plan = item["notification"]["payload_preview"]["provider_repair_plan"]
+    assert preview_plan["can_apply_after_approval"] is False
+    assert preview_plan["apply_blocked"] is True
+    assert preview_plan["preview_endpoint"] == ""
+    assert preview_plan["apply_endpoint"] == ""
+    assert "public_read_only_response" in preview_plan["blocked_reasons"]
 
 
 def test_read_only_remediation_queue_keeps_missing_provider_plan_not_applicable():
@@ -701,6 +717,8 @@ def test_read_only_remediation_queue_keeps_missing_provider_plan_not_applicable(
     assert plan["apply_requires_approval"] is False
     assert plan["apply_blocked"] is False
     assert plan["blocked_reasons"] == []
+    assert plan["pre_apply_checks"] == []
+    assert plan["post_apply_checks"] == []
 
 
 def test_public_action_proposals_are_workspace_scoped(client: TestClient, db_session):

@@ -1367,6 +1367,7 @@ function domainDetailsApp(domainId = '') {
         },
 
         providerRepairPlanHasChecks(plan) {
+            if (plan?.kind !== 'dns_provider_repair') return false;
             return Boolean(
                 (plan?.pre_apply_checks || []).length ||
                 (plan?.post_apply_checks || []).length
