@@ -114,6 +114,27 @@ def _summary(items: List[Dict[str, Any]]) -> Dict[str, int]:
         "blocked_by_prerequisite": sum(
             1 for item in items if item.get("remediation_track") == "blocked_by_prerequisite"
         ),
+        "repair_preview_ready": sum(
+            1
+            for item in items
+            if (item.get("repair_progression") or {}).get("stage") == "preview_ready"
+        ),
+        "repair_approval_pending": sum(
+            1
+            for item in items
+            if (item.get("repair_progression") or {}).get("stage")
+            == "approval_pending"
+        ),
+        "repair_blocked": sum(
+            1
+            for item in items
+            if (item.get("repair_progression") or {}).get("stage") == "blocked"
+        ),
+        "repair_needs_evidence": sum(
+            1
+            for item in items
+            if (item.get("repair_progression") or {}).get("verification_required")
+        ),
         "notify_approval_required": sum(
             1 for item in items if item.get("notification", {}).get("state") == "approval_required"
         ),
@@ -234,6 +255,92 @@ def _operator_decision_summary(item: Dict[str, Any]) -> str:
     return "Acknowledge the work, complete it manually, then mark it resolved only after fresh evidence confirms it."
 
 
+def _repair_progression_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Return the safe repair lane and gates without performing any mutation."""
+    automation = item.get("automation") or {}
+    track = str(item.get("remediation_track") or _remediation_track(item))
+    verification = item.get("verification_plan") or {}
+    state = str(item.get("state") or "")
+
+    if automation.get("eligible"):
+        return {
+            "stage": "preview_ready",
+            "label": "Preview ready",
+            "summary": "A connected DNS provider can prepare the exact mutation for review.",
+            "next_gate": "Human approval before apply",
+            "next_step": "Open the provider preview, compare old and new DNS values, then approve or reject.",
+            "can_preview": True,
+            "can_apply_after_approval": True,
+            "manual_fallback": True,
+            "verification_required": True,
+            "verification_status": str(verification.get("status") or "pending_operator_approval"),
+        }
+    if track == "blocked_by_prerequisite":
+        return {
+            "stage": "blocked",
+            "label": "Blocked by prerequisite",
+            "summary": "DMARQ needs a provider-specific value before this can become a safe repair.",
+            "next_gate": "Provider value required",
+            "next_step": "Fetch the exact DKIM, SPF, DMARC, or CNAME target from the mail provider first.",
+            "can_preview": False,
+            "can_apply_after_approval": False,
+            "manual_fallback": True,
+            "verification_required": True,
+            "verification_status": str(verification.get("status") or "pending_dns_refresh"),
+        }
+    if state == "investigate":
+        return {
+            "stage": "classification_required",
+            "label": "Classify sender",
+            "summary": "A human must decide whether the source is legitimate, forwarding, abuse, or stale.",
+            "next_gate": "Sender classification",
+            "next_step": "Review source intelligence and recent report evidence before changing SPF or DKIM.",
+            "can_preview": False,
+            "can_apply_after_approval": False,
+            "manual_fallback": False,
+            "verification_required": True,
+            "verification_status": str(verification.get("status") or "pending_sender_review"),
+        }
+    if track == "manual_dns":
+        return {
+            "stage": "manual_repair",
+            "label": "Manual DNS repair",
+            "summary": "The finding has DNS guidance but no connected safe write path yet.",
+            "next_gate": "Operator applies DNS manually",
+            "next_step": "Apply the suggested record in authoritative DNS, then refresh DMARQ evidence.",
+            "can_preview": False,
+            "can_apply_after_approval": False,
+            "manual_fallback": True,
+            "verification_required": True,
+            "verification_status": str(verification.get("status") or "pending_dns_refresh"),
+        }
+    if track == "reputation_review":
+        return {
+            "stage": "reputation_review",
+            "label": "Review reputation",
+            "summary": "The source needs reputation or blacklist evidence before operator closure.",
+            "next_gate": "Fresh reputation evidence",
+            "next_step": "Check current reputation feeds and decide whether to delist, stop, or accept the sender.",
+            "can_preview": False,
+            "can_apply_after_approval": False,
+            "manual_fallback": False,
+            "verification_required": True,
+            "verification_status": str(verification.get("status") or "pending_report_evidence"),
+        }
+    return {
+        "stage": "operator_review",
+        "label": "Operator review",
+        "summary": "The remediation remains manual until current evidence proves it is fixed.",
+        "next_gate": "Fresh evidence before closure",
+        "next_step": "Complete the operator action and import fresh reports or DNS checks before marking fixed.",
+        "can_preview": False,
+        "can_apply_after_approval": False,
+        "manual_fallback": True,
+        "verification_required": True,
+        "verification_status": str(verification.get("status") or "pending_report_evidence"),
+    }
+
+
 def _apply_loop_metadata(items: List[Dict[str, Any]]) -> None:
     for item in items:
         item["incident_type"] = _incident_type_for_item(item)
@@ -243,6 +350,7 @@ def _apply_loop_metadata(items: List[Dict[str, Any]]) -> None:
         item["priority_score"] = priority_score
         item["priority_band"] = _priority_band(item, score=priority_score)
         item["operator_decisions"] = _operator_decision_options(item)
+        item["repair_progression"] = _repair_progression_for_item(item)
 
 
 def _loop_summary(domain: str, items: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -280,6 +388,10 @@ def _loop_summary(domain: str, items: List[Dict[str, Any]]) -> Dict[str, Any]:
         "track_sender_investigation": summary["track_sender_investigation"],
         "track_reputation_review": summary["track_reputation_review"],
         "track_self_hosted_or_provider": summary["track_self_hosted_or_provider"],
+        "repair_preview_ready": summary["repair_preview_ready"],
+        "repair_approval_pending": summary["repair_approval_pending"],
+        "repair_blocked": summary["repair_blocked"],
+        "repair_needs_evidence": summary["repair_needs_evidence"],
         "top_item_id": next_item.get("id") if next_item else None,
         "top_incident_type": next_item.get("incident_type") if next_item else None,
         "top_loop_state": next_item.get("loop_state") if next_item else None,
@@ -340,6 +452,7 @@ def _remediation_notification_payload(domain: str, item: Dict[str, Any]) -> Dict
     automation = item.get("automation") or {}
     action_plan = item.get("action_plan") or {}
     verification_plan = item.get("verification_plan") or {}
+    repair_progression = item.get("repair_progression") or {}
     return {
         "schema_version": "dmarq.remediation.notification.v1",
         "domain": domain,
@@ -356,6 +469,20 @@ def _remediation_notification_payload(domain: str, item: Dict[str, Any]) -> Dict
         "operator_decisions": [
             str(decision) for decision in item.get("operator_decisions", []) if str(decision)
         ][:8],
+        "repair_progression": {
+            "stage": str(repair_progression.get("stage") or ""),
+            "label": str(repair_progression.get("label") or ""),
+            "summary": str(repair_progression.get("summary") or ""),
+            "next_gate": str(repair_progression.get("next_gate") or ""),
+            "next_step": str(repair_progression.get("next_step") or ""),
+            "can_preview": bool(repair_progression.get("can_preview")),
+            "can_apply_after_approval": bool(
+                repair_progression.get("can_apply_after_approval")
+            ),
+            "manual_fallback": bool(repair_progression.get("manual_fallback")),
+            "verification_required": bool(repair_progression.get("verification_required")),
+            "verification_status": str(repair_progression.get("verification_status") or ""),
+        },
         "title": str(item.get("title") or ""),
         "detail": str(item.get("detail") or ""),
         "notification_state": str(notification.get("state") or "summary_only"),

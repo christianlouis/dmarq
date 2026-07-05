@@ -373,9 +373,18 @@ def test_domain_details_remediation_queue_shows_verification_context():
     assert "item.verification_plan.verification_method" in template
     assert "item.verification_plan.freshness_requirement" in template
     assert "item.verification_plan.failure_mode" in template
+    assert "Repair progression" in template
+    assert "remediationQueue.summary.repair_preview_ready" in template
+    assert "remediationQueue.summary.repair_needs_evidence" in template
+    assert "remediationQueue.loop?.repair_blocked" in template
+    assert "item.repair_progression.next_gate" in template
+    assert "item.repair_progression.can_preview" in template
+    assert "item.repair_progression.verification_required" in template
     assert "remediationRiskClass(value)" in script
     assert "verifiedItemsTotalCount()" in script
     assert "verifiedItemsHiddenCount()" in script
+    assert "hasMoreVisibleVerifiedItems()" in script
+    assert "VERIFIED_ITEMS_COMPACT_LIMIT = 4" in script
 
 
 def test_dashboard_remediation_queue_href_encodes_domain_and_anchor():
@@ -1220,12 +1229,16 @@ def test_domain_details_exposes_remediation_action_plans_without_html_injection(
     assert "item.action_plan.steps" in template
     assert "item.action_plan.completion_criteria" in template
     assert "item.action_plan.safe_to_automate" in template
+    assert "item.repair_progression" in template
+    assert "item.repair_progression.next_step" in template
     assert "Verification" in template
     assert "item.verification_plan.status" in template
     assert "item.verification_plan.evidence_needed" in template
     assert "item.verification_plan.next_check" in template
     assert "Notification dispatch" in template
     assert "item.notification.dispatch.blocked_reasons" in template
+    assert "(reason, index) in item.notification.dispatch.blocked_reasons" in template
+    assert "'-dispatch-blocker-' + index" in template
     assert "blocked_reasons[0]" not in template
     assert "Remediation loop" in template
     assert "remediationLoopStatusLabel" in template
@@ -1248,6 +1261,8 @@ def test_domain_details_exposes_remediation_action_plans_without_html_injection(
     assert "/remediation/notifications/audit" in script
     assert "/remediation/notifications/dispatch" in script
     assert "note" in script
+    assert "payload.note = note" in script
+    assert "trimmed ? trimmed.slice(0, 500) : undefined" in script
     assert "No DNS changes were made" in script
     assert "x-html" not in template
 
@@ -1278,10 +1293,11 @@ def test_domain_details_distinguishes_evidence_verified_repairs_without_html_inj
     assert "dispatch_verified_fixed_hidden" in script
     assert "this.verifiedItemsTotalCount() - visible" in script
     assert "visibleVerifiedItems()" in template
+    assert "hasMoreVisibleVerifiedItems()" in template
     assert "showAllVerifiedRemediationItems" in template
     assert "Show compact view" in template
     assert "Show all visible repairs" in template
-    assert "items.slice(0, 4)" in script
+    assert "items.slice(0, VERIFIED_ITEMS_COMPACT_LIMIT)" in script
     assert "verified.item_id" in template
     assert "verified.label" in template
     assert "verified.detail" in template

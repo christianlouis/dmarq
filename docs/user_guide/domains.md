@@ -96,6 +96,12 @@ Use **Refresh queue** to reload the remediation queue from the backend after
 new reports, DNS checks, or operator lifecycle changes are available.
 Each item now also shows the remediation track, priority band, owner, risk
 level, safe-automation flag, and the exact operator decision DMARQ expects next.
+The **Repair progression** panel separates the recommendation from the next
+safe gate. It tells the operator whether a connected provider preview is ready,
+whether a provider-specific value is still missing, whether a sending source
+must be classified first, whether the work is manual DNS, or whether fresh
+reputation/report/DNS evidence is still required before closure. This panel is
+read-only; it does not apply DNS changes or send provider requests.
 Each item also shows a notification profile such as approval required, action
 required, investigation required, or summary only. These labels explain how
 DMARQ would route the item into alerting or ticketing workflows; viewing the

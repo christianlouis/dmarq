@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added self-hosted demo refinements focused on the single-user, multiple-domain workflow.
 - Added richer remediation-loop verification context, including priority bands, risk labels, safe-automation flags, verified-fixed totals, and next-check evidence for resolved items that no longer appear in the active queue.
 - Added a domain remediation queue refresh control and expandable evidence-verified repair list for operators reviewing historical fixes.
+- Added explicit remediation repair-progression context so each queue item shows whether it is preview-ready, blocked by a prerequisite, waiting for sender classification, manual-only, or pending fresh verification evidence.
 
 ### Changed
 - Cloudflare OAuth profile selection now controls the requested scopes instead of being overridden by the legacy static scope setting.
@@ -33,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Domain remediation cards now show confidence and prerequisite context before the operator opens or approves a repair.
 - Dashboard action-plan cards now deep-link to the selected domain remediation queue instead of the generic domain overview.
 - Remediation queue summaries now expose hidden verified-repair counts separately from the visible compact list.
+- Remediation notification payloads now include the same repair-progression gates shown in the UI, keeping webhook/ticket previews aligned with human review.
 - Reorganized repository: moved development docs (`AGENTS.md`, `ROADMAP.md`, `ISSUE_GENERATION_SUMMARY.md`, `generated_issues/`) into `docs/`
 - Added root-level `CHANGELOG.md` and `TODO.md`
 - Cleaned up root directory for clarity
