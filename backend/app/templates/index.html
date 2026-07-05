@@ -304,8 +304,41 @@
                 <p class="mt-1 text-xs text-[#5f5c78]">Missing provider values or prerequisites</p>
             </div>
         </div>
-        <div class="mt-5 grid gap-3 lg:grid-cols-2" x-show="hasRemediationLoopItems()">
-            <template x-for="item in remediationLoopItems()" :key="item.domain + item.type + item.title">
+        <div class="mt-5 flex flex-wrap items-center gap-2" x-show="hasRemediationLoopItems()">
+            <label class="flex items-center gap-2 rounded border border-[#e6e3e1] bg-white px-3 py-2 text-xs font-semibold text-[#5f5c78]">
+                <span>Sort</span>
+                <select x-model="dashboardRemediationSort"
+                        class="bg-transparent font-semibold text-[#272a5f] outline-none"
+                        aria-label="Dashboard remediation sort"
+                        data-dashboard-remediation-sort>
+                    <option value="priority">Priority</option>
+                    <option value="readiness">Repair readiness</option>
+                    <option value="freshness">Fresh evidence</option>
+                    <option value="severity">Severity</option>
+                </select>
+            </label>
+            <template x-for="filter in dashboardRemediationFilterOptions" :key="'dashboard-remediation-filter-' + filter.value">
+                <button type="button"
+                        class="rounded border px-3 py-2 text-xs font-semibold transition"
+                        :class="dashboardRemediationFilter === filter.value ? 'border-[#2f9da5] bg-[#f2fbf9] text-[#1f7c83]' : 'border-[#e6e3e1] bg-white text-[#5f5c78] hover:border-[#2f9da5]'"
+                        :aria-pressed="dashboardRemediationFilter === filter.value ? 'true' : 'false'"
+                        :data-dashboard-remediation-filter="filter.value">
+                    <span x-text="filter.label"></span>
+                    <span class="ml-1 rounded bg-[#f4f3f2] px-1.5 py-0.5 text-[0.65rem] text-[#45505f]"
+                          x-text="dashboardRemediationFilterCount(filter.value)"></span>
+                </button>
+            </template>
+        </div>
+        <p class="mt-3 text-xs font-semibold text-[#5f5c78]"
+           role="status"
+           x-show="hasRemediationLoopItems()">
+            <span>Showing </span><span x-text="visibleDashboardRemediationItems().length"></span>
+            <span> of </span><span x-text="dashboardRemediationFilteredCount()"></span>
+            <span> remediation cards in </span><span x-text="dashboardRemediationFilterLabel()"></span>
+            <span> view (</span><span x-text="dashboardRemediationTotalCount()"></span><span> total).</span>
+        </p>
+        <div class="mt-5 grid gap-3 lg:grid-cols-2" x-show="hasVisibleDashboardRemediationItems()">
+            <template x-for="item in visibleDashboardRemediationItems()" :key="item.domain + item.type + item.title">
                 <a class="rounded-md border border-[#e6e3e1] p-4 transition hover:border-[#2f9da5] hover:shadow-sm"
                    :href="domainRemediationHref(item.domain)">
                     <div class="flex items-start justify-between gap-3">
@@ -380,6 +413,14 @@
                             <span class="font-semibold">Done when: </span>
                             <span x-text="item.evidence_refresh?.completion_signal || item.completion_criteria"></span>
                         </p>
+                        <p class="mt-2 text-[#7a4a00]"
+                           x-show="remediationStaleEvidenceText(item)"
+                           x-text="remediationStaleEvidenceText(item)"></p>
+                        <a x-show="item.evidence_refresh?.ui_anchor"
+                           :href="domainEvidenceHref(item)"
+                           class="mt-2 inline-flex rounded bg-white px-2 py-1 font-semibold text-[#1f7c83]">
+                            Open evidence section
+                        </a>
                     </div>
                     <p class="mt-2 text-xs text-[#5f5c78]">
                         <span x-text="item.domain"></span>
@@ -388,6 +429,25 @@
                 </a>
             </template>
         </div>
+        <p class="mt-4 rounded border border-[#e6e3e1] bg-white p-4 text-sm text-[#5f5c78]"
+           x-show="hasRemediationLoopItems() && !hasVisibleDashboardRemediationItems()">
+            No remediation cards match this dashboard filter. Choose another queue view or refresh after new evidence is available.
+        </p>
+        <template x-if="hasRemediationLoopItems() && (dashboardRemediationHiddenCount() > 0 || showAllDashboardRemediationItems)">
+            <div class="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs font-semibold text-[#5f5c78]">
+                <p x-show="dashboardRemediationHiddenCount() > 0">
+                    <span>+</span><span x-text="dashboardRemediationHiddenCount()"></span><span> more remediation cards in this view.</span>
+                </p>
+                <p x-show="showAllDashboardRemediationItems && dashboardRemediationHiddenCount() === 0">
+                    <span>Showing all </span><span x-text="dashboardRemediationFilteredCount()"></span><span> matching remediation cards.</span>
+                </p>
+                <button type="button"
+                        class="btn btn-outline btn-xs"
+                        data-dashboard-remediation-toggle-all
+                        x-text="showAllDashboardRemediationItems ? 'Show compact cards' : 'Show all matching cards'">
+                </button>
+            </div>
+        </template>
         <div class="mt-5 rounded-md border border-[#d8ebe8] bg-[#f2fbf9] p-4 text-sm"
              x-show="!hasRemediationLoopItems()">
             <p class="font-semibold text-[#120d36]">No active remediation work queued</p>

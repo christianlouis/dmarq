@@ -362,6 +362,27 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "data-dashboard-refresh" in script
     assert "data-dashboard-remediation-refresh" in template
     assert "data-dashboard-remediation-refresh" in script
+    assert "dashboardRemediationFilterOptions" in script
+    assert "{ value: 'fresh_evidence', label: 'Fresh evidence' }" in script
+    assert "{ value: 'stale_evidence', label: 'Stale evidence' }" in script
+    assert "dashboardRemediationSort: 'priority'" in script
+    assert "showAllDashboardRemediationItems" in script
+    assert "data-dashboard-remediation-sort" in template
+    assert "data-dashboard-remediation-sort" in script
+    assert "data-dashboard-remediation-filter" in template
+    assert "data-dashboard-remediation-filter" in script
+    assert "data-dashboard-remediation-toggle-all" in template
+    assert "data-dashboard-remediation-toggle-all" in script
+    assert "visibleDashboardRemediationItems()" in template
+    assert "visibleDashboardRemediationItems()" in script
+    assert "dashboardRemediationFilterCount(filter.value)" in template
+    assert "dashboardRemediationFilteredCount()" in template
+    assert "dashboardRemediationTotalCount()" in template
+    assert "dashboardRemediationFilterLabel()" in template
+    assert "dashboardRemediationHiddenCount()" in template
+    assert "No remediation cards match this dashboard filter" in template
+    assert "Show all matching cards" in template
+    assert "Show compact cards" in template
     assert "Fresh evidence path" in template
     assert "evidenceRefreshLabel(workload.primary.evidence_refresh)" in script
     assert "Evidence: provider value required" in script
@@ -405,10 +426,20 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "remediationTrackLabel(track)" in script
     assert "remediationLoopStatusLabel(status)" in script
     assert "remediationLoopStatusClass(status)" in script
+    assert "approval_ready: 'Needs approval'" in script
+    assert "state === 'approval_ready' || state === 'needs_approval'" in script
     assert "remediationIncidentLabel(value)" in script
     assert "remediationLoopItemRank(item)" in script
     assert "[...items].sort" in script
     assert "this.remediationLoopItemRank(a) - this.remediationLoopItemRank(b)" in script
+    assert "dashboardRemediationFilterMatches(item, filterValue)" in script
+    assert "dashboardRemediationEvidenceRank(item)" in script
+    assert "remediationSeverityWeight(severity)" in script
+    assert "remediationStaleEvidenceText(item)" in script
+    assert "domainEvidenceHref(item)" in script
+    assert "rawAnchor.startsWith('#')" in script
+    assert ':href="domainEvidenceHref(item)"' in template
+    assert "Open evidence section" in template
     assert "repairProgressionClass(progression)" in script
     assert "repairProgressionLabel(progression)" in script
     assert "repairProgressionNextStep(progression)" in script
@@ -418,6 +449,98 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "repairReadinessClass(progression)" in script
     assert "repairReadinessLabel(progression)" in script
     assert "repairReadinessScore(progression)" in script
+
+
+def test_dashboard_remediation_filters_and_sorts_cards():
+    result = _run_dashboard_expression("""(() => {
+            app.healthSummary = { remediation_loop: { items: [
+                {
+                    domain: 'manual.example',
+                    state: 'manual_action',
+                    remediation_track: 'manual_dns',
+                    priority_score: 5,
+                    severity: 'low',
+                    repair_progression: {
+                        readiness_level: 'manual_repair',
+                        readiness_score: 40
+                    },
+                    evidence_refresh: {
+                        required: true,
+                        refresh_key: 'dns',
+                        safe_to_run: true
+                    }
+                },
+                {
+                    domain: 'blocked.example',
+                    state: 'approval_ready',
+                    remediation_track: 'blocked_by_prerequisite',
+                    priority_score: 9,
+                    severity: 'high',
+                    repair_progression: {
+                        readiness_level: 'blocked',
+                        readiness_score: 10,
+                        blocked_by: ['provider value']
+                    },
+                    evidence_refresh: {
+                        required: true,
+                        refresh_key: 'provider_value',
+                        safe_to_run: false
+                    }
+                },
+                {
+                    domain: 'reputation.example',
+                    state: 'investigate',
+                    remediation_track: 'reputation_review',
+                    priority_score: 4,
+                    severity: 'medium',
+                    repair_progression: {
+                        readiness_level: 'needs_reputation_review',
+                        stage: 'reputation_review',
+                        readiness_score: 30
+                    },
+                    evidence_refresh: {
+                        required: true,
+                        refresh_key: 'source_reputation',
+                        safe_to_run: true
+                    }
+                }
+            ] } };
+            app.dashboardRemediationFilter = 'fresh_evidence';
+            app.dashboardRemediationSort = 'freshness';
+            return [
+                app.dashboardRemediationFilterCount('blocked'),
+                app.dashboardRemediationFilterCount('reputation'),
+                app.dashboardRemediationFilteredCount(),
+                app.visibleDashboardRemediationItems()[0].domain
+            ].join('|');
+        })()""")
+
+    assert result == "1|1|3|blocked.example"
+
+
+def test_dashboard_remediation_stale_evidence_links_to_evidence_anchor():
+    result = _run_dashboard_expression("""(() => {
+            const item = {
+                domain: 'mail.example/a b',
+                evidence_refresh: {
+                    required: true,
+                    refresh_key: 'dns',
+                    ui_anchor: '#dns-records',
+                    stale_warning: 'DNS evidence is older than the TTL window.'
+                }
+            };
+            app.healthSummary = { remediation_loop: { items: [item] } };
+            return [
+                app.dashboardRemediationFilterCount('stale_evidence'),
+                app.domainEvidenceHref(item),
+                app.remediationStaleEvidenceText(item)
+            ].join('|');
+        })()""")
+
+    assert (
+        result
+        == "1|/domains/mail.example%2Fa%20b#dns-records|DNS evidence is older than the TTL window."
+    )
 
 
 def test_domain_details_remediation_queue_shows_verification_context():
@@ -442,13 +565,20 @@ def test_domain_details_remediation_queue_shows_verification_context():
     assert "remediationQueueFilter: 'all'" in script
     assert "{ value: 'notify_ready', label: 'Ready to notify' }" in script
     assert "{ value: 'waiting_operator', label: 'Waiting' }" in script
+    assert "{ value: 'fresh_evidence', label: 'Fresh evidence' }" in script
+    assert "{ value: 'stale_evidence', label: 'Stale evidence' }" in script
+    assert "{ value: 'provider_value', label: 'Provider value' }" in script
     assert "remediationQueueSort: 'priority'" in script
     assert "sortedRemediationQueueItems(items)" in script
+    assert "remediationEvidenceRefreshRank(item)" in script
     assert "visibleRemediationQueueItems()" in script
     assert "filteredRemediationQueueItems(filterValue)" in script
     assert "remediationQueueFilterMatches(item, filter)" in script
     assert "filter === 'notify_ready'" in script
     assert "filter === 'waiting_operator'" in script
+    assert "filter === 'fresh_evidence'" in script
+    assert "filter === 'stale_evidence'" in script
+    assert "filter === 'provider_value'" in script
     assert "item.notification?.dispatch?.eligible" in script
     assert "remediationQueueFilterCount(filter)" in script
     assert "remediationQueueFilteredCount()" in script
@@ -459,6 +589,7 @@ def test_domain_details_remediation_queue_shows_verification_context():
     assert "remediationQueueFilterOptions" in template
     assert 'x-model="remediationQueueSort"' in template
     assert "Repair readiness" in template
+    assert "Fresh evidence" in template
     assert "Remediation queue sort" in template
     assert "data-domain-detail-remediation-filter" in template
     assert "aria-pressed" in template

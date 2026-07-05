@@ -124,6 +124,9 @@ function domainDetailsApp(domainId = '') {
             { value: 'preview_ready', label: 'Preview ready' },
             { value: 'blocked', label: 'Blocked' },
             { value: 'needs_evidence', label: 'Needs evidence' },
+            { value: 'fresh_evidence', label: 'Fresh evidence' },
+            { value: 'stale_evidence', label: 'Stale evidence' },
+            { value: 'provider_value', label: 'Provider value' },
             { value: 'notify_ready', label: 'Ready to notify' },
             { value: 'waiting_operator', label: 'Waiting' },
             { value: 'manual', label: 'Manual' },
@@ -1246,6 +1249,7 @@ function domainDetailsApp(domainId = '') {
             const score = item => Number(item?.priority_score || 0);
             const readiness = item => this.repairReadinessScore(item?.repair_progression);
             const severity = item => severityWeight[String(item?.severity || '').toLowerCase()] || 0;
+            const freshness = item => this.remediationEvidenceRefreshRank(item);
             const list = [...(items || [])];
             if (this.remediationQueueSort === 'readiness') {
                 return list.sort((left, right) => (
@@ -1261,11 +1265,28 @@ function domainDetailsApp(domainId = '') {
                     readiness(right) - readiness(left)
                 ));
             }
+            if (this.remediationQueueSort === 'freshness') {
+                return list.sort((left, right) => (
+                    freshness(left) - freshness(right) ||
+                    score(right) - score(left) ||
+                    severity(right) - severity(left)
+                ));
+            }
             return list.sort((left, right) => (
                 score(right) - score(left) ||
                 severity(right) - severity(left) ||
                 readiness(right) - readiness(left)
             ));
+        },
+
+        remediationEvidenceRefreshRank(item) {
+            const refresh = item?.evidence_refresh || {};
+            const key = String(refresh.refresh_key || '');
+            if (refresh.safe_to_run === false || key === 'provider_value') return 0;
+            if (refresh.required && key === 'dns') return 1;
+            if (refresh.required && key === 'source_reputation') return 2;
+            if (refresh.required) return 3;
+            return 4;
         },
 
         remediationQueueFilterMatches(item, filter) {
@@ -1274,14 +1295,35 @@ function domainDetailsApp(domainId = '') {
             const readinessLevel = String(progression.readiness_level || '');
             const stage = String(progression.stage || '');
             const track = String(item.remediation_track || '');
+            const refresh = item.evidence_refresh || {};
+            const refreshKey = String(refresh.refresh_key || '');
             if (filter === 'preview_ready') {
                 return readinessLevel === 'ready_for_preview' || stage === 'preview_ready';
             }
             if (filter === 'blocked') {
-                return readinessLevel === 'blocked' || stage === 'blocked' || (progression.blocked_by || []).length > 0;
+                return readinessLevel === 'blocked' ||
+                    stage === 'blocked' ||
+                    refresh.safe_to_run === false ||
+                    refreshKey === 'provider_value' ||
+                    (progression.blocked_by || []).length > 0;
             }
             if (filter === 'needs_evidence') {
-                return Boolean(progression.verification_required) || stage === 'operator_review' || readinessLevel === 'needs_operator_review';
+                return Boolean(refresh.required) ||
+                    Boolean(progression.verification_required) ||
+                    Boolean(item.action_plan?.requires_fresh_evidence) ||
+                    stage === 'operator_review' ||
+                    readinessLevel === 'needs_operator_review';
+            }
+            if (filter === 'fresh_evidence') {
+                return Boolean(refresh.required);
+            }
+            if (filter === 'stale_evidence') {
+                return Boolean(
+                    refresh.stale_warning || item.verification_plan?.stale_evidence_warning
+                );
+            }
+            if (filter === 'provider_value') {
+                return refresh.safe_to_run === false || refreshKey === 'provider_value';
             }
             if (filter === 'notify_ready') {
                 return Boolean(item.notification?.dispatch?.eligible);
@@ -1296,7 +1338,10 @@ function domainDetailsApp(domainId = '') {
                 return track === 'manual_dns' || readinessLevel === 'manual_repair' || stage === 'manual_repair';
             }
             if (filter === 'reputation') {
-                return track === 'reputation_review' || readinessLevel === 'needs_reputation_review' || stage === 'reputation_review';
+                return track === 'reputation_review' ||
+                    readinessLevel === 'needs_reputation_review' ||
+                    stage === 'reputation_review' ||
+                    refreshKey === 'source_reputation';
             }
             return true;
         },

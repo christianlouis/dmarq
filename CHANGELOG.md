@@ -33,6 +33,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added an expandable domain remediation queue view so operators can open every matching item instead of only seeing the compact six-item list.
 - Added fresh-evidence refresh paths to remediation items so operators can see whether DNS, reports, source intelligence, reputation, or provider values must be refreshed before closure.
 - Added dashboard fresh-evidence counters and remediation-card refresh paths so workspace triage shows whether DNS, reports, reputation, or provider prerequisites should be handled next.
+- Added dashboard remediation filters, sorting, compact/show-all controls, and matching empty states so operators can triage large remediation workspaces by preview readiness, fresh evidence, blockers, manual work, or reputation review before opening a domain.
+- Added domain remediation fresh-evidence and provider-value queue filters plus freshness sorting so closure-blocking evidence work is easier to isolate on domain detail pages.
+- Added stale-evidence remediation filters and direct dashboard links into the relevant domain evidence section, such as DNS records or sending sources.
+- Fixed dashboard remediation state rendering so backend `approval_ready` queue items are labeled as needing approval and evidence anchors fall back safely if malformed.
 
 ### Changed
 - Cloudflare OAuth profile selection now controls the requested scopes instead of being overridden by the legacy static scope setting.
