@@ -3914,11 +3914,13 @@ async def _resolve_summary_dns_result(
 
 
 def _dns_summary_refresh_timeout(settings: Any) -> float:
-    return max(1.0, float(settings.DNS_SUMMARY_REFRESH_TIMEOUT_SECONDS or 10.0))
+    timeout = getattr(settings, "DNS_SUMMARY_REFRESH_TIMEOUT_SECONDS", 10.0)
+    return max(1.0, float(timeout or 10.0))
 
 
 def _dns_summary_refresh_concurrency(settings: Any) -> int:
-    return max(1, int(settings.DNS_SUMMARY_REFRESH_CONCURRENCY or 1))
+    concurrency = getattr(settings, "DNS_SUMMARY_REFRESH_CONCURRENCY", 1)
+    return max(1, int(concurrency or 1))
 
 
 def _reuse_request_session_for_dns(db: Session) -> bool:
