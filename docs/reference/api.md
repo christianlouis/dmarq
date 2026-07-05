@@ -823,8 +823,10 @@ next state transition that an operator workflow can use. Each notification also
 includes a read-only `dispatch` preview showing whether the item would be
 eligible for a future dispatch step, which channel would be used, whether a
 previewed or acknowledged lifecycle marker is still required, how many enabled
-webhook endpoints match the event, and why dispatch is currently blocked. Each
-item also includes a sanitized `payload_preview` using schema
+webhook endpoints match the event, and why dispatch is currently blocked. The
+`blocked_reasons` list is ordered and may contain multiple actionable blockers;
+clients should display the full list rather than only the first item. Each item
+also includes a sanitized `payload_preview` using schema
 `dmarq.remediation.notification.v1`; it is the deterministic data shape a
 future webhook, ticketing, or chatops delivery would receive. The endpoint does
 not perform DNS writes, enqueue webhook deliveries, or send notifications.
@@ -856,9 +858,9 @@ Supported lifecycle states are `previewed`, `acknowledged`, `snoozed`,
 `preview_change`, `approve_after_preview`, `mark_legitimate`, `mark_unknown`,
 and `convert_to_manual_action`. If `event` or `dedupe_key` is supplied, it
 must match the current queue item's notification metadata. The response
-includes the sanitized workspace audit row. This endpoint is deliberately
-audit-only: it does not enqueue webhook deliveries, send notifications, or
-attempt DNS writes.
+includes the sanitized workspace audit row, including the optional operator
+note when supplied. This endpoint is deliberately audit-only: it does not
+enqueue webhook deliveries, send notifications, or attempt DNS writes.
 
 `POST /domains/{domain_id}/remediation/notifications/dispatch` enqueues
 webhook deliveries for one current remediation item after explicit operator
@@ -868,9 +870,9 @@ the current queue item. The item's `dispatch.eligible` preview must already be
 true, which means dispatch is enabled, the event is configured, the channel is
 `webhook`, required lifecycle acknowledgement has been recorded, and at least
 one enabled webhook endpoint matches the event. The response includes persisted
-webhook delivery rows and a sanitized workspace audit row. The endpoint only
-queues notification delivery state; it does not send synchronously and never
-attempts DNS/provider writes.
+webhook delivery rows and a sanitized workspace audit row with the optional
+operator note. The endpoint only queues notification delivery state; it does
+not send synchronously and never attempts DNS/provider writes.
 
 The remediation dispatch preview is controlled by notification settings and is
 disabled by default:
