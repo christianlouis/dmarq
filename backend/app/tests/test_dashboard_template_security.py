@@ -1230,6 +1230,13 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "Remediation queue could not be loaded." in script
     assert "Retry remediation queue" in template
     assert "data-domain-detail-remediation-retry" in template
+    assert (
+        '<div class="flex flex-wrap gap-2 text-xs" x-show="!remediationQueueLoading && !remediationQueueError">'
+        in template
+    )
+    assert "remediationQueue.summary.total" in template
+    assert "remediationQueue.summary.approval_ready" in template
+    assert "remediationQueue.summary.manual_action" in template
     assert "No sending sources match this filter." in template
     assert (
         "(!sourceIntelligence.loading && !sourceIntelligence.error ? sourceIntelligence.regions.slice(0, 4) : [])"

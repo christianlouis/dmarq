@@ -298,7 +298,7 @@
                             <h3 class="font-semibold text-[#07071f]">Remediation Queue</h3>
                             <p class="mt-1 text-sm text-[#5f5c78]">Prioritized fixes with evidence, prerequisites, and approval status.</p>
                         </div>
-                        <div class="flex flex-wrap gap-2 text-xs">
+                        <div class="flex flex-wrap gap-2 text-xs" x-show="!remediationQueueLoading && !remediationQueueError">
                             <span class="rounded bg-white px-2 py-1 font-semibold text-[#272a5f]">
                                 <span x-text="remediationQueue.summary.total"></span><span> open</span>
                             </span>
