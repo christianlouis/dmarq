@@ -19,6 +19,20 @@ The domain detail page includes a **Migration Readiness** panel. It tracks the
 parallel-reporting window, aggregate report count, observed sending sources,
 DNS lint status, and export availability for each domain.
 
+### Cutover decision gates
+
+Do not remove the previous DMARC platform just because the first DMARQ report
+arrived. Use these gates instead:
+
+| Gate | Ready when | Keep both tools when |
+| --- | --- | --- |
+| Reporting overlap | DMARQ has at least 14 report days for active domains | reports are sparse, delayed, or missing major receivers |
+| Volume parity | DMARQ and the previous tool show explainable message-volume differences | one tool has materially higher volume with no known cause |
+| Sender parity | Active legitimate senders appear in both tools or are explained | a provider, self-hosted MTA, or forwarding path is missing |
+| Alignment parity | Pass/fail rates are close enough for the same date window | failures differ and no receiver/reporting explanation exists |
+| DNS posture | DMARC, SPF, DKIM, MTA-STS/TLS-RPT/BIMI findings are reviewed | unresolved DNS lint findings affect legitimate mail |
+| Rollback evidence | Old routes, reporting addresses, and delegated records are documented | the old platform uses managed DNS or opaque hosted routes |
+
 The same panel includes **Migration Parity**. Enter values from the same date
 window in the current DMARC platform to compare:
 
@@ -93,6 +107,22 @@ DMARQ currently provides these portable exports for migration and offboarding:
 
 These exports intentionally avoid raw message bodies and forensic content.
 They are meant for parity checks, audit evidence, and rollback decisions.
+
+## Current implementation status
+
+The safe migration workflow is complete for planning, parity review, preview,
+and offboarding evidence:
+
+- parallel-reporting guidance and cutover gates
+- domain-detail migration readiness
+- migration parity baseline comparison
+- read-only CSV/JSON historical export preview
+- stable row and report import keys for idempotency review
+- CSV/JSON evidence exports for leaving DMARQ
+
+DMARQ does not yet persist vendor-specific historical exports into aggregate
+report storage. That should remain a separate explicit feature because it needs
+operator-confirmed field mapping, duplicate handling, and rollback behavior.
 
 ## Import limitations
 

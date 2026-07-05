@@ -89,6 +89,25 @@ The current tools are read-only:
 
 Create a token with the `mcp:read` scope and send it through `X-API-Key`.
 
+### MCP Safety Contract
+
+The MCP endpoint is a read-only operational surface. Tools may summarize,
+filter, and explain evidence that DMARQ already stores, but they do not mutate
+domains, DNS, reports, alerts, provider connections, or workspace settings.
+
+| Tool family | Safe use | Mutation boundary |
+| --- | --- | --- |
+| Inventory | List domains and workspace usage | No domain creation or deletion |
+| Reports and sources | Summarize reports, source intelligence, and anomalies | No report ingestion trigger or mailbox access |
+| DNS posture | Return lint findings and read-only change plans | No DNS write or provider apply link |
+| Remediation | Return queue items, evidence, action plans, and verification context | No automatic dispatch or repair |
+| Alerts | Return sanitized alert history | No alert-rule writes |
+
+For agent workflows, treat MCP output as the evidence packet that prepares a
+human decision. Operators still approve provider writes, notification dispatch,
+or mail-server changes through the product UI or a future explicitly scoped
+write API.
+
 ## Audit
 
 DMARQ records sanitized workspace audit events for:
