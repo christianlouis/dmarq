@@ -235,6 +235,7 @@ def _dns_item(
         },
     }
     item["action_plan"] = _action_plan_for_item(item)
+    item["verification_plan"] = _verification_plan_for_item(item)
     return item
 
 
@@ -395,6 +396,7 @@ def _health_item(domain: str, action: Dict[str, Any]) -> Dict[str, Any]:
         },
     }
     item["action_plan"] = _action_plan_for_item(item)
+    item["verification_plan"] = _verification_plan_for_item(item)
     return item
 
 
@@ -459,6 +461,77 @@ def _action_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
             owner=owner,
             automation_path=automation_path,
         ),
+    }
+
+
+def _verification_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Return read-only evidence DMARQ should check before considering an item fixed."""
+    automation = item.get("automation") or {}
+    source = str(item.get("source") or "remediation")
+    state = str(item.get("state") or "")
+
+    if automation.get("eligible"):
+        provider = str(automation.get("provider") or "connected DNS provider")
+        return {
+            "label": "Verify after approved provider repair",
+            "status": "pending_operator_approval",
+            "summary": (
+                f"DMARQ should only mark this fixed after the approved {provider} write is "
+                "visible in fresh DNS evidence."
+            ),
+            "evidence_needed": [
+                "The provider preview was approved and applied by a human operator.",
+                "A fresh DNS lookup returns the expected record value from authoritative evidence.",
+                "The remediation item disappears from the current queue after DNS refresh.",
+            ],
+            "next_check": "Refresh DNS posture after provider propagation, then rebuild the queue.",
+        }
+
+    if source == "dns_lint":
+        return {
+            "label": "Verify DNS evidence after manual repair",
+            "status": "pending_dns_refresh",
+            "summary": (
+                "Manual DNS changes are complete only when DMARQ can read the corrected record "
+                "from trusted resolver evidence."
+            ),
+            "evidence_needed": [
+                "Authoritative DNS returns the expected TXT or CNAME record.",
+                "The original DNS lint finding is no longer present after refresh.",
+                "No new DNS lint finding was introduced by the change.",
+            ],
+            "next_check": "Run a DNS refresh after propagation and review the updated lint result.",
+        }
+
+    if state == "investigate":
+        return {
+            "label": "Verify sender evidence before repair",
+            "status": "pending_sender_review",
+            "summary": (
+                "Investigation items are not fixed until the sender is classified and fresh "
+                "DMARC reports prove the chosen treatment."
+            ),
+            "evidence_needed": [
+                "The sender is classified as legitimate, forwarding, abuse, or stale traffic.",
+                "Recent report rows show the source now passes DMARC or is intentionally blocked.",
+                "Source intelligence and last-sent timestamps still match the operator decision.",
+            ],
+            "next_check": "Wait for the next receiver report window, then confirm active sources.",
+        }
+
+    return {
+        "label": "Verify domain health after operator action",
+        "status": "pending_report_evidence",
+        "summary": (
+            "Health items should stay open until fresh DMARC or DNS evidence confirms the "
+            "underlying finding is gone."
+        ),
+        "evidence_needed": [
+            "Fresh DMARC reports or DNS checks cover the affected source or record.",
+            "The same health action no longer appears in the remediation queue.",
+            "Any remaining failures are documented as expected or intentionally blocked.",
+        ],
+        "next_check": "Refresh domain health after new evidence is imported.",
     }
 
 
