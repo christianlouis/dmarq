@@ -6,7 +6,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set
 
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.setting import Setting
@@ -464,9 +464,7 @@ def _verified_fixed_items_result(
         .subquery()
     )
     latest_lifecycle_ids = (
-        db.query(ranked_lifecycle_rows.c.audit_id)
-        .filter(ranked_lifecycle_rows.c.row_number == 1)
-        .subquery()
+        select(ranked_lifecycle_rows.c.audit_id).where(ranked_lifecycle_rows.c.row_number == 1)
     )
     verified_query = (
         db.query(WorkspaceAuditLog)
