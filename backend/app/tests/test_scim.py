@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from app.models.api_token import APIToken
@@ -7,6 +8,7 @@ from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog, WorkspaceMembership
 from app.services.api_tokens import (
     ALL_API_TOKEN_SCOPES,
+    READ_REPORTS_SCOPE,
     SCIM_READ_SCOPE,
     SCIM_WRITE_SCOPE,
     create_api_token,
@@ -67,8 +69,8 @@ def test_scim_create_user_maps_workspace_role_and_audits(client: TestClient, db_
     assert api_token.usage_count == 1
 
 
-def test_scim_patch_and_delete_deactivate_user_and_membership(client: TestClient, db_session):
-    """SCIM deprovisioning keeps history and marks the local account inactive."""
+def test_scim_patch_and_delete_deactivate_workspace_membership(client: TestClient, db_session):
+    """SCIM deprovisioning only deactivates the token workspace membership."""
     token = _scim_token(db_session)
     created = client.post(
         "/api/v1/scim/v2/Users",
@@ -82,7 +84,7 @@ def test_scim_patch_and_delete_deactivate_user_and_membership(client: TestClient
         headers={"X-API-Key": token.secret},
         json={
             "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
-            "Operations": [{"op": "Replace", "path": "active", "value": False}],
+            "Operations": [{"op": "Replace", "path": "active", "value": "False"}],
         },
     )
 
@@ -90,7 +92,7 @@ def test_scim_patch_and_delete_deactivate_user_and_membership(client: TestClient
     assert patched.json()["active"] is False
     user = db_session.query(User).filter(User.id == int(user_id)).one()
     membership = db_session.query(WorkspaceMembership).filter_by(user_id=user.id).one()
-    assert user.is_active is False
+    assert user.is_active is True
     assert membership.active is False
 
     deleted = client.delete(
@@ -101,6 +103,63 @@ def test_scim_patch_and_delete_deactivate_user_and_membership(client: TestClient
     assert deleted.status_code == 200
     actions = [row.action for row in db_session.query(WorkspaceAuditLog).all()]
     assert actions.count("scim.user_deactivated") == 2
+
+
+def test_scim_create_existing_user_returns_ok(client: TestClient, db_session):
+    """POST returns 200 when SCIM updates an existing workspace user."""
+    token = _scim_token(db_session)
+    created = client.post(
+        "/api/v1/scim/v2/Users",
+        headers={"X-API-Key": token.secret},
+        json={"userName": "existing@example.com", "externalId": "existing-id"},
+    )
+
+    updated = client.post(
+        "/api/v1/scim/v2/Users",
+        headers={"X-API-Key": token.secret},
+        json={
+            "userName": "existing@example.com",
+            "externalId": "existing-id",
+            "name": {"formatted": "Existing User"},
+            "groups": [{"value": "operator"}],
+        },
+    )
+
+    assert created.status_code == 201
+    assert updated.status_code == 200
+    assert updated.json()["id"] == created.json()["id"]
+    user = db_session.query(User).filter(User.email == "existing@example.com").one()
+    membership = db_session.query(WorkspaceMembership).filter_by(user_id=user.id).one()
+    assert user.full_name == "Existing User"
+    assert membership.role == "operator"
+
+
+def test_scim_create_does_not_update_user_from_another_workspace(
+    client: TestClient, db_session
+):
+    """SCIM identity matching is scoped to the token workspace."""
+    first = get_or_create_default_workspace(db_session)
+    second = Workspace(slug="scim-second", name="SCIM Second")
+    db_session.add(second)
+    db_session.commit()
+    first_token = _scim_token(db_session, workspace_id=first.id)
+    second_token = _scim_token(db_session, workspace_id=second.id)
+    created = client.post(
+        "/api/v1/scim/v2/Users",
+        headers={"X-API-Key": first_token.secret},
+        json={"userName": "shared@example.com", "externalId": "shared-id"},
+    )
+
+    conflicting = client.post(
+        "/api/v1/scim/v2/Users",
+        headers={"X-API-Key": second_token.secret},
+        json={"userName": "shared@example.com", "externalId": "shared-id"},
+    )
+
+    assert created.status_code == 201
+    assert conflicting.status_code == 409
+    user = db_session.query(User).filter(User.email == "shared@example.com").one()
+    assert db_session.query(WorkspaceMembership).filter_by(user_id=user.id).count() == 1
 
 
 def test_scim_read_scope_can_list_but_not_write(client: TestClient, db_session):
@@ -238,3 +297,14 @@ def test_scim_service_provider_config_documents_api_key_auth(client: TestClient)
     auth_scheme = response.json()["authenticationSchemes"][0]
     assert auth_scheme["type"] == "apikey"
     assert auth_scheme["name"] == "X-API-Key"
+
+
+def test_scim_scopes_cannot_mix_with_public_scopes(db_session):
+    """SCIM tokens must not share a credential with unrelated API scopes."""
+    with pytest.raises(ValueError, match="SCIM API token scopes"):
+        create_api_token(
+            db_session,
+            name="mixed-scim",
+            scopes=[SCIM_READ_SCOPE, READ_REPORTS_SCOPE],
+            allowed_scopes=ALL_API_TOKEN_SCOPES,
+        )
