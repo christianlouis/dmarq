@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added richer remediation-loop verification context, including priority bands, risk labels, safe-automation flags, verified-fixed totals, and next-check evidence for resolved items that no longer appear in the active queue.
 - Added a domain remediation queue refresh control and expandable evidence-verified repair list for operators reviewing historical fixes.
 - Added explicit remediation repair-progression context so each queue item shows whether it is preview-ready, blocked by a prerequisite, waiting for sender classification, manual-only, or pending fresh verification evidence.
+- Added remediation action-plan decision checkpoints and rollback guidance so operators can review evidence freshness and recovery paths before approving or closing a repair.
+- Added remediation verification closure gates and stale-evidence warnings so resolved items are not confused with evidence-verified repairs.
+- Added queue-level closure-gate and rollback-guidance counters to highlight remediation items that still need fresh evidence or a recovery path.
 
 ### Changed
 - Cloudflare OAuth profile selection now controls the requested scopes instead of being overridden by the legacy static scope setting.

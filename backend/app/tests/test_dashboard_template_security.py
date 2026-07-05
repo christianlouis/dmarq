@@ -1251,6 +1251,14 @@ def test_domain_details_exposes_remediation_action_plans_without_html_injection(
     assert "item.action_plan.steps" in template
     assert "item.action_plan.completion_criteria" in template
     assert "item.action_plan.safe_to_automate" in template
+    assert "Decision checkpoints" in template
+    assert "item.action_plan.decision_checkpoints" in template
+    assert "item.action_plan.requires_fresh_evidence" in template
+    assert "item.action_plan.rollback_plan" in template
+    assert "remediationQueue.summary.closure_gate_required" in template
+    assert "remediationQueue.summary.rollback_guidance" in template
+    assert "remediationQueue.loop?.closure_gate_required" in template
+    assert "remediationQueue.loop?.rollback_guidance" in template
     assert "item.repair_progression" in template
     assert "repairProgressionNextStep(item.repair_progression)" in template
     assert "repairProgressionClass(item.repair_progression)" in template
@@ -1258,6 +1266,9 @@ def test_domain_details_exposes_remediation_action_plans_without_html_injection(
     assert "item.verification_plan.status" in template
     assert "item.verification_plan.evidence_needed" in template
     assert "item.verification_plan.next_check" in template
+    assert "Closure gate" in template
+    assert "item.verification_plan.closure_gate" in template
+    assert "item.verification_plan.stale_evidence_warning" in template
     assert "Notification dispatch" in template
     assert "item.notification.dispatch.blocked_reasons" in template
     assert "(reason, index) in item.notification.dispatch.blocked_reasons" in template
