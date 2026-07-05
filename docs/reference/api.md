@@ -815,6 +815,15 @@ TXT/CNAME provider write are marked `approval_ready` and point to the same
 explicit preview/apply endpoint used by the DNS change-plan UI. Placeholder
 DKIM/SPF records that still need provider-specific values are surfaced as
 blocked by prerequisite instead of being presented as one-click repairs.
+DNS remediation items also include a `provider_repair_plan` object. It is
+read-only and separates provider preview readiness from apply readiness and
+post-change closure verification. Clients can show `safe_preview_available`,
+`can_apply_after_approval`, `apply_blocked`, `blocked_reasons`, `provider`,
+`plan_id`, `operation`, `record_name`, `record_type`, and
+`manual_fallback` without inferring that a DNS mutation has already happened.
+Read-only public API and MCP responses keep this context but remove
+`preview_endpoint` and `apply_endpoint`, set `can_apply_after_approval=false`,
+and add `public_read_only_response` as an apply blocker.
 Each item also includes an `evidence_refresh` object. It tells clients which
 fresh evidence source is needed before closure (`dns`, `dmarc_reports`,
 `dmarc_reports_and_sources`, `source_reputation`, or `mail_provider`), whether
@@ -838,6 +847,11 @@ or fresh report/DNS evidence. Fresh-evidence counters such as
 `evidence_refresh_dns`, `evidence_refresh_reports`,
 `evidence_refresh_reputation`, and `evidence_refresh_prerequisite` explain what
 kind of read-only refresh or prerequisite the operator should handle next.
+Provider-repair counters such as `provider_preview_available`,
+`provider_apply_after_approval`, `provider_apply_blocked`,
+`provider_value_missing`, and `provider_manual_fallback` summarize where DNS
+repairs can progress through a connected provider and where a prerequisite or
+manual fallback still owns the next step.
 The workspace dashboard `health_summary.remediation_loop` and each domain row's
 `remediation_workload` expose the same `evidence_refresh` object and counters,
 so clients can present the correct refresh path before opening the detail queue.

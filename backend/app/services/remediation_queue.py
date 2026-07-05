@@ -160,6 +160,35 @@ def _summary(items: List[Dict[str, Any]]) -> Dict[str, int]:
             ]
             or [0]
         ),
+        "provider_preview_available": sum(
+            1
+            for item in items
+            if (item.get("provider_repair_plan") or {}).get("safe_preview_available")
+        ),
+        "provider_apply_after_approval": sum(
+            1
+            for item in items
+            if (item.get("provider_repair_plan") or {}).get("can_apply_after_approval")
+        ),
+        "provider_apply_blocked": sum(
+            1
+            for item in items
+            if (item.get("provider_repair_plan") or {}).get("kind") == "dns_provider_repair"
+            and (item.get("provider_repair_plan") or {}).get("apply_blocked")
+        ),
+        "provider_value_missing": sum(
+            1
+            for item in items
+            if "provider_specific_value" in (item.get("provider_repair_plan") or {}).get(
+                "blocked_reasons", []
+            )
+        ),
+        "provider_manual_fallback": sum(
+            1
+            for item in items
+            if (item.get("provider_repair_plan") or {}).get("kind") == "dns_provider_repair"
+            and (item.get("provider_repair_plan") or {}).get("manual_fallback")
+        ),
         "requires_fresh_evidence": sum(
             1 for item in items if (item.get("action_plan") or {}).get("requires_fresh_evidence")
         ),
@@ -478,6 +507,90 @@ def _repair_progression_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
     )
 
 
+def _provider_repair_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Return explicit read-only provider progression for DNS repair items."""
+    automation = item.get("automation") or {}
+    repair = item.get("repair_progression") or {}
+    refresh = item.get("evidence_refresh") or {}
+    provider = str(automation.get("provider") or "")
+    plan_id = automation.get("plan_id")
+    source = str(item.get("source") or "")
+    stage = str(repair.get("stage") or "operator_review")
+    blocked_reasons = list(repair.get("blocked_by") or [])
+
+    if source != "dns_lint":
+        return {
+            "kind": "not_provider_repair",
+            "provider": provider,
+            "provider_label": provider or "No DNS provider repair",
+            "plan_id": plan_id,
+            "stage": "not_applicable",
+            "safe_preview_available": False,
+            "can_apply_after_approval": False,
+            "apply_requires_approval": False,
+            "apply_blocked": False,
+            "blocked_reasons": [],
+            "manual_fallback": bool(repair.get("manual_fallback")),
+            "preview_endpoint": "",
+            "apply_endpoint": "",
+            "operation": "",
+            "record_name": "",
+            "record_type": "",
+            "capability": "manual_review",
+            "next_step": repair.get("next_safe_action")
+            or "Review sender, report, reputation, or policy evidence before DNS changes.",
+            "completion_gate": (item.get("verification_plan") or {}).get("closure_gate") or "",
+        }
+
+    if not provider:
+        blocked_reasons.append("no_connected_provider")
+    if not automation.get("eligible"):
+        blocked_reasons.append("provider_preview_not_available")
+    if refresh.get("safe_to_run") is False or refresh.get("refresh_key") == "provider_value":
+        blocked_reasons.append("provider_specific_value")
+
+    safe_preview = bool(automation.get("eligible") and provider)
+    can_apply = bool(safe_preview and repair.get("can_apply_after_approval"))
+    blocked_reasons = list(dict.fromkeys(str(reason) for reason in blocked_reasons if reason))
+    if can_apply:
+        blocked_reasons = [
+            reason
+            for reason in blocked_reasons
+            if reason
+            not in {
+                "fresh_evidence_before_closure",
+                "pending_operator_approval",
+            }
+        ]
+    apply_blocked = bool(not can_apply or blocked_reasons)
+
+    return {
+        "kind": "dns_provider_repair",
+        "provider": provider,
+        "provider_label": provider or "Manual DNS provider",
+        "plan_id": plan_id,
+        "stage": stage,
+        "safe_preview_available": safe_preview,
+        "can_apply_after_approval": can_apply,
+        "apply_requires_approval": True,
+        "apply_blocked": apply_blocked,
+        "blocked_reasons": blocked_reasons[:6],
+        "manual_fallback": bool(repair.get("manual_fallback", True)),
+        "preview_endpoint": str(automation.get("apply_endpoint") or "") if safe_preview else "",
+        "apply_endpoint": str(automation.get("apply_endpoint") or "") if can_apply else "",
+        "operation": str(automation.get("operation") or ""),
+        "record_name": str(automation.get("record_name") or ""),
+        "record_type": str(automation.get("record_type") or ""),
+        "capability": "provider_preview" if safe_preview else "manual_dns",
+        "next_step": str(
+            repair.get("next_safe_action")
+            or repair.get("next_step")
+            or "Review the DNS record change and collect fresh evidence before closure."
+        ),
+        "completion_gate": (item.get("verification_plan") or {}).get("closure_gate") or "",
+    }
+
+
 def _evidence_refresh_for_item(domain: str, item: Dict[str, Any]) -> Dict[str, Any]:
     """Return the safe read-only refresh path before a remediation item is closed."""
     return evidence_refresh_for_remediation_item(domain, item)
@@ -494,6 +607,7 @@ def _apply_loop_metadata(domain: str, items: List[Dict[str, Any]]) -> None:
         item["operator_decisions"] = _operator_decision_options(item)
         item["repair_progression"] = _repair_progression_for_item(item)
         item["evidence_refresh"] = _evidence_refresh_for_item(domain, item)
+        item["provider_repair_plan"] = _provider_repair_plan_for_item(item)
 
 
 def _loop_summary(domain: str, items: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -539,6 +653,11 @@ def _loop_summary(domain: str, items: List[Dict[str, Any]]) -> Dict[str, Any]:
         "repair_waiting_on_operator": summary["repair_waiting_on_operator"],
         "repair_readiness_blocked": summary["repair_readiness_blocked"],
         "repair_readiness_score": summary["repair_readiness_score"],
+        "provider_preview_available": summary["provider_preview_available"],
+        "provider_apply_after_approval": summary["provider_apply_after_approval"],
+        "provider_apply_blocked": summary["provider_apply_blocked"],
+        "provider_value_missing": summary["provider_value_missing"],
+        "provider_manual_fallback": summary["provider_manual_fallback"],
         "requires_fresh_evidence": summary["requires_fresh_evidence"],
         "rollback_guidance": summary["rollback_guidance"],
         "closure_gate_required": summary["closure_gate_required"],
@@ -610,6 +729,7 @@ def _remediation_notification_payload(domain: str, item: Dict[str, Any]) -> Dict
     verification_plan = item.get("verification_plan") or {}
     repair_progression = item.get("repair_progression") or {}
     evidence_refresh = item.get("evidence_refresh") or {}
+    provider_repair_plan = item.get("provider_repair_plan") or {}
     return {
         "schema_version": "dmarq.remediation.notification.v1",
         "domain": domain,
@@ -646,6 +766,33 @@ def _remediation_notification_payload(domain: str, item: Dict[str, Any]) -> Dict
             "verification_required": bool(repair_progression.get("verification_required")),
             "verification_status": str(repair_progression.get("verification_status") or ""),
         },
+        "provider_repair_plan": {
+            "kind": str(provider_repair_plan.get("kind") or ""),
+            "provider": str(provider_repair_plan.get("provider") or ""),
+            "provider_label": str(provider_repair_plan.get("provider_label") or ""),
+            "plan_id": provider_repair_plan.get("plan_id"),
+            "stage": str(provider_repair_plan.get("stage") or ""),
+            "safe_preview_available": bool(provider_repair_plan.get("safe_preview_available")),
+            "can_apply_after_approval": bool(
+                provider_repair_plan.get("can_apply_after_approval")
+            ),
+            "apply_requires_approval": bool(
+                provider_repair_plan.get("apply_requires_approval", True)
+            ),
+            "apply_blocked": bool(provider_repair_plan.get("apply_blocked", True)),
+            "blocked_reasons": [
+                str(reason) for reason in provider_repair_plan.get("blocked_reasons", [])
+            ][:6],
+            "manual_fallback": bool(provider_repair_plan.get("manual_fallback")),
+            "preview_endpoint": str(provider_repair_plan.get("preview_endpoint") or ""),
+            "apply_endpoint": str(provider_repair_plan.get("apply_endpoint") or ""),
+            "operation": str(provider_repair_plan.get("operation") or ""),
+            "record_name": str(provider_repair_plan.get("record_name") or ""),
+            "record_type": str(provider_repair_plan.get("record_type") or ""),
+            "capability": str(provider_repair_plan.get("capability") or ""),
+            "next_step": str(provider_repair_plan.get("next_step") or ""),
+            "completion_gate": str(provider_repair_plan.get("completion_gate") or ""),
+        },
         "evidence_refresh": {
             "required": bool(evidence_refresh.get("required")),
             "source": str(evidence_refresh.get("source") or ""),
@@ -673,6 +820,9 @@ def _remediation_notification_payload(domain: str, item: Dict[str, Any]) -> Dict
             "provider": automation.get("provider"),
             "plan_id": automation.get("plan_id"),
             "apply_endpoint": automation.get("apply_endpoint"),
+            "operation": automation.get("operation"),
+            "record_name": automation.get("record_name"),
+            "record_type": automation.get("record_type"),
         },
         "action_plan": {
             "owner": str(action_plan.get("owner") or ""),
@@ -783,6 +933,9 @@ def _dns_item(
             "apply_endpoint": (
                 f"/api/v1/domains/{domain}/dns/change-plan/apply" if automation_ready else None
             ),
+            "operation": plan.get("operation"),
+            "record_name": plan.get("name"),
+            "record_type": plan.get("record_type"),
             "reason": (
                 "Safe provider-backed DNS preview is available."
                 if automation_ready

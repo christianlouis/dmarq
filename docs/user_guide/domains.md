@@ -158,6 +158,14 @@ human-readable reasons, and blocker keys. Use this to separate work that is
 ready for provider preview from work that is blocked by missing provider values,
 sender classification, reputation evidence, or the required fresh-evidence
 closure gate.
+DNS-backed remediation items also include a **Provider repair plan** panel.
+This panel separates three questions that should not be conflated:
+whether DMARQ can prepare a safe provider preview, whether the change could be
+applied after explicit approval, and whether fresh evidence is still required
+before the repair is considered closed. It shows the connected provider,
+operation, record name/type, apply blockers, provider-value prerequisites, and
+manual fallback. Public API and read-only MCP consumers see the same context
+without preview/apply links.
 Each item also shows a notification profile such as approval required, action
 required, investigation required, or summary only. These labels explain how
 DMARQ would route the item into alerting or ticketing workflows; viewing the

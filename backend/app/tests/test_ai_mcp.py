@@ -125,6 +125,27 @@ def _sample_remediation_queue(domain=DOMAIN):
                     "apply_endpoint": "/api/v1/domains/example.com/dns/change-plan/apply",
                     "reason": "Safe provider-backed DNS preview is available.",
                 },
+                "provider_repair_plan": {
+                    "kind": "dns_provider_repair",
+                    "provider": "cloudflare",
+                    "provider_label": "cloudflare",
+                    "plan_id": "plan-1",
+                    "stage": "preview_ready",
+                    "safe_preview_available": True,
+                    "can_apply_after_approval": True,
+                    "apply_requires_approval": True,
+                    "apply_blocked": False,
+                    "blocked_reasons": [],
+                    "manual_fallback": True,
+                    "preview_endpoint": "/api/v1/domains/example.com/dns/change-plan/apply",
+                    "apply_endpoint": "/api/v1/domains/example.com/dns/change-plan/apply",
+                    "operation": "create",
+                    "record_name": "_dmarc.example.com",
+                    "record_type": "TXT",
+                    "capability": "provider_preview",
+                    "next_step": "Open the provider preview, compare old and new DNS values, then approve or reject.",
+                    "completion_gate": "Close only after approved provider apply and fresh DNS evidence agree.",
+                },
                 "notification": {
                     "state": "approval_required",
                     "event": "dmarq.remediation.approval_required",
@@ -1222,6 +1243,15 @@ async def test_mcp_read_only_tool_dispatch_covers_new_domain_tools(db_session: S
     assert "approve_after_preview" in remediation_result.items[0].operator_decisions
     assert remediation_result.items[0].automation.eligible is True
     assert remediation_result.items[0].automation.apply_endpoint is None
+    assert remediation_result.items[0].provider_repair_plan.safe_preview_available is True
+    assert remediation_result.items[0].provider_repair_plan.can_apply_after_approval is False
+    assert remediation_result.items[0].provider_repair_plan.apply_blocked is True
+    assert remediation_result.items[0].provider_repair_plan.preview_endpoint == ""
+    assert remediation_result.items[0].provider_repair_plan.apply_endpoint == ""
+    assert (
+        "public_read_only_response"
+        in remediation_result.items[0].provider_repair_plan.blocked_reasons
+    )
     assert (
         remediation_result.items[0].notification.payload_preview["automation"]["apply_endpoint"]
         is None

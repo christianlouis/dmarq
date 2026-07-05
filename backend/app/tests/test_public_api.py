@@ -1,3 +1,4 @@
+import copy
 from datetime import date
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -137,6 +138,9 @@ def _sample_remediation_queue(domain=DOMAIN):
             "total": 1,
             "approval_ready": 1,
             "provider_fix_available": 1,
+            "provider_preview_available": 1,
+            "provider_apply_after_approval": 1,
+            "provider_apply_blocked": 0,
             "blocked_by_prerequisite": 0,
         },
         "loop": {
@@ -201,6 +205,27 @@ def _sample_remediation_queue(domain=DOMAIN):
                     "plan_id": "plan-1",
                     "apply_endpoint": "/api/v1/domains/example.com/dns/change-plan/apply",
                     "reason": "Safe provider-backed DNS preview is available.",
+                },
+                "provider_repair_plan": {
+                    "kind": "dns_provider_repair",
+                    "provider": "cloudflare",
+                    "provider_label": "cloudflare",
+                    "plan_id": "plan-1",
+                    "stage": "preview_ready",
+                    "safe_preview_available": True,
+                    "can_apply_after_approval": True,
+                    "apply_requires_approval": True,
+                    "apply_blocked": False,
+                    "blocked_reasons": [],
+                    "manual_fallback": True,
+                    "preview_endpoint": "/api/v1/domains/example.com/dns/change-plan/apply",
+                    "apply_endpoint": "/api/v1/domains/example.com/dns/change-plan/apply",
+                    "operation": "create",
+                    "record_name": "_dmarc.example.com",
+                    "record_type": "TXT",
+                    "capability": "provider_preview",
+                    "next_step": "Open the provider preview, compare old and new DNS values, then approve or reject.",
+                    "completion_gate": "Close only after approved provider apply and fresh DNS evidence agree.",
                 },
                 "notification": {
                     "state": "approval_required",
@@ -636,6 +661,7 @@ def test_public_remediation_queue_is_read_only_and_posture_scoped(
     body = response.json()
     assert body["domain"] == DOMAIN
     assert body["summary"]["approval_ready"] == 1
+    assert body["summary"]["provider_apply_after_approval"] == 0
     assert body["loop"]["status"] == "approval_required"
     assert body["loop"]["top_incident_type"] == "dmarc_policy_missing_or_weak"
     item = body["items"][0]
@@ -647,7 +673,32 @@ def test_public_remediation_queue_is_read_only_and_posture_scoped(
     assert "approve_after_preview" in item["operator_decisions"]
     assert item["automation"]["eligible"] is True
     assert item["automation"]["apply_endpoint"] is None
+    assert item["provider_repair_plan"]["safe_preview_available"] is True
+    assert item["provider_repair_plan"]["can_apply_after_approval"] is False
+    assert item["provider_repair_plan"]["apply_blocked"] is True
+    assert item["provider_repair_plan"]["preview_endpoint"] == ""
+    assert item["provider_repair_plan"]["apply_endpoint"] == ""
+    assert "public_read_only_response" in item["provider_repair_plan"]["blocked_reasons"]
     assert item["notification"]["payload_preview"]["automation"]["apply_endpoint"] is None
+
+
+def test_read_only_remediation_queue_keeps_missing_provider_plan_not_applicable():
+    """Read-only sanitization must not turn missing provider plans into blocked applies."""
+    queue = copy.deepcopy(_sample_remediation_queue())
+    queue["summary"]["provider_apply_after_approval"] = 1
+    item = queue["items"][0]
+    item.pop("provider_repair_plan")
+    item["notification"]["payload_preview"].pop("provider_repair_plan", None)
+
+    body = domains_endpoint.read_only_remediation_queue_response(queue).model_dump()
+
+    assert body["summary"]["provider_apply_after_approval"] == 0
+    plan = body["items"][0]["provider_repair_plan"]
+    assert plan["kind"] == "not_provider_repair"
+    assert plan["can_apply_after_approval"] is False
+    assert plan["apply_requires_approval"] is False
+    assert plan["apply_blocked"] is False
+    assert plan["blocked_reasons"] == []
 
 
 def test_public_action_proposals_are_workspace_scoped(client: TestClient, db_session):

@@ -88,6 +88,10 @@ and verification flow. Filter chips let you isolate preview-ready repairs,
 approval verification, sender review, report-evidence follow-up, blocked work,
 manual work, reputation review, and stale-evidence cases without opening every
 domain.
+Open the domain detail queue for the full provider-repair plan. That view shows
+whether a DNS item has a safe provider preview, can be applied only after
+explicit approval, is blocked by missing provider values, or should fall back to
+manual DNS work.
 
 ### Demo Mode
 
