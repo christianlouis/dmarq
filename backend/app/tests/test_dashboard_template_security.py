@@ -482,7 +482,7 @@ def test_domains_uses_external_page_script_for_csp_migration():
     assert '@submit.prevent="updateDomain' not in template
     assert '@click="closeCreate' not in template
     assert '@click="closeEdit' not in template
-    assert '@click=' not in template
+    assert "@click=" not in template
     assert "formatCount(domain.reports_count, 'report')" in template
     assert "formatCount(domain.emails_count, 'message')" in template
     assert "formatCount(value, noun)" in script
@@ -506,7 +506,10 @@ def test_domains_page_distinguishes_loading_error_and_empty_states():
     assert "data-domain-retry-load" in template
     assert "data-domain-retry-load" in script
     assert 'x-if="!loading && loadError"' in template
-    assert 'x-if="!loading && !loadError && domains.length === 0 && hiddenEmptyDomainCount() === 0"' in template
+    assert (
+        'x-if="!loading && !loadError && domains.length === 0 && hiddenEmptyDomainCount() === 0"'
+        in template
+    )
 
 
 def test_upload_uses_external_page_script_for_csp_migration():
@@ -1221,6 +1224,19 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "sourceIntelligence.loading" in template
     assert "Loading source intelligence..." in template
     assert "Source intelligence could not be loaded." in script
+    assert "remediationQueueLoading" in script
+    assert "remediationQueueError" in script
+    assert "Loading remediation queue..." in template
+    assert "Remediation queue could not be loaded." in script
+    assert "Retry remediation queue" in template
+    assert "data-domain-detail-remediation-retry" in template
+    assert (
+        '<div class="flex flex-wrap gap-2 text-xs" x-show="!remediationQueueLoading && !remediationQueueError">'
+        in template
+    )
+    assert "remediationQueue.summary.total" in template
+    assert "remediationQueue.summary.approval_ready" in template
+    assert "remediationQueue.summary.manual_action" in template
     assert "No sending sources match this filter." in template
     assert (
         "(!sourceIntelligence.loading && !sourceIntelligence.error ? sourceIntelligence.regions.slice(0, 4) : [])"
@@ -1232,6 +1248,14 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     )
     assert "(!sourcesLoading && !sourcesError ? filteredSources : [])" in template
     assert "(!reportsLoading && !reportsError ? reports : [])" in template
+    assert (
+        "(!remediationQueueLoading && !remediationQueueError ? remediationQueue.items.slice(0, 6) : [])"
+        in template
+    )
+    assert (
+        'x-if="!remediationQueueLoading && !remediationQueueError && remediationQueue.items.length === 0"'
+        in template
+    )
     assert "x-html" not in template
 
 
