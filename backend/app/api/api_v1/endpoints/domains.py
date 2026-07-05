@@ -1195,6 +1195,9 @@ class RemediationActionPlan(BaseModel):
     risk_level: str = "medium"
     safe_to_automate: bool = False
     operator_decision_summary: str = ""
+    decision_checkpoints: List[str] = Field(default_factory=list)
+    rollback_plan: str = ""
+    requires_fresh_evidence: bool = True
 
 
 class RemediationVerificationPlan(BaseModel):
@@ -1205,6 +1208,8 @@ class RemediationVerificationPlan(BaseModel):
     verification_method: str = ""
     freshness_requirement: str = ""
     failure_mode: str = ""
+    closure_gate: str = ""
+    stale_evidence_warning: str = ""
     summary: str
     evidence_needed: List[str] = Field(default_factory=list)
     next_check: str

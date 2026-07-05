@@ -135,6 +135,22 @@ def _summary(items: List[Dict[str, Any]]) -> Dict[str, int]:
             for item in items
             if (item.get("repair_progression") or {}).get("verification_required")
         ),
+        "requires_fresh_evidence": sum(
+            1
+            for item in items
+            if (item.get("action_plan") or {}).get("requires_fresh_evidence")
+        ),
+        "rollback_guidance": sum(
+            1 for item in items if (item.get("action_plan") or {}).get("rollback_plan")
+        ),
+        "closure_gate_required": sum(
+            1 for item in items if (item.get("verification_plan") or {}).get("closure_gate")
+        ),
+        "stale_evidence_warning": sum(
+            1
+            for item in items
+            if (item.get("verification_plan") or {}).get("stale_evidence_warning")
+        ),
         "notify_approval_required": sum(
             1 for item in items if item.get("notification", {}).get("state") == "approval_required"
         ),
@@ -392,6 +408,10 @@ def _loop_summary(domain: str, items: List[Dict[str, Any]]) -> Dict[str, Any]:
         "repair_approval_pending": summary["repair_approval_pending"],
         "repair_blocked": summary["repair_blocked"],
         "repair_needs_evidence": summary["repair_needs_evidence"],
+        "requires_fresh_evidence": summary["requires_fresh_evidence"],
+        "rollback_guidance": summary["rollback_guidance"],
+        "closure_gate_required": summary["closure_gate_required"],
+        "stale_evidence_warning": summary["stale_evidence_warning"],
         "top_item_id": next_item.get("id") if next_item else None,
         "top_incident_type": next_item.get("incident_type") if next_item else None,
         "top_loop_state": next_item.get("loop_state") if next_item else None,
@@ -505,6 +525,13 @@ def _remediation_notification_payload(domain: str, item: Dict[str, Any]) -> Dict
             "safe_to_automate": bool(action_plan.get("safe_to_automate")),
             "operator_decision_summary": str(action_plan.get("operator_decision_summary") or ""),
             "completion_criteria": str(action_plan.get("completion_criteria") or ""),
+            "decision_checkpoints": [
+                str(checkpoint)
+                for checkpoint in action_plan.get("decision_checkpoints", [])
+                if str(checkpoint).strip()
+            ][:5],
+            "rollback_plan": str(action_plan.get("rollback_plan") or ""),
+            "requires_fresh_evidence": bool(action_plan.get("requires_fresh_evidence", True)),
             "steps": [str(step) for step in action_plan.get("steps", []) if str(step).strip()][:5],
             "guidance_paths": [
                 {
@@ -522,6 +549,8 @@ def _remediation_notification_payload(domain: str, item: Dict[str, Any]) -> Dict
             "method": str(verification_plan.get("verification_method") or ""),
             "freshness_requirement": str(verification_plan.get("freshness_requirement") or ""),
             "failure_mode": str(verification_plan.get("failure_mode") or ""),
+            "closure_gate": str(verification_plan.get("closure_gate") or ""),
+            "stale_evidence_warning": str(verification_plan.get("stale_evidence_warning") or ""),
             "summary": str(verification_plan.get("summary") or ""),
             "next_check": str(verification_plan.get("next_check") or ""),
             "evidence_needed": [
@@ -784,6 +813,15 @@ def _action_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
         completion = "Provider preview is approved, applied, and verified by DMARQ."
         risk_level = "medium"
         safe_to_automate = True
+        decision_checkpoints = [
+            "Confirm the authoritative zone and record owner before approving the preview.",
+            "Compare old and proposed DNS values, including TTL and record type.",
+            "Wait for fresh DNS evidence before treating the item as fixed.",
+        ]
+        rollback_plan = (
+            "If verification fails, restore the previous DNS value from the provider preview "
+            "or keep the manual remediation item open."
+        )
         steps = [
             "Open the DNS change plan and preview the provider mutation.",
             "Confirm the zone, record name, old value, new value, and TTL.",
@@ -797,6 +835,15 @@ def _action_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
             item.get("completion_criteria")
             or "Sender legitimacy is confirmed and the item is resolved or converted into a DNS repair."
         )
+        decision_checkpoints = [
+            "Confirm whether the sender is still active in recent DMARC reports.",
+            "Classify the source as legitimate, forwarding, abuse, or stale traffic.",
+            "Avoid SPF or DKIM changes until the sender owner is known.",
+        ]
+        rollback_plan = (
+            "If the classification is wrong, reopen the item and wait for fresh report "
+            "evidence before changing DNS or policy."
+        )
         steps = steps or [
             "Review the report evidence and sending-source history.",
             "Confirm whether the sender is legitimate for this domain.",
@@ -807,6 +854,15 @@ def _action_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
         risk_level = "medium"
         safe_to_automate = False
         completion = "The DNS lint finding is no longer present after refresh."
+        decision_checkpoints = [
+            "Confirm the record is edited at the authoritative DNS provider.",
+            "Check whether the proposed value replaces or appends to existing records.",
+            "Refresh trusted resolver evidence after the DNS TTL has elapsed.",
+        ]
+        rollback_plan = (
+            "If the lint finding remains or mail flow worsens, restore the previous DNS "
+            "record value and keep the item open."
+        )
         steps = steps or [
             "Open the DNS guidance section.",
             "Apply the listed record change in the authoritative DNS provider.",
@@ -819,6 +875,15 @@ def _action_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
         completion = str(
             item.get("completion_criteria")
             or "The underlying domain health action no longer appears in the remediation queue."
+        )
+        decision_checkpoints = [
+            "Confirm the finding still appears in current domain health evidence.",
+            "Complete the operator action outside DMARQ if needed.",
+            "Refresh DMARC report or DNS evidence before marking the item resolved.",
+        ]
+        rollback_plan = (
+            "If fresh evidence still shows the finding, leave the item open and update the "
+            "operator note instead of closing it."
         )
         steps = steps or ["Review the evidence and complete the recommended operator action."]
 
@@ -838,6 +903,9 @@ def _action_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
         "risk_level": risk_level,
         "safe_to_automate": safe_to_automate,
         "operator_decision_summary": _operator_decision_summary(item),
+        "decision_checkpoints": decision_checkpoints[:5],
+        "rollback_plan": rollback_plan,
+        "requires_fresh_evidence": True,
         "guidance_paths": _guidance_paths_for_item(
             item,
             owner=owner,
@@ -860,6 +928,10 @@ def _verification_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
             "verification_method": "provider_write_then_dns_refresh",
             "freshness_requirement": "Fresh DNS evidence after provider propagation.",
             "failure_mode": "Keep the item open if the expected record is not visible.",
+            "closure_gate": "Close only after approved provider apply and fresh DNS evidence agree.",
+            "stale_evidence_warning": (
+                "Do not mark this fixed from the preview alone; DNS propagation evidence is required."
+            ),
             "summary": (
                 f"DMARQ should only mark this fixed after the approved {provider} write is "
                 "visible in fresh DNS evidence."
@@ -879,6 +951,10 @@ def _verification_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
             "verification_method": "manual_dns_refresh",
             "freshness_requirement": "Fresh resolver evidence after DNS TTL and propagation.",
             "failure_mode": "Keep the manual action open if the lint finding remains.",
+            "closure_gate": "Close only after a fresh DNS refresh no longer reports this lint finding.",
+            "stale_evidence_warning": (
+                "Cached or pre-change DNS evidence can make a repaired record look broken."
+            ),
             "summary": (
                 "Manual DNS changes are complete only when DMARQ can read the corrected record "
                 "from trusted resolver evidence."
@@ -898,6 +974,13 @@ def _verification_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
             "verification_method": "fresh_dmarc_report_window",
             "freshness_requirement": "A new receiver report covering the active sender.",
             "failure_mode": "Keep investigating if the sender remains unknown, failing, or stale.",
+            "closure_gate": (
+                "Close only after the sender is classified and a newer DMARC report confirms "
+                "the expected treatment."
+            ),
+            "stale_evidence_warning": (
+                "Old report rows can describe senders that no longer send mail for this domain."
+            ),
             "summary": (
                 "Investigation items are not fixed until the sender is classified and fresh "
                 "DMARC reports prove the chosen treatment."
@@ -916,6 +999,10 @@ def _verification_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
         "verification_method": "fresh_health_rebuild",
         "freshness_requirement": "Fresh DMARC reports or DNS checks after the operator action.",
         "failure_mode": "Keep the item open if the same health action is still present.",
+        "closure_gate": "Close only after fresh health evidence removes the same finding.",
+        "stale_evidence_warning": (
+            "Do not close from an operator note alone; import or refresh evidence first."
+        ),
         "summary": (
             "Health items should stay open until fresh DMARC or DNS evidence confirms the "
             "underlying finding is gone."

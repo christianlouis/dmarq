@@ -96,6 +96,15 @@ Use **Refresh queue** to reload the remediation queue from the backend after
 new reports, DNS checks, or operator lifecycle changes are available.
 Each item now also shows the remediation track, priority band, owner, risk
 level, safe-automation flag, and the exact operator decision DMARQ expects next.
+Action plans include decision checkpoints and a rollback or fallback note so an
+operator can verify the zone, sender, evidence freshness, and recovery path
+before approving, closing, or converting a remediation item.
+Verification cards include a closure gate and stale-evidence warning. This is
+the rule DMARQ expects before an operator-resolved item should become an
+evidence-verified repair.
+The queue header also counts closure gates and rollback notes, so operators can
+spot how much work still needs fresh evidence or a recovery plan before opening
+every remediation card.
 The **Repair progression** panel separates the recommendation from the next
 safe gate. It tells the operator whether a connected provider preview is ready,
 whether a provider-specific value is still missing, whether a sending source

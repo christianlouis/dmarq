@@ -87,6 +87,10 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
         "repair_approval_pending": 0,
         "repair_blocked": 0,
         "repair_needs_evidence": 2,
+        "requires_fresh_evidence": 2,
+        "rollback_guidance": 2,
+        "closure_gate_required": 2,
+        "stale_evidence_warning": 2,
         "notify_approval_required": 1,
         "notify_action_required": 0,
         "notify_investigation_required": 1,
@@ -118,6 +122,10 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
         "repair_approval_pending": 0,
         "repair_blocked": 0,
         "repair_needs_evidence": 2,
+        "requires_fresh_evidence": 2,
+        "rollback_guidance": 2,
+        "closure_gate_required": 2,
+        "stale_evidence_warning": 2,
         "top_item_id": "dns:dmarc-missing",
         "top_incident_type": "dmarc_policy_missing_or_weak",
         "top_loop_state": "proposal_ready_for_approval",
@@ -170,12 +178,20 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
         in " ".join(queue["items"][0]["action_plan"]["steps"]).lower()
     )
     assert queue["items"][0]["action_plan"]["completion_criteria"]
+    assert queue["items"][0]["action_plan"]["requires_fresh_evidence"] is True
+    assert any(
+        "authoritative zone" in checkpoint
+        for checkpoint in queue["items"][0]["action_plan"]["decision_checkpoints"]
+    )
+    assert "restore the previous DNS value" in queue["items"][0]["action_plan"]["rollback_plan"]
     assert queue["items"][0]["verification_plan"]["status"] == "pending_operator_approval"
     assert queue["items"][0]["verification_plan"]["verification_method"] == (
         "provider_write_then_dns_refresh"
     )
     assert "Fresh DNS evidence" in queue["items"][0]["verification_plan"]["freshness_requirement"]
     assert "Keep the item open" in queue["items"][0]["verification_plan"]["failure_mode"]
+    assert "fresh DNS evidence agree" in queue["items"][0]["verification_plan"]["closure_gate"]
+    assert "preview alone" in queue["items"][0]["verification_plan"]["stale_evidence_warning"]
     assert "fresh DNS evidence" in queue["items"][0]["verification_plan"]["summary"]
     assert any(
         "provider preview was approved" in evidence
@@ -253,6 +269,16 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
                 "Preview the exact DNS diff, then explicitly approve or reject the proposed repair."
             ),
             "completion_criteria": "Provider preview is approved, applied, and verified by DMARQ.",
+            "decision_checkpoints": [
+                "Confirm the authoritative zone and record owner before approving the preview.",
+                "Compare old and proposed DNS values, including TTL and record type.",
+                "Wait for fresh DNS evidence before treating the item as fixed.",
+            ],
+            "rollback_plan": (
+                "If verification fails, restore the previous DNS value from the provider preview "
+                "or keep the manual remediation item open."
+            ),
+            "requires_fresh_evidence": True,
             "steps": [
                 "Open the DNS change plan and preview the provider mutation.",
                 "Confirm the zone, record name, old value, new value, and TTL.",
@@ -273,6 +299,10 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
             "method": "provider_write_then_dns_refresh",
             "freshness_requirement": "Fresh DNS evidence after provider propagation.",
             "failure_mode": "Keep the item open if the expected record is not visible.",
+            "closure_gate": "Close only after approved provider apply and fresh DNS evidence agree.",
+            "stale_evidence_warning": (
+                "Do not mark this fixed from the preview alone; DNS propagation evidence is required."
+            ),
             "summary": (
                 "DMARQ should only mark this fixed after the approved cloudflare write is "
                 "visible in fresh DNS evidence."
@@ -342,6 +372,8 @@ def test_remediation_queue_keeps_placeholder_plan_manual():
     assert queue["summary"]["blocked_by_prerequisite"] == 1
     assert queue["summary"]["repair_blocked"] == 1
     assert queue["summary"]["repair_needs_evidence"] == 1
+    assert queue["summary"]["closure_gate_required"] == 1
+    assert queue["summary"]["rollback_guidance"] == 1
     assert queue["summary"]["notify_summary_only"] == 1
     assert queue["loop"]["status"] == "manual_action_required"
     assert queue["loop"]["blocked_by_prerequisite"] == 1
@@ -356,6 +388,12 @@ def test_remediation_queue_keeps_placeholder_plan_manual():
         "self_hosted",
     }
     assert queue["items"][0]["action_plan"]["completion_criteria"]
+    assert queue["items"][0]["action_plan"]["requires_fresh_evidence"] is True
+    assert any(
+        "dns ttl" in checkpoint.lower()
+        for checkpoint in queue["items"][0]["action_plan"]["decision_checkpoints"]
+    )
+    assert "keep the item open" in queue["items"][0]["action_plan"]["rollback_plan"]
     assert queue["items"][0]["repair_progression"]["stage"] == "blocked"
     assert queue["items"][0]["repair_progression"]["can_preview"] is False
     assert queue["items"][0]["repair_progression"]["manual_fallback"] is True
