@@ -844,7 +844,12 @@ so clients can present the correct refresh path before opening the detail queue.
 Dashboard remediation items also include `verification_plan` with the method,
 freshness requirement, failure mode, closure gate, stale-evidence warning,
 needed evidence, and next check; clients should show it as read-only closure
-guidance before treating an item as fixed.
+guidance before treating an item as fixed. The same dashboard summaries include
+verification counters such as `verification_pending_operator_approval`,
+`verification_pending_sender_review`, `verification_pending_reputation_review`,
+`verification_pending_report_evidence`, and `verification_blocked_by_prerequisite`
+so clients can distinguish approval, sender review, reputation evidence, manual
+fresh-evidence checks, and missing provider values.
 
 Notification metadata includes the event name, channel, dedupe key, reason, and
 next state transition that an operator workflow can use. Each notification also

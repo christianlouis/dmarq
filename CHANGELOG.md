@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added verified-repair freshness counters so stale or unknown repair-history evidence is visible before opening individual entries.
 - Added dashboard remediation verification freshness and closure gates so workspace cards match domain-level repair semantics.
 - Added dashboard remediation verification plans in the API so workspace cards and domain queue cards share the same closure semantics.
+- Added dashboard remediation verification counters for operator approval, sender review, reputation review, fresh-evidence checks, and missing provider values.
 - Added next-remediation readiness context and verified-repair freshness gates so operators see the next safe action before opening or closing remediation work.
 - Added dashboard remediation-card readiness reasons, blockers, and next-safe-action text so operators can triage fixes before opening the domain queue.
 - Added dashboard remediation sorting, last-refresh context, a queue refresh control, and domain remediation filters for preview-ready, blocked, evidence-gated, manual, and reputation-review work.

@@ -2065,7 +2065,8 @@ def _dashboard_verification_plan(
     context: Dict[str, str],
 ) -> Dict[str, Any]:
     """Return dashboard-safe read-only evidence checks before closure."""
-    if _remediation_track_for_action(state, action) == "blocked_by_prerequisite":
+    track = _remediation_track_for_action(state, action)
+    if track == "blocked_by_prerequisite":
         return {
             "label": "Collect provider value first",
             "status": "blocked_by_prerequisite",
@@ -2085,6 +2086,27 @@ def _dashboard_verification_plan(
                 "Provider-specific target value",
                 "Fresh DNS posture after publishing",
                 "Finding disappears from the remediation queue",
+            ],
+            "next_check": context["verification_next_check"],
+        }
+    if track == "reputation_review":
+        return {
+            "label": "Verify reputation evidence",
+            "status": "pending_reputation_review",
+            "verification_method": "fresh_reputation_evidence",
+            "freshness_requirement": "Fresh reputation or blacklist evidence for this source.",
+            "failure_mode": "Keep investigating if the source remains listed, risky, or unchecked.",
+            "closure_gate": (
+                "Close only after fresh reputation evidence and newer reports support the treatment."
+            ),
+            "stale_evidence_warning": (
+                "Old blacklist or reputation checks can be wrong after provider remediation."
+            ),
+            "summary": "Reputation items need fresh source-intelligence evidence before closure.",
+            "evidence_needed": [
+                "Fresh source reputation lookup",
+                "Current blacklist or risk result",
+                "Newer report evidence for the sender",
             ],
             "next_check": context["verification_next_check"],
         }
@@ -2365,6 +2387,25 @@ def _increment_evidence_refresh_counters(
         counters["evidence_refresh_prerequisite"] += 1
 
 
+def _increment_verification_plan_counters(
+    counters: Dict[str, int],
+    item: Dict[str, Any],
+) -> None:
+    """Count the closure-proof state each dashboard remediation item requires."""
+    verification = item.get("verification_plan") or {}
+    status = str(verification.get("status") or "")
+    if status == "pending_operator_approval":
+        counters["verification_pending_operator_approval"] += 1
+    elif status == "pending_sender_review":
+        counters["verification_pending_sender_review"] += 1
+    elif status == "pending_reputation_review":
+        counters["verification_pending_reputation_review"] += 1
+    elif status == "pending_report_evidence":
+        counters["verification_pending_report_evidence"] += 1
+    elif status == "blocked_by_prerequisite":
+        counters["verification_blocked_by_prerequisite"] += 1
+
+
 def _build_dashboard_remediation_loop(
     domains: List[Dict[str, Any]],
     remediation_activity: Dict[str, Any],
@@ -2392,6 +2433,11 @@ def _build_dashboard_remediation_loop(
         "evidence_refresh_reports": 0,
         "evidence_refresh_reputation": 0,
         "evidence_refresh_prerequisite": 0,
+        "verification_pending_operator_approval": 0,
+        "verification_pending_sender_review": 0,
+        "verification_pending_reputation_review": 0,
+        "verification_pending_report_evidence": 0,
+        "verification_blocked_by_prerequisite": 0,
     }
     track_counters = {f"track_{track}": 0 for track in REMEDIATION_TRACKS}
     items: List[Dict[str, Any]] = []
@@ -2405,6 +2451,7 @@ def _build_dashboard_remediation_loop(
             item = _dashboard_remediation_item(domain_name, action)
             _increment_repair_counters(counters, item)
             _increment_evidence_refresh_counters(counters, item)
+            _increment_verification_plan_counters(counters, item)
             track_counters[f"track_{item['remediation_track']}"] += 1
             items.append(item)
 
@@ -2465,6 +2512,11 @@ def _domain_remediation_workload(domain: Dict[str, Any]) -> Dict[str, Any]:
         "evidence_refresh_reports": 0,
         "evidence_refresh_reputation": 0,
         "evidence_refresh_prerequisite": 0,
+        "verification_pending_operator_approval": 0,
+        "verification_pending_sender_review": 0,
+        "verification_pending_reputation_review": 0,
+        "verification_pending_report_evidence": 0,
+        "verification_blocked_by_prerequisite": 0,
     }
     track_counters = {f"track_{track}": 0 for track in REMEDIATION_TRACKS}
     items: List[Dict[str, Any]] = []
@@ -2475,6 +2527,7 @@ def _domain_remediation_workload(domain: Dict[str, Any]) -> Dict[str, Any]:
         item = _dashboard_remediation_item(domain_name, action, include_detail=False)
         _increment_repair_counters(counters, item)
         _increment_evidence_refresh_counters(counters, item)
+        _increment_verification_plan_counters(counters, item)
         track_counters[f"track_{item['remediation_track']}"] += 1
         items.append(item)
 
