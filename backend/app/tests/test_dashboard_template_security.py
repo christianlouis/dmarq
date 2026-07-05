@@ -1754,11 +1754,16 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "primaryRemediationClosureGateText" in script
     assert "primaryRemediationStaleWarningText" in script
     assert "primaryRemediationEvidenceHref" in script
+    assert "remediationStateLabel(state)" in script
+    assert "needs_approval: 'Needs approval'" in script
     assert "Next remediation" in template
     assert "Loading next remediation..." in template
     assert "Next remediation could not be loaded." in template
     assert "No remediation queued" in template
-    assert "primaryRemediationItem.state.split('_').join(' ')" in template
+    assert "remediationStateLabel(primaryRemediationItem.state)" in template
+    assert "remediationStateLabel(item.state)" in template
+    assert "primaryRemediationItem.state.split('_').join(' ')" not in template
+    assert "item.state.split('_').join(' ')" not in template
     assert "repairReadinessLabel(primaryRemediationItem.repair_progression)" in template
     assert "repairReadinessScore(primaryRemediationItem.repair_progression)" in template
     assert "Next safe action" in template
@@ -1770,7 +1775,6 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "Open evidence" in template
     assert 'data-domain-detail-remediation-refresh-evidence' in template
     assert "remediationEvidenceRefreshActionLabel(primaryRemediationItem.evidence_refresh)" in template
-    assert "item.state.split('_').join(' ')" in template
     assert "Repair readiness" in template
     assert "primaryRepairReadinessReasonText" in script
     assert "repairReadinessLabel(primaryRemediationItem.repair_progression)" in template

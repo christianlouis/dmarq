@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added dashboard remediation verification counters for operator approval, sender review, reputation review, fresh-evidence checks, and missing provider values.
 - Added dashboard remediation verification badges, failure modes, and evidence-needed summaries to keep closure guidance visible on each card.
 - Added dashboard remediation summary breakdowns for approval waits, sender/reputation review, manual evidence checks, and missing provider values.
+- Added explicit domain-detail remediation state labels so approval-ready items do not expose raw internal state names.
 - Added next-remediation readiness context and verified-repair freshness gates so operators see the next safe action before opening or closing remediation work.
 - Added dashboard remediation-card readiness reasons, blockers, and next-safe-action text so operators can triage fixes before opening the domain queue.
 - Added dashboard remediation sorting, last-refresh context, a queue refresh control, and domain remediation filters for preview-ready, blocked, evidence-gated, manual, and reputation-review work.

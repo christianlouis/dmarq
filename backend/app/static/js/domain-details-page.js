@@ -1121,10 +1121,20 @@ function domainDetailsApp(domainId = '') {
         },
 
         remediationStateClass(state) {
-            if (state === 'approval_ready') return 'bg-green-100 text-green-700';
+            if (state === 'approval_ready' || state === 'needs_approval') return 'bg-green-100 text-green-700';
             if (state === 'manual_action') return 'bg-yellow-100 text-yellow-800';
             if (state === 'investigate') return 'bg-blue-100 text-blue-700';
             return 'bg-base-200 text-base-content/70';
+        },
+
+        remediationStateLabel(state) {
+            const labels = {
+                approval_ready: 'Needs approval',
+                needs_approval: 'Needs approval',
+                manual_action: 'Manual action',
+                investigate: 'Investigate'
+            };
+            return labels[state] || this.humanizeToken(state || 'review');
         },
 
         remediationNotificationClass(state) {
