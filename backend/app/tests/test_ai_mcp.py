@@ -1252,6 +1252,11 @@ async def test_mcp_read_only_tool_dispatch_covers_new_domain_tools(db_session: S
         "public_read_only_response"
         in remediation_result.items[0].provider_repair_plan.blocked_reasons
     )
+    assert "read-only" in remediation_result.items[0].provider_repair_plan.approval_gate
+    assert (
+        "omits provider write endpoints"
+        in remediation_result.items[0].provider_repair_plan.operator_warning
+    )
     assert (
         remediation_result.items[0].notification.payload_preview["automation"]["apply_endpoint"]
         is None

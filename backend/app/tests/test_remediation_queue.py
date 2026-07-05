@@ -96,6 +96,8 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
         "provider_apply_blocked": 0,
         "provider_value_missing": 0,
         "provider_manual_fallback": 1,
+        "provider_pre_apply_checks": 1,
+        "provider_post_apply_checks": 2,
         "requires_fresh_evidence": 2,
         "rollback_guidance": 2,
         "closure_gate_required": 2,
@@ -145,6 +147,8 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
         "provider_apply_blocked": 0,
         "provider_value_missing": 0,
         "provider_manual_fallback": 1,
+        "provider_pre_apply_checks": 1,
+        "provider_post_apply_checks": 2,
         "requires_fresh_evidence": 2,
         "rollback_guidance": 2,
         "closure_gate_required": 2,
@@ -218,6 +222,20 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
         "record_name": "_dmarc.example.com",
         "record_type": "TXT",
         "capability": "provider_preview",
+        "approval_gate": "Provider apply is available only after explicit operator approval.",
+        "pre_apply_checks": [
+            "Confirm the authoritative zone and record owner.",
+            "Compare the current DNS value, proposed value, record type, and TTL.",
+            "Confirm a human operator explicitly approved this repair.",
+        ],
+        "post_apply_checks": [
+            "Close only after approved provider apply and fresh DNS evidence agree.",
+            "Refresh DNS posture after provider propagation, then rebuild the queue.",
+        ],
+        "blast_radius": "DNS record _dmarc.example.com (TXT)",
+        "operator_warning": (
+            "Preview does not mean fixed; close only after fresh DNS evidence confirms the change."
+        ),
         "next_step": (
             "Open the provider preview, compare old and new DNS values, then approve or reject."
         ),
@@ -398,6 +416,20 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
             "record_name": "_dmarc.example.com",
             "record_type": "TXT",
             "capability": "provider_preview",
+            "approval_gate": "Provider apply is available only after explicit operator approval.",
+            "pre_apply_checks": [
+                "Confirm the authoritative zone and record owner.",
+                "Compare the current DNS value, proposed value, record type, and TTL.",
+                "Confirm a human operator explicitly approved this repair.",
+            ],
+            "post_apply_checks": [
+                "Close only after approved provider apply and fresh DNS evidence agree.",
+                "Refresh DNS posture after provider propagation, then rebuild the queue.",
+            ],
+            "blast_radius": "DNS record _dmarc.example.com (TXT)",
+            "operator_warning": (
+                "Preview does not mean fixed; close only after fresh DNS evidence confirms the change."
+            ),
             "next_step": (
                 "Open the provider preview, compare old and new DNS values, then approve or reject."
             ),

@@ -164,8 +164,11 @@ whether DMARQ can prepare a safe provider preview, whether the change could be
 applied after explicit approval, and whether fresh evidence is still required
 before the repair is considered closed. It shows the connected provider,
 operation, record name/type, apply blockers, provider-value prerequisites, and
-manual fallback. Public API and read-only MCP consumers see the same context
-without preview/apply links.
+manual fallback. It also lists before-apply checks, after-apply evidence
+checks, blast radius, and an operator warning so a preview cannot be mistaken
+for a completed repair. Public API and read-only MCP consumers see the same
+context without preview/apply links and with an explicit read-only approval
+gate.
 Each item also shows a notification profile such as approval required, action
 required, investigation required, or summary only. These labels explain how
 DMARQ would route the item into alerting or ticketing workflows; viewing the
