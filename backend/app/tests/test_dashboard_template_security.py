@@ -1195,6 +1195,26 @@ def test_domain_details_exposes_remediation_action_plans_without_html_injection(
     assert "x-html" not in template
 
 
+def test_domain_details_distinguishes_evidence_verified_repairs_without_html_injection():
+    template = _domain_details_template()
+
+    assert "Evidence-verified repairs" in template
+    assert (
+        "These items were marked resolved by an operator and are no longer present "
+        "in the current remediation queue."
+    ) in template
+    assert "Keep monitoring this repair; no DNS or mail settings were changed" in template
+    assert "remediationQueue.verified_items.length" in template
+    assert "remediationQueue.verified_items.slice(0, 4)" in template
+    assert "verified.item_id" in template
+    assert "verified.label" in template
+    assert "verified.detail" in template
+    assert "verified.operator_note" in template
+    assert "formatIsoDate(verified.recorded_at)" in template
+    assert "verified.actor_type" in template
+    assert "x-html" not in template
+
+
 def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     template = _domain_details_template()
     script = _domain_details_script()
