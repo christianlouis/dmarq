@@ -90,6 +90,10 @@ Completed or substantially delivered:
   Intelligence, SpamCop SCBL, Barracuda BRBL, and AbuseIPDB as the first
   provider set. Deeper commercial reputation feed contracts and UI
   configuration remain follow-up work.
+- Human-in-the-loop remediation queues that classify incidents, score
+  priority, separate provider-preview, manual DNS, self-hosted, sender
+  investigation, and reputation-review tracks, and keep all operator decisions
+  audit-only until a separate provider write is explicitly approved.
 - Cloudflare read-only inspection, DNS snapshots, and DNS change history.
 - Notifications, alert rules, alert history, and Apprise delivery.
 - API tokens, webhooks, SIEM templates, and ticketing/chatops templates.
@@ -103,12 +107,12 @@ Strategic issue status:
 | Issue | Status | Notes |
 | --- | --- | --- |
 | [#12](https://github.com/christianlouis/dmarq/issues/12) | open | Broad user-auth, SaaS, ISP/OEM, subscription, and billing tracker. Keep this parked for the self-hosted demo unless auth work is explicitly reactivated. |
-| [#243](https://github.com/christianlouis/dmarq/issues/243) | open | Enterprise identity, provisioning, and support-access hardening. Treat as the active child under #12. |
+| [#243](https://github.com/christianlouis/dmarq/issues/243) | complete | Enterprise identity, provisioning, and support-access hardening landed through focused child slices. |
 | [#305](https://github.com/christianlouis/dmarq/issues/305) | complete as roadmap parent | Competitive-parity direction is now captured here and in the referenced product docs. New work should use focused child issues instead of reopening the parent. |
 | [#309](https://github.com/christianlouis/dmarq/issues/309) | complete for current read-only API/MCP scope | Stable public API and MCP read-only surfaces exist for health, reports, DNS, sources, remediation, alerts, usage, and export discovery. Future write or provider-admin tools need separate scoped issues. |
 | [#311](https://github.com/christianlouis/dmarq/issues/311) | complete for safe migration readiness | Parallel-reporting, parity checklist, historical export preview, idempotency metadata, and portability docs are in place. A future persisted historical-import writer should be a separate explicit issue. |
 | [#312](https://github.com/christianlouis/dmarq/issues/312) | parked | MSP/ISP/multi-tenant demo polish is intentionally not part of the current `demo.dmarq.org` single-user self-hosted story. |
-| [#384](https://github.com/christianlouis/dmarq/issues/384) | active | Continue with human-approved provider repair progression, operator verification history, and remediation notifications. |
+| [#384](https://github.com/christianlouis/dmarq/issues/384) | active | First remediation-loop slices classify incidents, expose loop state and operator decisions, keep public/MCP views read-only, and show the queue in-product. Continue with deeper provider-specific repair flows and notification polish. |
 
 ## Roadmap Tracks
 

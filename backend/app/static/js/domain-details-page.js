@@ -66,12 +66,21 @@ function domainDetailsApp(domainId = '') {
         },
         remediationQueue: {
             status: '',
+            loop: {
+                status: 'clear',
+                next_action: '',
+                top_incident_type: ''
+            },
             summary: {
                 total: 0,
                 approval_ready: 0,
                 manual_action: 0,
                 investigate: 0,
                 informational: 0,
+                provider_fix_available: 0,
+                self_hosted_guidance: 0,
+                manual_only: 0,
+                blocked_by_prerequisite: 0,
                 dispatch_ready: 0,
                 dispatch_blocked: 0,
                 dispatch_disabled: 0,
@@ -927,6 +936,99 @@ function domainDetailsApp(domainId = '') {
             return 'bg-base-200 text-base-content/70';
         },
 
+        remediationLoopStatusLabel(status) {
+            return {
+                approval_required: 'Approval required',
+                investigation_required: 'Investigation required',
+                manual_action_required: 'Manual action required',
+                clear: 'Clear'
+            }[status] || 'Needs review';
+        },
+
+        humanizeToken(value) {
+            return String(value || '')
+                .split('_')
+                .filter(Boolean)
+                .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+                .join(' ');
+        },
+
+        remediationIncidentLabel(value) {
+            const labels = {
+                dmarc_policy_missing_or_weak: 'DMARC policy',
+                spf_include_or_record_problem: 'SPF record',
+                missing_or_broken_dkim: 'DKIM signing',
+                mail_provider_requires_dns_records: 'Provider DNS',
+                legitimate_sender_failing_alignment: 'Sender alignment',
+                sending_ip_reputation_risk: 'IP reputation',
+                forwarding_or_receiver_alignment_review: 'Forwarding review',
+                domain_health_action: 'Domain health'
+            };
+            return labels[value] || this.humanizeToken(value || 'domain_health_action');
+        },
+
+        remediationTrackLabel(value) {
+            const labels = {
+                provider_preview: 'Provider preview',
+                manual_dns: 'Manual DNS',
+                sender_investigation: 'Sender investigation',
+                reputation_review: 'Reputation review',
+                self_hosted_or_provider: 'Provider or self-hosted',
+                blocked_by_prerequisite: 'Needs prerequisite',
+                manual_only: 'Manual only'
+            };
+            return labels[value] || this.humanizeToken(value || 'manual_only');
+        },
+
+        remediationDecisionLabel(value) {
+            const labels = {
+                preview_change: 'Preview change',
+                approve_after_preview: 'Approve after preview',
+                mark_legitimate: 'Mark legitimate',
+                mark_unknown: 'Mark unknown',
+                convert_to_manual_action: 'Convert to manual',
+                previewed: 'Reviewed',
+                acknowledged: 'Acknowledge',
+                snoozed: 'Snooze',
+                resolved: 'Resolve',
+                rejected: 'Reject'
+            };
+            return labels[value] || this.humanizeToken(value || '');
+        },
+
+        visibleRemediationDecisions(item) {
+            const allowed = item?.operator_decisions || [];
+            const preferredByState = {
+                approval_ready: [
+                    'preview_change',
+                    'approve_after_preview',
+                    'resolved',
+                    'snoozed',
+                    'rejected'
+                ],
+                investigate: [
+                    'mark_legitimate',
+                    'mark_unknown',
+                    'convert_to_manual_action',
+                    'resolved',
+                    'snoozed'
+                ],
+                manual_action: [
+                    'acknowledged',
+                    'resolved',
+                    'snoozed',
+                    'rejected'
+                ]
+            };
+            const preferred = preferredByState[item?.state] || [
+                'acknowledged',
+                'resolved',
+                'snoozed',
+                'rejected'
+            ];
+            return preferred.filter(decision => allowed.includes(decision));
+        },
+
         remediationDispatchStatus(dispatch) {
             if (dispatch?.delivery_enqueued) return 'delivery_enqueued';
             if (dispatch?.eligible) return 'ready';
@@ -967,6 +1069,7 @@ function domainDetailsApp(domainId = '') {
                 pending_operator_action: 'bg-yellow-100 text-yellow-800',
                 operator_rejected: 'bg-base-200 text-base-content/70',
                 operator_snoozed: 'bg-base-200 text-base-content/70',
+                operator_mark_unknown: 'bg-base-200 text-base-content/70',
                 not_started: 'bg-base-200 text-base-content/70'
             }[state] || 'bg-base-200 text-base-content/70';
         },
@@ -1445,12 +1548,21 @@ function domainDetailsApp(domainId = '') {
         resetRemediationQueue() {
             this.remediationQueue = {
                 status: 'unavailable',
+                loop: {
+                    status: 'clear',
+                    next_action: '',
+                    top_incident_type: ''
+                },
                 summary: {
                     total: 0,
                     approval_ready: 0,
                     manual_action: 0,
                     investigate: 0,
                     informational: 0,
+                    provider_fix_available: 0,
+                    self_hosted_guidance: 0,
+                    manual_only: 0,
+                    blocked_by_prerequisite: 0,
                     notify_approval_required: 0,
                     notify_action_required: 0,
                     notify_investigation_required: 0,

@@ -814,12 +814,25 @@ def test_domain_remediation_queue_groups_dns_and_health_actions(
     assert data["summary"]["total"] == 2
     assert data["summary"]["approval_ready"] == 1
     assert data["summary"]["investigate"] == 1
+    assert data["summary"]["provider_fix_available"] == 1
+    assert data["loop"]["status"] == "approval_required"
+    assert data["loop"]["what_dmarq_can_fix"] == 1
+    assert data["loop"]["what_needs_investigation"] == 1
+    assert data["loop"]["top_incident_type"] == "dmarc_policy_missing_or_weak"
     assert data["items"][0]["id"] == "dns:dmarc-missing"
+    assert data["items"][0]["incident_type"] == "dmarc_policy_missing_or_weak"
+    assert data["items"][0]["loop_state"] == "proposal_ready_for_approval"
+    assert data["items"][0]["remediation_track"] == "provider_preview"
+    assert data["items"][0]["priority_score"] == 455
+    assert "approve_after_preview" in data["items"][0]["operator_decisions"]
     assert data["items"][0]["automation"]["eligible"] is True
     assert data["items"][0]["automation"]["provider"] == "cloudflare"
     assert data["items"][0]["verification_plan"]["status"] == "pending_operator_approval"
     assert "fresh DNS evidence" in data["items"][0]["verification_plan"]["summary"]
     assert data["items"][1]["verification_plan"]["status"] == "pending_sender_review"
+    assert data["items"][1]["incident_type"] == "legitimate_sender_failing_alignment"
+    assert data["items"][1]["loop_state"] == "evidence_review_required"
+    assert data["items"][1]["remediation_track"] == "sender_investigation"
     assert "receiver report window" in data["items"][1]["verification_plan"]["next_check"]
     dispatch = data["items"][0]["notification"]["dispatch"]
     assert dispatch["enabled"] is False
@@ -1281,6 +1294,75 @@ def test_domain_remediation_notification_lifecycle_audit_records_sanitized_marke
     persisted_details = json.loads(audit_row.details)
     assert persisted_details["operator_note"] == "Reviewed with DNS owner"
     assert persisted_details["automation_provider"] == "cloudflare"
+
+
+def test_domain_remediation_notification_lifecycle_audit_records_sender_decision(
+    seeded_client: TestClient,
+    db_session,
+    monkeypatch,
+):
+    """Investigation decisions are audit markers, not hidden DNS/provider writes."""
+
+    async def fake_domain_grade(db, domain_id, store, refresh=False):
+        return {
+            "domain": domain_id,
+            "score": 68,
+            "grade": "C",
+            "status": "attention",
+            "factors": {"report_confidence": 70},
+            "actions": [
+                {
+                    "type": "low_compliance",
+                    "severity": "high",
+                    "title": "Review failing senders",
+                    "detail": "Recent reports include an unknown failing sender.",
+                    "next_step": "Classify the sender before changing DNS.",
+                    "score_impact": 18,
+                }
+            ],
+        }
+
+    async def fake_dns_guidance(db, store, domain_id, refresh=False):
+        return {
+            "domain": domain_id,
+            "status": "ok",
+            "dns_provider": {"provider_id": "cloudflare"},
+            "findings": [],
+            "change_plans": [],
+        }
+
+    monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_domain_grade)
+    monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", fake_dns_guidance)
+
+    response = seeded_client.post(
+        f"/api/v1/domains/{DOMAIN}/remediation/notifications/audit",
+        json={
+            "item_id": "health:low_compliance",
+            "event": "dmarq.remediation.investigation_required",
+            "lifecycle_state": "mark_unknown",
+            "note": "This source is not owned by us.",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["item_id"] == "health:low_compliance"
+    assert data["lifecycle_state"] == "mark_unknown"
+    details = data["audit"]["details"]
+    assert details["sent"] is False
+    assert details["delivery_enqueued"] is False
+    assert details["dns_write_attempted"] is False
+
+    queue_response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/remediation")
+    assert queue_response.status_code == 200
+    item = queue_response.json()["items"][0]
+    assert item["id"] == "health:low_compliance"
+    assert item["notification"]["history"][0]["state"] == "mark_unknown"
+    assert item["notification"]["history"][0]["label"] == "Marked unknown sender"
+    assert item["notification"]["dispatch"]["operator_hold"] is True
+    assert item["notification"]["dispatch"]["verification"]["label"] == "Marked unknown sender"
+    assert "unknown sender" in item["notification"]["dispatch"]["blocked_reasons"][0]
+    assert db_session.query(WorkspaceAuditLog).count() == 1
 
 
 def test_domain_remediation_notification_lifecycle_audit_rejects_mismatched_event(

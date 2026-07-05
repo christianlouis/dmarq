@@ -2271,10 +2271,21 @@ def test_summary_includes_current_remediation_loop(
     assert response.status_code == 200
     loop = response.json()["health_summary"]["remediation_loop"]
     assert loop["status"] == "needs_attention"
+    assert loop["loop_status"] == "approval_required"
+    assert loop["what_dmarq_can_fix"] >= 2
+    assert loop["what_needs_approval"] >= 2
     assert loop["needs_approval"] >= 2
     assert loop["total_open"] >= 2
     assert loop["items"][0]["domain"] == DOMAIN
     assert loop["items"][0]["state"] == "needs_approval"
+    assert loop["items"][0]["loop_state"] == "proposal_ready_for_approval"
+    assert loop["items"][0]["incident_type"] in {
+        "dmarc_policy_missing_or_weak",
+        "spf_include_or_record_problem",
+    }
+    assert loop["items"][0]["remediation_track"] == "provider_preview"
+    assert loop["items"][0]["priority_score"] > 0
+    assert "approve_after_preview" in loop["items"][0]["operator_decisions"]
     assert loop["items"][0]["state_label"] == "Needs approval"
     assert loop["items"][0]["owner"] == "Domain DNS operator"
     assert loop["items"][0]["automation_path"] == "provider_preview"
@@ -2285,9 +2296,15 @@ def test_summary_includes_current_remediation_loop(
     assert loop["items"][0]["next_step"]
     domain = response.json()["domains"][0]
     assert domain["remediation_workload"]["status"] == "needs_attention"
+    assert domain["remediation_workload"]["what_dmarq_can_fix"] >= 2
+    assert domain["remediation_workload"]["what_needs_approval"] >= 2
     assert domain["remediation_workload"]["needs_approval"] >= 2
     assert domain["remediation_workload"]["total_open"] >= 2
     assert domain["remediation_workload"]["primary"]["state"] == "needs_approval"
+    assert domain["remediation_workload"]["primary"]["loop_state"] == (
+        "proposal_ready_for_approval"
+    )
+    assert domain["remediation_workload"]["primary"]["remediation_track"] == ("provider_preview")
     assert domain["remediation_workload"]["primary"]["state_label"] == "Needs approval"
     assert domain["remediation_workload"]["primary"]["owner"] == "Domain DNS operator"
     assert domain["remediation_workload"]["primary"]["automation_path"] == "provider_preview"

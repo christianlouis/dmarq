@@ -26,9 +26,21 @@ DEFAULT_DISPATCH_EVENTS = {
     "dmarq.remediation.manual_action_required",
     "dmarq.remediation.investigation_required",
 }
-ACKNOWLEDGED_LIFECYCLE_STATES = {"previewed", "acknowledged"}
-OPERATOR_HELD_LIFECYCLE_STATES = {"resolved", "rejected", "snoozed"}
+ACKNOWLEDGED_LIFECYCLE_STATES = {
+    "previewed",
+    "preview_change",
+    "acknowledged",
+    "approve_after_preview",
+    "mark_legitimate",
+    "convert_to_manual_action",
+}
+OPERATOR_HELD_LIFECYCLE_STATES = {"resolved", "rejected", "snoozed", "mark_unknown"}
 LIFECYCLE_HISTORY_LABELS = {
+    "preview_change": "Previewed provider change",
+    "approve_after_preview": "Approved after preview",
+    "mark_legitimate": "Marked legitimate sender",
+    "mark_unknown": "Marked unknown sender",
+    "convert_to_manual_action": "Converted to manual action",
     "previewed": "Marked reviewed",
     "acknowledged": "Marked acknowledged",
     "resolved": "Marked resolved",
@@ -57,6 +69,10 @@ BLOCKED_REASON_NEXT_STEPS = (
     (
         "Operator marked this remediation item snoozed",
         "Wait for the snooze window or record a new lifecycle marker to resume.",
+    ),
+    (
+        "Operator marked this remediation item unknown sender",
+        "Keep the source treated as unauthorized until fresh evidence proves ownership.",
     ),
     (
         "No enabled webhook",
@@ -184,6 +200,12 @@ def _history_entry(row: WorkspaceAuditLog) -> Optional[Dict[str, Any]]:
     }
 
 
+def _lifecycle_reason_label(lifecycle_state: Optional[str]) -> str:
+    if lifecycle_state == "mark_unknown":
+        return "unknown sender"
+    return str(lifecycle_state or "").replace("_", " ")
+
+
 def _empty_domain_activity(domain: str) -> Dict[str, Any]:
     return {
         "domain": domain,
@@ -229,11 +251,11 @@ def _activity_status(summary: Dict[str, Any]) -> str:
     latest_state = summary["latest_state"]
     if latest_state == "resolved":
         return "resolved"
-    if latest_state in {"rejected", "snoozed"}:
+    if latest_state in {"rejected", "snoozed", "mark_unknown"}:
         return "operator_hold"
     if summary["dispatch_enqueued"]:
         return "dispatched"
-    if latest_state in {"previewed", "acknowledged"}:
+    if latest_state in ACKNOWLEDGED_LIFECYCLE_STATES:
         return "reviewed"
     if latest_state:
         return "activity"
@@ -529,9 +551,8 @@ def build_remediation_dispatch_preview(
 
     operator_hold = lifecycle_state in OPERATOR_HELD_LIFECYCLE_STATES
     if operator_hold:
-        blocked_reasons.append(
-            f"Operator marked this remediation item {str(lifecycle_state).replace('_', ' ')}."
-        )
+        label = _lifecycle_reason_label(lifecycle_state)
+        blocked_reasons.append(f"Operator marked this remediation item {label}.")
     else:
         if not enabled:
             blocked_reasons.append("Remediation dispatch is disabled in notification settings.")
@@ -577,11 +598,16 @@ def _verification_state(
             ),
             "recorded_at": lifecycle_recorded_at,
         }
-    if lifecycle_state in {"rejected", "snoozed"}:
+    if lifecycle_state in OPERATOR_HELD_LIFECYCLE_STATES:
+        label = (
+            LIFECYCLE_HISTORY_LABELS[lifecycle_state]
+            if lifecycle_state == "mark_unknown"
+            else str(lifecycle_state or "").replace("_", " ").title()
+        )
         return {
             "state": f"operator_{lifecycle_state}",
             "verified": False,
-            "label": lifecycle_state.replace("_", " ").title(),
+            "label": label,
             "detail": "Operator hold is active; DMARQ will keep showing current evidence.",
             "recorded_at": lifecycle_recorded_at,
         }
