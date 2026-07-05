@@ -283,6 +283,13 @@
                 <p class="mt-2 text-2xl font-bold text-[#8a6418]"
                    x-text="remediationLoop().repair_needs_evidence || 0"></p>
                 <p class="mt-1 text-xs text-[#5f5c78]">Items that must be verified before closure</p>
+                <p class="mt-2 text-xs text-[#7a4a00]">
+                    <span x-text="remediationLoop().evidence_refresh_dns || 0"></span><span> DNS</span>
+                    <span> · </span>
+                    <span x-text="remediationLoop().evidence_refresh_reports || 0"></span><span> reports</span>
+                    <span> · </span>
+                    <span x-text="remediationLoop().evidence_refresh_reputation || 0"></span><span> reputation</span>
+                </p>
             </div>
             <div class="rounded-md border border-[#d5e9f8] bg-[#f7fbff] p-4">
                 <p class="text-sm text-[#5f5c78]">Waiting on operator</p>
@@ -359,6 +366,20 @@
                     <div class="mt-3 rounded border border-[#e6e3e1] bg-[#fbfaf9] p-3 text-xs">
                         <p class="font-semibold uppercase tracking-wide text-[#8a879e]">Next verification</p>
                         <p class="mt-1 text-[#120d36]" x-text="item.verification_next_check"></p>
+                    </div>
+                    <div class="mt-3 rounded border border-[#d8ebe8] bg-[#f2fbf9] p-3 text-xs"
+                         x-show="item.evidence_refresh?.required">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <p class="font-semibold uppercase tracking-wide text-[#247982]">Fresh evidence path</p>
+                            <span class="rounded px-2 py-1 font-semibold"
+                                  :class="evidenceRefreshClass(item.evidence_refresh)"
+                                  x-text="item.evidence_refresh?.label || evidenceRefreshLabel(item.evidence_refresh)"></span>
+                        </div>
+                        <p class="mt-2 text-[#120d36]" x-text="item.evidence_refresh?.recommended_action"></p>
+                        <p class="mt-1 text-[#45505f]">
+                            <span class="font-semibold">Done when: </span>
+                            <span x-text="item.evidence_refresh?.completion_signal || item.completion_criteria"></span>
+                        </p>
                     </div>
                     <p class="mt-2 text-xs text-[#5f5c78]">
                         <span x-text="item.domain"></span>
@@ -520,10 +541,13 @@
             {% call card_header() %}
                 <div class="flex items-center justify-between">
                     {% call card_title() %}Domain Compliance{% endcall %}
-                    {% call button(variant="outline", size="sm") %}
+                    <button type="button"
+                            class="btn btn-outline btn-sm"
+                            :disabled="dashboardLoading || remediationRefreshRunning"
+                            data-dashboard-refresh>
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path></svg>
-                        Refresh
-                    {% endcall %}
+                        <span x-text="remediationRefreshRunning ? 'Refreshing...' : 'Refresh'"></span>
+                    </button>
                 </div>
                 {% call card_description() %}
                     Overview of domains and their DMARC compliance status

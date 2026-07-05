@@ -87,6 +87,11 @@ function domainDetailsApp(domainId = '') {
                 repair_approval_pending: 0,
                 repair_blocked: 0,
                 repair_needs_evidence: 0,
+                evidence_refresh_required: 0,
+                evidence_refresh_dns: 0,
+                evidence_refresh_reports: 0,
+                evidence_refresh_reputation: 0,
+                evidence_refresh_prerequisite: 0,
                 dispatch_ready: 0,
                 dispatch_blocked: 0,
                 dispatch_disabled: 0,
@@ -299,6 +304,12 @@ function domainDetailsApp(domainId = '') {
                 } else if (button.matches('[data-domain-detail-remediation-action]')) {
                     event.preventDefault();
                     this.handleRemediationAction(button);
+                } else if (button.matches('[data-domain-detail-remediation-refresh-evidence]')) {
+                    event.preventDefault();
+                    const item = this.findRemediationItem(button.dataset.remediationItemId);
+                    if (item) {
+                        this.refreshRemediationEvidence(item);
+                    }
                 } else if (button.matches('[data-domain-detail-remediation-filter]')) {
                     event.preventDefault();
                     this.remediationQueueFilter = button.dataset.domainDetailRemediationFilter || 'all';
@@ -1139,6 +1150,25 @@ function domainDetailsApp(domainId = '') {
             return Number.isFinite(score) ? Math.max(0, Math.min(100, Math.round(score))) : 0;
         },
 
+        remediationEvidenceRefreshClass(refresh) {
+            const key = String(refresh?.refresh_key || '');
+            if (key === 'dns') return 'bg-blue-100 text-blue-700';
+            if (key === 'source_reputation') return 'bg-purple-100 text-purple-700';
+            if (key === 'reports' || key === 'reports_and_sources') return 'bg-green-100 text-green-700';
+            if (key === 'provider_value') return 'bg-yellow-100 text-yellow-800';
+            return 'bg-base-200 text-base-content/70';
+        },
+
+        remediationEvidenceRefreshActionLabel(refresh) {
+            const key = String(refresh?.refresh_key || '');
+            if (key === 'dns') return 'Refresh DNS evidence';
+            if (key === 'source_reputation') return 'Refresh reputation';
+            if (key === 'reports_and_sources') return 'Refresh reports and sources';
+            if (key === 'reports') return 'Refresh reports';
+            if (key === 'provider_value') return 'Collect provider value';
+            return 'Refresh evidence';
+        },
+
         remediationRiskClass(value) {
             const risk = String(value || '').toLowerCase();
             if (risk === 'high') return 'bg-red-100 text-red-700';
@@ -1871,6 +1901,11 @@ function domainDetailsApp(domainId = '') {
                     repair_approval_pending: 0,
                     repair_blocked: 0,
                     repair_needs_evidence: 0,
+                    evidence_refresh_required: 0,
+                    evidence_refresh_dns: 0,
+                    evidence_refresh_reports: 0,
+                    evidence_refresh_reputation: 0,
+                    evidence_refresh_prerequisite: 0,
                     dispatch_ready: 0,
                     dispatch_blocked: 0,
                     dispatch_disabled: 0,
@@ -1939,6 +1974,67 @@ function domainDetailsApp(domainId = '') {
             } finally {
                 this.remediationQueueLoading = false;
                 this.remediationQueueRefreshing = false;
+            }
+        },
+
+        async refreshRemediationEvidence(item) {
+            const refresh = item?.evidence_refresh || {};
+            const key = String(refresh.refresh_key || '');
+            if (!item?.id) return;
+            if (refresh.safe_to_run === false || key === 'provider_value') {
+                this.remediationAction = {
+                    itemId: item.id,
+                    action: 'refresh_evidence',
+                    loading: false,
+                    message: refresh.recommended_action || 'Collect the missing prerequisite before refreshing evidence.',
+                    error: ''
+                };
+                return;
+            }
+            this.remediationAction = {
+                itemId: item.id,
+                action: 'refresh_evidence',
+                loading: true,
+                message: '',
+                error: ''
+            };
+            try {
+                if (key === 'dns') {
+                    await this.refreshDNSData();
+                } else if (key === 'source_reputation') {
+                    await Promise.allSettled([
+                        this.refreshSourceReputation(),
+                        this.fetchSourceIntelligence()
+                    ]);
+                } else if (key === 'reports_and_sources') {
+                    await Promise.allSettled([
+                        this.fetchReports(),
+                        this.fetchSources({ refresh: true, preserveOnFailure: true }),
+                        this.fetchSourceIntelligence()
+                    ]);
+                } else if (key === 'reports') {
+                    await Promise.allSettled([
+                        this.fetchReports(),
+                        this.fetchPosture({ refresh: true })
+                    ]);
+                }
+                await this.fetchRemediationQueue({ refresh: true });
+                this.remediationAction = {
+                    itemId: item.id,
+                    action: 'refresh_evidence',
+                    loading: false,
+                    message: 'Evidence refreshed. Review whether the item still appears in the queue.',
+                    error: ''
+                };
+            } catch (error) {
+                console.error('Error refreshing remediation evidence:', error);
+                this.remediationAction = {
+                    itemId: item.id,
+                    action: 'refresh_evidence',
+                    loading: false,
+                    message: '',
+                    error: error.message || 'Evidence refresh failed.'
+                };
             }
         },
 

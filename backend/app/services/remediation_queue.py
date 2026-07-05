@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List, Optional, Set
 
+from app.services.remediation_evidence import evidence_refresh_for_remediation_item
 from app.services.remediation_readiness import (
     OPERATOR_REVIEW_READINESS_LEVELS,
     repair_readiness_for_stage,
@@ -186,6 +187,28 @@ def _summary(items: List[Dict[str, Any]]) -> Dict[str, int]:
         ),
         "notify_summary_only": sum(
             1 for item in items if item.get("notification", {}).get("state") == "summary_only"
+        ),
+        "evidence_refresh_required": sum(
+            1 for item in items if (item.get("evidence_refresh") or {}).get("required")
+        ),
+        "evidence_refresh_dns": sum(
+            1 for item in items if (item.get("evidence_refresh") or {}).get("refresh_key") == "dns"
+        ),
+        "evidence_refresh_reports": sum(
+            1
+            for item in items
+            if (item.get("evidence_refresh") or {}).get("refresh_key")
+            in {"reports", "reports_and_sources"}
+        ),
+        "evidence_refresh_reputation": sum(
+            1
+            for item in items
+            if (item.get("evidence_refresh") or {}).get("refresh_key") == "source_reputation"
+        ),
+        "evidence_refresh_prerequisite": sum(
+            1
+            for item in items
+            if (item.get("evidence_refresh") or {}).get("refresh_key") == "provider_value"
         ),
     }
     for track in TRACKS:
@@ -455,7 +478,12 @@ def _repair_progression_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
     )
 
 
-def _apply_loop_metadata(items: List[Dict[str, Any]]) -> None:
+def _evidence_refresh_for_item(domain: str, item: Dict[str, Any]) -> Dict[str, Any]:
+    """Return the safe read-only refresh path before a remediation item is closed."""
+    return evidence_refresh_for_remediation_item(domain, item)
+
+
+def _apply_loop_metadata(domain: str, items: List[Dict[str, Any]]) -> None:
     for item in items:
         item["incident_type"] = _incident_type_for_item(item)
         item["loop_state"] = _loop_state_for_item(item)
@@ -465,6 +493,7 @@ def _apply_loop_metadata(items: List[Dict[str, Any]]) -> None:
         item["priority_band"] = _priority_band(item, score=priority_score)
         item["operator_decisions"] = _operator_decision_options(item)
         item["repair_progression"] = _repair_progression_for_item(item)
+        item["evidence_refresh"] = _evidence_refresh_for_item(domain, item)
 
 
 def _loop_summary(domain: str, items: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -514,6 +543,11 @@ def _loop_summary(domain: str, items: List[Dict[str, Any]]) -> Dict[str, Any]:
         "rollback_guidance": summary["rollback_guidance"],
         "closure_gate_required": summary["closure_gate_required"],
         "stale_evidence_warning": summary["stale_evidence_warning"],
+        "evidence_refresh_required": summary["evidence_refresh_required"],
+        "evidence_refresh_dns": summary["evidence_refresh_dns"],
+        "evidence_refresh_reports": summary["evidence_refresh_reports"],
+        "evidence_refresh_reputation": summary["evidence_refresh_reputation"],
+        "evidence_refresh_prerequisite": summary["evidence_refresh_prerequisite"],
         "top_item_id": next_item.get("id") if next_item else None,
         "top_incident_type": next_item.get("incident_type") if next_item else None,
         "top_loop_state": next_item.get("loop_state") if next_item else None,
@@ -575,6 +609,7 @@ def _remediation_notification_payload(domain: str, item: Dict[str, Any]) -> Dict
     action_plan = item.get("action_plan") or {}
     verification_plan = item.get("verification_plan") or {}
     repair_progression = item.get("repair_progression") or {}
+    evidence_refresh = item.get("evidence_refresh") or {}
     return {
         "schema_version": "dmarq.remediation.notification.v1",
         "domain": domain,
@@ -610,6 +645,19 @@ def _remediation_notification_payload(domain: str, item: Dict[str, Any]) -> Dict
             "manual_fallback": bool(repair_progression.get("manual_fallback")),
             "verification_required": bool(repair_progression.get("verification_required")),
             "verification_status": str(repair_progression.get("verification_status") or ""),
+        },
+        "evidence_refresh": {
+            "required": bool(evidence_refresh.get("required")),
+            "source": str(evidence_refresh.get("source") or ""),
+            "refresh_key": str(evidence_refresh.get("refresh_key") or ""),
+            "label": str(evidence_refresh.get("label") or ""),
+            "safe_to_run": bool(evidence_refresh.get("safe_to_run")),
+            "recommended_action": str(evidence_refresh.get("recommended_action") or ""),
+            "completion_signal": str(evidence_refresh.get("completion_signal") or ""),
+            "stale_warning": str(evidence_refresh.get("stale_warning") or ""),
+            "next_check": str(evidence_refresh.get("next_check") or ""),
+            "ui_anchor": str(evidence_refresh.get("ui_anchor") or ""),
+            "endpoint_hint": str(evidence_refresh.get("endpoint_hint") or ""),
         },
         "title": str(item.get("title") or ""),
         "detail": str(item.get("detail") or ""),
@@ -1227,7 +1275,7 @@ def build_remediation_queue(
             continue
         items.append(_health_item(domain, action))
 
-    _apply_loop_metadata(items)
+    _apply_loop_metadata(domain, items)
     _attach_notification_profiles(domain, items)
     items.sort(
         key=lambda item: (

@@ -95,6 +95,11 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
         "rollback_guidance": 2,
         "closure_gate_required": 2,
         "stale_evidence_warning": 2,
+        "evidence_refresh_required": 2,
+        "evidence_refresh_dns": 1,
+        "evidence_refresh_reports": 1,
+        "evidence_refresh_reputation": 0,
+        "evidence_refresh_prerequisite": 0,
         "notify_approval_required": 1,
         "notify_action_required": 0,
         "notify_investigation_required": 1,
@@ -134,6 +139,11 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
         "rollback_guidance": 2,
         "closure_gate_required": 2,
         "stale_evidence_warning": 2,
+        "evidence_refresh_required": 2,
+        "evidence_refresh_dns": 1,
+        "evidence_refresh_reports": 1,
+        "evidence_refresh_reputation": 0,
+        "evidence_refresh_prerequisite": 0,
         "top_item_id": "dns:dmarc-missing",
         "top_incident_type": "dmarc_policy_missing_or_weak",
         "top_loop_state": "proposal_ready_for_approval",
@@ -220,8 +230,27 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
         "provider preview was approved" in evidence
         for evidence in queue["items"][0]["verification_plan"]["evidence_needed"]
     )
+    assert queue["items"][0]["evidence_refresh"] == {
+        "required": True,
+        "source": "dns",
+        "refresh_key": "dns",
+        "label": "Refresh DNS evidence",
+        "safe_to_run": True,
+        "recommended_action": (
+            "Refresh DNS records, DNS lint, posture, and the remediation queue after the DNS TTL."
+        ),
+        "completion_signal": "The original DNS finding is absent from the refreshed queue.",
+        "stale_warning": (
+            "Do not mark this fixed from the preview alone; DNS propagation evidence is required."
+        ),
+        "next_check": "Refresh DNS posture after provider propagation, then rebuild the queue.",
+        "ui_anchor": "#dns-records",
+        "endpoint_hint": "/api/v1/domains/example.com/dns?refresh=true",
+    }
     assert queue["items"][1]["verification_plan"]["status"] == "pending_sender_review"
     assert "next receiver report window" in queue["items"][1]["verification_plan"]["next_check"]
+    assert queue["items"][1]["evidence_refresh"]["refresh_key"] == "reports_and_sources"
+    assert queue["items"][1]["evidence_refresh"]["ui_anchor"] == "#sending-sources"
     notification = queue["items"][0]["notification"]
     assert notification == {
         "state": "approval_required",
@@ -282,6 +311,23 @@ def test_remediation_queue_prioritizes_provider_ready_dns_plan():
             "next_safe_action": (
                 "Open the provider preview, compare old and new DNS values, then approve or reject."
             ),
+        },
+        "evidence_refresh": {
+            "required": True,
+            "source": "dns",
+            "refresh_key": "dns",
+            "label": "Refresh DNS evidence",
+            "safe_to_run": True,
+            "recommended_action": (
+                "Refresh DNS records, DNS lint, posture, and the remediation queue after the DNS TTL."
+            ),
+            "completion_signal": "The original DNS finding is absent from the refreshed queue.",
+            "stale_warning": (
+                "Do not mark this fixed from the preview alone; DNS propagation evidence is required."
+            ),
+            "next_check": "Refresh DNS posture after provider propagation, then rebuild the queue.",
+            "ui_anchor": "#dns-records",
+            "endpoint_hint": "/api/v1/domains/example.com/dns?refresh=true",
         },
         "title": "Publish DMARC",
         "detail": "No DMARC TXT record was found.",

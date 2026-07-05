@@ -112,6 +112,14 @@ before approving, closing, or converting a remediation item.
 Verification cards include a closure gate and stale-evidence warning. This is
 the rule DMARQ expects before an operator-resolved item should become an
 evidence-verified repair.
+Each remediation card also shows a **Fresh evidence path**. It names the
+evidence that must be refreshed before the item can be closed safely, such as
+DNS records, DMARC reports, sending-source intelligence, source reputation, or
+a provider-specific DKIM/SPF/CNAME value. When the action is safe and read-only,
+the card offers a focused refresh button that reloads the relevant backend
+evidence and then rebuilds the queue. If a missing provider value is the blocker,
+DMARQ shows that prerequisite instead of pretending it can refresh or repair the
+item automatically.
 The queue header also counts closure gates and rollback notes, so operators can
 spot how much work still needs fresh evidence or a recovery plan before opening
 every remediation card.
@@ -171,6 +179,10 @@ Dashboard action-plan cards and remediation-loop cards both deep-link into the
 selected domain's remediation queue. Use those links when triaging workspace
 health: they keep the operator on the evidence and approval surface instead of
 dropping them on a generic domain overview.
+The dashboard remediation loop also mirrors the Fresh Evidence path from the
+domain queue. Its evidence-gated counters split the queue into DNS, report, and
+reputation refreshes, and each remediation card states the concrete read-only
+evidence action that should happen before the operator marks an item fixed.
 
 ### Source Intelligence
 

@@ -111,6 +111,7 @@ from app.services.remediation_dispatch import (
     attach_remediation_dispatch_previews,
     summarize_remediation_activity,
 )
+from app.services.remediation_evidence import evidence_refresh_for_remediation_item
 from app.services.remediation_queue import build_remediation_queue
 from app.services.remediation_readiness import (
     OPERATOR_REVIEW_READINESS_LEVELS,
@@ -1240,6 +1241,22 @@ class RemediationRepairProgression(BaseModel):
     verification_status: str = ""
 
 
+class RemediationEvidenceRefresh(BaseModel):
+    """Read-only refresh path for the evidence needed to close one remediation item."""
+
+    required: bool = True
+    source: str = ""
+    refresh_key: str = ""
+    label: str = ""
+    safe_to_run: bool = True
+    recommended_action: str = ""
+    completion_signal: str = ""
+    stale_warning: str = ""
+    next_check: str = ""
+    ui_anchor: str = ""
+    endpoint_hint: str = ""
+
+
 class RemediationNotification(BaseModel):
     """Read-only notification routing metadata for one remediation item."""
 
@@ -1278,6 +1295,7 @@ class RemediationQueueItem(BaseModel):
     action_plan: RemediationActionPlan
     verification_plan: RemediationVerificationPlan
     repair_progression: RemediationRepairProgression
+    evidence_refresh: RemediationEvidenceRefresh = Field(default_factory=RemediationEvidenceRefresh)
     automation: RemediationAutomation
     notification: RemediationNotification
 
@@ -2205,12 +2223,14 @@ def _dashboard_remediation_item(
         "operator_decisions": _remediation_operator_decisions(state),
         "repair_progression": _dashboard_repair_progression(state, action),
         "severity": str(action.get("severity") or "info"),
+        "source": str(action.get("source") or "domain_health"),
         "title": str(action.get("title") or "Review remediation item"),
         "next_step": str(action.get("next_step") or "Review the domain evidence."),
         "score_impact": int(action.get("score_impact") or 0),
         "type": str(action.get("type") or "health_action"),
         **context,
     }
+    item["evidence_refresh"] = evidence_refresh_for_remediation_item(domain_name, item)
     if include_detail:
         item["detail"] = str(action.get("detail") or "")
     return item
@@ -2238,6 +2258,25 @@ def _increment_repair_counters(counters: Dict[str, int], item: Dict[str, Any]) -
     )
 
 
+def _increment_evidence_refresh_counters(
+    counters: Dict[str, int],
+    item: Dict[str, Any],
+) -> None:
+    """Count read-only evidence refresh paths for dashboard summaries."""
+    evidence_refresh = item.get("evidence_refresh") or {}
+    if evidence_refresh.get("required"):
+        counters["evidence_refresh_required"] += 1
+    refresh_key = str(evidence_refresh.get("refresh_key") or "")
+    if refresh_key == "dns":
+        counters["evidence_refresh_dns"] += 1
+    if refresh_key in {"reports", "reports_and_sources"}:
+        counters["evidence_refresh_reports"] += 1
+    if refresh_key == "source_reputation":
+        counters["evidence_refresh_reputation"] += 1
+    if refresh_key == "provider_value":
+        counters["evidence_refresh_prerequisite"] += 1
+
+
 def _build_dashboard_remediation_loop(
     domains: List[Dict[str, Any]],
     remediation_activity: Dict[str, Any],
@@ -2260,6 +2299,11 @@ def _build_dashboard_remediation_loop(
         "repair_waiting_on_operator": 0,
         "repair_readiness_blocked": 0,
         "repair_readiness_score": 0,
+        "evidence_refresh_required": 0,
+        "evidence_refresh_dns": 0,
+        "evidence_refresh_reports": 0,
+        "evidence_refresh_reputation": 0,
+        "evidence_refresh_prerequisite": 0,
     }
     track_counters = {f"track_{track}": 0 for track in REMEDIATION_TRACKS}
     items: List[Dict[str, Any]] = []
@@ -2272,6 +2316,7 @@ def _build_dashboard_remediation_loop(
             counters[state] += 1
             item = _dashboard_remediation_item(domain_name, action)
             _increment_repair_counters(counters, item)
+            _increment_evidence_refresh_counters(counters, item)
             track_counters[f"track_{item['remediation_track']}"] += 1
             items.append(item)
 
@@ -2309,6 +2354,7 @@ def _build_dashboard_remediation_loop(
         "dispatch_enqueued": int(activity_summary.get("dispatch_enqueued") or 0),
         "operator_follow_up": int(activity_summary.get("needs_operator_follow_up") or 0),
         "status": "clear" if total_open == 0 else "needs_attention",
+        "top_incident_type": str(items[0].get("incident_type") or "") if items else "",
         "items": items[:5],
     }
 
@@ -2326,6 +2372,11 @@ def _domain_remediation_workload(domain: Dict[str, Any]) -> Dict[str, Any]:
         "repair_waiting_on_operator": 0,
         "repair_readiness_blocked": 0,
         "repair_readiness_score": 0,
+        "evidence_refresh_required": 0,
+        "evidence_refresh_dns": 0,
+        "evidence_refresh_reports": 0,
+        "evidence_refresh_reputation": 0,
+        "evidence_refresh_prerequisite": 0,
     }
     track_counters = {f"track_{track}": 0 for track in REMEDIATION_TRACKS}
     items: List[Dict[str, Any]] = []
@@ -2335,6 +2386,7 @@ def _domain_remediation_workload(domain: Dict[str, Any]) -> Dict[str, Any]:
         counters[state] += 1
         item = _dashboard_remediation_item(domain_name, action, include_detail=False)
         _increment_repair_counters(counters, item)
+        _increment_evidence_refresh_counters(counters, item)
         track_counters[f"track_{item['remediation_track']}"] += 1
         items.append(item)
 

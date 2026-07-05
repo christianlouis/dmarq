@@ -349,11 +349,22 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "Waiting on operator" in template
     assert "Blocked before repair" in template
     assert "remediationLoop().next_action" in template
-    assert "remediationLoopStatusClass(remediationLoop().status || remediationLoop().loop_status)" in template
-    assert "remediationLoopStatusLabel(remediationLoop().status || remediationLoop().loop_status)" in template
+    assert (
+        "remediationLoopStatusClass(remediationLoop().status || remediationLoop().loop_status)"
+        in template
+    )
+    assert (
+        "remediationLoopStatusLabel(remediationLoop().status || remediationLoop().loop_status)"
+        in template
+    )
     assert "remediationIncidentLabel(remediationLoop().top_incident_type)" in template
+    assert "data-dashboard-refresh" in template
+    assert "data-dashboard-refresh" in script
     assert "data-dashboard-remediation-refresh" in template
     assert "data-dashboard-remediation-refresh" in script
+    assert "Fresh evidence path" in template
+    assert "evidenceRefreshLabel(workload.primary.evidence_refresh)" in script
+    assert "Evidence: provider value required" in script
     assert "remediationRefreshRunning" in script
     assert "dashboardRefreshError" in script
     assert "Showing the previously loaded dashboard data." in script
