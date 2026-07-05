@@ -1617,6 +1617,9 @@ def test_domain_details_distinguishes_evidence_verified_repairs_without_html_inj
     assert "verifiedFreshnessWarning(verified)" in template
     assert "verifiedFreshnessClass(verified)" in script
     assert "verifiedFreshnessWarning(verified)" in script
+    assert "verifiedFreshnessCounts()" in template
+    assert "verifiedFreshnessCounts()" in script
+    assert "unknown age" in template
     assert "Freshness gate" in template
     assert "Refresh the remediation queue and evidence before relying on this repair" in script
     assert "verified.detail" in template

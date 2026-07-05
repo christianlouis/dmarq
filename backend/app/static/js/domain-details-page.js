@@ -1317,6 +1317,19 @@ function domainDetailsApp(domainId = '') {
             return this.showAllVerifiedRemediationItems ? items : items.slice(0, VERIFIED_ITEMS_COMPACT_LIMIT);
         },
 
+        verifiedFreshnessCounts() {
+            return (this.remediationQueue.verified_items || []).reduce(
+                (counts, item) => {
+                    const status = String(item?.freshness_status || '');
+                    if (status === 'current_queue_absence') counts.current += 1;
+                    else if (status === 'stale_queue_absence') counts.stale += 1;
+                    else counts.unknown += 1;
+                    return counts;
+                },
+                { current: 0, stale: 0, unknown: 0 }
+            );
+        },
+
         visibleRemediationQueueItems() {
             const items = this.filteredRemediationQueueItems(this.remediationQueueFilter);
             return this.showAllRemediationQueueItems ? items : items.slice(0, 6);

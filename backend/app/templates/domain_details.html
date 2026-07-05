@@ -505,6 +505,17 @@
                                     <span x-text="verifiedItemsTotalCount()"></span><span> no longer observed</span>
                                 </span>
                             </div>
+                            <div class="mt-2 flex flex-wrap gap-2 text-xs">
+                                <span class="rounded bg-teal-100 px-2 py-1 font-semibold text-teal-700">
+                                    <span x-text="verifiedFreshnessCounts().current"></span><span> fresh</span>
+                                </span>
+                                <span class="rounded bg-yellow-100 px-2 py-1 font-semibold text-yellow-800">
+                                    <span x-text="verifiedFreshnessCounts().stale"></span><span> stale</span>
+                                </span>
+                                <span class="rounded bg-orange-100 px-2 py-1 font-semibold text-orange-700">
+                                    <span x-text="verifiedFreshnessCounts().unknown"></span><span> unknown age</span>
+                                </span>
+                            </div>
                             <div class="mt-2 grid gap-2 md:grid-cols-2">
                                 <template x-for="verified in visibleVerifiedItems()"
                                           :key="'verified-' + verified.item_id">
