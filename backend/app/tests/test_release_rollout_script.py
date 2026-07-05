@@ -82,7 +82,10 @@ def test_release_workflow_skips_gitops_for_stale_main_runs():
     assert workflow.count("Confirm source ref is still current") == 2
     assert workflow.count("https://api.github.com/repos/${{ github.repository }}/commits/main") == 2
     assert workflow.count("Skipping GitOps update because main advanced") == 2
-    assert workflow.count("Skipping GitOps update because the current main SHA could not be resolved") == 2
+    assert (
+        workflow.count("Skipping GitOps update because the current main SHA could not be resolved")
+        == 2
+    )
     assert workflow.count("steps.source-ref.outputs.current == 'true'") == 6
     assert (
         'if [ "${{ github.event_name }}" != "push" ] || '
