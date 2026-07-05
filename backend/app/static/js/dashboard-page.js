@@ -1151,6 +1151,40 @@ function dashboardApp() {
                 '';
         },
 
+        verificationPlanStatusLabel(plan) {
+            const status = typeof plan === 'string' ? plan : plan?.status;
+            return {
+                pending_operator_approval: 'Needs approval',
+                pending_sender_review: 'Sender review',
+                pending_reputation_review: 'Reputation review',
+                pending_report_evidence: 'Fresh evidence',
+                blocked_by_prerequisite: 'Blocked'
+            }[String(status || '')] || 'Verification needed';
+        },
+
+        verificationPlanStatusClass(plan) {
+            const status = typeof plan === 'string' ? plan : plan?.status;
+            return {
+                pending_operator_approval: 'bg-[#edf7f7] text-[#247982]',
+                pending_sender_review: 'bg-blue-100 text-blue-700',
+                pending_reputation_review: 'bg-purple-100 text-purple-700',
+                pending_report_evidence: 'bg-yellow-100 text-yellow-800',
+                blocked_by_prerequisite: 'bg-red-100 text-red-700'
+            }[String(status || '')] || 'bg-[#f8f7f6] text-[#5f5c78]';
+        },
+
+        verificationPlanFailureMode(plan) {
+            return plan?.failure_mode || 'Keep this open until fresh evidence confirms the finding is gone.';
+        },
+
+        verificationPlanEvidenceNeededText(plan) {
+            const evidence = plan?.evidence_needed || [];
+            if (Array.isArray(evidence) && evidence.length) {
+                return evidence.slice(0, 3).join(' · ');
+            }
+            return 'Fresh DNS, report, or source evidence.';
+        },
+
         remediationLoopStatusLabel(status) {
             return {
                 clear: 'Clear',

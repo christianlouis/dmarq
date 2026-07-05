@@ -421,6 +421,10 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "Next safe action" in template
     assert "item.verification_plan?.freshness_requirement" in template
     assert "item.verification_plan?.closure_gate" in template
+    assert "verificationPlanStatusClass(item.verification_plan)" in template
+    assert "verificationPlanStatusLabel(item.verification_plan)" in template
+    assert "verificationPlanFailureMode(item.verification_plan)" in template
+    assert "verificationPlanEvidenceNeededText(item.verification_plan)" in template
     assert "repairReadinessClass(item.repair_progression)" in template
     assert "repairReadinessLabel(item.repair_progression)" in template
     assert "repairReadinessScore(item.repair_progression)" in template
@@ -451,6 +455,11 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "repairReadinessClass(progression)" in script
     assert "repairReadinessLabel(progression)" in script
     assert "repairReadinessScore(progression)" in script
+    assert "verificationPlanStatusLabel(plan)" in script
+    assert "pending_reputation_review: 'Reputation review'" in script
+    assert "verificationPlanStatusClass(plan)" in script
+    assert "verificationPlanFailureMode(plan)" in script
+    assert "verificationPlanEvidenceNeededText(plan)" in script
 
 
 def test_dashboard_remediation_filters_and_sorts_cards():
