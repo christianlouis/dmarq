@@ -356,7 +356,7 @@ function dashboardApp() {
                 new Set(sources.flatMap(source => source.new_domains || []))
             );
             const skipped = sources.filter(source => source.skipped).length;
-            const failed = sources.filter(source => source.success === false).length;
+            const failed = sources.filter(source => !source.skipped && source.success === false).length;
             const attention = sources.filter(source => source.diagnostic_category && ![
                 'ok',
                 'duplicate_only'

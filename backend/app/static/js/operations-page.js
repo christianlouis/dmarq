@@ -52,7 +52,7 @@ function operationsHealth() {
         get mailSourcesAttentionLabel() {
             const attention = this.scheduler.attention_sources || 0;
             if (!attention) return 'No attention needed';
-            return `${attention} need attention`;
+            return attention === 1 ? '1 needs attention' : `${attention} need attention`;
         },
 
         get hasMailSourceAttention() {
