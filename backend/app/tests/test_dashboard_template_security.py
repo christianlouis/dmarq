@@ -365,6 +365,10 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "dashboardRemediationFilterOptions" in script
     assert "{ value: 'fresh_evidence', label: 'Fresh evidence' }" in script
     assert "{ value: 'approval_verification', label: 'Approval' }" in script
+    assert "{ value: 'notify_ready', label: 'Ready to notify' }" in script
+    assert "{ value: 'dispatched', label: 'Dispatched' }" in script
+    assert "{ value: 'follow_up', label: 'Follow-up' }" in script
+    assert "{ value: 'dispatch_blocked', label: 'Dispatch blocked' }" in script
     assert "{ value: 'sender_review', label: 'Sender review' }" in script
     assert "{ value: 'report_evidence', label: 'Report evidence' }" in script
     assert "{ value: 'stale_evidence', label: 'Stale evidence' }" in script
@@ -372,6 +376,7 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "showAllDashboardRemediationItems" in script
     assert "data-dashboard-remediation-sort" in template
     assert "data-dashboard-remediation-sort" in script
+    assert '<option value="dispatch">Dispatch follow-up</option>' in template
     assert "data-dashboard-remediation-filter" in template
     assert "data-dashboard-remediation-filter" in script
     assert "data-dashboard-remediation-toggle-all" in template
@@ -443,6 +448,9 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "verificationPlanStatusLabel(item.verification_plan)" in template
     assert "verificationPlanFailureMode(item.verification_plan)" in template
     assert "verificationPlanEvidenceNeededText(item.verification_plan)" in template
+    assert "dashboardRemediationDispatchText(item)" in template
+    assert "dashboardRemediationDispatchRank(item)" in script
+    assert "dashboardRemediationActivity(item)" in script
     assert "repairReadinessClass(item.repair_progression)" in template
     assert "repairReadinessLabel(item.repair_progression)" in template
     assert "repairReadinessScore(item.repair_progression)" in template
@@ -614,8 +622,39 @@ def test_dashboard_remediation_filters_and_sorts_cards():
                         readiness_score: 45
                     },
                     verification_plan: { status: 'pending_report_evidence' }
+                },
+                {
+                    domain: 'dispatch.example',
+                    state: 'manual_action',
+                    remediation_track: 'manual_dns',
+                    priority_score: 8,
+                    severity: 'high',
+                    repair_progression: {
+                        readiness_level: 'manual_repair',
+                        stage: 'operator_review',
+                        readiness_score: 50
+                    },
+                    verification_plan: { status: 'pending_report_evidence' },
+                    notification: {
+                        dispatch: {
+                            enabled: true,
+                            eligible: false,
+                            blocked_reasons: [
+                                'No enabled webhook endpoint is subscribed to this event.'
+                            ]
+                        }
+                    }
                 }
             ] } };
+            app.domains = [
+                {
+                    domain_name: 'dispatch.example',
+                    remediation: {
+                        dispatch_enqueued: 2,
+                        needs_operator_follow_up: true
+                    }
+                }
+            ];
             app.dashboardRemediationFilter = 'fresh_evidence';
             app.dashboardRemediationSort = 'freshness';
             return [
@@ -625,6 +664,10 @@ def test_dashboard_remediation_filters_and_sorts_cards():
                 app.dashboardRemediationFilterCount('provider_apply'),
                 app.dashboardRemediationFilterCount('apply_blocked'),
                 app.dashboardRemediationFilterCount('provider_history'),
+                app.dashboardRemediationFilterCount('notify_ready'),
+                app.dashboardRemediationFilterCount('dispatched'),
+                app.dashboardRemediationFilterCount('follow_up'),
+                app.dashboardRemediationFilterCount('dispatch_blocked'),
                 app.dashboardRemediationFilterCount('sender_review'),
                 app.dashboardRemediationFilterCount('report_evidence'),
                 app.dashboardRemediationFilteredCount(),
@@ -632,7 +675,67 @@ def test_dashboard_remediation_filters_and_sorts_cards():
             ].join('|');
         })()""")
 
-    assert result == "1|1|2|2|1|1|1|1|4|blocked.example"
+    assert result == "1|1|2|2|1|1|0|1|1|1|1|2|4|blocked.example"
+
+
+def test_dashboard_remediation_dispatch_activity_filters_and_labels():
+    result = _run_dashboard_expression("""(() => {
+            app.healthSummary = { remediation_loop: { items: [
+                {
+                    domain: 'follow.example',
+                    state: 'manual_action',
+                    priority_score: 7,
+                    severity: 'high',
+                    notification: { dispatch: { enabled: true, eligible: false } }
+                },
+                {
+                    domain: 'ready.example',
+                    state: 'needs_approval',
+                    priority_score: 9,
+                    severity: 'medium',
+                    notification: { dispatch: { enabled: true, eligible: true } }
+                },
+                {
+                    domain: 'blocked.example',
+                    state: 'investigate',
+                    priority_score: 6,
+                    severity: 'medium',
+                    notification: {
+                        dispatch: {
+                            enabled: true,
+                            eligible: false,
+                            blocked_reasons: [
+                                'No enabled webhook endpoint is subscribed to this event.'
+                            ]
+                        }
+                    }
+                }
+            ] } };
+            app.domains = [
+                {
+                    domain_name: 'follow.example',
+                    remediation: {
+                        dispatch_enqueued: 3,
+                        needs_operator_follow_up: true
+                    }
+                }
+            ];
+            app.dashboardRemediationFilter = 'follow_up';
+            app.dashboardRemediationSort = 'dispatch';
+            return [
+                app.dashboardRemediationFilterCount('notify_ready'),
+                app.dashboardRemediationFilterCount('dispatched'),
+                app.dashboardRemediationFilterCount('follow_up'),
+                app.dashboardRemediationFilterCount('dispatch_blocked'),
+                app.visibleDashboardRemediationItems()[0].domain,
+                app.dashboardRemediationDispatchText(app.visibleDashboardRemediationItems()[0])
+            ].join('|');
+        })()""")
+
+    assert result == (
+        "1|1|1|2|follow.example|"
+        "3 notifications dispatched · operator follow-up needed"
+    )
 
 
 def test_dashboard_remediation_stale_evidence_links_to_evidence_anchor():
@@ -689,6 +792,8 @@ def test_domain_list_remediation_cell_shows_provider_workload_summary():
             const cell = app.createRemediationCell(
                 {
                     status: 'dispatched',
+                    latest_label: 'Dispatch enqueued',
+                    latest_at: '2026-07-06T03:00:00Z',
                     dispatch_enqueued: 1,
                     needs_operator_follow_up: true
                 },
@@ -720,6 +825,7 @@ def test_domain_list_remediation_cell_shows_provider_workload_summary():
     assert "1 verified" in result
     assert "1 dispatched" in result
     assert "1 follow-up" in result
+    assert "Dispatch enqueued" in result
 
 
 def test_domain_details_remediation_queue_shows_verification_context():

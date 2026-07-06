@@ -86,6 +86,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dashboard remediation summaries now count provider previews, apply-after-approval items, blocked applies, and missing provider values.
 - Dashboard remediation summaries and domain rows now also surface provider apply attempts and verified provider applies.
 - Dashboard remediation summaries and domain rows now surface notification dispatches and operator follow-up activity.
+- Dashboard remediation cards can now be filtered and sorted by notification dispatch readiness, dispatched work, operator follow-up, and dispatch blockers.
+- Dashboard remediation filters now receive a larger bounded working set from the backend instead of only the first compact card page.
+- Domain remediation rows now show the latest operator or dispatch activity label and timestamp beside the active remediation workload.
 - Domain remediation queue summaries now count provider apply attempts and verified provider applies from audit history.
 - Reorganized repository: moved development docs (`AGENTS.md`, `ROADMAP.md`, `ISSUE_GENERATION_SUMMARY.md`, `generated_issues/`) into `docs/`
 - Added root-level `CHANGELOG.md` and `TODO.md`

@@ -2363,6 +2363,34 @@ def test_dashboard_remediation_loop_is_clear_without_current_actions():
     assert loop["repair_blocked"] == 0
 
 
+def test_dashboard_remediation_loop_returns_filterable_working_set():
+    """Dashboard filters should receive more than the first compact-card page."""
+    loop = domains_endpoint._build_dashboard_remediation_loop(
+        domains=[
+            {
+                "domain_name": f"domain-{index}.example",
+                "health": {
+                    "actions": [
+                        {
+                            "type": "missing_dmarc",
+                            "severity": "high",
+                            "title": f"Publish DMARC {index}",
+                            "detail": "No DMARC policy was found.",
+                            "next_step": "Publish a DMARC TXT record.",
+                            "score_impact": 30,
+                        }
+                    ]
+                },
+            }
+            for index in range(8)
+        ],
+        remediation_activity={"summary": {}},
+    )
+
+    assert loop["total_open"] == 8
+    assert len(loop["items"]) == 8
+
+
 @pytest.mark.parametrize(
     "action_type",
     ["source_reputation_listed", "source_reputation_review"],

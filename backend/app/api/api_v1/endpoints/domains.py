@@ -1988,6 +1988,7 @@ REMEDIATION_SEVERITY_RANK = {
     "low": 1,
     "info": 0,
 }
+REMEDIATION_DASHBOARD_ITEM_LIMIT = 25
 REMEDIATION_STATE_PRIORITY = {
     "needs_approval": 40,
     "manual_action": 30,
@@ -2653,7 +2654,7 @@ def _build_dashboard_remediation_loop(
         "operator_follow_up": int(activity_summary.get("needs_operator_follow_up") or 0),
         "status": "clear" if total_open == 0 else "needs_attention",
         "top_incident_type": str(items[0].get("incident_type") or "") if items else "",
-        "items": items[:5],
+        "items": items[:REMEDIATION_DASHBOARD_ITEM_LIMIT],
     }
 
 
