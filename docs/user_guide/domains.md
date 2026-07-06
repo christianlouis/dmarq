@@ -236,7 +236,11 @@ When provider apply history exists, the dashboard and domain rows show the
 attempt count and how many applies have been verified by follow-up evidence.
 The same dashboard area also surfaces confirmed notification dispatches and
 operator follow-up activity so remediation work does not disappear after a
-webhook has been queued.
+webhook has been queued. Use the dashboard dispatch filters to focus on items
+that are ready to notify, already dispatched, blocked before dispatch, or still
+waiting for acknowledgement or follow-up. Domain rows also show the latest
+operator or dispatch activity timestamp alongside the active remediation
+workload, so stale history is easier to separate from current work.
 Items with stale DNS, report, or reputation evidence can be filtered separately.
 When a remediation card knows the relevant evidence section, the dashboard links
 directly to that part of the domain detail page.

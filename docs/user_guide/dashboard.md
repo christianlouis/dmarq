@@ -87,7 +87,9 @@ summary before linking to the selected domain for the full evidence, approval,
 and verification flow. Filter chips let you isolate preview-ready repairs,
 approval verification, sender review, report-evidence follow-up, blocked work,
 manual work, reputation review, and stale-evidence cases without opening every
-domain.
+domain. The same filter bar can now isolate remediation notifications that are
+ready to send, already dispatched, blocked by notification settings, or waiting
+for operator follow-up after dispatch.
 Open the domain detail queue for the full provider-repair plan. That view shows
 whether a DNS item has a safe provider preview, can be applied only after
 explicit approval, is blocked by missing provider values, or should fall back to

@@ -23,6 +23,10 @@ function dashboardApp() {
             { value: 'provider_apply', label: 'Provider apply' },
             { value: 'apply_blocked', label: 'Apply blocked' },
             { value: 'provider_history', label: 'Provider history' },
+            { value: 'notify_ready', label: 'Ready to notify' },
+            { value: 'dispatched', label: 'Dispatched' },
+            { value: 'follow_up', label: 'Follow-up' },
+            { value: 'dispatch_blocked', label: 'Dispatch blocked' },
             { value: 'sender_review', label: 'Sender review' },
             { value: 'report_evidence', label: 'Report evidence' },
             { value: 'stale_evidence', label: 'Stale evidence' },
@@ -1020,6 +1024,14 @@ function dashboardApp() {
                     (Number(b?.priority_score) || 0) - (Number(a?.priority_score) || 0)
                 ));
             }
+            if (this.dashboardRemediationSort === 'dispatch') {
+                return list.sort((a, b) => (
+                    this.dashboardRemediationDispatchRank(a) -
+                    this.dashboardRemediationDispatchRank(b) ||
+                    this.remediationLoopItemRank(a) - this.remediationLoopItemRank(b) ||
+                    (Number(b?.priority_score) || 0) - (Number(a?.priority_score) || 0)
+                ));
+            }
             return Array.isArray(items)
                 ? [...items].sort((a, b) => (
                     this.remediationLoopItemRank(a) - this.remediationLoopItemRank(b) ||
@@ -1102,6 +1114,26 @@ function dashboardApp() {
                 return Number(progression.provider_apply_history || 0) > 0 ||
                     Number(progression.provider_apply_verified || 0) > 0;
             }
+            if (filterValue === 'notify_ready') {
+                return Boolean(item?.notification?.dispatch?.eligible);
+            }
+            if (filterValue === 'dispatched') {
+                const activity = this.dashboardRemediationActivity(item);
+                return Number(activity.dispatch_enqueued || 0) > 0 ||
+                    Boolean(item?.notification?.dispatch?.delivery_enqueued);
+            }
+            if (filterValue === 'follow_up') {
+                const activity = this.dashboardRemediationActivity(item);
+                const dispatch = item?.notification?.dispatch || {};
+                return Boolean(activity.needs_operator_follow_up) ||
+                    Boolean(dispatch.requires_lifecycle_acknowledgement) ||
+                    Boolean(dispatch.operator_hold);
+            }
+            if (filterValue === 'dispatch_blocked') {
+                const dispatch = item?.notification?.dispatch || {};
+                return Boolean(dispatch.enabled && !dispatch.eligible) ||
+                    (dispatch.blocked_reasons || []).length > 0;
+            }
             if (filterValue === 'sender_review') {
                 return verificationStatus === 'pending_sender_review';
             }
@@ -1135,6 +1167,44 @@ function dashboardApp() {
                     refreshKey === 'source_reputation';
             }
             return true;
+        },
+
+        dashboardRemediationActivity(item) {
+            const domainName = typeof item === 'string' ? item : item?.domain;
+            if (!domainName) return {};
+            const domain = this.domains.find(
+                entry => entry.domain_name === domainName || entry.id === domainName
+            );
+            return domain?.remediation || {};
+        },
+
+        dashboardRemediationDispatchRank(item) {
+            const activity = this.dashboardRemediationActivity(item);
+            const dispatch = item?.notification?.dispatch || {};
+            if (Boolean(activity.needs_operator_follow_up) || Boolean(dispatch.operator_hold)) return 0;
+            if (Number(activity.dispatch_enqueued || 0) > 0 || dispatch.delivery_enqueued) return 1;
+            if (dispatch.enabled && !dispatch.eligible) return 2;
+            if (dispatch.eligible) return 3;
+            return 4;
+        },
+
+        dashboardRemediationDispatchText(item) {
+            const activity = this.dashboardRemediationActivity(item);
+            const dispatch = item?.notification?.dispatch || {};
+            const parts = [];
+            const dispatched = Number(activity.dispatch_enqueued || 0);
+            if (dispatched) {
+                parts.push(`${this.formatLargeNumber(dispatched)} notification${dispatched === 1 ? '' : 's'} dispatched`);
+            }
+            if (activity.needs_operator_follow_up || dispatch.requires_lifecycle_acknowledgement) {
+                parts.push('operator follow-up needed');
+            }
+            if (dispatch.eligible) {
+                parts.push('ready to notify');
+            } else if (dispatch.enabled && (dispatch.blocked_reasons || []).length) {
+                parts.push('dispatch blocked');
+            }
+            return parts.join(' · ');
         },
 
         remediationLoopItemRank(item) {
@@ -2055,11 +2125,19 @@ function dashboardApp() {
                 const readiness = this.repairReadinessLabel(workload.primary.repair_progression);
                 latest.textContent = `${this.remediationLoopStateLabel(workload.primary.state)} · ${track} · ${readiness}`;
             } else if (remediation?.latest_at) {
-                latest.textContent = new Date(remediation.latest_at).toLocaleString();
+                latest.textContent = this.remediationActivityText(remediation);
             } else {
                 latest.textContent = 'No operator action';
             }
             wrapper.appendChild(latest);
+
+            const activityText = this.remediationActivityText(remediation);
+            if (activityText && activityText !== latest.textContent) {
+                const activity = document.createElement('span');
+                activity.className = 'max-w-56 truncate text-xs text-muted-foreground';
+                activity.textContent = activityText;
+                wrapper.appendChild(activity);
+            }
 
             if (workload?.primary?.title) {
                 const action = document.createElement('span');
@@ -2109,6 +2187,13 @@ function dashboardApp() {
 
             cell.appendChild(wrapper);
             return cell;
+        },
+
+        remediationActivityText(remediation) {
+            if (!remediation || !remediation.latest_at) return '';
+            const label = remediation.latest_label || this.remediationStatusLabel(remediation.status);
+            const timestamp = new Date(remediation.latest_at).toLocaleString();
+            return `${label} · ${timestamp}`;
         },
 
         createPassRateCell(passRate) {

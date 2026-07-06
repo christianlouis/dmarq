@@ -879,6 +879,11 @@ verification counters such as `verification_pending_operator_approval`,
 `verification_pending_report_evidence`, and `verification_blocked_by_prerequisite`
 so clients can distinguish approval, sender review, reputation evidence, manual
 fresh-evidence checks, and missing provider values.
+Dashboard clients can also combine `health_summary.remediation_loop.items` with
+each domain row's `remediation` activity to group cards by dispatched
+notifications and operator follow-up without rebuilding the domain queue. The
+dashboard loop returns a bounded working set rather than only the first compact
+page, so client-side filters can still find lower-priority items.
 
 Notification metadata includes the event name, channel, dedupe key, reason, and
 next state transition that an operator workflow can use. Each notification also
