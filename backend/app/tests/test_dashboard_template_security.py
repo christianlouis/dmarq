@@ -354,6 +354,8 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "remediationLoop().notification_investigation_required || 0" in template
     assert "remediationLoop().notification_profiles || 0" in template
     assert "remediationLoop().notification_summary_only || 0" in template
+    assert "Aging follow-up" in template
+    assert "dashboardRemediationFilterCount('aging_follow_up')" in template
     assert "Need fresh evidence" in template
     assert "Waiting on operator" in template
     assert "Blocked before repair" in template
@@ -377,6 +379,7 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "{ value: 'notify_ready', label: 'Ready to notify' }" in script
     assert "{ value: 'dispatched', label: 'Dispatched' }" in script
     assert "{ value: 'follow_up', label: 'Follow-up' }" in script
+    assert "{ value: 'aging_follow_up', label: 'Aging follow-up' }" in script
     assert "{ value: 'dispatch_blocked', label: 'Dispatch blocked' }" in script
     assert "{ value: 'stuck', label: 'Stuck' }" in script
     assert "{ value: 'sender_review', label: 'Sender review' }" in script
@@ -398,9 +401,12 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "dashboardRemediationNextActionText(item)" in script
     assert "dashboardRemediationStuckText(item)" in script
     assert "dashboardRemediationFollowUpAgeText(item)" in script
+    assert "dashboardRemediationFollowUpAgeClass(item)" in script
+    assert "dashboardRemediationFollowUpAgeDays(item)" in script
     assert "relativeAgeText(value)" in script
     assert "Next action:" in template
     assert "dashboardRemediationFollowUpAgeText(item)" in template
+    assert ":class=\"dashboardRemediationFollowUpAgeClass(item)\"" in template
     assert "dashboardRemediationFilterCounts()" in script
     assert "data-dashboard-remediation-toggle-all" in template
     assert "data-dashboard-remediation-toggle-all" in script
@@ -857,6 +863,49 @@ def test_dashboard_remediation_follow_up_age_text_uses_activity_timestamp():
     assert result == "Follow-up waiting since 2 days ago"
 
 
+def test_dashboard_remediation_aging_follow_up_filter_and_class():
+    result = _run_dashboard_expression("""(() => {
+            const latest = new Date(Date.now() - (8 * 24 * 60 * 60 * 1000)).toISOString();
+            const item = { domain: 'old.example' };
+            app.domains = [{
+                domain_name: 'old.example',
+                remediation: {
+                    latest_at: latest,
+                    needs_operator_follow_up: true
+                }
+            }];
+            app.healthSummary = { remediation_loop: { items: [item] } };
+            return [
+                app.dashboardRemediationFilterCount('aging_follow_up'),
+                app.dashboardRemediationFollowUpAgeDays(item),
+                app.dashboardRemediationFollowUpAgeClass(item)
+            ].join('|');
+        })()""")
+
+    assert result == "1|8|border-[#ffcfbd] bg-[#fff2ec] text-[#8a2d0d]"
+
+
+def test_dashboard_remediation_follow_up_age_class_handles_unknown_age():
+    result = _run_dashboard_expression("""(() => {
+            const future = new Date(Date.now() + (10 * 60 * 1000)).toISOString();
+            return [
+                app.dashboardRemediationFollowUpAgeClass({
+                    latest_at: future,
+                    needs_operator_follow_up: true
+                }),
+                app.dashboardRemediationFollowUpAgeClass({
+                    latest_at: 'not-a-date',
+                    needs_operator_follow_up: true
+                })
+            ].join('|');
+        })()""")
+
+    assert result == (
+        "border-[#f5dfbd] bg-[#fff8ed] text-[#7a4a00]|"
+        "border-[#f5dfbd] bg-[#fff8ed] text-[#7a4a00]"
+    )
+
+
 def test_dashboard_remediation_follow_up_age_text_ignores_future_timestamp():
     result = _run_dashboard_expression("""(() => {
             const latest = new Date(Date.now() + (10 * 60 * 1000)).toISOString();
@@ -924,7 +973,7 @@ def test_domain_list_remediation_cell_shows_provider_workload_summary():
                 {
                     status: 'dispatched',
                     latest_label: 'Dispatch enqueued',
-                    latest_at: '2026-07-06T03:00:00Z',
+                    latest_at: new Date(Date.now() - (2 * 24 * 60 * 60 * 1000)).toISOString(),
                     dispatch_enqueued: 1,
                     needs_operator_follow_up: true
                 },
@@ -968,6 +1017,7 @@ def test_domain_list_remediation_cell_shows_provider_workload_summary():
     assert "1 summary-only" in result
     assert "1 dispatched" in result
     assert "1 follow-up" in result
+    assert "1 aging follow-up" in result
     assert "Dispatch enqueued" in result
     assert "Open the remediation queue" in result
     assert "Follow-up waiting since" in result
