@@ -36,6 +36,8 @@
             <div class="card-body">
                 <div class="text-sm text-base-content/60">Mail Sources</div>
                 <div class="text-2xl font-semibold" x-text="mailSourcesLabel"></div>
+                <div class="text-xs" :class="hasMailSourceAttention ? 'text-warning' : 'text-base-content/60'"
+                     x-text="mailSourcesAttentionLabel"></div>
             </div>
         </div>
         <div class="card bg-base-100 shadow">
@@ -123,6 +125,28 @@
                                 <li x-text="step"></li>
                             </template>
                         </ul>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </section>
+
+    <section class="card bg-base-100 shadow" x-show="hasMailSourceAttention">
+        <div class="card-body">
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <h2 class="card-title">Mail Source Attention</h2>
+                <a href="/mail-sources" class="btn btn-outline btn-sm">Reconnect Sources</a>
+            </div>
+            <div class="grid gap-3 md:grid-cols-2">
+                <template x-for="source in attentionMailSources" :key="source.source_id">
+                    <div class="rounded-lg border border-warning/40 bg-warning/10 p-4">
+                        <div class="text-xs font-semibold uppercase tracking-wide text-base-content/60"
+                             x-text="source.method"></div>
+                        <p class="mt-1 text-sm font-medium" x-text="source.label"></p>
+                        <p class="mt-2 text-sm text-base-content/70" x-text="source.message"></p>
+                        <p class="mt-2 text-xs font-medium text-warning"
+                           x-show="source.action_label"
+                           x-text="source.action_label"></p>
                     </div>
                 </template>
             </div>

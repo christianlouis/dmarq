@@ -8,6 +8,7 @@ from starlette.requests import Request
 from app.api.api_v1.endpoints import domains as domains_endpoint
 from app.main import app, health as root_health, members_page, settings
 from app.models.domain import Domain
+from app.models.mail_source import MailSource
 from app.models.report import DMARCReport, ReportRecord
 from app.services.workspaces import get_or_create_default_workspace
 
@@ -476,6 +477,35 @@ def test_operations_health_endpoint(authed_client: TestClient):
     assert "imports" in data
     assert "reports" in data
     assert data["mailbox_recovery"][0]["category"] == "not_configured"
+
+
+def test_operations_health_surfaces_gmail_reauth_attention(
+    authed_client: TestClient,
+    db_session,
+):
+    """Operational health flags enabled Gmail sources that cannot refresh tokens."""
+    workspace = get_or_create_default_workspace(db_session)
+    source = MailSource(
+        workspace_id=workspace.id,
+        name="Reports Gmail",
+        method="GMAIL_API",
+        enabled=True,
+        gmail_access_token="access-token",
+        gmail_refresh_token=None,
+        gmail_email="dmarc-reports@example.com",
+    )
+    db_session.add(source)
+    db_session.commit()
+
+    response = authed_client.get("/api/v1/health/operations")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "degraded"
+    assert data["scheduler"]["attention_sources"] == 1
+    assert data["scheduler"]["reauth_required_sources"] == 1
+    assert data["scheduler"]["sources"][0]["status"] == "reauth_required"
+    assert data["mailbox_recovery"][0]["category"] == "auth_expired"
 
 
 def test_setup_status_includes_mailbox_recovery_hint(authed_client: TestClient):

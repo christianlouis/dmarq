@@ -46,8 +46,104 @@ def _iso(value):
     return value.isoformat() if value else None
 
 
+def _latest_imports_by_source(db: Session, source_ids):
+    if not source_ids:
+        return {}
+    rows = (
+        db.query(MailSourceImport)
+        .filter(MailSourceImport.mail_source_id.in_(source_ids))
+        .order_by(
+            MailSourceImport.mail_source_id.asc(),
+            MailSourceImport.started_at.desc(),
+            MailSourceImport.id.desc(),
+        )
+        .all()
+    )
+    latest = {}
+    for row in rows:
+        latest.setdefault(int(row.mail_source_id), row)
+    return latest
+
+
+def _source_label(source: MailSource) -> str:
+    method = (source.method or "IMAP").upper()
+    if method == "GMAIL_API":
+        return f"Gmail API: {source.gmail_email or source.name}"
+    if method == "M365_GRAPH":
+        return f"Microsoft 365: {source.m365_email or source.m365_mailbox or source.name}"
+    if method == "IMAP":
+        return f"IMAP: {source.username or source.name}"
+    return f"{method}: {source.name}"
+
+
+def _source_health(source: MailSource, latest_import=None):
+    method = (source.method or "IMAP").upper()
+    if method == "GMAIL_API" and not source.gmail_access_token:
+        return {
+            "source_id": source.id,
+            "label": _source_label(source),
+            "method": method,
+            "status": "not_authorized",
+            "attention": True,
+            "message": "Gmail is not authorised yet.",
+            "action_label": "Connect Gmail",
+            "diagnostic_category": "auth_required",
+        }
+    if method == "GMAIL_API" and not source.gmail_refresh_token:
+        return {
+            "source_id": source.id,
+            "label": _source_label(source),
+            "method": method,
+            "status": "reauth_required",
+            "attention": True,
+            "message": "Gmail is connected without a refresh token.",
+            "action_label": "Reconnect Gmail",
+            "diagnostic_category": "auth_expired",
+        }
+    if method == "M365_GRAPH" and not source.m365_access_token:
+        return {
+            "source_id": source.id,
+            "label": _source_label(source),
+            "method": method,
+            "status": "not_authorized",
+            "attention": True,
+            "message": "Microsoft 365 is not authorised yet.",
+            "action_label": "Connect Microsoft 365",
+            "diagnostic_category": "auth_required",
+        }
+
+    diagnostic = import_row_diagnostic(latest_import)
+    category = (diagnostic or {}).get("category")
+    if latest_import and latest_import.status == "failed" and category in {
+        "auth_expired",
+        "authentication",
+        "permissions",
+    }:
+        return {
+            "source_id": source.id,
+            "label": _source_label(source),
+            "method": method,
+            "status": "reauth_required",
+            "attention": True,
+            "message": diagnostic["summary"],
+            "action_label": "Reconnect mailbox",
+            "diagnostic_category": category,
+        }
+
+    return {
+        "source_id": source.id,
+        "label": _source_label(source),
+        "method": method,
+        "status": "connected" if method in {"GMAIL_API", "M365_GRAPH"} else "configured",
+        "attention": False,
+        "message": None,
+        "action_label": None,
+        "diagnostic_category": category or "ok",
+    }
+
+
 @router.get("/health/operations", status_code=200)
-async def operations_health(
+async def operations_health(  # noqa: C901
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
 ):
@@ -64,11 +160,13 @@ async def operations_health(
     latest_report = None
     latest_import = None
     latest_successful_import = None
+    mail_source_health = []
     if database["ok"]:
+        enabled_source_rows = (
+            db.query(MailSource).filter(MailSource.enabled == True).all()  # noqa: E712
+        )
         enabled_sources = (
-            db.query(func.count(MailSource.id))
-            .filter(MailSource.enabled == True)  # noqa: E712
-            .scalar()
+            len(enabled_source_rows)
         )
         total_sources = db.query(func.count(MailSource.id)).scalar()
         report_count = db.query(func.count(DMARCReport.id)).scalar()
@@ -84,6 +182,14 @@ async def operations_health(
             .order_by(MailSourceImport.finished_at.desc(), MailSourceImport.id.desc())
             .first()
         )
+        latest_by_source = _latest_imports_by_source(
+            db,
+            [int(source.id) for source in enabled_source_rows],
+        )
+        mail_source_health = [
+            _source_health(source, latest_by_source.get(int(source.id)))
+            for source in enabled_source_rows
+        ]
 
     scheduler = get_scheduler_status()
     status = "ok"
@@ -97,6 +203,20 @@ async def operations_health(
     if total_sources and enabled_sources == 0:
         status = "degraded"
         checks.append("All mail sources are disabled.")
+    attention_sources = [source for source in mail_source_health if source["attention"]]
+    if attention_sources:
+        status = "degraded"
+        checks.append(f"{len(attention_sources)} mail source needs authorization attention.")
+        for source in attention_sources:
+            mailbox_recovery.append(
+                {
+                    "category": source["diagnostic_category"],
+                    "summary": source["message"] or "Mail source needs attention.",
+                    "recovery_steps": [source["action_label"]] if source["action_label"] else [],
+                    "source_label": source["label"],
+                    "source_id": source["source_id"],
+                }
+            )
     if scheduler.get("last_error"):
         status = "degraded"
         checks.append("The scheduler reported a recent error.")
@@ -117,6 +237,11 @@ async def operations_health(
             **scheduler,
             "enabled_sources": int(enabled_sources or 0),
             "total_sources": int(total_sources or 0),
+            "attention_sources": len(attention_sources),
+            "reauth_required_sources": len(
+                [source for source in mail_source_health if source["status"] == "reauth_required"]
+            ),
+            "sources": mail_source_health,
         },
         "imports": {
             "latest": {

@@ -333,6 +333,8 @@ def _fetch_gmail_backfill_results(
 ) -> tuple[Dict[str, Any], Any]:
     if not source.gmail_access_token:
         raise ValueError("Gmail account not yet authorised. Complete OAuth2 flow first.")
+    if not source.gmail_refresh_token:
+        raise ValueError("Gmail authorization cannot be refreshed. Reconnect Gmail first.")
 
     already = GmailClient.load_ingested_ids(source.gmail_ingested_ids)
     client = GmailClient(

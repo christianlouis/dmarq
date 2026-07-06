@@ -64,6 +64,21 @@ detected in the current reporting window. These entries are designed to point to
 the next DNS or sender-configuration action rather than act as a general alert
 feed.
 
+### Report Intake Status
+
+The report intake card shows whether the background scheduler is running, when a
+mail source last checked for reports, and which sources are enabled. Gmail and
+Microsoft 365 sources also expose authorization attention states. If an OAuth
+connection is missing, expired, revoked, or missing the refresh token required
+for scheduled imports, the dashboard shows **Needs attention** and links to Mail
+Sources so the operator can reconnect the mailbox before relying on automated
+imports.
+
+Manual **Trigger Poll Now** results include the number of sources, processed
+messages, discovered reports, and any recovery summary from the failing source.
+For example, a Gmail token problem is reported as a reconnect action instead of
+only saying that polling failed.
+
 ### Remediation Loop
 
 The remediation loop card turns current domain health findings into operator

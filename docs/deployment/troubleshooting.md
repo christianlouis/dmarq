@@ -120,6 +120,11 @@ Actions:
 4. Check whether the Google project or OAuth consent configuration changed.
 5. Retry after a few minutes if the failure looks like quota or throttling.
 
+DMARQ treats Gmail sources without a refresh token as requiring reauthorization.
+The Mail Sources page, Dashboard report-intake card, and System Health page show
+this as a reconnect action because scheduled polling and backfills need a refresh
+token to continue after the short-lived access token expires.
+
 ## Webhook Imports Fail
 
 Likely causes:

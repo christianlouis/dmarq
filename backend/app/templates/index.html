@@ -816,6 +816,13 @@
                         <span class="w-40 text-sm text-muted-foreground">Sources:</span>
                         <span id="imap-mailbox">Loading configured mail sources...</span>
                     </div>
+                    <div class="flex items-start" id="mail-source-attention-row" hidden>
+                        <span class="w-40 text-sm text-muted-foreground">Attention:</span>
+                        <div>
+                            <span id="mail-source-attention" class="text-sm font-medium text-[#8a2d0d]"></span>
+                            <a href="/mail-sources" class="ml-2 text-sm underline">Open Mail Sources</a>
+                        </div>
+                    </div>
                 </div>
             {% endcall %}
         {% endcall %}
