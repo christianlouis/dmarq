@@ -15,7 +15,12 @@ from app.models.domain import Domain
 from app.models.report import DMARCReport, ReportRecord
 from app.models.setting import Setting
 from app.models.workspace import Workspace
-from app.services.account_milestone import _auth_mode, _criterion, _has_scope_token
+from app.services.account_milestone import (
+    _auth_mode,
+    _criterion,
+    _has_scope_token,
+    build_account_milestone_readiness,
+)
 from app.services.api_tokens import PROVIDER_READ_SCOPE, SCIM_READ_SCOPE
 from app.services.alert_history import list_alert_config_audit, record_alert_config_change
 from app.services.notifications import NotificationResult, send_notification
@@ -141,11 +146,12 @@ class TestSettingsAPI:
         assert res.status_code == 200
         data = res.json()
         assert data["milestone"] == "#12 User Authentication & Multi-User Support"
+        assert data["status"] == "operational_with_setup_needed"
         assert data["criteria_total"] == len(data["criteria"])
         assert data["criteria_total"] >= 10
         assert data["ready_to_close_parent_issue"] is True
         assert data["remaining_slices"] == 0
-        assert data["setup_gates"] >= 0
+        assert data["setup_gates"] > 0
         assert data["safety_boundary"]
         assert "workspace_owner" in {row["role"] for row in data["role_catalog"]}
         assert all(row["ready"] is True for row in data["criteria"])
@@ -253,6 +259,18 @@ class TestSettingsAPI:
 
         assert configured_gate["setup_required"] is False
         assert pending_gate["setup_required"] is True
+
+    def test_account_readiness_marks_setup_needed_without_reopening_parent(
+        self,
+        db_session: Session,
+    ):
+        """Deployment setup gates influence status without reopening #12 implementation."""
+        data = build_account_milestone_readiness(db_session, Settings())
+
+        assert data["status"] == "operational_with_setup_needed"
+        assert data["ready_to_close_parent_issue"] is True
+        assert data["remaining_slices"] == 0
+        assert data["setup_gates"] > 0
 
     def test_list_settings_filter_by_category(self, authed_client: TestClient):
         """GET /api/v1/settings?category=dmarc returns only dmarc settings."""
