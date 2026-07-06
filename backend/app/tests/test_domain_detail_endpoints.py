@@ -956,6 +956,9 @@ def test_dashboard_remediation_loop_exposes_operator_decision_context():
         "dmarq:remediation:example.com:health:missing_dmarc"
     )
     assert loop["items"][0]["notification"]["payload_preview"]["domain"] == "example.com"
+    assert loop["items"][0]["notification"]["payload_preview"]["schema_version"] == (
+        "dmarq.dashboard.remediation.notification_preview.v1"
+    )
     assert loop["items"][0]["notification"]["payload_preview"]["item_id"] == (
         "health:missing_dmarc"
     )

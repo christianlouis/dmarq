@@ -896,9 +896,10 @@ next state transition that an operator workflow can use. Dashboard remediation
 items include this read-only notification profile even before a dispatch preview
 is attached, so clients can group approval-required, manual-action, and
 investigation-required work without rebuilding the domain queue. Each
-notification also includes a sanitized `payload_preview` using schema
-`dmarq.remediation.notification.v1`; it is the deterministic data shape a future
-webhook, ticketing, or chatops delivery would receive. Domain detail remediation
+notification also includes a sanitized dashboard `payload_preview` using schema
+`dmarq.dashboard.remediation.notification_preview.v1`; it is a compact,
+read-only preview for client grouping and operator review rather than the full
+webhook, ticketing, or chatops delivery envelope. Domain detail remediation
 queues can additionally include a read-only `dispatch` preview showing whether
 the item would be eligible for a future dispatch step, which channel would be
 used, whether a previewed or acknowledged lifecycle marker is still required,

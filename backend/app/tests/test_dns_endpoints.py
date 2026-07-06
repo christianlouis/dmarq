@@ -2471,8 +2471,34 @@ def test_dashboard_remediation_item_exposes_summary_notification_profile():
     assert notification["event"] == "dmarq.remediation.summary"
     assert notification["channel"] == "daily_summary"
     assert notification["reason"] == "Include this lower-risk remediation item in summary reporting."
+    assert notification["payload_preview"]["schema_version"] == (
+        "dmarq.dashboard.remediation.notification_preview.v1"
+    )
     assert notification["payload_preview"]["source"] == "dns_lint"
     assert notification["payload_preview"]["severity"] == "low"
+
+
+def test_dashboard_remediation_item_exposes_manual_action_notification_profile():
+    """High-impact manual remediation should be visible as operator action work."""
+    item = domains_endpoint._dashboard_remediation_item(
+        DOMAIN,
+        {
+            "type": "tls_coverage_gap",
+            "severity": "high",
+            "title": "Review TLS coverage",
+            "next_step": "Coordinate a manual TLS fix.",
+        },
+    )
+
+    notification = item["notification"]
+    assert notification["state"] == "action_required"
+    assert notification["event"] == "dmarq.remediation.manual_action_required"
+    assert notification["channel"] == "email_security"
+    assert notification["reason"] == "Escalate high-impact manual remediation work."
+    assert notification["next_transition"] == "resolved_by_operator"
+    assert notification["payload_preview"]["schema_version"] == (
+        "dmarq.dashboard.remediation.notification_preview.v1"
+    )
 
 
 def test_summary_dns_failure_defaults_false(authed_client: TestClient, db_session):

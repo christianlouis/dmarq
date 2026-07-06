@@ -686,7 +686,14 @@ def test_dashboard_remediation_dispatch_activity_filters_and_labels():
                     state: 'manual_action',
                     priority_score: 7,
                     severity: 'high',
-                    notification: { dispatch: { enabled: true, eligible: false } }
+                    notification: {
+                        state: 'action_required',
+                        dispatch: {
+                            enabled: true,
+                            eligible: false,
+                            blocked_reasons: ['No enabled webhook endpoint is subscribed to this event.']
+                        }
+                    }
                 },
                 {
                     domain: 'ready.example',
@@ -742,7 +749,7 @@ def test_dashboard_remediation_dispatch_activity_filters_and_labels():
 
     assert result == (
         "2|1|1|2|follow.example|"
-        "3 notifications dispatched · operator follow-up needed|"
+        "3 notifications dispatched · operator follow-up needed · dispatch blocked|"
         "notification profile ready"
     )
 
@@ -876,7 +883,7 @@ def test_domain_details_remediation_queue_shows_verification_context():
     assert "filter === 'fresh_evidence'" in script
     assert "filter === 'stale_evidence'" in script
     assert "filter === 'provider_value'" in script
-    assert "item.notification?.dispatch?.eligible" in script
+    assert "if (hasDispatchPreview) return Boolean(dispatch.eligible)" in script
     assert "remediationQueueFilterCount(filter)" in script
     assert "remediationQueueFilteredCount()" in script
     assert "remediationQueueTotalCount()" in script

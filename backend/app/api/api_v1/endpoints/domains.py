@@ -2490,7 +2490,7 @@ def _dashboard_remediation_notification(domain: str, item: Dict[str, Any]) -> Di
             "next_transition": "resolved_or_escalated",
         }
     notification["payload_preview"] = {
-        "schema_version": "dmarq.remediation.notification.v1",
+        "schema_version": "dmarq.dashboard.remediation.notification_preview.v1",
         "domain": domain,
         "item_id": item_id,
         "source": source,
