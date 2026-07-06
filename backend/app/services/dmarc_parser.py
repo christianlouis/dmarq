@@ -5,7 +5,7 @@ import zipfile
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-import defusedxml.ElementTree as ET
+from defusedxml.ElementTree import fromstring
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -378,7 +378,7 @@ class DMARCParser:
         Parse DMARC XML content according to RFC 7489
         """
         try:
-            root = ET.fromstring(xml_content)
+            root = fromstring(xml_content)
             xml_namespace = DMARCParser._namespace(root.tag)
             DMARCParser._strip_namespace(root)
 
