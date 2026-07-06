@@ -2431,9 +2431,50 @@ def _dashboard_remediation_item(
         **context,
     }
     item["evidence_refresh"] = evidence_refresh_for_remediation_item(domain_name, item)
+    _attach_dashboard_provider_repair_state(item, action)
     if include_detail:
         item["detail"] = str(action.get("detail") or "")
     return item
+
+
+def _attach_dashboard_provider_repair_state(
+    item: Dict[str, Any],
+    action: Dict[str, Any],
+) -> None:
+    """Attach provider repair signals to the progression fields used by the dashboard."""
+    repair_progression = item.get("repair_progression") or {}
+    evidence_refresh = item.get("evidence_refresh") or {}
+    readiness_level = str(repair_progression.get("readiness_level") or "")
+    stage = str(repair_progression.get("stage") or "")
+    track = str(item.get("remediation_track") or "")
+    blocked_by = {str(value) for value in repair_progression.get("blocked_by") or []}
+    provider_blockers = {"provider_specific_value", "provider_value", "provider value"}
+    provider_value_missing = (
+        evidence_refresh.get("refresh_key") == "provider_value"
+        or bool(blocked_by & provider_blockers)
+        or track == "blocked_by_prerequisite"
+    )
+    provider_apply_blocked = readiness_level == "blocked" or stage == "blocked"
+    plan = action.get("provider_repair_plan") or {}
+    history = plan.get("attempt_history") or {}
+    history_entries = history.get("entries") or []
+    if not isinstance(history_entries, list):
+        history_entries = []
+
+    repair_progression.update(
+        {
+            "provider_preview_available": (
+                readiness_level == "ready_for_preview" or stage == "preview_ready"
+            ),
+            "provider_apply_after_approval": bool(
+                repair_progression.get("can_apply_after_approval")
+            ),
+            "provider_apply_blocked": provider_apply_blocked,
+            "provider_value_missing": provider_value_missing,
+            "provider_apply_history": len(history_entries),
+        }
+    )
+    item["repair_progression"] = repair_progression
 
 
 def _increment_repair_counters(counters: Dict[str, int], item: Dict[str, Any]) -> None:
@@ -2461,29 +2502,13 @@ def _increment_repair_counters(counters: Dict[str, int], item: Dict[str, Any]) -
 def _increment_provider_repair_counters(counters: Dict[str, int], item: Dict[str, Any]) -> None:
     """Count dashboard-safe provider repair states without exposing write controls."""
     repair_progression = item.get("repair_progression") or {}
-    evidence_refresh = item.get("evidence_refresh") or {}
-    readiness_level = str(repair_progression.get("readiness_level") or "")
-    stage = str(repair_progression.get("stage") or "")
-    track = str(item.get("remediation_track") or "")
-    blocked_by = {str(value) for value in repair_progression.get("blocked_by") or []}
-    provider_blockers = {"provider_specific_value", "provider_value", "provider value"}
-    provider_value_missing = (
-        evidence_refresh.get("refresh_key") == "provider_value"
-        or bool(blocked_by & provider_blockers)
-        or track == "blocked_by_prerequisite"
-    )
-
-    if readiness_level == "ready_for_preview" or stage == "preview_ready":
+    if repair_progression.get("provider_preview_available"):
         counters["provider_preview_available"] += 1
-    if repair_progression.get("can_apply_after_approval"):
+    if repair_progression.get("provider_apply_after_approval"):
         counters["provider_apply_after_approval"] += 1
-    if provider_value_missing:
+    if repair_progression.get("provider_value_missing"):
         counters["provider_value_missing"] += 1
-    if (
-        readiness_level == "blocked"
-        or stage == "blocked"
-        or provider_value_missing
-    ):
+    if repair_progression.get("provider_apply_blocked"):
         counters["provider_apply_blocked"] += 1
 
 

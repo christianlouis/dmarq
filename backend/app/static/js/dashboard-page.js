@@ -1092,21 +1092,14 @@ function dashboardApp() {
                         ['approval_ready', 'needs_approval'].includes(String(item?.state || '')));
             }
             if (filterValue === 'provider_apply') {
-                const plan = item?.provider_repair_plan || {};
-                return Boolean(plan.can_apply_after_approval) ||
-                    Boolean(plan.safe_preview_available) ||
-                    readinessLevel === 'ready_for_preview' ||
-                    stage === 'preview_ready';
+                return Boolean(progression.provider_apply_after_approval) ||
+                    Boolean(progression.provider_preview_available);
             }
             if (filterValue === 'apply_blocked') {
-                const plan = item?.provider_repair_plan || {};
-                return Boolean(plan.apply_blocked) ||
-                    readinessLevel === 'blocked' ||
-                    stage === 'blocked';
+                return Boolean(progression.provider_apply_blocked);
             }
             if (filterValue === 'provider_history') {
-                const entries = item?.provider_repair_plan?.attempt_history?.entries || [];
-                return entries.length > 0;
+                return Number(progression.provider_apply_history || 0) > 0;
             }
             if (filterValue === 'sender_review') {
                 return verificationStatus === 'pending_sender_review';

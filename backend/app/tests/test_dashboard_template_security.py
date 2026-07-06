@@ -459,7 +459,10 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "filterValue === 'provider_apply'" in script
     assert "filterValue === 'apply_blocked'" in script
     assert "filterValue === 'provider_history'" in script
-    assert "item?.provider_repair_plan?.attempt_history?.entries" in script
+    assert "progression.provider_apply_after_approval" in script
+    assert "progression.provider_preview_available" in script
+    assert "progression.provider_apply_blocked" in script
+    assert "progression.provider_apply_history" in script
     assert "verificationStatus === 'pending_sender_review'" in script
     assert "verificationStatus === 'pending_report_evidence'" in script
     assert "dashboardRemediationEvidenceRank(item)" in script
@@ -513,7 +516,9 @@ def test_dashboard_remediation_filters_and_sorts_cards():
                     repair_progression: {
                         readiness_level: 'blocked',
                         readiness_score: 10,
-                        blocked_by: ['provider value']
+                        blocked_by: ['provider value'],
+                        provider_apply_blocked: true,
+                        provider_value_missing: true
                     },
                     evidence_refresh: {
                         required: true,
@@ -548,7 +553,10 @@ def test_dashboard_remediation_filters_and_sorts_cards():
                     repair_progression: {
                         readiness_level: 'ready_for_preview',
                         stage: 'preview_ready',
-                        readiness_score: 90
+                        readiness_score: 90,
+                        provider_preview_available: true,
+                        provider_apply_after_approval: true,
+                        provider_apply_blocked: false
                     },
                     evidence_refresh: {
                         required: true,
@@ -565,15 +573,11 @@ def test_dashboard_remediation_filters_and_sorts_cards():
                     repair_progression: {
                         readiness_level: 'ready_for_preview',
                         stage: 'preview_ready',
-                        readiness_score: 85
-                    },
-                    provider_repair_plan: {
-                        safe_preview_available: true,
-                        can_apply_after_approval: false,
-                        apply_blocked: true,
-                        attempt_history: {
-                            entries: [{ state: 'apply_needs_verification' }]
-                        }
+                        readiness_score: 85,
+                        provider_preview_available: true,
+                        provider_apply_after_approval: false,
+                        provider_apply_blocked: false,
+                        provider_apply_history: 1
                     },
                     verification_plan: { status: 'pending_operator_approval' }
                 },
@@ -620,7 +624,7 @@ def test_dashboard_remediation_filters_and_sorts_cards():
             ].join('|');
         })()""")
 
-    assert result == "1|1|2|2|2|1|1|1|4|blocked.example"
+    assert result == "1|1|2|2|1|1|1|1|4|blocked.example"
 
 
 def test_dashboard_remediation_stale_evidence_links_to_evidence_anchor():
