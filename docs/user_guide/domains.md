@@ -232,6 +232,8 @@ manual repairs, or reputation review, and the compact card list can expand to
 show every matching item. The dashboard summary cards also count provider
 previews, apply-after-approval work, blocked applies, and missing provider
 values so a workspace-level triage view matches the domain queue semantics.
+When provider apply history exists, the dashboard and domain rows show the
+attempt count and how many applies have been verified by follow-up evidence.
 Items with stale DNS, report, or reputation evidence can be filtered separately.
 When a remediation card knows the relevant evidence section, the dashboard links
 directly to that part of the domain detail page.

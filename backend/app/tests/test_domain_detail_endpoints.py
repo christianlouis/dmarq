@@ -883,6 +883,14 @@ def test_dashboard_remediation_loop_exposes_operator_decision_context():
                             "detail": "No DMARC policy was found.",
                             "next_step": "Publish a DMARC TXT record.",
                             "score_impact": 30,
+                            "provider_repair_plan": {
+                                "attempt_history": {
+                                    "entries": [
+                                        {"state": "apply_needs_verification"},
+                                        {"state": "verified_after_apply"},
+                                    ]
+                                }
+                            },
                         },
                         {
                             "type": "source_reputation_review",
@@ -908,6 +916,8 @@ def test_dashboard_remediation_loop_exposes_operator_decision_context():
     assert loop["provider_apply_after_approval"] == 1
     assert loop["provider_apply_blocked"] == 0
     assert loop["provider_value_missing"] == 0
+    assert loop["provider_apply_history"] == 2
+    assert loop["provider_apply_verified"] == 1
     assert loop["repair_needs_evidence"] == 2
     assert loop["evidence_refresh_required"] == 2
     assert loop["evidence_refresh_dns"] == 1
@@ -930,6 +940,8 @@ def test_dashboard_remediation_loop_exposes_operator_decision_context():
     assert loop["items"][0]["repair_progression"]["can_preview"] is True
     assert loop["items"][0]["repair_progression"]["readiness_level"] == "ready_for_preview"
     assert loop["items"][0]["repair_progression"]["readiness_score"] == 80
+    assert loop["items"][0]["repair_progression"]["provider_apply_history"] == 2
+    assert loop["items"][0]["repair_progression"]["provider_apply_verified"] == 1
     assert loop["items"][0]["evidence_refresh"]["refresh_key"] == "dns"
     assert loop["items"][0]["evidence_refresh"]["safe_to_run"] is True
     assert loop["items"][0]["verification_plan"]["status"] == "pending_operator_approval"

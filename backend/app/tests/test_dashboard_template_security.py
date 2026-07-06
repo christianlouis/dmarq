@@ -410,6 +410,8 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     )
     assert "remediationLoop().provider_preview_available || 0" in template
     assert "remediationLoop().provider_apply_after_approval || 0" in template
+    assert "remediationLoop().provider_apply_history || 0" in template
+    assert "remediationLoop().provider_apply_verified || 0" in template
     assert "remediationLoop().repair_needs_evidence || 0" in template
     assert "remediationLoop().repair_waiting_on_operator || 0" in template
     assert (
@@ -463,6 +465,7 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "progression.provider_preview_available" in script
     assert "progression.provider_apply_blocked" in script
     assert "progression.provider_apply_history" in script
+    assert "progression.provider_apply_verified" in script
     assert "verificationStatus === 'pending_sender_review'" in script
     assert "verificationStatus === 'pending_report_evidence'" in script
     assert "dashboardRemediationEvidenceRank(item)" in script
@@ -577,7 +580,8 @@ def test_dashboard_remediation_filters_and_sorts_cards():
                         provider_preview_available: true,
                         provider_apply_after_approval: false,
                         provider_apply_blocked: false,
-                        provider_apply_history: 1
+                        provider_apply_history: 1,
+                        provider_apply_verified: 1
                     },
                     verification_plan: { status: 'pending_operator_approval' }
                 },
@@ -685,6 +689,8 @@ def test_domain_list_remediation_cell_shows_provider_workload_summary():
                     provider_preview_available: 2,
                     provider_apply_after_approval: 1,
                     provider_apply_blocked: 1,
+                    provider_apply_history: 2,
+                    provider_apply_verified: 1,
                     primary: {
                         state: 'needs_approval',
                         remediation_track: 'provider_preview',
@@ -702,6 +708,8 @@ def test_domain_list_remediation_cell_shows_provider_workload_summary():
     assert "2 provider preview" in result
     assert "1 apply-ready" in result
     assert "1 apply blocked" in result
+    assert "2 apply history" in result
+    assert "1 verified" in result
 
 
 def test_domain_details_remediation_queue_shows_verification_context():

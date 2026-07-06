@@ -286,6 +286,11 @@
                     <span> · </span>
                     <span x-text="remediationLoop().provider_apply_after_approval || 0"></span><span> apply after approval</span>
                 </p>
+                <p class="mt-1 text-xs text-[#45505f]">
+                    <span x-text="remediationLoop().provider_apply_history || 0"></span><span> apply attempts</span>
+                    <span> · </span>
+                    <span x-text="remediationLoop().provider_apply_verified || 0"></span><span> verified</span>
+                </p>
             </div>
             <div class="rounded-md border border-[#f5dfbd] bg-[#fff8ed] p-4">
                 <p class="text-sm text-[#5f5c78]">Need fresh evidence</p>
