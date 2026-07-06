@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import dns.resolver
 import httpx
@@ -295,7 +296,6 @@ async def test_lookup_sources_reputation_filters_ineligible_ips_before_max_limit
     assert list(results) == ["8.8.8.8"]
     assert results["8.8.8.8"].listed is True
 
-from unittest.mock import patch
 
 def test_provider_configs_from_settings_all_enabled():
     settings = _settings(
