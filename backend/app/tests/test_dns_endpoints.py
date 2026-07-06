@@ -2453,6 +2453,28 @@ def test_dashboard_remediation_item_includes_context_for_non_approval_states(
     assert item["why"]
 
 
+def test_dashboard_remediation_item_exposes_summary_notification_profile():
+    """Low-risk DNS lint items should be routed to summary reporting, not operator dispatch."""
+    item = domains_endpoint._dashboard_remediation_item(
+        DOMAIN,
+        {
+            "type": "minor_dns_lint",
+            "source": "dns_lint",
+            "severity": "low",
+            "title": "Review DNS lint advisory",
+            "next_step": "Keep monitoring DNS posture.",
+        },
+    )
+
+    notification = item["notification"]
+    assert notification["state"] == "summary_only"
+    assert notification["event"] == "dmarq.remediation.summary"
+    assert notification["channel"] == "daily_summary"
+    assert notification["reason"] == "Include this lower-risk remediation item in summary reporting."
+    assert notification["payload_preview"]["source"] == "dns_lint"
+    assert notification["payload_preview"]["severity"] == "low"
+
+
 def test_summary_dns_failure_defaults_false(authed_client: TestClient, db_session):
     """Empty DNS results stay false without being labeled resolver failures."""
     _persist_minimal_report(db_session)
