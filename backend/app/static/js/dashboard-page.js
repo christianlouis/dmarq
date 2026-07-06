@@ -1177,6 +1177,13 @@ function dashboardApp() {
             this.showAllDashboardRemediationItems = false;
         },
 
+        dashboardRemediationEmptyStateMeta() {
+            const total = this.dashboardRemediationTotalCount();
+            const label = this.dashboardRemediationFilterLabel();
+            const verb = total === 1 ? 'exists' : 'exist';
+            return `${this.formatLargeNumber(total)} remediation card${total === 1 ? '' : 's'} ${verb} outside the ${label} view.`;
+        },
+
         dashboardRemediationFilterMatches(item, filterValue) {
             if (!item || !filterValue || filterValue === 'all') return true;
             const progression = item?.repair_progression || {};

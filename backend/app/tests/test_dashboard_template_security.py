@@ -400,9 +400,11 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "dashboardRemediationFilterTitle(filter)" in script
     assert "dashboardRemediationEmptyStateTitle()" in script
     assert "dashboardRemediationEmptyStateText()" in script
+    assert "dashboardRemediationEmptyStateMeta()" in script
     assert "resetDashboardRemediationFilter()" in script
     assert "dashboardRemediationEmptyStateTitle()" in template
     assert "dashboardRemediationEmptyStateText()" in template
+    assert "dashboardRemediationEmptyStateMeta()" in template
     assert "data-dashboard-remediation-reset-filter" in template
     assert "data-dashboard-remediation-reset-filter" in script
     assert "@click=\"resetDashboardRemediationFilter()\"" not in template
@@ -876,13 +878,15 @@ def test_dashboard_remediation_empty_state_copy_matches_selected_filter():
             return [
                 app.hasVisibleDashboardRemediationItems(),
                 app.dashboardRemediationEmptyStateTitle(),
-                app.dashboardRemediationEmptyStateText()
+                app.dashboardRemediationEmptyStateText(),
+                app.dashboardRemediationEmptyStateMeta()
             ].join('|');
         })()""")
 
     assert result == (
         "false|No dispatch blocked remediation cards|"
-        "No remediation notification is blocked by dispatch settings or webhook routing."
+        "No remediation notification is blocked by dispatch settings or webhook routing.|"
+        "1 remediation card exists outside the Dispatch blocked view."
     )
 
 
