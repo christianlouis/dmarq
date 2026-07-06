@@ -357,6 +357,10 @@ function dashboardApp() {
             );
             const skipped = sources.filter(source => source.skipped).length;
             const failed = sources.filter(source => source.success === false).length;
+            const attention = sources.filter(source => source.diagnostic_category && ![
+                'ok',
+                'duplicate_only'
+            ].includes(source.diagnostic_category));
 
             const parts = [
                 `Polling finished for ${count} source${count === 1 ? '' : 's'}${methodSuffix}`,
@@ -377,6 +381,10 @@ function dashboardApp() {
             if (failed) {
                 parts.push(`${failed} failed`);
             }
+            if (attention.length) {
+                const firstSummary = attention[0].diagnostic_summary || attention[0].reason || 'check Mail Sources';
+                parts.push(`attention: ${firstSummary}`);
+            }
             return `${parts.join('; ')}.`;
         },
 
@@ -392,8 +400,15 @@ function dashboardApp() {
                 const statusIcon = document.getElementById('imap-status-icon');
                 const statusText = document.getElementById('imap-status-text');
                 const lastCheck = document.getElementById('imap-last-check');
+                const attentionRow = document.getElementById('mail-source-attention-row');
+                const attentionText = document.getElementById('mail-source-attention');
+                const attentionCount = data.attention_sources || 0;
                 
-                if (data.is_running && (data.enabled_sources || 0) > 0) {
+                if (attentionCount > 0) {
+                    statusIcon.classList.remove('bg-green-500');
+                    statusIcon.classList.add('bg-red-500');
+                    statusText.textContent = 'Needs attention';
+                } else if (data.is_running && (data.enabled_sources || 0) > 0) {
                     statusIcon.classList.remove('bg-red-500');
                     statusIcon.classList.add('bg-green-500');
                     statusText.textContent = 'Running';
@@ -416,6 +431,18 @@ function dashboardApp() {
                         mailbox.textContent = data.source_labels.join(', ');
                     } else {
                         mailbox.textContent = 'No enabled mail sources configured';
+                    }
+                }
+                if (attentionRow && attentionText) {
+                    if (attentionCount > 0) {
+                        const sources = data.sources || [];
+                        const first = sources.find(source => source.connection_attention) || {};
+                        const label = first.label ? `${first.label}: ` : '';
+                        attentionText.textContent = `${attentionCount} source${attentionCount === 1 ? '' : 's'} need attention. ${label}${first.connection_message || ''}`.trim();
+                        attentionRow.hidden = false;
+                    } else {
+                        attentionRow.hidden = true;
+                        attentionText.textContent = '';
                     }
                 }
             } catch (error) {
@@ -1177,6 +1204,13 @@ function dashboardApp() {
             this.showAllDashboardRemediationItems = false;
         },
 
+        dashboardRemediationEmptyStateMeta() {
+            const total = this.dashboardRemediationTotalCount();
+            const label = this.dashboardRemediationFilterLabel();
+            const verb = total === 1 ? 'exists' : 'exist';
+            return `${this.formatLargeNumber(total)} remediation card${total === 1 ? '' : 's'} ${verb} outside the ${label} view.`;
+        },
+
         dashboardRemediationFilterMatches(item, filterValue) {
             if (!item || !filterValue || filterValue === 'all') return true;
             const progression = item?.repair_progression || {};
@@ -1524,6 +1558,18 @@ function dashboardApp() {
                 manual_action_required: 'bg-[#fff7df] text-[#8a6418]',
                 investigation_required: 'bg-[#fff1ea] text-[#b8431d]'
             }[String(status || '')] || 'bg-[#f8f7f6] text-[#5f5c78]';
+        },
+
+        remediationCompletionLabel(completion) {
+            if (!completion) return 'Completion unknown';
+            if (completion.ready_to_close_parent_issue) return 'Completion gates ready';
+            const remaining = Number(completion.remaining_slices || 0);
+            return `${remaining} completion gate${remaining === 1 ? '' : 's'} open`;
+        },
+
+        remediationCompletionClass(completion) {
+            if (completion?.ready_to_close_parent_issue) return 'bg-green-100 text-green-700';
+            return 'bg-[#fff7df] text-[#8a6418]';
         },
 
         remediationLoopEffectiveStatus(loop) {

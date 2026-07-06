@@ -49,6 +49,24 @@ function operationsHealth() {
             return `${this.scheduler.enabled_sources || 0}/${this.scheduler.total_sources || 0}`;
         },
 
+        get mailSourcesAttentionLabel() {
+            const attention = this.scheduler.attention_sources || 0;
+            if (!attention) return 'No attention needed';
+            return `${attention} need attention`;
+        },
+
+        get hasMailSourceAttention() {
+            return (this.scheduler.attention_sources || 0) > 0;
+        },
+
+        get mailSourceHealth() {
+            return this.scheduler.sources || [];
+        },
+
+        get attentionMailSources() {
+            return this.mailSourceHealth.filter(source => source.attention);
+        },
+
         get reportsCountLabel() {
             return this.reports.count || 0;
         },

@@ -867,6 +867,13 @@ Provider-repair counters such as `provider_preview_available`,
 repairs can progress through a connected provider, which applies already have
 history or verified evidence, and where a prerequisite or manual fallback still
 owns the next step.
+The top-level `completion` object is the parent-issue readiness gate for the
+remediation loop. It reports `status`, `ready_to_close_parent_issue`,
+`criteria_met`, `criteria_total`, `remaining_slices`, per-criterion evidence,
+current blockers, the next step, and an explicit safety boundary. Clients should
+treat this as release/readiness metadata only: it does not imply that DNS,
+provider, or mail-server writes have happened, and parent roadmap issues should
+stay open until the final PR is merged, deployed, and live-smoked.
 The workspace dashboard `health_summary.remediation_loop` and each domain row's
 `remediation_workload` expose the same `evidence_refresh` object and counters,
 so clients can present the correct refresh path before opening the detail queue.
@@ -879,6 +886,9 @@ verification counters such as `verification_pending_operator_approval`,
 `verification_pending_report_evidence`, and `verification_blocked_by_prerequisite`
 so clients can distinguish approval, sender review, reputation evidence, manual
 fresh-evidence checks, and missing provider values.
+The dashboard `health_summary.remediation_loop.completion` uses the same
+completion-gate shape so workspace-level views can show whether the active
+remediation wave is complete without opening every domain.
 The same summary includes notification-profile counters such as
 `notification_profiles`, `notification_profile_ready`,
 `notification_approval_required`, `notification_action_required`,

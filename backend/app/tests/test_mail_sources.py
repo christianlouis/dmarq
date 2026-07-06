@@ -1570,6 +1570,53 @@ class TestMailSourcesAPIAuthed:
 class TestGmailAPIMailSource:
     """Tests for GMAIL_API mail source creation, OAuth flow, and fetching."""
 
+    def test_gmail_source_response_marks_missing_authorization(self):
+        source = MailSource(id=1, name="Gmail", method="GMAIL_API")
+
+        response = mail_sources_endpoint._source_to_response(source)
+
+        assert response.gmail_connected is False
+        assert response.connection_status == "not_authorized"
+        assert response.connection_attention is True
+        assert response.connection_diagnostic_category == "auth_required"
+
+    def test_gmail_source_response_requires_refresh_token_for_scheduled_imports(self):
+        source = MailSource(id=1, name="Gmail", method="GMAIL_API")
+        source.gmail_access_token = "access-token"
+
+        response = mail_sources_endpoint._source_to_response(source)
+
+        assert response.gmail_connected is True
+        assert response.connection_status == "reauth_required"
+        assert response.connection_attention is True
+        assert response.connection_action_label == "Reconnect Gmail"
+
+    def test_gmail_source_response_marks_latest_oauth_import_failure(self):
+        source = MailSource(id=1, name="Gmail", method="GMAIL_API")
+        source.gmail_access_token = "access-token"
+        source.gmail_refresh_token = "refresh-token"
+        latest_import = MailSourceImport(
+            mail_source_id=1,
+            trigger="scheduled",
+            status="failed",
+            processed=0,
+            reports_found=0,
+            duplicate_reports=0,
+            error_count=1,
+            new_domains="[]",
+            errors='["invalid_grant refresh token expired"]',
+            details="[]",
+            started_at=datetime.utcnow(),
+            finished_at=datetime.utcnow(),
+        )
+
+        response = mail_sources_endpoint._source_to_response(source, latest_import)
+
+        assert response.connection_status == "reauth_required"
+        assert response.connection_attention is True
+        assert response.connection_diagnostic_category == "auth_expired"
+        assert "expired" in response.connection_message
+
     def test_create_gmail_api_source(self, authed_client: TestClient):
         payload = {
             "name": "My Gmail",
@@ -3382,15 +3429,24 @@ class TestPollSingleGmailSource:
         return src
 
     def test_skips_when_no_access_token(self):
-        """Source without OAuth token → early return, no GmailClient created."""
+        """Source without OAuth token records a visible failure without creating GmailClient."""
         from app.main import _poll_single_gmail_source
 
         src = self._make_source(access_token=None)
+        mock_db_source = MagicMock()
+        mock_db = MagicMock()
+        mock_db.query.return_value.get.return_value = mock_db_source
 
-        with patch("app.main.GmailClient") as mock_gc:
+        with (
+            patch("app.main.GmailClient") as mock_gc,
+            patch("app.main.SessionLocal", return_value=mock_db),
+            patch("app.main.record_import_attempt") as mock_record,
+        ):
             _poll_single_gmail_source(src)
 
         mock_gc.assert_not_called()
+        mock_record.assert_called_once()
+        mock_db.commit.assert_called_once()
 
     def test_fetches_reports_and_persists_ids(self):
         """Happy-path: client is created, reports fetched, IDs saved to DB."""
@@ -3734,6 +3790,9 @@ class TestPollSourceForTrigger:
 
         assert result["skipped"] is True
         assert "authorised" in result["reason"].lower()
+        assert result["success"] is False
+        assert result["diagnostic_category"] == "auth_required"
+        assert result["recovery_steps"]
 
     def test_gmail_with_token_delegates_to_trigger_poll(self):
         from app.main import _poll_source_for_trigger
@@ -3779,6 +3838,8 @@ class TestPollSourceForTrigger:
 
         assert result["skipped"] is True
         assert "microsoft 365" in result["reason"].lower()
+        assert result["success"] is False
+        assert result["diagnostic_category"] == "auth_required"
 
     def test_m365_with_token_delegates_to_trigger_poll(self):
         from app.main import _poll_source_for_trigger
@@ -4081,10 +4142,55 @@ class TestTriggerPollEndpoint:
         assert resp.status_code == 200
         data = resp.json()
         assert data["enabled_sources"] == 1
+        assert data["attention_sources"] == 0
+        assert data["reauth_required_sources"] == 0
         assert data["sources_by_method"] == {"GMAIL_API": 1}
         assert data["source_labels"] == ["Gmail API: dmarc-reports@example.com"]
+        assert data["sources"][0]["connection_status"] == "connected"
         assert data["latest_source_check"] == "2026-07-02T12:00:00"
         assert data["authenticated_by"] == "session"
+
+    def test_poll_status_surfaces_gmail_reauth_attention(self):
+        """The dashboard status endpoint flags Gmail sources that cannot refresh."""
+        from app.core.security import require_admin_auth
+        from app.main import app as main_app
+
+        async def mock_auth():
+            return {"auth_type": "session"}
+
+        main_app.dependency_overrides[require_admin_auth] = mock_auth
+
+        mock_source = MagicMock()
+        mock_source.id = 42
+        mock_source.method = "GMAIL_API"
+        mock_source.name = "Reports Gmail"
+        mock_source.gmail_email = "dmarc-reports@example.com"
+        mock_source.gmail_access_token = "access-token"
+        mock_source.gmail_refresh_token = None
+        mock_source.last_checked = None
+        mock_source.enabled = True
+
+        source_query = MagicMock()
+        source_query.count.return_value = 1
+        source_query.filter.return_value.all.return_value = [mock_source]
+        import_query = MagicMock()
+        import_query.filter.return_value.order_by.return_value.all.return_value = []
+        mock_db = MagicMock()
+        mock_db.query.side_effect = [source_query, source_query, import_query]
+
+        try:
+            with TestClient(main_app) as tc:
+                with patch("app.main.SessionLocal", return_value=mock_db):
+                    resp = tc.get("/api/v1/poll-status")
+        finally:
+            main_app.dependency_overrides.clear()
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["attention_sources"] == 1
+        assert data["reauth_required_sources"] == 1
+        assert data["sources"][0]["connection_status"] == "reauth_required"
+        assert data["sources"][0]["connection_action_label"] == "Reconnect Gmail"
 
     def test_trigger_poll_with_no_enabled_sources(self):
         """With no enabled sources, the endpoint returns an empty-success response."""

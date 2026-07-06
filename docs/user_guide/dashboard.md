@@ -64,6 +64,21 @@ detected in the current reporting window. These entries are designed to point to
 the next DNS or sender-configuration action rather than act as a general alert
 feed.
 
+### Report Intake Status
+
+The report intake card shows whether the background scheduler is running, when a
+mail source last checked for reports, and which sources are enabled. Gmail and
+Microsoft 365 sources also expose authorization attention states. If an OAuth
+connection is missing, expired, revoked, or missing the refresh token required
+for scheduled imports, the dashboard shows **Needs attention** and links to Mail
+Sources so the operator can reconnect the mailbox before relying on automated
+imports.
+
+Manual **Trigger Poll Now** results include the number of sources, processed
+messages, discovered reports, and any recovery summary from the failing source.
+For example, a Gmail token problem is reported as a reconnect action instead of
+only saying that polling failed.
+
 ### Remediation Loop
 
 The remediation loop card turns current domain health findings into operator
@@ -75,7 +90,11 @@ blocked before repair. The dashboard also separates items waiting on an operator
 for sender classification, manual repair, reputation review, or general operator
 review. The section header shows the loop status, top incident family, next
 action, and the last successful summary refresh time so operators can triage the
-queue before reading every card. Use **Refresh queue** when new reports, DNS
+queue before reading every card. The completion gate badge states whether every
+remediation-loop criterion is represented before the parent roadmap issue should
+be closed, including priority metadata, evidence, action plans, automation
+eligibility, explicit approval boundaries, closure evidence, notification
+routing, and summary counters. Use **Refresh queue** when new reports, DNS
 refreshes, or operator markers should be reflected immediately. A failed manual
 refresh keeps the previously loaded dashboard visible and shows a refresh warning
 instead of replacing the page with an empty state. Cards are sorted so provider
@@ -102,8 +121,9 @@ to separate from fresh findings. The dispatch follow-up sort also places older
 operator follow-ups ahead of fresher follow-ups, even when the fresher item has a
 higher remediation score. Empty remediation filter views explain the selected
 filter and the next useful operator action instead of showing a generic no-match
-message, and they include a reset control to return to the full remediation
-card list. Notification-profile-ready cards have
+message. They also show how many remediation cards exist outside the selected
+filter and include a reset control so operators can return to the full
+remediation card list. Notification-profile-ready cards have
 the event, channel, dedupe key, and payload preview prepared, but they still do
 not send anything until the operator uses the explicit dispatch flow. The
 dashboard and domain rows also expose separate counts for approval-required,

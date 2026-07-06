@@ -358,15 +358,18 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "dashboardRemediationFilterCount('aging_follow_up')" in template
     assert "Need fresh evidence" in template
     assert "Waiting on operator" in template
+    assert "Remediation loop completion" in template
+    assert "remediationCompletionLabel(remediationLoop().completion)" in template
+    assert "remediationCompletionClass(remediationLoop().completion)" in template
+    assert "remediationCompletionLabel(completion)" in script
+    assert "remediationCompletionClass(completion)" in script
     assert "Blocked before repair" in template
     assert "remediationLoop().next_action" in template
     assert (
-        "remediationLoopStatusClass(remediationLoopEffectiveStatus(remediationLoop()))"
-        in template
+        "remediationLoopStatusClass(remediationLoopEffectiveStatus(remediationLoop()))" in template
     )
     assert (
-        "remediationLoopStatusLabel(remediationLoopEffectiveStatus(remediationLoop()))"
-        in template
+        "remediationLoopStatusLabel(remediationLoopEffectiveStatus(remediationLoop()))" in template
     )
     assert "remediationIncidentLabel(remediationLoop().top_incident_type)" in template
     assert "data-dashboard-refresh" in template
@@ -392,20 +395,22 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert '<option value="dispatch">Dispatch follow-up</option>' in template
     assert "data-dashboard-remediation-filter" in template
     assert "data-dashboard-remediation-filter" in script
-    assert ":class=\"dashboardRemediationFilterClass(filter.value)\"" in template
-    assert ":title=\"dashboardRemediationFilterTitle(filter.value)\"" in template
-    assert ":aria-label=\"dashboardRemediationFilterTitle(filter.value)\"" in template
+    assert ':class="dashboardRemediationFilterClass(filter.value)"' in template
+    assert ':title="dashboardRemediationFilterTitle(filter.value)"' in template
+    assert ':aria-label="dashboardRemediationFilterTitle(filter.value)"' in template
     assert "formatLargeNumber(dashboardRemediationFilterCount(filter.value))" in template
     assert "dashboardRemediationFilterClass(filter)" in script
     assert "dashboardRemediationFilterTitle(filter)" in script
     assert "dashboardRemediationEmptyStateTitle()" in script
     assert "dashboardRemediationEmptyStateText()" in script
+    assert "dashboardRemediationEmptyStateMeta()" in script
     assert "resetDashboardRemediationFilter()" in script
     assert "dashboardRemediationEmptyStateTitle()" in template
     assert "dashboardRemediationEmptyStateText()" in template
+    assert "dashboardRemediationEmptyStateMeta()" in template
     assert "data-dashboard-remediation-reset-filter" in template
     assert "data-dashboard-remediation-reset-filter" in script
-    assert "@click=\"resetDashboardRemediationFilter()\"" not in template
+    assert '@click="resetDashboardRemediationFilter()"' not in template
     assert "Show all remediation cards" in template
     assert "dashboardRemediationNextActionText(item)" in script
     assert "dashboardRemediationStuckText(item)" in script
@@ -415,7 +420,7 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "relativeAgeText(value)" in script
     assert "Next action:" in template
     assert "dashboardRemediationFollowUpAgeText(item)" in template
-    assert ":class=\"dashboardRemediationFollowUpAgeClass(item)\"" in template
+    assert ':class="dashboardRemediationFollowUpAgeClass(item)"' in template
     assert "dashboardRemediationFilterCounts()" in script
     assert "data-dashboard-remediation-toggle-all" in template
     assert "data-dashboard-remediation-toggle-all" in script
@@ -876,13 +881,15 @@ def test_dashboard_remediation_empty_state_copy_matches_selected_filter():
             return [
                 app.hasVisibleDashboardRemediationItems(),
                 app.dashboardRemediationEmptyStateTitle(),
-                app.dashboardRemediationEmptyStateText()
+                app.dashboardRemediationEmptyStateText(),
+                app.dashboardRemediationEmptyStateMeta()
             ].join('|');
         })()""")
 
     assert result == (
         "false|No dispatch blocked remediation cards|"
-        "No remediation notification is blocked by dispatch settings or webhook routing."
+        "No remediation notification is blocked by dispatch settings or webhook routing.|"
+        "1 remediation card exists outside the Dispatch blocked view."
     )
 
 
@@ -1198,9 +1205,9 @@ def test_domain_details_remediation_queue_shows_verification_context():
     assert "Remediation queue sort" in template
     assert "data-domain-detail-remediation-filter" in template
     assert "aria-pressed" in template
-    assert ":class=\"remediationQueueFilterClass(filter.value)\"" in template
-    assert ":title=\"remediationQueueFilterTitle(filter.value)\"" in template
-    assert ":aria-label=\"remediationQueueFilterTitle(filter.value)\"" in template
+    assert ':class="remediationQueueFilterClass(filter.value)"' in template
+    assert ':title="remediationQueueFilterTitle(filter.value)"' in template
+    assert ':aria-label="remediationQueueFilterTitle(filter.value)"' in template
     assert 'role="group"' in template
     assert 'aria-label="Remediation queue filters"' in template
     assert 'role="status"' in template
@@ -2159,6 +2166,11 @@ def test_domain_details_exposes_remediation_action_plans_without_html_injection(
     assert "item.action_plan.decision_checkpoints" in template
     assert "item.action_plan.requires_fresh_evidence" in template
     assert "item.action_plan.rollback_plan" in template
+    assert "Loop completion gate" in template
+    assert "remediationCompletionLabel(remediationQueue.completion)" in template
+    assert "remediationCompletionClass(remediationQueue.completion)" in template
+    assert "remediationCompletionLabel(completion)" in script
+    assert "remediationCompletionClass(completion)" in script
     assert "remediationQueue.summary.closure_gate_required" in template
     assert "remediationQueue.summary.rollback_guidance" in template
     assert "remediationQueue.loop?.closure_gate_required" in template
@@ -2179,7 +2191,10 @@ def test_domain_details_exposes_remediation_action_plans_without_html_injection(
     assert "'-dispatch-blocker-' + index" in template
     assert "blocked_reasons[0]" not in template
     assert "Remediation loop" in template
-    assert "remediationLoopStatusLabel(remediationLoopEffectiveStatus(remediationQueue.loop))" in template
+    assert (
+        "remediationLoopStatusLabel(remediationLoopEffectiveStatus(remediationQueue.loop))"
+        in template
+    )
     assert "remediationLoopEffectiveStatus(loop)" in script
     assert "remediationIncidentLabel" in template
     assert "remediationTrackLabel" in template
@@ -2398,8 +2413,10 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "Evidence needed:" in template
     assert "If not fixed:" in template
     assert "Open evidence" in template
-    assert 'data-domain-detail-remediation-refresh-evidence' in template
-    assert "remediationEvidenceRefreshActionLabel(primaryRemediationItem.evidence_refresh)" in template
+    assert "data-domain-detail-remediation-refresh-evidence" in template
+    assert (
+        "remediationEvidenceRefreshActionLabel(primaryRemediationItem.evidence_refresh)" in template
+    )
     assert "Repair readiness" in template
     assert "primaryRepairReadinessReasonText" in script
     assert "repairReadinessLabel(primaryRemediationItem.repair_progression)" in template

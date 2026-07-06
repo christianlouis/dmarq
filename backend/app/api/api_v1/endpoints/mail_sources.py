@@ -37,6 +37,7 @@ from app.services.mailbox_recovery import (
     connection_diagnostic,
     connection_test_response,
     diagnostic_category,
+    import_row_diagnostic,
     import_result_diagnostic,
     redact_recovery_text,
 )
@@ -129,6 +130,11 @@ class MailSourceResponse(MailSourceBase):
     gmail_email: Optional[str] = None
     # Indicate whether OAuth tokens are present (without exposing them)
     gmail_connected: bool = False
+    connection_status: str = "unknown"
+    connection_attention: bool = False
+    connection_message: Optional[str] = None
+    connection_action_label: Optional[str] = None
+    connection_diagnostic_category: Optional[str] = None
     # Microsoft 365: show the authorised account and token state, but not tokens
     m365_email: Optional[str] = None
     m365_connected: bool = False
@@ -448,8 +454,120 @@ def _safe_attr(source: MailSource, name: str, default: Any = None) -> Any:
     return value
 
 
-def _source_to_response(source: MailSource) -> MailSourceResponse:
+def _latest_import_for_source(db: Session, source_id: int) -> Optional[MailSourceImport]:
+    """Return the latest persisted import attempt for one source, if available."""
+    return (
+        db.query(MailSourceImport)
+        .filter(MailSourceImport.mail_source_id == source_id)
+        .order_by(MailSourceImport.started_at.desc(), MailSourceImport.id.desc())
+        .first()
+    )
+
+
+def _latest_imports_by_source(
+    db: Session,
+    source_ids: List[int],
+) -> Dict[int, MailSourceImport]:
+    """Return latest import attempts keyed by source ID."""
+    if not source_ids:
+        return {}
+    rows = (
+        db.query(MailSourceImport)
+        .filter(MailSourceImport.mail_source_id.in_(source_ids))
+        .order_by(
+            MailSourceImport.mail_source_id.asc(),
+            MailSourceImport.started_at.desc(),
+            MailSourceImport.id.desc(),
+        )
+        .all()
+    )
+    latest: Dict[int, MailSourceImport] = {}
+    for row in rows:
+        latest.setdefault(int(row.mail_source_id), row)
+    return latest
+
+
+def _connection_state_for_source(
+    source: MailSource,
+    latest_import: Optional[MailSourceImport] = None,
+) -> Dict[str, Any]:
+    """Build a non-secret connection state for list/detail views."""
+    method = (source.method or "IMAP").upper()
+    if method == "GMAIL_API":
+        if not source.gmail_access_token:
+            return {
+                "connection_status": "not_authorized",
+                "connection_attention": True,
+                "connection_message": "Gmail is not authorised yet. Connect Gmail before relying on imports.",
+                "connection_action_label": "Connect Gmail",
+                "connection_diagnostic_category": "auth_required",
+            }
+        if not source.gmail_refresh_token:
+            return {
+                "connection_status": "reauth_required",
+                "connection_attention": True,
+                "connection_message": (
+                    "Gmail is connected without a refresh token. Reconnect Gmail so scheduled "
+                    "imports can keep refreshing access."
+                ),
+                "connection_action_label": "Reconnect Gmail",
+                "connection_diagnostic_category": "auth_expired",
+            }
+
+        diagnostic = import_row_diagnostic(latest_import)
+        category = (diagnostic or {}).get("category")
+        if latest_import and latest_import.status == "failed" and category in {
+            "auth_expired",
+            "authentication",
+            "permissions",
+        }:
+            return {
+                "connection_status": "reauth_required",
+                "connection_attention": True,
+                "connection_message": diagnostic["summary"],
+                "connection_action_label": "Reconnect Gmail",
+                "connection_diagnostic_category": category,
+            }
+        return {
+            "connection_status": "connected",
+            "connection_attention": False,
+            "connection_message": "Gmail authorization is present.",
+            "connection_action_label": None,
+            "connection_diagnostic_category": category or "ok",
+        }
+
+    if method == "M365_GRAPH":
+        if not _safe_attr(source, "m365_access_token"):
+            return {
+                "connection_status": "not_authorized",
+                "connection_attention": True,
+                "connection_message": "Microsoft 365 is not authorised yet.",
+                "connection_action_label": "Connect Microsoft 365",
+                "connection_diagnostic_category": "auth_required",
+            }
+        return {
+            "connection_status": "connected",
+            "connection_attention": False,
+            "connection_message": "Microsoft 365 authorization is present.",
+            "connection_action_label": None,
+            "connection_diagnostic_category": "ok",
+        }
+
+    return {
+        "connection_status": "configured" if source.username else "missing_config",
+        "connection_attention": not bool(source.username),
+        "connection_message": None,
+        "connection_action_label": None,
+        "connection_diagnostic_category": None,
+    }
+
+
+def _source_to_response(
+    source: MailSource,
+    latest_import: Optional[MailSourceImport] = None,
+) -> MailSourceResponse:
     """Convert ORM row to response schema, masking the stored password."""
+    connection_state = _connection_state_for_source(source, latest_import)
     return MailSourceResponse(
         id=source.id,
         name=source.name,
@@ -469,6 +587,7 @@ def _source_to_response(source: MailSource) -> MailSourceResponse:
         gmail_client_secret="**redacted**" if source.gmail_client_secret else None,
         gmail_email=source.gmail_email,
         gmail_connected=bool(source.gmail_access_token),
+        **connection_state,
         m365_tenant_id=_safe_attr(source, "m365_tenant_id", "common") or "common",
         m365_client_id=_safe_attr(source, "m365_client_id"),
         m365_client_secret=("**redacted**" if _safe_attr(source, "m365_client_secret") else None),
@@ -975,7 +1094,8 @@ async def list_mail_sources(
     sources = workspace_mail_source_query(db, workspace).order_by(MailSource.id).all()
     if not sources and get_settings().DEMO_MODE:
         return [_demo_mail_source_response(row) for row in build_demo_mail_sources()]
-    return [_source_to_response(s) for s in sources]
+    latest_imports = _latest_imports_by_source(db, [int(source.id) for source in sources])
+    return [_source_to_response(s, latest_imports.get(int(s.id))) for s in sources]
 
 
 @router.post("", response_model=MailSourceResponse, status_code=status.HTTP_201_CREATED)
@@ -1044,7 +1164,7 @@ async def get_mail_source(
         _selected_workspace_id(selected_workspace),
     )
     source = _get_source_or_404(source_id, db, workspace)
-    return _source_to_response(source)
+    return _source_to_response(source, _latest_import_for_source(db, int(source.id)))
 
 
 @router.get("/{source_id}/imports", response_model=List[MailSourceImportResponse])

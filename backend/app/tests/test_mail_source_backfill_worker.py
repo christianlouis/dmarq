@@ -273,6 +273,25 @@ def test_run_gmail_backfill_without_token_moves_to_backoff(db_session):
     assert attempt.status == "failed"
 
 
+def test_run_gmail_backfill_without_refresh_token_moves_to_backoff(db_session):
+    workspace, source = _source(db_session, method="GMAIL_API")
+    source.gmail_refresh_token = None
+    db_session.commit()
+    row = _job(db_session, workspace, source, max_attempts=3)
+
+    assert run_gmail_backfill_job(db_session, row) is True
+
+    db_session.refresh(row)
+    attempt = db_session.query(MailSourceImport).filter_by(mail_source_id=source.id).one()
+
+    assert row.status == "backoff"
+    assert row.attempt_count == 1
+    assert row.next_retry_at is not None
+    assert "Reconnect Gmail" in row.errors
+    assert attempt.trigger == "backfill"
+    assert attempt.status == "failed"
+
+
 def test_run_gmail_backfill_provider_failure_moves_to_backoff(db_session, monkeypatch):
     workspace, source = _source(db_session, method="GMAIL_API")
     row = _job(db_session, workspace, source, max_attempts=3)

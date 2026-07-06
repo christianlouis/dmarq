@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added mail-source authorization health signals to poll status, operations health, and dashboard intake status so expired or incomplete Gmail OAuth connections request reauthorization instead of appearing simply connected.
+- Added recovery diagnostics to manual dashboard mail polling results so failed Gmail/Microsoft 365 imports surface the likely action, such as reconnecting the mailbox.
+- Added early Gmail backfill reauthorization checks when a source has no refresh token, preventing long-running backfills from failing later with opaque provider errors.
 - Documented shipped mail-health surfaces separately from future roadmap work
   so health scoring, evidence exports, read-only API/MCP access, and sender
   reputation no longer read as purely future features.
@@ -67,8 +70,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changed the dashboard dispatch follow-up sort to put older operator follow-ups ahead of fresher follow-ups within the same dispatch state.
 - Added filter-specific empty states to the dashboard remediation cards so empty filter views explain the next useful operator action.
 - Added a dashboard remediation empty-state reset control so operators can return from an empty filtered view to the full remediation card list.
+- Added remediation empty-state context showing how many dashboard remediation cards exist outside the selected empty filter.
 - Added domain remediation refresh result messages and clearer empty-queue states so operators can tell whether no work is open, recent verified repairs exist, or data has not loaded yet.
 - Added domain remediation filter chip counts, empty-filter styling, and explanatory labels so queue filters behave consistently with dashboard remediation filters.
+- Added remediation-loop completion gates on the dashboard and domain queue so parent roadmap issues are only considered ready after priority, evidence, action-plan, automation, approval, verification, notification, and summary criteria are represented.
 
 ### Changed
 - Domain summary DNS refreshes now run with bounded concurrency instead of resolving each domain sequentially.

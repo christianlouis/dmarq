@@ -93,7 +93,15 @@
                                         <span class="badge badge-outline" x-text="source.method"></span>
                                     </td>
                                     <td x-text="sourceAccountLabel(source)"></td>
-                                    <td x-text="sourceStatusLabel(source)"></td>
+                                    <td>
+                                        <div class="space-y-1">
+                                            <span class="badge badge-sm" :class="sourceStatusBadgeClass(source)"
+                                                x-text="sourceStatusLabel(source)"></span>
+                                            <p class="text-[11px] text-muted-foreground max-w-56"
+                                                x-show="source.connection_attention && source.connection_message"
+                                                x-text="source.connection_message"></p>
+                                        </div>
+                                    </td>
                                     <td x-text="source.last_checked ? new Date(source.last_checked).toLocaleString() : 'Never'"></td>
                                     <td class="min-w-72">
                                         <template x-if="backfillLoading[source.id]">

@@ -2,7 +2,7 @@ import asyncio
 import logging
 import os
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,10 +33,13 @@ from app.middleware.demo import DemoReadOnlyMiddleware
 from app.middleware.security import SecurityHeadersMiddleware
 from app.models.domain import Domain
 from app.models.mail_source import MailSource  # noqa: F401 – ensure table is registered
+from app.models.mail_source_import import MailSourceImport
 from app.services.dns_prewarm import prewarm_dns_cache
 from app.services.gmail_client import GmailClient
 from app.services.imap_client import IMAPClient
 from app.services.import_history import record_import_attempt
+from app.services.mail_connector import initial_import_stats
+from app.services.mailbox_recovery import import_result_diagnostic, import_row_diagnostic
 from app.services.mail_service_imports import mail_service_context_from_domain
 from app.services.mail_source_backfill_worker import run_due_mail_source_backfill_jobs
 from app.services.microsoft_graph_client import MicrosoftGraphClient
@@ -125,11 +128,27 @@ def _poll_single_imap_source(source: MailSource) -> None:
         )
 
 
-def _poll_single_gmail_source(source: MailSource) -> None:
+def _poll_single_gmail_source(source: MailSource) -> None:  # noqa: C901
     """Fetch DMARC reports for a single GMAIL_API mail source."""
     global last_check_time  # pylint: disable=global-statement
 
     if not source.gmail_access_token:
+        db = SessionLocal()
+        try:
+            src = db.query(MailSource).get(source.id)
+            if src:
+                started_at = datetime.utcnow()
+                results = {
+                    **initial_import_stats(),
+                    "success": False,
+                    "errors": ["Gmail account not yet authorised. Complete OAuth2 flow first."],
+                }
+                src.last_checked = datetime.utcnow()
+                record_import_attempt(db, src, results, started_at=started_at, trigger="scheduled")
+                db.commit()
+        finally:
+            db.close()
+        last_check_time = datetime.now()
         logger.info(
             "Gmail polling (source id=%d): skipped – OAuth2 not yet authorised",
             source.id,
@@ -800,6 +819,28 @@ async def health():
 # ---------------------------------------------------------------------------
 
 
+def _trigger_poll_result(source: MailSource, method: str, results: Dict[str, Any]) -> dict:
+    """Return a non-secret manual poll result with operator recovery guidance."""
+    diagnostic = import_result_diagnostic(results)
+    return {
+        "source_id": source.id,
+        "name": source.name,
+        "method": method,
+        "success": bool(results.get("success", False)),
+        "processed": results.get("processed", 0),
+        "reports_found": results.get("reports_found", 0),
+        "forensic_reports_found": results.get("forensic_reports_found", 0),
+        "duplicate_reports": results.get("duplicate_reports", 0),
+        "duplicate_forensic_reports": results.get("duplicate_forensic_reports", 0),
+        "new_domains": results.get("new_domains", []),
+        "error_count": len(results.get("errors") or []),
+        "diagnostic": diagnostic,
+        "diagnostic_category": diagnostic["category"],
+        "diagnostic_summary": diagnostic["summary"],
+        "recovery_steps": diagnostic["recovery_steps"],
+    }
+
+
 def _trigger_poll_imap_source(source: MailSource, db, days: int = 7) -> dict:
     """Poll a single IMAP source and return a result dict for the API response."""
     global last_check_time  # pylint: disable=global-statement
@@ -819,17 +860,7 @@ def _trigger_poll_imap_source(source: MailSource, db, days: int = 7) -> dict:
     source.last_checked = datetime.utcnow()
     record_import_attempt(db, source, results, started_at=started_at, trigger="manual")
     db.commit()
-    return {
-        "source_id": source.id,
-        "name": source.name,
-        "method": "IMAP",
-        "success": results["success"],
-        "processed": results.get("processed", 0),
-        "reports_found": results.get("reports_found", 0),
-        "forensic_reports_found": results.get("forensic_reports_found", 0),
-        "duplicate_forensic_reports": results.get("duplicate_forensic_reports", 0),
-        "new_domains": results.get("new_domains", []),
-    }
+    return _trigger_poll_result(source, "IMAP", results)
 
 
 def _trigger_poll_gmail_source(source: MailSource, db) -> dict:
@@ -861,17 +892,7 @@ def _trigger_poll_gmail_source(source: MailSource, db) -> dict:
     source.last_checked = datetime.utcnow()
     record_import_attempt(db, source, results, started_at=started_at, trigger="manual")
     db.commit()
-    return {
-        "source_id": source.id,
-        "name": source.name,
-        "method": "GMAIL_API",
-        "success": results["success"],
-        "processed": results.get("processed", 0),
-        "reports_found": results.get("reports_found", 0),
-        "forensic_reports_found": results.get("forensic_reports_found", 0),
-        "duplicate_forensic_reports": results.get("duplicate_forensic_reports", 0),
-        "new_domains": results.get("new_domains", []),
-    }
+    return _trigger_poll_result(source, "GMAIL_API", results)
 
 
 def _trigger_poll_m365_source(source: MailSource, db, days: int = 7) -> dict:
@@ -907,17 +928,7 @@ def _trigger_poll_m365_source(source: MailSource, db, days: int = 7) -> dict:
     source.last_checked = datetime.utcnow()
     record_import_attempt(db, source, results, started_at=started_at, trigger="manual")
     db.commit()
-    return {
-        "source_id": source.id,
-        "name": source.name,
-        "method": "M365_GRAPH",
-        "success": results["success"],
-        "processed": results.get("processed", 0),
-        "reports_found": results.get("reports_found", 0),
-        "forensic_reports_found": results.get("forensic_reports_found", 0),
-        "duplicate_forensic_reports": results.get("duplicate_forensic_reports", 0),
-        "new_domains": results.get("new_domains", []),
-    }
+    return _trigger_poll_result(source, "M365_GRAPH", results)
 
 
 def _poll_source_for_trigger(source: MailSource, db, days: int = 7) -> dict:  # noqa: C901
@@ -927,10 +938,13 @@ def _poll_source_for_trigger(source: MailSource, db, days: int = 7) -> dict:  # 
     """
     if source.method == "GMAIL_API":
         if not source.gmail_access_token:
+            results = {
+                **initial_import_stats(),
+                "success": False,
+                "errors": ["Gmail account not yet authorised. Complete OAuth2 flow first."],
+            }
             return {
-                "source_id": source.id,
-                "name": source.name,
-                "method": "GMAIL_API",
+                **_trigger_poll_result(source, "GMAIL_API", results),
                 "skipped": True,
                 "reason": "Gmail account not yet authorised",
             }
@@ -947,10 +961,13 @@ def _poll_source_for_trigger(source: MailSource, db, days: int = 7) -> dict:  # 
             }
     if source.method == "M365_GRAPH":
         if not source.m365_access_token:
+            results = {
+                **initial_import_stats(),
+                "success": False,
+                "errors": ["Microsoft 365 account not yet authorised. Complete OAuth2 flow first."],
+            }
             return {
-                "source_id": source.id,
-                "name": source.name,
-                "method": "M365_GRAPH",
+                **_trigger_poll_result(source, "M365_GRAPH", results),
                 "skipped": True,
                 "reason": "Microsoft 365 account not yet authorised",
             }
@@ -1074,29 +1091,141 @@ def _source_display_label(source: MailSource) -> str:
     return f"{method}: {source.name}"
 
 
+def _latest_imports_by_source(db, source_ids: List[int]) -> Dict[int, MailSourceImport]:
+    """Return latest import attempts for status summaries."""
+    if not source_ids:
+        return {}
+    rows = (
+        db.query(MailSourceImport)
+        .filter(MailSourceImport.mail_source_id.in_(source_ids))
+        .order_by(
+            MailSourceImport.mail_source_id.asc(),
+            MailSourceImport.started_at.desc(),
+            MailSourceImport.id.desc(),
+        )
+        .all()
+    )
+    latest: Dict[int, MailSourceImport] = {}
+    for row in rows:
+        latest.setdefault(int(row.mail_source_id), row)
+    return latest
+
+
+def _mail_source_connection_state(
+    source: MailSource,
+    latest_import: Optional[MailSourceImport] = None,
+) -> Dict[str, Any]:
+    """Return a compact, non-secret source health state for dashboards."""
+    method = (source.method or "IMAP").upper()
+    if method == "GMAIL_API":
+        if not source.gmail_access_token:
+            return {
+                "status": "not_authorized",
+                "attention": True,
+                "message": "Gmail is not authorised yet.",
+                "action_label": "Connect Gmail",
+                "diagnostic_category": "auth_required",
+            }
+        if not source.gmail_refresh_token:
+            return {
+                "status": "reauth_required",
+                "attention": True,
+                "message": "Gmail is connected without a refresh token.",
+                "action_label": "Reconnect Gmail",
+                "diagnostic_category": "auth_expired",
+            }
+    if method == "M365_GRAPH" and not source.m365_access_token:
+        return {
+            "status": "not_authorized",
+            "attention": True,
+            "message": "Microsoft 365 is not authorised yet.",
+            "action_label": "Connect Microsoft 365",
+            "diagnostic_category": "auth_required",
+        }
+
+    diagnostic = import_row_diagnostic(latest_import)
+    category = (diagnostic or {}).get("category")
+    if latest_import and latest_import.status == "failed" and category in {
+        "auth_expired",
+        "authentication",
+        "permissions",
+    }:
+        return {
+            "status": "reauth_required",
+            "attention": True,
+            "message": diagnostic["summary"],
+            "action_label": "Reconnect mailbox",
+            "diagnostic_category": category,
+        }
+
+    return {
+        "status": "connected" if method in {"GMAIL_API", "M365_GRAPH"} else "configured",
+        "attention": False,
+        "message": None,
+        "action_label": None,
+        "diagnostic_category": category or "ok",
+    }
+
+
+def _source_status_payload(
+    source: MailSource,
+    latest_import: Optional[MailSourceImport] = None,
+) -> Dict[str, Any]:
+    state = _mail_source_connection_state(source, latest_import)
+    return {
+        "source_id": source.id,
+        "name": source.name,
+        "method": (source.method or "IMAP").upper(),
+        "label": _source_display_label(source),
+        "enabled": bool(source.enabled),
+        "last_checked": source.last_checked.isoformat() if source.last_checked else None,
+        "connection_status": state["status"],
+        "connection_attention": state["attention"],
+        "connection_message": state["message"],
+        "connection_action_label": state["action_label"],
+        "connection_diagnostic_category": state["diagnostic_category"],
+    }
+
+
 def _mail_source_status_summary() -> dict:
     """Summarize enabled report intake sources without exposing credentials."""
     db = SessionLocal()
     try:
+        total_sources = int(db.query(MailSource).count() or 0)
         enabled_sources = (
             db.query(MailSource).filter(MailSource.enabled == True).all()  # noqa: E712
         )
+        latest_imports = _latest_imports_by_source(db, [int(source.id) for source in enabled_sources])
         by_method: dict[str, int] = {}
         source_labels = []
+        source_statuses = []
         latest_checked = None
         for source in enabled_sources:
             method = (source.method or "IMAP").upper()
             by_method[method] = by_method.get(method, 0) + 1
             source_labels.append(_source_display_label(source))
+            source_statuses.append(_source_status_payload(source, latest_imports.get(int(source.id))))
             if source.last_checked and (
                 latest_checked is None or source.last_checked > latest_checked
             ):
                 latest_checked = source.last_checked
 
+        attention_sources = [
+            source for source in source_statuses if source.get("connection_attention")
+        ]
+        reauth_sources = [
+            source
+            for source in source_statuses
+            if source.get("connection_status") == "reauth_required"
+        ]
         return {
             "enabled_sources": len(enabled_sources),
+            "total_sources": total_sources,
             "sources_by_method": by_method,
             "source_labels": source_labels,
+            "sources": source_statuses,
+            "attention_sources": len(attention_sources),
+            "reauth_required_sources": len(reauth_sources),
             "latest_source_check": latest_checked.isoformat() if latest_checked else None,
         }
     finally:
