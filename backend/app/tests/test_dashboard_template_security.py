@@ -415,6 +415,7 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "Dispatch activity" in template
     assert "remediationLoop().dispatch_enqueued || 0" in template
     assert "remediationLoop().operator_follow_up || 0" in template
+    assert "domains need follow-up" in template
     assert "remediationLoop().repair_needs_evidence || 0" in template
     assert "remediationLoop().repair_waiting_on_operator || 0" in template
     assert (
