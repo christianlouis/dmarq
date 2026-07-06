@@ -1,7 +1,5 @@
 """Read-only dispatch readiness for remediation notification previews."""
 
-from __future__ import annotations
-
 import json
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set
@@ -599,8 +597,8 @@ def _verified_fixed_items_result(
         )
         .subquery()
     )
-    latest_lifecycle_ids = (
-        select(ranked_lifecycle_rows.c.audit_id).where(ranked_lifecycle_rows.c.row_number == 1)
+    latest_lifecycle_ids = select(ranked_lifecycle_rows.c.audit_id).where(
+        ranked_lifecycle_rows.c.row_number == 1
     )
     verified_query = (
         db.query(WorkspaceAuditLog)
@@ -938,8 +936,7 @@ def _attach_dispatch_summary(
     dispatches = [notification.get("dispatch") or {} for notification in notifications]
     blocked = [dispatch for dispatch in dispatches if dispatch.get("blocked_reasons")]
     provider_attempt_histories = [
-        (item.get("provider_repair_plan") or {}).get("attempt_history") or {}
-        for item in items
+        (item.get("provider_repair_plan") or {}).get("attempt_history") or {} for item in items
     ]
     awaiting_ack = [
         dispatch
