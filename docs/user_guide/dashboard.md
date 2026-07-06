@@ -93,8 +93,12 @@ prerequisites. The same filter bar can now isolate remediation notifications tha
 a backend notification profile ready for operator action, notifications that are
 ready to send, already dispatched, blocked by notification settings, or waiting
 for operator follow-up after dispatch. Follow-up cards show how long the latest
-operator or dispatch activity has been waiting, so old manual work is easier to
-separate from fresh findings. Notification-profile-ready cards have
+operator or dispatch activity has been waiting, and a separate aging follow-up
+filter isolates work older than 24 hours. The dashboard health summary,
+dispatch activity card, and domain rows expose the same aging follow-up count so
+old manual work is visible before the operator opens the full queue. Follow-ups
+older than a week use the stronger overdue styling so old manual work is easier
+to separate from fresh findings. Notification-profile-ready cards have
 the event, channel, dedupe key, and payload preview prepared, but they still do
 not send anything until the operator uses the explicit dispatch flow. The
 dashboard and domain rows also expose separate counts for approval-required,

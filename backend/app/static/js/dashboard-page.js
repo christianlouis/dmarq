@@ -27,6 +27,7 @@ function dashboardApp() {
             { value: 'notify_ready', label: 'Ready to notify' },
             { value: 'dispatched', label: 'Dispatched' },
             { value: 'follow_up', label: 'Follow-up' },
+            { value: 'aging_follow_up', label: 'Aging follow-up' },
             { value: 'dispatch_blocked', label: 'Dispatch blocked' },
             { value: 'stuck', label: 'Stuck' },
             { value: 'sender_review', label: 'Sender review' },
@@ -1180,6 +1181,9 @@ function dashboardApp() {
                     Boolean(dispatch.requires_lifecycle_acknowledgement) ||
                     Boolean(dispatch.operator_hold);
             }
+            if (filterValue === 'aging_follow_up') {
+                return this.dashboardRemediationFollowUpAgeDays(item) >= 1;
+            }
             if (filterValue === 'dispatch_blocked') {
                 const dispatch = item?.notification?.dispatch || {};
                 return Boolean(dispatch.enabled && !dispatch.eligible) ||
@@ -1284,6 +1288,15 @@ function dashboardApp() {
             return `${years} year${years === 1 ? '' : 's'} ago`;
         },
 
+        ageDays(value) {
+            if (!value) return -1;
+            const timestamp = new Date(value).getTime();
+            if (!Number.isFinite(timestamp)) return -1;
+            const diffMs = Date.now() - timestamp;
+            if (diffMs < 0) return -1;
+            return Math.floor(diffMs / (24 * 60 * 60 * 1000));
+        },
+
         dashboardRemediationFollowUpAgeText(item) {
             const activity = item?.latest_at
                 ? item
@@ -1294,6 +1307,23 @@ function dashboardApp() {
             if (!requiresFollowUp) return '';
             const age = this.relativeAgeText(activity.latest_at);
             return age ? `Follow-up waiting since ${age}` : 'Follow-up is waiting for operator review';
+        },
+
+        dashboardRemediationFollowUpAgeDays(item) {
+            const activity = item?.latest_at
+                ? item
+                : this.dashboardRemediationActivity(item);
+            const requiresFollowUp = Boolean(activity.needs_operator_follow_up) ||
+                Boolean(item?.notification?.dispatch?.requires_lifecycle_acknowledgement) ||
+                Boolean(item?.notification?.dispatch?.operator_hold);
+            return requiresFollowUp ? this.ageDays(activity.latest_at) : -1;
+        },
+
+        dashboardRemediationFollowUpAgeClass(item) {
+            const days = this.dashboardRemediationFollowUpAgeDays(item);
+            if (days >= 7) return 'border-[#ffcfbd] bg-[#fff2ec] text-[#8a2d0d]';
+            if (days >= 1) return 'border-[#f5dfbd] bg-[#fff8ed] text-[#7a4a00]';
+            return 'border-[#d5e9f8] bg-[#f7fbff] text-[#24507a]';
         },
 
         dashboardRemediationNextActionText(item) {
@@ -2316,12 +2346,17 @@ function dashboardApp() {
             this.appendCountBadge(wrapper, [
                 [Number(remediation?.dispatch_enqueued || 0), 'dispatched'],
                 [Number(remediation?.needs_operator_follow_up || 0), 'follow-up'],
+                [this.dashboardRemediationFollowUpAgeDays(remediation) >= 1 ? 1 : 0, 'aging follow-up'],
             ], 'max-w-56 truncate text-xs font-semibold text-[#5f5c78]');
 
             const followUpAge = this.dashboardRemediationFollowUpAgeText(remediation);
             if (followUpAge) {
                 const age = document.createElement('span');
-                age.className = 'max-w-56 truncate text-xs font-semibold text-[#8a6418]';
+                age.className = `max-w-56 truncate text-xs font-semibold ${
+                    this.dashboardRemediationFollowUpAgeDays(remediation) >= 7
+                        ? 'text-[#8a2d0d]'
+                        : 'text-[#8a6418]'
+                }`;
                 age.textContent = followUpAge;
                 wrapper.appendChild(age);
             }
