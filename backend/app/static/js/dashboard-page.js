@@ -1322,8 +1322,7 @@ function dashboardApp() {
         dashboardRemediationFollowUpAgeClass(item) {
             const days = this.dashboardRemediationFollowUpAgeDays(item);
             if (days >= 7) return 'border-[#ffcfbd] bg-[#fff2ec] text-[#8a2d0d]';
-            if (days >= 1) return 'border-[#f5dfbd] bg-[#fff8ed] text-[#7a4a00]';
-            return 'border-[#d5e9f8] bg-[#f7fbff] text-[#24507a]';
+            return 'border-[#f5dfbd] bg-[#fff8ed] text-[#7a4a00]';
         },
 
         dashboardRemediationNextActionText(item) {

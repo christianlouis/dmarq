@@ -885,6 +885,27 @@ def test_dashboard_remediation_aging_follow_up_filter_and_class():
     assert result == "1|8|border-[#ffcfbd] bg-[#fff2ec] text-[#8a2d0d]"
 
 
+def test_dashboard_remediation_follow_up_age_class_handles_unknown_age():
+    result = _run_dashboard_expression("""(() => {
+            const future = new Date(Date.now() + (10 * 60 * 1000)).toISOString();
+            return [
+                app.dashboardRemediationFollowUpAgeClass({
+                    latest_at: future,
+                    needs_operator_follow_up: true
+                }),
+                app.dashboardRemediationFollowUpAgeClass({
+                    latest_at: 'not-a-date',
+                    needs_operator_follow_up: true
+                })
+            ].join('|');
+        })()""")
+
+    assert result == (
+        "border-[#f5dfbd] bg-[#fff8ed] text-[#7a4a00]|"
+        "border-[#f5dfbd] bg-[#fff8ed] text-[#7a4a00]"
+    )
+
+
 def test_dashboard_remediation_follow_up_age_text_ignores_future_timestamp():
     result = _run_dashboard_expression("""(() => {
             const latest = new Date(Date.now() + (10 * 60 * 1000)).toISOString();
