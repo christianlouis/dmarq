@@ -1,7 +1,5 @@
 """Stable read-only export catalog helpers for public API and MCP clients."""
 
-from __future__ import annotations
-
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List
 from urllib.parse import quote
@@ -198,17 +196,23 @@ def _token_summary(db: Session, auth_context: Dict[str, Any]) -> Dict[str, Any]:
         token = db.query(APIToken).filter(APIToken.id == token_id_int).first()
 
     scopes = (
-        sorted(parse_scopes(token.scopes)) if token is not None else auth_context.get("scopes", [])
+        sorted(parse_scopes(token.scopes))
+        if token is not None
+        else auth_context.get("scopes", [])
     )
     return {
         "id": token.id if token is not None else token_id,
         "name": token.name if token is not None else auth_context.get("token_name"),
         "workspace_id": (
-            token.workspace_id if token is not None else auth_context.get("workspace_id")
+            token.workspace_id
+            if token is not None
+            else auth_context.get("workspace_id")
         ),
         "scopes": sorted(scopes),
         "usage_count": int(token.usage_count or 0) if token is not None else None,
-        "last_used_at": token.last_used_at.isoformat() if token and token.last_used_at else None,
+        "last_used_at": token.last_used_at.isoformat()
+        if token and token.last_used_at
+        else None,
     }
 
 
@@ -217,10 +221,6 @@ def _endpoint_scopes(endpoint: Dict[str, Any]) -> List[str]:
     if scopes:
         return [str(scope) for scope in scopes]
     return [str(endpoint["scope"])]
-
-
-def _scope_available(scope: str, token_scopes: Iterable[str]) -> bool:
-    return scope in set(token_scopes)
 
 
 def _endpoint_available(endpoint: Dict[str, Any], token_scopes: Iterable[str]) -> bool:
@@ -239,7 +239,9 @@ def _public_endpoint_catalog(token_scopes: Iterable[str]) -> List[Dict[str, Any]
     ]
 
 
-def _domain_export_links(domain_name: str, token_scopes: Iterable[str]) -> Dict[str, Any]:
+def _domain_export_links(
+    domain_name: str, token_scopes: Iterable[str]
+) -> Dict[str, Any]:
     encoded_domain = quote(domain_name, safe="")
     links: Dict[str, Any] = {}
     scopes = set(token_scopes)
