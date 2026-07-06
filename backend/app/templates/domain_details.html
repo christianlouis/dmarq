@@ -535,6 +535,10 @@
                        x-cloak
                        class="mt-4 rounded border border-[#ffcfbd] bg-[#fff2ec] px-3 py-2 text-sm text-[#8a2d0d]"
                        x-text="remediationQueueRefreshError"></p>
+                    <p x-show="remediationQueueRefreshMessage"
+                       x-cloak
+                       class="mt-4 rounded border border-[#d8ebe8] bg-[#f2fbf9] px-3 py-2 text-sm font-semibold text-[#1f7c83]"
+                       x-text="remediationQueueRefreshMessage"></p>
                     <template x-if="!remediationQueueLoading && !remediationQueueError && (remediationQueue.verified_items || []).length > 0">
                         <div class="mt-4 rounded-lg border border-[#d8ebe8] bg-[#f2fbf9] p-3">
                             <div class="flex flex-wrap items-start justify-between gap-3">
@@ -706,7 +710,10 @@
                         </div>
                     </template>
                     <template x-if="!remediationQueueLoading && !remediationQueueError && remediationQueue.items.length === 0">
-                        <p class="mt-4 text-sm text-[#5f5c78]">No remediation items are queued for this domain.</p>
+                        <div class="mt-4 rounded border border-[#d8ebe8] bg-[#f2fbf9] p-4 text-sm">
+                            <p class="font-semibold text-[#120d36]" x-text="remediationQueueEmptyStateTitle()"></p>
+                            <p class="mt-1 text-[#5f5c78]" x-text="remediationQueueEmptyStateText()"></p>
+                        </div>
                     </template>
                     <div class="mt-4 flex flex-wrap gap-2"
                          role="group"
@@ -726,8 +733,10 @@
                         <template x-for="filter in remediationQueueFilterOptions" :key="'remediation-filter-' + filter.value">
                             <button type="button"
                                     class="rounded border px-3 py-2 text-xs font-semibold transition"
-                                    :class="remediationQueueFilter === filter.value ? 'border-[#2f9da5] bg-[#f2fbf9] text-[#1f7c83]' : 'border-[#e6e3e1] bg-white text-[#5f5c78] hover:border-[#2f9da5]'"
+                                    :class="remediationQueueFilterClass(filter.value)"
                                     :aria-pressed="remediationQueueFilter === filter.value ? 'true' : 'false'"
+                                    :title="remediationQueueFilterTitle(filter.value)"
+                                    :aria-label="remediationQueueFilterTitle(filter.value)"
                                     :data-domain-detail-remediation-filter="filter.value">
                                 <span x-text="filter.label"></span>
                                 <span class="ml-1 rounded bg-[#f4f3f2] px-1.5 py-0.5 text-[0.65rem] text-[#45505f]"

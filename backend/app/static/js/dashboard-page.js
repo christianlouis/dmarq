@@ -28,6 +28,7 @@ function dashboardApp() {
             { value: 'dispatched', label: 'Dispatched' },
             { value: 'follow_up', label: 'Follow-up' },
             { value: 'dispatch_blocked', label: 'Dispatch blocked' },
+            { value: 'stuck', label: 'Stuck' },
             { value: 'sender_review', label: 'Sender review' },
             { value: 'report_evidence', label: 'Report evidence' },
             { value: 'stale_evidence', label: 'Stale evidence' },
@@ -1184,6 +1185,9 @@ function dashboardApp() {
                 return Boolean(dispatch.enabled && !dispatch.eligible) ||
                     (dispatch.blocked_reasons || []).length > 0;
             }
+            if (filterValue === 'stuck') {
+                return Boolean(this.dashboardRemediationStuckText(item));
+            }
             if (filterValue === 'sender_review') {
                 return verificationStatus === 'pending_sender_review';
             }
@@ -1259,6 +1263,82 @@ function dashboardApp() {
                 parts.push('notification profile ready');
             }
             return parts.join(' · ');
+        },
+
+        relativeAgeText(value) {
+            if (!value) return '';
+            const timestamp = new Date(value).getTime();
+            if (!Number.isFinite(timestamp)) return '';
+            const diffMs = Date.now() - timestamp;
+            if (diffMs < 0) return '';
+            const minutes = Math.floor(diffMs / 60000);
+            if (minutes < 1) return 'just now';
+            if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+            const hours = Math.floor(minutes / 60);
+            if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+            const days = Math.floor(hours / 24);
+            if (days < 30) return `${days} day${days === 1 ? '' : 's'} ago`;
+            const months = Math.floor(days / 30);
+            if (months < 12) return `${months} month${months === 1 ? '' : 's'} ago`;
+            const years = Math.floor(months / 12);
+            return `${years} year${years === 1 ? '' : 's'} ago`;
+        },
+
+        dashboardRemediationFollowUpAgeText(item) {
+            const activity = item?.latest_at
+                ? item
+                : this.dashboardRemediationActivity(item);
+            const requiresFollowUp = Boolean(activity.needs_operator_follow_up) ||
+                Boolean(item?.notification?.dispatch?.requires_lifecycle_acknowledgement) ||
+                Boolean(item?.notification?.dispatch?.operator_hold);
+            if (!requiresFollowUp) return '';
+            const age = this.relativeAgeText(activity.latest_at);
+            return age ? `Follow-up waiting since ${age}` : 'Follow-up is waiting for operator review';
+        },
+
+        dashboardRemediationNextActionText(item) {
+            if (!item) return 'Open the remediation queue to review the next safe action.';
+            const refresh = item.evidence_refresh || {};
+            const progression = item.repair_progression || {};
+            const verification = item.verification_plan || {};
+            if (refresh.safe_to_run === false || refresh.refresh_key === 'provider_value') {
+                return refresh.recommended_action || 'Add the missing provider value before this repair can continue.';
+            }
+            if (refresh.required) {
+                return refresh.recommended_action || this.evidenceRefreshLabel(refresh);
+            }
+            if (progression.next_safe_action) return progression.next_safe_action;
+            if (progression.next_step) return progression.next_step;
+            if (verification.next_check) return verification.next_check;
+            return item.next_step || 'Open the remediation queue to review the next safe action.';
+        },
+
+        dashboardRemediationStuckText(item) {
+            if (!item) return '';
+            const refresh = item.evidence_refresh || {};
+            const dispatch = item.notification?.dispatch || {};
+            const progression = item.repair_progression || {};
+            const verificationStatus = String(item.verification_plan?.status || '');
+            const blockers = progression.blocked_by || [];
+            if (refresh.safe_to_run === false || refresh.refresh_key === 'provider_value') {
+                return 'Waiting on a provider value before DMARQ can refresh or prepare the repair.';
+            }
+            if (Boolean(progression.provider_apply_blocked)) {
+                return 'Provider apply is blocked until prerequisites are complete.';
+            }
+            if (dispatch.enabled && !dispatch.eligible) {
+                return 'Notification dispatch is blocked by settings, acknowledgement, or route availability.';
+            }
+            if ((dispatch.blocked_reasons || []).length) {
+                return `Dispatch blocked: ${dispatch.blocked_reasons.slice(0, 2).join(', ')}.`;
+            }
+            if (blockers.length) {
+                return `Repair blocked by ${blockers.slice(0, 2).map(value => this.formatDemoLabel(value)).join(', ')}.`;
+            }
+            if (verificationStatus === 'blocked_by_prerequisite') {
+                return 'Verification is blocked by a missing prerequisite.';
+            }
+            return '';
         },
 
         remediationLoopItemRank(item) {
@@ -2200,6 +2280,13 @@ function dashboardApp() {
                 wrapper.appendChild(action);
             }
 
+            if (workload?.primary) {
+                const nextAction = document.createElement('span');
+                nextAction.className = 'max-w-56 truncate text-xs font-semibold text-[#1f7c83]';
+                nextAction.textContent = this.dashboardRemediationNextActionText(workload.primary);
+                wrapper.appendChild(nextAction);
+            }
+
             if (workload?.primary?.evidence_refresh?.required) {
                 const evidence = document.createElement('span');
                 evidence.className = 'max-w-56 truncate text-xs font-semibold text-[#247982]';
@@ -2230,6 +2317,14 @@ function dashboardApp() {
                 [Number(remediation?.dispatch_enqueued || 0), 'dispatched'],
                 [Number(remediation?.needs_operator_follow_up || 0), 'follow-up'],
             ], 'max-w-56 truncate text-xs font-semibold text-[#5f5c78]');
+
+            const followUpAge = this.dashboardRemediationFollowUpAgeText(remediation);
+            if (followUpAge) {
+                const age = document.createElement('span');
+                age.className = 'max-w-56 truncate text-xs font-semibold text-[#8a6418]';
+                age.textContent = followUpAge;
+                wrapper.appendChild(age);
+            }
 
             cell.appendChild(wrapper);
             return cell;
