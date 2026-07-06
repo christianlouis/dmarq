@@ -1,6 +1,5 @@
 """Typed DNS lint and configuration guidance for monitored domains."""
 
-from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
