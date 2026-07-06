@@ -4,6 +4,20 @@ This guide covers the various settings and configuration options available in DM
 
 ## General Settings
 
+### Account and Access Milestone
+
+Administrators see an **Account and Access Milestone** card at the top of
+Settings. It summarizes the #12 account/auth foundation in product terms:
+authentication modes, workspace RBAC, membership management, workspace
+switching, onboarding, billing ownership, provider lifecycle, plan limits,
+enterprise provisioning, and audited support access.
+
+The card separates implementation state from deployment setup. **Open slices**
+should be zero when the product foundation is complete. **Setup gates** identify
+environment-specific configuration still needed before using a mode, such as
+Stripe for direct billing, provider machine tokens for ISP/OEM integrations, or
+SCIM/MFA controls for enterprise tenants.
+
 ### User Profile
 
 To manage your user profile:

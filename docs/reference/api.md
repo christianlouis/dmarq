@@ -240,6 +240,18 @@ DELETE /api-tokens/{token_id}
 Deactivates a token immediately. Revoked tokens can no longer access public API
 endpoints.
 
+### Settings Account Readiness
+
+```text
+GET /settings/account-readiness
+```
+
+Returns the administrator-facing #12 account/auth milestone summary used by
+Settings. The response separates completed implementation slices from
+environment setup gates, so self-hosted installs can stay simple while SaaS,
+provider-billed, SCIM, MFA, or support-access deployments still show their
+remaining configuration work.
+
 ### Workspace Audit
 
 #### List Workspace Roles

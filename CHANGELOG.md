@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added a Settings account/access milestone readiness summary for #12, separating completed auth/workspace/billing/provider foundations from environment-specific setup gates.
 - Added mail-source authorization health signals to poll status, operations health, and dashboard intake status so expired or incomplete Gmail OAuth connections request reauthorization instead of appearing simply connected.
 - Added recovery diagnostics to manual dashboard mail polling results so failed Gmail/Microsoft 365 imports surface the likely action, such as reconnecting the mailbox.
 - Added early Gmail backfill reauthorization checks when a source has no refresh token, preventing long-running backfills from failing later with opaque provider errors.

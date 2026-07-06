@@ -22,6 +22,88 @@
         </div>
     </template>
 
+    <!-- ── Account/Auth Milestone ───────────────────────────────────────── -->
+    {% call card() %}
+        {% call card_header() %}
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                    {% call card_title() %}Account and Access Milestone{% endcall %}
+                    {% call card_description() %}
+                        Product readiness for authentication, workspace RBAC, billing ownership,
+                        provider lifecycle, enterprise provisioning, and audited support access.
+                    {% endcall %}
+                </div>
+                <button type="button" class="btn btn-outline btn-sm"
+                    data-settings-action="load_account_readiness"
+                    :disabled="loadingAccountReadiness">
+                    <template x-if="!loadingAccountReadiness">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                            stroke-linejoin="round" class="mr-2">
+                            <polyline points="23 4 23 10 17 10"></polyline>
+                            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                        </svg>
+                    </template>
+                    <template x-if="loadingAccountReadiness"><span class="loading loading-spinner loading-xs mr-2"></span></template>
+                    Reload
+                </button>
+            </div>
+        {% endcall %}
+        {% call card_content() %}
+            <div x-show="loadingAccountReadiness && !accountReadiness" class="flex items-center gap-2 text-sm text-[#5f5c78]" role="status">
+                <span class="loading loading-spinner loading-sm"></span>
+                <span>Loading account readiness...</span>
+            </div>
+
+            <template x-if="accountReadiness">
+                <div class="space-y-4">
+                    <div class="flex flex-col gap-3 rounded-lg border border-[#dfdfdf] bg-[#f8f7f4] p-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                            <p class="text-sm font-semibold text-[#120d36]" x-text="accountReadiness.milestone"></p>
+                            <p class="mt-1 text-sm text-[#5f5c78]" x-text="accountReadiness.next_step"></p>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span class="badge" :class="accountReadinessStatusClass(accountReadiness.status)"
+                                x-text="accountReadinessStatusLabel(accountReadiness.status)"></span>
+                            <span class="badge badge-ghost">
+                                <span x-text="accountReadiness.criteria_met"></span>/<span x-text="accountReadiness.criteria_total"></span> criteria
+                            </span>
+                            <span class="badge badge-ghost">
+                                <span x-text="accountReadiness.remaining_slices"></span> open slices
+                            </span>
+                            <span class="badge badge-ghost">
+                                <span x-text="accountReadiness.setup_gates"></span> setup gates
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                        <template x-for="criterion in accountReadiness.criteria" :key="criterion.key">
+                            <article class="rounded-lg border border-[#dfdfdf] bg-white p-4">
+                                <div class="flex items-start justify-between gap-3">
+                                    <h3 class="text-sm font-semibold text-[#120d36]" x-text="criterion.title"></h3>
+                                    <span class="badge badge-sm" :class="criterion.ready ? (criterion.setup_required ? 'badge-warning' : 'badge-success') : 'badge-error'"
+                                        x-text="criterion.status"></span>
+                                </div>
+                                <ul class="mt-3 space-y-1 text-xs text-[#5f5c78]">
+                                    <template x-for="line in criterion.evidence" :key="line">
+                                        <li x-text="line"></li>
+                                    </template>
+                                </ul>
+                                <p class="mt-3 text-xs font-medium text-[#120d36]" x-text="criterion.next_step"></p>
+                            </article>
+                        </template>
+                    </div>
+
+                    <div class="rounded-lg border border-[#dfdfdf] bg-[#f8f7f4] p-4 text-xs text-[#5f5c78]">
+                        <p class="font-semibold text-[#120d36]">Safety boundary</p>
+                        <p class="mt-1" x-text="accountReadiness.safety_boundary"></p>
+                    </div>
+                </div>
+            </template>
+        {% endcall %}
+    {% endcall %}
+
     <!-- ── General ──────────────────────────────────────────────────────── -->
     {% call card() %}
         {% call card_header() %}

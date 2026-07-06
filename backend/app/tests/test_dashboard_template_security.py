@@ -192,6 +192,14 @@ def _profile_script() -> str:
     return _read_project_file("static", "js", "profile-page.js")
 
 
+def _settings_template() -> str:
+    return _read_project_file("templates", "settings.html")
+
+
+def _settings_script() -> str:
+    return _read_project_file("static", "js", "settings-page.js")
+
+
 def _onboarding_template() -> str:
     return _read_project_file("templates", "onboarding.html")
 
@@ -230,14 +238,6 @@ def _report_detail_template() -> str:
 
 def _report_detail_script() -> str:
     return _read_project_file("static", "js", "report-detail-page.js")
-
-
-def _settings_template() -> str:
-    return _read_project_file("templates", "settings.html")
-
-
-def _settings_script() -> str:
-    return _read_project_file("static", "js", "settings-page.js")
 
 
 def test_settings_cloudflare_oauth_uses_popup_with_full_window_fallback():
@@ -1857,6 +1857,14 @@ def test_settings_controls_are_bound_from_external_script():
     template = _settings_template()
     script = _settings_script()
 
+    assert "Account and Access Milestone" in template
+    assert 'data-settings-action="load_account_readiness"' in template
+    assert "accountReadiness.remaining_slices" in template
+    assert "accountReadiness.setup_gates" in template
+    assert "loadAccountReadiness" in script
+    assert "accountReadinessStatusClass" in script
+    assert "accountReadinessStatusLabel" in script
+    assert "/api/v1/settings/account-readiness" in script
     assert "data-settings-save-category" in template
     assert "data-settings-save-automation" in template
     assert "data-settings-create-webhook" in template

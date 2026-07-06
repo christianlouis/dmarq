@@ -48,6 +48,8 @@ function settingsApp() {
         loadingWebhookDeliveries: false,
         loadingAIProfiles: false,
         testingAIConnection: false,
+        loadingAccountReadiness: false,
+        accountReadiness: null,
         aiProviderProfiles: [],
         aiConnectionResult: null,
         aiModels: [],
@@ -160,7 +162,8 @@ function settingsApp() {
                 load_webhooks: () => this.loadWebhooks(),
                 process_webhooks: () => this.processWebhooks(),
                 load_webhook_deliveries: () => this.loadWebhookDeliveries(),
-                test_ai_connection: () => this.testAIConnection()
+                test_ai_connection: () => this.testAIConnection(),
+                load_account_readiness: () => this.loadAccountReadiness()
             };
             actions[action]?.();
         },
@@ -211,9 +214,38 @@ function settingsApp() {
                 await this.loadCloudflareOAuthStatus(false);
                 await this.loadDNSProviders(false);
                 await this.loadAIProviderProfiles(false);
+                await this.loadAccountReadiness(false);
             } catch (err) {
                 this.showFlash('Error loading settings: ' + err.message, false);
             }
+        },
+
+        async loadAccountReadiness(showFlash = true) {
+            this.loadingAccountReadiness = true;
+            try {
+                const res = await fetch('/api/v1/settings/account-readiness', { headers: this.apiHeaders() });
+                if (!res.ok) {
+                    if (showFlash) this.showFlash('Failed to load account readiness: ' + res.statusText, false);
+                    return;
+                }
+                this.accountReadiness = await res.json();
+            } catch (err) {
+                if (showFlash) this.showFlash('Error loading account readiness: ' + err.message, false);
+            } finally {
+                this.loadingAccountReadiness = false;
+            }
+        },
+
+        accountReadinessStatusClass(status) {
+            if (status === 'complete') return 'badge-success';
+            if (status === 'operational_with_setup_needed') return 'badge-warning';
+            return 'badge-ghost';
+        },
+
+        accountReadinessStatusLabel(status) {
+            if (status === 'complete') return 'Complete';
+            if (status === 'operational_with_setup_needed') return 'Setup needed';
+            return status || 'Unknown';
         },
 
         applyCloudflareOAuthQueryState() {
