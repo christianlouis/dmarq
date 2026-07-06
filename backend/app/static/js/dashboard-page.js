@@ -1249,7 +1249,7 @@ function dashboardApp() {
             return 4;
         },
 
-        dashboardRemediationFollowUpAgeMs(item, nowMs = Date.now()) {
+        dashboardRemediationFollowUpActivity(item) {
             const activity = item?.latest_at
                 ? item
                 : this.dashboardRemediationActivity(item);
@@ -1257,6 +1257,11 @@ function dashboardApp() {
             const requiresFollowUp = Boolean(activity.needs_operator_follow_up) ||
                 Boolean(dispatch.requires_lifecycle_acknowledgement) ||
                 Boolean(dispatch.operator_hold);
+            return { activity, requiresFollowUp };
+        },
+
+        dashboardRemediationFollowUpAgeMs(item, nowMs = Date.now()) {
+            const { activity, requiresFollowUp } = this.dashboardRemediationFollowUpActivity(item);
             if (!requiresFollowUp || !activity.latest_at) return 0;
             const timestamp = new Date(activity.latest_at).getTime();
             if (!Number.isFinite(timestamp)) return 0;
@@ -1316,24 +1321,14 @@ function dashboardApp() {
         },
 
         dashboardRemediationFollowUpAgeText(item) {
-            const activity = item?.latest_at
-                ? item
-                : this.dashboardRemediationActivity(item);
-            const requiresFollowUp = Boolean(activity.needs_operator_follow_up) ||
-                Boolean(item?.notification?.dispatch?.requires_lifecycle_acknowledgement) ||
-                Boolean(item?.notification?.dispatch?.operator_hold);
+            const { activity, requiresFollowUp } = this.dashboardRemediationFollowUpActivity(item);
             if (!requiresFollowUp) return '';
             const age = this.relativeAgeText(activity.latest_at);
             return age ? `Follow-up waiting since ${age}` : 'Follow-up is waiting for operator review';
         },
 
         dashboardRemediationFollowUpAgeDays(item) {
-            const activity = item?.latest_at
-                ? item
-                : this.dashboardRemediationActivity(item);
-            const requiresFollowUp = Boolean(activity.needs_operator_follow_up) ||
-                Boolean(item?.notification?.dispatch?.requires_lifecycle_acknowledgement) ||
-                Boolean(item?.notification?.dispatch?.operator_hold);
+            const { activity, requiresFollowUp } = this.dashboardRemediationFollowUpActivity(item);
             return requiresFollowUp ? this.ageDays(activity.latest_at) : -1;
         },
 
