@@ -1028,9 +1028,12 @@ function dashboardApp() {
                 ));
             }
             if (this.dashboardRemediationSort === 'dispatch') {
+                const nowMs = Date.now();
                 return list.sort((a, b) => (
                     this.dashboardRemediationDispatchRank(a) -
                     this.dashboardRemediationDispatchRank(b) ||
+                    this.dashboardRemediationFollowUpAgeMs(b, nowMs) -
+                    this.dashboardRemediationFollowUpAgeMs(a, nowMs) ||
                     this.remediationLoopItemRank(a) - this.remediationLoopItemRank(b) ||
                     (Number(b?.priority_score) || 0) - (Number(a?.priority_score) || 0)
                 ));
@@ -1246,6 +1249,26 @@ function dashboardApp() {
             return 4;
         },
 
+        dashboardRemediationFollowUpActivity(item) {
+            const activity = item?.latest_at
+                ? item
+                : this.dashboardRemediationActivity(item);
+            const dispatch = item?.notification?.dispatch || {};
+            const requiresFollowUp = Boolean(activity.needs_operator_follow_up) ||
+                Boolean(dispatch.requires_lifecycle_acknowledgement) ||
+                Boolean(dispatch.operator_hold);
+            return { activity, requiresFollowUp };
+        },
+
+        dashboardRemediationFollowUpAgeMs(item, nowMs = Date.now()) {
+            const { activity, requiresFollowUp } = this.dashboardRemediationFollowUpActivity(item);
+            if (!requiresFollowUp || !activity.latest_at) return 0;
+            const timestamp = new Date(activity.latest_at).getTime();
+            if (!Number.isFinite(timestamp)) return 0;
+            const diffMs = nowMs - timestamp;
+            return diffMs > 0 ? diffMs : 0;
+        },
+
         dashboardRemediationDispatchText(item) {
             const activity = this.dashboardRemediationActivity(item);
             const dispatch = item?.notification?.dispatch || {};
@@ -1298,24 +1321,14 @@ function dashboardApp() {
         },
 
         dashboardRemediationFollowUpAgeText(item) {
-            const activity = item?.latest_at
-                ? item
-                : this.dashboardRemediationActivity(item);
-            const requiresFollowUp = Boolean(activity.needs_operator_follow_up) ||
-                Boolean(item?.notification?.dispatch?.requires_lifecycle_acknowledgement) ||
-                Boolean(item?.notification?.dispatch?.operator_hold);
+            const { activity, requiresFollowUp } = this.dashboardRemediationFollowUpActivity(item);
             if (!requiresFollowUp) return '';
             const age = this.relativeAgeText(activity.latest_at);
             return age ? `Follow-up waiting since ${age}` : 'Follow-up is waiting for operator review';
         },
 
         dashboardRemediationFollowUpAgeDays(item) {
-            const activity = item?.latest_at
-                ? item
-                : this.dashboardRemediationActivity(item);
-            const requiresFollowUp = Boolean(activity.needs_operator_follow_up) ||
-                Boolean(item?.notification?.dispatch?.requires_lifecycle_acknowledgement) ||
-                Boolean(item?.notification?.dispatch?.operator_hold);
+            const { activity, requiresFollowUp } = this.dashboardRemediationFollowUpActivity(item);
             return requiresFollowUp ? this.ageDays(activity.latest_at) : -1;
         },
 

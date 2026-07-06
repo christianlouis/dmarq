@@ -98,7 +98,9 @@ filter isolates work older than 24 hours. The dashboard health summary,
 dispatch activity card, and domain rows expose the same aging follow-up count so
 old manual work is visible before the operator opens the full queue. Follow-ups
 older than a week use the stronger overdue styling so old manual work is easier
-to separate from fresh findings. Notification-profile-ready cards have
+to separate from fresh findings. The dispatch follow-up sort also places older
+operator follow-ups ahead of fresher follow-ups, even when the fresher item has a
+higher remediation score. Notification-profile-ready cards have
 the event, channel, dedupe key, and payload preview prepared, but they still do
 not send anything until the operator uses the explicit dispatch flow. The
 dashboard and domain rows also expose separate counts for approval-required,

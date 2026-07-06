@@ -64,6 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added remediation follow-up aging on dashboard cards and domain rows so stale operator follow-up is visible before opening a queue.
 - Added an aging follow-up remediation filter and overdue styling so operator follow-up older than 24 hours or 7 days is easier to triage.
 - Added aging follow-up counts to the dashboard health summary, dispatch activity card, and domain rows so stale manual work is visible without opening the remediation queue.
+- Changed the dashboard dispatch follow-up sort to put older operator follow-ups ahead of fresher follow-ups within the same dispatch state.
 - Added domain remediation refresh result messages and clearer empty-queue states so operators can tell whether no work is open, recent verified repairs exist, or data has not loaded yet.
 - Added domain remediation filter chip counts, empty-filter styling, and explanatory labels so queue filters behave consistently with dashboard remediation filters.
 
