@@ -24,10 +24,12 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.credential_encryption import decrypt_secret, encrypt_secret, is_encrypted_secret
 from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.setting import Setting
+from app.services.account_milestone import build_account_milestone_readiness
 from app.services.ai_assistance import AI_DEFAULTS
 from app.services.alert_history import (
     list_alert_config_audit,
@@ -672,6 +674,24 @@ class AIConnectionTestResponse(BaseModel):
     selected_model: Optional[str] = None
 
 
+class AccountReadinessResponse(BaseModel):
+    """Milestone #12 account/auth/provider readiness response."""
+
+    milestone: str
+    status: str
+    ready_to_close_parent_issue: bool
+    criteria_met: int
+    criteria_total: int
+    remaining_slices: int
+    setup_gates: int
+    criteria: List[Dict[str, Any]]
+    counts: Dict[str, int]
+    role_catalog: List[Dict[str, Any]]
+    deployment_modes: List[str]
+    safety_boundary: str
+    next_step: str
+
+
 AI_PROVIDER_PROFILES: List[Dict[str, Any]] = [
     {
         "id": "template",
@@ -1020,6 +1040,15 @@ async def test_ai_connection(
         models=models,
         selected_model=selected_model or None,
     )
+
+
+@router.get("/account-readiness", response_model=AccountReadinessResponse)
+async def get_account_milestone_readiness(
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+) -> AccountReadinessResponse:
+    """Return the #12 account/auth/provider milestone readiness summary."""
+    return build_account_milestone_readiness(db, get_settings())
 
 
 @router.get("/{key:path}", response_model=SettingResponse)

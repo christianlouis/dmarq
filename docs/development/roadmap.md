@@ -110,7 +110,7 @@ Strategic issue status:
 
 | Issue | Status | Notes |
 | --- | --- | --- |
-| [#12](https://github.com/christianlouis/dmarq/issues/12) | open | Broad user-auth, SaaS, ISP/OEM, subscription, and billing tracker. Keep this parked for the self-hosted demo unless auth work is explicitly reactivated. |
+| [#12](https://github.com/christianlouis/dmarq/issues/12) | ready to close | Parent tracker for user-auth, SaaS, ISP/OEM, subscription, and billing foundations. Child slices #236-#243 are complete, and Settings now exposes a readiness rollup that separates implemented foundations from environment setup gates. |
 | [#243](https://github.com/christianlouis/dmarq/issues/243) | complete | Enterprise identity, provisioning, and support-access hardening landed through focused child slices. |
 | [#305](https://github.com/christianlouis/dmarq/issues/305) | complete as roadmap parent | Competitive-parity direction is now captured here and in the referenced product docs. New work should use focused child issues instead of reopening the parent. |
 | [#309](https://github.com/christianlouis/dmarq/issues/309) | complete for current read-only API/MCP scope | Stable public API and MCP read-only surfaces exist for health, reports, DNS, sources, remediation, alerts, usage, and export discovery. Future write or provider-admin tools need separate scoped issues. |
@@ -550,6 +550,7 @@ Completed reference issues:
 
 - [Issue #206](https://github.com/christianlouis/dmarq/issues/206): Kubernetes
   host-loss high availability.
-- [Issues #236-#242](https://github.com/christianlouis/dmarq/issues?q=repo%3Achristianlouis%2Fdmarq+is%3Aissue+236..242):
+- [Issues #236-#243](https://github.com/christianlouis/dmarq/issues?q=repo%3Achristianlouis%2Fdmarq+is%3Aissue+236..243):
   #12 foundation slices for RBAC, membership, workspace switching, SaaS
-  onboarding, Stripe billing, provider lifecycle, and entitlement visibility.
+  onboarding, Stripe billing, provider lifecycle, entitlement visibility,
+  enterprise identity, and audited support access.

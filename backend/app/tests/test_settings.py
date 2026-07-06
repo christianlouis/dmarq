@@ -126,6 +126,34 @@ class TestSettingsAPI:
         assert "forensics.redaction_mode" in keys
         assert "forensics.redact_long_tokens_enabled" in keys
 
+    def test_account_readiness_endpoint_summarizes_milestone_12(
+        self,
+        authed_client: TestClient,
+    ):
+        """GET /api/v1/settings/account-readiness returns the #12 rollup route."""
+        res = authed_client.get("/api/v1/settings/account-readiness")
+
+        assert res.status_code == 200
+        data = res.json()
+        assert data["milestone"] == "#12 User Authentication & Multi-User Support"
+        assert data["criteria_total"] == len(data["criteria"])
+        assert data["criteria_total"] >= 10
+        assert data["ready_to_close_parent_issue"] is True
+        assert data["remaining_slices"] == 0
+        assert data["setup_gates"] >= 0
+        assert data["safety_boundary"]
+        assert "workspace_owner" in {row["role"] for row in data["role_catalog"]}
+        assert all(row["ready"] is True for row in data["criteria"])
+        keys = {row["key"] for row in data["criteria"]}
+        assert {
+            "auth_modes",
+            "workspace_rbac",
+            "direct_billing",
+            "provider_billing",
+            "enterprise_identity",
+            "support_access",
+        }.issubset(keys)
+
     def test_list_settings_filter_by_category(self, authed_client: TestClient):
         """GET /api/v1/settings?category=dmarc returns only dmarc settings."""
         res = authed_client.get("/api/v1/settings?category=dmarc")
