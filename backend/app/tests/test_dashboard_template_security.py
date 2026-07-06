@@ -783,6 +783,43 @@ def test_dashboard_remediation_dispatch_activity_filters_and_labels():
     )
 
 
+def test_dashboard_remediation_dispatch_sort_prioritizes_old_follow_up():
+    result = _run_dashboard_expression("""(() => {
+            const oldLatest = new Date(Date.now() - (6 * 24 * 60 * 60 * 1000)).toISOString();
+            const freshLatest = new Date(Date.now() - (2 * 60 * 60 * 1000)).toISOString();
+            app.healthSummary = { remediation_loop: { items: [
+                { domain: 'fresh.example', state: 'needs_approval', priority_score: 10, severity: 'high' },
+                { domain: 'old.example', state: 'needs_approval', priority_score: 3, severity: 'medium' }
+            ] } };
+            app.domains = [
+                {
+                    domain_name: 'fresh.example',
+                    remediation: {
+                        latest_at: freshLatest,
+                        needs_operator_follow_up: true
+                    }
+                },
+                {
+                    domain_name: 'old.example',
+                    remediation: {
+                        latest_at: oldLatest,
+                        needs_operator_follow_up: true
+                    }
+                }
+            ];
+            app.dashboardRemediationFilter = 'follow_up';
+            app.dashboardRemediationSort = 'dispatch';
+            return [
+                app.visibleDashboardRemediationItems()[0].domain,
+                app.visibleDashboardRemediationItems()[1].domain,
+                app.dashboardRemediationFollowUpAgeMs(app.visibleDashboardRemediationItems()[0]) >
+                    app.dashboardRemediationFollowUpAgeMs(app.visibleDashboardRemediationItems()[1])
+            ].join('|');
+        })()""")
+
+    assert result == "old.example|fresh.example|true"
+
+
 def test_dashboard_remediation_filter_chips_explain_empty_states():
     result = _run_dashboard_expression("""(() => {
             app.healthSummary = { remediation_loop: { items: [

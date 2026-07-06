@@ -1031,6 +1031,8 @@ function dashboardApp() {
                 return list.sort((a, b) => (
                     this.dashboardRemediationDispatchRank(a) -
                     this.dashboardRemediationDispatchRank(b) ||
+                    this.dashboardRemediationFollowUpAgeMs(b) -
+                    this.dashboardRemediationFollowUpAgeMs(a) ||
                     this.remediationLoopItemRank(a) - this.remediationLoopItemRank(b) ||
                     (Number(b?.priority_score) || 0) - (Number(a?.priority_score) || 0)
                 ));
@@ -1244,6 +1246,21 @@ function dashboardApp() {
             if (dispatch.enabled && !dispatch.eligible) return 2;
             if (dispatch.eligible) return 3;
             return 4;
+        },
+
+        dashboardRemediationFollowUpAgeMs(item) {
+            const activity = item?.latest_at
+                ? item
+                : this.dashboardRemediationActivity(item);
+            const dispatch = item?.notification?.dispatch || {};
+            const requiresFollowUp = Boolean(activity.needs_operator_follow_up) ||
+                Boolean(dispatch.requires_lifecycle_acknowledgement) ||
+                Boolean(dispatch.operator_hold);
+            if (!requiresFollowUp || !activity.latest_at) return 0;
+            const timestamp = new Date(activity.latest_at).getTime();
+            if (!Number.isFinite(timestamp)) return 0;
+            const diffMs = Date.now() - timestamp;
+            return diffMs > 0 ? diffMs : 0;
         },
 
         dashboardRemediationDispatchText(item) {
