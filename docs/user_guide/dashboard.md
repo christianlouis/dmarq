@@ -95,6 +95,9 @@ the event, channel, dedupe key, and payload preview prepared, but they still do
 not send anything until the operator uses the explicit dispatch flow. The
 dashboard and domain rows also expose separate counts for approval-required,
 manual-action, investigation-required, and summary-only notification profiles.
+The dashboard summary cards show those notification-profile counts before any
+dispatch activity exists, making queued operator communication visible even when
+webhook delivery is not yet enabled.
 Filter chips show compact counts, fade when the current workspace has no
 matching cards, and include hover text that explains whether the filtered queue
 is empty or how many cards it would show.

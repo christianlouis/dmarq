@@ -345,6 +345,15 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "item.priority_band || 'watch'" in template
     assert "item.operator_decision_summary" in template
     assert "Repair previews ready" in template
+    assert "Notifications ready" in template
+    assert "Operator notification profiles prepared" in template
+    assert "remediationLoop().notification_profile_ready || 0" in template
+    assert "remediationLoop().notification_approval_required || 0" in template
+    assert "remediationLoop().notification_action_required || 0" in template
+    assert "manual action" in template
+    assert "remediationLoop().notification_investigation_required || 0" in template
+    assert "remediationLoop().notification_profiles || 0" in template
+    assert "remediationLoop().notification_summary_only || 0" in template
     assert "Need fresh evidence" in template
     assert "Waiting on operator" in template
     assert "Blocked before repair" in template
