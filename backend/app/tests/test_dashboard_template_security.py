@@ -883,7 +883,7 @@ def test_domain_details_remediation_queue_shows_verification_context():
     assert "filter === 'fresh_evidence'" in script
     assert "filter === 'stale_evidence'" in script
     assert "filter === 'provider_value'" in script
-    assert "if (hasDispatchPreview) return Boolean(dispatch.eligible)" in script
+    assert "item.notification?.dispatch?.eligible" in script
     assert "remediationQueueFilterCount(filter)" in script
     assert "remediationQueueFilteredCount()" in script
     assert "remediationQueueTotalCount()" in script
