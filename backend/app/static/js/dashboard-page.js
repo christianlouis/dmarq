@@ -2209,38 +2209,41 @@ function dashboardApp() {
                 wrapper.appendChild(evidence);
             }
 
-            const providerPreview = Number(workload?.provider_preview_available || 0);
-            const providerApply = Number(workload?.provider_apply_after_approval || 0);
-            const providerBlocked = Number(workload?.provider_apply_blocked || 0);
-            const providerHistory = Number(workload?.provider_apply_history || 0);
-            const providerVerified = Number(workload?.provider_apply_verified || 0);
-            if (providerPreview || providerApply || providerBlocked || providerHistory || providerVerified) {
-                const provider = document.createElement('span');
-                provider.className = 'max-w-56 truncate text-xs font-semibold text-[#24507a]';
-                const parts = [];
-                if (providerPreview) parts.push(`${this.formatLargeNumber(providerPreview)} provider preview`);
-                if (providerApply) parts.push(`${this.formatLargeNumber(providerApply)} apply-ready`);
-                if (providerBlocked) parts.push(`${this.formatLargeNumber(providerBlocked)} apply blocked`);
-                if (providerHistory) parts.push(`${this.formatLargeNumber(providerHistory)} apply history`);
-                if (providerVerified) parts.push(`${this.formatLargeNumber(providerVerified)} verified`);
-                provider.textContent = parts.join(' · ');
-                wrapper.appendChild(provider);
-            }
+            this.appendCountBadge(wrapper, [
+                [Number(workload?.provider_preview_available || 0), 'provider preview'],
+                [Number(workload?.provider_apply_after_approval || 0), 'apply-ready'],
+                [Number(workload?.provider_apply_blocked || 0), 'apply blocked'],
+                [Number(workload?.provider_apply_history || 0), 'apply history'],
+                [Number(workload?.provider_apply_verified || 0), 'verified'],
+            ], 'max-w-56 truncate text-xs font-semibold text-[#24507a]');
 
-            const dispatched = Number(remediation?.dispatch_enqueued || 0);
-            const followUp = Number(remediation?.needs_operator_follow_up || 0);
-            if (dispatched || followUp) {
-                const dispatch = document.createElement('span');
-                dispatch.className = 'max-w-56 truncate text-xs font-semibold text-[#5f5c78]';
-                const parts = [];
-                if (dispatched) parts.push(`${this.formatLargeNumber(dispatched)} dispatched`);
-                if (followUp) parts.push(`${this.formatLargeNumber(followUp)} follow-up`);
-                dispatch.textContent = parts.join(' · ');
-                wrapper.appendChild(dispatch);
-            }
+            this.appendCountBadge(wrapper, [
+                [Number(workload?.notification_profile_ready || 0), 'notify-ready'],
+                [Number(workload?.notification_approval_required || 0), 'approval'],
+                [Number(workload?.notification_action_required || 0), 'action'],
+                [Number(workload?.notification_investigation_required || 0), 'investigate'],
+                [Number(workload?.notification_profiles || 0), 'profiles'],
+                [Number(workload?.notification_summary_only || 0), 'summary-only'],
+            ], 'max-w-56 truncate text-xs font-semibold text-[#7a5a24]');
+
+            this.appendCountBadge(wrapper, [
+                [Number(remediation?.dispatch_enqueued || 0), 'dispatched'],
+                [Number(remediation?.needs_operator_follow_up || 0), 'follow-up'],
+            ], 'max-w-56 truncate text-xs font-semibold text-[#5f5c78]');
 
             cell.appendChild(wrapper);
             return cell;
+        },
+
+        appendCountBadge(wrapper, entries, className) {
+            const parts = entries
+                .filter(([count]) => count)
+                .map(([count, label]) => `${this.formatLargeNumber(count)} ${label}`);
+            if (!parts.length) return;
+            const badge = document.createElement('span');
+            badge.className = className;
+            badge.textContent = parts.join(' · ');
+            wrapper.appendChild(badge);
         },
 
         remediationActivityText(remediation) {

@@ -868,6 +868,12 @@ def test_domain_list_remediation_cell_shows_provider_workload_summary():
                     provider_apply_blocked: 1,
                     provider_apply_history: 2,
                     provider_apply_verified: 1,
+                    notification_profile_ready: 3,
+                    notification_approval_required: 1,
+                    notification_action_required: 1,
+                    notification_investigation_required: 1,
+                    notification_profiles: 4,
+                    notification_summary_only: 1,
                     primary: {
                         state: 'needs_approval',
                         remediation_track: 'provider_preview',
@@ -887,6 +893,12 @@ def test_domain_list_remediation_cell_shows_provider_workload_summary():
     assert "1 apply blocked" in result
     assert "2 apply history" in result
     assert "1 verified" in result
+    assert "3 notify-ready" in result
+    assert "1 approval" in result
+    assert "1 action" in result
+    assert "1 investigate" in result
+    assert "4 profiles" in result
+    assert "1 summary-only" in result
     assert "1 dispatched" in result
     assert "1 follow-up" in result
     assert "Dispatch enqueued" in result
