@@ -977,6 +977,9 @@ def test_dashboard_remediation_loop_counts_provider_specific_prerequisite_blocks
                             "prerequisites": [
                                 "A provider-specific final value is required before automation is safe."
                             ],
+                            "provider_repair_plan": {
+                                "attempt_history": {"entries": {"unexpected": "shape"}}
+                            },
                         }
                     ]
                 },
@@ -1005,6 +1008,7 @@ def test_dashboard_remediation_loop_counts_provider_specific_prerequisite_blocks
     assert loop["items"][0]["repair_progression"]["stage"] == "blocked"
     assert loop["items"][0]["repair_progression"]["can_preview"] is False
     assert loop["items"][0]["repair_progression"]["readiness_level"] == "blocked"
+    assert loop["items"][0]["repair_progression"]["provider_apply_history"] == 0
     assert loop["items"][0]["evidence_refresh"]["refresh_key"] == "provider_value"
     assert loop["items"][0]["evidence_refresh"]["safe_to_run"] is False
     assert loop["items"][0]["verification_plan"]["status"] == "blocked_by_prerequisite"
