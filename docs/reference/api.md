@@ -862,9 +862,11 @@ or fresh report/DNS evidence. Fresh-evidence counters such as
 kind of read-only refresh or prerequisite the operator should handle next.
 Provider-repair counters such as `provider_preview_available`,
 `provider_apply_after_approval`, `provider_apply_blocked`,
-`provider_value_missing`, and `provider_manual_fallback` summarize where DNS
-repairs can progress through a connected provider and where a prerequisite or
-manual fallback still owns the next step.
+`provider_value_missing`, `provider_apply_history`,
+`provider_apply_verified`, and `provider_manual_fallback` summarize where DNS
+repairs can progress through a connected provider, which applies already have
+history or verified evidence, and where a prerequisite or manual fallback still
+owns the next step.
 The workspace dashboard `health_summary.remediation_loop` and each domain row's
 `remediation_workload` expose the same `evidence_refresh` object and counters,
 so clients can present the correct refresh path before opening the detail queue.
