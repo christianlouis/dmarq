@@ -139,7 +139,7 @@ def _safe_int(value: str) -> Optional[int]:
 def parse_tlsa_record(record: str, *, query_name: str, mx_host: str) -> TLSARecord:
     """Parse a TLSA record and return normalized lint evidence."""
     result = TLSARecord(query_name=query_name, mx_host=mx_host, record=record)
-    parts = record.split()
+    parts = record.split(maxsplit=3)
     if len(parts) < 4:
         result.errors.append(
             "TLSA records must contain certificate usage, selector, matching type, and data."
