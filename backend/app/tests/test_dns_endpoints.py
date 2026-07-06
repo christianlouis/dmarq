@@ -2287,6 +2287,10 @@ def test_summary_includes_current_remediation_loop(
     assert loop["items"][0]["priority_score"] > 0
     assert "approve_after_preview" in loop["items"][0]["operator_decisions"]
     assert loop["repair_preview_ready"] >= 2
+    assert loop["provider_preview_available"] >= 2
+    assert loop["provider_apply_after_approval"] >= 2
+    assert loop["provider_apply_blocked"] == 0
+    assert loop["provider_value_missing"] == 0
     assert loop["repair_needs_evidence"] >= 2
     assert loop["evidence_refresh_required"] >= 2
     assert loop["evidence_refresh_dns"] >= 2
@@ -2309,6 +2313,9 @@ def test_summary_includes_current_remediation_loop(
     assert domain["remediation_workload"]["what_needs_approval"] >= 2
     assert domain["remediation_workload"]["needs_approval"] >= 2
     assert domain["remediation_workload"]["repair_preview_ready"] >= 2
+    assert domain["remediation_workload"]["provider_preview_available"] >= 2
+    assert domain["remediation_workload"]["provider_apply_after_approval"] >= 2
+    assert domain["remediation_workload"]["provider_apply_blocked"] == 0
     assert domain["remediation_workload"]["repair_needs_evidence"] >= 2
     assert domain["remediation_workload"]["evidence_refresh_dns"] >= 2
     assert domain["remediation_workload"]["total_open"] >= 2

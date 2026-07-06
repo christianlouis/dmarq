@@ -408,12 +408,15 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
         "remediationLoop().repair_ready_for_preview || remediationLoop().repair_preview_ready || 0"
         in template
     )
+    assert "remediationLoop().provider_preview_available || 0" in template
+    assert "remediationLoop().provider_apply_after_approval || 0" in template
     assert "remediationLoop().repair_needs_evidence || 0" in template
     assert "remediationLoop().repair_waiting_on_operator || 0" in template
     assert (
         "remediationLoop().repair_readiness_blocked || remediationLoop().repair_blocked || 0"
         in template
     )
+    assert "remediationLoop().provider_apply_blocked || 0" in template
     assert "remediationLoop().verification_pending_operator_approval || 0" in template
     assert "remediationLoop().verification_pending_report_evidence || 0" in template
     assert "remediationLoop().verification_pending_sender_review || 0" in template
@@ -450,6 +453,13 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "this.remediationLoopItemRank(a) - this.remediationLoopItemRank(b)" in script
     assert "dashboardRemediationFilterMatches(item, filterValue)" in script
     assert "verificationStatus === 'pending_operator_approval'" in script
+    assert "{ value: 'provider_apply', label: 'Provider apply' }" in script
+    assert "{ value: 'apply_blocked', label: 'Apply blocked' }" in script
+    assert "{ value: 'provider_history', label: 'Provider history' }" in script
+    assert "filterValue === 'provider_apply'" in script
+    assert "filterValue === 'apply_blocked'" in script
+    assert "filterValue === 'provider_history'" in script
+    assert "item?.provider_repair_plan?.attempt_history?.entries" in script
     assert "verificationStatus === 'pending_sender_review'" in script
     assert "verificationStatus === 'pending_report_evidence'" in script
     assert "dashboardRemediationEvidenceRank(item)" in script
@@ -548,6 +558,26 @@ def test_dashboard_remediation_filters_and_sorts_cards():
                     verification_plan: { status: 'pending_operator_approval' }
                 },
                 {
+                    domain: 'provider-history.example',
+                    state: 'needs_approval',
+                    priority_score: 7,
+                    severity: 'medium',
+                    repair_progression: {
+                        readiness_level: 'ready_for_preview',
+                        stage: 'preview_ready',
+                        readiness_score: 85
+                    },
+                    provider_repair_plan: {
+                        safe_preview_available: true,
+                        can_apply_after_approval: false,
+                        apply_blocked: true,
+                        attempt_history: {
+                            entries: [{ state: 'apply_needs_verification' }]
+                        }
+                    },
+                    verification_plan: { status: 'pending_operator_approval' }
+                },
+                {
                     domain: 'sender.example',
                     state: 'investigate',
                     remediation_track: 'sender_classification',
@@ -580,6 +610,9 @@ def test_dashboard_remediation_filters_and_sorts_cards():
                 app.dashboardRemediationFilterCount('blocked'),
                 app.dashboardRemediationFilterCount('reputation'),
                 app.dashboardRemediationFilterCount('approval_verification'),
+                app.dashboardRemediationFilterCount('provider_apply'),
+                app.dashboardRemediationFilterCount('apply_blocked'),
+                app.dashboardRemediationFilterCount('provider_history'),
                 app.dashboardRemediationFilterCount('sender_review'),
                 app.dashboardRemediationFilterCount('report_evidence'),
                 app.dashboardRemediationFilteredCount(),
@@ -587,7 +620,7 @@ def test_dashboard_remediation_filters_and_sorts_cards():
             ].join('|');
         })()""")
 
-    assert result == "1|1|1|1|1|4|blocked.example"
+    assert result == "1|1|2|2|2|1|1|1|4|blocked.example"
 
 
 def test_dashboard_remediation_stale_evidence_links_to_evidence_anchor():
@@ -613,6 +646,58 @@ def test_dashboard_remediation_stale_evidence_links_to_evidence_anchor():
         result
         == "1|/domains/mail.example%2Fa%20b#dns-records|DNS evidence is older than the TTL window."
     )
+
+
+def test_domain_list_remediation_cell_shows_provider_workload_summary():
+    result = _run_dashboard_expression("""(() => {
+            global.document = {
+                createElement: (tagName) => {
+                    const element = {
+                        tagName,
+                        className: '',
+                        children: [],
+                        _textContent: '',
+                        appendChild(child) {
+                            this.children.push(child);
+                            return child;
+                        },
+                        set textContent(value) {
+                            this._textContent = String(value);
+                        },
+                        get textContent() {
+                            return [
+                                this._textContent,
+                                ...this.children.map((child) => child.textContent || '')
+                            ].join('');
+                        }
+                    };
+                    return element;
+                }
+            };
+            const cell = app.createRemediationCell(
+                { status: 'none' },
+                {
+                    total_open: 3,
+                    provider_preview_available: 2,
+                    provider_apply_after_approval: 1,
+                    provider_apply_blocked: 1,
+                    primary: {
+                        state: 'needs_approval',
+                        remediation_track: 'provider_preview',
+                        repair_progression: {
+                            readiness_label: 'Ready for preview'
+                        },
+                        title: 'Review provider repair'
+                    }
+                }
+            );
+            return cell.textContent.replace(/\\s+/g, ' ').trim();
+        })()""")
+
+    assert "3 open" in result
+    assert "2 provider preview" in result
+    assert "1 apply-ready" in result
+    assert "1 apply blocked" in result
 
 
 def test_domain_details_remediation_queue_shows_verification_context():

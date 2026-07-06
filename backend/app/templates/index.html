@@ -281,6 +281,11 @@
                 <p class="mt-2 text-2xl font-bold text-[#247982]"
                    x-text="remediationLoop().repair_ready_for_preview || remediationLoop().repair_preview_ready || 0"></p>
                 <p class="mt-1 text-xs text-[#5f5c78]">Provider-backed proposals ready for review</p>
+                <p class="mt-2 text-xs text-[#247982]">
+                    <span x-text="remediationLoop().provider_preview_available || 0"></span><span> provider previews</span>
+                    <span> · </span>
+                    <span x-text="remediationLoop().provider_apply_after_approval || 0"></span><span> apply after approval</span>
+                </p>
             </div>
             <div class="rounded-md border border-[#f5dfbd] bg-[#fff8ed] p-4">
                 <p class="text-sm text-[#5f5c78]">Need fresh evidence</p>
@@ -316,6 +321,8 @@
                 <p class="mt-2 text-xs text-[#5f5c78]">
                     <span x-text="remediationLoop().verification_blocked_by_prerequisite || 0"></span>
                     <span> provider values required</span>
+                    <span> · </span>
+                    <span x-text="remediationLoop().provider_apply_blocked || 0"></span><span> apply blocked</span>
                 </p>
             </div>
         </div>

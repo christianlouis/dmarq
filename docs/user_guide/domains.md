@@ -227,8 +227,11 @@ reputation refreshes, and each remediation card states the concrete read-only
 evidence action that should happen before the operator marks an item fixed.
 Use the dashboard remediation filters and sort control when the workspace has
 many active items. The dashboard can focus on preview-ready work, fresh evidence
-requirements, blocked items, manual repairs, or reputation review, and the
-compact card list can expand to show every matching item.
+requirements, provider apply work, blocked applies, provider apply history,
+manual repairs, or reputation review, and the compact card list can expand to
+show every matching item. The dashboard summary cards also count provider
+previews, apply-after-approval work, blocked applies, and missing provider
+values so a workspace-level triage view matches the domain queue semantics.
 Items with stale DNS, report, or reputation evidence can be filtered separately.
 When a remediation card knows the relevant evidence section, the dashboard links
 directly to that part of the domain detail page.

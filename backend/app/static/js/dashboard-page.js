@@ -20,6 +20,9 @@ function dashboardApp() {
             { value: 'preview_ready', label: 'Preview ready' },
             { value: 'fresh_evidence', label: 'Fresh evidence' },
             { value: 'approval_verification', label: 'Approval' },
+            { value: 'provider_apply', label: 'Provider apply' },
+            { value: 'apply_blocked', label: 'Apply blocked' },
+            { value: 'provider_history', label: 'Provider history' },
             { value: 'sender_review', label: 'Sender review' },
             { value: 'report_evidence', label: 'Report evidence' },
             { value: 'stale_evidence', label: 'Stale evidence' },
@@ -1088,6 +1091,23 @@ function dashboardApp() {
                     (!verificationStatus &&
                         ['approval_ready', 'needs_approval'].includes(String(item?.state || '')));
             }
+            if (filterValue === 'provider_apply') {
+                const plan = item?.provider_repair_plan || {};
+                return Boolean(plan.can_apply_after_approval) ||
+                    Boolean(plan.safe_preview_available) ||
+                    readinessLevel === 'ready_for_preview' ||
+                    stage === 'preview_ready';
+            }
+            if (filterValue === 'apply_blocked') {
+                const plan = item?.provider_repair_plan || {};
+                return Boolean(plan.apply_blocked) ||
+                    readinessLevel === 'blocked' ||
+                    stage === 'blocked';
+            }
+            if (filterValue === 'provider_history') {
+                const entries = item?.provider_repair_plan?.attempt_history?.entries || [];
+                return entries.length > 0;
+            }
             if (filterValue === 'sender_review') {
                 return verificationStatus === 'pending_sender_review';
             }
@@ -2061,6 +2081,20 @@ function dashboardApp() {
                     ? 'Evidence: provider value required'
                     : `Evidence: ${this.evidenceRefreshLabel(workload.primary.evidence_refresh)}`;
                 wrapper.appendChild(evidence);
+            }
+
+            const providerPreview = Number(workload?.provider_preview_available || 0);
+            const providerApply = Number(workload?.provider_apply_after_approval || 0);
+            const providerBlocked = Number(workload?.provider_apply_blocked || 0);
+            if (providerPreview || providerApply || providerBlocked) {
+                const provider = document.createElement('span');
+                provider.className = 'max-w-56 truncate text-xs font-semibold text-[#24507a]';
+                const parts = [];
+                if (providerPreview) parts.push(`${this.formatLargeNumber(providerPreview)} provider preview`);
+                if (providerApply) parts.push(`${this.formatLargeNumber(providerApply)} apply-ready`);
+                if (providerBlocked) parts.push(`${this.formatLargeNumber(providerBlocked)} apply blocked`);
+                provider.textContent = parts.join(' · ');
+                wrapper.appendChild(provider);
             }
 
             cell.appendChild(wrapper);
