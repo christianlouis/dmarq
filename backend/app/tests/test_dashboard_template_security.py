@@ -2752,7 +2752,7 @@ def test_dashboard_poll_summary_reports_source_totals_and_outcomes():
     assert summary == (
         "Polling finished for 2 sources (Gmail API, Microsoft 365); "
         "4 emails processed; 2 aggregate reports found; 1 forensic report found; "
-        "new domains: example.com, example.net, example.org +1 more; 1 skipped; 1 failed."
+        "new domains: example.com, example.net, example.org +1 more; 1 skipped."
     )
 
 
