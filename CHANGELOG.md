@@ -82,6 +82,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Domain remediation provider-repair cards now show the operator confirmation prompt and current provider-apply history state alongside the existing pre/post apply checks.
 - Domain remediation provider-repair cards now render provider apply audit entries with provider, record, timestamp, verification status, and detail when history exists.
 - Domain remediation queues now include a provider-history filter so previously recorded provider apply attempts can be isolated from preview-only work.
+- Dashboard remediation filters now mirror provider apply, apply-blocked, and provider-history states from domain remediation queues.
+- Dashboard remediation summaries now count provider previews, apply-after-approval items, blocked applies, and missing provider values.
 - Domain remediation queue summaries now count provider apply attempts and verified provider applies from audit history.
 - Reorganized repository: moved development docs (`AGENTS.md`, `ROADMAP.md`, `ISSUE_GENERATION_SUMMARY.md`, `generated_issues/`) into `docs/`
 - Added root-level `CHANGELOG.md` and `TODO.md`

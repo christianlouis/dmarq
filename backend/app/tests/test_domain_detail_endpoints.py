@@ -904,6 +904,10 @@ def test_dashboard_remediation_loop_exposes_operator_decision_context():
     assert loop["track_provider_preview"] == 1
     assert loop["track_reputation_review"] == 1
     assert loop["repair_preview_ready"] == 1
+    assert loop["provider_preview_available"] == 1
+    assert loop["provider_apply_after_approval"] == 1
+    assert loop["provider_apply_blocked"] == 0
+    assert loop["provider_value_missing"] == 0
     assert loop["repair_needs_evidence"] == 2
     assert loop["evidence_refresh_required"] == 2
     assert loop["evidence_refresh_dns"] == 1
@@ -973,6 +977,9 @@ def test_dashboard_remediation_loop_counts_provider_specific_prerequisite_blocks
                             "prerequisites": [
                                 "A provider-specific final value is required before automation is safe."
                             ],
+                            "provider_repair_plan": {
+                                "attempt_history": {"entries": {"unexpected": "shape"}}
+                            },
                         }
                     ]
                 },
@@ -983,6 +990,10 @@ def test_dashboard_remediation_loop_counts_provider_specific_prerequisite_blocks
 
     assert loop["track_blocked_by_prerequisite"] == 1
     assert loop["repair_blocked"] == 1
+    assert loop["provider_preview_available"] == 0
+    assert loop["provider_apply_after_approval"] == 0
+    assert loop["provider_apply_blocked"] == 1
+    assert loop["provider_value_missing"] == 1
     assert loop["repair_preview_ready"] == 0
     assert loop["repair_needs_evidence"] == 1
     assert loop["evidence_refresh_required"] == 1
@@ -997,6 +1008,7 @@ def test_dashboard_remediation_loop_counts_provider_specific_prerequisite_blocks
     assert loop["items"][0]["repair_progression"]["stage"] == "blocked"
     assert loop["items"][0]["repair_progression"]["can_preview"] is False
     assert loop["items"][0]["repair_progression"]["readiness_level"] == "blocked"
+    assert loop["items"][0]["repair_progression"]["provider_apply_history"] == 0
     assert loop["items"][0]["evidence_refresh"]["refresh_key"] == "provider_value"
     assert loop["items"][0]["evidence_refresh"]["safe_to_run"] is False
     assert loop["items"][0]["verification_plan"]["status"] == "blocked_by_prerequisite"
