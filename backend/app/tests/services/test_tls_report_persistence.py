@@ -1,13 +1,14 @@
 from datetime import datetime
+from importlib import import_module
 
-import app.models.dns_cache  # noqa
-import app.models.mail_source_backfill  # noqa
+import_module("app.models.dns_cache")
+import_module("app.models.mail_source_backfill")
 
 # Import all models to ensure SQLAlchemy's mapper registries are properly populated
-import app.models.mail_source_import  # noqa
-import app.models.organization  # noqa
-import app.models.webhook  # noqa
-import app.models.workspace_access  # noqa
+import_module("app.models.mail_source_import")
+import_module("app.models.organization")
+import_module("app.models.webhook")
+import_module("app.models.workspace_access")
 from app.models.domain import Domain
 from app.models.report import TLSReport, TLSReportFailure
 from app.services.tls_report_persistence import tls_report_to_dict

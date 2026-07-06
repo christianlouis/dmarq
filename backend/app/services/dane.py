@@ -149,7 +149,7 @@ def parse_tlsa_record(record: str, *, query_name: str, mx_host: str) -> TLSAReco
     usage = _safe_int(parts[0])
     selector = _safe_int(parts[1])
     matching_type = _safe_int(parts[2])
-    association_data = "".join(parts[3:]).strip()
+    association_data = re.sub(r"\s+", "", parts[3])
     result.certificate_usage = usage
     result.selector = selector
     result.matching_type = matching_type

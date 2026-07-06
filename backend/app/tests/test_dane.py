@@ -40,6 +40,21 @@ def test_parse_tlsa_record_accepts_valid_dane_ee_spki_hash():
     assert record.errors == []
 
 
+def test_parse_tlsa_record_accepts_grouped_association_data():
+    record = parse_tlsa_record(
+        "3 1 1 0123456789abcdef 0123456789abcdef 0123456789abcdef 0123456789abcdef",
+        query_name="_25._tcp.mx.example.com",
+        mx_host="mx.example.com",
+    )
+
+    assert record.valid is True
+    assert (
+        record.association_data
+        == "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    )
+    assert record.errors == []
+
+
 def test_parse_tlsa_record_rejects_bad_fields():
     record = parse_tlsa_record(
         "9 4 8 not-hex",
