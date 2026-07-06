@@ -350,6 +350,7 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "remediationLoop().notification_profile_ready || 0" in template
     assert "remediationLoop().notification_approval_required || 0" in template
     assert "remediationLoop().notification_action_required || 0" in template
+    assert "manual action" in template
     assert "remediationLoop().notification_investigation_required || 0" in template
     assert "remediationLoop().notification_profiles || 0" in template
     assert "remediationLoop().notification_summary_only || 0" in template
