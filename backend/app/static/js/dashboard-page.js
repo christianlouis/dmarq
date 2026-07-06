@@ -1159,7 +1159,7 @@ function dashboardApp() {
                 blocked: 'No remediation card is blocked by prerequisites in this view.',
                 waiting_operator: 'No manual operator decision is waiting in this view.',
                 manual: 'No manual repair card is visible in this filter.',
-                reputation: 'No source reputation remediation card is visible in the current workspace summary.'
+                reputation: 'No source reputation remediation cards are visible in the current workspace summary.'
             };
             return messages[this.dashboardRemediationFilter] ||
                 'Choose another queue view or refresh after new evidence is available.';
