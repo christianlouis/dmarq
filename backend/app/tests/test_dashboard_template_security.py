@@ -857,6 +857,18 @@ def test_dashboard_remediation_follow_up_age_text_uses_activity_timestamp():
     assert result == "Follow-up waiting since 2 days ago"
 
 
+def test_dashboard_remediation_follow_up_age_text_ignores_future_timestamp():
+    result = _run_dashboard_expression("""(() => {
+            const latest = new Date(Date.now() + (10 * 60 * 1000)).toISOString();
+            return app.dashboardRemediationFollowUpAgeText({
+                latest_at: latest,
+                needs_operator_follow_up: true
+            });
+        })()""")
+
+    assert result == "Follow-up is waiting for operator review"
+
+
 def test_dashboard_remediation_stale_evidence_links_to_evidence_anchor():
     result = _run_dashboard_expression("""(() => {
             const item = {

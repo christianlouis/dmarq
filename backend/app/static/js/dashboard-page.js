@@ -1270,7 +1270,7 @@ function dashboardApp() {
             const timestamp = new Date(value).getTime();
             if (!Number.isFinite(timestamp)) return '';
             const diffMs = Date.now() - timestamp;
-            if (diffMs < 0) return 'just now';
+            if (diffMs < 0) return '';
             const minutes = Math.floor(diffMs / 60000);
             if (minutes < 1) return 'just now';
             if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
