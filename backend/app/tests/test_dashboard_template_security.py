@@ -381,9 +381,11 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "data-dashboard-remediation-filter" in script
     assert ":class=\"dashboardRemediationFilterClass(filter.value)\"" in template
     assert ":title=\"dashboardRemediationFilterTitle(filter.value)\"" in template
+    assert ":aria-label=\"dashboardRemediationFilterTitle(filter.value)\"" in template
     assert "formatLargeNumber(dashboardRemediationFilterCount(filter.value))" in template
     assert "dashboardRemediationFilterClass(filter)" in script
     assert "dashboardRemediationFilterTitle(filter)" in script
+    assert "dashboardRemediationFilterCounts()" in script
     assert "data-dashboard-remediation-toggle-all" in template
     assert "data-dashboard-remediation-toggle-all" in script
     assert "visibleDashboardRemediationItems()" in template

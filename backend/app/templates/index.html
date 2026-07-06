@@ -360,6 +360,7 @@
                         :class="dashboardRemediationFilterClass(filter.value)"
                         :aria-pressed="dashboardRemediationFilter === filter.value ? 'true' : 'false'"
                         :title="dashboardRemediationFilterTitle(filter.value)"
+                        :aria-label="dashboardRemediationFilterTitle(filter.value)"
                         :data-dashboard-remediation-filter="filter.value">
                     <span x-text="filter.label"></span>
                     <span class="ml-1 rounded bg-[#f4f3f2] px-1.5 py-0.5 text-[0.65rem] text-[#45505f]"

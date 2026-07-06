@@ -15,6 +15,7 @@ function dashboardApp() {
         dashboardRemediationFilter: 'all',
         dashboardRemediationSort: 'priority',
         showAllDashboardRemediationItems: false,
+        dashboardRemediationFilterCountCache: null,
         dashboardRemediationFilterOptions: [
             { value: 'all', label: 'All' },
             { value: 'preview_ready', label: 'Preview ready' },
@@ -1075,7 +1076,30 @@ function dashboardApp() {
             return match?.label || 'All';
         },
 
+        dashboardRemediationFilterCounts() {
+            const items = this.dashboardRemediationRawItems();
+            if (this.dashboardRemediationFilterCountCache?.items === items) {
+                return this.dashboardRemediationFilterCountCache.counts;
+            }
+            const counts = Object.fromEntries(
+                this.dashboardRemediationFilterOptions.map(option => [option.value, 0])
+            );
+            items.forEach(item => {
+                this.dashboardRemediationFilterOptions.forEach(option => {
+                    if (this.dashboardRemediationFilterMatches(item, option.value)) {
+                        counts[option.value] += 1;
+                    }
+                });
+            });
+            this.dashboardRemediationFilterCountCache = { items, counts };
+            return counts;
+        },
+
         dashboardRemediationFilterCount(filter) {
+            const counts = this.dashboardRemediationFilterCounts();
+            if (Object.prototype.hasOwnProperty.call(counts, filter)) {
+                return counts[filter];
+            }
             return this.dashboardRemediationRawItems().filter(item =>
                 this.dashboardRemediationFilterMatches(item, filter)
             ).length;
