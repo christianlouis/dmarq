@@ -94,11 +94,17 @@ def _today_id() -> str:
 
 
 def normalize_guidance_locale(locale: Optional[str]) -> str:
-    """Return the supported locale used for operator-facing DNS guidance."""
-    normalized = (locale or "en").strip().lower().replace("_", "-")
-    if normalized.startswith("de"):
-        return "de"
-    return "en"
+    """Normalize a locale string to a supported guidance locale. Defaults to en-US."""
+    if not locale:
+        return "en-US"
+
+    normalized = locale.replace("_", "-").strip()
+    # Handle language-only tags by attempting to map to a default regional tag
+    if "-" not in normalized:
+        mapping = {"en": "en-US", "de": "de-DE", "es": "es-ES", "fr": "fr-FR", "ja": "ja-JP"}
+        return mapping.get(normalized.lower(), "en-US")
+
+    return normalized
 
 
 def _mailbox(default_value: Optional[str], fallback_local_part: str, domain: str) -> str:

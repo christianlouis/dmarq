@@ -650,3 +650,29 @@ async def test_build_dns_guidance_adds_postmark_dns_change_plans():
     assert missing.operation == "create"
     assert missing.record_type == "CNAME"
     assert missing.proposed_value == "pm.mtasv.net"
+
+def test_normalize_guidance_locale():
+    from app.services.dns_guidance import normalize_guidance_locale
+
+    # Missing / empty
+    assert normalize_guidance_locale(None) == "en-US"
+    assert normalize_guidance_locale("") == "en-US"
+    assert normalize_guidance_locale("   ") == "en-US"
+
+    # English
+    assert normalize_guidance_locale("en") == "en-US"
+    assert normalize_guidance_locale("en-US") == "en-US"
+    assert normalize_guidance_locale("EN_us") == "EN-us"
+    assert normalize_guidance_locale(" en ") == "en-US"
+
+    # German
+    assert normalize_guidance_locale("de") == "de-DE"
+    assert normalize_guidance_locale("de-DE") == "de-DE"
+    assert normalize_guidance_locale("de_AT") == "de-AT"
+    assert normalize_guidance_locale("DE ") == "de-DE"
+
+    # Unknown
+    assert normalize_guidance_locale("fr") == "fr-FR"
+    assert normalize_guidance_locale("es-ES") == "es-ES"
+    assert normalize_guidance_locale("ja_jp") == "ja-jp"
+    assert normalize_guidance_locale("unknown") == "en-US"
