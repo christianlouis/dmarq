@@ -785,8 +785,9 @@ def test_dashboard_remediation_dispatch_activity_filters_and_labels():
 
 def test_dashboard_remediation_dispatch_sort_prioritizes_old_follow_up():
     result = _run_dashboard_expression("""(() => {
-            const oldLatest = new Date(Date.now() - (6 * 24 * 60 * 60 * 1000)).toISOString();
-            const freshLatest = new Date(Date.now() - (2 * 60 * 60 * 1000)).toISOString();
+            const nowMs = Date.parse('2026-07-06T09:00:00Z');
+            const oldLatest = new Date(nowMs - (6 * 24 * 60 * 60 * 1000)).toISOString();
+            const freshLatest = new Date(nowMs - (2 * 60 * 60 * 1000)).toISOString();
             app.healthSummary = { remediation_loop: { items: [
                 { domain: 'fresh.example', state: 'needs_approval', priority_score: 10, severity: 'high' },
                 { domain: 'old.example', state: 'needs_approval', priority_score: 3, severity: 'medium' }
@@ -812,8 +813,8 @@ def test_dashboard_remediation_dispatch_sort_prioritizes_old_follow_up():
             return [
                 app.visibleDashboardRemediationItems()[0].domain,
                 app.visibleDashboardRemediationItems()[1].domain,
-                app.dashboardRemediationFollowUpAgeMs(app.visibleDashboardRemediationItems()[0]) >
-                    app.dashboardRemediationFollowUpAgeMs(app.visibleDashboardRemediationItems()[1])
+                app.dashboardRemediationFollowUpAgeMs(app.visibleDashboardRemediationItems()[0], nowMs) >
+                    app.dashboardRemediationFollowUpAgeMs(app.visibleDashboardRemediationItems()[1], nowMs)
             ].join('|');
         })()""")
 

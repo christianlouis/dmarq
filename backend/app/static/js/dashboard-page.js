@@ -1028,11 +1028,12 @@ function dashboardApp() {
                 ));
             }
             if (this.dashboardRemediationSort === 'dispatch') {
+                const nowMs = Date.now();
                 return list.sort((a, b) => (
                     this.dashboardRemediationDispatchRank(a) -
                     this.dashboardRemediationDispatchRank(b) ||
-                    this.dashboardRemediationFollowUpAgeMs(b) -
-                    this.dashboardRemediationFollowUpAgeMs(a) ||
+                    this.dashboardRemediationFollowUpAgeMs(b, nowMs) -
+                    this.dashboardRemediationFollowUpAgeMs(a, nowMs) ||
                     this.remediationLoopItemRank(a) - this.remediationLoopItemRank(b) ||
                     (Number(b?.priority_score) || 0) - (Number(a?.priority_score) || 0)
                 ));
@@ -1248,7 +1249,7 @@ function dashboardApp() {
             return 4;
         },
 
-        dashboardRemediationFollowUpAgeMs(item) {
+        dashboardRemediationFollowUpAgeMs(item, nowMs = Date.now()) {
             const activity = item?.latest_at
                 ? item
                 : this.dashboardRemediationActivity(item);
@@ -1259,7 +1260,7 @@ function dashboardApp() {
             if (!requiresFollowUp || !activity.latest_at) return 0;
             const timestamp = new Date(activity.latest_at).getTime();
             if (!Number.isFinite(timestamp)) return 0;
-            const diffMs = Date.now() - timestamp;
+            const diffMs = nowMs - timestamp;
             return diffMs > 0 ? diffMs : 0;
         },
 
