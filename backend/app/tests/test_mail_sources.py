@@ -1570,6 +1570,53 @@ class TestMailSourcesAPIAuthed:
 class TestGmailAPIMailSource:
     """Tests for GMAIL_API mail source creation, OAuth flow, and fetching."""
 
+    def test_gmail_source_response_marks_missing_authorization(self):
+        source = MailSource(id=1, name="Gmail", method="GMAIL_API")
+
+        response = mail_sources_endpoint._source_to_response(source)
+
+        assert response.gmail_connected is False
+        assert response.connection_status == "not_authorized"
+        assert response.connection_attention is True
+        assert response.connection_diagnostic_category == "auth_required"
+
+    def test_gmail_source_response_requires_refresh_token_for_scheduled_imports(self):
+        source = MailSource(id=1, name="Gmail", method="GMAIL_API")
+        source.gmail_access_token = "access-token"
+
+        response = mail_sources_endpoint._source_to_response(source)
+
+        assert response.gmail_connected is True
+        assert response.connection_status == "reauth_required"
+        assert response.connection_attention is True
+        assert response.connection_action_label == "Reconnect Gmail"
+
+    def test_gmail_source_response_marks_latest_oauth_import_failure(self):
+        source = MailSource(id=1, name="Gmail", method="GMAIL_API")
+        source.gmail_access_token = "access-token"
+        source.gmail_refresh_token = "refresh-token"
+        latest_import = MailSourceImport(
+            mail_source_id=1,
+            trigger="scheduled",
+            status="failed",
+            processed=0,
+            reports_found=0,
+            duplicate_reports=0,
+            error_count=1,
+            new_domains="[]",
+            errors='["invalid_grant refresh token expired"]',
+            details="[]",
+            started_at=datetime.utcnow(),
+            finished_at=datetime.utcnow(),
+        )
+
+        response = mail_sources_endpoint._source_to_response(source, latest_import)
+
+        assert response.connection_status == "reauth_required"
+        assert response.connection_attention is True
+        assert response.connection_diagnostic_category == "auth_expired"
+        assert "expired" in response.connection_message
+
     def test_create_gmail_api_source(self, authed_client: TestClient):
         payload = {
             "name": "My Gmail",

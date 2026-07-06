@@ -413,6 +413,9 @@ function mailSourcesApp() {
         },
 
         sourceStatusLabel(source) {
+            if (source.connection_attention && source.connection_action_label) {
+                return source.connection_action_label;
+            }
             if (source.method === 'GMAIL_API') {
                 return source.gmail_connected ? 'Connected' : 'Not authorised';
             }
@@ -420,6 +423,13 @@ function mailSourcesApp() {
                 return source.m365_connected ? 'Connected' : 'Not authorised';
             }
             return source.username || '—';
+        },
+
+        sourceStatusBadgeClass(source) {
+            if (source.connection_attention) return 'badge-warning';
+            if (source.connection_status === 'connected') return 'badge-success';
+            if (source.connection_status === 'not_authorized') return 'badge-outline';
+            return 'badge-outline';
         },
 
         formatList(value) {
