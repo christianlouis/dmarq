@@ -2296,6 +2296,9 @@ def test_summary_includes_current_remediation_loop(
     assert loop["repair_needs_evidence"] >= 2
     assert loop["evidence_refresh_required"] >= 2
     assert loop["evidence_refresh_dns"] >= 2
+    assert loop["notification_profiles"] >= 2
+    assert loop["notification_profile_ready"] >= 2
+    assert loop["notification_approval_required"] >= 2
     assert loop["repair_blocked"] == 0
     assert loop["items"][0]["repair_progression"]["stage"] == "preview_ready"
     assert loop["items"][0]["repair_progression"]["can_preview"] is True
@@ -2322,6 +2325,9 @@ def test_summary_includes_current_remediation_loop(
     assert domain["remediation_workload"]["provider_apply_verified"] >= 0
     assert domain["remediation_workload"]["repair_needs_evidence"] >= 2
     assert domain["remediation_workload"]["evidence_refresh_dns"] >= 2
+    assert domain["remediation_workload"]["notification_profiles"] >= 2
+    assert domain["remediation_workload"]["notification_profile_ready"] >= 2
+    assert domain["remediation_workload"]["notification_approval_required"] >= 2
     assert domain["remediation_workload"]["total_open"] >= 2
     assert domain["remediation_workload"]["primary"]["state"] == "needs_approval"
     assert domain["remediation_workload"]["primary"]["loop_state"] == (

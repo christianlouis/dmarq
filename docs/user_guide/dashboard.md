@@ -87,9 +87,14 @@ summary before linking to the selected domain for the full evidence, approval,
 and verification flow. Filter chips let you isolate preview-ready repairs,
 approval verification, sender review, report-evidence follow-up, blocked work,
 manual work, reputation review, and stale-evidence cases without opening every
-domain. The same filter bar can now isolate remediation notifications that are
+domain. The same filter bar can now isolate remediation notifications that have
+a backend notification profile ready for operator action, notifications that are
 ready to send, already dispatched, blocked by notification settings, or waiting
-for operator follow-up after dispatch.
+for operator follow-up after dispatch. Notification-profile-ready cards have
+the event, channel, dedupe key, and payload preview prepared, but they still do
+not send anything until the operator uses the explicit dispatch flow. The
+dashboard and domain rows also expose separate counts for approval-required,
+manual-action, investigation-required, and summary-only notification profiles.
 Open the domain detail queue for the full provider-repair plan. That view shows
 whether a DNS item has a safe provider preview, can be applied only after
 explicit approval, is blocked by missing provider values, or should fall back to

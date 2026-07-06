@@ -927,6 +927,12 @@ def test_dashboard_remediation_loop_exposes_operator_decision_context():
     assert loop["verification_pending_sender_review"] == 0
     assert loop["verification_pending_reputation_review"] == 1
     assert loop["verification_blocked_by_prerequisite"] == 0
+    assert loop["notification_profiles"] == 2
+    assert loop["notification_profile_ready"] == 2
+    assert loop["notification_approval_required"] == 1
+    assert loop["notification_action_required"] == 0
+    assert loop["notification_investigation_required"] == 1
+    assert loop["notification_summary_only"] == 0
     assert loop["top_incident_type"] == "dmarc_policy_missing_or_weak"
     assert loop["repair_blocked"] == 0
     assert loop["repair_ready_for_preview"] == 1
@@ -944,6 +950,18 @@ def test_dashboard_remediation_loop_exposes_operator_decision_context():
     assert loop["items"][0]["repair_progression"]["provider_apply_verified"] == 1
     assert loop["items"][0]["evidence_refresh"]["refresh_key"] == "dns"
     assert loop["items"][0]["evidence_refresh"]["safe_to_run"] is True
+    assert loop["items"][0]["notification"]["state"] == "approval_required"
+    assert loop["items"][0]["notification"]["event"] == "dmarq.remediation.approval_required"
+    assert loop["items"][0]["notification"]["dedupe_key"] == (
+        "dmarq:remediation:example.com:health:missing_dmarc"
+    )
+    assert loop["items"][0]["notification"]["payload_preview"]["domain"] == "example.com"
+    assert loop["items"][0]["notification"]["payload_preview"]["item_id"] == (
+        "health:missing_dmarc"
+    )
+    assert loop["items"][0]["notification"]["payload_preview"]["repair_progression"][
+        "stage"
+    ] == "preview_ready"
     assert loop["items"][0]["verification_plan"]["status"] == "pending_operator_approval"
     assert loop["items"][0]["verification_plan"]["verification_method"] == (
         "provider_write_then_dns_refresh"
@@ -958,6 +976,10 @@ def test_dashboard_remediation_loop_exposes_operator_decision_context():
     assert loop["items"][1]["repair_progression"]["stage"] == "reputation_review"
     assert loop["items"][1]["repair_progression"]["readiness_level"] == "needs_reputation_review"
     assert loop["items"][1]["evidence_refresh"]["refresh_key"] == "source_reputation"
+    assert loop["items"][1]["notification"]["state"] == "investigation_required"
+    assert loop["items"][1]["notification"]["event"] == (
+        "dmarq.remediation.investigation_required"
+    )
     assert loop["items"][1]["verification_plan"]["status"] == "pending_reputation_review"
     assert loop["items"][1]["verification_plan"]["verification_method"] == (
         "fresh_reputation_evidence"
@@ -1012,6 +1034,10 @@ def test_dashboard_remediation_loop_counts_provider_specific_prerequisite_blocks
     assert loop["evidence_refresh_prerequisite"] == 1
     assert loop["verification_pending_operator_approval"] == 0
     assert loop["verification_blocked_by_prerequisite"] == 1
+    assert loop["notification_profiles"] == 1
+    assert loop["notification_profile_ready"] == 1
+    assert loop["notification_approval_required"] == 1
+    assert loop["notification_summary_only"] == 0
     assert loop["repair_ready_for_preview"] == 0
     assert loop["repair_waiting_on_operator"] == 0
     assert loop["repair_readiness_blocked"] == 1

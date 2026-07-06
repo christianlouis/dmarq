@@ -1115,7 +1115,10 @@ function dashboardApp() {
                     Number(progression.provider_apply_verified || 0) > 0;
             }
             if (filterValue === 'notify_ready') {
-                return Boolean(item?.notification?.dispatch?.eligible);
+                return Boolean(item?.notification?.dispatch?.eligible) ||
+                    ['approval_required', 'action_required', 'investigation_required'].includes(
+                        String(item?.notification?.state || '')
+                    );
             }
             if (filterValue === 'dispatched') {
                 const activity = this.dashboardRemediationActivity(item);
@@ -1201,6 +1204,10 @@ function dashboardApp() {
             }
             if (dispatch.eligible) {
                 parts.push('ready to notify');
+            } else if (['approval_required', 'action_required', 'investigation_required'].includes(
+                String(item?.notification?.state || '')
+            )) {
+                parts.push('notification profile ready');
             } else if (dispatch.enabled && (dispatch.blocked_reasons || []).length) {
                 parts.push('dispatch blocked');
             }

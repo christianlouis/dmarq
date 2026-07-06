@@ -879,6 +879,12 @@ verification counters such as `verification_pending_operator_approval`,
 `verification_pending_report_evidence`, and `verification_blocked_by_prerequisite`
 so clients can distinguish approval, sender review, reputation evidence, manual
 fresh-evidence checks, and missing provider values.
+The same summary includes notification-profile counters such as
+`notification_profiles`, `notification_profile_ready`,
+`notification_approval_required`, `notification_action_required`,
+`notification_investigation_required`, and `notification_summary_only` so
+dashboards can show which items already have operator notification routing
+metadata before any dispatch preview is requested.
 Dashboard clients can also combine `health_summary.remediation_loop.items` with
 each domain row's `remediation` activity to group cards by dispatched
 notifications and operator follow-up without rebuilding the domain queue. The
@@ -886,17 +892,21 @@ dashboard loop returns a bounded working set rather than only the first compact
 page, so client-side filters can still find lower-priority items.
 
 Notification metadata includes the event name, channel, dedupe key, reason, and
-next state transition that an operator workflow can use. Each notification also
-includes a read-only `dispatch` preview showing whether the item would be
-eligible for a future dispatch step, which channel would be used, whether a
-previewed or acknowledged lifecycle marker is still required, how many enabled
-webhook endpoints match the event, and why dispatch is currently blocked. The
-`blocked_reasons` list is ordered and may contain multiple actionable blockers;
-clients should display the full list rather than only the first item. Each item
-also includes a sanitized `payload_preview` using schema
-`dmarq.remediation.notification.v1`; it is the deterministic data shape a
-future webhook, ticketing, or chatops delivery would receive. The endpoint does
-not perform DNS writes, enqueue webhook deliveries, or send notifications.
+next state transition that an operator workflow can use. Dashboard remediation
+items include this read-only notification profile even before a dispatch preview
+is attached, so clients can group approval-required, manual-action, and
+investigation-required work without rebuilding the domain queue. Each
+notification also includes a sanitized `payload_preview` using schema
+`dmarq.remediation.notification.v1`; it is the deterministic data shape a future
+webhook, ticketing, or chatops delivery would receive. Domain detail remediation
+queues can additionally include a read-only `dispatch` preview showing whether
+the item would be eligible for a future dispatch step, which channel would be
+used, whether a previewed or acknowledged lifecycle marker is still required,
+how many enabled webhook endpoints match the event, and why dispatch is
+currently blocked. The `blocked_reasons` list is ordered and may contain
+multiple actionable blockers; clients should display the full list rather than
+only the first item. The endpoint does not perform DNS writes, enqueue webhook
+deliveries, or send notifications.
 After dispatch previews are attached, the queue `summary` also exposes dispatch
 readiness counters, including `dispatch_ready`, `dispatch_blocked`,
 `dispatch_disabled`, `dispatch_awaiting_acknowledgement`, and
