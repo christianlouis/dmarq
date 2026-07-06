@@ -357,12 +357,13 @@
             <template x-for="filter in dashboardRemediationFilterOptions" :key="'dashboard-remediation-filter-' + filter.value">
                 <button type="button"
                         class="rounded border px-3 py-2 text-xs font-semibold transition"
-                        :class="dashboardRemediationFilter === filter.value ? 'border-[#2f9da5] bg-[#f2fbf9] text-[#1f7c83]' : 'border-[#e6e3e1] bg-white text-[#5f5c78] hover:border-[#2f9da5]'"
+                        :class="dashboardRemediationFilterClass(filter.value)"
                         :aria-pressed="dashboardRemediationFilter === filter.value ? 'true' : 'false'"
+                        :title="dashboardRemediationFilterTitle(filter.value)"
                         :data-dashboard-remediation-filter="filter.value">
                     <span x-text="filter.label"></span>
                     <span class="ml-1 rounded bg-[#f4f3f2] px-1.5 py-0.5 text-[0.65rem] text-[#45505f]"
-                          x-text="dashboardRemediationFilterCount(filter.value)"></span>
+                          x-text="formatLargeNumber(dashboardRemediationFilterCount(filter.value))"></span>
                 </button>
             </template>
         </div>

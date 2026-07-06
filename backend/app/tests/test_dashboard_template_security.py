@@ -379,6 +379,11 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert '<option value="dispatch">Dispatch follow-up</option>' in template
     assert "data-dashboard-remediation-filter" in template
     assert "data-dashboard-remediation-filter" in script
+    assert ":class=\"dashboardRemediationFilterClass(filter.value)\"" in template
+    assert ":title=\"dashboardRemediationFilterTitle(filter.value)\"" in template
+    assert "formatLargeNumber(dashboardRemediationFilterCount(filter.value))" in template
+    assert "dashboardRemediationFilterClass(filter)" in script
+    assert "dashboardRemediationFilterTitle(filter)" in script
     assert "data-dashboard-remediation-toggle-all" in template
     assert "data-dashboard-remediation-toggle-all" in script
     assert "visibleDashboardRemediationItems()" in template
@@ -751,6 +756,38 @@ def test_dashboard_remediation_dispatch_activity_filters_and_labels():
         "2|1|1|2|follow.example|"
         "3 notifications dispatched · operator follow-up needed · dispatch blocked|"
         "notification profile ready"
+    )
+
+
+def test_dashboard_remediation_filter_chips_explain_empty_states():
+    result = _run_dashboard_expression("""(() => {
+            app.healthSummary = { remediation_loop: { items: [
+                {
+                    domain: 'ready.example',
+                    state: 'needs_approval',
+                    priority_score: 9,
+                    severity: 'medium',
+                    repair_progression: { readiness_level: 'ready_for_preview' }
+                }
+            ] } };
+            app.dashboardRemediationFilter = 'preview_ready';
+            return [
+                app.dashboardRemediationFilterClass('preview_ready'),
+                app.dashboardRemediationFilterClass('reputation'),
+                app.dashboardRemediationFilterClass('all'),
+                app.dashboardRemediationFilterTitle('preview_ready'),
+                app.dashboardRemediationFilterTitle('reputation'),
+                app.dashboardRemediationFilterTitle('all')
+            ].join('|');
+        })()""")
+
+    assert result == (
+        "border-[#2f9da5] bg-[#f2fbf9] text-[#1f7c83]|"
+        "border-[#ece9e7] bg-[#fbfaf9] text-[#9a96a8]|"
+        "border-[#e6e3e1] bg-white text-[#5f5c78] hover:border-[#2f9da5]|"
+        "1 preview ready remediation card|"
+        "No reputation remediation cards in the current workspace summary|"
+        "1 all remediation card"
     )
 
 

@@ -1081,6 +1081,27 @@ function dashboardApp() {
             ).length;
         },
 
+        dashboardRemediationFilterClass(filter) {
+            if (this.dashboardRemediationFilter === filter) {
+                return 'border-[#2f9da5] bg-[#f2fbf9] text-[#1f7c83]';
+            }
+            if (this.dashboardRemediationFilterCount(filter) === 0 && filter !== 'all') {
+                return 'border-[#ece9e7] bg-[#fbfaf9] text-[#9a96a8]';
+            }
+            return 'border-[#e6e3e1] bg-white text-[#5f5c78] hover:border-[#2f9da5]';
+        },
+
+        dashboardRemediationFilterTitle(filter) {
+            const label = this.dashboardRemediationFilterOptions.find(
+                option => option.value === filter
+            )?.label || 'Remediation';
+            const count = this.dashboardRemediationFilterCount(filter);
+            if (count === 0 && filter !== 'all') {
+                return `No ${label.toLowerCase()} remediation cards in the current workspace summary`;
+            }
+            return `${this.formatLargeNumber(count)} ${label.toLowerCase()} remediation card${count === 1 ? '' : 's'}`;
+        },
+
         dashboardRemediationFilterMatches(item, filterValue) {
             if (!item || !filterValue || filterValue === 'all') return true;
             const progression = item?.repair_progression || {};
