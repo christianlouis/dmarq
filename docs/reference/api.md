@@ -243,7 +243,7 @@ endpoints.
 ### Settings Account Readiness
 
 ```text
-GET /settings/account-readiness
+GET /api/v1/settings/account-readiness
 ```
 
 Returns the administrator-facing #12 account/auth milestone summary used by

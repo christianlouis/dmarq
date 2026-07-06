@@ -239,9 +239,14 @@ def build_account_milestone_readiness(db: Session, settings: Settings) -> Dict[s
     ready_count = sum(1 for item in criteria if item["ready"])
     remaining = [item for item in criteria if not item["ready"]]
     setup_gates = [item for item in criteria if item["setup_required"]]
+    status = (
+        "incomplete"
+        if remaining
+        else "operational_with_setup_needed" if setup_gates else "complete"
+    )
     return {
         "milestone": "#12 User Authentication & Multi-User Support",
-        "status": "complete" if not remaining else "operational_with_setup_needed",
+        "status": status,
         "ready_to_close_parent_issue": not remaining,
         "criteria_met": ready_count,
         "criteria_total": len(criteria),
