@@ -141,7 +141,14 @@ from app.services.source_reputation import (
     source_reputation_by_ip,
 )
 from app.services.source_reputation_feeds import feed_registry
-from app.services.webhook_events import delivery_to_dict, enqueue_webhook_event
+from app.services.webhook_events import (
+    EVENT_REMEDIATION_APPROVAL_REQUIRED,
+    EVENT_REMEDIATION_INVESTIGATION_REQUIRED,
+    EVENT_REMEDIATION_MANUAL_ACTION_REQUIRED,
+    EVENT_REMEDIATION_SUMMARY,
+    delivery_to_dict,
+    enqueue_webhook_event,
+)
 from app.services.workspace_access import (
     PERMISSION_DOMAINS_WRITE,
     PERMISSION_REPORTS_READ,
@@ -2433,9 +2440,75 @@ def _dashboard_remediation_item(
     }
     item["evidence_refresh"] = evidence_refresh_for_remediation_item(domain_name, item)
     _attach_dashboard_provider_repair_state(item, action)
+    item["notification"] = _dashboard_remediation_notification(domain_name, item)
     if include_detail:
         item["detail"] = str(action.get("detail") or "")
     return item
+
+
+def _dashboard_remediation_notification(domain: str, item: Dict[str, Any]) -> Dict[str, Any]:
+    """Return read-only notification routing metadata for dashboard remediation cards."""
+    state = str(item.get("state") or "")
+    severity = str(item.get("severity") or "info")
+    source = str(item.get("source") or "domain_health")
+    item_id = f"health:{item.get('type') or 'health_action'}"
+    dedupe_key = f"dmarq:remediation:{domain}:{item_id}"
+    if state == "needs_approval":
+        notification = {
+            "state": "approval_required",
+            "event": EVENT_REMEDIATION_APPROVAL_REQUIRED,
+            "channel": "email_security",
+            "dedupe_key": dedupe_key,
+            "reason": "Notify an operator that a safe DNS repair is ready for preview.",
+            "next_transition": "verified_after_apply",
+        }
+    elif state == "manual_action" and REMEDIATION_SEVERITY_RANK.get(severity, 0) >= 3:
+        notification = {
+            "state": "action_required",
+            "event": EVENT_REMEDIATION_MANUAL_ACTION_REQUIRED,
+            "channel": "email_security",
+            "dedupe_key": dedupe_key,
+            "reason": "Escalate high-impact manual remediation work.",
+            "next_transition": "resolved_by_operator",
+        }
+    elif state == "investigate":
+        notification = {
+            "state": "investigation_required",
+            "event": EVENT_REMEDIATION_INVESTIGATION_REQUIRED,
+            "channel": "email_security",
+            "dedupe_key": dedupe_key,
+            "reason": "Ask an operator to confirm whether the sender or finding is legitimate.",
+            "next_transition": "manual_action_or_resolved",
+        }
+    else:
+        notification = {
+            "state": "summary_only",
+            "event": EVENT_REMEDIATION_SUMMARY,
+            "channel": "daily_summary" if source == "dns_lint" else "email_security",
+            "dedupe_key": dedupe_key,
+            "reason": "Include this lower-risk remediation item in summary reporting.",
+            "next_transition": "resolved_or_escalated",
+        }
+    notification["payload_preview"] = {
+        "schema_version": "dmarq.dashboard.remediation.notification_preview.v1",
+        "domain": domain,
+        "item_id": item_id,
+        "source": source,
+        "state": state,
+        "severity": severity,
+        "incident_type": str(item.get("incident_type") or ""),
+        "remediation_track": str(item.get("remediation_track") or ""),
+        "priority_score": int(item.get("priority_score") or 0),
+        "priority_band": str(item.get("priority_band") or "watch"),
+        "title": str(item.get("title") or "Review remediation item"),
+        "next_step": str(item.get("next_step") or "Review the domain evidence."),
+        "owner": str(item.get("owner") or ""),
+        "completion_criteria": str(item.get("completion_criteria") or ""),
+        "evidence_refresh": item.get("evidence_refresh") or {},
+        "verification_plan": item.get("verification_plan") or {},
+        "repair_progression": item.get("repair_progression") or {},
+    }
+    return notification
 
 
 def _attach_dashboard_provider_repair_state(
@@ -2563,6 +2636,28 @@ def _increment_verification_plan_counters(
         counters["verification_blocked_by_prerequisite"] += 1
 
 
+def _increment_notification_profile_counters(
+    counters: Dict[str, int],
+    item: Dict[str, Any],
+) -> None:
+    """Count notification profiles attached to dashboard remediation items."""
+    notification = item.get("notification") or {}
+    state = str(notification.get("state") or "")
+    if not state:
+        return
+    counters["notification_profiles"] += 1
+    if state in {"approval_required", "action_required", "investigation_required"}:
+        counters["notification_profile_ready"] += 1
+    if state == "approval_required":
+        counters["notification_approval_required"] += 1
+    elif state == "action_required":
+        counters["notification_action_required"] += 1
+    elif state == "investigation_required":
+        counters["notification_investigation_required"] += 1
+    elif state == "summary_only":
+        counters["notification_summary_only"] += 1
+
+
 def _build_dashboard_remediation_loop(
     domains: List[Dict[str, Any]],
     remediation_activity: Dict[str, Any],
@@ -2601,6 +2696,12 @@ def _build_dashboard_remediation_loop(
         "provider_value_missing": 0,
         "provider_apply_history": int(activity_summary.get("provider_apply_attempts") or 0),
         "provider_apply_verified": int(activity_summary.get("provider_apply_verified") or 0),
+        "notification_profiles": 0,
+        "notification_profile_ready": 0,
+        "notification_approval_required": 0,
+        "notification_action_required": 0,
+        "notification_investigation_required": 0,
+        "notification_summary_only": 0,
     }
     track_counters = {f"track_{track}": 0 for track in REMEDIATION_TRACKS}
     items: List[Dict[str, Any]] = []
@@ -2616,6 +2717,7 @@ def _build_dashboard_remediation_loop(
             _increment_provider_repair_counters(counters, item)
             _increment_evidence_refresh_counters(counters, item)
             _increment_verification_plan_counters(counters, item)
+            _increment_notification_profile_counters(counters, item)
             track_counters[f"track_{item['remediation_track']}"] += 1
             items.append(item)
 
@@ -2687,6 +2789,12 @@ def _domain_remediation_workload(domain: Dict[str, Any]) -> Dict[str, Any]:
         "provider_value_missing": 0,
         "provider_apply_history": 0,
         "provider_apply_verified": 0,
+        "notification_profiles": 0,
+        "notification_profile_ready": 0,
+        "notification_approval_required": 0,
+        "notification_action_required": 0,
+        "notification_investigation_required": 0,
+        "notification_summary_only": 0,
     }
     track_counters = {f"track_{track}": 0 for track in REMEDIATION_TRACKS}
     items: List[Dict[str, Any]] = []
@@ -2699,6 +2807,7 @@ def _domain_remediation_workload(domain: Dict[str, Any]) -> Dict[str, Any]:
         _increment_provider_repair_counters(counters, item)
         _increment_evidence_refresh_counters(counters, item)
         _increment_verification_plan_counters(counters, item)
+        _increment_notification_profile_counters(counters, item)
         track_counters[f"track_{item['remediation_track']}"] += 1
         items.append(item)
 

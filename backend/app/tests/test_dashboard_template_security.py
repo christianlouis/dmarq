@@ -686,7 +686,14 @@ def test_dashboard_remediation_dispatch_activity_filters_and_labels():
                     state: 'manual_action',
                     priority_score: 7,
                     severity: 'high',
-                    notification: { dispatch: { enabled: true, eligible: false } }
+                    notification: {
+                        state: 'action_required',
+                        dispatch: {
+                            enabled: true,
+                            eligible: false,
+                            blocked_reasons: ['No enabled webhook endpoint is subscribed to this event.']
+                        }
+                    }
                 },
                 {
                     domain: 'ready.example',
@@ -694,6 +701,13 @@ def test_dashboard_remediation_dispatch_activity_filters_and_labels():
                     priority_score: 9,
                     severity: 'medium',
                     notification: { dispatch: { enabled: true, eligible: true } }
+                },
+                {
+                    domain: 'profile.example',
+                    state: 'needs_approval',
+                    priority_score: 8,
+                    severity: 'high',
+                    notification: { state: 'approval_required' }
                 },
                 {
                     domain: 'blocked.example',
@@ -728,13 +742,15 @@ def test_dashboard_remediation_dispatch_activity_filters_and_labels():
                 app.dashboardRemediationFilterCount('follow_up'),
                 app.dashboardRemediationFilterCount('dispatch_blocked'),
                 app.visibleDashboardRemediationItems()[0].domain,
-                app.dashboardRemediationDispatchText(app.visibleDashboardRemediationItems()[0])
+                app.dashboardRemediationDispatchText(app.visibleDashboardRemediationItems()[0]),
+                app.dashboardRemediationDispatchText(app.healthSummary.remediation_loop.items[2])
             ].join('|');
         })()""")
 
     assert result == (
-        "1|1|1|2|follow.example|"
-        "3 notifications dispatched · operator follow-up needed"
+        "2|1|1|2|follow.example|"
+        "3 notifications dispatched · operator follow-up needed · dispatch blocked|"
+        "notification profile ready"
     )
 
 

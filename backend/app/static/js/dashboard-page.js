@@ -1115,7 +1115,12 @@ function dashboardApp() {
                     Number(progression.provider_apply_verified || 0) > 0;
             }
             if (filterValue === 'notify_ready') {
-                return Boolean(item?.notification?.dispatch?.eligible);
+                const dispatch = item?.notification?.dispatch;
+                const hasDispatchPreview = dispatch && typeof dispatch === 'object';
+                if (hasDispatchPreview) return Boolean(dispatch.eligible);
+                return ['approval_required', 'action_required', 'investigation_required'].includes(
+                    String(item?.notification?.state || '')
+                );
             }
             if (filterValue === 'dispatched') {
                 const activity = this.dashboardRemediationActivity(item);
@@ -1203,6 +1208,10 @@ function dashboardApp() {
                 parts.push('ready to notify');
             } else if (dispatch.enabled && (dispatch.blocked_reasons || []).length) {
                 parts.push('dispatch blocked');
+            } else if (['approval_required', 'action_required', 'investigation_required'].includes(
+                String(item?.notification?.state || '')
+            )) {
+                parts.push('notification profile ready');
             }
             return parts.join(' · ');
         },

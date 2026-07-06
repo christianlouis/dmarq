@@ -2296,6 +2296,9 @@ def test_summary_includes_current_remediation_loop(
     assert loop["repair_needs_evidence"] >= 2
     assert loop["evidence_refresh_required"] >= 2
     assert loop["evidence_refresh_dns"] >= 2
+    assert loop["notification_profiles"] >= 2
+    assert loop["notification_profile_ready"] >= 2
+    assert loop["notification_approval_required"] >= 2
     assert loop["repair_blocked"] == 0
     assert loop["items"][0]["repair_progression"]["stage"] == "preview_ready"
     assert loop["items"][0]["repair_progression"]["can_preview"] is True
@@ -2322,6 +2325,9 @@ def test_summary_includes_current_remediation_loop(
     assert domain["remediation_workload"]["provider_apply_verified"] >= 0
     assert domain["remediation_workload"]["repair_needs_evidence"] >= 2
     assert domain["remediation_workload"]["evidence_refresh_dns"] >= 2
+    assert domain["remediation_workload"]["notification_profiles"] >= 2
+    assert domain["remediation_workload"]["notification_profile_ready"] >= 2
+    assert domain["remediation_workload"]["notification_approval_required"] >= 2
     assert domain["remediation_workload"]["total_open"] >= 2
     assert domain["remediation_workload"]["primary"]["state"] == "needs_approval"
     assert domain["remediation_workload"]["primary"]["loop_state"] == (
@@ -2445,6 +2451,54 @@ def test_dashboard_remediation_item_includes_context_for_non_approval_states(
     assert item["completion_criteria"]
     assert item["verification_next_check"]
     assert item["why"]
+
+
+def test_dashboard_remediation_item_exposes_summary_notification_profile():
+    """Low-risk DNS lint items should be routed to summary reporting, not operator dispatch."""
+    item = domains_endpoint._dashboard_remediation_item(
+        DOMAIN,
+        {
+            "type": "minor_dns_lint",
+            "source": "dns_lint",
+            "severity": "low",
+            "title": "Review DNS lint advisory",
+            "next_step": "Keep monitoring DNS posture.",
+        },
+    )
+
+    notification = item["notification"]
+    assert notification["state"] == "summary_only"
+    assert notification["event"] == "dmarq.remediation.summary"
+    assert notification["channel"] == "daily_summary"
+    assert notification["reason"] == "Include this lower-risk remediation item in summary reporting."
+    assert notification["payload_preview"]["schema_version"] == (
+        "dmarq.dashboard.remediation.notification_preview.v1"
+    )
+    assert notification["payload_preview"]["source"] == "dns_lint"
+    assert notification["payload_preview"]["severity"] == "low"
+
+
+def test_dashboard_remediation_item_exposes_manual_action_notification_profile():
+    """High-impact manual remediation should be visible as operator action work."""
+    item = domains_endpoint._dashboard_remediation_item(
+        DOMAIN,
+        {
+            "type": "tls_coverage_gap",
+            "severity": "high",
+            "title": "Review TLS coverage",
+            "next_step": "Coordinate a manual TLS fix.",
+        },
+    )
+
+    notification = item["notification"]
+    assert notification["state"] == "action_required"
+    assert notification["event"] == "dmarq.remediation.manual_action_required"
+    assert notification["channel"] == "email_security"
+    assert notification["reason"] == "Escalate high-impact manual remediation work."
+    assert notification["next_transition"] == "resolved_by_operator"
+    assert notification["payload_preview"]["schema_version"] == (
+        "dmarq.dashboard.remediation.notification_preview.v1"
+    )
 
 
 def test_summary_dns_failure_defaults_false(authed_client: TestClient, db_session):
