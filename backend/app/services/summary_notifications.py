@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -15,8 +14,6 @@ from app.models.setting import Setting
 from app.services.alert_history import record_alert_evaluation
 from app.services.alert_rules import evaluate_alert_rules
 from app.services.notifications import send_notification
-
-logger = logging.getLogger(__name__)
 
 SUMMARY_PERIODS = {
     "daily": 1,
