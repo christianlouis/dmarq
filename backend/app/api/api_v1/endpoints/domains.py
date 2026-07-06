@@ -2460,11 +2460,11 @@ def _attach_dashboard_provider_repair_state(
     history_entries = history.get("entries") or []
     if not isinstance(history_entries, list):
         history_entries = []
-    verified_history_entries = [
-        entry
+    verified_history_count = sum(
+        1
         for entry in history_entries
         if isinstance(entry, dict) and entry.get("state") == "verified_after_apply"
-    ]
+    )
 
     repair_progression.update(
         {
@@ -2477,7 +2477,7 @@ def _attach_dashboard_provider_repair_state(
             "provider_apply_blocked": provider_apply_blocked,
             "provider_value_missing": provider_value_missing,
             "provider_apply_history": len(history_entries),
-            "provider_apply_verified": len(verified_history_entries),
+            "provider_apply_verified": verified_history_count,
         }
     )
     item["repair_progression"] = repair_progression
