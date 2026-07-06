@@ -727,8 +727,15 @@ def _apply_notification_defaults(
     overwrite_existing: bool,
 ) -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
+
+    if not defaults:
+        return results
+
+    existing_settings = db.query(Setting).filter(Setting.key.in_(defaults.keys())).all()
+    existing_map = {setting.key: setting for setting in existing_settings}
+
     for key, value in defaults.items():
-        row = db.query(Setting).filter(Setting.key == key).first()
+        row = existing_map.get(key)
         if row and not overwrite_existing:
             results.append({"key": key, "status": "existing"})
             continue
