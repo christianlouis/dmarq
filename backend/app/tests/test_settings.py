@@ -7,11 +7,16 @@ from datetime import datetime, timedelta, timezone
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.core.config import Settings
 from app.core.credential_encryption import decrypt_secret, is_encrypted_secret
 from app.models.alert import AlertConfigurationAudit, AlertHistory
+from app.models.api_token import APIToken
 from app.models.domain import Domain
 from app.models.report import DMARCReport, ReportRecord
 from app.models.setting import Setting
+from app.models.workspace import Workspace
+from app.services.account_milestone import _auth_mode, _criterion, _has_scope_token
+from app.services.api_tokens import PROVIDER_READ_SCOPE, SCIM_READ_SCOPE
 from app.services.alert_history import list_alert_config_audit, record_alert_config_change
 from app.services.notifications import NotificationResult, send_notification
 from app.services.summary_notifications import send_due_scheduled_summaries
@@ -153,6 +158,101 @@ class TestSettingsAPI:
             "enterprise_identity",
             "support_access",
         }.issubset(keys)
+
+    def test_account_readiness_auth_mode_detection(self):
+        """The milestone summary reflects each supported auth mode signal."""
+        assert _auth_mode(Settings(AUTH_DISABLED=True)) == "disabled"
+        assert _auth_mode(Settings(AUTH_MODE="trusted_proxy")) == "trusted_proxy"
+        assert (
+            _auth_mode(
+                Settings(
+                    LOGTO_ENDPOINT="https://logto.example.test",
+                    LOGTO_APP_ID="app_123",
+                )
+            )
+            == "logto"
+        )
+        assert (
+            _auth_mode(
+                Settings(
+                    AUTHENTIK_ISSUER_URL="https://authentik.example.test/application/o/dmarq/",
+                    AUTHENTIK_CLIENT_ID="client_123",
+                )
+            )
+            == "authentik"
+        )
+        assert (
+            _auth_mode(
+                Settings(
+                    OIDC_ISSUER_URL="https://idp.example.test/realms/dmarq",
+                    OIDC_CLIENT_ID="client_123",
+                )
+            )
+            == "oidc"
+        )
+        assert _auth_mode(Settings(AUTH_TRUSTED_PROXY_ENABLED=True)) == "trusted_proxy"
+
+    def test_account_readiness_scope_token_filters(self, db_session: Session):
+        """Provider and SCIM readiness checks distinguish global and workspace tokens."""
+        workspace = Workspace(slug="tenant-a", name="Tenant A")
+        db_session.add(workspace)
+        db_session.flush()
+        db_session.add_all(
+            [
+                APIToken(
+                    name="provider",
+                    key_hash="provider-hash",
+                    key_prefix="dmq_provider",
+                    scopes=f"{PROVIDER_READ_SCOPE},other",
+                    active=True,
+                ),
+                APIToken(
+                    name="scim",
+                    key_hash="scim-hash",
+                    key_prefix="dmq_scim",
+                    scopes=SCIM_READ_SCOPE,
+                    workspace_id=workspace.id,
+                    active=True,
+                ),
+                APIToken(
+                    name="revoked",
+                    key_hash="revoked-hash",
+                    key_prefix="dmq_revoked",
+                    scopes=PROVIDER_READ_SCOPE,
+                    active=False,
+                ),
+            ]
+        )
+        db_session.commit()
+
+        assert _has_scope_token(db_session, PROVIDER_READ_SCOPE, global_token=True) is True
+        assert _has_scope_token(db_session, PROVIDER_READ_SCOPE, global_token=False) is False
+        assert _has_scope_token(db_session, SCIM_READ_SCOPE, global_token=False) is True
+        assert _has_scope_token(db_session, SCIM_READ_SCOPE) is True
+
+    def test_account_readiness_criterion_marks_setup_gates(self):
+        """Setup gates are only counted after implementation is ready."""
+        configured_gate = _criterion(
+            "enterprise_identity",
+            "Enterprise identity controls",
+            True,
+            True,
+            "configured",
+            ["SCIM and MFA are configured."],
+            "No setup required.",
+        )
+        pending_gate = _criterion(
+            "provider_billing",
+            "Provider lifecycle and external billing",
+            True,
+            False,
+            "ready",
+            ["Provider APIs are implemented."],
+            "Create provider tokens before integration.",
+        )
+
+        assert configured_gate["setup_required"] is False
+        assert pending_gate["setup_required"] is True
 
     def test_list_settings_filter_by_category(self, authed_client: TestClient):
         """GET /api/v1/settings?category=dmarc returns only dmarc settings."""
