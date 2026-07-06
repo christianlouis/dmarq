@@ -98,6 +98,9 @@ manual-action, investigation-required, and summary-only notification profiles.
 The dashboard summary cards show those notification-profile counts before any
 dispatch activity exists, making queued operator communication visible even when
 webhook delivery is not yet enabled.
+The domain table repeats the same notification-ready signal, profile total, and
+summary-only counts on each affected domain row so operators can pick the next
+domain without opening every queue.
 Filter chips show compact counts, fade when the current workspace has no
 matching cards, and include hover text that explains whether the filtered queue
 is empty or how many cards it would show.

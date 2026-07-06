@@ -2227,6 +2227,47 @@ function dashboardApp() {
                 wrapper.appendChild(provider);
             }
 
+            const notificationReady = Number(workload?.notification_profile_ready || 0);
+            const notificationApproval = Number(workload?.notification_approval_required || 0);
+            const notificationAction = Number(workload?.notification_action_required || 0);
+            const notificationInvestigation = Number(
+                workload?.notification_investigation_required || 0
+            );
+            const notificationProfiles = Number(workload?.notification_profiles || 0);
+            const notificationSummary = Number(workload?.notification_summary_only || 0);
+            if (
+                notificationReady ||
+                notificationApproval ||
+                notificationAction ||
+                notificationInvestigation ||
+                notificationProfiles ||
+                notificationSummary
+            ) {
+                const notification = document.createElement('span');
+                notification.className = 'max-w-56 truncate text-xs font-semibold text-[#24507a]';
+                const parts = [];
+                if (notificationReady) {
+                    parts.push(`${this.formatLargeNumber(notificationReady)} notify-ready`);
+                }
+                if (notificationApproval) {
+                    parts.push(`${this.formatLargeNumber(notificationApproval)} approval`);
+                }
+                if (notificationAction) {
+                    parts.push(`${this.formatLargeNumber(notificationAction)} action`);
+                }
+                if (notificationInvestigation) {
+                    parts.push(`${this.formatLargeNumber(notificationInvestigation)} investigate`);
+                }
+                if (notificationProfiles) {
+                    parts.push(`${this.formatLargeNumber(notificationProfiles)} profiles`);
+                }
+                if (notificationSummary) {
+                    parts.push(`${this.formatLargeNumber(notificationSummary)} summary-only`);
+                }
+                notification.textContent = parts.join(' · ');
+                wrapper.appendChild(notification);
+            }
+
             const dispatched = Number(remediation?.dispatch_enqueued || 0);
             const followUp = Number(remediation?.needs_operator_follow_up || 0);
             if (dispatched || followUp) {

@@ -58,6 +58,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added remediation provider apply-confirmation metadata and attempt-history placeholders so future live DNS repair controls have an explicit confirmation phrase, blocker list, and audit-trail slot before any write behavior is enabled.
 - Added dashboard remediation notification profiles and payload previews so workspace filters can identify approval, manual-action, and investigation notifications from backend data before dispatch previews are attached.
 - Added a dashboard remediation notification summary card so approval, manual-action, investigation, and summary-only notification profiles are visible before dispatch activity exists.
+- Added domain-list remediation notification badges so per-domain approval, action, and investigation profiles are visible before dispatch activity exists.
+- Added domain-list remediation notification totals so profile and summary-only counts match the dashboard notification summary card.
 
 ### Changed
 - Domain summary DNS refreshes now run with bounded concurrency instead of resolving each domain sequentially.
