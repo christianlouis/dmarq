@@ -404,7 +404,8 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "dashboardRemediationEmptyStateTitle()" in template
     assert "dashboardRemediationEmptyStateText()" in template
     assert "data-dashboard-remediation-reset-filter" in template
-    assert "@click=\"resetDashboardRemediationFilter()\"" in template
+    assert "data-dashboard-remediation-reset-filter" in script
+    assert "@click=\"resetDashboardRemediationFilter()\"" not in template
     assert "Show all remediation cards" in template
     assert "dashboardRemediationNextActionText(item)" in script
     assert "dashboardRemediationStuckText(item)" in script
@@ -912,17 +913,19 @@ def test_dashboard_remediation_empty_state_reset_shows_all_cards():
                 }
             ] } };
             app.dashboardRemediationFilter = 'dispatch_blocked';
+            app.showAllDashboardRemediationItems = true;
             const before = app.visibleDashboardRemediationItems().length;
             app.resetDashboardRemediationFilter();
             return [
                 before,
                 app.dashboardRemediationFilter,
                 app.visibleDashboardRemediationItems().length,
-                app.dashboardRemediationFilterCountCache === null
+                app.dashboardRemediationFilterCountCache === null,
+                app.showAllDashboardRemediationItems
             ].join('|');
         })()""")
 
-    assert result == "0|all|1|true"
+    assert result == "0|all|1|true|false"
 
 
 def test_dashboard_remediation_stuck_filter_and_next_action_text():

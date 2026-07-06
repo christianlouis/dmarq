@@ -279,6 +279,12 @@ function dashboardApp() {
                     return;
                 }
 
+                const remediationResetFilter = event.target.closest('[data-dashboard-remediation-reset-filter]');
+                if (remediationResetFilter && root.contains(remediationResetFilter)) {
+                    this.resetDashboardRemediationFilter();
+                    return;
+                }
+
                 const remediationToggleAll = event.target.closest('[data-dashboard-remediation-toggle-all]');
                 if (remediationToggleAll && root.contains(remediationToggleAll)) {
                     this.showAllDashboardRemediationItems = !this.showAllDashboardRemediationItems;
@@ -1168,6 +1174,7 @@ function dashboardApp() {
         resetDashboardRemediationFilter() {
             this.dashboardRemediationFilter = 'all';
             this.dashboardRemediationFilterCountCache = null;
+            this.showAllDashboardRemediationItems = false;
         },
 
         dashboardRemediationFilterMatches(item, filterValue) {
