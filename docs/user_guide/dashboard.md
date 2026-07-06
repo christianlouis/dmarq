@@ -100,7 +100,9 @@ old manual work is visible before the operator opens the full queue. Follow-ups
 older than a week use the stronger overdue styling so old manual work is easier
 to separate from fresh findings. The dispatch follow-up sort also places older
 operator follow-ups ahead of fresher follow-ups, even when the fresher item has a
-higher remediation score. Notification-profile-ready cards have
+higher remediation score. Empty remediation filter views explain the selected
+filter and the next useful operator action instead of showing a generic no-match
+message. Notification-profile-ready cards have
 the event, channel, dedupe key, and payload preview prepared, but they still do
 not send anything until the operator uses the explicit dispatch flow. The
 dashboard and domain rows also expose separate counts for approval-required,
