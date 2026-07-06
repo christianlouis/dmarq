@@ -102,7 +102,8 @@ to separate from fresh findings. The dispatch follow-up sort also places older
 operator follow-ups ahead of fresher follow-ups, even when the fresher item has a
 higher remediation score. Empty remediation filter views explain the selected
 filter and the next useful operator action instead of showing a generic no-match
-message. Notification-profile-ready cards have
+message, and they include a reset control to return to the full remediation
+card list. Notification-profile-ready cards have
 the event, channel, dedupe key, and payload preview prepared, but they still do
 not send anything until the operator uses the explicit dispatch flow. The
 dashboard and domain rows also expose separate counts for approval-required,
