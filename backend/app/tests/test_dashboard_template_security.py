@@ -412,6 +412,10 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "remediationLoop().provider_apply_after_approval || 0" in template
     assert "remediationLoop().provider_apply_history || 0" in template
     assert "remediationLoop().provider_apply_verified || 0" in template
+    assert "Dispatch activity" in template
+    assert "remediationLoop().dispatch_enqueued || 0" in template
+    assert "remediationLoop().operator_follow_up || 0" in template
+    assert "domains need follow-up" in template
     assert "remediationLoop().repair_needs_evidence || 0" in template
     assert "remediationLoop().repair_waiting_on_operator || 0" in template
     assert (
@@ -683,7 +687,11 @@ def test_domain_list_remediation_cell_shows_provider_workload_summary():
                 }
             };
             const cell = app.createRemediationCell(
-                { status: 'none' },
+                {
+                    status: 'dispatched',
+                    dispatch_enqueued: 1,
+                    needs_operator_follow_up: true
+                },
                 {
                     total_open: 3,
                     provider_preview_available: 2,
@@ -710,6 +718,8 @@ def test_domain_list_remediation_cell_shows_provider_workload_summary():
     assert "1 apply blocked" in result
     assert "2 apply history" in result
     assert "1 verified" in result
+    assert "1 dispatched" in result
+    assert "1 follow-up" in result
 
 
 def test_domain_details_remediation_queue_shows_verification_context():

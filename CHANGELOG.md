@@ -85,6 +85,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dashboard remediation filters now mirror provider apply, apply-blocked, and provider-history states from domain remediation queues.
 - Dashboard remediation summaries now count provider previews, apply-after-approval items, blocked applies, and missing provider values.
 - Dashboard remediation summaries and domain rows now also surface provider apply attempts and verified provider applies.
+- Dashboard remediation summaries and domain rows now surface notification dispatches and operator follow-up activity.
 - Domain remediation queue summaries now count provider apply attempts and verified provider applies from audit history.
 - Reorganized repository: moved development docs (`AGENTS.md`, `ROADMAP.md`, `ISSUE_GENERATION_SUMMARY.md`, `generated_issues/`) into `docs/`
 - Added root-level `CHANGELOG.md` and `TODO.md`
