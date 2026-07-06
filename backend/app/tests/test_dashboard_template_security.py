@@ -398,6 +398,10 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "formatLargeNumber(dashboardRemediationFilterCount(filter.value))" in template
     assert "dashboardRemediationFilterClass(filter)" in script
     assert "dashboardRemediationFilterTitle(filter)" in script
+    assert "dashboardRemediationEmptyStateTitle()" in script
+    assert "dashboardRemediationEmptyStateText()" in script
+    assert "dashboardRemediationEmptyStateTitle()" in template
+    assert "dashboardRemediationEmptyStateText()" in template
     assert "dashboardRemediationNextActionText(item)" in script
     assert "dashboardRemediationStuckText(item)" in script
     assert "dashboardRemediationFollowUpAgeText(item)" in script
@@ -417,7 +421,6 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "dashboardRemediationTotalCount()" in template
     assert "dashboardRemediationFilterLabel()" in template
     assert "dashboardRemediationHiddenCount()" in template
-    assert "No remediation cards match this dashboard filter" in template
     assert "Show all matching cards" in template
     assert "Show compact cards" in template
     assert "Fresh evidence path" in template
@@ -850,6 +853,46 @@ def test_dashboard_remediation_filter_chips_explain_empty_states():
         "1 preview ready remediation card|"
         "No reputation remediation cards in the current workspace summary|"
         "1 all remediation card"
+    )
+
+
+def test_dashboard_remediation_empty_state_copy_matches_selected_filter():
+    result = _run_dashboard_expression("""(() => {
+            app.healthSummary = { remediation_loop: { items: [
+                {
+                    domain: 'ready.example',
+                    state: 'needs_approval',
+                    priority_score: 9,
+                    severity: 'medium',
+                    repair_progression: { readiness_level: 'ready_for_preview' }
+                }
+            ] } };
+            app.dashboardRemediationFilter = 'dispatch_blocked';
+            return [
+                app.hasVisibleDashboardRemediationItems(),
+                app.dashboardRemediationEmptyStateTitle(),
+                app.dashboardRemediationEmptyStateText()
+            ].join('|');
+        })()""")
+
+    assert result == (
+        "false|No dispatch blocked remediation cards|"
+        "No remediation notification is blocked by dispatch settings or webhook routing."
+    )
+
+
+def test_dashboard_remediation_empty_state_copy_has_default_fallback():
+    result = _run_dashboard_expression("""(() => {
+            app.dashboardRemediationFilter = 'unknown_future_filter';
+            return [
+                app.dashboardRemediationEmptyStateTitle(),
+                app.dashboardRemediationEmptyStateText()
+            ].join('|');
+        })()""")
+
+    assert result == (
+        "No remediation cards|"
+        "Choose another queue view or refresh after new evidence is available."
     )
 
 

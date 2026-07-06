@@ -1131,6 +1131,40 @@ function dashboardApp() {
             return `${this.formatLargeNumber(count)} ${label.toLowerCase()} remediation card${count === 1 ? '' : 's'}`;
         },
 
+        dashboardRemediationEmptyStateTitle() {
+            const label = this.dashboardRemediationFilterOptions.find(
+                option => option.value === this.dashboardRemediationFilter
+            )?.label;
+            if (!label) return 'No remediation cards';
+            return `No ${label.toLowerCase()} remediation cards`;
+        },
+
+        dashboardRemediationEmptyStateText() {
+            const messages = {
+                preview_ready: 'No provider-backed repair preview is ready yet. Check blocked or fresh-evidence work first.',
+                fresh_evidence: 'No remediation item currently asks for fresh evidence. Keep importing reports and refresh DNS when new sender or policy data changes.',
+                approval_verification: 'No approval verification is pending. Review ready-to-notify or manual work next.',
+                provider_apply: 'No provider apply path is ready. Check apply-blocked work or confirm the DNS provider connection first.',
+                apply_blocked: 'No provider apply is blocked right now. Provider-backed repairs can continue through preview or approval review.',
+                provider_history: 'No provider apply history is attached to the current queue. Apply attempts will appear here after an operator-approved repair flow records them.',
+                notify_ready: 'No remediation notification is ready to send. Check dispatch-blocked items or items that still need approval.',
+                dispatched: 'No remediation notification has been dispatched for the visible queue yet.',
+                follow_up: 'No remediation item is waiting on operator follow-up after dispatch.',
+                aging_follow_up: 'No operator follow-up has been waiting longer than 24 hours.',
+                dispatch_blocked: 'No remediation notification is blocked by dispatch settings or webhook routing.',
+                stuck: 'No stuck remediation work is visible. Provider values, apply prerequisites, and verification blockers are clear for this view.',
+                sender_review: 'No sender-classification review is pending in the current workspace summary.',
+                report_evidence: 'No item currently needs report evidence. Import or poll DMARC reports when sender activity changes.',
+                stale_evidence: 'No stale evidence warning is active for this dashboard filter.',
+                blocked: 'No remediation card is blocked by prerequisites in this view.',
+                waiting_operator: 'No manual operator decision is waiting in this view.',
+                manual: 'No manual repair card is visible in this filter.',
+                reputation: 'No source reputation remediation card is visible in the current workspace summary.'
+            };
+            return messages[this.dashboardRemediationFilter] ||
+                'Choose another queue view or refresh after new evidence is available.';
+        },
+
         dashboardRemediationFilterMatches(item, filterValue) {
             if (!item || !filterValue || filterValue === 'all') return true;
             const progression = item?.repair_progression || {};
