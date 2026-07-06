@@ -206,7 +206,12 @@ async def operations_health(  # noqa: C901
     attention_sources = [source for source in mail_source_health if source["attention"]]
     if attention_sources:
         status = "degraded"
-        checks.append(f"{len(attention_sources)} mail source needs authorization attention.")
+        attention_count = len(attention_sources)
+        source_label = "source" if attention_count == 1 else "sources"
+        needs_label = "needs" if attention_count == 1 else "need"
+        checks.append(
+            f"{attention_count} mail {source_label} {needs_label} authorization attention."
+        )
         for source in attention_sources:
             mailbox_recovery.append(
                 {
