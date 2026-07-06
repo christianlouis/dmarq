@@ -87,10 +87,14 @@ summary before linking to the selected domain for the full evidence, approval,
 and verification flow. Filter chips let you isolate preview-ready repairs,
 approval verification, sender review, report-evidence follow-up, blocked work,
 manual work, reputation review, and stale-evidence cases without opening every
-domain. The same filter bar can now isolate remediation notifications that have
+domain. A dedicated stuck-work filter highlights cards blocked by missing
+provider values, provider apply prerequisites, dispatch routing, or verification
+prerequisites. The same filter bar can now isolate remediation notifications that have
 a backend notification profile ready for operator action, notifications that are
 ready to send, already dispatched, blocked by notification settings, or waiting
-for operator follow-up after dispatch. Notification-profile-ready cards have
+for operator follow-up after dispatch. Follow-up cards show how long the latest
+operator or dispatch activity has been waiting, so old manual work is easier to
+separate from fresh findings. Notification-profile-ready cards have
 the event, channel, dedupe key, and payload preview prepared, but they still do
 not send anything until the operator uses the explicit dispatch flow. The
 dashboard and domain rows also expose separate counts for approval-required,
@@ -100,7 +104,9 @@ dispatch activity exists, making queued operator communication visible even when
 webhook delivery is not yet enabled.
 The domain table repeats the same notification-ready signal, profile total, and
 summary-only counts on each affected domain row so operators can pick the next
-domain without opening every queue.
+domain without opening every queue. Rows also repeat the current next safe
+action from the top remediation item so obvious refresh, approval, or provider
+value work is visible before opening the domain.
 Filter chips show compact counts, fade when the current workspace has no
 matching cards, and include hover text that explains whether the filtered queue
 is empty or how many cards it would show.
@@ -110,6 +116,12 @@ explicit approval, is blocked by missing provider values, or should fall back to
 manual DNS work. Provider repair items also expose before-apply and after-apply
 checklists so operators can review the blast radius and required evidence before
 approving or closing a repair.
+When the domain remediation queue is refreshed, the page keeps the existing
+evidence visible and reports whether open items remain or the queue is now
+empty. Empty queue states distinguish a clean current queue from historical
+verified repairs or data that has not loaded yet. Domain queue filters use the
+same count and empty-filter affordances as the dashboard, so a faded filter means
+there is no matching item in that domain's current queue.
 
 ### Demo Mode
 

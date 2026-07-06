@@ -378,6 +378,7 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "{ value: 'dispatched', label: 'Dispatched' }" in script
     assert "{ value: 'follow_up', label: 'Follow-up' }" in script
     assert "{ value: 'dispatch_blocked', label: 'Dispatch blocked' }" in script
+    assert "{ value: 'stuck', label: 'Stuck' }" in script
     assert "{ value: 'sender_review', label: 'Sender review' }" in script
     assert "{ value: 'report_evidence', label: 'Report evidence' }" in script
     assert "{ value: 'stale_evidence', label: 'Stale evidence' }" in script
@@ -394,6 +395,12 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "formatLargeNumber(dashboardRemediationFilterCount(filter.value))" in template
     assert "dashboardRemediationFilterClass(filter)" in script
     assert "dashboardRemediationFilterTitle(filter)" in script
+    assert "dashboardRemediationNextActionText(item)" in script
+    assert "dashboardRemediationStuckText(item)" in script
+    assert "dashboardRemediationFollowUpAgeText(item)" in script
+    assert "relativeAgeText(value)" in script
+    assert "Next action:" in template
+    assert "dashboardRemediationFollowUpAgeText(item)" in template
     assert "dashboardRemediationFilterCounts()" in script
     assert "data-dashboard-remediation-toggle-all" in template
     assert "data-dashboard-remediation-toggle-all" in script
@@ -802,6 +809,54 @@ def test_dashboard_remediation_filter_chips_explain_empty_states():
     )
 
 
+def test_dashboard_remediation_stuck_filter_and_next_action_text():
+    result = _run_dashboard_expression("""(() => {
+            const item = {
+                domain: 'blocked.example',
+                state: 'needs_approval',
+                priority_score: 9,
+                severity: 'medium',
+                evidence_refresh: {
+                    required: true,
+                    refresh_key: 'provider_value',
+                    safe_to_run: false,
+                    recommended_action: 'Select a DNS provider connection first.'
+                },
+                repair_progression: {
+                    provider_apply_blocked: true,
+                    blocked_by: ['provider_value']
+                }
+            };
+            app.healthSummary = { remediation_loop: { items: [item] } };
+            return [
+                app.dashboardRemediationFilterCount('stuck'),
+                app.dashboardRemediationNextActionText(item),
+                app.dashboardRemediationStuckText(item)
+            ].join('|');
+        })()""")
+
+    assert result == (
+        "1|Select a DNS provider connection first.|"
+        "Waiting on a provider value before DMARQ can refresh or prepare the repair."
+    )
+
+
+def test_dashboard_remediation_follow_up_age_text_uses_activity_timestamp():
+    result = _run_dashboard_expression("""(() => {
+            const latest = new Date(Date.now() - (2 * 24 * 60 * 60 * 1000)).toISOString();
+            app.domains = [{
+                domain_name: 'follow.example',
+                remediation: {
+                    latest_at: latest,
+                    needs_operator_follow_up: true
+                }
+            }];
+            return app.dashboardRemediationFollowUpAgeText({ domain: 'follow.example' });
+        })()""")
+
+    assert result == "Follow-up waiting since 2 days ago"
+
+
 def test_dashboard_remediation_stale_evidence_links_to_evidence_anchor():
     result = _run_dashboard_expression("""(() => {
             const item = {
@@ -902,6 +957,8 @@ def test_domain_list_remediation_cell_shows_provider_workload_summary():
     assert "1 dispatched" in result
     assert "1 follow-up" in result
     assert "Dispatch enqueued" in result
+    assert "Open the remediation queue" in result
+    assert "Follow-up waiting since" in result
 
 
 def test_domain_details_remediation_queue_shows_verification_context():
@@ -917,6 +974,13 @@ def test_domain_details_remediation_queue_shows_verification_context():
     assert "fetchRemediationQueue({ refresh: true })" in script
     assert "remediationQueueRefreshing" in script
     assert "remediationQueueRefreshError" in script
+    assert "remediationQueueRefreshMessage" in script
+    assert "remediationQueueRefreshMessage" in template
+    assert "Remediation queue refreshed." in script
+    assert "remediationQueueEmptyStateTitle()" in script
+    assert "remediationQueueEmptyStateText()" in script
+    assert "remediationQueueEmptyStateTitle()" in template
+    assert "remediationQueueEmptyStateText()" in template
     assert "hasRemediationQueueData()" in script
     assert "keepExistingQueueVisible" in script
     assert "Remediation queue refresh failed. Keeping the current queue visible." in script
@@ -945,6 +1009,8 @@ def test_domain_details_remediation_queue_shows_verification_context():
     assert "filter === 'provider_value'" in script
     assert "item.notification?.dispatch?.eligible" in script
     assert "remediationQueueFilterCount(filter)" in script
+    assert "remediationQueueFilterClass(filter)" in script
+    assert "remediationQueueFilterTitle(filter)" in script
     assert "remediationQueueFilteredCount()" in script
     assert "remediationQueueTotalCount()" in script
     assert "showAllRemediationQueueItems" in script
@@ -957,6 +1023,9 @@ def test_domain_details_remediation_queue_shows_verification_context():
     assert "Remediation queue sort" in template
     assert "data-domain-detail-remediation-filter" in template
     assert "aria-pressed" in template
+    assert ":class=\"remediationQueueFilterClass(filter.value)\"" in template
+    assert ":title=\"remediationQueueFilterTitle(filter.value)\"" in template
+    assert ":aria-label=\"remediationQueueFilterTitle(filter.value)\"" in template
     assert 'role="group"' in template
     assert 'aria-label="Remediation queue filters"' in template
     assert 'role="status"' in template

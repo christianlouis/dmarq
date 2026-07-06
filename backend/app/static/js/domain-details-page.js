@@ -123,6 +123,7 @@ function domainDetailsApp(domainId = '') {
         remediationQueueRefreshing: false,
         remediationQueueError: '',
         remediationQueueRefreshError: '',
+        remediationQueueRefreshMessage: '',
         showAllVerifiedRemediationItems: false,
         showAllRemediationQueueItems: false,
         remediationQueueLoadedAt: '',
@@ -1526,6 +1527,27 @@ function domainDetailsApp(domainId = '') {
             return match?.label || 'All';
         },
 
+        remediationQueueFilterClass(filter) {
+            if (this.remediationQueueFilter === filter) {
+                return 'border-[#2f9da5] bg-[#f2fbf9] text-[#1f7c83]';
+            }
+            if (filter !== 'all' && this.remediationQueueFilterCount(filter) === 0) {
+                return 'border-[#ece9e7] bg-[#fbfaf9] text-[#9a96a8]';
+            }
+            return 'border-[#e6e3e1] bg-white text-[#5f5c78] hover:border-[#2f9da5]';
+        },
+
+        remediationQueueFilterTitle(filter) {
+            const label = this.remediationQueueFilterOptions.find(
+                option => option.value === filter
+            )?.label || 'Remediation';
+            const count = this.remediationQueueFilterCount(filter);
+            if (count === 0 && filter !== 'all') {
+                return `No ${label.toLowerCase()} remediation items in this domain queue`;
+            }
+            return `${this.formatLargeNumber(count)} ${label.toLowerCase()} remediation item${count === 1 ? '' : 's'}`;
+        },
+
         filteredRemediationQueueItems(filterValue) {
             const filter = filterValue || 'all';
             const items = this.remediationQueue.items || [];
@@ -2277,6 +2299,7 @@ function domainDetailsApp(domainId = '') {
             this.showAllRemediationQueueItems = false;
             this.remediationQueueLoadedAt = '';
             this.remediationQueueRefreshError = '';
+            this.remediationQueueRefreshMessage = '';
             this.remediationQueue = {
                 status: 'unavailable',
                 loop: {
@@ -2351,6 +2374,7 @@ function domainDetailsApp(domainId = '') {
             this.remediationQueueRefreshing = refresh;
             this.remediationQueueError = '';
             this.remediationQueueRefreshError = '';
+            this.remediationQueueRefreshMessage = '';
             this.showAllVerifiedRemediationItems = false;
             this.showAllRemediationQueueItems = false;
             try {
@@ -2373,6 +2397,12 @@ function domainDetailsApp(domainId = '') {
                 }
                 this.remediationQueue = await response.json();
                 this.remediationQueueLoadedAt = new Date().toISOString();
+                if (refresh) {
+                    const total = Number(this.remediationQueue?.summary?.total || 0);
+                    this.remediationQueueRefreshMessage = total
+                        ? `Remediation queue refreshed. ${total} open item${total === 1 ? '' : 's'} still need review.`
+                        : 'Remediation queue refreshed. No open remediation items remain.';
+                }
             } catch (error) {
                 console.error('Error fetching remediation queue:', error);
                 if (keepExistingQueueVisible) {
@@ -2385,6 +2415,26 @@ function domainDetailsApp(domainId = '') {
                 this.remediationQueueLoading = false;
                 this.remediationQueueRefreshing = false;
             }
+        },
+
+        remediationQueueEmptyStateTitle() {
+            if (this.remediationQueueLoadedAt && (this.remediationQueue.verified_items || []).length) {
+                return 'No active remediation queued';
+            }
+            if (this.remediationQueueLoadedAt) {
+                return 'No remediation queued';
+            }
+            return 'No remediation data loaded yet';
+        },
+
+        remediationQueueEmptyStateText() {
+            if (this.remediationQueueLoadedAt && (this.remediationQueue.verified_items || []).length) {
+                return 'Recent repairs are listed above. Refresh the queue when new reports or DNS evidence arrive.';
+            }
+            if (this.remediationQueueLoadedAt) {
+                return 'DMARQ did not find an approval, manual action, or investigation item for this domain in the current evidence window.';
+            }
+            return 'Load or refresh the queue to check whether this domain has actionable remediation work.';
         },
 
         async refreshRemediationEvidence(item) {
