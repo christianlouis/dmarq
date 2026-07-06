@@ -95,6 +95,9 @@ the event, channel, dedupe key, and payload preview prepared, but they still do
 not send anything until the operator uses the explicit dispatch flow. The
 dashboard and domain rows also expose separate counts for approval-required,
 manual-action, investigation-required, and summary-only notification profiles.
+Filter chips show compact counts, fade when the current workspace has no
+matching cards, and include hover text that explains whether the filtered queue
+is empty or how many cards it would show.
 Open the domain detail queue for the full provider-repair plan. That view shows
 whether a DNS item has a safe provider preview, can be applied only after
 explicit approval, is blocked by missing provider values, or should fall back to

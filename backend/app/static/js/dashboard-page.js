@@ -15,6 +15,7 @@ function dashboardApp() {
         dashboardRemediationFilter: 'all',
         dashboardRemediationSort: 'priority',
         showAllDashboardRemediationItems: false,
+        dashboardRemediationFilterCountCache: null,
         dashboardRemediationFilterOptions: [
             { value: 'all', label: 'All' },
             { value: 'preview_ready', label: 'Preview ready' },
@@ -1075,10 +1076,54 @@ function dashboardApp() {
             return match?.label || 'All';
         },
 
+        dashboardRemediationFilterCounts() {
+            const items = this.dashboardRemediationRawItems();
+            if (this.dashboardRemediationFilterCountCache?.items === items) {
+                return this.dashboardRemediationFilterCountCache.counts;
+            }
+            const counts = Object.fromEntries(
+                this.dashboardRemediationFilterOptions.map(option => [option.value, 0])
+            );
+            items.forEach(item => {
+                this.dashboardRemediationFilterOptions.forEach(option => {
+                    if (this.dashboardRemediationFilterMatches(item, option.value)) {
+                        counts[option.value] += 1;
+                    }
+                });
+            });
+            this.dashboardRemediationFilterCountCache = { items, counts };
+            return counts;
+        },
+
         dashboardRemediationFilterCount(filter) {
+            const counts = this.dashboardRemediationFilterCounts();
+            if (Object.prototype.hasOwnProperty.call(counts, filter)) {
+                return counts[filter];
+            }
             return this.dashboardRemediationRawItems().filter(item =>
                 this.dashboardRemediationFilterMatches(item, filter)
             ).length;
+        },
+
+        dashboardRemediationFilterClass(filter) {
+            if (this.dashboardRemediationFilter === filter) {
+                return 'border-[#2f9da5] bg-[#f2fbf9] text-[#1f7c83]';
+            }
+            if (this.dashboardRemediationFilterCount(filter) === 0 && filter !== 'all') {
+                return 'border-[#ece9e7] bg-[#fbfaf9] text-[#9a96a8]';
+            }
+            return 'border-[#e6e3e1] bg-white text-[#5f5c78] hover:border-[#2f9da5]';
+        },
+
+        dashboardRemediationFilterTitle(filter) {
+            const label = this.dashboardRemediationFilterOptions.find(
+                option => option.value === filter
+            )?.label || 'Remediation';
+            const count = this.dashboardRemediationFilterCount(filter);
+            if (count === 0 && filter !== 'all') {
+                return `No ${label.toLowerCase()} remediation cards in the current workspace summary`;
+            }
+            return `${this.formatLargeNumber(count)} ${label.toLowerCase()} remediation card${count === 1 ? '' : 's'}`;
         },
 
         dashboardRemediationFilterMatches(item, filterValue) {
