@@ -294,3 +294,55 @@ async def test_lookup_sources_reputation_filters_ineligible_ips_before_max_limit
 
     assert list(results) == ["8.8.8.8"]
     assert results["8.8.8.8"].listed is True
+
+from unittest.mock import patch
+
+def test_provider_configs_from_settings_all_enabled():
+    settings = _settings(
+        SOURCE_REPUTATION_FEEDS_ENABLED=True,
+        SOURCE_REPUTATION_FEEDS="spamhaus_dqs,abusix_mail,spamcop_scbl,barracuda_brbl,abuseipdb",
+        SOURCE_REPUTATION_SPAMHAUS_DQS_ZONE="example.dq.spamhaus.net",
+        SOURCE_REPUTATION_ABUSIX_ZONE="combined.mail.abusix.zone",
+        SOURCE_REPUTATION_ABUSEIPDB_API_KEY="secret-key",
+        SOURCE_REPUTATION_ABUSEIPDB_MAX_AGE_DAYS=90,
+        SOURCE_REPUTATION_ABUSEIPDB_LISTED_THRESHOLD=75,
+    )
+
+    configs = provider_configs_from_settings(settings)
+
+    assert len(configs) == 5
+
+    spamhaus = next(c for c in configs if c.provider_id == "spamhaus_dqs")
+    assert spamhaus.enabled is True
+    assert spamhaus.query_zone == "example.dq.spamhaus.net"
+
+    abusix = next(c for c in configs if c.provider_id == "abusix_mail")
+    assert abusix.enabled is True
+    assert abusix.query_zone == "combined.mail.abusix.zone"
+
+    spamcop = next(c for c in configs if c.provider_id == "spamcop_scbl")
+    assert spamcop.enabled is True
+    assert spamcop.query_zone == "bl.spamcop.net"
+
+    barracuda = next(c for c in configs if c.provider_id == "barracuda_brbl")
+    assert barracuda.enabled is True
+    assert barracuda.query_zone == "b.barracudacentral.org"
+
+    abuseipdb = next(c for c in configs if c.provider_id == "abuseipdb")
+    assert abuseipdb.enabled is True
+    assert abuseipdb.kind == "api"
+    assert abuseipdb.api_key == "secret-key"
+    assert abuseipdb.max_age_days == 90
+    assert abuseipdb.listed_threshold == 75
+
+
+@patch("app.services.source_reputation_feeds.get_settings")
+def test_provider_configs_from_settings_uses_get_settings_when_none(mock_get_settings):
+    settings = _settings()
+    mock_get_settings.return_value = settings
+
+    configs = provider_configs_from_settings(None)
+
+    mock_get_settings.assert_called_once()
+    assert len(configs) == 5
+    assert all(c.enabled is False for c in configs)
