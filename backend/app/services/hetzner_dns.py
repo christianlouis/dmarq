@@ -1,7 +1,5 @@
 """Hetzner DNS zone discovery and domain import helpers."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
