@@ -1,7 +1,5 @@
 """Workspace role and permission foundations."""
 
-from __future__ import annotations
-
 from typing import Any, Dict, List, Optional, Set
 
 from fastapi import HTTPException, status
