@@ -2095,6 +2095,18 @@ function dashboardApp() {
                 wrapper.appendChild(provider);
             }
 
+            const dispatched = Number(remediation?.dispatch_enqueued || 0);
+            const followUp = Number(remediation?.needs_operator_follow_up || 0);
+            if (dispatched || followUp) {
+                const dispatch = document.createElement('span');
+                dispatch.className = 'max-w-56 truncate text-xs font-semibold text-[#5f5c78]';
+                const parts = [];
+                if (dispatched) parts.push(`${this.formatLargeNumber(dispatched)} dispatched`);
+                if (followUp) parts.push(`${this.formatLargeNumber(followUp)} follow-up`);
+                dispatch.textContent = parts.join(' · ');
+                wrapper.appendChild(dispatch);
+            }
+
             cell.appendChild(wrapper);
             return cell;
         },
