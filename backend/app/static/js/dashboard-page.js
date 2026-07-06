@@ -1165,6 +1165,11 @@ function dashboardApp() {
                 'Choose another queue view or refresh after new evidence is available.';
         },
 
+        resetDashboardRemediationFilter() {
+            this.dashboardRemediationFilter = 'all';
+            this.dashboardRemediationFilterCountCache = null;
+        },
+
         dashboardRemediationFilterMatches(item, filterValue) {
             if (!item || !filterValue || filterValue === 'all') return true;
             const progression = item?.repair_progression || {};

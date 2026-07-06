@@ -400,8 +400,12 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "dashboardRemediationFilterTitle(filter)" in script
     assert "dashboardRemediationEmptyStateTitle()" in script
     assert "dashboardRemediationEmptyStateText()" in script
+    assert "resetDashboardRemediationFilter()" in script
     assert "dashboardRemediationEmptyStateTitle()" in template
     assert "dashboardRemediationEmptyStateText()" in template
+    assert "data-dashboard-remediation-reset-filter" in template
+    assert "@click=\"resetDashboardRemediationFilter()\"" in template
+    assert "Show all remediation cards" in template
     assert "dashboardRemediationNextActionText(item)" in script
     assert "dashboardRemediationStuckText(item)" in script
     assert "dashboardRemediationFollowUpAgeText(item)" in script
@@ -894,6 +898,31 @@ def test_dashboard_remediation_empty_state_copy_has_default_fallback():
         "No remediation cards|"
         "Choose another queue view or refresh after new evidence is available."
     )
+
+
+def test_dashboard_remediation_empty_state_reset_shows_all_cards():
+    result = _run_dashboard_expression("""(() => {
+            app.healthSummary = { remediation_loop: { items: [
+                {
+                    domain: 'ready.example',
+                    state: 'needs_approval',
+                    priority_score: 9,
+                    severity: 'medium',
+                    repair_progression: { readiness_level: 'ready_for_preview' }
+                }
+            ] } };
+            app.dashboardRemediationFilter = 'dispatch_blocked';
+            const before = app.visibleDashboardRemediationItems().length;
+            app.resetDashboardRemediationFilter();
+            return [
+                before,
+                app.dashboardRemediationFilter,
+                app.visibleDashboardRemediationItems().length,
+                app.dashboardRemediationFilterCountCache === null
+            ].join('|');
+        })()""")
+
+    assert result == "0|all|1|true"
 
 
 def test_dashboard_remediation_stuck_filter_and_next_action_text():

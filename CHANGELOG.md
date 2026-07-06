@@ -66,6 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added aging follow-up counts to the dashboard health summary, dispatch activity card, and domain rows so stale manual work is visible without opening the remediation queue.
 - Changed the dashboard dispatch follow-up sort to put older operator follow-ups ahead of fresher follow-ups within the same dispatch state.
 - Added filter-specific empty states to the dashboard remediation cards so empty filter views explain the next useful operator action.
+- Added a dashboard remediation empty-state reset control so operators can return from an empty filtered view to the full remediation card list.
 - Added domain remediation refresh result messages and clearer empty-queue states so operators can tell whether no work is open, recent verified repairs exist, or data has not loaded yet.
 - Added domain remediation filter chip counts, empty-filter styling, and explanatory labels so queue filters behave consistently with dashboard remediation filters.
 
