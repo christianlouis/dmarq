@@ -685,12 +685,21 @@ def _apply_mail_sources(
     source_plans: Iterable[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
-    for item in source_plans:
-        existing = (
-            db.query(MailSource)
-            .filter(MailSource.workspace_id == workspace.id, MailSource.name == item["name"])
-            .first()
+
+    source_plans_list = list(source_plans)
+    source_names = [item["name"] for item in source_plans_list]
+    existing_sources = (
+        db.query(MailSource)
+        .filter(
+            MailSource.workspace_id == workspace.id,
+            MailSource.name.in_(source_names)
         )
+        .all()
+    ) if source_names else []
+    existing_by_name = {source.name: source for source in existing_sources}
+
+    for item in source_plans_list:
+        existing = existing_by_name.get(item["name"])
         if existing:
             results.append({"name": item["name"], "status": "existing", "id": existing.id})
             continue
@@ -717,6 +726,8 @@ def _apply_mail_sources(
         db.add(source)
         db.flush()
         results.append({"name": source.name, "status": "created", "id": source.id})
+        # Add to existing_by_name in case there are duplicates in the source_plans_list
+        existing_by_name[source.name] = source
     return results
 
 
