@@ -685,12 +685,22 @@ def _apply_mail_sources(
     source_plans: Iterable[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
-    for item in source_plans:
-        existing = (
+
+    source_plans_list = list(source_plans)
+    source_names = [item["name"] for item in source_plans_list]
+    existing_sources = (
+        (
             db.query(MailSource)
-            .filter(MailSource.workspace_id == workspace.id, MailSource.name == item["name"])
-            .first()
+            .filter(MailSource.workspace_id == workspace.id, MailSource.name.in_(source_names))
+            .all()
         )
+        if source_names
+        else []
+    )
+    existing_by_name = {source.name: source for source in existing_sources}
+
+    for item in source_plans_list:
+        existing = existing_by_name.get(item["name"])
         if existing:
             results.append({"name": item["name"], "status": "existing", "id": existing.id})
             continue
@@ -717,6 +727,8 @@ def _apply_mail_sources(
         db.add(source)
         db.flush()
         results.append({"name": source.name, "status": "created", "id": source.id})
+        # Add to existing_by_name in case there are duplicates in the source_plans_list
+        existing_by_name[source.name] = source
     return results
 
 
@@ -727,8 +739,15 @@ def _apply_notification_defaults(
     overwrite_existing: bool,
 ) -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
+
+    if not defaults:
+        return results
+
+    existing_settings = db.query(Setting).filter(Setting.key.in_(defaults.keys())).all()
+    existing_map = {setting.key: setting for setting in existing_settings}
+
     for key, value in defaults.items():
-        row = db.query(Setting).filter(Setting.key == key).first()
+        row = existing_map.get(key)
         if row and not overwrite_existing:
             results.append({"key": key, "status": "existing"})
             continue

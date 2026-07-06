@@ -455,9 +455,13 @@ _SECRET_KEYS = {
 
 def _seed_defaults(db: Session) -> None:
     """Insert any missing default settings rows (idempotent)."""
+    keys = [defaults["key"] for defaults in SETTING_DEFAULTS]
+    existing_settings = db.query(Setting.key).filter(Setting.key.in_(keys)).all()
+    existing_keys = {s[0] for s in existing_settings}
+
     for defaults in SETTING_DEFAULTS:
         key = defaults["key"]
-        if db.query(Setting).filter(Setting.key == key).first() is None:
+        if key not in existing_keys:
             db.add(
                 Setting(
                     key=key,
