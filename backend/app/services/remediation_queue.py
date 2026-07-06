@@ -179,9 +179,8 @@ def _summary(items: List[Dict[str, Any]]) -> Dict[str, int]:
         "provider_value_missing": sum(
             1
             for item in items
-            if "provider_specific_value" in (item.get("provider_repair_plan") or {}).get(
-                "blocked_reasons", []
-            )
+            if "provider_specific_value"
+            in (item.get("provider_repair_plan") or {}).get("blocked_reasons", [])
         ),
         "provider_manual_fallback": sum(
             1
@@ -257,6 +256,139 @@ def _summary(items: List[Dict[str, Any]]) -> Dict[str, int]:
             1 for item in items if item.get("remediation_track") == track
         )
     return summary
+
+
+def remediation_completion_assessment(
+    *,
+    items: List[Dict[str, Any]],
+    summary: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Return the product-level completion gates for the remediation loop."""
+    total = int(summary.get("total") or len(items))
+    criteria = [
+        {
+            "key": "prioritized_queue",
+            "label": "Prioritized remediation queue",
+            "met": isinstance(items, list)
+            and all(item.get("priority_score") is not None for item in items),
+            "evidence": "Queue items include stable priority scores and severity/state ordering.",
+            "next_step": "Keep queue priority metadata attached to every remediation item.",
+        },
+        {
+            "key": "actionable_evidence",
+            "label": "Evidence and concrete next steps",
+            "met": all(
+                item.get("evidence")
+                and item.get("next_steps")
+                and (item.get("action_plan") or {}).get("steps")
+                for item in items
+            ),
+            "evidence": "Every open item must include evidence, steps, and an action plan.",
+            "next_step": "Add evidence, next steps, or an action plan to every open remediation item.",
+        },
+        {
+            "key": "provider_and_self_hosted_guidance",
+            "label": "Provider and self-hosted guidance",
+            "met": all((item.get("action_plan") or {}).get("guidance_paths") for item in items),
+            "evidence": "Action plans expose guidance paths for provider or self-hosted operators.",
+            "next_step": "Attach provider/manual/self-hosted guidance paths to every item.",
+        },
+        {
+            "key": "automation_eligibility",
+            "label": "Clear automation eligibility",
+            "met": all(
+                isinstance(item.get("automation"), dict)
+                and "eligible" in item.get("automation", {})
+                and isinstance(item.get("provider_repair_plan"), dict)
+                for item in items
+            ),
+            "evidence": "Items show whether DMARQ can preview provider repair and why.",
+            "next_step": "Attach automation eligibility and provider repair plans to each item.",
+        },
+        {
+            "key": "human_approved_write_boundary",
+            "label": "Human-approved write boundary",
+            "met": all(
+                not (item.get("automation") or {}).get("eligible")
+                or (
+                    (item.get("automation") or {}).get("requires_approval") is True
+                    and (
+                        (item.get("provider_repair_plan") or {}).get("apply_confirmation") or {}
+                    ).get("required")
+                    is True
+                )
+                for item in items
+            ),
+            "evidence": "Provider apply remains gated by explicit approval and confirmation.",
+            "next_step": "Block provider apply until approval and confirmation metadata is present.",
+        },
+        {
+            "key": "verification_closure_gates",
+            "label": "Fresh-evidence closure gates",
+            "met": all(
+                (item.get("verification_plan") or {}).get("closure_gate")
+                and (item.get("evidence_refresh") or {}).get("completion_signal")
+                for item in items
+            ),
+            "evidence": "Items state what fresh evidence is required before closure.",
+            "next_step": "Attach closure gates and safe evidence-refresh completion signals.",
+        },
+        {
+            "key": "notification_lifecycle",
+            "label": "Notification and operator lifecycle",
+            "met": all(
+                (item.get("notification") or {}).get("event")
+                and (item.get("notification") or {}).get("payload_preview")
+                for item in items
+            ),
+            "evidence": "Items include notification routing and a bounded payload preview.",
+            "next_step": "Attach notification event, dedupe key, and payload preview.",
+        },
+        {
+            "key": "dashboard_summary",
+            "label": "Dashboard summary counters",
+            "met": all(
+                key in summary
+                for key in (
+                    "approval_ready",
+                    "manual_action",
+                    "investigate",
+                    "provider_apply_after_approval",
+                    "provider_apply_blocked",
+                    "closure_gate_required",
+                    "stale_evidence_warning",
+                )
+            ),
+            "evidence": "Queue summaries expose approval, manual, provider, and verification counters.",
+            "next_step": "Expose missing summary counters before closing the parent issue.",
+        },
+    ]
+    unmet = [criterion for criterion in criteria if not criterion["met"]]
+    return {
+        "status": "ready" if not unmet else "needs_work",
+        "ready_to_close_parent_issue": not unmet,
+        "total_items_evaluated": total,
+        "criteria_met": sum(1 for criterion in criteria if criterion["met"]),
+        "criteria_total": len(criteria),
+        "remaining_slices": len(unmet),
+        "criteria": criteria,
+        "blockers": [
+            {
+                "key": criterion["key"],
+                "label": criterion["label"],
+                "next_step": criterion["next_step"],
+            }
+            for criterion in unmet
+        ],
+        "next_step": (
+            "All remediation-loop closure gates are represented. Close the parent issue only after the final PR is merged and deployed."
+            if not unmet
+            else unmet[0]["next_step"]
+        ),
+        "safety_boundary": (
+            "No unsupervised DNS, provider, or mail-server writes are implied by this completion gate."
+        ),
+    }
 
 
 def _incident_type_for_item(item: Dict[str, Any]) -> str:
@@ -649,9 +781,7 @@ def _provider_repair_plan_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
         "apply_confirmation": {
             "required": True,
             "status": (
-                "ready_for_operator_confirmation"
-                if can_apply and not apply_blocked
-                else "blocked"
+                "ready_for_operator_confirmation" if can_apply and not apply_blocked else "blocked"
             ),
             "label": (
                 "Operator confirmation required"
@@ -871,9 +1001,7 @@ def _remediation_notification_payload(domain: str, item: Dict[str, Any]) -> Dict
             "plan_id": provider_repair_plan.get("plan_id"),
             "stage": str(provider_repair_plan.get("stage") or ""),
             "safe_preview_available": bool(provider_repair_plan.get("safe_preview_available")),
-            "can_apply_after_approval": bool(
-                provider_repair_plan.get("can_apply_after_approval")
-            ),
+            "can_apply_after_approval": bool(provider_repair_plan.get("can_apply_after_approval")),
             "apply_requires_approval": bool(
                 provider_repair_plan.get("apply_requires_approval", True)
             ),
@@ -902,8 +1030,7 @@ def _remediation_notification_payload(domain: str, item: Dict[str, Any]) -> Dict
                 "confirm_phrase": str(apply_confirmation.get("confirm_phrase") or ""),
                 "operator_prompt": str(apply_confirmation.get("operator_prompt") or ""),
                 "blocked_reasons": [
-                    str(reason)
-                    for reason in apply_confirmation.get("blocked_reasons", [])
+                    str(reason) for reason in apply_confirmation.get("blocked_reasons", [])
                 ][:6],
                 "next_step": str(apply_confirmation.get("next_step") or ""),
             },
@@ -1217,6 +1344,14 @@ def _health_playbook(domain: str, action: Dict[str, Any]) -> Dict[str, Any]:
 def _health_item(domain: str, action: Dict[str, Any]) -> Dict[str, Any]:
     state = "investigate" if action.get("type") == "low_compliance" else "manual_action"
     playbook = _health_playbook(domain, action)
+    evidence = _evidence_from_pairs(action.get("evidence") or [])
+    if not evidence:
+        evidence = [
+            {
+                "label": "finding",
+                "value": str(action.get("detail") or action.get("title") or "Domain health action"),
+            }
+        ]
     item = {
         "id": f"health:{action.get('type')}",
         "source": "health_score",
@@ -1226,7 +1361,7 @@ def _health_item(domain: str, action: Dict[str, Any]) -> Dict[str, Any]:
         "title": str(action.get("title") or "Review domain health"),
         "detail": str(action.get("detail") or ""),
         "next_steps": playbook["steps"],
-        "evidence": _evidence_from_pairs(action.get("evidence") or []),
+        "evidence": evidence,
         "blast_radius": f"Observed DMARC traffic for {domain}",
         "prerequisites": playbook["prerequisites"],
         "completion_criteria": playbook["completion_criteria"],
@@ -1574,10 +1709,12 @@ def build_remediation_queue(
             item["id"],
         )
     )
+    summary = _summary(items)
     return {
         "domain": domain,
         "status": _queue_status(items),
-        "summary": _summary(items),
+        "summary": summary,
         "loop": _loop_summary(domain, items),
+        "completion": remediation_completion_assessment(items=items, summary=summary),
         "items": items,
     }

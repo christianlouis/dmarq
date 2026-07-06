@@ -1560,6 +1560,18 @@ function dashboardApp() {
             }[String(status || '')] || 'bg-[#f8f7f6] text-[#5f5c78]';
         },
 
+        remediationCompletionLabel(completion) {
+            if (!completion) return 'Completion unknown';
+            if (completion.ready_to_close_parent_issue) return 'Completion gates ready';
+            const remaining = Number(completion.remaining_slices || 0);
+            return `${remaining} completion gate${remaining === 1 ? '' : 's'} open`;
+        },
+
+        remediationCompletionClass(completion) {
+            if (completion?.ready_to_close_parent_issue) return 'bg-green-100 text-green-700';
+            return 'bg-[#fff7df] text-[#8a6418]';
+        },
+
         remediationLoopEffectiveStatus(loop) {
             if (!loop) return '';
             const status = String(loop.status || '');

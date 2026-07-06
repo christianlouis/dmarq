@@ -836,6 +836,10 @@ def test_domain_remediation_queue_groups_dns_and_health_actions(
     assert data["loop"]["what_dmarq_can_fix"] == 1
     assert data["loop"]["what_needs_investigation"] == 1
     assert data["loop"]["top_incident_type"] == "dmarc_policy_missing_or_weak"
+    assert data["completion"]["ready_to_close_parent_issue"] is True
+    assert data["completion"]["remaining_slices"] == 0
+    assert data["completion"]["criteria_met"] == data["completion"]["criteria_total"]
+    assert data["completion"]["safety_boundary"].startswith("No unsupervised DNS")
     assert data["items"][0]["id"] == "dns:dmarc-missing"
     assert data["items"][0]["incident_type"] == "dmarc_policy_missing_or_weak"
     assert data["items"][0]["loop_state"] == "proposal_ready_for_approval"
@@ -856,6 +860,7 @@ def test_domain_remediation_queue_groups_dns_and_health_actions(
     assert data["items"][1]["incident_type"] == "legitimate_sender_failing_alignment"
     assert data["items"][1]["loop_state"] == "evidence_review_required"
     assert data["items"][1]["remediation_track"] == "sender_investigation"
+    assert data["items"][1]["evidence"][0]["label"] == "finding"
     assert "receiver report window" in data["items"][1]["verification_plan"]["next_check"]
     dispatch = data["items"][0]["notification"]["dispatch"]
     assert dispatch["enabled"] is False
@@ -933,6 +938,9 @@ def test_dashboard_remediation_loop_exposes_operator_decision_context():
     assert loop["notification_action_required"] == 0
     assert loop["notification_investigation_required"] == 1
     assert loop["notification_summary_only"] == 0
+    assert loop["completion"]["ready_to_close_parent_issue"] is True
+    assert loop["completion"]["remaining_slices"] == 0
+    assert loop["completion"]["criteria_met"] == loop["completion"]["criteria_total"]
     assert loop["top_incident_type"] == "dmarc_policy_missing_or_weak"
     assert loop["repair_blocked"] == 0
     assert loop["repair_ready_for_preview"] == 1
@@ -962,9 +970,10 @@ def test_dashboard_remediation_loop_exposes_operator_decision_context():
     assert loop["items"][0]["notification"]["payload_preview"]["item_id"] == (
         "health:missing_dmarc"
     )
-    assert loop["items"][0]["notification"]["payload_preview"]["repair_progression"][
-        "stage"
-    ] == "preview_ready"
+    assert (
+        loop["items"][0]["notification"]["payload_preview"]["repair_progression"]["stage"]
+        == "preview_ready"
+    )
     assert loop["items"][0]["verification_plan"]["status"] == "pending_operator_approval"
     assert loop["items"][0]["verification_plan"]["verification_method"] == (
         "provider_write_then_dns_refresh"
@@ -980,16 +989,12 @@ def test_dashboard_remediation_loop_exposes_operator_decision_context():
     assert loop["items"][1]["repair_progression"]["readiness_level"] == "needs_reputation_review"
     assert loop["items"][1]["evidence_refresh"]["refresh_key"] == "source_reputation"
     assert loop["items"][1]["notification"]["state"] == "investigation_required"
-    assert loop["items"][1]["notification"]["event"] == (
-        "dmarq.remediation.investigation_required"
-    )
+    assert loop["items"][1]["notification"]["event"] == ("dmarq.remediation.investigation_required")
     assert loop["items"][1]["verification_plan"]["status"] == "pending_reputation_review"
     assert loop["items"][1]["verification_plan"]["verification_method"] == (
         "fresh_reputation_evidence"
     )
-    assert "Fresh reputation" in (
-        loop["items"][1]["verification_plan"]["freshness_requirement"]
-    )
+    assert "Fresh reputation" in (loop["items"][1]["verification_plan"]["freshness_requirement"])
     assert "fresh reputation evidence" in loop["items"][1]["verification_plan"]["closure_gate"]
     assert loop["items"][1]["risk_level"] == "high"
     assert loop["items"][1]["safe_to_automate"] is False
@@ -1041,6 +1046,8 @@ def test_dashboard_remediation_loop_counts_provider_specific_prerequisite_blocks
     assert loop["notification_profile_ready"] == 1
     assert loop["notification_approval_required"] == 1
     assert loop["notification_summary_only"] == 0
+    assert loop["completion"]["ready_to_close_parent_issue"] is True
+    assert loop["completion"]["remaining_slices"] == 0
     assert loop["repair_ready_for_preview"] == 0
     assert loop["repair_waiting_on_operator"] == 0
     assert loop["repair_readiness_blocked"] == 1

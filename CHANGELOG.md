@@ -73,6 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added remediation empty-state context showing how many dashboard remediation cards exist outside the selected empty filter.
 - Added domain remediation refresh result messages and clearer empty-queue states so operators can tell whether no work is open, recent verified repairs exist, or data has not loaded yet.
 - Added domain remediation filter chip counts, empty-filter styling, and explanatory labels so queue filters behave consistently with dashboard remediation filters.
+- Added remediation-loop completion gates on the dashboard and domain queue so parent roadmap issues are only considered ready after priority, evidence, action-plan, automation, approval, verification, notification, and summary criteria are represented.
 
 ### Changed
 - Domain summary DNS refreshes now run with bounded concurrency instead of resolving each domain sequentially.

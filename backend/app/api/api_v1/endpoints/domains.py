@@ -112,7 +112,10 @@ from app.services.remediation_dispatch import (
     summarize_remediation_activity,
 )
 from app.services.remediation_evidence import evidence_refresh_for_remediation_item
-from app.services.remediation_queue import build_remediation_queue
+from app.services.remediation_queue import (
+    build_remediation_queue,
+    remediation_completion_assessment,
+)
 from app.services.remediation_readiness import (
     OPERATOR_REVIEW_READINESS_LEVELS,
     repair_readiness_for_stage,
@@ -614,9 +617,7 @@ def _read_only_provider_repair_plan(plan: Dict[str, Any]) -> Dict[str, Any]:
         "Public and MCP responses are read-only; open the authenticated domain "
         "workflow for provider approval."
     )
-    sanitized["operator_warning"] = (
-        "This response intentionally omits provider write endpoints."
-    )
+    sanitized["operator_warning"] = "This response intentionally omits provider write endpoints."
     blocked = list(sanitized.get("blocked_reasons") or [])
     blocked.append("public_read_only_response")
     sanitized["blocked_reasons"] = list(dict.fromkeys(blocked))
@@ -636,9 +637,7 @@ def _read_only_provider_repair_plan(plan: Dict[str, Any]) -> Dict[str, Any]:
                     [*(confirmation.get("blocked_reasons") or []), "public_read_only_response"]
                 )
             ),
-            "next_step": (
-                "Use the authenticated domain workflow for any provider write action."
-            ),
+            "next_step": ("Use the authenticated domain workflow for any provider write action."),
         }
     )
     sanitized["apply_confirmation"] = confirmation
@@ -658,9 +657,7 @@ def read_only_remediation_queue_response(payload: Any) -> "RemediationQueueRespo
         item["automation"] = automation
         provider_repair_plan = item.get("provider_repair_plan") or {}
         if provider_repair_plan:
-            item["provider_repair_plan"] = _read_only_provider_repair_plan(
-                provider_repair_plan
-            )
+            item["provider_repair_plan"] = _read_only_provider_repair_plan(provider_repair_plan)
 
         if "repair_progression" not in item:
             verification = item.get("verification_plan") or {}
@@ -714,9 +711,7 @@ def read_only_remediation_queue_response(payload: Any) -> "RemediationQueueRespo
             preview["automation"] = preview_automation
         preview_provider_plan = preview.get("provider_repair_plan") or {}
         if preview_provider_plan:
-            preview["provider_repair_plan"] = _read_only_provider_repair_plan(
-                preview_provider_plan
-            )
+            preview["provider_repair_plan"] = _read_only_provider_repair_plan(preview_provider_plan)
         if preview:
             notification["payload_preview"] = preview
         item["notification"] = notification
@@ -1365,6 +1360,31 @@ class RemediationNotification(BaseModel):
     dispatch: Dict[str, Any] = Field(default_factory=dict)
 
 
+class RemediationCompletionCriterion(BaseModel):
+    """One parent-issue completion gate represented by the remediation loop."""
+
+    key: str
+    label: str
+    met: bool = False
+    evidence: str = ""
+    next_step: str = ""
+
+
+class RemediationCompletionGate(BaseModel):
+    """Product-level completion status for the autonomous remediation loop."""
+
+    status: str = "needs_work"
+    ready_to_close_parent_issue: bool = False
+    total_items_evaluated: int = 0
+    criteria_met: int = 0
+    criteria_total: int = 0
+    remaining_slices: int = 0
+    criteria: List[RemediationCompletionCriterion] = Field(default_factory=list)
+    blockers: List[Dict[str, str]] = Field(default_factory=list)
+    next_step: str = ""
+    safety_boundary: str = ""
+
+
 class RemediationQueueItem(BaseModel):
     """One prioritized operator action for a domain."""
 
@@ -1404,6 +1424,7 @@ class RemediationQueueResponse(BaseModel):
     status: str
     summary: Dict[str, int]
     loop: Dict[str, Any] = Field(default_factory=dict)
+    completion: RemediationCompletionGate = Field(default_factory=RemediationCompletionGate)
     items: List[RemediationQueueItem]
     verified_items: List[Dict[str, Any]] = Field(default_factory=list)
     verified_items_total: int = 0
@@ -2416,6 +2437,15 @@ def _dashboard_remediation_item(
     state = _remediation_loop_state(action)
     context = _remediation_loop_context(state, action)
     priority_score = _remediation_priority_score(state, action)
+    next_step = str(action.get("next_step") or "Review the domain evidence.")
+    evidence = _dashboard_remediation_evidence(action)
+    action_plan = _dashboard_remediation_action_plan(
+        state=state,
+        action=action,
+        context=context,
+        next_step=next_step,
+    )
+    automation = _dashboard_remediation_automation(state, action)
     item = {
         "domain": domain_name,
         "state": state,
@@ -2433,7 +2463,12 @@ def _dashboard_remediation_item(
         "severity": str(action.get("severity") or "info"),
         "source": str(action.get("source") or "domain_health"),
         "title": str(action.get("title") or "Review remediation item"),
-        "next_step": str(action.get("next_step") or "Review the domain evidence."),
+        "next_step": next_step,
+        "next_steps": [next_step],
+        "evidence": evidence,
+        "action_plan": action_plan,
+        "automation": automation,
+        "provider_repair_plan": _dashboard_provider_repair_plan(state, action, automation),
         "score_impact": int(action.get("score_impact") or 0),
         "type": str(action.get("type") or "health_action"),
         **context,
@@ -2444,6 +2479,126 @@ def _dashboard_remediation_item(
     if include_detail:
         item["detail"] = str(action.get("detail") or "")
     return item
+
+
+def _dashboard_remediation_evidence(action: Dict[str, Any]) -> List[Dict[str, str]]:
+    """Return compact evidence rows for dashboard completion checks."""
+    evidence_rows: List[Dict[str, str]] = []
+    for row in action.get("evidence") or []:
+        if isinstance(row, dict):
+            label = str(row.get("label") or row.get("key") or "evidence")
+            value = str(row.get("value") or row.get("summary") or row.get("detail") or "")
+            if value:
+                evidence_rows.append({"label": label, "value": value})
+        elif row:
+            evidence_rows.append({"label": "evidence", "value": str(row)})
+    if evidence_rows:
+        return evidence_rows[:5]
+    fallback = str(
+        action.get("detail") or action.get("title") or action.get("type") or "Domain health action"
+    )
+    return [{"label": "finding", "value": fallback}]
+
+
+def _dashboard_remediation_action_plan(
+    *,
+    state: str,
+    action: Dict[str, Any],
+    context: Dict[str, str],
+    next_step: str,
+) -> Dict[str, Any]:
+    """Expose dashboard-safe action metadata without write controls."""
+    track = _remediation_track_for_action(state, action)
+    if track == "provider_preview":
+        guidance_summary = "Use the domain remediation queue to preview provider DNS changes."
+    elif track == "blocked_by_prerequisite":
+        guidance_summary = "Collect the provider-specific value before any DNS change."
+    elif track == "reputation_review":
+        guidance_summary = "Review fresh source reputation evidence before closing."
+    elif track == "sender_investigation":
+        guidance_summary = "Classify the sender before changing DNS or policy."
+    elif track == "manual_dns":
+        guidance_summary = "Apply the DNS fix manually, then refresh DNS evidence."
+    else:
+        guidance_summary = "Follow the self-hosted or provider-specific remediation path."
+    return {
+        "owner": context["owner"],
+        "steps": [next_step],
+        "guidance_paths": [
+            {
+                "key": track,
+                "label": context["state_label"],
+                "summary": guidance_summary,
+                "owner": context["owner"],
+            }
+        ],
+        "completion_criteria": context["completion_criteria"],
+        "safe_to_automate": _remediation_safe_to_automate(state),
+        "requires_fresh_evidence": True,
+    }
+
+
+def _dashboard_remediation_automation(
+    state: str,
+    action: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Return dashboard-safe automation eligibility metadata."""
+    eligible = _remediation_safe_to_automate(state)
+    if eligible:
+        reason = "A provider repair can be previewed, but apply requires approval."
+    elif _remediation_track_for_action(state, action) == "blocked_by_prerequisite":
+        reason = "Provider-specific target values are missing."
+    elif state == "investigate":
+        reason = "Sender classification is required before automation."
+    else:
+        reason = "Manual operator action and fresh evidence are required."
+    return {
+        "eligible": eligible,
+        "requires_approval": eligible,
+        "reason": reason,
+    }
+
+
+def _dashboard_provider_repair_plan(
+    state: str,
+    action: Dict[str, Any],
+    automation: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Return read-only provider repair state required by completion gates."""
+    plan = action.get("provider_repair_plan")
+    if isinstance(plan, dict) and plan:
+        normalized = dict(plan)
+        confirmation = dict(normalized.get("apply_confirmation") or {})
+        if automation.get("eligible"):
+            confirmation.setdefault("required", True)
+            confirmation.setdefault("label", "Human approval required before apply")
+        normalized["apply_confirmation"] = confirmation
+        normalized.setdefault("available", bool(automation.get("eligible")))
+        normalized.setdefault("state", state)
+        normalized.setdefault(
+            "completion_gate",
+            (
+                "Close only after preview approval, apply, and fresh DNS evidence."
+                if automation.get("eligible")
+                else "Close only after operator action and fresh evidence."
+            ),
+        )
+        return normalized
+    confirmation_required = bool(automation.get("eligible"))
+    return {
+        "available": confirmation_required,
+        "apply_confirmation": {
+            "required": confirmation_required,
+            "label": "Human approval required before apply",
+        },
+        "completion_gate": (
+            "Close only after preview approval, apply, and fresh DNS evidence."
+            if confirmation_required
+            else "Close only after operator action and fresh evidence."
+        ),
+        "status": "preview_available" if confirmation_required else "manual_or_blocked",
+        "state": state,
+    }
 
 
 def _dashboard_remediation_notification(domain: str, item: Dict[str, Any]) -> Dict[str, Any]:
@@ -2590,9 +2745,7 @@ def _increment_provider_repair_counters(counters: Dict[str, int], item: Dict[str
         counters["provider_value_missing"] += 1
     if repair_progression.get("provider_apply_blocked"):
         counters["provider_apply_blocked"] += 1
-    counters["provider_apply_history"] += int(
-        repair_progression.get("provider_apply_history") or 0
-    )
+    counters["provider_apply_history"] += int(repair_progression.get("provider_apply_history") or 0)
     counters["provider_apply_verified"] += int(
         repair_progression.get("provider_apply_verified") or 0
     )
@@ -2623,6 +2776,10 @@ def _increment_verification_plan_counters(
 ) -> None:
     """Count the closure-proof state each dashboard remediation item requires."""
     verification = item.get("verification_plan") or {}
+    if verification.get("closure_gate"):
+        counters["closure_gate_required"] += 1
+    if verification.get("stale_evidence_warning"):
+        counters["stale_evidence_warning"] += 1
     status = str(verification.get("status") or "")
     if status == "pending_operator_approval":
         counters["verification_pending_operator_approval"] += 1
@@ -2690,6 +2847,8 @@ def _build_dashboard_remediation_loop(
         "verification_pending_reputation_review": 0,
         "verification_pending_report_evidence": 0,
         "verification_blocked_by_prerequisite": 0,
+        "closure_gate_required": 0,
+        "stale_evidence_warning": 0,
         "provider_preview_available": 0,
         "provider_apply_after_approval": 0,
         "provider_apply_blocked": 0,
@@ -2742,6 +2901,16 @@ def _build_dashboard_remediation_loop(
     else:
         loop_status = "clear"
         next_action = "No current remediation work; keep importing reports and monitoring DNS."
+    completion_summary = {
+        "total": len(items),
+        "approval_ready": counters["needs_approval"],
+        "manual_action": counters["manual_action"],
+        "investigate": counters["investigate"],
+        "provider_apply_after_approval": counters["provider_apply_after_approval"],
+        "provider_apply_blocked": counters["provider_apply_blocked"],
+        "closure_gate_required": counters["closure_gate_required"],
+        "stale_evidence_warning": counters["stale_evidence_warning"],
+    }
     return {
         **counters,
         **track_counters,
@@ -2756,6 +2925,10 @@ def _build_dashboard_remediation_loop(
         "operator_follow_up": int(activity_summary.get("needs_operator_follow_up") or 0),
         "status": "clear" if total_open == 0 else "needs_attention",
         "top_incident_type": str(items[0].get("incident_type") or "") if items else "",
+        "completion": remediation_completion_assessment(
+            items=items,
+            summary=completion_summary,
+        ),
         "items": items[:REMEDIATION_DASHBOARD_ITEM_LIMIT],
     }
 
@@ -2783,6 +2956,8 @@ def _domain_remediation_workload(domain: Dict[str, Any]) -> Dict[str, Any]:
         "verification_pending_reputation_review": 0,
         "verification_pending_report_evidence": 0,
         "verification_blocked_by_prerequisite": 0,
+        "closure_gate_required": 0,
+        "stale_evidence_warning": 0,
         "provider_preview_available": 0,
         "provider_apply_after_approval": 0,
         "provider_apply_blocked": 0,

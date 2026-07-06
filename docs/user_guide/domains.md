@@ -139,7 +139,11 @@ DMARQ shows that prerequisite instead of pretending it can refresh or repair the
 item automatically.
 The queue header also counts closure gates and rollback notes, so operators can
 spot how much work still needs fresh evidence or a recovery plan before opening
-every remediation card.
+every remediation card. It also shows the loop completion gate for the domain:
+priority, evidence, action plans, automation eligibility, human-approved write
+boundaries, closure evidence, notification routing, and summary counters must
+all be present before a parent roadmap item is considered ready for final
+closure.
 The **Repair progression** panel separates the recommendation from the next
 safe gate. It tells the operator whether a connected provider preview is ready,
 whether a provider-specific value is still missing, whether a sending source

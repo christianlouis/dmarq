@@ -90,7 +90,11 @@ blocked before repair. The dashboard also separates items waiting on an operator
 for sender classification, manual repair, reputation review, or general operator
 review. The section header shows the loop status, top incident family, next
 action, and the last successful summary refresh time so operators can triage the
-queue before reading every card. Use **Refresh queue** when new reports, DNS
+queue before reading every card. The completion gate badge states whether every
+remediation-loop criterion is represented before the parent roadmap issue should
+be closed, including priority metadata, evidence, action plans, automation
+eligibility, explicit approval boundaries, closure evidence, notification
+routing, and summary counters. Use **Refresh queue** when new reports, DNS
 refreshes, or operator markers should be reflected immediately. A failed manual
 refresh keeps the previously loaded dashboard visible and shows a refresh warning
 instead of replacing the page with an empty state. Cards are sorted so provider
