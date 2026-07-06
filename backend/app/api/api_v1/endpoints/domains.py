@@ -167,7 +167,6 @@ from app.utils.domain_validator import normalize_domain_name, validate_domain_co
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-DOMAIN_SELECTOR_LOOKUP_CHUNK_SIZE = 500
 REMEDIATION_NOTIFICATION_LIFECYCLE_STATES = {
     "preview_change",
     "approve_after_preview",
@@ -3113,11 +3112,9 @@ def _get_domain_selectors_map_from_db(db: Session, domain_names: List[str]) -> D
 
     unique_names = list(dict.fromkeys(domain_names))
     selectors_by_domain: Dict[str, List[str]] = {}
-    for index in range(0, len(unique_names), DOMAIN_SELECTOR_LOOKUP_CHUNK_SIZE):
-        chunk = unique_names[index : index + DOMAIN_SELECTOR_LOOKUP_CHUNK_SIZE]
-        rows = db.query(Domain.name, Domain.dkim_selectors).filter(Domain.name.in_(chunk)).all()
-        for name, selectors in rows:
-            selectors_by_domain[name] = _normalize_domain_selectors((selectors or "").split(","))
+    rows = db.query(Domain.name, Domain.dkim_selectors).filter(Domain.name.in_(unique_names)).all()
+    for name, selectors in rows:
+        selectors_by_domain[name] = _normalize_domain_selectors((selectors or "").split(","))
     return selectors_by_domain
 
 
@@ -3150,22 +3147,20 @@ def _get_report_selectors_map_from_db(
 
     unique_names = list(dict.fromkeys(domain_names))
     selectors_by_domain: Dict[str, List[str]] = {}
-    for index in range(0, len(unique_names), DOMAIN_SELECTOR_LOOKUP_CHUNK_SIZE):
-        chunk = unique_names[index : index + DOMAIN_SELECTOR_LOOKUP_CHUNK_SIZE]
-        query = (
-            db.query(Domain.name, ReportRecord.dkim_auth_details)
-            .join(DMARCReport, DMARCReport.domain_id == Domain.id)
-            .join(ReportRecord, ReportRecord.report_id == DMARCReport.id)
-            .filter(Domain.name.in_(chunk))
-            .filter(ReportRecord.dkim_auth_details.isnot(None))
-        )
-        if workspace_id is not None:
-            query = query.filter(Domain.workspace_id == workspace_id)
-        for domain_name, raw_details in query.all():
-            domain_selectors = selectors_by_domain.setdefault(domain_name, [])
-            for selector in _selectors_from_dkim_auth_details(raw_details):
-                if selector and selector not in domain_selectors:
-                    domain_selectors.append(selector)
+    query = (
+        db.query(Domain.name, ReportRecord.dkim_auth_details)
+        .join(DMARCReport, DMARCReport.domain_id == Domain.id)
+        .join(ReportRecord, ReportRecord.report_id == DMARCReport.id)
+        .filter(Domain.name.in_(unique_names))
+        .filter(ReportRecord.dkim_auth_details.isnot(None))
+    )
+    if workspace_id is not None:
+        query = query.filter(Domain.workspace_id == workspace_id)
+    for domain_name, raw_details in query.all():
+        domain_selectors = selectors_by_domain.setdefault(domain_name, [])
+        for selector in _selectors_from_dkim_auth_details(raw_details):
+            if selector and selector not in domain_selectors:
+                domain_selectors.append(selector)
     return selectors_by_domain
 
 
