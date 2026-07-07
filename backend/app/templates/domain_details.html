@@ -37,28 +37,37 @@
                     </div>
                     {% endif %}
                 </div>
-                <div class="flex flex-wrap gap-2">
+                <div class="flex flex-wrap items-center gap-2">
                     <a href="/domains" class="btn btn-outline btn-sm border-[#dfdfdf] text-[#272a5f] hover:border-[#2f9da5] hover:bg-[#f4f3f2]">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M8 6h13"></path><path d="M8 12h13"></path><path d="M8 18h13"></path><path d="M3 6h.01"></path><path d="M3 12h.01"></path><path d="M3 18h.01"></path></svg>
                         All domains
                     </a>
-                    <a href="#dns-records" class="btn btn-outline btn-sm border-[#dfdfdf] text-[#272a5f] hover:border-[#2f9da5] hover:bg-[#f4f3f2]">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M12 2v7.5"></path><path d="m4.24 10.37 6.58-3.79"></path><path d="m3.24 16.98 7.5-1.01"></path><path d="m13.24 15.97 7.5 1.01"></path><path d="m13.24 3.79 6.58 3.79"></path><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Z"></path><path d="M12 12a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z"></path></svg>
-                        Check DNS
-                    </a>
-                    <a href="#sending-sources" class="btn btn-sm border-0 bg-[#2f9da5] text-white hover:bg-[#272a5f]">Review sources</a>
-                    <button type="button"
-                            class="btn btn-outline btn-sm border-[#dfdfdf] text-[#272a5f] hover:border-[#2f9da5] hover:bg-[#f4f3f2]"
-                            :disabled="refreshingPage"
-                            data-domain-detail-reload>
-                        <span x-show="refreshingPage" class="loading loading-spinner loading-xs"></span>
-                        <span x-text="refreshingPage ? 'Refreshing...' : 'Reload data'"></span>
-                    </button>
-                    <button type="button"
-                            class="btn btn-outline btn-sm border-[#ff6f3c] text-[#b64218] hover:border-[#ff6f3c] hover:bg-[#fff2ec]"
-                            data-domain-detail-delete>
-                        Delete domain
-                    </button>
+                    <details class="dropdown dropdown-end">
+                        <summary class="btn btn-outline btn-sm border-[#dfdfdf] text-[#272a5f] hover:border-[#2f9da5] hover:bg-[#f4f3f2]">
+                            More actions
+                        </summary>
+                        <div class="menu dropdown-content z-20 mt-2 w-64 rounded-lg border border-[#e6e3e1] bg-white p-2 shadow-lg">
+                            <a href="#dns-records" class="rounded-md px-3 py-2 text-sm font-semibold text-[#272a5f] hover:bg-[#f4f3f2]">
+                                Check DNS records
+                            </a>
+                            <a href="#sending-sources" class="rounded-md px-3 py-2 text-sm font-semibold text-[#272a5f] hover:bg-[#f4f3f2]">
+                                Review sending sources
+                            </a>
+                            <button type="button"
+                                    class="rounded-md px-3 py-2 text-left text-sm font-semibold text-[#272a5f] hover:bg-[#f4f3f2]"
+                                    :disabled="refreshingPage"
+                                    data-domain-detail-reload>
+                                <span x-show="refreshingPage" class="loading loading-spinner loading-xs"></span>
+                                <span x-text="refreshingPage ? 'Refreshing...' : 'Reload data'"></span>
+                            </button>
+                            <div class="my-1 border-t border-[#eee9e6]"></div>
+                            <button type="button"
+                                    class="rounded-md px-3 py-2 text-left text-sm font-semibold text-[#b64218] hover:bg-[#fff2ec]"
+                                    data-domain-detail-delete>
+                                Delete domain
+                            </button>
+                        </div>
+                    </details>
                 </div>
             </div>
             <div class="mt-5 rounded-lg border border-[#e6e3e1] bg-[#fbfaf9] p-4">
@@ -171,12 +180,10 @@
                                 </p>
                             </div>
                         </div>
-                        <div class="flex flex-wrap gap-2">
-                            <a x-show="primaryRemediationEvidenceHref"
-                               :href="primaryRemediationEvidenceHref"
-                               class="btn btn-outline btn-sm border-[#dfdfdf] text-[#272a5f] hover:border-[#2f9da5]">
-                                Open evidence
-                            </a>
+                        <div class="flex w-full flex-col gap-2 sm:w-auto">
+                            <a :href="primaryRemediationCtaHref"
+                               class="btn btn-sm border-0 bg-[#2f9da5] text-white hover:bg-[#272a5f]"
+                               x-text="primaryRemediationCtaLabel"></a>
                             <button type="button"
                                     x-show="primaryRemediationItem.evidence_refresh"
                                     class="btn btn-outline btn-sm border-[#dfdfdf] text-[#272a5f] hover:border-[#2f9da5]"
@@ -186,8 +193,10 @@
                                 <span x-show="remediationActionBusy(primaryRemediationItem, 'refresh_evidence')" class="loading loading-spinner loading-xs"></span>
                                 <span x-text="remediationEvidenceRefreshActionLabel(primaryRemediationItem.evidence_refresh)"></span>
                             </button>
-                            <a href="#remediation-queue" class="btn btn-sm border-0 bg-[#2f9da5] text-white hover:bg-[#272a5f]">
-                                Open queue
+                            <a x-show="primaryRemediationEvidenceHref"
+                               :href="primaryRemediationEvidenceHref"
+                               class="btn btn-outline btn-sm border-[#dfdfdf] text-[#272a5f] hover:border-[#2f9da5]">
+                                Show evidence
                             </a>
                         </div>
                     </div>
@@ -458,51 +467,56 @@
                             <span class="rounded bg-blue-100 px-2 py-1 font-semibold text-blue-700">
                                 <span x-text="remediationQueue.summary.investigate"></span><span> investigate</span>
                             </span>
-                            <span class="rounded bg-[#f2fbf9] px-2 py-1 font-semibold text-[#1f7c83]">
-                                <span x-text="remediationQueue.summary.provider_fix_available || 0"></span><span> provider fixes</span>
-                            </span>
-                            <span class="rounded bg-[#f4f3f2] px-2 py-1 font-semibold text-[#5f5c78]">
-                                <span x-text="remediationQueue.summary.blocked_by_prerequisite || 0"></span><span> blocked by prerequisites</span>
-                            </span>
-                            <span class="rounded bg-[#eef7ff] px-2 py-1 font-semibold text-[#24507a]">
-                                <span x-text="remediationQueue.summary.repair_preview_ready || 0"></span><span> preview ready</span>
-                            </span>
-                            <span class="rounded bg-[#eef7ff] px-2 py-1 font-semibold text-[#24507a]">
-                                <span x-text="remediationQueue.summary.provider_preview_available || 0"></span><span> provider previews</span>
-                            </span>
-                            <span class="rounded bg-green-100 px-2 py-1 font-semibold text-green-700">
-                                <span x-text="remediationQueue.summary.provider_apply_after_approval || 0"></span><span> apply after approval</span>
-                            </span>
-                            <span class="rounded bg-yellow-100 px-2 py-1 font-semibold text-yellow-800">
-                                <span x-text="remediationQueue.summary.provider_apply_blocked || 0"></span><span> apply blocked</span>
-                            </span>
-                            <span class="rounded bg-[#f4f3f2] px-2 py-1 font-semibold text-[#5f5c78]">
-                                <span x-text="remediationQueue.summary.provider_pre_apply_checks || 0"></span><span> provider checklists</span>
-                            </span>
-                            <span class="rounded bg-[#f2fbf9] px-2 py-1 font-semibold text-[#1f7c83]">
-                                <span x-text="remediationQueue.summary.provider_apply_verified || 0"></span><span> verified provider applies</span>
-                            </span>
-                            <span class="rounded bg-[#f4f3f2] px-2 py-1 font-semibold text-[#5f5c78]">
-                                <span x-text="remediationQueue.summary.provider_apply_attempts || 0"></span><span> provider apply history</span>
-                            </span>
-                            <span class="rounded bg-[#fff8ed] px-2 py-1 font-semibold text-[#7a4a00]">
-                                <span x-text="remediationQueue.summary.repair_needs_evidence || 0"></span><span> need evidence</span>
-                            </span>
-                            <span class="rounded bg-[#fff8ed] px-2 py-1 font-semibold text-[#7a4a00]">
-                                <span x-text="remediationQueue.summary.closure_gate_required || 0"></span><span> closure gates</span>
-                            </span>
-                            <span class="rounded bg-[#f4f3f2] px-2 py-1 font-semibold text-[#5f5c78]">
-                                <span x-text="remediationQueue.summary.rollback_guidance || 0"></span><span> rollback notes</span>
-                            </span>
-                            <span class="rounded bg-teal-100 px-2 py-1 font-semibold text-teal-700">
-                                <span x-text="remediationQueue.summary.dispatch_ready || 0"></span><span> ready to notify</span>
-                            </span>
-                            <span class="rounded bg-red-100 px-2 py-1 font-semibold text-red-700">
-                                <span x-text="remediationQueue.summary.dispatch_blocked || 0"></span><span> blocked</span>
-                            </span>
-                            <span class="rounded bg-teal-100 px-2 py-1 font-semibold text-teal-700">
-                                <span x-text="remediationQueue.summary.dispatch_verified_fixed || 0"></span><span> verified fixed</span>
-                            </span>
+                            <details class="dropdown dropdown-end">
+                                <summary class="btn btn-outline btn-xs">More queue signals</summary>
+                                <div class="dropdown-content z-20 mt-2 grid w-80 gap-2 rounded-lg border border-[#e6e3e1] bg-white p-3 shadow-lg">
+                                    <span class="rounded bg-[#f2fbf9] px-2 py-1 font-semibold text-[#1f7c83]">
+                                        <span x-text="remediationQueue.summary.provider_fix_available || 0"></span><span> provider fixes</span>
+                                    </span>
+                                    <span class="rounded bg-[#f4f3f2] px-2 py-1 font-semibold text-[#5f5c78]">
+                                        <span x-text="remediationQueue.summary.blocked_by_prerequisite || 0"></span><span> blocked by prerequisites</span>
+                                    </span>
+                                    <span class="rounded bg-[#eef7ff] px-2 py-1 font-semibold text-[#24507a]">
+                                        <span x-text="remediationQueue.summary.repair_preview_ready || 0"></span><span> preview ready</span>
+                                    </span>
+                                    <span class="rounded bg-[#eef7ff] px-2 py-1 font-semibold text-[#24507a]">
+                                        <span x-text="remediationQueue.summary.provider_preview_available || 0"></span><span> provider previews</span>
+                                    </span>
+                                    <span class="rounded bg-green-100 px-2 py-1 font-semibold text-green-700">
+                                        <span x-text="remediationQueue.summary.provider_apply_after_approval || 0"></span><span> apply after approval</span>
+                                    </span>
+                                    <span class="rounded bg-yellow-100 px-2 py-1 font-semibold text-yellow-800">
+                                        <span x-text="remediationQueue.summary.provider_apply_blocked || 0"></span><span> apply blocked</span>
+                                    </span>
+                                    <span class="rounded bg-[#f4f3f2] px-2 py-1 font-semibold text-[#5f5c78]">
+                                        <span x-text="remediationQueue.summary.provider_pre_apply_checks || 0"></span><span> provider checklists</span>
+                                    </span>
+                                    <span class="rounded bg-[#f2fbf9] px-2 py-1 font-semibold text-[#1f7c83]">
+                                        <span x-text="remediationQueue.summary.provider_apply_verified || 0"></span><span> verified provider applies</span>
+                                    </span>
+                                    <span class="rounded bg-[#f4f3f2] px-2 py-1 font-semibold text-[#5f5c78]">
+                                        <span x-text="remediationQueue.summary.provider_apply_attempts || 0"></span><span> provider apply history</span>
+                                    </span>
+                                    <span class="rounded bg-[#fff8ed] px-2 py-1 font-semibold text-[#7a4a00]">
+                                        <span x-text="remediationQueue.summary.repair_needs_evidence || 0"></span><span> need evidence</span>
+                                    </span>
+                                    <span class="rounded bg-[#fff8ed] px-2 py-1 font-semibold text-[#7a4a00]">
+                                        <span x-text="remediationQueue.summary.closure_gate_required || 0"></span><span> closure gates</span>
+                                    </span>
+                                    <span class="rounded bg-[#f4f3f2] px-2 py-1 font-semibold text-[#5f5c78]">
+                                        <span x-text="remediationQueue.summary.rollback_guidance || 0"></span><span> rollback notes</span>
+                                    </span>
+                                    <span class="rounded bg-teal-100 px-2 py-1 font-semibold text-teal-700">
+                                        <span x-text="remediationQueue.summary.dispatch_ready || 0"></span><span> ready to notify</span>
+                                    </span>
+                                    <span class="rounded bg-red-100 px-2 py-1 font-semibold text-red-700">
+                                        <span x-text="remediationQueue.summary.dispatch_blocked || 0"></span><span> dispatch blocked</span>
+                                    </span>
+                                    <span class="rounded bg-teal-100 px-2 py-1 font-semibold text-teal-700">
+                                        <span x-text="remediationQueue.summary.dispatch_verified_fixed || 0"></span><span> verified fixed</span>
+                                    </span>
+                                </div>
+                            </details>
                             <button type="button"
                                     class="btn btn-outline btn-xs"
                                     :disabled="remediationQueueLoading || remediationQueueRefreshing"

@@ -764,6 +764,32 @@ function domainDetailsApp(domainId = '') {
             return this.remediationEvidenceAnchorHref(item);
         },
 
+        get primaryRemediationCtaLabel() {
+            const item = this.primaryRemediationItem;
+            if (!item) return 'Review remediation queue';
+            const plan = item.provider_repair_plan || {};
+            if (plan.kind === 'dns_provider_repair') {
+                if (plan.preview_available || plan.preview_url) return 'Preview DNS change';
+                if (plan.apply_after_approval) return 'Review approved DNS change';
+                return 'Review DNS repair plan';
+            }
+            if (item.notification?.dispatch?.ready) return 'Dispatch operator follow-up';
+            if (item.repair_progression?.requires_fresh_evidence || item.evidence_refresh?.required) {
+                return 'Refresh required evidence';
+            }
+            if (this.primaryRemediationEvidenceHref) return 'Review evidence';
+            return 'Review remediation queue';
+        },
+
+        get primaryRemediationCtaHref() {
+            const item = this.primaryRemediationItem;
+            if (!item) return '#remediation-queue';
+            const plan = item.provider_repair_plan || {};
+            if (plan.kind === 'dns_provider_repair') return '#remediation-queue';
+            if (this.primaryRemediationEvidenceHref) return this.primaryRemediationEvidenceHref;
+            return '#remediation-queue';
+        },
+
         get primaryRepairProgressionText() {
             const progression = this.primaryRemediationItem?.repair_progression;
             if (!progression) return 'Repair status will appear after the remediation queue finishes loading.';

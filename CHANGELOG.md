@@ -80,6 +80,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added remediation-loop completion gates on the dashboard and domain queue so parent roadmap issues are only considered ready after priority, evidence, action-plan, automation, approval, verification, notification, and summary criteria are represented.
 
 ### Changed
+- Domain detail, reports, and onboarding pages now lead with clearer primary
+  CTAs, move secondary actions into overflow/progressive disclosure, and give
+  empty/error states an explicit next step.
 - Settings and workspace onboarding defaults now load existing rows in bulk,
   avoiding per-item database lookups while preserving idempotent setup behavior.
 - Domain summary DNS refreshes now run with bounded concurrency instead of resolving each domain sequentially.

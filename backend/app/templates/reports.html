@@ -7,7 +7,22 @@
 
 {% block content %}
 <div class="container mx-auto py-4" x-data="reportsApp" x-cloak>
-    <h1 class="text-2xl font-bold mb-6">DMARC Reports</h1>
+    <div class="mb-6 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div>
+            <p class="text-sm font-semibold uppercase tracking-wide text-[#2f9da6]">Aggregate evidence</p>
+            <h1 class="mt-1 text-2xl font-bold">DMARC Reports</h1>
+            <p class="mt-2 max-w-3xl text-sm text-[#5f5c78]">
+                Review imported aggregate reports, then open the first failing report or connect a report source.
+            </p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+            <a x-show="primaryReportCtaHref"
+               :href="primaryReportCtaHref"
+               class="btn btn-primary btn-md"
+               x-text="primaryReportCtaLabel"></a>
+            <a href="/mail-sources" class="btn btn-outline btn-md">Mail Sources</a>
+        </div>
+    </div>
 
     <!-- Report Filters -->
     <div class="mb-6">
@@ -82,9 +97,12 @@
                         <template x-if="showLoading">
                             {% call tr() %}
                                 {% call td(colspan="7", class="text-center") %}
-                                    <div class="flex items-center justify-center gap-2 py-4 text-muted-foreground" role="status">
+                                    <div class="flex flex-col items-center justify-center gap-3 py-8 text-muted-foreground" role="status">
                                         <span class="loading loading-spinner loading-sm"></span>
-                                        <span>Loading DMARC reports...</span>
+                                        <div>
+                                            <p class="font-semibold text-[#120d36]">Checking report index...</p>
+                                            <p class="mt-1 text-sm">This should only take a moment. If it stays empty, open Mail Sources and check the last import.</p>
+                                        </div>
                                     </div>
                                 {% endcall %}
                             {% endcall %}
@@ -92,11 +110,14 @@
                         <template x-if="showError">
                             {% call tr() %}
                                 {% call td(colspan="7", class="text-center") %}
-                                    <div class="flex flex-col items-center gap-3 py-4">
+                                    <div class="flex flex-col items-center gap-3 py-8">
                                         <p class="text-red-700" x-text="error"></p>
-                                        <button type="button" class="btn btn-outline btn-sm" data-report-retry-load>
-                                            Retry loading reports
-                                        </button>
+                                        <div class="flex flex-wrap justify-center gap-2">
+                                            <button type="button" class="btn btn-primary btn-sm" data-report-retry-load>
+                                                Retry loading reports
+                                            </button>
+                                            <a href="/mail-sources" class="btn btn-outline btn-sm">Check Mail Sources</a>
+                                        </div>
                                     </div>
                                 {% endcall %}
                             {% endcall %}
@@ -104,7 +125,17 @@
                         <template x-if="showEmpty">
                             {% call tr() %}
                                 {% call td(colspan="7", class="text-center") %}
-                                    <p class="py-4 text-muted-foreground">No reports match this filter.</p>
+                                    <div class="mx-auto max-w-xl py-8 text-center">
+                                        <p class="font-semibold text-[#120d36]" x-text="emptyStateTitle"></p>
+                                        <p class="mt-2 text-sm text-[#5f5c78]" x-text="emptyStateText"></p>
+                                        <div class="mt-4 flex flex-wrap justify-center gap-2">
+                                            <button type="button" class="btn btn-primary btn-sm" data-report-refresh>
+                                                Trigger report refresh
+                                            </button>
+                                            <a href="/mail-sources" class="btn btn-outline btn-sm">Connect report mailbox</a>
+                                            <a href="/domains" class="btn btn-outline btn-sm">Add or review domains</a>
+                                        </div>
+                                    </div>
                                 {% endcall %}
                             {% endcall %}
                         </template>

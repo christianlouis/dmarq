@@ -8,6 +8,7 @@ function workspaceOnboarding(options = {}) {
         plan: null,
         result: null,
         tasks: [],
+        lastPreviewSignature: '',
         initialized: false,
         form: {
             organizationName: '',
@@ -53,6 +54,25 @@ function workspaceOnboarding(options = {}) {
         get showNoTasks() {
             return this.tasks.length === 0;
         },
+        get currentPreviewSignature() {
+            return this.previewSignature();
+        },
+        get hasCurrentPreview() {
+            return Boolean(this.lastPreviewSignature && this.lastPreviewSignature === this.currentPreviewSignature);
+        },
+        get canApplySetup() {
+            return this.hasCurrentPreview && this.tasks.length > 0;
+        },
+        get applyButtonLabel() {
+            if (this.applying) return this.multiWorkspaceUiEnabled ? 'Creating workspace...' : 'Applying setup...';
+            if (!this.canApplySetup) return 'Preview first';
+            return this.multiWorkspaceUiEnabled ? 'Create workspace' : 'Apply setup';
+        },
+        get applyDisabledReason() {
+            if (this.canApplySetup) return '';
+            if (this.lastPreviewSignature) return 'Preview the updated form before applying setup.';
+            return 'Preview setup tasks before applying changes.';
+        },
         init() {
             if (this.initialized) return;
             this.initialized = true;
@@ -71,14 +91,18 @@ function workspaceOnboarding(options = {}) {
         },
         bindControls() {
             const root = this.$root;
-            root?.querySelector('[data-onboarding-preview]')?.addEventListener('click', () => {
-                this.previewPlan();
-            });
-            root?.querySelector('[data-onboarding-apply]')?.addEventListener('click', () => {
-                this.applyPlan();
-            });
             root?.addEventListener('click', (event) => {
                 if (!(event.target instanceof Element)) return;
+                const previewButton = event.target.closest('[data-onboarding-preview]');
+                if (previewButton && root.contains(previewButton)) {
+                    this.previewPlan();
+                    return;
+                }
+                const applyButton = event.target.closest('[data-onboarding-apply]');
+                if (applyButton && root.contains(applyButton)) {
+                    this.applyPlan();
+                    return;
+                }
                 const pathButton = event.target.closest('[data-onboarding-mail-path]');
                 if (!pathButton) return;
                 this.form.mailSourcePath = pathButton.getAttribute('data-onboarding-mail-path') || 'imap';
@@ -132,6 +156,9 @@ function workspaceOnboarding(options = {}) {
                 variables,
             };
         },
+        previewSignature() {
+            return JSON.stringify(this.payload());
+        },
         validate() {
             if (!this.normalizeDomain(this.form.domain)) {
                 throw new Error('Domain is required.');
@@ -148,6 +175,10 @@ function workspaceOnboarding(options = {}) {
             await this.submit('/api/v1/onboarding/preview', 'preview');
         },
         async applyPlan() {
+            if (!this.canApplySetup) {
+                this.error = this.applyDisabledReason;
+                return;
+            }
             await this.submit('/api/v1/onboarding/apply', 'apply');
         },
         async submit(url, mode) {
@@ -175,6 +206,7 @@ function workspaceOnboarding(options = {}) {
                 if (mode === 'preview') {
                     this.plan = data.plan;
                     this.tasks = this.normalizeTasks(data.plan?.tasks);
+                    this.lastPreviewSignature = this.currentPreviewSignature;
                     this.success = this.singleUserMode
                         ? 'Preview is ready. Review the task list before applying setup.'
                         : 'Preview is ready. Review the task list before creating the workspace.';
