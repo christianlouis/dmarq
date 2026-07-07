@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     # Self-hosted installs default to a single workspace. Enable this for SaaS,
     # ISP/MSP, or admin deployments that need explicit workspace switching.
     MULTI_WORKSPACE_UI_ENABLED: bool = False
+    # Separate synthetic ISP/MSP demo surface. Keep disabled for the public
+    # self-hosted demo unless a dedicated provider-demo deployment enables it.
+    PROVIDER_DEMO_ENABLED: bool = False
 
     # Database
     # Default to a sub-directory so the SQLite file lives in a location that

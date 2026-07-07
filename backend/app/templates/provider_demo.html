@@ -1,0 +1,220 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}DMARQ - Provider Demo{% endblock %}
+
+{% block content %}
+<div class="mx-auto max-w-7xl space-y-6" x-data="providerDemo" data-provider-demo>
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+            <p class="text-xs font-semibold uppercase tracking-wide text-[#39a0aa]">Provider demo</p>
+            <h1 class="mt-2 text-3xl font-bold text-[#07071f]">ISP, MSP, and tenant operations</h1>
+            <p class="mt-2 max-w-3xl text-sm text-base-content/70">
+                Separate demo surface for provider operations, customer drill-downs, billing ownership, and audited support access.
+            </p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+            <button type="button"
+                    class="btn btn-outline btn-sm"
+                    data-provider-demo-refresh
+                    :disabled="loading">
+                <span x-show="loading" class="loading loading-spinner loading-xs"></span>
+                Reload
+            </button>
+            <a href="/" class="btn btn-ghost btn-sm">Self-hosted demo</a>
+        </div>
+    </div>
+
+    <div x-show="error"
+         x-cloak
+         role="alert"
+         class="rounded-lg border border-[#ff6f3c]/40 bg-[#fff2ec] p-4 text-sm text-[#8a2d0d]">
+        <span x-text="error"></span>
+    </div>
+
+    <div x-show="loading" class="grid gap-4 md:grid-cols-4">
+        <div class="h-28 animate-pulse rounded-lg bg-base-200"></div>
+        <div class="h-28 animate-pulse rounded-lg bg-base-200"></div>
+        <div class="h-28 animate-pulse rounded-lg bg-base-200"></div>
+        <div class="h-28 animate-pulse rounded-lg bg-base-200"></div>
+    </div>
+
+    <div x-show="ready" x-cloak class="space-y-6">
+        <section class="grid gap-4 md:grid-cols-4">
+            <div class="rounded-lg border border-base-300 bg-base-100 p-5 shadow-sm">
+                <div class="text-sm text-base-content/60">Organizations</div>
+                <div class="mt-2 text-3xl font-semibold" x-text="organizationCount"></div>
+            </div>
+            <div class="rounded-lg border border-base-300 bg-base-100 p-5 shadow-sm">
+                <div class="text-sm text-base-content/60">Workspaces</div>
+                <div class="mt-2 text-3xl font-semibold" x-text="workspaceCount"></div>
+            </div>
+            <div class="rounded-lg border border-base-300 bg-base-100 p-5 shadow-sm">
+                <div class="text-sm text-base-content/60">Monthly usage</div>
+                <div class="mt-2 text-3xl font-semibold" x-text="messageVolumeLabel"></div>
+            </div>
+            <div class="rounded-lg border border-base-300 bg-base-100 p-5 shadow-sm">
+                <div class="text-sm text-base-content/60">Provider ledger</div>
+                <div class="mt-2 text-3xl font-semibold" x-text="providerRevenueLabel"></div>
+            </div>
+        </section>
+
+        <section class="grid gap-6 xl:grid-cols-[18rem_1fr]">
+            <div class="rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm">
+                <h2 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">Demo path</h2>
+                <div class="mt-4 space-y-2">
+                    <template x-for="step in journeySteps" :key="step.step">
+                        <button type="button"
+                                class="w-full rounded-md border px-3 py-3 text-left text-sm transition"
+                                :class="isSelectedStep(step) ? 'border-[#272a5f] bg-[#272a5f] text-white' : 'border-base-300 bg-base-100 hover:border-[#39a0aa]'"
+                                :aria-pressed="isSelectedStep(step)"
+                                :data-provider-demo-step="step.step">
+                            <span class="block text-xs font-semibold uppercase tracking-wide" x-text="`Step ${step.step}`"></span>
+                            <span class="mt-1 block font-semibold" x-text="step.label"></span>
+                            <span class="mt-1 block text-xs opacity-80" x-text="step.domain"></span>
+                        </button>
+                    </template>
+                </div>
+            </div>
+
+            <div class="space-y-6">
+                <section class="rounded-lg border border-base-300 bg-base-100 p-5 shadow-sm">
+                    <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                        <div>
+                            <div class="text-xs font-semibold uppercase tracking-wide text-[#39a0aa]" x-text="currentStepZoomLabel"></div>
+                            <h2 class="mt-1 text-2xl font-semibold" x-text="selectedScenarioLabel"></h2>
+                            <p class="mt-2 max-w-3xl text-sm text-base-content/70" x-text="selectedStepAction"></p>
+                        </div>
+                        <div class="rounded-md bg-base-200 px-3 py-2 text-sm font-semibold" x-text="selectedStepDomain"></div>
+                    </div>
+                    <p class="mt-4 rounded-md border border-[#d7efe8] bg-[#eefaf6] p-3 text-sm text-[#0f6b4d]" x-text="selectedStepTakeaway"></p>
+                </section>
+
+                <section class="grid gap-6 xl:grid-cols-[1fr_22rem]">
+                    <div class="rounded-lg border border-base-300 bg-base-100 p-5 shadow-sm">
+                        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                                <h2 class="text-lg font-semibold" x-text="selectedOrganizationName"></h2>
+                                <p class="text-sm text-base-content/60" x-text="selectedOrganizationStory"></p>
+                            </div>
+                            <div class="rounded-md bg-base-200 px-3 py-2 text-sm font-semibold" x-text="selectedOrganizationBilling"></div>
+                        </div>
+
+                        <div class="mt-5 grid gap-3 lg:grid-cols-2">
+                            <template x-for="workspace in selectedWorkspaces" :key="workspace.slug">
+                                <button type="button"
+                                        class="rounded-lg border p-4 text-left transition"
+                                        :class="isSelectedWorkspace(workspace) ? 'border-[#272a5f] bg-[#f3f4ff]' : 'border-base-300 bg-white hover:border-[#39a0aa]'"
+                                        :aria-pressed="isSelectedWorkspace(workspace)"
+                                        :data-provider-demo-workspace="workspace.slug">
+                                    <div class="flex items-center justify-between gap-3">
+                                        <span class="font-semibold" x-text="workspace.name"></span>
+                                        <span class="rounded-full px-2 py-1 text-xs font-semibold"
+                                              :class="healthClass(workspace.health)"
+                                              x-text="workspace.health"></span>
+                                    </div>
+                                    <p class="mt-2 text-xs text-base-content/60" x-text="workspace.domains.join(', ')"></p>
+                                    <ul class="mt-3 list-disc space-y-1 pl-4 text-sm text-base-content/70">
+                                        <template x-for="finding in workspace.primary_findings" :key="finding">
+                                            <li x-text="finding"></li>
+                                        </template>
+                                    </ul>
+                                </button>
+                            </template>
+                        </div>
+                    </div>
+
+                    <aside class="rounded-lg border border-base-300 bg-base-100 p-5 shadow-sm">
+                        <h2 class="text-lg font-semibold">Billing ownership</h2>
+                        <dl class="mt-4 space-y-3 text-sm">
+                            <div>
+                                <dt class="text-base-content/60">Invoice owner</dt>
+                                <dd class="font-semibold" x-text="billingProfile.invoice_owner || 'Unknown'"></dd>
+                            </div>
+                            <div>
+                                <dt class="text-base-content/60">Collection model</dt>
+                                <dd class="font-semibold" x-text="humanize(billingProfile.collection_model)"></dd>
+                            </div>
+                            <div>
+                                <dt class="text-base-content/60">Payment rail</dt>
+                                <dd class="font-semibold" x-text="humanize(billingProfile.payment_rail)"></dd>
+                            </div>
+                            <div>
+                                <dt class="text-base-content/60">Reference</dt>
+                                <dd class="font-mono text-xs" x-text="billingProfile.invoice_reference || 'None'"></dd>
+                            </div>
+                        </dl>
+                    </aside>
+                </section>
+            </div>
+        </section>
+
+        <section class="grid gap-6 xl:grid-cols-2">
+            <div class="rounded-lg border border-base-300 bg-base-100 p-5 shadow-sm">
+                <div class="flex items-center justify-between gap-3">
+                    <h2 class="text-lg font-semibold">Provider customers</h2>
+                    <span class="rounded-full bg-base-200 px-3 py-1 text-xs font-semibold" x-text="providerCustomerCountLabel"></span>
+                </div>
+                <div class="mt-4 overflow-x-auto">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Customer</th>
+                                <th>Status</th>
+                                <th>Plan</th>
+                                <th class="text-right">Messages</th>
+                                <th class="text-right">Monthly</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="customer in providerCustomers" :key="customer.external_customer_id">
+                                <tr>
+                                    <td>
+                                        <button type="button"
+                                                class="font-semibold text-[#272a5f] underline-offset-2 hover:underline"
+                                                :data-provider-demo-workspace="customer.workspace_slug"
+                                                x-text="customer.name"></button>
+                                    </td>
+                                    <td x-text="humanize(customer.billing_status)"></td>
+                                    <td x-text="customer.subscription_tier"></td>
+                                    <td class="text-right" x-text="formatNumber(customer.aggregate_messages)"></td>
+                                    <td class="text-right" x-text="formatMoney(customer.monthly_charge_cents)"></td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="rounded-lg border border-base-300 bg-base-100 p-5 shadow-sm">
+                <h2 class="text-lg font-semibold">Audited support access</h2>
+                <p class="mt-2 text-sm text-base-content/70" x-text="impersonationScope"></p>
+                <div class="mt-4 rounded-md border border-[#f5d38a] bg-[#fff8e5] p-4">
+                    <div class="text-xs font-semibold uppercase tracking-wide text-[#8a5a00]">Demo audit event</div>
+                    <dl class="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+                        <div>
+                            <dt class="text-base-content/60">Operator</dt>
+                            <dd class="font-semibold" x-text="supportOperatorLabel"></dd>
+                        </div>
+                        <div>
+                            <dt class="text-base-content/60">Target user</dt>
+                            <dd class="font-semibold" x-text="targetUserLabel"></dd>
+                        </div>
+                        <div>
+                            <dt class="text-base-content/60">Reason</dt>
+                            <dd class="font-semibold">Customer support walkthrough</dd>
+                        </div>
+                        <div>
+                            <dt class="text-base-content/60">Mode</dt>
+                            <dd class="font-semibold" x-text="humanize(impersonationPolicy.mode)"></dd>
+                        </div>
+                    </dl>
+                </div>
+            </div>
+        </section>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/provider-demo-page.js"></script>
+{% endblock %}

@@ -39,9 +39,9 @@ from app.services.gmail_client import GmailClient
 from app.services.imap_client import IMAPClient
 from app.services.import_history import record_import_attempt
 from app.services.mail_connector import initial_import_stats
-from app.services.mailbox_recovery import import_result_diagnostic, import_row_diagnostic
 from app.services.mail_service_imports import mail_service_context_from_domain
 from app.services.mail_source_backfill_worker import run_due_mail_source_backfill_jobs
+from app.services.mailbox_recovery import import_result_diagnostic, import_row_diagnostic
 from app.services.microsoft_graph_client import MicrosoftGraphClient
 from app.services.release_info import build_release_info
 from app.services.report_persistence import hydrate_report_store_from_db
@@ -792,6 +792,14 @@ async def operations_page(request: Request):
     return templates.TemplateResponse(request, "operations.html")
 
 
+@app.get("/provider-demo", response_class=HTMLResponse)
+async def provider_demo_page(request: Request):
+    """Render the separate ISP/MSP/provider demo surface when explicitly enabled."""
+    if not settings.PROVIDER_DEMO_ENABLED:
+        raise HTTPException(status_code=404, detail="Provider demo is not enabled")
+    return templates.TemplateResponse(request, "provider_demo.html")
+
+
 @app.get("/upload", response_class=HTMLResponse)
 async def upload_page(request: Request):
     return templates.TemplateResponse(request, "upload.html")
@@ -1145,11 +1153,16 @@ def _mail_source_connection_state(
 
     diagnostic = import_row_diagnostic(latest_import)
     category = (diagnostic or {}).get("category")
-    if latest_import and latest_import.status == "failed" and category in {
-        "auth_expired",
-        "authentication",
-        "permissions",
-    }:
+    if (
+        latest_import
+        and latest_import.status == "failed"
+        and category
+        in {
+            "auth_expired",
+            "authentication",
+            "permissions",
+        }
+    ):
         return {
             "status": "reauth_required",
             "attention": True,
@@ -1195,7 +1208,9 @@ def _mail_source_status_summary() -> dict:
         enabled_sources = (
             db.query(MailSource).filter(MailSource.enabled == True).all()  # noqa: E712
         )
-        latest_imports = _latest_imports_by_source(db, [int(source.id) for source in enabled_sources])
+        latest_imports = _latest_imports_by_source(
+            db, [int(source.id) for source in enabled_sources]
+        )
         by_method: dict[str, int] = {}
         source_labels = []
         source_statuses = []
@@ -1204,7 +1219,9 @@ def _mail_source_status_summary() -> dict:
             method = (source.method or "IMAP").upper()
             by_method[method] = by_method.get(method, 0) + 1
             source_labels.append(_source_display_label(source))
-            source_statuses.append(_source_status_payload(source, latest_imports.get(int(source.id))))
+            source_statuses.append(
+                _source_status_payload(source, latest_imports.get(int(source.id)))
+            )
             if source.last_checked and (
                 latest_checked is None or source.last_checked > latest_checked
             ):
