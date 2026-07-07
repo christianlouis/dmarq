@@ -66,6 +66,7 @@
                         <button type="button"
                                 class="w-full rounded-md border px-3 py-3 text-left text-sm transition"
                                 :class="isSelectedStep(step) ? 'border-[#272a5f] bg-[#272a5f] text-white' : 'border-base-300 bg-base-100 hover:border-[#39a0aa]'"
+                                :aria-pressed="isSelectedStep(step)"
                                 :data-provider-demo-step="step.step">
                             <span class="block text-xs font-semibold uppercase tracking-wide" x-text="`Step ${step.step}`"></span>
                             <span class="mt-1 block font-semibold" x-text="step.label"></span>
@@ -103,6 +104,7 @@
                                 <button type="button"
                                         class="rounded-lg border p-4 text-left transition"
                                         :class="isSelectedWorkspace(workspace) ? 'border-[#272a5f] bg-[#f3f4ff]' : 'border-base-300 bg-white hover:border-[#39a0aa]'"
+                                        :aria-pressed="isSelectedWorkspace(workspace)"
                                         :data-provider-demo-workspace="workspace.slug">
                                     <div class="flex items-center justify-between gap-3">
                                         <span class="font-semibold" x-text="workspace.name"></span>

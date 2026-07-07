@@ -13,7 +13,7 @@ function providerDemo() {
         },
 
         bindControls() {
-            const root = document.querySelector('[data-provider-demo]');
+            const root = this.$root || this.$el;
             if (!root) return;
             root.addEventListener('click', event => {
                 const refresh = event.target.closest('[data-provider-demo-refresh]');
@@ -39,9 +39,12 @@ function providerDemo() {
             this.loading = true;
             this.error = '';
             try {
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 10000);
                 const response = await fetch('/api/v1/operator/demo/multi-user', {
                     headers: {Accept: 'application/json'},
-                });
+                    signal: controller.signal,
+                }).finally(() => clearTimeout(timeout));
                 if (!response.ok) {
                     throw new Error('Provider demo data is not available in this deployment.');
                 }
@@ -50,7 +53,9 @@ function providerDemo() {
                 const firstStep = this.journeySteps[0] || {};
                 this.selectStep(firstStep.step || 1);
             } catch (error) {
-                this.error = error.message || 'Provider demo could not be loaded.';
+                this.error = error.name === 'AbortError'
+                    ? 'Provider demo data request timed out.'
+                    : error.message || 'Provider demo could not be loaded.';
                 this.deployment = null;
             } finally {
                 this.loading = false;
