@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added focused regression coverage for reputation-feed configuration,
+  TLS-report serialization, and TLSA parsing edge cases.
 - Added a Settings account/access milestone readiness summary for #12, separating completed auth/workspace/billing/provider foundations from environment-specific setup gates.
 - Added mail-source authorization health signals to poll status, operations health, and dashboard intake status so expired or incomplete Gmail OAuth connections request reauthorization instead of appearing simply connected.
 - Added recovery diagnostics to manual dashboard mail polling results so failed Gmail/Microsoft 365 imports surface the likely action, such as reconnecting the mailbox.
@@ -77,6 +79,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added remediation-loop completion gates on the dashboard and domain queue so parent roadmap issues are only considered ready after priority, evidence, action-plan, automation, approval, verification, notification, and summary criteria are represented.
 
 ### Changed
+- Settings and workspace onboarding defaults now load existing rows in bulk,
+  avoiding per-item database lookups while preserving idempotent setup behavior.
 - Domain summary DNS refreshes now run with bounded concurrency instead of resolving each domain sequentially.
 - Startup DNS cache prewarming now prioritizes domains with observed reports and message volume before empty monitored domains.
 - Cloudflare OAuth profile selection now controls the requested scopes instead of being overridden by the legacy static scope setting.
@@ -116,6 +120,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cleaned up root directory for clarity
 
 ### Fixed
+- TLSA parsing now preserves association data that contains whitespace after the
+  first three TLSA fields, with focused tests for malformed and warning cases.
 - Aggregate and TLS report pages now keep the last loaded data visible when a manual refresh or API retry fails.
 - Retired stale roadmap issue-generator guidance and made the docs-site
   changelog point at the canonical root changelog.

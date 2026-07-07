@@ -40,6 +40,21 @@ def test_parse_tlsa_record_accepts_valid_dane_ee_spki_hash():
     assert record.errors == []
 
 
+def test_parse_tlsa_record_accepts_grouped_association_data():
+    record = parse_tlsa_record(
+        "3 1 1 0123456789abcdef 0123456789abcdef 0123456789abcdef 0123456789abcdef",
+        query_name="_25._tcp.mx.example.com",
+        mx_host="mx.example.com",
+    )
+
+    assert record.valid is True
+    assert (
+        record.association_data
+        == "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    )
+    assert record.errors == []
+
+
 def test_parse_tlsa_record_rejects_bad_fields():
     record = parse_tlsa_record(
         "9 4 8 not-hex",
@@ -305,3 +320,60 @@ async def test_check_dane_cached_keeps_live_suggestions_in_separate_cache(
     assert live_cached is False
     assert plain.suggested_records == []
     assert live.suggested_records[0].association_data == "a" * 64
+
+
+def test_parse_tlsa_record_missing_parts():
+    record = parse_tlsa_record(
+        "3 1 1",
+        query_name="_25._tcp.mx.example.com",
+        mx_host="mx.example.com",
+    )
+
+    assert record.valid is False
+    assert (
+        "TLSA records must contain certificate usage, selector, matching type, and data."
+        in record.errors
+    )
+
+
+def test_parse_tlsa_record_incomplete_bytes():
+    record = parse_tlsa_record(
+        "3 1 1 123",
+        query_name="_25._tcp.mx.example.com",
+        mx_host="mx.example.com",
+    )
+
+    assert record.valid is False
+    assert "TLSA association data must contain complete bytes." in record.errors
+
+
+def test_parse_tlsa_record_warnings():
+    record = parse_tlsa_record(
+        "0 1 0 0123456789abcdef",
+        query_name="_25._tcp.mx.example.com",
+        mx_host="mx.example.com",
+    )
+
+    assert record.valid is True
+    assert (
+        "PKIX TLSA usages still depend on public CA validation; usage 3 is common for DANE-EE."
+        in record.warnings
+    )
+    assert (
+        "Full-certificate TLSA values are bulky and rotate whenever the certificate changes."
+        in record.warnings
+    )
+
+
+def test_parse_tlsa_record_empty_association_data():
+    record = parse_tlsa_record(
+        "3 1 1  ",
+        query_name="_25._tcp.mx.example.com",
+        mx_host="mx.example.com",
+    )
+
+    assert record.valid is False
+    assert (
+        "TLSA records must contain certificate usage, selector, matching type, and data."
+        in record.errors
+    )
