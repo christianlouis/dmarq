@@ -24,13 +24,18 @@
             </p>
         </div>
         <div class="flex flex-wrap gap-2">
-            <button type="button" class="btn btn-outline" :disabled="saving" data-onboarding-preview>
+            <button type="button" class="btn btn-primary" :disabled="saving" data-onboarding-preview>
                 <span x-show="previewing" class="loading loading-spinner loading-xs"></span>
                 Preview tasks
             </button>
-            <button type="button" class="btn btn-primary" :disabled="saving" data-onboarding-apply>
+            <button type="button"
+                    class="btn btn-outline"
+                    :disabled="saving || !canApplySetup"
+                    :title="applyDisabledReason"
+                    :aria-label="applyButtonLabel"
+                    data-onboarding-apply>
                 <span x-show="applying" class="loading loading-spinner loading-xs"></span>
-                {{ "Create workspace" if multi_workspace_ui_enabled else "Apply setup" }}
+                <span x-text="applyButtonLabel"></span>
             </button>
         </div>
     </div>
@@ -261,9 +266,16 @@
                 </div>
                 <div class="mt-4 space-y-3">
                     <template x-if="showNoTasks">
-                        <p class="rounded-lg border border-dashed border-[#07071f]/20 p-4 text-sm text-[#07071f]/60">
-                            Preview or apply setup to see the exact follow-up list.
-                        </p>
+                        <div class="rounded-lg border border-dashed border-[#07071f]/20 p-4">
+                            <p class="text-sm font-semibold text-[#07071f]">Preview setup tasks before applying</p>
+                            <p class="mt-1 text-sm text-[#07071f]/60">
+                                DMARQ will show the exact domain, DNS, and report-source tasks first. Apply stays locked until the preview matches the current form.
+                            </p>
+                            <button type="button" class="btn btn-primary btn-sm mt-4" :disabled="saving" data-onboarding-preview>
+                                <span x-show="previewing" class="loading loading-spinner loading-xs"></span>
+                                Preview setup tasks
+                            </button>
+                        </div>
                     </template>
                     <template x-for="task in tasks" :key="task.id">
                         <a :href="task.url"

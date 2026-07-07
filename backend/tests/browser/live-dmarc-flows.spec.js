@@ -402,7 +402,7 @@ async function installApiMocks(page) {
           item_id: 'manual-dkim-review',
           event: 'dmarq.remediation.manual_action_required',
           dedupe_key: 'dmarq:remediation:cklnet.com:manual-dkim-review',
-          lifecycle_state: 'previewed',
+          lifecycle_state: 'acknowledged',
           audit: {
             action: 'remediation.notification_lifecycle_recorded',
             details: { dns_write_attempted: false },
@@ -500,6 +500,7 @@ async function installApiMocks(page) {
             state: 'manual_action',
             severity: 'medium',
             source: 'source_intelligence',
+            operator_decisions: ['acknowledged', 'snoozed', 'rejected'],
             next_steps: ['Enable DKIM signing on the owned mail host.'],
             blast_radius: 'single source',
             expected_health_score_impact: '+5',
@@ -788,9 +789,15 @@ test('domain detail shows cached DNS evidence and sender reputation context', as
   await expect(page.getByText('Owned infrastructure').first()).toBeVisible();
   await expect(page.getByText('Reputation clean').first()).toBeVisible();
   await expect(page.getByText('Reputation not checked').first()).toBeVisible();
-  await expect(page.getByText('Review owned infrastructure DKIM')).toBeVisible();
-  await page.getByRole('button', { name: 'Reviewed' }).click();
-  await expect(page.getByText('Marked previewed. No DNS changes were made.')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Review owned infrastructure DKIM' }).first()).toBeVisible();
+  await page.getByRole('link', { name: 'Review remediation queue' }).click();
+  const acknowledgeButton = page.getByRole('button', { name: 'Acknowledge' }).first();
+  await acknowledgeButton.scrollIntoViewIfNeeded();
+  page.once('dialog', async (dialog) => {
+    await dialog.accept('');
+  });
+  await acknowledgeButton.click();
+  await expect(page.getByText('Marked acknowledged. No DNS changes were made.')).toBeVisible();
   await expect(page.getByText('Sending sources could not be loaded.')).not.toBeVisible();
   await expect(page.getByText('No data available for this time period')).not.toBeVisible();
 });

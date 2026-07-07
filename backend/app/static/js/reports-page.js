@@ -88,6 +88,33 @@ function reportsApp() {
             return this.filteredReports;
         },
 
+        get failingReports() {
+            return this.visibleReports.filter((report) => Number(report.pass_rate || 0) < 100);
+        },
+
+        get primaryReportCtaHref() {
+            const report = this.failingReports[0] || this.visibleReports[0];
+            return report?.detail_url || '/mail-sources';
+        },
+
+        get primaryReportCtaLabel() {
+            if (this.failingReports.length) return 'Open first failing report';
+            if (this.visibleReports.length) return 'Open latest report';
+            return 'Connect report mailbox';
+        },
+
+        get emptyStateTitle() {
+            if (this.reports.length > 0) return 'No reports match this filter';
+            return 'No DMARC reports imported yet';
+        },
+
+        get emptyStateText() {
+            if (this.reports.length > 0) {
+                return 'Change the filters or reset them to get back to imported reports.';
+            }
+            return 'Connect Gmail, IMAP, or another report source so DMARQ can import aggregate XML reports.';
+        },
+
         get filteredReports() {
             return this.reports.filter((report) => {
                 if (this.filters.domain && report.domain !== this.filters.domain) {

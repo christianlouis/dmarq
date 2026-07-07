@@ -1393,9 +1393,13 @@ def test_reports_page_distinguishes_loading_error_and_empty_states():
     template = _reports_template()
     script = _reports_script()
 
-    assert "Loading DMARC reports..." in template
+    assert "Checking report index..." in template
     assert "Reports could not be loaded." in script
-    assert "No reports match this filter." in template
+    assert "No reports match this filter" in script
+    assert "Connect report mailbox" in template
+    assert "Trigger report refresh" in template
+    assert "primaryReportCtaLabel" in template
+    assert "primaryReportCtaHref" in template
     assert "Retry loading reports" in template
     assert "Showing the last loaded reports." in script
     assert 'x-if="showWarning"' in template
@@ -2397,6 +2401,8 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "primaryRemediationClosureGateText" in script
     assert "primaryRemediationStaleWarningText" in script
     assert "primaryRemediationEvidenceHref" in script
+    assert "primaryRemediationCtaLabel" in script
+    assert "primaryRemediationCtaHref" in script
     assert "primaryRemediationVerificationStatusLabel" in script
     assert "primaryRemediationVerificationStatusClass" in script
     assert "primaryRemediationEvidenceNeededText" in script
@@ -2429,6 +2435,9 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "Evidence needed:" in template
     assert "If not fixed:" in template
     assert "Open evidence" in template
+    assert "Show evidence" in template
+    assert "More actions" in template
+    assert "More queue signals" in template
     assert "data-domain-detail-remediation-refresh-evidence" in template
     assert (
         "remediationEvidenceRefreshActionLabel(primaryRemediationItem.evidence_refresh)" in template
@@ -2450,6 +2459,7 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "remediationQueue.summary.total" in template
     assert "remediationQueue.summary.approval_ready" in template
     assert "remediationQueue.summary.manual_action" in template
+    assert "remediationQueue.summary.provider_preview_available" in template
     assert "No sending sources match this filter." in template
     assert "filters.sourceRiskFilter" in template
     assert "sourceRiskCounts" in template
@@ -2643,7 +2653,8 @@ def test_onboarding_template_uses_single_user_setup_story_by_default():
     assert "Mail health setup" in rendered
     assert "Setup path" in rendered
     assert "Connect Gmail or IMAP" in rendered
-    assert "Apply setup" in rendered
+    assert 'x-text="applyButtonLabel"' in rendered
+    assert "Apply setup" in script
     assert "One monitored domain with DMARC report and DNS setup tasks." in rendered
     assert 'data-multi-workspace-ui="false"' in rendered
     assert 'src="/static/js/onboarding-page.js"' in template
@@ -2656,6 +2667,10 @@ def test_onboarding_template_uses_single_user_setup_story_by_default():
     assert "draftFields()" in script
     assert "normalizeDomain(value)" in script
     assert "normalizeTasks(tasks)" in script
+    assert "canApplySetup" in script
+    assert "applyButtonLabel" in script
+    assert "previewSignature()" in script
+    assert "Preview setup tasks before applying" in template
     assert "dmarq.selectedWorkspaceId" in script
     assert "bindControls()" in script
     assert "data-onboarding-preview" in template
@@ -2684,10 +2699,12 @@ def test_onboarding_template_uses_single_user_setup_story_by_default():
 
 def test_onboarding_template_keeps_workspace_story_for_multi_workspace_mode():
     rendered = _render_template("onboarding.html", multi_workspace_ui_enabled=True)
+    script = _onboarding_script()
 
     assert "Workspace onboarding" in rendered
     assert "Account boundary" in rendered
-    assert "Create workspace" in rendered
+    assert 'x-text="applyButtonLabel"' in rendered
+    assert "Create workspace" in script
     assert "Organization and workspace" in rendered
     assert "Starter plan entitlement records" in rendered
     assert 'data-multi-workspace-ui="true"' in rendered
