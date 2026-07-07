@@ -711,6 +711,20 @@ test('domain list loads domain rows and keeps edit action wired', async ({ page 
   await expect(page.locator('[data-domain-edit-dialog]')).toHaveJSProperty('open', false);
 });
 
+test('settings page exposes clear next actions and labeled navigation', async ({ page }) => {
+  await page.goto('/settings');
+
+  await expect(page.getByRole('heading', { name: 'Finish the next safe setup step' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Review DMARC defaults' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Connect report mailbox' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Settings sections' })).toContainText('DNS providers');
+  await expect(page.getByRole('link', { name: 'Dashboard' }).first()).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Settings' }).first()).toBeVisible();
+  await expect(page.locator('summary', { hasText: 'Advanced webhook delivery' })).toBeVisible();
+  await expect(page.locator('summary', { hasText: 'Advanced AI and agent automation' })).toBeVisible();
+  await expect(page.getByText('Save token or OAuth profile changes before discovering provider zones.')).toBeVisible();
+});
+
 test('forensic reports page renders normalized links and analysis cards', async ({ page }) => {
   await page.goto('/forensics');
 

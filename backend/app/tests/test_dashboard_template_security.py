@@ -1808,6 +1808,12 @@ def test_settings_exposes_provider_agnostic_dns_import_without_html_injection():
     assert "Alpine.data('settingsApp', settingsApp)" in script
     assert "DNS Provider Connectors" in template
     assert 'id="provider-integrations"' in template
+    assert 'aria-label="Settings sections"' in template
+    assert "Review DMARC defaults" in template
+    assert "Connect report mailbox" in template
+    assert 'id="dmarc-defaults-section"' in template
+    assert 'id="dns-resolver-settings"' in template
+    assert 'id="mail-service-imports"' in template
     assert "Provider Domain Discovery" in template
     assert "dns-provider-import-select" in template
     assert 'src="/static/js/settings-page.js"' in template
@@ -1870,6 +1876,12 @@ def test_settings_controls_are_bound_from_external_script():
     script = _settings_script()
 
     assert "Account and Access Milestone" in template
+    assert "Finish the next safe setup step" in template
+    assert "Advanced privacy settings" in template
+    assert "Advanced webhook delivery" in template
+    assert "Advanced AI and agent automation" in template
+    assert "Save this section after changing product name" in template
+    assert "Save token or OAuth profile changes before discovering provider zones." in template
     assert 'data-settings-action="load_account_readiness"' in template
     assert "accountReadiness.remaining_slices" in template
     assert "accountReadiness.setup_gates" in template
@@ -2608,6 +2620,10 @@ def test_base_template_propagates_selected_workspace_context():
     assert ':disabled="workspace.disabled"' in template
     assert "onclick=" not in template
     assert "data-release-modal-trigger" in template
+    assert 'aria-label="Show release notes for {{ release_info.label }}"' in template
+    assert 'aria-label="Open account menu"' in template
+    assert '<span class="text-[11px] font-semibold leading-tight">Dashboard</span>' in template
+    assert '<span class="text-[11px] font-semibold leading-tight">Settings</span>' in template
     assert 'href="/static/css/app.css"' in template
     assert "cdn.tailwindcss.com" not in template
     assert "Full changelog" in template

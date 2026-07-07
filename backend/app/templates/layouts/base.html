@@ -53,6 +53,7 @@
             </a>
             <button type="button"
                     class="ml-4 hidden rounded-full border border-white/20 px-2.5 py-1 text-[11px] font-semibold text-white/70 transition hover:border-white/40 hover:bg-white/10 hover:text-white sm:inline-flex"
+                    aria-label="Show release notes for {{ release_info.label }}"
                     title="Show release notes"
                     data-release-modal-trigger>
                 {{ release_info.label }}
@@ -88,7 +89,10 @@
             <div>
                 <template x-if="user">
                     <div class="dropdown dropdown-end">
-                        <label tabindex="0" class="btn btn-ghost btn-circle avatar placeholder h-12 w-12 rounded-full border border-white/40 bg-white/90 text-[#272a5f] hover:bg-white">
+                        <label tabindex="0"
+                               class="btn btn-ghost btn-circle avatar placeholder h-12 w-12 rounded-full border border-white/40 bg-white/90 text-[#272a5f] hover:bg-white"
+                               aria-label="Open account menu"
+                               title="Open account menu">
                             <div class="rounded-full w-10">
                                 <template x-if="user.picture">
                                     <img :src="user.picture" :alt="user.avatar_alt" class="h-10 w-10 rounded-full object-cover">
@@ -134,39 +138,47 @@
         </div>
     </header>
 
-    <aside class="fixed bottom-0 left-0 top-24 z-30 hidden w-24 flex-col items-center gap-8 bg-[#272a5f] py-10 text-white md:flex" aria-label="Section navigation">
-        <a href="/" aria-label="Dashboard" title="Dashboard" class="rounded-lg p-3 text-white shadow-sm hover:bg-white/10">
+    <aside class="fixed bottom-0 left-0 top-24 z-30 hidden w-28 flex-col items-center gap-5 bg-[#272a5f] py-6 text-white md:flex" aria-label="Section navigation">
+        <a href="/" aria-label="Dashboard" title="Dashboard" class="group flex w-24 flex-col items-center gap-1 rounded-lg p-2 text-white shadow-sm hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3 3 10.7V21h6v-6h6v6h6V10.7L12 3Z"/></svg>
+            <span class="text-[11px] font-semibold leading-tight">Dashboard</span>
         </a>
-        <a href="/domains" aria-label="Domains" title="Domains" class="rounded-lg p-3 text-white/70 hover:bg-white/10 hover:text-white">
+        <a href="/domains" aria-label="Domains" title="Domains" class="group flex w-24 flex-col items-center gap-1 rounded-lg p-2 text-white/70 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5Zm4 2v2h8V7H8Zm0 4v2h8v-2H8Zm0 4v2h5v-2H8Z"/></svg>
+            <span class="text-[11px] font-semibold leading-tight">Domains</span>
         </a>
-        <a href="/reports" aria-label="Reports" title="Reports" class="rounded-lg p-3 text-white/55 hover:bg-white/10 hover:text-white">
+        <a href="/reports" aria-label="Reports" title="Reports" class="group flex w-24 flex-col items-center gap-1 rounded-lg p-2 text-white/55 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 3h7l5 5v13H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm6 1.5V9h4.5L13 4.5ZM8 13h8v2H8v-2Zm0 4h6v2H8v-2Z"/></svg>
+            <span class="text-[11px] font-semibold leading-tight">Reports</span>
         </a>
-        <a href="/forensics" aria-label="Forensics" title="Forensics" class="rounded-lg p-3 text-white/55 hover:bg-white/10 hover:text-white">
+        <a href="/forensics" aria-label="Forensics" title="Forensics" class="group flex w-24 flex-col items-center gap-1 rounded-lg p-2 text-white/55 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 4h14v16H5V4Zm3 4v2h8V8H8Zm0 4v2h8v-2H8Zm0 4v2h5v-2H8Z"/></svg>
+            <span class="text-[11px] font-semibold leading-tight">Forensics</span>
         </a>
         {% if multi_workspace_ui_enabled %}
-        <a href="/members" aria-label="Members" title="Members" class="rounded-lg p-3 text-white/55 hover:bg-white/10 hover:text-white">
+        <a href="/members" aria-label="Members" title="Members" class="group flex w-24 flex-col items-center gap-1 rounded-lg p-2 text-white/55 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8.5 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm7 1a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM2 19.5C2 15.9 4.9 13 8.5 13S15 15.9 15 19.5V21H2v-1.5Zm12.8 1.5v-1.5c0-2-.7-3.8-1.9-5.2.8-.2 1.7-.3 2.6-.3 3 0 5.5 2.5 5.5 5.5V21h-6.2Z"/></svg>
+            <span class="text-[11px] font-semibold leading-tight">Members</span>
         </a>
         {% endif %}
-        <a href="/onboarding" aria-label="Onboarding" title="Onboarding" class="rounded-lg p-3 text-white/55 hover:bg-white/10 hover:text-white">
+        <a href="/onboarding" aria-label="Onboarding" title="Onboarding" class="group flex w-24 flex-col items-center gap-1 rounded-lg p-2 text-white/55 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 4h16v4H4V4Zm0 6h7v10H4V10Zm9 0h7v4h-7v-4Zm0 6h7v4h-7v-4Z"/></svg>
+            <span class="text-[11px] font-semibold leading-tight">Onboarding</span>
         </a>
-        <a href="/settings" aria-label="Settings" title="Settings" class="mt-auto rounded-lg p-3 text-white/55 hover:bg-white/10 hover:text-white">
+        <a href="/settings" aria-label="Settings" title="Settings" class="group mt-auto flex w-24 flex-col items-center gap-1 rounded-lg p-2 text-white/55 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.4 13.5a7.8 7.8 0 0 0 0-3l2-1.5-2-3.5-2.4 1a7.6 7.6 0 0 0-2.6-1.5L14 2h-4l-.4 3a7.6 7.6 0 0 0-2.6 1.5l-2.4-1-2 3.5 2 1.5a7.8 7.8 0 0 0 0 3l-2 1.5 2 3.5 2.4-1a7.6 7.6 0 0 0 2.6 1.5l.4 3h4l.4-3a7.6 7.6 0 0 0 2.6-1.5l2.4 1 2-3.5-2-1.5ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z"/></svg>
+            <span class="text-[11px] font-semibold leading-tight">Settings</span>
         </a>
         <button type="button"
                 class="max-w-20 truncate rounded-md px-2 py-1 text-[10px] font-semibold text-white/45 hover:bg-white/10 hover:text-white"
+                aria-label="Show release notes for {{ release_info.label }}"
                 title="Show release notes"
                 data-release-modal-trigger>
             {{ release_info.label }}
         </button>
     </aside>
 
-    <main class="min-h-screen pt-24 md:ml-24">
+    <main class="min-h-screen pt-24 md:ml-28">
         <div class="p-4 md:p-6 lg:p-8">
         {% block content %}{% endblock %}
         </div>
