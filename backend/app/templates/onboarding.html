@@ -32,7 +32,7 @@
                     class="btn btn-outline"
                     :disabled="saving || !canApplySetup"
                     :title="applyDisabledReason"
-                    aria-label="{{ 'Create workspace' if multi_workspace_ui_enabled else 'Apply setup' }}"
+                    :aria-label="applyButtonLabel"
                     data-onboarding-apply>
                 <span x-show="applying" class="loading loading-spinner loading-xs"></span>
                 <span x-text="applyButtonLabel"></span>

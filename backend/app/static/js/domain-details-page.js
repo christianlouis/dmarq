@@ -775,7 +775,7 @@ function domainDetailsApp(domainId = '') {
             }
             if (item.notification?.dispatch?.ready) return 'Dispatch operator follow-up';
             if (item.repair_progression?.requires_fresh_evidence || item.evidence_refresh?.required) {
-                return 'Refresh required evidence';
+                return 'Review required evidence';
             }
             if (this.primaryRemediationEvidenceHref) return 'Review evidence';
             return 'Review remediation queue';
