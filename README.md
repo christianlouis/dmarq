@@ -111,6 +111,8 @@ Protocol boundary:
 - The public demo presents the self-hosted, single-user, multi-domain experience
 - Account-management, ISP, and multi-tenant demos live behind the separate
   `/provider-demo` surface and require `PROVIDER_DEMO_ENABLED=true`
+- The provider demo adds an operator checklist, tenant-health queue, and
+  demo-only audited support-session CTA without enabling live customer writes
 - A guided dashboard tour walks through the opinionated product flow from domain
   posture to sender evidence and DNS remediation
 - The public demo is read-only so visitors can explore without modifying data

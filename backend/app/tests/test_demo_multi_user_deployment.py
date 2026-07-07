@@ -78,6 +78,17 @@ def test_demo_multi_user_deployment_has_opinionated_default_and_impersonation():
     deployment = build_demo_multi_user_deployment()
 
     assert deployment["default_viewer"] == "single-user-multiple-domains"
+    assert [item["primary_step"] for item in deployment["operator_playbook"]] == [1, 2, 3, 4, 5]
+    assert {segment["segment"] for segment in deployment["tenant_health_segments"]} == {
+        "healthy",
+        "monitoring",
+        "misconfigured",
+    }
+    assert deployment["support_access_demo"]["mode"] == "read_only_customer_view"
+    assert deployment["support_access_demo"]["target_user"]["workspace_slug"] == "bakery-example"
+    assert deployment["support_access_demo"]["audit_events"][0]["action"] == "support_access.started"
+    assert deployment["support_access_demo"]["audit_events"][0]["result"] == "demo_session_ready"
+    assert "DNS and provider writes remain disabled" in deployment["support_access_demo"]["safeguards"]
     assert deployment["impersonation_policy"]["mode"] == "demo_only"
     assert deployment["impersonation_policy"]["audit_label"] == (
         "support impersonation audit event"
@@ -175,5 +186,51 @@ def test_operator_demo_multi_user_endpoint_is_hidden_outside_demo_mode(
     )
 
     response = authed_client.get("/api/v1/operator/demo/multi-user")
+
+    assert response.status_code == 404
+
+
+def test_operator_demo_support_session_returns_audit_event(
+    authed_client: TestClient,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "app.api.api_v1.endpoints.operator.get_settings",
+        _settings_with_demo_enabled,
+    )
+
+    response = authed_client.post(
+        "/api/v1/operator/demo/support-session",
+        json={
+            "workspace_slug": "lawfirm-example",
+            "reason": "Check DKIM outage with customer admin",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["demo_mode"] is True
+    assert payload["session"]["mode"] == "read_only_customer_view"
+    assert payload["audit_event"]["action"] == "support_access.started"
+    assert payload["audit_event"]["workspace_slug"] == "lawfirm-example"
+    assert payload["audit_event"]["domain"] == "lawfirm.example"
+    assert payload["audit_event"]["target_user_email"] == "admin@lawfirm.example"
+    assert payload["audit_event"]["reason"] == "Check DKIM outage with customer admin"
+    assert payload["audit_event"]["result"] == "demo_session_ready"
+
+
+def test_operator_demo_support_session_is_hidden_outside_demo_mode(
+    authed_client: TestClient,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "app.api.api_v1.endpoints.operator.get_settings",
+        _settings_with_demo_disabled,
+    )
+
+    response = authed_client.post(
+        "/api/v1/operator/demo/support-session",
+        json={"workspace_slug": "bakery-example", "reason": "Customer support walkthrough"},
+    )
 
     assert response.status_code == 404

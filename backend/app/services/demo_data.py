@@ -338,6 +338,122 @@ def build_demo_multi_user_deployment() -> Dict[str, Any]:
                 "keep the customer-facing view read-only unless elevated separately."
             ),
         },
+        "operator_playbook": [
+            {
+                "id": "domain-posture",
+                "label": "Open owned domains",
+                "next_action": "Start with dmarq.org, then compare dmarq.com in the same account.",
+                "primary_step": 1,
+            },
+            {
+                "id": "account-context",
+                "label": "Check account ownership",
+                "next_action": "Confirm users, workspaces, billing owner, and plan limits before enforcement.",
+                "primary_step": 2,
+            },
+            {
+                "id": "provider-queue",
+                "label": "Triage provider queue",
+                "next_action": "Sort tenant health and open the highest-risk customer workspace first.",
+                "primary_step": 3,
+            },
+            {
+                "id": "audited-support",
+                "label": "Start audited support access",
+                "next_action": "Generate the demo audit event before entering a customer admin view.",
+                "primary_step": 4,
+            },
+            {
+                "id": "self-hosted-compare",
+                "label": "Compare self-hosted mode",
+                "next_action": "Verify the same DNS and report workflow without provider billing.",
+                "primary_step": 5,
+            },
+        ],
+        "tenant_health_segments": [
+            {
+                "segment": "healthy",
+                "label": "Healthy tenants",
+                "count": 2,
+                "example_workspace_slug": "bakery-example",
+                "operator_action": "Prepare reject rollout or keep weekly monitoring.",
+            },
+            {
+                "segment": "monitoring",
+                "label": "Middle-of-road tenants",
+                "count": 3,
+                "example_workspace_slug": "dmarq-com",
+                "operator_action": "Keep p=none or quarantine while unknown senders are resolved.",
+            },
+            {
+                "segment": "misconfigured",
+                "label": "Misconfigured tenants",
+                "count": 1,
+                "example_workspace_slug": "lawfirm-example",
+                "operator_action": "Fix DKIM and SPF lookup budget before policy enforcement.",
+            },
+        ],
+        "support_access_demo": {
+            "session_id": f"demo-support-{today.strftime('%Y%m%d')}-northstar-bakery",
+            "mode": "read_only_customer_view",
+            "reason": "Customer support walkthrough",
+            "operator": {
+                "name": "Nora Patel",
+                "email": "nora.ops@northstar.example",
+                "role": "provider_operator",
+                "organization_slug": "northstar-isp",
+            },
+            "target_user": {
+                "name": "Taylor Brooks",
+                "email": "taylor@bakery.example",
+                "role": "workspace_admin",
+                "organization_slug": "northstar-isp",
+                "workspace_slug": "bakery-example",
+                "domain": "bakery.example",
+            },
+            "allowed_targets": [
+                {
+                    "workspace_slug": "bakery-example",
+                    "domain": "bakery.example",
+                    "target_user": "taylor@bakery.example",
+                    "health": "healthy",
+                },
+                {
+                    "workspace_slug": "lawfirm-example",
+                    "domain": "lawfirm.example",
+                    "target_user": "admin@lawfirm.example",
+                    "health": "critical",
+                },
+                {
+                    "workspace_slug": "retail-example",
+                    "domain": "retail.example",
+                    "target_user": "ops@retail.example",
+                    "health": "warning",
+                },
+            ],
+            "safeguards": [
+                "demo-only endpoint",
+                "read-only customer context",
+                "operator and target user recorded",
+                "reason required before production enablement",
+                "DNS and provider writes remain disabled",
+            ],
+            "audit_events": [
+                {
+                    "event_id": f"audit-demo-{today.strftime('%Y%m%d')}-001",
+                    "action": "support_access.started",
+                    "occurred_at": f"{today.isoformat()}T09:45:00Z",
+                    "operator_email": "nora.ops@northstar.example",
+                    "target_user_email": "taylor@bakery.example",
+                    "organization_slug": "northstar-isp",
+                    "workspace_slug": "bakery-example",
+                    "domain": "bakery.example",
+                    "reason": "Customer support walkthrough",
+                    "scope": "read_only_customer_view",
+                    "result": "demo_session_ready",
+                }
+            ],
+        },
         "journey_steps": [
             {
                 "step": 1,

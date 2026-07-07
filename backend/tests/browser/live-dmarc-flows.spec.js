@@ -412,6 +412,44 @@ async function installApiMocks(page) {
       return;
     }
 
+    if (method === 'POST' && path === '/api/v1/operator/demo/support-session') {
+      await route.fulfill(
+        json({
+          demo_mode: true,
+          session: {
+            mode: 'read_only_customer_view',
+            target_user: {
+              name: 'Taylor Brooks',
+              email: 'taylor@bakery.example',
+              workspace_slug: 'bakery-example',
+              domain: 'bakery.example',
+            },
+            audit_events: [
+              {
+                event_id: 'audit-demo-browser-001',
+                action: 'support_access.started',
+                operator_email: 'nora.ops@northstar.example',
+                target_user_email: 'taylor@bakery.example',
+                workspace_slug: 'bakery-example',
+                domain: 'bakery.example',
+                result: 'demo_session_ready',
+              },
+            ],
+          },
+          audit_event: {
+            event_id: 'audit-demo-browser-001',
+            action: 'support_access.started',
+            operator_email: 'nora.ops@northstar.example',
+            target_user_email: 'taylor@bakery.example',
+            workspace_slug: 'bakery-example',
+            domain: 'bakery.example',
+            result: 'demo_session_ready',
+          },
+        })
+      );
+      return;
+    }
+
     const responses = {
       '/api/v1/domains/summary': domainSummary,
       '/api/v1/stats/dashboard': dashboardStats,
@@ -623,6 +661,181 @@ async function installApiMocks(page) {
               href: '/domains/cklnet.com',
             },
           ],
+        },
+      },
+      '/api/v1/operator/demo/multi-user': {
+        demo_mode: true,
+        deployment: {
+          organizations: [
+            {
+              slug: 'dmarq-foundation',
+              name: 'DMARQ Foundation',
+              billing_mode: 'direct_stripe',
+              demo_story: 'One admin manages dmarq.org and dmarq.com.',
+              billing_profile: {
+                invoice_owner: 'DMARQ',
+                collection_model: 'self_service_subscription',
+                payment_rail: 'card_on_file',
+                invoice_reference: 'DMQ-BROWSER-001',
+              },
+              workspaces: [
+                {
+                  slug: 'dmarq-org',
+                  name: 'dmarq.org Public Infrastructure',
+                  domains: ['dmarq.org'],
+                  health: 'attention',
+                  primary_findings: ['newsletter DKIM selector intermittently fails'],
+                },
+              ],
+              usage: [{ metric: 'aggregate_messages', quantity: 197430 }],
+              users: [],
+            },
+            {
+              slug: 'northstar-isp',
+              name: 'Northstar ISP Demo',
+              billing_mode: 'provider_resale',
+              demo_story: 'Provider operators triage customer workspaces.',
+              billing_profile: {
+                invoice_owner: 'Northstar ISP',
+                collection_model: 'provider_pass_through',
+                payment_rail: 'isp_monthly_invoice',
+                invoice_reference: 'NS-ISP-BROWSER',
+              },
+              workspaces: [
+                {
+                  slug: 'bakery-example',
+                  name: 'Bakery Example Customer',
+                  domains: ['bakery.example'],
+                  health: 'healthy',
+                  primary_findings: ['ready to move from quarantine to reject'],
+                },
+                {
+                  slug: 'lawfirm-example',
+                  name: 'Law Firm Example Customer',
+                  domains: ['lawfirm.example'],
+                  health: 'critical',
+                  primary_findings: ['new mail platform sends without DKIM'],
+                },
+              ],
+              provider_customers: [
+                {
+                  external_customer_id: 'ns-cust-10042',
+                  workspace_slug: 'bakery-example',
+                  name: 'Bakery Example Customer',
+                  billing_status: 'included',
+                  subscription_tier: 'DMARQ Protect',
+                  monthly_charge_cents: 1900,
+                  aggregate_messages: 64300,
+                },
+                {
+                  external_customer_id: 'ns-cust-10087',
+                  workspace_slug: 'lawfirm-example',
+                  name: 'Law Firm Example Customer',
+                  billing_status: 'billable_addon',
+                  subscription_tier: 'DMARQ Protect Plus',
+                  monthly_charge_cents: 3900,
+                  aggregate_messages: 142700,
+                },
+              ],
+              usage: [{ metric: 'aggregate_messages', quantity: 2423900 }],
+              users: [
+                {
+                  name: 'Nora Patel',
+                  email: 'nora.ops@northstar.example',
+                  roles: ['provider_operator'],
+                },
+                {
+                  name: 'Taylor Brooks',
+                  email: 'taylor@bakery.example',
+                  demo_persona: 'customer-admin',
+                },
+              ],
+            },
+          ],
+          journey_steps: [
+            {
+              step: 1,
+              label: 'Start in the daily domain view',
+              zoom_level: 'workspace',
+              scenario_id: 'single-user-multiple-domains',
+              organization_slug: 'dmarq-foundation',
+              workspace_slug: 'dmarq-org',
+              domain: 'dmarq.org',
+              action: 'Inspect dmarq.org and dmarq.com as one administrator.',
+              expected_takeaway: 'DMARQ first explains normal domain posture.',
+            },
+            {
+              step: 2,
+              label: 'Zoom out to provider operations',
+              zoom_level: 'provider',
+              scenario_id: 'isp-operator',
+              organization_slug: 'northstar-isp',
+              workspace_slug: 'lawfirm-example',
+              domain: 'lawfirm.example',
+              action: 'Review ISP customers and usage export samples.',
+              expected_takeaway: 'Providers can operate many customer workspaces.',
+            },
+            {
+              step: 3,
+              label: 'Impersonate a customer user',
+              zoom_level: 'workspace',
+              scenario_id: 'customer-admin',
+              organization_slug: 'northstar-isp',
+              workspace_slug: 'bakery-example',
+              domain: 'bakery.example',
+              action: 'Switch into a customer admin view.',
+              expected_takeaway: 'Support access is explicit demo state.',
+            },
+          ],
+          viewer_scenarios: [
+            { id: 'single-user-multiple-domains', label: 'Single user, multiple domains' },
+            { id: 'isp-operator', label: 'ISP operator' },
+            { id: 'customer-admin', label: 'ISP customer admin' },
+          ],
+          zoom_levels: [
+            { level: 'workspace', label: 'Single user, multiple domains' },
+            { level: 'provider', label: 'ISP / managed provider view' },
+          ],
+          operator_playbook: [
+            { id: 'domain-posture', label: 'Open owned domains', next_action: 'Start with dmarq.org.', primary_step: 1 },
+            { id: 'provider-queue', label: 'Triage provider queue', next_action: 'Open the highest-risk customer first.', primary_step: 2 },
+            { id: 'audited-support', label: 'Start audited support access', next_action: 'Generate the demo audit event.', primary_step: 3 },
+          ],
+          tenant_health_segments: [
+            {
+              segment: 'healthy',
+              label: 'Healthy tenants',
+              count: 1,
+              example_workspace_slug: 'bakery-example',
+              operator_action: 'Prepare reject rollout or keep weekly monitoring.',
+            },
+            {
+              segment: 'misconfigured',
+              label: 'Misconfigured tenants',
+              count: 1,
+              example_workspace_slug: 'lawfirm-example',
+              operator_action: 'Fix DKIM and SPF lookup budget before policy enforcement.',
+            },
+          ],
+          impersonation_policy: {
+            mode: 'demo_only',
+            scope: 'Support access is shown as an explicit audited demo workflow.',
+          },
+          support_access_demo: {
+            mode: 'read_only_customer_view',
+            reason: 'Customer support walkthrough',
+            operator: { name: 'Nora Patel', email: 'nora.ops@northstar.example' },
+            target_user: { name: 'Taylor Brooks', email: 'taylor@bakery.example' },
+            audit_events: [
+              {
+                event_id: 'audit-demo-browser-initial',
+                action: 'support_access.started',
+                operator_email: 'nora.ops@northstar.example',
+                target_user_email: 'taylor@bakery.example',
+                domain: 'bakery.example',
+              },
+            ],
+          },
         },
       },
     };
@@ -874,4 +1087,24 @@ test('tls reports page renders summary data from the registered Alpine component
   const domainLink = page.getByRole('link', { name: 'cklnet.com' });
   await expect(domainLink).toHaveAttribute('href', '/domains/cklnet.com');
   await expect(page.getByText('No TLS report data is available for the current filters.')).not.toBeVisible();
+});
+
+test('provider demo guides tenant triage and audited support access', async ({ page }) => {
+  const response = await page.goto('/provider-demo');
+  expect(response, 'provider demo navigation should return a response').not.toBeNull();
+
+  await expect(page.getByRole('heading', { name: 'ISP, MSP, and tenant operations' })).toBeVisible();
+  await expect(page.getByText('Operator checklist')).toBeVisible();
+  await expect(page.getByText('Healthy tenants')).toBeVisible();
+  await expect(page.getByText('Misconfigured tenants')).toBeVisible();
+
+  await page.getByText('Fix DKIM and SPF lookup budget before policy enforcement.').click();
+  await expect(page.getByRole('heading', { name: 'ISP operator' })).toBeVisible();
+  await expect(page.getByText('Do not enforce yet. Fix DKIM and SPF alignment first.')).toBeVisible();
+  await expect(page.getByText('lawfirm.example').first()).toBeVisible();
+
+  await page.getByRole('button', { name: 'Start demo support session' }).click();
+  await expect(page.getByText('Demo session ready')).toBeVisible();
+  await expect(page.getByText('audit-demo-browser-001')).toBeVisible();
+  await expect(page.getByText('nora.ops@northstar.example opened bakery.example as taylor@bakery.example')).toBeVisible();
 });

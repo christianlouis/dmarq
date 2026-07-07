@@ -194,6 +194,19 @@ Generated ISP and self-hosted tenant domains explain workspace scope and billing
 ownership; only domains backed by aggregate reports should link to live domain
 detail pages.
 
+The provider demo response also includes:
+
+- `operator_playbook`, a short checklist that keeps the demo path focused on the
+  next user action
+- `tenant_health_segments`, which separates healthy, monitoring, and
+  misconfigured tenants for provider triage
+- `support_access_demo`, a synthetic read-only support-access session with
+  safeguards and generated audit events
+
+`POST /api/v1/operator/demo/support-session` returns a generated audit event for
+the selected demo workspace. It is demo-only, does not create a real user
+session, and does not enable DNS or provider writes.
+
 Provider billing integrations can read monthly usage with
 `GET /api/v1/provider/billing/usage?period=YYYY-MM`. A single external customer
 can be filtered with

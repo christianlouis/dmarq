@@ -6,6 +6,9 @@ function providerDemo() {
         selectedStepNumber: 1,
         selectedScenarioId: '',
         selectedWorkspaceSlug: '',
+        startingSupportSession: false,
+        supportSessionResult: null,
+        supportSessionError: '',
 
         init() {
             this.bindControls();
@@ -31,6 +34,12 @@ function providerDemo() {
                 const workspaceButton = event.target.closest('[data-provider-demo-workspace]');
                 if (workspaceButton) {
                     this.selectWorkspace(workspaceButton.dataset.providerDemoWorkspace);
+                    return;
+                }
+
+                const supportButton = event.target.closest('[data-provider-demo-support-session]');
+                if (supportButton) {
+                    this.startSupportSession();
                 }
             });
         },
@@ -86,6 +95,18 @@ function providerDemo() {
             return this.deployment?.impersonation_policy || {};
         },
 
+        get operatorPlaybook() {
+            return this.deployment?.operator_playbook || [];
+        },
+
+        get tenantHealthSegments() {
+            return this.deployment?.tenant_health_segments || [];
+        },
+
+        get supportAccessDemo() {
+            return this.deployment?.support_access_demo || {};
+        },
+
         get selectedStep() {
             return this.journeySteps.find(step => step.step === this.selectedStepNumber)
                 || this.journeySteps[0]
@@ -113,6 +134,10 @@ function providerDemo() {
             return this.selectedWorkspaces.find(
                 workspace => workspace.slug === this.selectedWorkspaceSlug,
             ) || this.selectedWorkspaces[0] || {};
+        },
+
+        get selectedWorkspaceDomains() {
+            return this.selectedWorkspace.domains || [];
         },
 
         get providerOrganization() {
@@ -199,15 +224,49 @@ function providerDemo() {
         },
 
         get supportOperatorLabel() {
+            const demoOperator = this.supportAccessDemo.operator;
+            if (demoOperator?.name && demoOperator?.email) {
+                return `${demoOperator.name} (${demoOperator.email})`;
+            }
             const org = this.providerOrganization;
             const user = (org.users || []).find(item => (item.roles || []).includes('provider_operator'));
             return user ? `${user.name} (${user.email})` : 'Provider operator';
         },
 
         get targetUserLabel() {
+            const target = this.supportSessionResult?.session?.target_user
+                || this.supportAccessDemo.target_user;
+            if (target?.name && target?.email) {
+                return `${target.name} (${target.email})`;
+            }
             const org = this.providerOrganization;
             const user = (org.users || []).find(item => item.demo_persona === 'customer-admin');
             return user ? `${user.name} (${user.email})` : 'Customer admin';
+        },
+
+        get selectedTenantAction() {
+            const health = this.selectedWorkspace.health || 'monitoring';
+            return {
+                healthy: 'Prepare the customer for reject enforcement or schedule weekly monitoring.',
+                monitoring: 'Keep the customer in monitoring while unknown senders are investigated.',
+                warning: 'Open sender remediation before the grace period expires.',
+                attention: 'Fix the highest-impact sender drift before changing policy.',
+                critical: 'Do not enforce yet. Fix DKIM and SPF alignment first.',
+            }[health] || 'Review the customer workspace before taking action.';
+        },
+
+        get supportAuditEvents() {
+            const resultEvents = this.supportSessionResult?.session?.audit_events;
+            if (Array.isArray(resultEvents) && resultEvents.length > 0) {
+                return resultEvents;
+            }
+            return this.supportAccessDemo.audit_events || [];
+        },
+
+        get supportSessionSummary() {
+            const event = this.supportSessionResult?.audit_event;
+            if (!event) return '';
+            return `${event.operator_email} opened ${event.domain} as ${event.target_user_email}; ${event.result}.`;
         },
 
         selectStep(stepNumber) {
@@ -226,6 +285,38 @@ function providerDemo() {
                 return;
             }
             this.selectedWorkspaceSlug = workspaceSlug;
+        },
+
+        async startSupportSession() {
+            this.startingSupportSession = true;
+            this.supportSessionError = '';
+            this.supportSessionResult = null;
+            try {
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 10000);
+                const response = await fetch('/api/v1/operator/demo/support-session', {
+                    method: 'POST',
+                    headers: {
+                        Accept: 'application/json',
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        workspace_slug: this.selectedWorkspace.slug || 'bakery-example',
+                        reason: this.supportAccessDemo.reason || 'Customer support walkthrough',
+                    }),
+                    signal: controller.signal,
+                }).finally(() => clearTimeout(timeout));
+                if (!response.ok) {
+                    throw new Error('Demo support session could not be started.');
+                }
+                this.supportSessionResult = await response.json();
+            } catch (error) {
+                this.supportSessionError = error.name === 'AbortError'
+                    ? 'Demo support session request timed out.'
+                    : error.message || 'Demo support session could not be started.';
+            } finally {
+                this.startingSupportSession = false;
+            }
         },
 
         isSelectedStep(step) {

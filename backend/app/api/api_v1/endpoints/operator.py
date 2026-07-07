@@ -58,6 +58,21 @@ class DemoMultiUserDeploymentResponse(BaseModel):
     deployment: Dict[str, Any]
 
 
+class DemoSupportSessionRequest(BaseModel):
+    """Demo-only support access action."""
+
+    workspace_slug: str = Field("bakery-example", min_length=1, max_length=120)
+    reason: str = Field("Customer support walkthrough", min_length=1, max_length=200)
+
+
+class DemoSupportSessionResponse(BaseModel):
+    """Synthetic support session audit result."""
+
+    demo_mode: bool
+    session: Dict[str, Any]
+    audit_event: Dict[str, Any]
+
+
 def _workspace_or_404(db: Session, workspace_id: int) -> Workspace:
     workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
     if workspace is None:
@@ -100,6 +115,50 @@ async def get_demo_multi_user_deployment(
     return {
         "demo_mode": True,
         "deployment": build_demo_multi_user_deployment(),
+    }
+
+
+@router.post("/demo/support-session", response_model=DemoSupportSessionResponse)
+async def start_demo_support_session(
+    payload: DemoSupportSessionRequest,
+    _auth: dict = Depends(require_admin_auth),
+) -> DemoSupportSessionResponse:
+    """Return a synthetic audit event for demo-only support access."""
+    require_workspace_permission(_auth, PERMISSION_AUDIT_READ)
+    if not get_settings().DEMO_MODE:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Demo support access is only available in demo mode",
+        )
+
+    deployment = build_demo_multi_user_deployment()
+    session = dict(deployment.get("support_access_demo") or {})
+    targets = {
+        target.get("workspace_slug"): target
+        for target in session.get("allowed_targets", [])
+        if target.get("workspace_slug")
+    }
+    target = targets.get(payload.workspace_slug) or targets.get("bakery-example") or {}
+    audit_template = (session.get("audit_events") or [{}])[0]
+    audit_event = {
+        **audit_template,
+        "workspace_slug": target.get("workspace_slug") or payload.workspace_slug,
+        "domain": target.get("domain") or audit_template.get("domain"),
+        "target_user_email": target.get("target_user") or audit_template.get("target_user_email"),
+        "reason": payload.reason.strip() or session.get("reason"),
+        "result": "demo_session_ready",
+    }
+    session["target_user"] = {
+        **(session.get("target_user") or {}),
+        "workspace_slug": audit_event["workspace_slug"],
+        "domain": audit_event["domain"],
+        "email": audit_event["target_user_email"],
+    }
+    session["audit_events"] = [audit_event]
+    return {
+        "demo_mode": True,
+        "session": session,
+        "audit_event": audit_event,
     }
 
 
