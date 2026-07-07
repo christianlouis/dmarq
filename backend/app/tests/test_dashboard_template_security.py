@@ -2653,7 +2653,8 @@ def test_onboarding_template_uses_single_user_setup_story_by_default():
     assert "Mail health setup" in rendered
     assert "Setup path" in rendered
     assert "Connect Gmail or IMAP" in rendered
-    assert "Apply setup" in rendered
+    assert 'x-text="applyButtonLabel"' in rendered
+    assert "Apply setup" in script
     assert "One monitored domain with DMARC report and DNS setup tasks." in rendered
     assert 'data-multi-workspace-ui="false"' in rendered
     assert 'src="/static/js/onboarding-page.js"' in template
@@ -2698,10 +2699,12 @@ def test_onboarding_template_uses_single_user_setup_story_by_default():
 
 def test_onboarding_template_keeps_workspace_story_for_multi_workspace_mode():
     rendered = _render_template("onboarding.html", multi_workspace_ui_enabled=True)
+    script = _onboarding_script()
 
     assert "Workspace onboarding" in rendered
     assert "Account boundary" in rendered
-    assert "Create workspace" in rendered
+    assert 'x-text="applyButtonLabel"' in rendered
+    assert "Create workspace" in script
     assert "Organization and workspace" in rendered
     assert "Starter plan entitlement records" in rendered
     assert 'data-multi-workspace-ui="true"' in rendered
