@@ -8,6 +8,24 @@
 
 {% block page_title %}Settings{% endblock %}
 
+{% macro save_footer(helper_text, button_label) %}
+    <div class="flex flex-col gap-2 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
+        <p class="text-sm text-[#5f5c78]">{{ helper_text }}</p>
+        <button type="submit" class="btn btn-default btn-md" :disabled="saving">
+            <template x-if="!saving">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
+                    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                    <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                    <polyline points="7 3 7 8 15 8"></polyline>
+                </svg>
+            </template>
+            <template x-if="saving"><span class="loading loading-spinner loading-xs mr-2"></span></template>
+            {{ button_label }}
+        </button>
+    </div>
+{% endmacro %}
+
 {% block content %}
 <div
     data-settings-page
@@ -22,7 +40,34 @@
         </div>
     </template>
 
+    <header class="rounded-lg border border-[#dfdfdf] bg-white p-5 shadow-sm">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+                <p class="text-sm font-semibold uppercase tracking-wide text-[#2f9da6]">Configuration</p>
+                <h1 class="mt-1 text-2xl font-bold text-[#120d36]">Finish the next safe setup step</h1>
+                <p class="mt-2 max-w-3xl text-sm text-[#5f5c78]">
+                    Start with report defaults and mail-source intake, then connect DNS providers. Advanced automation stays folded until it is needed.
+                </p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+                <a href="#dmarc-defaults-section" class="btn btn-primary btn-md">Review DMARC defaults</a>
+                <a href="/mail-sources" class="btn btn-outline btn-md">Connect report mailbox</a>
+            </div>
+        </div>
+        <nav class="mt-5 flex gap-2 overflow-x-auto pb-1 text-sm font-semibold" aria-label="Settings sections">
+            <a href="#general-settings" class="rounded-full border border-[#dfdfdf] px-3 py-1 text-[#272a5f] hover:border-[#2f9da5]">General</a>
+            <a href="#dmarc-defaults-section" class="rounded-full border border-[#dfdfdf] px-3 py-1 text-[#272a5f] hover:border-[#2f9da5]">DMARC defaults</a>
+            <a href="#dns-resolver-settings" class="rounded-full border border-[#dfdfdf] px-3 py-1 text-[#272a5f] hover:border-[#2f9da5]">DNS resolver</a>
+            <a href="#provider-integrations" class="rounded-full border border-[#dfdfdf] px-3 py-1 text-[#272a5f] hover:border-[#2f9da5]">DNS providers</a>
+            <a href="#mail-service-imports" class="rounded-full border border-[#dfdfdf] px-3 py-1 text-[#272a5f] hover:border-[#2f9da5]">Sender imports</a>
+            <a href="#account-readiness-settings" class="rounded-full border border-[#dfdfdf] px-3 py-1 text-[#272a5f] hover:border-[#2f9da5]">Account readiness</a>
+            <a href="#notification-settings" class="rounded-full border border-[#dfdfdf] px-3 py-1 text-[#272a5f] hover:border-[#2f9da5]">Notifications</a>
+            <a href="#mail-sources-shortcut" class="rounded-full border border-[#dfdfdf] px-3 py-1 text-[#272a5f] hover:border-[#2f9da5]">Mail sources</a>
+        </nav>
+    </header>
+
     <!-- ── Account/Auth Milestone ───────────────────────────────────────── -->
+    <section id="account-readiness-settings" class="scroll-mt-28">
     {% call card() %}
         {% call card_header() %}
             <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -103,8 +148,10 @@
             </template>
         {% endcall %}
     {% endcall %}
+    </section>
 
     <!-- ── General ──────────────────────────────────────────────────────── -->
+    <section id="general-settings" class="scroll-mt-28">
     {% call card() %}
         {% call card_header() %}
             {% call card_title() %}General{% endcall %}
@@ -140,20 +187,14 @@
                         <label class="label"><span class="label-text-alt text-muted-foreground">How long login sessions remain valid</span></label>
                     </div>
                 </div>
-                <div class="flex justify-end">
-                    <button type="submit" class="btn btn-default btn-md" :disabled="saving">
-                        <template x-if="!saving">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-                        </template>
-                        <template x-if="saving"><span class="loading loading-spinner loading-xs mr-2"></span></template>
-                        Save General Settings
-                    </button>
-                </div>
+                {{ save_footer("Save this section after changing product name, public URL, or session behavior.", "Save General Settings") }}
             </form>
         {% endcall %}
     {% endcall %}
+    </section>
 
     <!-- ── DMARC Policy Defaults ─────────────────────────────────────────── -->
+    <section id="dmarc-defaults-section" class="scroll-mt-28">
     {% call card() %}
         {% call card_header() %}
             {% call card_title() %}DMARC Policy Defaults{% endcall %}
@@ -217,20 +258,14 @@
                         <label class="label"><span class="label-text-alt text-muted-foreground">Used in generated SMTP TLS-RPT records. Leave empty to use tlsrpt@domain.</span></label>
                     </div>
                 </div>
-                <div class="flex justify-end">
-                    <button type="submit" class="btn btn-default btn-md" :disabled="saving">
-                        <template x-if="!saving">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-                        </template>
-                        <template x-if="saving"><span class="loading loading-spinner loading-xs mr-2"></span></template>
-                        Save DMARC Defaults
-                    </button>
-                </div>
+                {{ save_footer("These defaults feed generated DMARC and TLS-RPT records for newly added domains.", "Save DMARC Defaults") }}
             </form>
         {% endcall %}
     {% endcall %}
+    </section>
 
     <!-- ── DNS Resolver ──────────────────────────────────────────────────── -->
+    <section id="dns-resolver-settings" class="scroll-mt-28">
     {% call card() %}
         {% call card_header() %}
             {% call card_title() %}DNS Resolver{% endcall %}
@@ -253,21 +288,14 @@
                     </select>
                     <label class="label"><span class="label-text-alt text-muted-foreground">All profiles bypass the host resolver. Enterprise and custom profiles use resolver values supplied by environment or secret configuration.</span></label>
                 </div>
-                <div class="flex justify-end">
-                    <button type="submit" class="btn btn-default btn-md" :disabled="saving">
-                        <template x-if="!saving">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-                        </template>
-                        <template x-if="saving"><span class="loading loading-spinner loading-xs mr-2"></span></template>
-                        Save DNS Settings
-                    </button>
-                </div>
+                {{ save_footer("Resolver changes affect DNS linting, cache refreshes, and remediation evidence.", "Save DNS Settings") }}
             </form>
         {% endcall %}
     {% endcall %}
+    </section>
 
     <!-- ── DNS Provider Connectors ────────────────────────────────────────── -->
-    <section id="provider-integrations">
+    <section id="provider-integrations" class="scroll-mt-28">
     {% call card() %}
         {% call card_header() %}
             {% call card_title() %}DNS Provider Connectors{% endcall %}
@@ -460,21 +488,14 @@
                         </div>
                     </template>
                 </div>
-                <div class="flex justify-end">
-                    <button type="submit" class="btn btn-default btn-md" :disabled="saving">
-                        <template x-if="!saving">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-                        </template>
-                        <template x-if="saving"><span class="loading loading-spinner loading-xs mr-2"></span></template>
-                        Save Cloudflare Settings
-                    </button>
-                </div>
+                {{ save_footer("Save token or OAuth profile changes before discovering provider zones.", "Save Cloudflare Settings") }}
             </form>
         {% endcall %}
     {% endcall %}
     </section>
 
     <!-- ── Mail Service Imports ───────────────────────────────────────────── -->
+    <section id="mail-service-imports" class="scroll-mt-28">
     {% call card() %}
         {% call card_header() %}
             {% call card_title() %}Mail Service Imports{% endcall %}
@@ -578,21 +599,19 @@
                         </div>
                     </template>
                 </div>
-                <div class="flex justify-end">
-                    <button type="submit" class="btn btn-default btn-md" :disabled="saving">
-                        <template x-if="!saving">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
-                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-                        </template>
-                        <template x-if="saving"><span class="loading loading-spinner loading-xs mr-2"></span></template>
-                        Save Postmark Settings
-                    </button>
-                </div>
+                {{ save_footer("Save provider credentials before previewing or importing sender domains.", "Save Postmark Settings") }}
             </form>
         {% endcall %}
     {% endcall %}
+    </section>
 
     <!-- ── Forensics ──────────────────────────────────────────────────────── -->
+    <details id="forensic-settings" class="scroll-mt-28">
+        <summary class="cursor-pointer rounded-lg border border-[#dfdfdf] bg-white p-4 text-sm font-semibold text-[#120d36] shadow-sm">
+            Advanced privacy settings
+            <span class="ml-2 text-xs font-normal text-[#5f5c78]">Forensic redaction controls</span>
+        </summary>
+        <div class="mt-4">
     {% call card() %}
         {% call card_header() %}
             {% call card_title() %}Forensic Reports{% endcall %}
@@ -633,8 +652,11 @@
             </form>
         {% endcall %}
     {% endcall %}
+        </div>
+    </details>
 
     <!-- ── Notifications ──────────────────────────────────────────────────── -->
+    <section id="notification-settings" class="scroll-mt-28">
     {% call card() %}
         {% call card_header() %}
             {% call card_title() %}Notifications{% endcall %}
@@ -962,8 +984,15 @@
             </form>
         {% endcall %}
     {% endcall %}
+    </section>
 
     <!-- ── Webhooks ──────────────────────────────────────────────────────── -->
+    <details id="webhook-settings" class="scroll-mt-28">
+        <summary class="cursor-pointer rounded-lg border border-[#dfdfdf] bg-white p-4 text-sm font-semibold text-[#120d36] shadow-sm">
+            Advanced webhook delivery
+            <span class="ml-2 text-xs font-normal text-[#5f5c78]">Signed event fan-out and delivery history</span>
+        </summary>
+        <div class="mt-4">
     {% call card() %}
         {% call card_header() %}
             {% call card_title() %}Webhooks{% endcall %}
@@ -1107,8 +1136,16 @@
             </div>
         {% endcall %}
     {% endcall %}
+        </div>
+    </details>
 
     <!-- ── Optional AI and MCP ────────────────────────────────────────────── -->
+    <details id="automation-settings" class="scroll-mt-28">
+        <summary class="cursor-pointer rounded-lg border border-[#dfdfdf] bg-white p-4 text-sm font-semibold text-[#120d36] shadow-sm">
+            Advanced AI and agent automation
+            <span class="ml-2 text-xs font-normal text-[#5f5c78]">Opt-in model and MCP controls</span>
+        </summary>
+        <div class="mt-4">
     {% call card() %}
         {% call card_header() %}
             {% call card_title() %}AI and Agent Automation{% endcall %}
@@ -1246,8 +1283,11 @@
             </form>
         {% endcall %}
     {% endcall %}
+        </div>
+    </details>
 
     <!-- ── Mail Sources shortcut ──────────────────────────────────────────── -->
+    <section id="mail-sources-shortcut" class="scroll-mt-28">
     {% call card() %}
         {% call card_header() %}
             {% call card_title() %}Mail Sources{% endcall %}
@@ -1267,6 +1307,7 @@
             </a>
         {% endcall %}
     {% endcall %}
+    </section>
 
 </div>
 {% endblock %}
