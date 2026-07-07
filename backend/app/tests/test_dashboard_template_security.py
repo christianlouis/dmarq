@@ -1811,6 +1811,8 @@ def test_settings_exposes_provider_agnostic_dns_import_without_html_injection():
     assert 'aria-label="Settings sections"' in template
     assert "Review DMARC defaults" in template
     assert "Connect report mailbox" in template
+    assert 'href="#account-readiness-settings"' in template
+    assert "Account readiness" in template
     assert 'id="dmarc-defaults-section"' in template
     assert 'id="dns-resolver-settings"' in template
     assert 'id="mail-service-imports"' in template
@@ -2622,8 +2624,19 @@ def test_base_template_propagates_selected_workspace_context():
     assert "data-release-modal-trigger" in template
     assert 'aria-label="Show release notes for {{ release_info.label }}"' in template
     assert 'aria-label="Open account menu"' in template
-    assert '<span class="text-[11px] font-semibold leading-tight">Dashboard</span>' in template
-    assert '<span class="text-[11px] font-semibold leading-tight">Settings</span>' in template
+    for rail_label in (
+        "Dashboard",
+        "Domains",
+        "Reports",
+        "Forensics",
+        "Members",
+        "Onboarding",
+        "Settings",
+    ):
+        assert (
+            f'<span class="text-[11px] font-semibold leading-tight">{rail_label}</span>'
+            in template
+        )
     assert 'href="/static/css/app.css"' in template
     assert "cdn.tailwindcss.com" not in template
     assert "Full changelog" in template
