@@ -267,3 +267,7 @@ function providerDemo() {
         },
     };
 }
+
+document.addEventListener('alpine:init', () => {
+    Alpine.data('providerDemo', providerDemo);
+});
