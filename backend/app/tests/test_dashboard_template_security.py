@@ -152,6 +152,14 @@ def _operations_script() -> str:
     return _read_project_file("static", "js", "operations-page.js")
 
 
+def _provider_demo_template() -> str:
+    return _read_project_file("templates", "provider_demo.html")
+
+
+def _provider_demo_script() -> str:
+    return _read_project_file("static", "js", "provider-demo-page.js")
+
+
 def _reports_template() -> str:
     return _read_project_file("templates", "reports.html")
 
@@ -2698,6 +2706,21 @@ def test_dashboard_hides_multi_user_demo_mode_controls():
     assert "Provider billing samples" not in template
     assert "/api/v1/operator/demo/multi-user" not in template
     assert "x-html" not in template
+
+
+def test_provider_demo_is_separate_from_dashboard_controls():
+    template = _provider_demo_template()
+    script = _provider_demo_script()
+    dashboard = _dashboard_template()
+
+    assert "data-provider-demo" in template
+    assert "/api/v1/operator/demo/multi-user" in script
+    assert "/api/v1/operator/demo/multi-user" not in dashboard
+    assert "Provider demo" in template
+    assert "Audited support access" in template
+    assert "providerDemo" in script
+    assert "x-html" not in template
+    assert "innerHTML" not in script
 
 
 def test_dashboard_distinguishes_loading_error_and_empty_states():

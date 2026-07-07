@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added a separately gated `/provider-demo` surface for ISP/MSP and multi-tenant demo workflows, keeping the self-hosted dashboard demo focused on the single-user story.
 - Added focused regression coverage for reputation-feed configuration,
   TLS-report serialization, and TLSA parsing edge cases.
 - Added a Settings account/access milestone readiness summary for #12, separating completed auth/workspace/billing/provider foundations from environment-specific setup gates.

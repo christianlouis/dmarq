@@ -109,8 +109,8 @@ Protocol boundary:
 - Demo data fills the dashboard, domain details, DNS posture, aggregate reports,
   forensic reports, TLS reports, exports, and linting views
 - The public demo presents the self-hosted, single-user, multi-domain experience
-- Account-management, ISP, and multi-tenant demos are intended for a separate
-  admin/provider demo surface
+- Account-management, ISP, and multi-tenant demos live behind the separate
+  `/provider-demo` surface and require `PROVIDER_DEMO_ENABLED=true`
 - A guided dashboard tour walks through the opinionated product flow from domain
   posture to sender evidence and DNS remediation
 - The public demo is read-only so visitors can explore without modifying data

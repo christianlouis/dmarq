@@ -1,12 +1,16 @@
 import asyncio
 from types import SimpleNamespace
 
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 from starlette.requests import Request
 
 from app.api.api_v1.endpoints import domains as domains_endpoint
-from app.main import app, health as root_health, members_page, settings
+from app.main import app
+from app.main import health as root_health
+from app.main import members_page, provider_demo_page, settings
 from app.models.domain import Domain
 from app.models.mail_source import MailSource
 from app.models.report import DMARCReport, ReportRecord
@@ -25,8 +29,8 @@ def test_health_check(authed_client: TestClient):
 def test_release_info_endpoint_exposes_safe_build_metadata(authed_client: TestClient, monkeypatch):
     """Release metadata is available for support without exposing secrets."""
     from app.api.api_v1.endpoints import (
-        health as health_endpoint,
-    )  # pylint: disable=import-outside-toplevel
+        health as health_endpoint,  # pylint: disable=import-outside-toplevel
+    )
     from app.core.config import Settings  # pylint: disable=import-outside-toplevel
 
     monkeypatch.setattr(
@@ -70,8 +74,8 @@ def test_release_info_endpoint_exposes_safe_build_metadata(authed_client: TestCl
 def test_release_info_ignores_digest_only_image_references(authed_client: TestClient, monkeypatch):
     """Digest-pinned images do not expose a misleading digest as a tag."""
     from app.api.api_v1.endpoints import (
-        health as health_endpoint,
-    )  # pylint: disable=import-outside-toplevel
+        health as health_endpoint,  # pylint: disable=import-outside-toplevel
+    )
     from app.core.config import Settings  # pylint: disable=import-outside-toplevel
 
     monkeypatch.setattr(
@@ -98,8 +102,8 @@ def test_release_info_ignores_digest_only_image_references(authed_client: TestCl
 def test_release_info_extracts_tag_from_digest_pinned_tag(authed_client: TestClient, monkeypatch):
     """Tag-plus-digest image references still expose the tag for rollout checks."""
     from app.api.api_v1.endpoints import (
-        health as health_endpoint,
-    )  # pylint: disable=import-outside-toplevel
+        health as health_endpoint,  # pylint: disable=import-outside-toplevel
+    )
     from app.core.config import Settings  # pylint: disable=import-outside-toplevel
 
     monkeypatch.setattr(
@@ -126,8 +130,8 @@ def test_release_info_extracts_tag_from_digest_pinned_tag(authed_client: TestCli
 def test_api_health_includes_release_summary(authed_client: TestClient, monkeypatch):
     """The simple API health endpoint exposes the same release metadata family."""
     from app.api.api_v1.endpoints import (
-        health as health_endpoint,
-    )  # pylint: disable=import-outside-toplevel
+        health as health_endpoint,  # pylint: disable=import-outside-toplevel
+    )
     from app.core.config import Settings  # pylint: disable=import-outside-toplevel
 
     monkeypatch.setattr(
@@ -542,6 +546,34 @@ def test_members_page_renders_when_multi_workspace_ui_enabled(monkeypatch):
 
     assert response.status_code == 200
     assert response.template.name == "members.html"
+
+
+def test_provider_demo_page_route_is_registered():
+    """The separate provider demo page is available as a direct route."""
+    assert any(getattr(route, "path", None) == "/provider-demo" for route in app.routes)
+
+
+def test_provider_demo_page_is_hidden_without_feature_flag(monkeypatch):
+    """The provider/MSP demo must not leak into the self-hosted public demo."""
+    monkeypatch.setattr(settings, "PROVIDER_DEMO_ENABLED", False)
+
+    request = Request({"type": "http", "method": "GET", "path": "/provider-demo", "headers": []})
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(provider_demo_page(request))
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "Provider demo is not enabled"
+
+
+def test_provider_demo_page_renders_when_feature_flag_enabled(monkeypatch):
+    """Dedicated provider-demo deployments can render the ISP/MSP surface."""
+    monkeypatch.setattr(settings, "PROVIDER_DEMO_ENABLED", True)
+
+    request = Request({"type": "http", "method": "GET", "path": "/provider-demo", "headers": []})
+    response = asyncio.run(provider_demo_page(request))
+
+    assert response.status_code == 200
+    assert response.template.name == "provider_demo.html"
 
 
 def test_reports_upload_invalid_extension(authed_client: TestClient):
