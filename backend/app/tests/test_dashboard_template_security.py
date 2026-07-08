@@ -2766,6 +2766,8 @@ def test_provider_demo_is_separate_from_dashboard_controls():
     assert "/api/v1/operator/demo/support-session" not in dashboard
     assert "Provider demo" in template
     assert "Audited support access" in template
+    assert "Single-user demo" in template
+    assert "https://demo.dmarq.org/" in template
     assert "data-provider-demo-support-session" in template
     assert "Operator checklist" in template
     assert "providerDemo" in script

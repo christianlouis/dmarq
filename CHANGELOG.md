@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Added provider-demo workflow polish with an operator checklist, tenant-health
   queue, selected-tenant next action, and a demo-only audited support-session CTA.
+- Added provider-demo host routing so multi-user demo deployments start on the
+  provider workflow instead of the single-user dashboard.
 - Added clearer Settings next-step CTAs, section navigation, local save
   guidance, folded advanced areas, and visible labels for the desktop icon rail.
 - Added a separately gated `/provider-demo` surface for ISP/MSP and multi-tenant demo workflows, keeping the self-hosted dashboard demo focused on the single-user story.

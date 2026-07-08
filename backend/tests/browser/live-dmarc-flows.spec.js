@@ -1090,8 +1090,9 @@ test('tls reports page renders summary data from the registered Alpine component
 });
 
 test('provider demo guides tenant triage and audited support access', async ({ page }) => {
-  const response = await page.goto('/provider-demo');
+  const response = await page.goto('/');
   expect(response, 'provider demo navigation should return a response').not.toBeNull();
+  await expect(page).toHaveURL(/\/provider-demo$/);
 
   await expect(page.getByRole('heading', { name: 'ISP, MSP, and tenant operations' })).toBeVisible();
   await expect(page.getByText('Operator checklist')).toBeVisible();

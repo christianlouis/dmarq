@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from starlette.requests import Request
 
 from app.api.api_v1.endpoints import domains as domains_endpoint
-from app.main import app
+from app.main import app, dashboard, index
 from app.main import health as root_health
 from app.main import members_page, provider_demo_page, settings
 from app.models.domain import Domain
@@ -574,6 +574,34 @@ def test_provider_demo_page_renders_when_feature_flag_enabled(monkeypatch):
 
     assert response.status_code == 200
     assert response.template.name == "provider_demo.html"
+
+
+def test_provider_demo_deployment_redirects_root_and_dashboard(monkeypatch):
+    """Provider demo hosts must not start in the single-user dashboard."""
+    monkeypatch.setattr(settings, "PROVIDER_DEMO_ENABLED", True)
+
+    root_request = Request({"type": "http", "method": "GET", "path": "/", "headers": []})
+    root_response = asyncio.run(index(root_request))
+    dashboard_request = Request(
+        {"type": "http", "method": "GET", "path": "/dashboard", "headers": []}
+    )
+    dashboard_response = asyncio.run(dashboard(dashboard_request))
+
+    assert root_response.status_code == 303
+    assert root_response.headers["location"] == "/provider-demo"
+    assert dashboard_response.status_code == 303
+    assert dashboard_response.headers["location"] == "/provider-demo"
+
+
+def test_single_user_demo_deployment_keeps_dashboard_root(monkeypatch):
+    """The standard demo keeps the single-user dashboard as the root experience."""
+    monkeypatch.setattr(settings, "PROVIDER_DEMO_ENABLED", False)
+
+    request = Request({"type": "http", "method": "GET", "path": "/", "headers": []})
+    response = asyncio.run(index(request))
+
+    assert response.status_code == 200
+    assert response.template.name == "index.html"
 
 
 def test_reports_upload_invalid_extension(authed_client: TestClient):

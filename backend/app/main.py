@@ -619,6 +619,8 @@ templates.env.globals["release_info"] = build_release_info(settings)
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
+    if settings.PROVIDER_DEMO_ENABLED:
+        return RedirectResponse(url="/provider-demo", status_code=303)
     return templates.TemplateResponse(request, "index.html")
 
 
@@ -630,6 +632,8 @@ async def favicon():
 # Individual page routes
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request):
+    if settings.PROVIDER_DEMO_ENABLED:
+        return RedirectResponse(url="/provider-demo", status_code=303)
     return templates.TemplateResponse(request, "index.html")
 
 
