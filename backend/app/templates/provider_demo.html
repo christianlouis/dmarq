@@ -36,6 +36,15 @@
         <span x-text="error"></span>
     </div>
 
+    <div x-show="hasLocalChanges || statusMessage"
+         x-cloak
+         role="status"
+         aria-live="polite"
+         class="rounded-lg border border-[#d7efe8] bg-[#eefaf6] p-4 text-sm text-[#0f6b4d]">
+        <div class="font-semibold" x-text="localChangesLabel"></div>
+        <div class="mt-1" x-show="statusMessage" x-text="statusMessage"></div>
+    </div>
+
     <div x-show="loading" class="grid gap-4 md:grid-cols-4">
         <div class="h-28 animate-pulse rounded-lg bg-base-200"></div>
         <div class="h-28 animate-pulse rounded-lg bg-base-200"></div>
@@ -354,6 +363,11 @@
                           data-provider-demo-user-form
                           @submit.prevent="addUser">
                         <h2 class="text-lg font-semibold">User anlegen</h2>
+                        <div x-show="userError"
+                             x-cloak
+                             role="alert"
+                             class="mt-3 rounded-md border border-[#ff6f3c]/40 bg-[#fff2ec] p-3 text-sm text-[#8a2d0d]"
+                             x-text="userError"></div>
                         <div class="mt-4 space-y-3">
                             <label class="form-control">
                                 <span class="label-text">Name</span>

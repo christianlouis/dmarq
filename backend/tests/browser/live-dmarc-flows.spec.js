@@ -1104,13 +1104,20 @@ test('provider demo exposes tenant, billing, and user management console', async
   await page.getByRole('button', { name: 'Mandant erstellen' }).click();
   await expect(page.getByRole('heading', { name: 'Demo Kanzlei' })).toBeVisible();
   await expect(page.locator('[data-provider-demo-workspace="demo-kanzlei-main"]').getByText('kanzlei.example')).toBeVisible();
+  await expect(page.getByText('Mandant wurde lokal angelegt.')).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Demo Kanzlei' })).toBeVisible();
+  await expect(page.getByText('Lokale Demo-Aenderungen wurden wiederhergestellt.')).toBeVisible();
 
   await page.locator('nav [data-provider-demo-tab="billing"]').click();
   await page.getByLabel('Invoice owner').fill('Demo Provider GmbH');
   await page.getByLabel('Monatlicher Betrag').fill('499');
   await page.getByRole('button', { name: 'Billing speichern' }).click();
   await expect(page.getByText(/Gespeichert/)).toBeVisible();
-  await expect(page.getByText('499 €')).toBeVisible();
+  await page.locator('nav [data-provider-demo-tab="provider"]').click();
+  await expect(page.getByRole('cell', { name: 'Demo Kanzlei' })).toBeVisible();
+  await expect(page.getByRole('cell', { name: '499 €' })).toBeVisible();
 
   await page.locator('nav [data-provider-demo-tab="users"]').click();
   const userForm = page.locator('[data-provider-demo-user-form]');
@@ -1118,6 +1125,10 @@ test('provider demo exposes tenant, billing, and user management console', async
   await userForm.getByLabel('E-Mail', { exact: true }).fill('mara@kanzlei.example');
   await userForm.getByRole('button', { name: 'User hinzufuegen' }).click();
   await expect(page.getByText('mara@kanzlei.example')).toBeVisible();
+  await userForm.getByLabel('Name', { exact: true }).fill('Mara Duplicate');
+  await userForm.getByLabel('E-Mail', { exact: true }).fill('mara@kanzlei.example');
+  await userForm.getByRole('button', { name: 'User hinzufuegen' }).click();
+  await expect(page.getByText('Diese E-Mail existiert bereits in diesem Mandanten.')).toBeVisible();
 
   await page.getByRole('button', { name: 'Support-View oeffnen' }).click();
   await expect(page.getByText('Support-View bereit')).toBeVisible();

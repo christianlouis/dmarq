@@ -5,6 +5,9 @@ function providerDemo() {
         deployment: null,
         tenants: [],
         tenantSearch: '',
+        storageKey: 'dmarq-provider-demo-state-v1',
+        hasLocalChanges: false,
+        statusMessage: '',
         selectedTenantSlug: '',
         selectedWorkspaceSlug: '',
         activeTab: 'account',
@@ -24,6 +27,7 @@ function providerDemo() {
             email: '',
             role: 'workspace_admin',
         },
+        userError: '',
         tabs: [
             {id: 'account', label: 'Account'},
             {id: 'billing', label: 'Billing'},
@@ -42,7 +46,7 @@ function providerDemo() {
             root.addEventListener('click', event => {
                 const refresh = event.target.closest('[data-provider-demo-refresh]');
                 if (refresh) {
-                    this.load();
+                    this.load({force: true});
                     return;
                 }
 
@@ -89,10 +93,17 @@ function providerDemo() {
             });
         },
 
-        async load() {
+        async load(options = {}) {
+            const force = Boolean(options.force);
+            if (force && this.hasLocalChanges && !window.confirm('Lokale Demo-Aenderungen verwerfen und Demo-Daten neu laden?')) {
+                return;
+            }
             this.loading = true;
             this.error = '';
             try {
+                if (force) {
+                    this.clearLocalState();
+                }
                 const controller = new AbortController();
                 const timeout = setTimeout(() => controller.abort(), 10000);
                 const response = await fetch('/api/v1/operator/demo/multi-user', {
@@ -105,8 +116,11 @@ function providerDemo() {
                 const payload = await response.json();
                 this.deployment = payload.deployment || {};
                 this.tenants = this.buildTenants(this.deployment.organizations || []);
-                const providerCustomer = this.tenants.find(tenant => tenant.billing_mode === 'provider_resale');
-                this.selectTenant(providerCustomer?.slug || this.tenants[0]?.slug || '');
+                const restored = !force && this.restoreLocalState();
+                if (!restored) {
+                    const providerCustomer = this.tenants.find(tenant => tenant.billing_mode === 'provider_resale');
+                    this.selectTenant(providerCustomer?.slug || this.tenants[0]?.slug || '');
+                }
             } catch (error) {
                 this.error = error.name === 'AbortError'
                     ? 'Provider console data request timed out.'
@@ -123,7 +137,7 @@ function providerDemo() {
                 const providerCustomer = (organization.provider_customers || [])[0] || {};
                 const billingProfile = organization.billing_profile || {};
                 const entitlements = organization.entitlements || {};
-                return {
+                const tenant = {
                     ...this.clone(organization),
                     plan_tier: organization.plan_tier || providerCustomer.subscription_tier || 'Business',
                     billing_status: providerCustomer.billing_status || organization.billing_status || 'active',
@@ -148,6 +162,8 @@ function providerDemo() {
                     users: this.clone(organization.users || []),
                     workspaces: this.clone(organization.workspaces || []),
                 };
+                this.syncProviderCustomer(tenant);
+                return tenant;
             });
         },
 
@@ -192,14 +208,10 @@ function providerDemo() {
                 : '/domains';
         },
 
-        get providerOrganization() {
-            return this.tenants.find(tenant => tenant.billing_mode === 'provider_resale')
-                || this.tenants.find(tenant => (tenant.provider_customers || []).length > 0)
-                || {};
-        },
-
         get providerCustomers() {
-            return this.providerOrganization.provider_customers || [];
+            return this.tenants
+                .filter(tenant => this.isProviderBilledTenant(tenant))
+                .map(tenant => this.providerCustomerFromTenant(tenant));
         },
 
         get supportAccessDemo() {
@@ -262,6 +274,12 @@ function providerDemo() {
             return this.billingSavedAt ? `Gespeichert ${this.billingSavedAt}` : 'Demo-Aenderungen lokal';
         },
 
+        get localChangesLabel() {
+            return this.hasLocalChanges
+                ? 'Lokale Simulation aktiv - Aenderungen bleiben in diesem Browser erhalten.'
+                : '';
+        },
+
         get supportSessionSummary() {
             const event = this.supportSessionResult?.audit_event;
             if (!event) return '';
@@ -275,6 +293,7 @@ function providerDemo() {
             this.resetBillingDraft();
             this.supportSessionResult = null;
             this.supportSessionError = '';
+            this.userError = '';
         },
 
         selectWorkspace(workspaceSlug) {
@@ -288,6 +307,7 @@ function providerDemo() {
             this.selectedWorkspaceSlug = workspaceSlug;
             this.activeTab = 'account';
             this.resetBillingDraft();
+            this.userError = '';
         },
 
         resetBillingDraft() {
@@ -317,7 +337,7 @@ function providerDemo() {
                 payment_rail: this.billingDraft.payment_rail,
                 invoice_reference: this.billingDraft.invoice_reference,
             };
-            tenant.billing_mode = this.billingDraft.collection_model;
+            tenant.billing_mode = this.billingModeForCollection(this.billingDraft.collection_model);
             tenant.monthly_charge_cents = Number(this.billingDraft.monthly_euros || 0) * 100;
             tenant.entitlements.users = {
                 used: tenant.users.length,
@@ -331,6 +351,8 @@ function providerDemo() {
                 hour: '2-digit',
                 minute: '2-digit',
             });
+            this.syncProviderCustomer(tenant);
+            this.persistLocalState('Billing-Settings wurden lokal gespeichert.');
         },
 
         createTenant() {
@@ -381,6 +403,7 @@ function providerDemo() {
                     },
                 ],
             };
+            this.syncProviderCustomer(tenant);
             this.tenants.unshift(tenant);
             this.tenantDraft = {
                 name: '',
@@ -390,13 +413,31 @@ function providerDemo() {
             };
             this.selectTenant(slug);
             this.activeTab = 'account';
+            this.persistLocalState('Mandant wurde lokal angelegt.');
         },
 
         addUser() {
+            this.userError = '';
             const name = this.userDraft.name.trim();
             const email = this.userDraft.email.trim().toLowerCase();
-            if (!name || !email) return;
+            if (!name || !email) {
+                this.userError = 'Name und E-Mail sind erforderlich.';
+                return;
+            }
+            if (!this.isValidEmail(email)) {
+                this.userError = 'Bitte eine gueltige E-Mail-Adresse eintragen.';
+                return;
+            }
             const tenant = this.selectedTenant;
+            if ((tenant.users || []).some(user => String(user.email || '').toLowerCase() === email)) {
+                this.userError = 'Diese E-Mail existiert bereits in diesem Mandanten.';
+                return;
+            }
+            const userLimit = Number(tenant.entitlements?.users?.included || 0);
+            if (userLimit > 0 && (tenant.users || []).length >= userLimit) {
+                this.userError = `User-Limit von ${userLimit} erreicht. Bitte zuerst das Billing-Limit erhoehen.`;
+                return;
+            }
             tenant.users.push({
                 name,
                 email,
@@ -413,6 +454,7 @@ function providerDemo() {
                 email: '',
                 role: 'workspace_admin',
             };
+            this.persistLocalState('User wurde lokal angelegt.');
         },
 
         addWorkspace() {
@@ -430,6 +472,7 @@ function providerDemo() {
                 ],
             });
             this.selectedWorkspaceSlug = slug;
+            this.persistLocalState('Workspace wurde lokal angelegt.');
         },
 
         async startSupportSession() {
@@ -437,7 +480,7 @@ function providerDemo() {
             this.supportSessionError = '';
             this.supportSessionResult = null;
             const primaryDomain = this.selectedWorkspacePrimaryDomain || 'example.invalid';
-            const operator = (this.providerOrganization.users || []).find(user => user.can_impersonate)
+            const operator = (this.tenants.flatMap(tenant => tenant.users || [])).find(user => user.can_impersonate)
                 || (this.selectedTenant.users || [])[0]
                 || {email: 'operator@provider.example'};
             const targetUser = (this.selectedTenant.users || [])[0] || {email: `admin@${primaryDomain}`};
@@ -505,6 +548,44 @@ function providerDemo() {
 
         supportAccessLabel(user) {
             return user.can_impersonate ? 'erlaubt' : 'aus';
+        },
+
+        isProviderBilledTenant(tenant) {
+            const collectionModel = tenant.billing_profile?.collection_model || tenant.billing_mode;
+            return collectionModel === 'provider_pass_through' || tenant.billing_mode === 'provider_resale';
+        },
+
+        providerCustomerFromTenant(tenant) {
+            const existing = (tenant.provider_customers || [])[0] || {};
+            return {
+                external_customer_id: existing.external_customer_id || `demo-${tenant.slug}`,
+                workspace_slug: existing.workspace_slug || (tenant.workspaces || [])[0]?.slug || '',
+                name: existing.name || tenant.name,
+                billing_status: existing.billing_status || tenant.billing_status || 'active',
+                subscription_tier: tenant.plan_tier || existing.subscription_tier || 'Business',
+                monthly_charge_cents: Number(tenant.monthly_charge_cents || existing.monthly_charge_cents || 0),
+                aggregate_messages: this.aggregateMessages(tenant),
+            };
+        },
+
+        syncProviderCustomer(tenant) {
+            if (!tenant) return;
+            if (!this.isProviderBilledTenant(tenant)) {
+                tenant.provider_customers = [];
+                return;
+            }
+            tenant.provider_customers = [this.providerCustomerFromTenant(tenant)];
+        },
+
+        billingModeForCollection(collectionModel) {
+            if (collectionModel === 'provider_pass_through') return 'provider_resale';
+            if (collectionModel === 'self_service_subscription') return 'direct_stripe';
+            if (collectionModel === 'contract_invoice') return 'contract_invoice';
+            return collectionModel || 'none';
+        },
+
+        isValidEmail(email) {
+            return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || ''));
         },
 
         healthClass(health) {
@@ -581,6 +662,49 @@ function providerDemo() {
                 index += 1;
             }
             return slug;
+        },
+
+        persistLocalState(message) {
+            try {
+                sessionStorage.setItem(this.storageKey, JSON.stringify({
+                    tenants: this.tenants,
+                    selectedTenantSlug: this.selectedTenantSlug,
+                    selectedWorkspaceSlug: this.selectedWorkspaceSlug,
+                    activeTab: this.activeTab,
+                }));
+                this.hasLocalChanges = true;
+                this.statusMessage = message || 'Demo-Aenderung wurde lokal gespeichert.';
+            } catch (error) {
+                this.statusMessage = 'Demo-Aenderung ist sichtbar, konnte aber nicht im Browser gespeichert werden.';
+            }
+        },
+
+        restoreLocalState() {
+            try {
+                const stored = sessionStorage.getItem(this.storageKey);
+                if (!stored) return false;
+                const state = JSON.parse(stored);
+                if (!Array.isArray(state.tenants) || state.tenants.length === 0) return false;
+                this.tenants = state.tenants;
+                this.selectedTenantSlug = state.selectedTenantSlug || this.tenants[0]?.slug || '';
+                this.selectedWorkspaceSlug = state.selectedWorkspaceSlug
+                    || (this.selectedTenant.workspaces || [])[0]?.slug
+                    || '';
+                this.activeTab = state.activeTab || 'account';
+                this.hasLocalChanges = true;
+                this.statusMessage = 'Lokale Demo-Aenderungen wurden wiederhergestellt.';
+                this.resetBillingDraft();
+                return true;
+            } catch (error) {
+                sessionStorage.removeItem(this.storageKey);
+                return false;
+            }
+        },
+
+        clearLocalState() {
+            sessionStorage.removeItem(this.storageKey);
+            this.hasLocalChanges = false;
+            this.statusMessage = '';
         },
 
         emptyTenant() {
