@@ -10,6 +10,7 @@ function providerDemo() {
         statusMessage: '',
         selectedTenantSlug: '',
         selectedWorkspaceSlug: '',
+        drillInActive: false,
         activeTab: 'account',
         billingDraft: {},
         billingSavedAt: '',
@@ -71,12 +72,28 @@ function providerDemo() {
                 const workspaceButton = event.target.closest('[data-provider-demo-workspace]');
                 if (workspaceButton) {
                     this.selectWorkspace(workspaceButton.dataset.providerDemoWorkspace);
+                    if (workspaceButton.closest('[data-provider-demo-drill-workspace]')) {
+                        this.enterTenantAccount();
+                    }
                     return;
                 }
 
                 const drillButton = event.target.closest('[data-provider-demo-drill-account]');
                 if (drillButton) {
-                    this.activeTab = 'account';
+                    this.enterTenantAccount();
+                    return;
+                }
+
+                const providerButton = event.target.closest('[data-provider-demo-provider-console]');
+                if (providerButton) {
+                    this.drillInActive = false;
+                    this.activeTab = 'provider';
+                    return;
+                }
+
+                const usersButton = event.target.closest('[data-provider-demo-open-users]');
+                if (usersButton) {
+                    this.activeTab = 'users';
                     return;
                 }
 
@@ -204,8 +221,12 @@ function providerDemo() {
 
         get selectedWorkspaceDomainHref() {
             return this.selectedWorkspacePrimaryDomain
-                ? `/domains/${this.selectedWorkspacePrimaryDomain}`
-                : '/domains';
+                ? this.contextualHref(`/domains/${this.selectedWorkspacePrimaryDomain}`)
+                : this.contextualHref('/domains');
+        },
+
+        get selectedWorkspaceReportsHref() {
+            return this.contextualHref('/reports');
         },
 
         get providerCustomers() {
@@ -270,6 +291,11 @@ function providerDemo() {
             }[health] || 'Mandanten-Workspace pruefen, bevor die naechste Aktion ausgefuehrt wird.';
         },
 
+        get drillInContextLabel() {
+            if (!this.drillInActive) return '';
+            return `${this.selectedTenant.name} / ${this.selectedWorkspace.name}`;
+        },
+
         get billingSavedLabel() {
             return this.billingSavedAt ? `Gespeichert ${this.billingSavedAt}` : 'Demo-Aenderungen lokal';
         },
@@ -294,6 +320,7 @@ function providerDemo() {
             this.supportSessionResult = null;
             this.supportSessionError = '';
             this.userError = '';
+            this.drillInActive = false;
         },
 
         selectWorkspace(workspaceSlug) {
@@ -308,6 +335,12 @@ function providerDemo() {
             this.activeTab = 'account';
             this.resetBillingDraft();
             this.userError = '';
+        },
+
+        enterTenantAccount() {
+            this.activeTab = 'account';
+            this.drillInActive = true;
+            this.statusMessage = `Mandantenkontext aktiv: ${this.selectedTenant.name}.`;
         },
 
         resetBillingDraft() {
@@ -586,6 +619,15 @@ function providerDemo() {
 
         isValidEmail(email) {
             return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || ''));
+        },
+
+        contextualHref(path) {
+            const tenant = encodeURIComponent(this.selectedTenant.slug || '');
+            const workspace = encodeURIComponent(this.selectedWorkspace.slug || '');
+            const separator = String(path || '').includes('?') ? '&' : '?';
+            return tenant && workspace
+                ? `${path}${separator}tenant=${tenant}&workspace=${workspace}`
+                : path;
         },
 
         healthClass(health) {

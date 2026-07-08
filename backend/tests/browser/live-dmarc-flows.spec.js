@@ -1118,6 +1118,15 @@ test('provider demo exposes tenant, billing, and user management console', async
   await page.locator('nav [data-provider-demo-tab="provider"]').click();
   await expect(page.getByRole('cell', { name: 'Demo Kanzlei' })).toBeVisible();
   await expect(page.getByRole('cell', { name: '499 €' })).toBeVisible();
+  await page.locator('[data-provider-demo-drill-workspace][data-provider-demo-workspace="demo-kanzlei-main"]').click();
+  await expect(page.getByText('Mandantenkontext aktiv:', { exact: true })).toBeVisible();
+  await expect(page.getByText('Demo Kanzlei / Primary workspace')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Domain-Detail oeffnen' })).toHaveAttribute(
+    'href',
+    '/domains/kanzlei.example?tenant=demo-kanzlei&workspace=demo-kanzlei-main'
+  );
+  await page.getByRole('button', { name: 'Benutzerverwaltung oeffnen' }).click();
+  await expect(page.getByRole('heading', { name: 'User im Mandanten' })).toBeVisible();
 
   await page.locator('nav [data-provider-demo-tab="users"]').click();
   const userForm = page.locator('[data-provider-demo-user-form]');

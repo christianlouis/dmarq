@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 {% set multi_workspace_ui_enabled = multi_workspace_ui_enabled | default(false) %}
+{% set provider_demo_enabled = provider_demo_enabled | default(false) %}
 {% set release_info = release_info | default({
     'label': 'vlocal',
     'version': 'local',
@@ -41,7 +42,9 @@
             x-data="userMenu"
             data-user-menu>
         <div class="flex flex-1 items-center">
-            <a href="/" class="inline-flex items-center gap-4" aria-label="DMARQ Dashboard">
+            <a href="{{ '/provider-demo' if provider_demo_enabled else '/' }}"
+               class="inline-flex items-center gap-4"
+               aria-label="{{ 'DMARQ Provider Console' if provider_demo_enabled else 'DMARQ Dashboard' }}">
                 <span class="grid h-12 w-12 place-items-center bg-[#272a5f]" aria-hidden="true">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-9 w-9" viewBox="0 0 48 48" fill="none" aria-hidden="true" focusable="false">
                         <path d="M24 4 39 9v12.4c0 9.9-6.1 17.3-15 21.9C15.1 38.7 9 31.3 9 21.4V9l15-5Z" stroke="currentColor" stroke-width="3.5" fill="none"/>
@@ -76,7 +79,10 @@
             </div>
             {% endif %}
             <nav class="hidden items-center gap-1 text-sm font-semibold lg:flex" aria-label="Primary">
-                <a href="/" class="rounded-md px-3 py-2 text-white/90 hover:bg-white/10">Dashboard</a>
+                <a href="{{ '/provider-demo' if provider_demo_enabled else '/' }}"
+                   class="rounded-md px-3 py-2 text-white/90 hover:bg-white/10">
+                    {{ "Provider Console" if provider_demo_enabled else "Dashboard" }}
+                </a>
                 <a href="/domains" class="rounded-md px-3 py-2 text-white/80 hover:bg-white/10">Domains</a>
                 <a href="/reports" class="rounded-md px-3 py-2 text-white/80 hover:bg-white/10">Reports</a>
                 <a href="/forensics" class="rounded-md px-3 py-2 text-white/80 hover:bg-white/10">Forensics</a>
@@ -139,9 +145,12 @@
     </header>
 
     <aside class="fixed bottom-0 left-0 top-24 z-30 hidden w-28 flex-col items-center gap-5 bg-[#272a5f] py-6 text-white md:flex" aria-label="Section navigation">
-        <a href="/" aria-label="Dashboard" title="Dashboard" class="group flex w-24 flex-col items-center gap-1 rounded-lg p-2 text-white shadow-sm hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
+        <a href="{{ '/provider-demo' if provider_demo_enabled else '/' }}"
+           aria-label="{{ 'Provider Console' if provider_demo_enabled else 'Dashboard' }}"
+           title="{{ 'Provider Console' if provider_demo_enabled else 'Dashboard' }}"
+           class="group flex w-24 flex-col items-center gap-1 rounded-lg p-2 text-white shadow-sm hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3 3 10.7V21h6v-6h6v6h6V10.7L12 3Z"/></svg>
-            <span class="text-[11px] font-semibold leading-tight">Dashboard</span>
+            <span class="text-[11px] font-semibold leading-tight">{{ "Provider" if provider_demo_enabled else "Dashboard" }}</span>
         </a>
         <a href="/domains" aria-label="Domains" title="Domains" class="group flex w-24 flex-col items-center gap-1 rounded-lg p-2 text-white/70 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5Zm4 2v2h8V7H8Zm0 4v2h8v-2H8Zm0 4v2h5v-2H8Z"/></svg>

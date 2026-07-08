@@ -2674,6 +2674,19 @@ def test_base_template_shows_workspace_controls_when_multi_workspace_enabled():
     assert "Members</a>" in rendered
 
 
+def test_base_template_uses_provider_console_navigation_for_provider_demo():
+    rendered = _render_template(
+        "layouts/base.html",
+        multi_workspace_ui_enabled=False,
+        provider_demo_enabled=True,
+    )
+
+    assert 'aria-label="DMARQ Provider Console"' in rendered
+    assert 'href="/provider-demo"' in rendered
+    assert "Provider Console" in rendered
+    assert 'href="/members"' not in rendered
+
+
 def test_onboarding_template_uses_single_user_setup_story_by_default():
     rendered = _render_template("onboarding.html", multi_workspace_ui_enabled=False)
     template = _onboarding_template()
@@ -2773,6 +2786,10 @@ def test_provider_demo_is_separate_from_dashboard_controls():
     assert "https://demo.dmarq.org/" in template
     assert "data-provider-demo-support-session" in template
     assert "data-provider-demo-create-form" in template
+    assert "data-provider-demo-provider-console" in template
+    assert "data-provider-demo-open-users" in template
+    assert "data-provider-demo-drill-workspace" in template
+    assert 'href="/members"' not in template
     assert "Operator checklist" not in template
     assert "providerDemo" in script
     assert "createTenant" in script

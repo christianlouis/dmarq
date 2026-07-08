@@ -170,6 +170,13 @@
                         </div>
                         <div class="flex flex-wrap gap-2">
                             <button type="button"
+                                    class="btn btn-outline btn-sm"
+                                    data-provider-demo-provider-console
+                                    x-show="drillInActive"
+                                    x-cloak>
+                                Zur Provider-Konsole
+                            </button>
+                            <button type="button"
                                     class="btn btn-primary btn-sm"
                                     data-provider-demo-drill-account>
                                 In Account abtauchen
@@ -182,6 +189,12 @@
                                 Support-View oeffnen
                             </button>
                         </div>
+                    </div>
+                    <div x-show="drillInActive"
+                         x-cloak
+                         class="mt-4 rounded-md border border-[#d7efe8] bg-[#eefaf6] p-3 text-sm text-[#0f6b4d]">
+                        <span class="font-semibold">Mandantenkontext aktiv:</span>
+                        <span x-text="drillInContextLabel"></span>
                     </div>
                     <div class="mt-5 grid gap-3 md:grid-cols-4">
                         <div class="rounded-md bg-base-200 p-3">
@@ -252,8 +265,12 @@
                                :href="selectedWorkspaceDomainHref">
                                 Domain-Detail oeffnen
                             </a>
-                            <a class="btn btn-outline btn-sm w-full" href="/reports">Reports oeffnen</a>
-                            <a class="btn btn-outline btn-sm w-full" href="/members">Benutzerverwaltung oeffnen</a>
+                            <a class="btn btn-outline btn-sm w-full" :href="selectedWorkspaceReportsHref">Reports oeffnen</a>
+                            <button class="btn btn-outline btn-sm w-full"
+                                    type="button"
+                                    data-provider-demo-open-users>
+                                Benutzerverwaltung oeffnen
+                            </button>
                         </div>
                         <div class="mt-5 border-t border-base-300 pt-4">
                             <h3 class="text-sm font-semibold">Naechster sinnvoller Schritt</h3>
@@ -422,6 +439,7 @@
                                         <td class="text-right">
                                             <button class="btn btn-ghost btn-xs"
                                                     type="button"
+                                                    data-provider-demo-drill-workspace
                                                     :data-provider-demo-workspace="customer.workspace_slug">
                                                 Account oeffnen
                                             </button>
