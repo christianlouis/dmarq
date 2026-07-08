@@ -1089,23 +1089,37 @@ test('tls reports page renders summary data from the registered Alpine component
   await expect(page.getByText('No TLS report data is available for the current filters.')).not.toBeVisible();
 });
 
-test('provider demo guides tenant triage and audited support access', async ({ page }) => {
+test('provider demo exposes tenant, billing, and user management console', async ({ page }) => {
   const response = await page.goto('/');
   expect(response, 'provider demo navigation should return a response').not.toBeNull();
   await expect(page).toHaveURL(/\/provider-demo$/);
 
-  await expect(page.getByRole('heading', { name: 'ISP, MSP, and tenant operations' })).toBeVisible();
-  await expect(page.getByText('Operator checklist')).toBeVisible();
-  await expect(page.getByText('Healthy tenants')).toBeVisible();
-  await expect(page.getByText('Misconfigured tenants')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Mandanten & Billing verwalten' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Mandanten', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Neuen Mandanten anlegen', exact: true })).toBeVisible();
 
-  await page.getByText('Fix DKIM and SPF lookup budget before policy enforcement.').click();
-  await expect(page.getByRole('heading', { name: 'ISP operator' })).toBeVisible();
-  await expect(page.getByText('Do not enforce yet. Fix DKIM and SPF alignment first.')).toBeVisible();
-  await expect(page.getByText('lawfirm.example').first()).toBeVisible();
+  await page.getByRole('button', { name: 'Mandant anlegen' }).click();
+  await page.getByPlaceholder('Acme GmbH').fill('Demo Kanzlei');
+  await page.getByPlaceholder('acme.example').fill('kanzlei.example');
+  await page.getByRole('button', { name: 'Mandant erstellen' }).click();
+  await expect(page.getByRole('heading', { name: 'Demo Kanzlei' })).toBeVisible();
+  await expect(page.locator('[data-provider-demo-workspace="demo-kanzlei-main"]').getByText('kanzlei.example')).toBeVisible();
 
-  await page.getByRole('button', { name: 'Start demo support session' }).click();
-  await expect(page.getByText('Demo session ready')).toBeVisible();
-  await expect(page.getByText('audit-demo-browser-001')).toBeVisible();
-  await expect(page.getByText('nora.ops@northstar.example opened bakery.example as taylor@bakery.example')).toBeVisible();
+  await page.locator('nav [data-provider-demo-tab="billing"]').click();
+  await page.getByLabel('Invoice owner').fill('Demo Provider GmbH');
+  await page.getByLabel('Monatlicher Betrag').fill('499');
+  await page.getByRole('button', { name: 'Billing speichern' }).click();
+  await expect(page.getByText(/Gespeichert/)).toBeVisible();
+  await expect(page.getByText('499 €')).toBeVisible();
+
+  await page.locator('nav [data-provider-demo-tab="users"]').click();
+  const userForm = page.locator('[data-provider-demo-user-form]');
+  await userForm.getByLabel('Name', { exact: true }).fill('Mara Admin');
+  await userForm.getByLabel('E-Mail', { exact: true }).fill('mara@kanzlei.example');
+  await userForm.getByRole('button', { name: 'User hinzufuegen' }).click();
+  await expect(page.getByText('mara@kanzlei.example')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Support-View oeffnen' }).click();
+  await expect(page.getByText('Support-View bereit')).toBeVisible();
+  await expect(page.getByText('demo_session_ready')).toBeVisible();
 });

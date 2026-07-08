@@ -3,12 +3,33 @@ function providerDemo() {
         loading: false,
         error: '',
         deployment: null,
-        selectedStepNumber: 1,
-        selectedScenarioId: '',
+        tenants: [],
+        tenantSearch: '',
+        selectedTenantSlug: '',
         selectedWorkspaceSlug: '',
+        activeTab: 'account',
+        billingDraft: {},
+        billingSavedAt: '',
         startingSupportSession: false,
         supportSessionResult: null,
         supportSessionError: '',
+        tenantDraft: {
+            name: '',
+            domain: '',
+            plan_tier: 'Business',
+            collection_model: 'provider_pass_through',
+        },
+        userDraft: {
+            name: '',
+            email: '',
+            role: 'workspace_admin',
+        },
+        tabs: [
+            {id: 'account', label: 'Account'},
+            {id: 'billing', label: 'Billing'},
+            {id: 'users', label: 'User'},
+            {id: 'provider', label: 'Provider-Billing'},
+        ],
 
         init() {
             this.bindControls();
@@ -25,15 +46,39 @@ function providerDemo() {
                     return;
                 }
 
-                const stepButton = event.target.closest('[data-provider-demo-step]');
-                if (stepButton) {
-                    this.selectStep(Number(stepButton.dataset.providerDemoStep));
+                const createFocus = event.target.closest('[data-provider-demo-create-focus]');
+                if (createFocus) {
+                    this.focusCreateTenant();
+                    return;
+                }
+
+                const tenantButton = event.target.closest('[data-provider-demo-tenant]');
+                if (tenantButton) {
+                    this.selectTenant(tenantButton.dataset.providerDemoTenant);
+                    return;
+                }
+
+                const tabButton = event.target.closest('[data-provider-demo-tab]');
+                if (tabButton) {
+                    this.activeTab = tabButton.dataset.providerDemoTab;
                     return;
                 }
 
                 const workspaceButton = event.target.closest('[data-provider-demo-workspace]');
                 if (workspaceButton) {
                     this.selectWorkspace(workspaceButton.dataset.providerDemoWorkspace);
+                    return;
+                }
+
+                const drillButton = event.target.closest('[data-provider-demo-drill-account]');
+                if (drillButton) {
+                    this.activeTab = 'account';
+                    return;
+                }
+
+                const addWorkspaceButton = event.target.closest('[data-provider-demo-add-workspace]');
+                if (addWorkspaceButton) {
+                    this.addWorkspace();
                     return;
                 }
 
@@ -55,122 +100,130 @@ function providerDemo() {
                     signal: controller.signal,
                 }).finally(() => clearTimeout(timeout));
                 if (!response.ok) {
-                    throw new Error('Provider demo data is not available in this deployment.');
+                    throw new Error('Provider console data is not available in this deployment.');
                 }
                 const payload = await response.json();
                 this.deployment = payload.deployment || {};
-                const firstStep = this.journeySteps[0] || {};
-                this.selectStep(firstStep.step || 1);
+                this.tenants = this.buildTenants(this.deployment.organizations || []);
+                const providerCustomer = this.tenants.find(tenant => tenant.billing_mode === 'provider_resale');
+                this.selectTenant(providerCustomer?.slug || this.tenants[0]?.slug || '');
             } catch (error) {
                 this.error = error.name === 'AbortError'
-                    ? 'Provider demo data request timed out.'
-                    : error.message || 'Provider demo could not be loaded.';
+                    ? 'Provider console data request timed out.'
+                    : error.message || 'Provider console could not be loaded.';
                 this.deployment = null;
+                this.tenants = [];
             } finally {
                 this.loading = false;
             }
+        },
+
+        buildTenants(organizations) {
+            return organizations.map(organization => {
+                const providerCustomer = (organization.provider_customers || [])[0] || {};
+                const billingProfile = organization.billing_profile || {};
+                const entitlements = organization.entitlements || {};
+                return {
+                    ...this.clone(organization),
+                    plan_tier: organization.plan_tier || providerCustomer.subscription_tier || 'Business',
+                    billing_status: providerCustomer.billing_status || organization.billing_status || 'active',
+                    monthly_charge_cents: Number(providerCustomer.monthly_charge_cents || 0),
+                    billing_profile: {
+                        invoice_owner: billingProfile.invoice_owner || 'Provider',
+                        collection_model: billingProfile.collection_model || organization.billing_mode || 'provider_pass_through',
+                        payment_rail: billingProfile.payment_rail || 'bank_transfer',
+                        invoice_reference: billingProfile.invoice_reference || organization.slug || '',
+                    },
+                    entitlements: {
+                        ...entitlements,
+                        users: entitlements.users || {
+                            used: (organization.users || []).length,
+                            included: 25,
+                        },
+                        aggregate_messages: entitlements.aggregate_messages || {
+                            used: this.aggregateMessages(organization),
+                            included: 1_000_000,
+                        },
+                    },
+                    users: this.clone(organization.users || []),
+                    workspaces: this.clone(organization.workspaces || []),
+                };
+            });
         },
 
         get ready() {
             return Boolean(this.deployment) && !this.loading;
         },
 
-        get organizations() {
-            return this.deployment?.organizations || [];
+        get filteredTenants() {
+            const needle = this.tenantSearch.trim().toLowerCase();
+            if (!needle) return this.tenants;
+            return this.tenants.filter(tenant => {
+                return [
+                    tenant.name,
+                    tenant.slug,
+                    tenant.plan_tier,
+                    tenant.billing_status,
+                    tenant.billing_mode,
+                    tenant.billing_profile?.invoice_owner,
+                ].some(value => String(value || '').toLowerCase().includes(needle));
+            });
         },
 
-        get journeySteps() {
-            return this.deployment?.journey_steps || [];
-        },
-
-        get viewerScenarios() {
-            return this.deployment?.viewer_scenarios || [];
-        },
-
-        get zoomLevels() {
-            return this.deployment?.zoom_levels || [];
-        },
-
-        get impersonationPolicy() {
-            return this.deployment?.impersonation_policy || {};
-        },
-
-        get operatorPlaybook() {
-            return this.deployment?.operator_playbook || [];
-        },
-
-        get tenantHealthSegments() {
-            return this.deployment?.tenant_health_segments || [];
-        },
-
-        get supportAccessDemo() {
-            return this.deployment?.support_access_demo || {};
-        },
-
-        get selectedStep() {
-            return this.journeySteps.find(step => step.step === this.selectedStepNumber)
-                || this.journeySteps[0]
-                || {};
-        },
-
-        get selectedScenario() {
-            return this.viewerScenarios.find(scenario => scenario.id === this.selectedScenarioId)
-                || this.viewerScenarios.find(scenario => scenario.id === this.selectedStep.scenario_id)
-                || this.viewerScenarios[0]
-                || {};
-        },
-
-        get selectedOrganization() {
-            return this.organizations.find(
-                organization => organization.slug === this.selectedStep.organization_slug,
-            ) || this.organizations[0] || {};
-        },
-
-        get selectedWorkspaces() {
-            return this.selectedOrganization.workspaces || [];
+        get selectedTenant() {
+            return this.tenants.find(tenant => tenant.slug === this.selectedTenantSlug)
+                || this.tenants[0]
+                || this.emptyTenant();
         },
 
         get selectedWorkspace() {
-            return this.selectedWorkspaces.find(
+            return (this.selectedTenant.workspaces || []).find(
                 workspace => workspace.slug === this.selectedWorkspaceSlug,
-            ) || this.selectedWorkspaces[0] || {};
+            ) || (this.selectedTenant.workspaces || [])[0] || this.emptyWorkspace();
         },
 
-        get selectedWorkspaceDomains() {
-            return this.selectedWorkspace.domains || [];
+        get selectedWorkspacePrimaryDomain() {
+            return (this.selectedWorkspace.domains || [])[0] || '';
+        },
+
+        get selectedWorkspaceDomainHref() {
+            return this.selectedWorkspacePrimaryDomain
+                ? `/domains/${this.selectedWorkspacePrimaryDomain}`
+                : '/domains';
         },
 
         get providerOrganization() {
-            return this.organizations.find(
-                organization => organization.billing_mode === 'provider_resale',
-            ) || {};
+            return this.tenants.find(tenant => tenant.billing_mode === 'provider_resale')
+                || this.tenants.find(tenant => (tenant.provider_customers || []).length > 0)
+                || {};
         },
 
         get providerCustomers() {
             return this.providerOrganization.provider_customers || [];
         },
 
-        get billingProfile() {
-            return this.selectedOrganization.billing_profile || {};
+        get supportAccessDemo() {
+            return this.deployment?.support_access_demo || {};
         },
 
-        get organizationCount() {
-            return this.organizations.length;
+        get tenantCount() {
+            return this.tenants.length;
+        },
+
+        get providerCustomerCount() {
+            return this.providerCustomers.length;
+        },
+
+        get providerCustomerCountLabel() {
+            return `${this.providerCustomerCount} Provider-Kunden`;
         },
 
         get workspaceCount() {
-            return this.organizations.reduce(
-                (total, organization) => total + (organization.workspaces || []).length,
-                0,
-            );
+            return this.tenants.reduce((total, tenant) => total + (tenant.workspaces || []).length, 0);
         },
 
         get messageVolumeLabel() {
-            const total = this.organizations.reduce((sum, organization) => {
-                return sum + (organization.usage || [])
-                    .filter(row => row.metric === 'aggregate_messages')
-                    .reduce((usageSum, row) => usageSum + Number(row.quantity || 0), 0);
-            }, 0);
+            const total = this.tenants.reduce((sum, tenant) => sum + this.aggregateMessages(tenant), 0);
             return this.compactNumber(total);
         },
 
@@ -182,149 +235,276 @@ function providerDemo() {
             return this.formatMoney(cents);
         },
 
-        get selectedScenarioLabel() {
-            return this.selectedScenario.label || this.selectedStep.label || 'Demo scenario';
+        get selectedTenantDomainCount() {
+            const count = (this.selectedTenant.workspaces || []).reduce(
+                (total, workspace) => total + (workspace.domains || []).length,
+                0,
+            );
+            return `${count} Domains`;
         },
 
-        get selectedStepAction() {
-            return this.selectedStep.action || '';
-        },
-
-        get selectedStepTakeaway() {
-            return this.selectedStep.expected_takeaway || '';
-        },
-
-        get selectedStepDomain() {
-            return this.selectedStep.domain || this.selectedScenario.default_domain || 'No domain';
-        },
-
-        get selectedOrganizationName() {
-            return this.selectedOrganization.name || 'Unknown organization';
-        },
-
-        get selectedOrganizationStory() {
-            return this.selectedOrganization.demo_story || '';
-        },
-
-        get selectedOrganizationBilling() {
-            return this.humanize(this.selectedOrganization.billing_mode || 'unknown');
-        },
-
-        get currentStepZoomLabel() {
-            const zoom = this.zoomLevels.find(level => level.level === this.selectedStep.zoom_level);
-            return zoom?.label || this.humanize(this.selectedStep.zoom_level || 'workspace');
-        },
-
-        get providerCustomerCountLabel() {
-            return `${this.providerCustomers.length} customers`;
-        },
-
-        get impersonationScope() {
-            return this.impersonationPolicy.scope || 'Support access is unavailable.';
-        },
-
-        get supportOperatorLabel() {
-            const demoOperator = this.supportAccessDemo.operator;
-            if (demoOperator?.name && demoOperator?.email) {
-                return `${demoOperator.name} (${demoOperator.email})`;
-            }
-            const org = this.providerOrganization;
-            const user = (org.users || []).find(item => (item.roles || []).includes('provider_operator'));
-            return user ? `${user.name} (${user.email})` : 'Provider operator';
-        },
-
-        get targetUserLabel() {
-            const target = this.supportSessionResult?.session?.target_user
-                || this.supportAccessDemo.target_user;
-            if (target?.name && target?.email) {
-                return `${target.name} (${target.email})`;
-            }
-            const org = this.providerOrganization;
-            const user = (org.users || []).find(item => item.demo_persona === 'customer-admin');
-            return user ? `${user.name} (${user.email})` : 'Customer admin';
+        get selectedTenantUserCountLabel() {
+            return this.tenantUserLabel(this.selectedTenant);
         },
 
         get selectedTenantAction() {
             const health = this.selectedWorkspace.health || 'monitoring';
             return {
-                healthy: 'Prepare the customer for reject enforcement or schedule weekly monitoring.',
-                monitoring: 'Keep the customer in monitoring while unknown senders are investigated.',
-                warning: 'Open sender remediation before the grace period expires.',
-                attention: 'Fix the highest-impact sender drift before changing policy.',
-                critical: 'Do not enforce yet. Fix DKIM and SPF alignment first.',
-            }[health] || 'Review the customer workspace before taking action.';
+                healthy: 'Policy-Erhoehung planen oder woechentliches Monitoring bestaetigen.',
+                monitoring: 'Unbekannte Sender pruefen, bevor ein strengerer DMARC-Policy-Schritt gesetzt wird.',
+                warning: 'Sender-Remediation oeffnen und Frist im Mandantenplan setzen.',
+                attention: 'Den staerksten Sender-Drift reparieren, bevor Billing- oder Policy-Aenderungen passieren.',
+                critical: 'Nicht erzwingen. Erst DKIM/SPF-Ausrichtung und DNS-Lookups stabilisieren.',
+            }[health] || 'Mandanten-Workspace pruefen, bevor die naechste Aktion ausgefuehrt wird.';
         },
 
-        get supportAuditEvents() {
-            const resultEvents = this.supportSessionResult?.session?.audit_events;
-            if (Array.isArray(resultEvents) && resultEvents.length > 0) {
-                return resultEvents;
-            }
-            return this.supportAccessDemo.audit_events || [];
+        get billingSavedLabel() {
+            return this.billingSavedAt ? `Gespeichert ${this.billingSavedAt}` : 'Demo-Aenderungen lokal';
         },
 
         get supportSessionSummary() {
             const event = this.supportSessionResult?.audit_event;
             if (!event) return '';
-            return `${event.operator_email} opened ${event.domain} as ${event.target_user_email}; ${event.result}.`;
+            return `${event.operator_email} oeffnete ${event.domain} als ${event.target_user_email}; ${event.result}.`;
         },
 
-        selectStep(stepNumber) {
-            const step = this.journeySteps.find(item => item.step === stepNumber) || this.journeySteps[0];
-            if (!step) return;
-            this.selectedStepNumber = step.step;
-            this.selectedScenarioId = step.scenario_id;
-            this.selectedWorkspaceSlug = step.workspace_slug;
+        selectTenant(slug) {
+            if (!slug) return;
+            this.selectedTenantSlug = slug;
+            this.selectedWorkspaceSlug = (this.selectedTenant.workspaces || [])[0]?.slug || '';
+            this.resetBillingDraft();
+            this.supportSessionResult = null;
+            this.supportSessionError = '';
         },
 
         selectWorkspace(workspaceSlug) {
             if (!workspaceSlug) return;
-            const matchingStep = this.journeySteps.find(step => step.workspace_slug === workspaceSlug);
-            if (matchingStep) {
-                this.selectStep(matchingStep.step);
-                return;
+            const owningTenant = this.tenants.find(tenant => {
+                return (tenant.workspaces || []).some(workspace => workspace.slug === workspaceSlug);
+            });
+            if (owningTenant) {
+                this.selectedTenantSlug = owningTenant.slug;
             }
             this.selectedWorkspaceSlug = workspaceSlug;
+            this.activeTab = 'account';
+            this.resetBillingDraft();
+        },
+
+        resetBillingDraft() {
+            const tenant = this.selectedTenant;
+            const profile = tenant.billing_profile || {};
+            const userLimit = tenant.entitlements?.users?.included || tenant.users.length || 1;
+            const messageLimit = tenant.entitlements?.aggregate_messages?.included || 0;
+            this.billingDraft = {
+                plan_tier: tenant.plan_tier || 'Business',
+                invoice_owner: profile.invoice_owner || 'Provider',
+                collection_model: profile.collection_model || 'provider_pass_through',
+                payment_rail: profile.payment_rail || 'bank_transfer',
+                invoice_reference: profile.invoice_reference || tenant.slug || '',
+                monthly_euros: Math.round(Number(tenant.monthly_charge_cents || 0) / 100),
+                user_limit: Number(userLimit),
+                message_limit: Number(messageLimit),
+            };
+            this.billingSavedAt = '';
+        },
+
+        saveBilling() {
+            const tenant = this.selectedTenant;
+            tenant.plan_tier = this.billingDraft.plan_tier;
+            tenant.billing_profile = {
+                invoice_owner: this.billingDraft.invoice_owner,
+                collection_model: this.billingDraft.collection_model,
+                payment_rail: this.billingDraft.payment_rail,
+                invoice_reference: this.billingDraft.invoice_reference,
+            };
+            tenant.billing_mode = this.billingDraft.collection_model;
+            tenant.monthly_charge_cents = Number(this.billingDraft.monthly_euros || 0) * 100;
+            tenant.entitlements.users = {
+                used: tenant.users.length,
+                included: Number(this.billingDraft.user_limit || tenant.users.length || 1),
+            };
+            tenant.entitlements.aggregate_messages = {
+                used: this.aggregateMessages(tenant),
+                included: Number(this.billingDraft.message_limit || 0),
+            };
+            this.billingSavedAt = new Date().toLocaleTimeString('de-DE', {
+                hour: '2-digit',
+                minute: '2-digit',
+            });
+        },
+
+        createTenant() {
+            const name = this.tenantDraft.name.trim();
+            const domain = this.normalizeDomain(this.tenantDraft.domain);
+            if (!name || !domain) return;
+            const slug = this.uniqueSlug(name);
+            const workspaceSlug = `${slug}-main`;
+            const tenant = {
+                slug,
+                name,
+                demo_story: 'Neu angelegter Demo-Mandant fuer Provider-Onboarding, Billing und Benutzerverwaltung.',
+                billing_mode: this.tenantDraft.collection_model,
+                billing_status: 'draft',
+                plan_tier: this.tenantDraft.plan_tier,
+                monthly_charge_cents: 0,
+                billing_profile: {
+                    invoice_owner: 'Provider',
+                    collection_model: this.tenantDraft.collection_model,
+                    payment_rail: 'bank_transfer',
+                    invoice_reference: slug,
+                },
+                entitlements: {
+                    users: {used: 1, included: 25},
+                    aggregate_messages: {used: 0, included: 1_000_000},
+                },
+                usage: [],
+                provider_customers: [],
+                users: [
+                    {
+                        name: 'Mandanten Admin',
+                        email: `admin@${domain}`,
+                        roles: ['organization_owner'],
+                        demo_persona: 'customer-admin',
+                        can_impersonate: false,
+                    },
+                ],
+                workspaces: [
+                    {
+                        slug: workspaceSlug,
+                        name: 'Primary workspace',
+                        health: 'monitoring',
+                        domains: [domain],
+                        primary_findings: [
+                            'DMARC-Policy und Reporting-Ziel pruefen.',
+                            'SPF/DKIM-Quellen vor Enforcement bestaetigen.',
+                        ],
+                    },
+                ],
+            };
+            this.tenants.unshift(tenant);
+            this.tenantDraft = {
+                name: '',
+                domain: '',
+                plan_tier: 'Business',
+                collection_model: 'provider_pass_through',
+            };
+            this.selectTenant(slug);
+            this.activeTab = 'account';
+        },
+
+        addUser() {
+            const name = this.userDraft.name.trim();
+            const email = this.userDraft.email.trim().toLowerCase();
+            if (!name || !email) return;
+            const tenant = this.selectedTenant;
+            tenant.users.push({
+                name,
+                email,
+                roles: [this.userDraft.role],
+                demo_persona: this.userDraft.role === 'provider_operator' ? 'isp-operator' : 'customer-admin',
+                can_impersonate: this.userDraft.role === 'provider_operator',
+            });
+            tenant.entitlements.users = {
+                ...(tenant.entitlements.users || {}),
+                used: tenant.users.length,
+            };
+            this.userDraft = {
+                name: '',
+                email: '',
+                role: 'workspace_admin',
+            };
+        },
+
+        addWorkspace() {
+            const tenant = this.selectedTenant;
+            const index = (tenant.workspaces || []).length + 1;
+            const slug = `${tenant.slug}-workspace-${index}`;
+            tenant.workspaces.push({
+                slug,
+                name: `Workspace ${index}`,
+                health: 'monitoring',
+                domains: [`workspace-${index}.${tenant.slug}.example`],
+                primary_findings: [
+                    'Neue Domain importieren und DNS-Baseline pruefen.',
+                    'Reporting-Adresse und Senderquellen bestaetigen.',
+                ],
+            });
+            this.selectedWorkspaceSlug = slug;
         },
 
         async startSupportSession() {
             this.startingSupportSession = true;
             this.supportSessionError = '';
             this.supportSessionResult = null;
-            try {
-                const controller = new AbortController();
-                const timeout = setTimeout(() => controller.abort(), 10000);
-                const response = await fetch('/api/v1/operator/demo/support-session', {
-                    method: 'POST',
-                    headers: {
-                        Accept: 'application/json',
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        workspace_slug: this.selectedWorkspace.slug || 'bakery-example',
-                        reason: this.supportAccessDemo.reason || 'Customer support walkthrough',
-                    }),
-                    signal: controller.signal,
-                }).finally(() => clearTimeout(timeout));
-                if (!response.ok) {
-                    throw new Error('Demo support session could not be started.');
-                }
-                this.supportSessionResult = await response.json();
-            } catch (error) {
-                this.supportSessionError = error.name === 'AbortError'
-                    ? 'Demo support session request timed out.'
-                    : error.message || 'Demo support session could not be started.';
-            } finally {
-                this.startingSupportSession = false;
-            }
+            const primaryDomain = this.selectedWorkspacePrimaryDomain || 'example.invalid';
+            const operator = (this.providerOrganization.users || []).find(user => user.can_impersonate)
+                || (this.selectedTenant.users || [])[0]
+                || {email: 'operator@provider.example'};
+            const targetUser = (this.selectedTenant.users || [])[0] || {email: `admin@${primaryDomain}`};
+            this.supportSessionResult = {
+                result: 'demo_session_ready',
+                audit_event: {
+                    operator_email: operator.email,
+                    target_user_email: targetUser.email,
+                    domain: primaryDomain,
+                    workspace_slug: this.selectedWorkspace.slug,
+                    result: 'demo_session_ready',
+                },
+            };
+            this.startingSupportSession = false;
         },
 
-        isSelectedStep(step) {
-            return step.step === this.selectedStepNumber;
+        focusCreateTenant() {
+            this.$nextTick(() => {
+                const field = this.$root?.querySelector('[data-provider-demo-create-form] input');
+                if (field) field.focus();
+            });
+        },
+
+        isSelectedTenant(tenant) {
+            return tenant.slug === this.selectedTenantSlug;
         },
 
         isSelectedWorkspace(workspace) {
             return workspace.slug === this.selectedWorkspaceSlug;
+        },
+
+        tenantButtonClass(tenant) {
+            return this.isSelectedTenant(tenant)
+                ? 'border-[#272a5f] bg-[#f3f4ff]'
+                : 'border-base-300 bg-white hover:border-[#39a0aa]';
+        },
+
+        tabButtonClass(tab) {
+            return this.activeTab === tab.id ? 'btn-primary' : 'btn-outline';
+        },
+
+        workspaceButtonClass(workspace) {
+            return this.isSelectedWorkspace(workspace)
+                ? 'border-[#272a5f] bg-[#f3f4ff]'
+                : 'border-base-300 bg-white hover:border-[#39a0aa]';
+        },
+
+        tenantWorkspaceLabel(tenant) {
+            return `${(tenant.workspaces || []).length} Workspaces`;
+        },
+
+        tenantUserLabel(tenant) {
+            return `${(tenant.users || []).length} User`;
+        },
+
+        userRolesLabel(user) {
+            return (user.roles || []).map(role => this.humanize(role)).join(', ');
+        },
+
+        supportAccessClass(user) {
+            return user.can_impersonate
+                ? 'bg-[#eefaf6] text-[#0f6b4d]'
+                : 'bg-base-200 text-base-content/60';
+        },
+
+        supportAccessLabel(user) {
+            return user.can_impersonate ? 'erlaubt' : 'aus';
         },
 
         healthClass(health) {
@@ -337,6 +517,16 @@ function providerDemo() {
             }[health] || 'bg-base-200 text-base-content/70';
         },
 
+        statusClass(status) {
+            return {
+                active: 'bg-[#eefaf6] text-[#0f6b4d]',
+                included: 'bg-[#eefaf6] text-[#0f6b4d]',
+                billable_addon: 'bg-[#eef3ff] text-[#272a5f]',
+                grace_period: 'bg-[#fff8e5] text-[#8a5a00]',
+                draft: 'bg-base-200 text-base-content/70',
+            }[status] || 'bg-base-200 text-base-content/70';
+        },
+
         humanize(value) {
             return String(value || '')
                 .replace(/[_-]+/g, ' ')
@@ -344,22 +534,85 @@ function providerDemo() {
         },
 
         formatNumber(value) {
-            return new Intl.NumberFormat('en-US').format(Number(value || 0));
+            return new Intl.NumberFormat('de-DE').format(Number(value || 0));
         },
 
         compactNumber(value) {
-            return new Intl.NumberFormat('en-US', {
+            return new Intl.NumberFormat('de-DE', {
                 notation: 'compact',
                 maximumFractionDigits: 1,
             }).format(Number(value || 0));
         },
 
         formatMoney(cents) {
-            return new Intl.NumberFormat('en-US', {
+            return new Intl.NumberFormat('de-DE', {
                 style: 'currency',
                 currency: 'EUR',
                 maximumFractionDigits: 0,
             }).format(Number(cents || 0) / 100);
+        },
+
+        aggregateMessages(tenant) {
+            return (tenant.usage || [])
+                .filter(row => row.metric === 'aggregate_messages')
+                .reduce((sum, row) => sum + Number(row.quantity || 0), 0);
+        },
+
+        normalizeDomain(value) {
+            return String(value || '')
+                .trim()
+                .toLowerCase()
+                .replace(/^https?:\/\//, '')
+                .replace(/\/.*$/, '')
+                .replace(/[^a-z0-9.-]+/g, '');
+        },
+
+        uniqueSlug(name) {
+            const base = String(name || 'tenant')
+                .trim()
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-+|-+$/g, '') || 'tenant';
+            let slug = base;
+            let index = 2;
+            const existing = new Set(this.tenants.map(tenant => tenant.slug));
+            while (existing.has(slug)) {
+                slug = `${base}-${index}`;
+                index += 1;
+            }
+            return slug;
+        },
+
+        emptyTenant() {
+            return {
+                slug: '',
+                name: 'Kein Mandant',
+                demo_story: '',
+                billing_mode: 'unknown',
+                billing_status: 'unknown',
+                plan_tier: 'None',
+                monthly_charge_cents: 0,
+                billing_profile: {},
+                entitlements: {users: {used: 0, included: 0}, aggregate_messages: {used: 0, included: 0}},
+                users: [],
+                workspaces: [],
+                usage: [],
+                provider_customers: [],
+            };
+        },
+
+        emptyWorkspace() {
+            return {
+                slug: '',
+                name: 'Kein Workspace',
+                health: 'monitoring',
+                domains: [],
+                primary_findings: [],
+            };
+        },
+
+        clone(value) {
+            return JSON.parse(JSON.stringify(value || null));
         },
     };
 }
