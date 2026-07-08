@@ -2624,8 +2624,11 @@ def test_base_template_propagates_selected_workspace_context():
     assert "data-release-modal-trigger" in template
     assert 'aria-label="Show release notes for {{ release_info.label }}"' in template
     assert 'aria-label="Open account menu"' in template
+    assert (
+        '<span class="text-[11px] font-semibold leading-tight">{{ "Provider" if provider_demo_enabled else "Dashboard" }}</span>'
+        in template
+    )
     for rail_label in (
-        "Dashboard",
         "Domains",
         "Reports",
         "Forensics",
