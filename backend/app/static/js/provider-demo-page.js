@@ -513,21 +513,41 @@ function providerDemo() {
             this.supportSessionError = '';
             this.supportSessionResult = null;
             const primaryDomain = this.selectedWorkspacePrimaryDomain || 'example.invalid';
-            const operator = (this.tenants.flatMap(tenant => tenant.users || [])).find(user => user.can_impersonate)
-                || (this.selectedTenant.users || [])[0]
-                || {email: 'operator@provider.example'};
-            const targetUser = (this.selectedTenant.users || [])[0] || {email: `admin@${primaryDomain}`};
-            this.supportSessionResult = {
-                result: 'demo_session_ready',
-                audit_event: {
-                    operator_email: operator.email,
-                    target_user_email: targetUser.email,
-                    domain: primaryDomain,
-                    workspace_slug: this.selectedWorkspace.slug,
+            try {
+                const response = await fetch('/api/v1/operator/demo/support-session', {
+                    method: 'POST',
+                    headers: {
+                        Accept: 'application/json',
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        workspace_slug: this.selectedWorkspace.slug || 'bakery-example',
+                        reason: `Provider demo support view for ${primaryDomain}`,
+                    }),
+                });
+                if (!response.ok) {
+                    throw new Error('Support-Session Demo-Endpoint ist nicht erreichbar.');
+                }
+                this.supportSessionResult = await response.json();
+            } catch (error) {
+                const operator = (this.tenants.flatMap(tenant => tenant.users || [])).find(user => user.can_impersonate)
+                    || (this.selectedTenant.users || [])[0]
+                    || {email: 'operator@provider.example'};
+                const targetUser = (this.selectedTenant.users || [])[0] || {email: `admin@${primaryDomain}`};
+                this.supportSessionResult = {
                     result: 'demo_session_ready',
-                },
-            };
-            this.startingSupportSession = false;
+                    audit_event: {
+                        operator_email: operator.email,
+                        target_user_email: targetUser.email,
+                        domain: primaryDomain,
+                        workspace_slug: this.selectedWorkspace.slug,
+                        reason: `Provider demo support view for ${primaryDomain}`,
+                        result: 'demo_session_ready',
+                    },
+                };
+            } finally {
+                this.startingSupportSession = false;
+            }
         },
 
         focusCreateTenant() {

@@ -26,6 +26,13 @@ def _is_demo_backfill_simulation(request: Request) -> bool:
     )
 
 
+def _is_demo_support_session_simulation(request: Request) -> bool:
+    return (
+        request.method.upper() == "POST"
+        and request.url.path == "/api/v1/operator/demo/support-session"
+    )
+
+
 class DemoReadOnlyMiddleware(BaseHTTPMiddleware):
     """Block mutating requests when the public demo data mode is enabled."""
 
@@ -43,6 +50,7 @@ class DemoReadOnlyMiddleware(BaseHTTPMiddleware):
             settings.DEMO_MODE
             and request.method.upper() not in SAFE_METHODS
             and not _is_demo_backfill_simulation(request)
+            and not _is_demo_support_session_simulation(request)
         ):
             return JSONResponse(
                 status_code=status.HTTP_403_FORBIDDEN,

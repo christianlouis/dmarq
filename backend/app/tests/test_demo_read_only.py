@@ -28,6 +28,10 @@ def _build_demo_guard_client(demo_mode: bool = True) -> TestClient:
     async def simulated_retry(source_id: int, job_id: int):
         return {"source_id": source_id, "job_id": job_id, "ok": True}
 
+    @app.post("/api/v1/operator/demo/support-session")
+    async def simulated_support_session():
+        return {"ok": True}
+
     return TestClient(app)
 
 
@@ -55,6 +59,13 @@ def test_demo_mode_allows_synthetic_backfill_simulation_only():
         assert allowed_queue.status_code == 200
         assert allowed_retry.status_code == 200
         assert blocked_real_source.status_code == 403
+
+
+def test_demo_mode_allows_synthetic_support_session_simulation():
+    with _build_demo_guard_client() as client:
+        response = client.post("/api/v1/operator/demo/support-session")
+
+        assert response.status_code == 200
 
 
 def test_normal_mode_allows_mutating_methods():

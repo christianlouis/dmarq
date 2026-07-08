@@ -2774,7 +2774,7 @@ def test_provider_demo_is_separate_from_dashboard_controls():
 
     assert "data-provider-demo" in template
     assert "/api/v1/operator/demo/multi-user" in script
-    assert "/api/v1/operator/demo/support-session" not in script
+    assert "/api/v1/operator/demo/support-session" in script
     assert "/api/v1/operator/demo/multi-user" not in dashboard
     assert "/api/v1/operator/demo/support-session" not in dashboard
     assert "Provider console" in template
