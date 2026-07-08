@@ -2594,6 +2594,7 @@ def test_base_template_propagates_selected_workspace_context():
 
     assert 'src="/static/js/base-layout.js"' in template
     assert "data-multi-workspace-ui" in template
+    assert "data-demo-mode" in template
     assert 'x-data="userMenu"' in template
     assert "userMenu({" not in template
     assert "Alpine.data('userMenu', userMenu)" in script
@@ -2652,6 +2653,10 @@ def test_base_template_propagates_selected_workspace_context():
     assert "dmarq-release-modal" in script
     assert 'src="/static/js/vendor/alpine.min.js"' in template
     assert "cdn.jsdelivr.net" not in template
+    assert "data-demo-readonly-banner" in template
+    assert "data-demo-readonly-toast" in script
+    assert "Diese öffentliche Demo ist read-only" in script
+    assert "mirrorDemoReadOnlyError" in script
     assert "event.target" in script
     assert "target instanceof Element" in script
     assert "!modal.open" in script
@@ -2665,6 +2670,14 @@ def test_base_template_hides_workspace_controls_in_single_user_mode():
     assert 'href="/members"' not in rendered
     assert 'aria-label="Members"' not in rendered
     assert "Members</a>" not in rendered
+
+
+def test_base_template_shows_demo_read_only_banner_when_demo_mode_enabled():
+    rendered = _render_template("layouts/base.html", demo_mode=True)
+
+    assert 'data-demo-mode="true"' in rendered
+    assert "Öffentliche Demo - read-only" in rendered
+    assert "Änderungen werden nicht gespeichert." in rendered
 
 
 def test_base_template_shows_workspace_controls_when_multi_workspace_enabled():
@@ -2776,6 +2789,7 @@ def test_provider_demo_is_separate_from_dashboard_controls():
     dashboard = _dashboard_template()
 
     assert "data-provider-demo" in template
+    assert "/api/v1/operator/demo/provider-console" in script
     assert "/api/v1/operator/demo/multi-user" in script
     assert "/api/v1/operator/demo/support-session" in script
     assert "/api/v1/operator/demo/multi-user" not in dashboard
@@ -2784,7 +2798,7 @@ def test_provider_demo_is_separate_from_dashboard_controls():
     assert "Mandanten & Billing verwalten" in template
     assert "Neuen Mandanten anlegen" in template
     assert "Billing-Settings pro Mandant" in template
-    assert "User anlegen" in template
+    assert "Benutzer anlegen" in template
     assert "Single-user demo" in template
     assert "https://demo.dmarq.org/" in template
     assert "data-provider-demo-support-session" in template
@@ -2792,6 +2806,15 @@ def test_provider_demo_is_separate_from_dashboard_controls():
     assert "data-provider-demo-provider-console" in template
     assert "data-provider-demo-open-users" in template
     assert "data-provider-demo-drill-workspace" in template
+    assert "data-provider-demo-expression-error" in template
+    assert "Alpine Expression Error" in script
+    assert "workspace.domains.join" not in template
+    assert "tenant.billing_status || tenant.billing_mode" not in template
+    assert "selectedTenant.billing_status || selectedTenant.billing_mode" not in template
+    assert "selectedTenant.monthly_charge_cents" not in template
+    assert "fuer " not in template
+    assert "oeffnen" not in template
+    assert "Aender" not in template
     assert 'href="/members"' not in template
     assert "Operator checklist" not in template
     assert "providerDemo" in script

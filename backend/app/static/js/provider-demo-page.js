@@ -17,6 +17,7 @@ function providerDemo() {
         startingSupportSession: false,
         supportSessionResult: null,
         supportSessionError: '',
+        expressionError: '',
         tenantDraft: {
             name: '',
             domain: '',
@@ -32,12 +33,13 @@ function providerDemo() {
         tabs: [
             {id: 'account', label: 'Account'},
             {id: 'billing', label: 'Billing'},
-            {id: 'users', label: 'User'},
+            {id: 'users', label: 'Benutzer'},
             {id: 'provider', label: 'Provider-Billing'},
         ],
 
         init() {
             this.bindControls();
+            this.installDemoExpressionErrorRibbon();
             this.load();
         },
 
@@ -110,9 +112,21 @@ function providerDemo() {
             });
         },
 
+        installDemoExpressionErrorRibbon() {
+            if (document.documentElement.dataset.demoMode !== 'true') return;
+            const originalError = console.error.bind(console);
+            console.error = (...args) => {
+                const message = args.map(value => String(value || '')).join(' ');
+                if (message.includes('Alpine Expression Error')) {
+                    this.expressionError = 'Ein Alpine-Ausdruck konnte nicht ausgewertet werden. Bitte Provider-Demo-Template prüfen.';
+                }
+                originalError(...args);
+            };
+        },
+
         async load(options = {}) {
             const force = Boolean(options.force);
-            if (force && this.hasLocalChanges && !window.confirm('Lokale Demo-Aenderungen verwerfen und Demo-Daten neu laden?')) {
+            if (force && this.hasLocalChanges && !window.confirm('Lokale Demo-Änderungen verwerfen und Demo-Daten neu laden?')) {
                 return;
             }
             this.loading = true;
@@ -121,17 +135,8 @@ function providerDemo() {
                 if (force) {
                     this.clearLocalState();
                 }
-                const controller = new AbortController();
-                const timeout = setTimeout(() => controller.abort(), 10000);
-                const response = await fetch('/api/v1/operator/demo/multi-user', {
-                    headers: {Accept: 'application/json'},
-                    signal: controller.signal,
-                }).finally(() => clearTimeout(timeout));
-                if (!response.ok) {
-                    throw new Error('Provider console data is not available in this deployment.');
-                }
-                const payload = await response.json();
-                this.deployment = payload.deployment || {};
+                const payload = await this.fetchProviderConsoleData();
+                this.deployment = payload.provider_console || payload.deployment || {};
                 this.tenants = this.buildTenants(this.deployment.organizations || []);
                 const restored = !force && this.restoreLocalState();
                 if (!restored) {
@@ -140,12 +145,36 @@ function providerDemo() {
                 }
             } catch (error) {
                 this.error = error.name === 'AbortError'
-                    ? 'Provider console data request timed out.'
-                    : error.message || 'Provider console could not be loaded.';
+                    ? 'Provider-Console-Daten haben zu lange gebraucht.'
+                    : error.message || 'Provider Console konnte nicht geladen werden.';
                 this.deployment = null;
                 this.tenants = [];
             } finally {
                 this.loading = false;
+            }
+        },
+
+        async fetchProviderConsoleData() {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 10000);
+            try {
+                const response = await fetch('/api/v1/operator/demo/provider-console', {
+                    headers: {Accept: 'application/json'},
+                    signal: controller.signal,
+                });
+                if (response.ok) {
+                    return response.json();
+                }
+                const fallback = await fetch('/api/v1/operator/demo/multi-user', {
+                    headers: {Accept: 'application/json'},
+                    signal: controller.signal,
+                });
+                if (!fallback.ok) {
+                    throw new Error('Provider-Console-Daten sind in diesem Deployment nicht verfügbar.');
+                }
+                return fallback.json();
+            } finally {
+                clearTimeout(timeout);
             }
         },
 
@@ -229,6 +258,18 @@ function providerDemo() {
             return this.contextualHref('/reports');
         },
 
+        get selectedWorkspaceDomainsLabel() {
+            return this.workspaceDomainsLabel(this.selectedWorkspace);
+        },
+
+        get selectedTenantBillingStatusLabel() {
+            return this.tenantBillingStatusLabel(this.selectedTenant);
+        },
+
+        get selectedTenantMonthlyChargeLabel() {
+            return this.formatMoney(this.selectedTenant.monthly_charge_cents);
+        },
+
         get providerCustomers() {
             return this.tenants
                 .filter(tenant => this.isProviderBilledTenant(tenant))
@@ -283,12 +324,12 @@ function providerDemo() {
         get selectedTenantAction() {
             const health = this.selectedWorkspace.health || 'monitoring';
             return {
-                healthy: 'Policy-Erhoehung planen oder woechentliches Monitoring bestaetigen.',
-                monitoring: 'Unbekannte Sender pruefen, bevor ein strengerer DMARC-Policy-Schritt gesetzt wird.',
-                warning: 'Sender-Remediation oeffnen und Frist im Mandantenplan setzen.',
-                attention: 'Den staerksten Sender-Drift reparieren, bevor Billing- oder Policy-Aenderungen passieren.',
+                healthy: 'Policy-Erhöhung planen oder wöchentliches Monitoring bestätigen.',
+                monitoring: 'Unbekannte Sender prüfen, bevor ein strengerer DMARC-Policy-Schritt gesetzt wird.',
+                warning: 'Sender-Remediation öffnen und Frist im Mandantenplan setzen.',
+                attention: 'Den stärksten Sender-Drift reparieren, bevor Billing- oder Policy-Änderungen passieren.',
                 critical: 'Nicht erzwingen. Erst DKIM/SPF-Ausrichtung und DNS-Lookups stabilisieren.',
-            }[health] || 'Mandanten-Workspace pruefen, bevor die naechste Aktion ausgefuehrt wird.';
+            }[health] || 'Mandanten-Workspace prüfen, bevor die nächste Aktion ausgeführt wird.';
         },
 
         get drillInContextLabel() {
@@ -297,19 +338,19 @@ function providerDemo() {
         },
 
         get billingSavedLabel() {
-            return this.billingSavedAt ? `Gespeichert ${this.billingSavedAt}` : 'Demo-Aenderungen lokal';
+            return this.billingSavedAt ? `Gespeichert ${this.billingSavedAt}` : 'Demo-Änderungen lokal';
         },
 
         get localChangesLabel() {
             return this.hasLocalChanges
-                ? 'Lokale Simulation aktiv - Aenderungen bleiben in diesem Browser erhalten.'
+                ? 'Lokale Simulation aktiv - Änderungen bleiben in diesem Browser erhalten.'
                 : '';
         },
 
         get supportSessionSummary() {
             const event = this.supportSessionResult?.audit_event;
             if (!event) return '';
-            return `${event.operator_email} oeffnete ${event.domain} als ${event.target_user_email}; ${event.result}.`;
+            return `${event.operator_email} öffnete ${event.domain} als ${event.target_user_email}; ${event.result}.`;
         },
 
         selectTenant(slug) {
@@ -397,7 +438,7 @@ function providerDemo() {
             const tenant = {
                 slug,
                 name,
-                demo_story: 'Neu angelegter Demo-Mandant fuer Provider-Onboarding, Billing und Benutzerverwaltung.',
+                demo_story: 'Neu angelegter Demo-Mandant für Provider-Onboarding, Billing und Benutzerverwaltung.',
                 billing_mode: this.tenantDraft.collection_model,
                 billing_status: 'draft',
                 plan_tier: this.tenantDraft.plan_tier,
@@ -430,8 +471,8 @@ function providerDemo() {
                         health: 'monitoring',
                         domains: [domain],
                         primary_findings: [
-                            'DMARC-Policy und Reporting-Ziel pruefen.',
-                            'SPF/DKIM-Quellen vor Enforcement bestaetigen.',
+                            'DMARC-Policy und Reporting-Ziel prüfen.',
+                            'SPF/DKIM-Quellen vor Enforcement bestätigen.',
                         ],
                     },
                 ],
@@ -458,7 +499,7 @@ function providerDemo() {
                 return;
             }
             if (!this.isValidEmail(email)) {
-                this.userError = 'Bitte eine gueltige E-Mail-Adresse eintragen.';
+                this.userError = 'Bitte eine gültige E-Mail-Adresse eintragen.';
                 return;
             }
             const tenant = this.selectedTenant;
@@ -468,7 +509,7 @@ function providerDemo() {
             }
             const userLimit = Number(tenant.entitlements?.users?.included || 0);
             if (userLimit > 0 && (tenant.users || []).length >= userLimit) {
-                this.userError = `User-Limit von ${userLimit} erreicht. Bitte zuerst das Billing-Limit erhoehen.`;
+                this.userError = `Benutzerlimit von ${userLimit} erreicht. Bitte zuerst das Billing-Limit erhöhen.`;
                 return;
             }
             tenant.users.push({
@@ -487,7 +528,7 @@ function providerDemo() {
                 email: '',
                 role: 'workspace_admin',
             };
-            this.persistLocalState('User wurde lokal angelegt.');
+            this.persistLocalState('Benutzer wurde lokal angelegt.');
         },
 
         addWorkspace() {
@@ -500,8 +541,8 @@ function providerDemo() {
                 health: 'monitoring',
                 domains: [`workspace-${index}.${tenant.slug}.example`],
                 primary_findings: [
-                    'Neue Domain importieren und DNS-Baseline pruefen.',
-                    'Reporting-Adresse und Senderquellen bestaetigen.',
+                    'Neue Domain importieren und DNS-Baseline prüfen.',
+                    'Reporting-Adresse und Senderquellen bestätigen.',
                 ],
             });
             this.selectedWorkspaceSlug = slug;
@@ -586,7 +627,7 @@ function providerDemo() {
         },
 
         tenantUserLabel(tenant) {
-            return `${(tenant.users || []).length} User`;
+            return `${(tenant.users || []).length} Benutzer`;
         },
 
         userRolesLabel(user) {
@@ -639,6 +680,18 @@ function providerDemo() {
 
         isValidEmail(email) {
             return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || ''));
+        },
+
+        tenantBillingStatusLabel(tenant) {
+            return this.humanize(tenant.billing_status || tenant.billing_mode);
+        },
+
+        customerBillingStatusLabel(customer) {
+            return this.humanize(customer.billing_status);
+        },
+
+        workspaceDomainsLabel(workspace) {
+            return (workspace.domains || []).join(', ');
         },
 
         contextualHref(path) {
@@ -735,9 +788,9 @@ function providerDemo() {
                     activeTab: this.activeTab,
                 }));
                 this.hasLocalChanges = true;
-                this.statusMessage = message || 'Demo-Aenderung wurde lokal gespeichert.';
+                this.statusMessage = message || 'Demo-Änderung wurde lokal gespeichert.';
             } catch (error) {
-                this.statusMessage = 'Demo-Aenderung ist sichtbar, konnte aber nicht im Browser gespeichert werden.';
+                this.statusMessage = 'Demo-Änderung ist sichtbar, konnte aber nicht im Browser gespeichert werden.';
             }
         },
 
@@ -754,7 +807,7 @@ function providerDemo() {
                     || '';
                 this.activeTab = state.activeTab || 'account';
                 this.hasLocalChanges = true;
-                this.statusMessage = 'Lokale Demo-Aenderungen wurden wiederhergestellt.';
+                this.statusMessage = 'Lokale Demo-Änderungen wurden wiederhergestellt.';
                 this.resetBillingDraft();
                 return true;
             } catch (error) {

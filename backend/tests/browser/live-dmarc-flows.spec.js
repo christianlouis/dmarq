@@ -839,6 +839,13 @@ async function installApiMocks(page) {
         },
       },
     };
+    responses['/api/v1/operator/demo/provider-console'] = {
+      demo_mode: true,
+      provider_console: {
+        source: 'demo_multi_user_deployment',
+        ...responses['/api/v1/operator/demo/multi-user'].deployment,
+      },
+    };
 
     if (
       path === '/api/v1/domains/summary' ||
@@ -1095,6 +1102,7 @@ test('provider demo exposes tenant, billing, and user management console', async
   await expect(page).toHaveURL(/\/provider-demo$/);
 
   await expect(page.getByRole('heading', { name: 'Mandanten & Billing verwalten' })).toBeVisible();
+  await expect(page.getByText('Öffentliche Demo - read-only')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Mandanten', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Neuen Mandanten anlegen', exact: true })).toBeVisible();
 
@@ -1108,10 +1116,10 @@ test('provider demo exposes tenant, billing, and user management console', async
 
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Demo Kanzlei' })).toBeVisible();
-  await expect(page.getByText('Lokale Demo-Aenderungen wurden wiederhergestellt.')).toBeVisible();
+  await expect(page.getByText('Lokale Demo-Änderungen wurden wiederhergestellt.')).toBeVisible();
 
   await page.locator('nav [data-provider-demo-tab="billing"]').click();
-  await page.getByLabel('Invoice owner').fill('Demo Provider GmbH');
+  await page.getByLabel('Rechnungsempfänger').fill('Demo Provider GmbH');
   await page.getByLabel('Monatlicher Betrag').fill('499');
   await page.getByRole('button', { name: 'Billing speichern' }).click();
   await expect(page.getByText(/Gespeichert/)).toBeVisible();
@@ -1121,25 +1129,26 @@ test('provider demo exposes tenant, billing, and user management console', async
   await page.locator('[data-provider-demo-drill-workspace][data-provider-demo-workspace="demo-kanzlei-main"]').click();
   await expect(page.getByText('Mandantenkontext aktiv:', { exact: true })).toBeVisible();
   await expect(page.getByText('Demo Kanzlei / Primary workspace')).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Domain-Detail oeffnen' })).toHaveAttribute(
+  await expect(page.getByRole('link', { name: 'Domain-Detail öffnen' })).toHaveAttribute(
     'href',
     '/domains/kanzlei.example?tenant=demo-kanzlei&workspace=demo-kanzlei-main'
   );
-  await page.getByRole('button', { name: 'Benutzerverwaltung oeffnen' }).click();
-  await expect(page.getByRole('heading', { name: 'User im Mandanten' })).toBeVisible();
+  await page.getByRole('button', { name: 'Benutzerverwaltung öffnen' }).click();
+  await expect(page.getByRole('heading', { name: 'Benutzer im Mandanten' })).toBeVisible();
 
   await page.locator('nav [data-provider-demo-tab="users"]').click();
   const userForm = page.locator('[data-provider-demo-user-form]');
   await userForm.getByLabel('Name', { exact: true }).fill('Mara Admin');
   await userForm.getByLabel('E-Mail', { exact: true }).fill('mara@kanzlei.example');
-  await userForm.getByRole('button', { name: 'User hinzufuegen' }).click();
+  await userForm.getByRole('button', { name: 'Benutzer hinzufügen' }).click();
   await expect(page.getByText('mara@kanzlei.example')).toBeVisible();
   await userForm.getByLabel('Name', { exact: true }).fill('Mara Duplicate');
   await userForm.getByLabel('E-Mail', { exact: true }).fill('mara@kanzlei.example');
-  await userForm.getByRole('button', { name: 'User hinzufuegen' }).click();
+  await userForm.getByRole('button', { name: 'Benutzer hinzufügen' }).click();
   await expect(page.getByText('Diese E-Mail existiert bereits in diesem Mandanten.')).toBeVisible();
 
-  await page.getByRole('button', { name: 'Support-View oeffnen' }).click();
+  await expect(page.locator('[data-provider-demo-expression-error]')).toBeHidden();
+  await page.getByRole('button', { name: 'Support-View öffnen' }).click();
   await expect(page.getByText('Support-View bereit')).toBeVisible();
   await expect(page.getByText('demo_session_ready')).toBeVisible();
 });

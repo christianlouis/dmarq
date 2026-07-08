@@ -58,6 +58,13 @@ class DemoMultiUserDeploymentResponse(BaseModel):
     deployment: Dict[str, Any]
 
 
+class DemoProviderConsoleResponse(BaseModel):
+    """Provider-console shaped demo dataset."""
+
+    demo_mode: bool
+    provider_console: Dict[str, Any]
+
+
 class DemoSupportSessionRequest(BaseModel):
     """Demo-only support access action."""
 
@@ -115,6 +122,30 @@ async def get_demo_multi_user_deployment(
     return {
         "demo_mode": True,
         "deployment": build_demo_multi_user_deployment(),
+    }
+
+
+@router.get("/demo/provider-console", response_model=DemoProviderConsoleResponse)
+async def get_demo_provider_console(
+    _auth: dict = Depends(require_admin_auth),
+) -> DemoProviderConsoleResponse:
+    """Return demo data in the same shape the provider console consumes."""
+    require_workspace_permission(_auth, PERMISSION_AUDIT_READ)
+    if not get_settings().DEMO_MODE:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Demo provider console is only available in demo mode",
+        )
+    deployment = build_demo_multi_user_deployment()
+    return {
+        "demo_mode": True,
+        "provider_console": {
+            "source": "demo_multi_user_deployment",
+            "organizations": deployment.get("organizations", []),
+            "support_access_demo": deployment.get("support_access_demo", {}),
+            "billing_modes": deployment.get("billing_modes", []),
+            "tenant_health_segments": deployment.get("tenant_health_segments", []),
+        },
     }
 
 

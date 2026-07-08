@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 {% set multi_workspace_ui_enabled = multi_workspace_ui_enabled | default(false) %}
 {% set provider_demo_enabled = provider_demo_enabled | default(false) %}
+{% set demo_mode = demo_mode | default(false) %}
 {% set release_info = release_info | default({
     'label': 'vlocal',
     'version': 'local',
@@ -11,7 +12,7 @@
     'rollout': {'image_tag_matches_short_sha': false},
     'changes': []
 }) %}
-<html lang="en" data-theme="dmarqlight" data-multi-workspace-ui="{{ 'true' if multi_workspace_ui_enabled else 'false' }}" class="dark:data-theme-dmarqdark">
+<html lang="en" data-theme="dmarqlight" data-multi-workspace-ui="{{ 'true' if multi_workspace_ui_enabled else 'false' }}" data-demo-mode="{{ 'true' if demo_mode else 'false' }}" class="dark:data-theme-dmarqdark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -189,6 +190,14 @@
 
     <main class="min-h-screen pt-24 md:ml-28">
         <div class="p-4 md:p-6 lg:p-8">
+        {% if demo_mode %}
+        <div class="mb-5 rounded-lg border border-[#f5c16c] bg-[#fff8e5] p-4 text-sm text-[#7a4b00]"
+             role="status"
+             data-demo-readonly-banner>
+            <div class="font-semibold">Öffentliche Demo - read-only</div>
+            <div class="mt-1">Änderungen werden nicht gespeichert. Nutze eine eigene DMARQ-Installation, um echte Einstellungen zu ändern.</div>
+        </div>
+        {% endif %}
         {% block content %}{% endblock %}
         </div>
     </main>

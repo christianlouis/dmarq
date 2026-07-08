@@ -176,6 +176,27 @@ def test_operator_demo_multi_user_endpoint_returns_showcase(
     )
 
 
+def test_operator_demo_provider_console_endpoint_returns_ui_shaped_dataset(
+    authed_client: TestClient,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "app.api.api_v1.endpoints.operator.get_settings",
+        _settings_with_demo_enabled,
+    )
+
+    response = authed_client.get("/api/v1/operator/demo/provider-console")
+
+    assert response.status_code == 200
+    payload = response.json()
+    console = payload["provider_console"]
+    assert payload["demo_mode"] is True
+    assert console["source"] == "demo_multi_user_deployment"
+    assert console["organizations"][0]["slug"] == "dmarq-foundation"
+    assert console["support_access_demo"]["mode"] == "read_only_customer_view"
+    assert console["billing_modes"][0]["mode"] == "direct_stripe"
+
+
 def test_operator_demo_multi_user_endpoint_is_hidden_outside_demo_mode(
     authed_client: TestClient,
     monkeypatch,
@@ -186,6 +207,20 @@ def test_operator_demo_multi_user_endpoint_is_hidden_outside_demo_mode(
     )
 
     response = authed_client.get("/api/v1/operator/demo/multi-user")
+
+    assert response.status_code == 404
+
+
+def test_operator_demo_provider_console_endpoint_is_hidden_outside_demo_mode(
+    authed_client: TestClient,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "app.api.api_v1.endpoints.operator.get_settings",
+        _settings_with_demo_disabled,
+    )
+
+    response = authed_client.get("/api/v1/operator/demo/provider-console")
 
     assert response.status_code == 404
 

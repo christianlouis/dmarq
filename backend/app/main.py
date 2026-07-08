@@ -615,6 +615,7 @@ templates_dir = os.path.join(os.path.dirname(__file__), "templates")
 templates = Jinja2Templates(directory=templates_dir)
 templates.env.globals["multi_workspace_ui_enabled"] = settings.MULTI_WORKSPACE_UI_ENABLED
 templates.env.globals["provider_demo_enabled"] = settings.PROVIDER_DEMO_ENABLED
+templates.env.globals["demo_mode"] = settings.DEMO_MODE
 templates.env.globals["release_info"] = build_release_info(settings)
 
 

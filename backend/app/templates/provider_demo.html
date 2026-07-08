@@ -9,7 +9,7 @@
             <p class="text-xs font-semibold uppercase tracking-wide text-[#39a0aa]">Provider console</p>
             <h1 class="mt-2 text-3xl font-bold text-[#07071f]">Mandanten & Billing verwalten</h1>
             <p class="mt-2 max-w-3xl text-sm text-base-content/70">
-                Multi-Tenant-Arbeitsplatz fuer Provider: Mandanten anlegen, Accounts oeffnen, Billing steuern, Workspaces und Benutzer verwalten.
+                Multi-Tenant-Arbeitsplatz für Provider: Mandanten anlegen, Accounts öffnen, Billing steuern, Workspaces und Benutzer verwalten.
             </p>
         </div>
         <div class="flex flex-wrap gap-2">
@@ -34,6 +34,15 @@
          role="alert"
          class="rounded-lg border border-[#ff6f3c]/40 bg-[#fff2ec] p-4 text-sm text-[#8a2d0d]">
         <span x-text="error"></span>
+    </div>
+
+    <div x-show="expressionError"
+         x-cloak
+         role="alert"
+         data-provider-demo-expression-error
+         class="rounded-lg border border-[#ff6f3c]/40 bg-[#fff2ec] p-4 text-sm text-[#8a2d0d]">
+        <div class="font-semibold">Provider-Demo Ausdrucksfehler</div>
+        <div class="mt-1" x-text="expressionError"></div>
     </div>
 
     <div x-show="hasLocalChanges || statusMessage"
@@ -63,7 +72,7 @@
             <div class="rounded-lg border border-base-300 bg-base-100 p-5 shadow-sm">
                 <div class="text-sm text-base-content/60">Workspaces</div>
                 <div class="mt-2 text-3xl font-semibold" x-text="workspaceCount"></div>
-                <div class="mt-1 text-xs text-base-content/60">ueber alle Mandanten</div>
+                <div class="mt-1 text-xs text-base-content/60">über alle Mandanten</div>
             </div>
             <div class="rounded-lg border border-base-300 bg-base-100 p-5 shadow-sm">
                 <div class="text-sm text-base-content/60">Monatsvolumen</div>
@@ -103,7 +112,7 @@
                                     <span class="font-semibold text-[#07071f]" x-text="tenant.name"></span>
                                     <span class="rounded-full px-2 py-1 text-xs font-semibold"
                                           :class="statusClass(tenant.billing_status)"
-                                          x-text="humanize(tenant.billing_status || tenant.billing_mode)"></span>
+                                          x-text="tenantBillingStatusLabel(tenant)"></span>
                                 </div>
                                 <div class="mt-2 flex flex-wrap gap-1">
                                     <span class="rounded bg-base-200 px-2 py-1 text-xs" x-text="tenant.plan_tier"></span>
@@ -129,7 +138,7 @@
                                    required>
                         </label>
                         <label class="form-control">
-                            <span class="label-text">Primaere Domain</span>
+                            <span class="label-text">Primäre Domain</span>
                             <input class="input input-bordered input-sm"
                                    type="text"
                                    x-model="tenantDraft.domain"
@@ -186,7 +195,7 @@
                                     data-provider-demo-support-session
                                     :disabled="startingSupportSession">
                                 <span x-show="startingSupportSession" class="loading loading-spinner loading-xs"></span>
-                                Support-View oeffnen
+                                Support-View öffnen
                             </button>
                         </div>
                     </div>
@@ -203,7 +212,7 @@
                         </div>
                         <div class="rounded-md bg-base-200 p-3">
                             <div class="text-xs text-base-content/60">Billing Status</div>
-                            <div class="mt-1 font-semibold" x-text="humanize(selectedTenant.billing_status || selectedTenant.billing_mode)"></div>
+                            <div class="mt-1 font-semibold" x-text="selectedTenantBillingStatusLabel"></div>
                         </div>
                         <div class="rounded-md bg-base-200 p-3">
                             <div class="text-xs text-base-content/60">Domains</div>
@@ -211,12 +220,12 @@
                         </div>
                         <div class="rounded-md bg-base-200 p-3">
                             <div class="text-xs text-base-content/60">Monatsumsatz</div>
-                            <div class="mt-1 font-semibold" x-text="formatMoney(selectedTenant.monthly_charge_cents)"></div>
+                            <div class="mt-1 font-semibold" x-text="selectedTenantMonthlyChargeLabel"></div>
                         </div>
                     </div>
                 </section>
 
-                <nav class="flex flex-wrap gap-2" aria-label="Provider console tabs">
+                <nav class="flex flex-wrap gap-2" aria-label="Provider-Console-Tabs">
                     <template x-for="tab in tabs" :key="tab.id">
                         <button type="button"
                                 class="btn btn-sm"
@@ -247,7 +256,7 @@
                                               :class="healthClass(workspace.health)"
                                               x-text="humanize(workspace.health)"></span>
                                     </div>
-                                    <p class="mt-2 text-xs text-base-content/60" x-text="workspace.domains.join(', ')"></p>
+                                    <p class="mt-2 text-xs text-base-content/60" x-text="workspaceDomainsLabel(workspace)"></p>
                                     <ul class="mt-3 list-disc space-y-1 pl-4 text-sm text-base-content/70">
                                         <template x-for="finding in workspace.primary_findings" :key="finding">
                                             <li x-text="finding"></li>
@@ -259,21 +268,21 @@
                     </div>
                     <aside class="rounded-lg border border-base-300 bg-base-100 p-5 shadow-sm">
                         <h2 class="text-lg font-semibold" x-text="selectedWorkspace.name"></h2>
-                        <p class="mt-2 text-sm text-base-content/60" x-text="selectedWorkspace.domains.join(', ')"></p>
+                        <p class="mt-2 text-sm text-base-content/60" x-text="selectedWorkspaceDomainsLabel"></p>
                         <div class="mt-4 space-y-2">
                             <a class="btn btn-primary btn-sm w-full"
                                :href="selectedWorkspaceDomainHref">
-                                Domain-Detail oeffnen
+                                Domain-Detail öffnen
                             </a>
-                            <a class="btn btn-outline btn-sm w-full" :href="selectedWorkspaceReportsHref">Reports oeffnen</a>
+                            <a class="btn btn-outline btn-sm w-full" :href="selectedWorkspaceReportsHref">Reports öffnen</a>
                             <button class="btn btn-outline btn-sm w-full"
                                     type="button"
                                     data-provider-demo-open-users>
-                                Benutzerverwaltung oeffnen
+                                Benutzerverwaltung öffnen
                             </button>
                         </div>
                         <div class="mt-5 border-t border-base-300 pt-4">
-                            <h3 class="text-sm font-semibold">Naechster sinnvoller Schritt</h3>
+                            <h3 class="text-sm font-semibold">Nächster sinnvoller Schritt</h3>
                             <p class="mt-2 text-sm text-base-content/70" x-text="selectedTenantAction"></p>
                         </div>
                     </aside>
@@ -283,7 +292,7 @@
                     <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div>
                             <h2 class="text-lg font-semibold">Billing-Settings pro Mandant</h2>
-                            <p class="mt-1 text-sm text-base-content/60">Aendere Plan, Rechnungsempfaenger, Zahlungsweg und Limits fuer den ausgewaehlten Mandanten.</p>
+                            <p class="mt-1 text-sm text-base-content/60">Ändere Plan, Rechnungsempfänger, Zahlungsweg und Limits für den ausgewählten Mandanten.</p>
                         </div>
                         <span class="rounded-full bg-base-200 px-3 py-1 text-xs font-semibold" x-text="billingSavedLabel"></span>
                     </div>
@@ -298,29 +307,29 @@
                             </select>
                         </label>
                         <label class="form-control">
-                            <span class="label-text">Invoice owner</span>
+                            <span class="label-text">Rechnungsempfänger</span>
                             <input class="input input-bordered" type="text" x-model="billingDraft.invoice_owner">
                         </label>
                         <label class="form-control">
-                            <span class="label-text">Collection model</span>
+                            <span class="label-text">Abrechnungsmodell</span>
                             <select class="select select-bordered" x-model="billingDraft.collection_model">
-                                <option value="self_service_subscription">Self-service subscription</option>
-                                <option value="contract_invoice">Contract invoice</option>
-                                <option value="provider_pass_through">Provider pass-through</option>
-                                <option value="none">None</option>
+                                <option value="self_service_subscription">Self-service-Abonnement</option>
+                                <option value="contract_invoice">Vertragsrechnung</option>
+                                <option value="provider_pass_through">Provider-Rechnung</option>
+                                <option value="none">Keine</option>
                             </select>
                         </label>
                         <label class="form-control">
-                            <span class="label-text">Payment rail</span>
+                            <span class="label-text">Zahlungsweg</span>
                             <select class="select select-bordered" x-model="billingDraft.payment_rail">
-                                <option value="card_on_file">Card on file</option>
-                                <option value="bank_transfer">Bank transfer</option>
-                                <option value="isp_monthly_invoice">ISP monthly invoice</option>
-                                <option value="none">None</option>
+                                <option value="card_on_file">Hinterlegte Karte</option>
+                                <option value="bank_transfer">Überweisung</option>
+                                <option value="isp_monthly_invoice">Monatliche Provider-Rechnung</option>
+                                <option value="none">Keiner</option>
                             </select>
                         </label>
                         <label class="form-control">
-                            <span class="label-text">Invoice reference</span>
+                            <span class="label-text">Rechnungsreferenz</span>
                             <input class="input input-bordered" type="text" x-model="billingDraft.invoice_reference">
                         </label>
                         <label class="form-control">
@@ -328,7 +337,7 @@
                             <input class="input input-bordered" type="number" min="0" step="1" x-model.number="billingDraft.monthly_euros">
                         </label>
                         <label class="form-control">
-                            <span class="label-text">User-Limit</span>
+                            <span class="label-text">Benutzerlimit</span>
                             <input class="input input-bordered" type="number" min="1" x-model.number="billingDraft.user_limit">
                         </label>
                         <label class="form-control">
@@ -344,7 +353,7 @@
                 <section x-show="activeTab === 'users'" x-cloak class="grid gap-5 xl:grid-cols-[1fr_20rem]">
                     <div class="rounded-lg border border-base-300 bg-base-100 p-5 shadow-sm">
                         <div class="flex items-center justify-between gap-3">
-                            <h2 class="text-lg font-semibold">User im Mandanten</h2>
+                            <h2 class="text-lg font-semibold">Benutzer im Mandanten</h2>
                             <span class="rounded-full bg-base-200 px-3 py-1 text-xs font-semibold" x-text="selectedTenantUserCountLabel"></span>
                         </div>
                         <div class="mt-4 overflow-x-auto">
@@ -379,7 +388,7 @@
                     <form class="rounded-lg border border-base-300 bg-base-100 p-5 shadow-sm"
                           data-provider-demo-user-form
                           @submit.prevent="addUser">
-                        <h2 class="text-lg font-semibold">User anlegen</h2>
+                        <h2 class="text-lg font-semibold">Benutzer anlegen</h2>
                         <div x-show="userError"
                              x-cloak
                              role="alert"
@@ -397,14 +406,14 @@
                             <label class="form-control">
                                 <span class="label-text">Rolle</span>
                                 <select class="select select-bordered select-sm" x-model="userDraft.role">
-                                    <option value="organization_owner">Organization owner</option>
-                                    <option value="workspace_admin">Workspace admin</option>
-                                    <option value="security_analyst">Security analyst</option>
-                                    <option value="provider_operator">Provider operator</option>
+                                    <option value="organization_owner">Organisationsinhaber</option>
+                                    <option value="workspace_admin">Workspace-Admin</option>
+                                    <option value="security_analyst">Security-Analyst</option>
+                                    <option value="provider_operator">Provider-Operator</option>
                                 </select>
                             </label>
                         </div>
-                        <button class="btn btn-primary btn-sm mt-4 w-full" type="submit">User hinzufuegen</button>
+                        <button class="btn btn-primary btn-sm mt-4 w-full" type="submit">Benutzer hinzufügen</button>
                     </form>
                 </section>
 
@@ -412,7 +421,7 @@
                     <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div>
                             <h2 class="text-lg font-semibold">Provider-Kunden & Abrechnung</h2>
-                            <p class="mt-1 text-sm text-base-content/60">Kunden, die ueber Provider-Billing laufen, mit Status, Plan und monatlicher Belastung.</p>
+                            <p class="mt-1 text-sm text-base-content/60">Kunden, die über Provider-Billing laufen, mit Status, Plan und monatlicher Belastung.</p>
                         </div>
                         <button class="btn btn-outline btn-sm" type="button" data-provider-demo-tab="billing">Billing bearbeiten</button>
                     </div>
@@ -432,7 +441,7 @@
                                 <template x-for="customer in providerCustomers" :key="customer.external_customer_id">
                                     <tr>
                                         <td class="font-semibold" x-text="customer.name"></td>
-                                        <td x-text="humanize(customer.billing_status)"></td>
+                                        <td x-text="customerBillingStatusLabel(customer)"></td>
                                         <td x-text="customer.subscription_tier"></td>
                                         <td class="text-right" x-text="formatNumber(customer.aggregate_messages)"></td>
                                         <td class="text-right" x-text="formatMoney(customer.monthly_charge_cents)"></td>
@@ -441,7 +450,7 @@
                                                     type="button"
                                                     data-provider-demo-drill-workspace
                                                     :data-provider-demo-workspace="customer.workspace_slug">
-                                                Account oeffnen
+                                                    Account öffnen
                                             </button>
                                         </td>
                                     </tr>

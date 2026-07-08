@@ -131,10 +131,45 @@ if (typeof document !== 'undefined') {
     const originalFetch = window.fetch;
     const multiWorkspaceUiEnabled = () =>
         document.documentElement.dataset.multiWorkspaceUi === 'true';
+    const demoModeEnabled = () => document.documentElement.dataset.demoMode === 'true';
     const workspaceHeaderName = 'X-DMARQ-Workspace-ID';
+    const readonlyMessage = 'Diese öffentliche Demo ist read-only. Änderungen werden nicht gespeichert.';
+    let readonlyToastTimer = null;
     const normalizeWorkspaceId = (workspaceId) => {
         const trimmed = String(workspaceId || '').trim();
         return /^[1-9]\d*$/.test(trimmed) ? trimmed : '';
+    };
+    const showReadonlyToast = () => {
+        if (!demoModeEnabled() || typeof document === 'undefined') return;
+        let toast = document.querySelector('[data-demo-readonly-toast]');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.setAttribute('data-demo-readonly-toast', 'true');
+            toast.setAttribute('role', 'status');
+            toast.setAttribute('aria-live', 'polite');
+            toast.className = 'fixed bottom-5 right-5 z-50 max-w-sm rounded-lg border border-[#f5c16c] bg-[#fff8e5] p-4 text-sm font-semibold text-[#7a4b00] shadow-lg';
+            document.body.appendChild(toast);
+        }
+        toast.textContent = readonlyMessage;
+        toast.hidden = false;
+        if (readonlyToastTimer) {
+            window.clearTimeout(readonlyToastTimer);
+        }
+        readonlyToastTimer = window.setTimeout(() => {
+            toast.hidden = true;
+        }, 6000);
+    };
+    const mirrorDemoReadOnlyError = async (response) => {
+        if (!demoModeEnabled() || response.status !== 403) return response;
+        try {
+            const payload = await response.clone().json();
+            if (String(payload.detail || '').toLowerCase().includes('public demo is read-only')) {
+                showReadonlyToast();
+            }
+        } catch (_) {
+            // Non-JSON 403 responses are handled by the caller.
+        }
+        return response;
     };
     const withoutWorkspaceContext = (input, init) => {
         const headers = new Headers((init && init.headers) || (input && input.headers) || {});
@@ -147,9 +182,9 @@ if (typeof document !== 'undefined') {
         return nextInit;
     };
 
-    window.fetch = function dmarqWorkspaceFetch(input, init) {
+    window.fetch = async function dmarqWorkspaceFetch(input, init) {
         if (!multiWorkspaceUiEnabled()) {
-            return originalFetch(input, withoutWorkspaceContext(input, init));
+            return mirrorDemoReadOnlyError(await originalFetch(input, withoutWorkspaceContext(input, init)));
         }
         const workspaceId = normalizeWorkspaceId(localStorage.getItem('dmarq.selectedWorkspaceId'));
         const url =
@@ -161,7 +196,7 @@ if (typeof document !== 'undefined') {
         const isApiRequest =
             url.startsWith('/api/') || url.startsWith(window.location.origin + '/api/');
         if (!workspaceId || !isApiRequest) {
-            return originalFetch(input, init);
+            return mirrorDemoReadOnlyError(await originalFetch(input, init));
         }
         const nextInit = Object.assign({}, init || {});
         const headers = new Headers(nextInit.headers || (input && input.headers) || {});
@@ -169,7 +204,7 @@ if (typeof document !== 'undefined') {
             headers.set(workspaceHeaderName, workspaceId);
         }
         nextInit.headers = headers;
-        return originalFetch(input, nextInit);
+        return mirrorDemoReadOnlyError(await originalFetch(input, nextInit));
     };
 })();
 
