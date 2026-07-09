@@ -57,6 +57,11 @@ paths.
 | `AUTH_DISABLED` | Disable authentication entirely. Only use for local development or a separately protected deployment. | `false` | `true`, `false` |
 | `PUBLIC_BASE_URL` | Public URL used when building OAuth callback URLs behind a reverse proxy or ingress | Auto-detected | `https://dmarq.example.com` |
 | `MULTI_WORKSPACE_UI_ENABLED` | Show workspace switching and Members access-control navigation. Keep disabled for self-hosted single-workspace installs. | `false` | `true`, `false` |
+| `PROVIDER_DISPLAY_NAME` | Provider identity shown by the persisted site-manager console. | `DMARQ Provider` | `CKLNet` |
+| `PROVIDER_SLUG` | Stable provider identifier used by the console and billing references. | `dmarq-provider` | `cklnet` |
+| `PROVIDER_OPERATOR_EMAILS` | Comma-separated authenticated identities allowed to manage all provider tenants and start support sessions. Tenant roles do not imply this access. | Empty | `operator@cklnet.com` |
+| `PROVIDER_BOOTSTRAP_DEFAULT_PLANS` | Add missing Monitor, Protect, and Protect Plus provider plans at startup without overwriting existing plans. | `false` | `true`, `false` |
+| `PROVIDER_DEMO_ENABLED` | Enable the dedicated synthetic `/provider-demo` profile. Keep false for production provider installs, which use `/provider`. | `false` | `true`, `false` |
 | `AUTH_REQUIRE_MFA` | Require an accepted MFA assurance claim from Logto, direct OIDC, or trusted-proxy authentication before DMARQ issues a session. | `false` | `true`, `false` |
 | `AUTH_MFA_CLAIM_NAMES` | Comma-separated claim names to inspect for MFA assurance. Common OIDC claims are `amr` and `acr`. | `amr,acr` | `amr,acr` |
 | `AUTH_MFA_CLAIM_VALUES` | Comma-separated claim values accepted as MFA proof. Adjust this to the values emitted by your IdP. | `mfa,otp,totp,webauthn,hwk,swk,phr` | `mfa,webauthn` |

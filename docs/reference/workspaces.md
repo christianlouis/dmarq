@@ -163,49 +163,31 @@ Operators can update these controls with
 `PUT /api/v1/operator/workspaces/{workspace_id}/retention`. Updates are written
 to the workspace audit log as `workspace.retention_updated`.
 
-`GET /api/v1/operator/demo/multi-user` returns generated demo data for four
-deployment models and the dashboard persona switcher:
+`GET /api/v1/operator/provider-console` returns persisted provider-billed
+organizations as site-manager customer accounts. The response derives domains,
+report volume, compliance, members, plans, billing state, entitlements, recent
+activity, and eligible support targets from the normal tenant tables. Platform
+access is restricted to deployment admin credentials or authenticated
+identities listed in `PROVIDER_OPERATOR_EMAILS`; normal tenant roles never imply
+provider access.
 
-- direct DMARQaaS subscription with a single-user, multi-domain view for
-  `dmarq.org` and `dmarq.com`
-- managed-service account for `dmarq.com`
-- ISP/reseller deployment with provider-owned billing and multiple customer
-  workspaces
-- self-hosted deployment with local users, local billing ownership, and multiple
-  internal domains
+The dedicated provider demo calls this same endpoint after idempotently seeding
+synthetic organizations and customer evidence into the database. The older
+`GET /api/v1/operator/demo/multi-user` endpoint remains a compatibility showcase
+for deployment-model documentation but is not the source of the provider UI.
 
-The endpoint is read-only and uses generated identities, provider IDs, and
-invoice references. The dashboard uses it opportunistically to display a
-multi-user deployment showcase on demo instances, including account drill-down,
-provider customer samples, and generated user impersonation scenarios.
+Provider support access uses signed, time-boxed sessions:
 
-The response also includes `journey_steps`, an ordered product-story path used by
-the dashboard. The default path starts in the single-user, multi-domain
-`dmarq.org`/`dmarq.com` account, then zooms out through managed-service,
-provider, customer-impersonation, and self-hosted examples. Each step points to
-an existing demo scenario, organization, workspace, and domain so the UI can
-switch context without inventing state client-side.
+- `POST /api/v1/operator/support-session` binds operator, customer workspace,
+  target user and role, reason, plan, and customer reference;
+- `GET /api/v1/operator/support-session` returns API-safe active-session context;
+- `DELETE /api/v1/operator/support-session` records exit and clears the cookie.
 
-The response also includes an `impersonation_policy` object for the public demo.
-It documents that impersonation is demo-only, names the production audit event
-that would be written, and describes the minimum production audit scope:
-operator, target user, organization, workspace, reason, and timestamp.
-Generated ISP and self-hosted tenant domains explain workspace scope and billing
-ownership; only domains backed by aggregate reports should link to live domain
-detail pages.
-
-The provider demo response also includes:
-
-- `operator_playbook`, a short checklist that keeps the demo path focused on the
-  next user action
-- `tenant_health_segments`, which separates healthy, monitoring, and
-  misconfigured tenants for provider triage
-- `support_access_demo`, a synthetic read-only support-access session with
-  safeguards and generated audit events
-
-`POST /api/v1/operator/demo/support-session` returns a generated audit event for
-the selected demo workspace. It is demo-only, does not create a real user
-session, and does not enable DNS or provider writes.
+While active, normal customer APIs force the token's workspace even when a
+different `X-DMARQ-Workspace-ID` is supplied. Public provider demos force
+read-only access. Production provider installations may request role-scoped
+access, but the target user's RBAC still applies. Both session start and end are
+customer-visible workspace audit events.
 
 Provider billing integrations can read monthly usage with
 `GET /api/v1/provider/billing/usage?period=YYYY-MM`. A single external customer

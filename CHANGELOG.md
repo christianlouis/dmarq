@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added a product-backed site-manager console at `/provider` with risk-sorted
+  customer accounts, domain/report/user/billing drill-down, persistent provider
+  provisioning, active plan selection, and mobile account cards.
+- Added explicit provider-operator allowlisting and an opt-in, non-destructive
+  starter plan bootstrap for fresh persistent ISP/MSP installations.
+- Added signed, time-boxed customer support sessions with a required reason,
+  target-user RBAC, fixed workspace scope, customer-visible start/end audits,
+  persistent context banner, and return-to-provider flow.
+- Added an idempotent relational provider-demo seed covering six organizations,
+  plans, billing, entitlements, users, memberships, domains, reports, imports,
+  health histories, and audit activity.
+- Added separate read permissions for customer membership and mail-source status
+  so read-only support sessions can inspect configuration without mutating it.
 - Added provider-demo workflow polish with an operator checklist, tenant-health
   queue, selected-tenant next action, and a demo-only audited support-session CTA.
 - Added provider-demo host routing so multi-user demo deployments start on the
@@ -86,6 +99,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added remediation-loop completion gates on the dashboard and domain queue so parent roadmap issues are only considered ready after priority, evidence, action-plan, automation, approval, verification, notification, and summary criteria are represented.
 
 ### Changed
+- Changed the dedicated provider-demo shell to use provider-specific navigation
+  and the Sofia Weber site-manager persona instead of inheriting the single-user
+  DMARQ navigation and local-admin identity.
+- Changed the provider demo data contract from mixed organizations/workspaces to
+  persisted provider-owned customer accounts so every drill-down uses the same
+  scoped product APIs as a normal customer session.
+
 - Domain detail, reports, and onboarding pages now lead with clearer primary
   CTAs, move secondary actions into overflow/progressive disclosure, and give
   empty/error states an explicit next step.
@@ -130,6 +150,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cleaned up root directory for clarity
 
 ### Fixed
+- Fixed provider support sessions leaking standalone demo statistics, TLS,
+  forensic, mail-source, and DNS-policy fixtures into customer-scoped views.
+- Fixed provider customer provisioning lookups after organization slug
+  normalization and persisted initial domain and billing fields atomically.
+- Fixed the provider console header showing an unrelated customer workspace
+  selector and injecting that workspace into global provider API requests.
 - TLSA parsing now preserves association data that contains whitespace after the
   first three TLSA fields, with focused tests for malformed and warning cases.
 - Aggregate and TLS report pages now keep the last loaded data visible when a manual refresh or API retry fails.

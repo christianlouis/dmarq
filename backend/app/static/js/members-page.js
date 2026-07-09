@@ -8,10 +8,13 @@ function membershipApp() {
         scope: 'workspace',
         loading: false,
         saving: false,
+        readOnly: false,
         flash: { message: '', ok: true },
         invite: { email: '', full_name: '', role: '' },
 
         async init() {
+            const root = this.$root || document.querySelector('[data-members-page]');
+            this.readOnly = root?.dataset.membersReadOnly === 'true';
             this.bindPageControls();
             await this.loadOrganizations();
         },
@@ -46,6 +49,7 @@ function membershipApp() {
 
                 const deactivateButton = event.target.closest('[data-members-deactivate]');
                 if (deactivateButton && root.contains(deactivateButton)) {
+                    if (this.readOnly) return;
                     const membership = this.findMembershipByUserId(deactivateButton.dataset.membersUserId);
                     if (membership) {
                         this.deactivateMembership(membership);
@@ -57,6 +61,7 @@ function membershipApp() {
                 if (!restoreButton || !root.contains(restoreButton)) {
                     return;
                 }
+                if (this.readOnly) return;
                 const membership = this.findMembershipByUserId(restoreButton.dataset.membersUserId);
                 if (membership) {
                     this.updateMembership(membership, true);
@@ -82,6 +87,7 @@ function membershipApp() {
                 if (!event.target.matches('[data-members-role-select]')) {
                     return;
                 }
+                if (this.readOnly) return;
                 const membership = this.findMembershipByUserId(event.target.dataset.membersUserId);
                 if (membership) {
                     membership.role = event.target.value;
@@ -91,6 +97,7 @@ function membershipApp() {
 
             root.querySelector('[data-members-invite-form]')?.addEventListener('submit', (event) => {
                 event.preventDefault();
+                if (this.readOnly) return;
                 this.inviteMember();
             });
         },
@@ -425,7 +432,7 @@ function membershipApp() {
         },
 
         canInvite() {
-            return Boolean(this.membershipEndpoint() && this.invite.email && this.invite.role);
+            return Boolean(!this.readOnly && this.membershipEndpoint() && this.invite.email && this.invite.role);
         },
 
         memberInitial(membership) {

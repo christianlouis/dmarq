@@ -177,24 +177,12 @@ async def verify_token(
         ) from e
 
 
-async def require_admin_auth(
+async def _require_regular_admin_auth(
     request: Request,
-    api_key: Optional[str] = Security(api_key_header),
-    bearer: Optional[HTTPAuthorizationCredentials] = Security(security_bearer),
+    api_key: Optional[str],
+    bearer: Optional[HTTPAuthorizationCredentials],
 ) -> dict:
-    """
-    Dependency to require authentication for admin/API endpoints.
-
-    Accepts (in priority order):
-    1. ``AUTH_DISABLED=true`` env var – passes through with a synthetic context.
-    2. Trusted proxy headers – only when explicitly configured.
-    3. ``dmarq_session`` cookie – set after a successful browser login.
-    3. ``X-API-Key`` header    – static admin key for programmatic access.
-    4. ``Authorization: Bearer <token>`` header – app-issued JWT.
-
-    Returns an authentication context dict describing how the request was
-    authenticated.  Raises ``HTTP 401`` when no valid credential is present.
-    """
+    """Authenticate a request that is not using a provider support session."""
     current_settings = _current_settings()
     # 0. Auth globally disabled
     if (
@@ -248,6 +236,25 @@ async def require_admin_auth(
         detail="Authentication required. Provide a session cookie, X-API-Key header, or Bearer token.",
         headers={"WWW-Authenticate": "ApiKey, Bearer"},
     )
+
+
+async def require_admin_auth(
+    request: Request,
+    api_key: Optional[str] = Security(api_key_header),
+    bearer: Optional[HTTPAuthorizationCredentials] = Security(security_bearer),
+) -> dict:
+    """
+    Require authentication for admin/API endpoints.
+
+    A signed provider support session takes precedence over the regular proxy,
+    browser-session, API-key, and Bearer-token authentication methods.
+    """
+    from app.services.support_sessions import support_session_auth_context  # local import
+
+    support_context = support_session_auth_context(request)
+    if support_context is not None:
+        return support_context
+    return await _require_regular_admin_auth(request, api_key, bearer)
 
 
 def require_api_token_scope(required_scope: str) -> Callable:

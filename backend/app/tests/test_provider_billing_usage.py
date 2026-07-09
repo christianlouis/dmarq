@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.api.api_v1.endpoints import provider as provider_endpoints
+from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.api_token import APIToken
@@ -505,19 +506,39 @@ def test_provider_customer_provisioning_rejects_blank_workspace_name(
         )
 
 
-def test_provider_customer_provisioning_rejects_non_starter_plan(
+def test_provider_customer_provisioning_accepts_active_provider_plan(
     db_session: Session,
 ):
-    with pytest.raises(ValueError, match="plan_code must be starter"):
-        provision_provider_customer(
-            db_session,
-            provider_id="isp-demo",
-            external_customer_id="cust-enterprise-plan",
-            external_subscription_id="sub-enterprise-plan",
-            organization_slug="Enterprise Plan Customer",
-            organization_name="Enterprise Plan Customer",
-            plan_code="enterprise",
-        )
+    plan = Plan(
+        code="enterprise",
+        name="Enterprise",
+        billing_mode=BILLING_MODE_PROVIDER_RESALE,
+        active=True,
+        included_sending_domains=250,
+        included_message_volume=50_000_000,
+        included_users=500,
+        retention_days=730,
+    )
+    db_session.add(plan)
+    db_session.flush()
+
+    result = provision_provider_customer(
+        db_session,
+        provider_id="isp-demo",
+        external_customer_id="cust-enterprise-plan",
+        external_subscription_id="sub-enterprise-plan",
+        organization_slug="Enterprise Plan Customer",
+        organization_name="Enterprise Plan Customer",
+        plan_code="enterprise",
+    )
+
+    subscription = (
+        db_session.query(Subscription)
+        .filter(Subscription.external_subscription_id == "sub-enterprise-plan")
+        .one()
+    )
+    assert result["organization"]["slug"] == "enterprise-plan-customer"
+    assert subscription.plan_id == plan.id
 
 
 def test_provider_customer_provisioning_scopes_replays_by_provider(
@@ -555,10 +576,16 @@ def test_provider_customer_provisioning_scopes_replays_by_provider(
 def test_provider_customer_provisioning_endpoint_creates_customer(
     test_app,
     db_session: Session,
+    monkeypatch,
 ):
     user = User(email="provider-provisioner@example.com", is_active=True, is_verified=True)
     db_session.add(user)
     db_session.commit()
+    monkeypatch.setattr(
+        get_settings(),
+        "PROVIDER_OPERATOR_EMAILS",
+        "provider-provisioner@example.com",
+    )
 
     with _client_as_user(test_app, db_session, user) as client:
         response = client.post(
@@ -571,6 +598,12 @@ def test_provider_customer_provisioning_endpoint_creates_customer(
                 "organization_slug": "Endpoint Customer",
                 "organization_name": "Endpoint Customer",
                 "workspace_slug": "Endpoint Customer Workspace",
+                "primary_domain": "mail.endpoint.example",
+                "dmarc_report_mailbox": "dmarc@endpoint.example",
+                "invoice_reference": "CKL-2042",
+                "invoice_delivery_mode": "provider_invoice",
+                "billing_contact_email": "billing@endpoint.example",
+                "monthly_price_cents": 4900,
             },
         )
         assert response.status_code == 200
@@ -578,6 +611,22 @@ def test_provider_customer_provisioning_endpoint_creates_customer(
         assert body["organization"]["billing_accounts"][0]["external_customer_id"] == (
             "cust-endpoint"
         )
+        account = (
+            db_session.query(BillingAccount)
+            .filter(BillingAccount.external_customer_id == "cust-endpoint")
+            .one()
+        )
+        subscription = (
+            db_session.query(Subscription)
+            .filter(Subscription.external_subscription_id == "sub-endpoint")
+            .one()
+        )
+        domain = db_session.query(Domain).filter(Domain.name == "mail.endpoint.example").one()
+        assert account.tax_reference == "CKL-2042"
+        assert account.billing_contact_email == "billing@endpoint.example"
+        assert subscription.monthly_price_cents == 4900
+        assert domain.dmarc_report_mailbox == "dmarc@endpoint.example"
+        assert domain.workspace.slug == "endpoint-customer-workspace"
 
         replay = client.post(
             "/api/v1/provider/customers",
@@ -796,9 +845,10 @@ def test_provider_subscription_state_update_rejects_invalid_or_empty_scope(
         )
 
 
-def test_provider_subscription_state_endpoint_requires_org_admin_access(
+def test_provider_subscription_state_endpoint_requires_provider_operator_access(
     test_app,
     db_session: Session,
+    monkeypatch,
 ):
     _, allowed_workspace, allowed_subscription = _add_provider_customer(
         db_session,
@@ -814,7 +864,8 @@ def test_provider_subscription_state_endpoint_requires_org_admin_access(
     )
     auditor = User(email="provider-state-auditor@example.com", is_active=True, is_verified=True)
     owner = User(email="provider-state-owner@example.com", is_active=True, is_verified=True)
-    db_session.add_all([auditor, owner])
+    operator = User(email="provider-operator@example.com", is_active=True, is_verified=True)
+    db_session.add_all([auditor, owner, operator])
     db_session.flush()
     db_session.add_all(
         [
@@ -833,25 +884,32 @@ def test_provider_subscription_state_endpoint_requires_org_admin_access(
         ]
     )
     db_session.commit()
+    monkeypatch.setattr(
+        get_settings(),
+        "PROVIDER_OPERATOR_EMAILS",
+        "provider-operator@example.com",
+    )
 
     with _client_as_user(test_app, db_session, auditor) as client:
         denied = client.post(
             "/api/v1/provider/subscriptions/sub-updatable/state",
             json={"status": "suspended"},
         )
-        assert denied.status_code == 404
+        assert denied.status_code == 403
 
     with _client_as_user(test_app, db_session, owner) as client:
+        denied = client.post(
+            "/api/v1/provider/subscriptions/sub-updatable/state",
+            json={"status": "suspended"},
+        )
+        assert denied.status_code == 403
+
+    with _client_as_user(test_app, db_session, operator) as client:
         updated = client.post(
             "/api/v1/provider/subscriptions/sub-updatable/state",
             json={"status": "suspended"},
         )
         assert updated.status_code == 200
-        blocked = client.post(
-            "/api/v1/provider/subscriptions/sub-blocked/state",
-            json={"status": "suspended"},
-        )
-        assert blocked.status_code == 404
 
     db_session.refresh(allowed_subscription)
     db_session.refresh(hidden_subscription)

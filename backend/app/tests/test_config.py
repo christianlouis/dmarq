@@ -82,6 +82,16 @@ class TestWorkspaceUiMode:
 
         assert settings.MULTI_WORKSPACE_UI_ENABLED is True
 
+    def test_provider_operator_emails_are_normalized(self):
+        settings = Settings(
+            PROVIDER_OPERATOR_EMAILS=" Admin@Example.com, operator@example.com ,admin@example.com"
+        )
+
+        assert settings.provider_operator_emails == {
+            "admin@example.com",
+            "operator@example.com",
+        }
+
 
 class TestMakeSyncDbUrl:
     """Tests for the _make_sync_db_url() URL normalization helper."""

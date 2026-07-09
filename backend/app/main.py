@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 import app.models.alert  # noqa: F401 – ensure AlertHistory table is registered
@@ -16,6 +17,7 @@ import app.models.api_token  # noqa: F401 – ensure APIToken table is registere
 import app.models.dns_cache  # noqa: F401 – ensure DNSCache table is registered
 import app.models.domain  # noqa: F401 – ensure Domain/UserDomain tables are registered
 import app.models.mail_source_import  # noqa: F401 – ensure import history table is registered
+import app.models.organization  # noqa: F401 – ensure commercial account tables are registered
 import app.models.report  # noqa: F401 – ensure DMARCReport/ReportRecord tables are registered
 import app.models.setting  # noqa: F401 – ensure Setting table is registered
 import app.models.user  # noqa: F401 – ensure User table is registered
@@ -25,7 +27,7 @@ import app.models.workspace_access  # noqa: F401 – ensure RBAC/audit tables ar
 from app.api.api_v1.api import api_router
 from app.core.auth_providers import auth_provider_registry
 from app.core.config import get_settings
-from app.core.database import Base, SessionLocal, engine
+from app.core.database import Base, SessionLocal, engine, get_db
 from app.core.security import add_api_key, generate_api_key, require_admin_auth
 from app.core.startup_checks import run_startup_checks
 from app.middleware.auth import AuthRedirectMiddleware
@@ -43,6 +45,7 @@ from app.services.mail_service_imports import mail_service_context_from_domain
 from app.services.mail_source_backfill_worker import run_due_mail_source_backfill_jobs
 from app.services.mailbox_recovery import import_result_diagnostic, import_row_diagnostic
 from app.services.microsoft_graph_client import MicrosoftGraphClient
+from app.services.provider_access import require_provider_operator_access
 from app.services.release_info import build_release_info
 from app.services.report_persistence import hydrate_report_store_from_db
 from app.services.report_store import ReportStore
@@ -54,6 +57,7 @@ from app.services.runtime_status import (
     mark_scheduler_success,
 )
 from app.services.summary_notifications import send_due_scheduled_summaries
+from app.services.support_sessions import support_session_from_request
 from app.services.webhook_events import deliver_due_webhooks
 
 # Set up logging
@@ -473,6 +477,54 @@ def _encrypt_legacy_mail_source_secrets() -> None:
         db.close()
 
 
+def _initialize_provider_data() -> None:
+    """Prepare demo tenants or the optional production plan catalog."""
+    if settings.DEMO_MODE and settings.PROVIDER_DEMO_ENABLED:
+        from app.services.demo_provider_seed import seed_demo_provider_database
+
+        demo_db = SessionLocal()
+        try:
+            seeded = seed_demo_provider_database(demo_db)
+            logger.info("Provider demo relational seed ready: %s", seeded)
+        except Exception:
+            demo_db.rollback()
+            logger.exception("Failed to seed provider demo account data")
+            raise
+        finally:
+            demo_db.close()
+
+    if (
+        not settings.DEMO_MODE
+        and settings.MULTI_WORKSPACE_UI_ENABLED
+        and settings.PROVIDER_BOOTSTRAP_DEFAULT_PLANS
+    ):
+        from app.services.provider_plans import ensure_default_provider_plans
+
+        provider_db = SessionLocal()
+        try:
+            plan_result = ensure_default_provider_plans(provider_db)
+            logger.info("Provider starter plan catalog ready: %s", plan_result)
+        except Exception:
+            provider_db.rollback()
+            logger.exception("Failed to initialize provider starter plan catalog")
+            raise
+        finally:
+            provider_db.close()
+
+
+def _start_background_tasks() -> None:
+    """Start the mailbox scheduler and DNS prewarm tasks for this deployment mode."""
+    global background_task, dns_prewarm_task  # pylint: disable=global-statement
+
+    if settings.DEMO_MODE and settings.PROVIDER_DEMO_ENABLED:
+        logger.info("Skipping external mailbox polling for the relational provider demo")
+    else:
+        logger.info("Starting IMAP polling background task")
+        mark_scheduler_started()
+        background_task = asyncio.create_task(scheduled_imap_polling())
+    dns_prewarm_task = asyncio.create_task(prewarm_dns_cache())
+
+
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application"""
     application = FastAPI(
@@ -506,6 +558,7 @@ def create_app() -> FastAPI:
                 "Accept",
                 "Origin",
                 "X-Requested-With",
+                "X-DMARQ-Workspace-ID",
             ],
             # Security: Limit exposed headers
             expose_headers=["Content-Length", "X-RateLimit-Limit"],
@@ -526,12 +579,12 @@ def create_app() -> FastAPI:
     @application.on_event("startup")
     async def startup_event():
         """Initialize background tasks and security on application startup"""
-        global background_task, dns_prewarm_task  # pylint: disable=global-statement
-
         run_startup_checks(settings)
 
         # Ensure all tables exist (no-op if already present)
         Base.metadata.create_all(bind=engine)
+
+        _initialize_provider_data()
 
         # Warn loudly when authentication is completely disabled
         if settings.AUTH_DISABLED:
@@ -584,10 +637,7 @@ def create_app() -> FastAPI:
         _encrypt_legacy_mail_source_secrets()
 
         # Start background polling task (iterates over DB-enabled mail sources)
-        logger.info("Starting IMAP polling background task")
-        mark_scheduler_started()
-        background_task = asyncio.create_task(scheduled_imap_polling())
-        dns_prewarm_task = asyncio.create_task(prewarm_dns_cache())
+        _start_background_tasks()
 
     @application.on_event("shutdown")
     async def shutdown_event():
@@ -617,11 +667,12 @@ templates.env.globals["multi_workspace_ui_enabled"] = settings.MULTI_WORKSPACE_U
 templates.env.globals["provider_demo_enabled"] = settings.PROVIDER_DEMO_ENABLED
 templates.env.globals["demo_mode"] = settings.DEMO_MODE
 templates.env.globals["release_info"] = build_release_info(settings)
+templates.env.globals["support_session_context"] = support_session_from_request
 
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    if settings.PROVIDER_DEMO_ENABLED:
+    if settings.PROVIDER_DEMO_ENABLED and support_session_from_request(request) is None:
         return RedirectResponse(url="/provider-demo", status_code=303)
     return templates.TemplateResponse(request, "index.html")
 
@@ -634,7 +685,7 @@ async def favicon():
 # Individual page routes
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request):
-    if settings.PROVIDER_DEMO_ENABLED:
+    if settings.PROVIDER_DEMO_ENABLED and support_session_from_request(request) is None:
         return RedirectResponse(url="/provider-demo", status_code=303)
     return templates.TemplateResponse(request, "index.html")
 
@@ -803,7 +854,32 @@ async def provider_demo_page(request: Request):
     """Render the separate ISP/MSP/provider demo surface when explicitly enabled."""
     if not settings.PROVIDER_DEMO_ENABLED:
         raise HTTPException(status_code=404, detail="Provider demo is not enabled")
-    return templates.TemplateResponse(request, "provider_demo.html")
+    if support_session_from_request(request) is not None:
+        return RedirectResponse(url="/dashboard", status_code=303)
+    return templates.TemplateResponse(
+        request,
+        "provider_demo.html",
+        {"provider_console_page": True},
+    )
+
+
+@app.get("/provider", response_class=HTMLResponse)
+async def provider_console_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+):
+    """Render the production provider console for multi-workspace deployments."""
+    if not settings.MULTI_WORKSPACE_UI_ENABLED:
+        raise HTTPException(status_code=404, detail="Provider console is not enabled")
+    require_provider_operator_access(db, _auth)
+    if support_session_from_request(request) is not None:
+        return RedirectResponse(url="/dashboard", status_code=303)
+    return templates.TemplateResponse(
+        request,
+        "provider_demo.html",
+        {"provider_console_page": True},
+    )
 
 
 @app.get("/upload", response_class=HTMLResponse)

@@ -1,7 +1,13 @@
 <!DOCTYPE html>
 {% set multi_workspace_ui_enabled = multi_workspace_ui_enabled | default(false) %}
 {% set provider_demo_enabled = provider_demo_enabled | default(false) %}
+{% set provider_console_page = provider_console_page | default(false) %}
 {% set demo_mode = demo_mode | default(false) %}
+{% set support_session = support_session_context(request) if support_session_context is defined and request is defined else none %}
+{% set provider_console_shell = provider_console_page and not support_session %}
+{% set provider_console_url = '/provider-demo' if provider_demo_enabled else '/provider' %}
+{% set effective_multi_workspace_ui = multi_workspace_ui_enabled or provider_demo_enabled or support_session %}
+{% set workspace_switcher_enabled = effective_multi_workspace_ui and not provider_console_shell %}
 {% set release_info = release_info | default({
     'label': 'vlocal',
     'version': 'local',
@@ -12,7 +18,7 @@
     'rollout': {'image_tag_matches_short_sha': false},
     'changes': []
 }) %}
-<html lang="en" data-theme="dmarqlight" data-multi-workspace-ui="{{ 'true' if multi_workspace_ui_enabled else 'false' }}" data-demo-mode="{{ 'true' if demo_mode else 'false' }}" class="dark:data-theme-dmarqdark">
+<html lang="en" data-theme="dmarqlight" data-multi-workspace-ui="{{ 'true' if workspace_switcher_enabled else 'false' }}" data-demo-mode="{{ 'true' if demo_mode else 'false' }}" class="dark:data-theme-dmarqdark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -43,9 +49,9 @@
             x-data="userMenu"
             data-user-menu>
         <div class="flex flex-1 items-center">
-            <a href="{{ '/provider-demo' if provider_demo_enabled else '/' }}"
+            <a href="{{ provider_console_url if provider_console_shell else '/' }}"
                class="inline-flex items-center gap-4"
-               aria-label="{{ 'DMARQ Provider Console' if provider_demo_enabled else 'DMARQ Dashboard' }}">
+               aria-label="{{ 'DMARQ Provider Console' if provider_console_shell else 'DMARQ Dashboard' }}">
                 <span class="grid h-12 w-12 place-items-center bg-[#272a5f]" aria-hidden="true">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-9 w-9" viewBox="0 0 48 48" fill="none" aria-hidden="true" focusable="false">
                         <path d="M24 4 39 9v12.4c0 9.9-6.1 17.3-15 21.9C15.1 38.7 9 31.3 9 21.4V9l15-5Z" stroke="currentColor" stroke-width="3.5" fill="none"/>
@@ -64,7 +70,7 @@
             </button>
         </div>
         <div class="flex items-center gap-3">
-            {% if multi_workspace_ui_enabled %}
+            {% if workspace_switcher_enabled %}
             <div class="hidden min-w-48 md:block" x-show="showWorkspaceSwitcher" x-cloak>
                 <label class="sr-only" for="workspace-switcher">Workspace</label>
                 <select id="workspace-switcher"
@@ -80,20 +86,32 @@
             </div>
             {% endif %}
             <nav class="hidden items-center gap-1 text-sm font-semibold lg:flex" aria-label="Primary">
-                <a href="{{ '/provider-demo' if provider_demo_enabled else '/' }}"
-                   class="rounded-md px-3 py-2 text-white/90 hover:bg-white/10">
-                    {{ "Provider Console" if provider_demo_enabled else "Dashboard" }}
-                </a>
+                {% if provider_console_shell %}
+                <a href="{{ provider_console_url }}#accounts" class="rounded-md px-3 py-2 text-white/90 hover:bg-white/10">Kundenkonten</a>
+                <a href="{{ provider_console_url }}#billing" class="rounded-md px-3 py-2 text-white/80 hover:bg-white/10">Billing offen</a>
+                {% if provider_demo_enabled %}
+                <a href="https://demo.dmarq.org/" class="rounded-md px-3 py-2 text-white/80 hover:bg-white/10">Single-user-Demo</a>
+                {% endif %}
+                {% else %}
+                <a href="/" class="rounded-md px-3 py-2 text-white/90 hover:bg-white/10">Dashboard</a>
                 <a href="/domains" class="rounded-md px-3 py-2 text-white/80 hover:bg-white/10">Domains</a>
                 <a href="/reports" class="rounded-md px-3 py-2 text-white/80 hover:bg-white/10">Reports</a>
                 <a href="/forensics" class="rounded-md px-3 py-2 text-white/80 hover:bg-white/10">Forensics</a>
                 <a href="/tls-reports" class="rounded-md px-3 py-2 text-white/80 hover:bg-white/10">TLS</a>
-                {% if multi_workspace_ui_enabled %}
+                {% if effective_multi_workspace_ui %}
                 <a href="/members" class="rounded-md px-3 py-2 text-white/80 hover:bg-white/10">Members</a>
                 {% endif %}
                 <a href="/onboarding" class="rounded-md px-3 py-2 text-white/80 hover:bg-white/10">Onboarding</a>
+                {% endif %}
             </nav>
             <div>
+                {% if provider_console_shell and provider_demo_enabled %}
+                <div class="grid h-12 w-12 place-items-center rounded-full border border-white/40 bg-white/90 text-sm font-semibold text-[#272a5f]"
+                     aria-label="Sofia Weber, Site Manager"
+                     title="Sofia Weber · Site Manager">
+                    S
+                </div>
+                {% else %}
                 <template x-if="user">
                     <div class="dropdown dropdown-end">
                         <label tabindex="0"
@@ -115,7 +133,7 @@
                                 <span class="text-xs text-base-content/50 truncate" x-text="user.email_label" x-show="user.show_email"></span>
                             </li>
                             <li><a href="/profile">Profile &amp; Security</a></li>
-                            {% if multi_workspace_ui_enabled %}
+                            {% if effective_multi_workspace_ui %}
                             <li><a href="/members">Members</a></li>
                             {% endif %}
                             <li><a href="/settings">Settings</a></li>
@@ -141,17 +159,50 @@
                 <template x-if="showSignIn">
                     <a href="/login" class="btn btn-ghost btn-sm">Sign in</a>
                 </template>
+                {% endif %}
             </div>
         </div>
     </header>
 
     <aside class="fixed bottom-0 left-0 top-24 z-30 hidden w-28 flex-col items-center gap-5 bg-[#272a5f] py-6 text-white md:flex" aria-label="Section navigation">
-        <a href="{{ '/provider-demo' if provider_demo_enabled else '/' }}"
-           aria-label="{{ 'Provider Console' if provider_demo_enabled else 'Dashboard' }}"
-           title="{{ 'Provider Console' if provider_demo_enabled else 'Dashboard' }}"
+        {% if provider_console_shell %}
+        <a href="{{ provider_console_url }}"
+           aria-label="Provider-Übersicht"
+           title="Provider-Übersicht"
+           class="group flex w-24 flex-col items-center gap-1 rounded-lg p-2 text-white shadow-sm hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 4h7v7H4V4Zm9 0h7v4h-7V4ZM4 13h7v7H4v-7Zm9-3h7v10h-7V10Z"/></svg>
+            <span class="text-[11px] font-semibold leading-tight">Provider</span>
+        </a>
+        <a href="{{ provider_console_url }}#accounts"
+           aria-label="Kundenkonten"
+           title="Kundenkonten"
+           class="group flex w-24 flex-col items-center gap-1 rounded-lg p-2 text-white/75 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5Zm3 2v3h10V7H7Zm0 6v2h6v-2H7Zm0 4v2h4v-2H7Z"/></svg>
+            <span class="text-[11px] font-semibold leading-tight">Accounts</span>
+        </a>
+        <a href="{{ provider_console_url }}#billing"
+           aria-label="Billing offen"
+           title="Billing offen"
+           class="group flex w-24 flex-col items-center gap-1 rounded-lg p-2 text-white/75 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 3h14v18l-3-2-4 2-4-2-3 2V3Zm3 4v2h8V7H8Zm0 4v2h8v-2H8Zm0 4v2h5v-2H8Z"/></svg>
+            <span class="text-[11px] font-semibold leading-tight">Billing</span>
+        </a>
+        {% if provider_demo_enabled %}
+        <a href="https://demo.dmarq.org/"
+           aria-label="Single-user-Demo"
+           title="Single-user-Demo"
+           class="group mt-auto flex w-24 flex-col items-center gap-1 rounded-lg p-2 text-white/60 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a5 5 0 1 1 0 10 5 5 0 0 1 0-10Zm-9 19c0-4.4 4-7 9-7s9 2.6 9 7v1H3v-1Z"/></svg>
+            <span class="text-[11px] font-semibold leading-tight">Single user</span>
+        </a>
+        {% endif %}
+        {% else %}
+        <a href="/"
+           aria-label="Dashboard"
+           title="Dashboard"
            class="group flex w-24 flex-col items-center gap-1 rounded-lg p-2 text-white shadow-sm hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3 3 10.7V21h6v-6h6v6h6V10.7L12 3Z"/></svg>
-            <span class="text-[11px] font-semibold leading-tight">{{ "Provider" if provider_demo_enabled else "Dashboard" }}</span>
+            <span class="text-[11px] font-semibold leading-tight">Dashboard</span>
         </a>
         <a href="/domains" aria-label="Domains" title="Domains" class="group flex w-24 flex-col items-center gap-1 rounded-lg p-2 text-white/70 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5Zm4 2v2h8V7H8Zm0 4v2h8v-2H8Zm0 4v2h5v-2H8Z"/></svg>
@@ -165,7 +216,7 @@
             <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 4h14v16H5V4Zm3 4v2h8V8H8Zm0 4v2h8v-2H8Zm0 4v2h5v-2H8Z"/></svg>
             <span class="text-[11px] font-semibold leading-tight">Forensics</span>
         </a>
-        {% if multi_workspace_ui_enabled %}
+        {% if effective_multi_workspace_ui %}
         <a href="/members" aria-label="Members" title="Members" class="group flex w-24 flex-col items-center gap-1 rounded-lg p-2 text-white/55 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8.5 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm7 1a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM2 19.5C2 15.9 4.9 13 8.5 13S15 15.9 15 19.5V21H2v-1.5Zm12.8 1.5v-1.5c0-2-.7-3.8-1.9-5.2.8-.2 1.7-.3 2.6-.3 3 0 5.5 2.5 5.5 5.5V21h-6.2Z"/></svg>
             <span class="text-[11px] font-semibold leading-tight">Members</span>
@@ -186,11 +237,25 @@
                 data-release-modal-trigger>
             {{ release_info.label }}
         </button>
+        {% endif %}
     </aside>
 
     <main class="min-h-screen pt-24 md:ml-28">
         <div class="p-4 md:p-6 lg:p-8">
-        {% if demo_mode %}
+        {% if support_session %}
+        <div class="mb-5 flex flex-col gap-3 rounded-lg border border-[#39a0aa] bg-[#e7f4f6] p-4 text-sm text-[#175b62] sm:flex-row sm:items-center sm:justify-between"
+             role="status"
+             data-support-session-banner>
+            <div class="min-w-0">
+                <div class="font-semibold">{{ support_session.account_name or 'Kundenkonto' }} · Ansicht als {{ support_session.target_user_email }}</div>
+                <div class="mt-1 break-words">{{ support_session.customer_number or ('Workspace ' ~ support_session.workspace_id) }} · {{ support_session.target_user_role }} · {{ 'Nur Lesen' if support_session.read_only else 'Rollenberechtigungen aktiv' }} · Modell: {{ support_session.plan_label or 'Nicht konfiguriert' }} · Grund: {{ support_session.reason }}</div>
+            </div>
+            <button type="button" class="btn btn-sm border-[#32838c] bg-white text-[#175b62] hover:bg-[#d9eff2]" data-support-session-exit data-support-session-exit-url="{{ provider_console_url }}#accounts">
+                Zur Provider-Konsole
+            </button>
+        </div>
+        {% endif %}
+        {% if demo_mode and not provider_console_shell %}
         <div class="mb-5 rounded-lg border border-[#f5c16c] bg-[#fff8e5] p-4 text-sm text-[#7a4b00]"
              role="status"
              data-demo-readonly-banner>

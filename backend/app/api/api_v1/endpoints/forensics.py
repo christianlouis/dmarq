@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Uplo
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.config import get_settings
+from app.core.config import get_settings, uses_legacy_demo_fixtures
 from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.domain import Domain
@@ -254,7 +254,7 @@ async def list_forensic_reports(
         PERMISSION_REPORTS_READ,
         parse_selected_workspace_id(selected_workspace),
     )
-    if get_settings().DEMO_MODE:
+    if uses_legacy_demo_fixtures(get_settings()):
         return ForensicListResponse(
             **list_demo_forensic_reports(
                 domain=domain,
@@ -310,7 +310,7 @@ async def analyze_forensic_reports(
         PERMISSION_REPORTS_READ,
         parse_selected_workspace_id(selected_workspace),
     )
-    if get_settings().DEMO_MODE:
+    if uses_legacy_demo_fixtures(get_settings()):
         return ForensicAnalysisResponse(
             **analyze_demo_forensic_reports(
                 domain=domain,
@@ -351,7 +351,7 @@ async def get_forensic_report(
         PERMISSION_REPORTS_READ,
         parse_selected_workspace_id(selected_workspace),
     )
-    if get_settings().DEMO_MODE:
+    if uses_legacy_demo_fixtures(get_settings()):
         row = get_demo_forensic_report(report_id)
         if row is None:
             raise HTTPException(

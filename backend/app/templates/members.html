@@ -4,7 +4,10 @@
 {% block title %}Members - DMARQ{% endblock %}
 
 {% block content %}
-<div x-data="membershipApp" class="mx-auto max-w-7xl space-y-6 py-4" data-members-page>
+<div x-data="membershipApp"
+     class="mx-auto max-w-7xl space-y-6 py-4"
+     data-members-page
+     data-members-read-only="{{ 'true' if support_session and support_session.read_only else 'false' }}">
     <section class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
             <p class="text-sm font-semibold uppercase text-[#2c9aa3]">Access control</p>
@@ -196,6 +199,7 @@
         </div>
 
         <div class="space-y-6">
+            <div x-show="!readOnly">
             {% call card() %}
                 {% call card_header() %}
                     <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -245,6 +249,7 @@
                     </form>
                 {% endcall %}
             {% endcall %}
+            </div>
 
             {% call card() %}
                 {% call card_header() %}
@@ -283,7 +288,7 @@
                                         <th>Member</th>
                                         <th>Role</th>
                                         <th>Status</th>
-                                        <th class="text-right">Actions</th>
+                                        <th class="text-right" x-show="!readOnly">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -303,6 +308,7 @@
                                             </td>
                                             <td class="min-w-56">
                                                 <select class="select select-bordered select-sm w-full"
+                                                        x-show="!readOnly"
                                                         :disabled="saving"
                                                         x-model="membership.role"
                                                         :data-members-user-id="membership.user.id"
@@ -311,16 +317,19 @@
                                                         <option :value="role" x-text="roleLabel(role)"></option>
                                                     </template>
                                                 </select>
+                                                <span class="badge badge-outline"
+                                                      x-show="readOnly"
+                                                      x-text="roleLabel(membership.role)"></span>
                                             </td>
                                             <td>
                                                 <span class="badge"
                                                       :class="membership.active ? 'badge-success' : 'badge-ghost'"
                                                       x-text="membership.active ? 'Active' : 'Inactive'"></span>
                                             </td>
-                                            <td class="text-right">
+                                            <td class="text-right" x-show="!readOnly">
                                                 <button type="button"
                                                         class="btn btn-outline btn-xs"
-                                                        x-show="membership.active"
+                                                        x-show="membership.active && !readOnly"
                                                         :disabled="saving"
                                                         :data-members-user-id="membership.user.id"
                                                         data-members-deactivate>
@@ -328,7 +337,7 @@
                                                 </button>
                                                 <button type="button"
                                                         class="btn btn-primary btn-xs"
-                                                        x-show="!membership.active"
+                                                        x-show="!membership.active && !readOnly"
                                                         :disabled="saving"
                                                         :data-members-user-id="membership.user.id"
                                                         data-members-restore>

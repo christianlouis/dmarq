@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Uplo
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.config import get_settings
+from app.core.config import get_settings, uses_legacy_demo_fixtures
 from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.domain import Domain
@@ -202,7 +202,7 @@ async def list_tls_reports(
         PERMISSION_REPORTS_READ,
         parse_selected_workspace_id(selected_workspace),
     )
-    if get_settings().DEMO_MODE:
+    if uses_legacy_demo_fixtures(get_settings()):
         return TLSReportListResponse(
             **list_demo_tls_reports(domain=domain, page=page, page_size=page_size)
         )
@@ -242,7 +242,7 @@ async def tls_report_summary(
         PERMISSION_REPORTS_READ,
         parse_selected_workspace_id(selected_workspace),
     )
-    if get_settings().DEMO_MODE:
+    if uses_legacy_demo_fixtures(get_settings()):
         return TLSSummaryResponse(
             **summarize_demo_tls_reports(domain=domain, days=days, limit=limit)
         )

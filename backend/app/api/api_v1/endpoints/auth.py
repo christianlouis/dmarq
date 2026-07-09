@@ -455,6 +455,38 @@ async def get_current_user(
     """
     provider_name = _active_auth_provider()
 
+    from app.services.support_sessions import support_session_from_request  # local import
+
+    support_session = support_session_from_request(request)
+    if support_session is not None:
+        user = (
+            db.query(User)
+            .filter(
+                User.id == support_session["target_user_id"],
+                User.is_active == True,  # noqa: E712
+            )
+            .first()
+        )
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Support-session user not found or inactive",
+            )
+        return {
+            "id": user.id,
+            "email": user.email,
+            "full_name": user.full_name,
+            "username": user.username,
+            "picture": user.picture,
+            "is_superuser": False,
+            "logto_id": user.logto_id,
+            "auth_disabled": False,
+            "auth_provider": "support_session",
+            "auth_provider_label": "Provider support session",
+            "support_session": True,
+            "support_session_id": support_session.get("session_id"),
+        }
+
     # Auth-disabled: return a synthetic profile so the UI renders correctly.
     if settings.AUTH_DISABLED or provider_name == "disabled":
         return {

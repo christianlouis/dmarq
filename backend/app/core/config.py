@@ -2,7 +2,7 @@ import json
 import logging
 import secrets
 from functools import lru_cache
-from typing import List, Optional, Union
+from typing import List, Optional, Set, Union
 
 # Try to import from pydantic_settings first (newer versions)
 try:
@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     # Separate synthetic ISP/MSP demo surface. Keep disabled for the public
     # self-hosted demo unless a dedicated provider-demo deployment enables it.
     PROVIDER_DEMO_ENABLED: bool = False
+    PROVIDER_DISPLAY_NAME: str = "DMARQ Provider"
+    PROVIDER_SLUG: str = "dmarq-provider"
+    # Explicit deployment-wide operators allowed to open the production
+    # provider console. This is intentionally separate from tenant roles.
+    PROVIDER_OPERATOR_EMAILS: str = ""
+    PROVIDER_BOOTSTRAP_DEFAULT_PLANS: bool = False
 
     # Database
     # Default to a sub-directory so the SQLite file lives in a location that
@@ -309,6 +315,15 @@ class Settings(BaseSettings):
         """Return True when the app is explicitly running in production mode."""
         return self.ENVIRONMENT.strip().lower() in {"prod", "production"}
 
+    @property
+    def provider_operator_emails(self) -> Set[str]:
+        """Return normalized identities allowed to manage provider tenants."""
+        return {
+            email.strip().lower()
+            for email in self.PROVIDER_OPERATOR_EMAILS.split(",")
+            if email.strip()
+        }
+
     @validator("ADMIN_API_KEY", pre=True, always=True)
     @classmethod
     def validate_admin_api_key(
@@ -390,3 +405,9 @@ def get_settings() -> Settings:
     Get application settings from environment variables or .env file
     """
     return Settings()
+
+
+def uses_legacy_demo_fixtures(current_settings=None) -> bool:
+    """Return whether the standalone single-user demo fixtures should be used."""
+    settings = current_settings or get_settings()
+    return bool(settings.DEMO_MODE) and not bool(getattr(settings, "PROVIDER_DEMO_ENABLED", False))

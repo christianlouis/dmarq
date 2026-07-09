@@ -28,9 +28,11 @@ ROLE_AUDITOR = "auditor"
 
 PERMISSION_WORKSPACE_ADMIN = "workspace:admin"
 PERMISSION_DOMAINS_WRITE = "domains:write"
+PERMISSION_MAIL_SOURCES_READ = "mail_sources:read"
 PERMISSION_MAIL_SOURCES_WRITE = "mail_sources:write"
 PERMISSION_NOTIFICATIONS_WRITE = "notifications:write"
 PERMISSION_INTEGRATIONS_WRITE = "integrations:write"
+PERMISSION_MEMBERS_READ = "members:read"
 PERMISSION_AUDIT_READ = "audit:read"
 PERMISSION_REPORTS_READ = "reports:read"
 PERMISSION_REPORTS_WRITE = "reports:write"
@@ -47,15 +49,18 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
     ROLE_WORKSPACE_OWNER: {
         PERMISSION_WORKSPACE_ADMIN,
         PERMISSION_DOMAINS_WRITE,
+        PERMISSION_MAIL_SOURCES_READ,
         PERMISSION_MAIL_SOURCES_WRITE,
         PERMISSION_NOTIFICATIONS_WRITE,
         PERMISSION_INTEGRATIONS_WRITE,
+        PERMISSION_MEMBERS_READ,
         PERMISSION_AUDIT_READ,
         PERMISSION_REPORTS_READ,
         PERMISSION_REPORTS_WRITE,
     },
     ROLE_DOMAIN_ADMIN: {
         PERMISSION_DOMAINS_WRITE,
+        PERMISSION_MAIL_SOURCES_READ,
         PERMISSION_MAIL_SOURCES_WRITE,
         PERMISSION_NOTIFICATIONS_WRITE,
         PERMISSION_AUDIT_READ,
@@ -63,6 +68,7 @@ ROLE_PERMISSIONS: Dict[str, Set[str]] = {
         PERMISSION_REPORTS_WRITE,
     },
     ROLE_OPERATOR: {
+        PERMISSION_MAIL_SOURCES_READ,
         PERMISSION_MAIL_SOURCES_WRITE,
         PERMISSION_NOTIFICATIONS_WRITE,
         PERMISSION_AUDIT_READ,
@@ -233,6 +239,15 @@ def require_workspace_permission(
     workspace: Optional[Workspace] = None,
 ) -> None:
     """Raise HTTP 403 for missing access or HTTP 402 for read-only accounts."""
+    if (
+        (auth_context or {}).get("auth_type") == "support_session"
+        and (auth_context or {}).get("support_read_only")
+        and permission in TENANT_MUTATION_PERMISSIONS
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This support session is read-only",
+        )
     if db is not None and workspace is not None:
         role = role_for_workspace(db, auth_context, workspace)
     else:
@@ -319,7 +334,7 @@ def parse_selected_workspace_id(value: Optional[Any]) -> Optional[int]:
 
 def _workspace_id_from_auth_context(auth_context: dict) -> Optional[int]:
     """Return the workspace bound to scoped API-token auth, when present."""
-    if (auth_context or {}).get("auth_type") != "api_token":
+    if (auth_context or {}).get("auth_type") not in {"api_token", "support_session"}:
         return None
     try:
         workspace_id = int((auth_context or {}).get("workspace_id") or 0)
@@ -336,7 +351,11 @@ def resolve_authorized_workspace(
     selected_workspace_id: Optional[int] = None,
 ) -> Workspace:
     """Resolve and authorize the selected workspace, defaulting legacy installs safely."""
-    selected_workspace_id = selected_workspace_id or _workspace_id_from_auth_context(auth_context)
+    auth_workspace_id = _workspace_id_from_auth_context(auth_context)
+    if (auth_context or {}).get("auth_type") == "support_session":
+        selected_workspace_id = auth_workspace_id
+    else:
+        selected_workspace_id = selected_workspace_id or auth_workspace_id
     if selected_workspace_id is None:
         workspace = assign_default_workspace_to_unscoped_rows(db)
     else:

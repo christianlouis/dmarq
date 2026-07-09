@@ -1,4 +1,6 @@
 const { test, expect } = require('@playwright/test');
+const realProviderBackend = process.env.DMARQ_PROVIDER_REAL_BROWSER === 'true';
+const productProviderBackend = process.env.DMARQ_PROVIDER_PRODUCT_BROWSER === 'true';
 
 const sourcePostmark = {
   hostname: 'mta203-ab1.mtasv.net',
@@ -381,6 +383,161 @@ const tlsSummary = {
   },
 };
 
+function providerAccount({ slug, name, customerNumber, health, planCode, planLabel, domain, messages, compliance, billingStatus, userName, userEmail }) {
+  return {
+    id: `acct-${slug}`,
+    slug,
+    customer_number: customerNumber,
+    name,
+    short_name: name,
+    status: 'active',
+    health,
+    plan_code: planCode,
+    plan_label: planLabel,
+    created_at: '2026-01-10T09:00:00Z',
+    last_activity_at: '2026-07-09T08:00:00Z',
+    primary_contact: { name: userName, email: userEmail, phone: '+49 30 555 0100' },
+    billing: {
+      status: billingStatus,
+      invoice_owner: 'Northstar ISP',
+      billing_contact: `billing@${domain}`,
+      collection_model: 'provider_pass_through',
+      payment_rail: 'isp_monthly_invoice',
+      invoice_reference: customerNumber,
+      monthly_charge_cents: planCode === 'protect_plus' ? 7900 : 1900,
+      next_invoice_at: '2026-07-21',
+    },
+    usage: {
+      messages_30d: messages,
+      reports_30d: 92,
+      compliance_rate: compliance,
+      change_percent: 4.2,
+    },
+    entitlements: {
+      domains: { used: 1, included: planCode === 'protect_plus' ? 50 : 5 },
+      users: { used: 2, included: planCode === 'protect_plus' ? 100 : 10 },
+      messages: { used: messages, included: planCode === 'protect_plus' ? 10000000 : 500000 },
+      retention_days: { used: 90, included: planCode === 'protect_plus' ? 400 : 90 },
+    },
+    onboarding: {
+      completed_steps: 5,
+      total_steps: 5,
+      next_step: health === 'critical' ? 'DKIM aktivieren und SPF-Lookups reduzieren.' : 'Reject-Rollout planen.',
+    },
+    recommended_action: health === 'critical'
+      ? 'DKIM-Ausfall beheben, bevor die Policy verschärft wird.'
+      : 'DMARC von quarantine auf reject anheben.',
+    domains: [
+      {
+        name: domain,
+        health,
+        policy: 'quarantine',
+        compliance_rate: compliance,
+        messages_30d: messages,
+        reports_30d: 92,
+        source_count: 7,
+        spf_alignment: compliance + 0.5,
+        dkim_alignment: compliance - 0.5,
+        last_report_at: '2026-07-09T07:40:00Z',
+        open_findings: [health === 'critical' ? 'Neue Quelle sendet ohne DKIM.' : 'Policy ist bereit für reject.'],
+      },
+    ],
+    users: [
+      {
+        id: `usr-${slug}-admin`,
+        name: userName,
+        email: userEmail,
+        role: 'workspace_admin',
+        status: 'active',
+        last_active_at: '2026-07-09T07:32:00Z',
+        mfa_enabled: true,
+        can_impersonate: true,
+      },
+      {
+        id: `usr-${slug}-audit`,
+        name: 'Audit User',
+        email: `audit@${domain}`,
+        role: 'auditor',
+        status: 'active',
+        last_active_at: '2026-07-04T09:10:00Z',
+        mfa_enabled: false,
+        can_impersonate: false,
+      },
+    ],
+    reports: [
+      {
+        id: `${slug}-google-2026-07-09`,
+        provider: 'Google',
+        domain,
+        period_start: '2026-07-08',
+        period_end: '2026-07-09',
+        received_at: '2026-07-09T08:45:00Z',
+        messages: Math.round(messages / 4),
+        pass_rate: compliance,
+        status: 'processed',
+      },
+      {
+        id: `${slug}-microsoft-2026-07-08`,
+        provider: 'Microsoft',
+        domain,
+        period_start: '2026-07-07',
+        period_end: '2026-07-08',
+        received_at: '2026-07-08T08:45:00Z',
+        messages: Math.round(messages / 5),
+        pass_rate: compliance,
+        status: 'processed',
+      },
+    ],
+    activity: [
+      {
+        id: `${slug}-report`,
+        occurred_at: '2026-07-09T08:45:00Z',
+        actor: 'DMARQ Import',
+        action: 'report.imported',
+        summary: 'Aktuelle Aggregate-Reports verarbeitet.',
+      },
+    ],
+    settings: {
+      report_mailbox: `dmarc@${domain}`,
+      timezone: 'Europe/Berlin',
+      weekly_digest: true,
+      ai_redaction: 'strict',
+    },
+  };
+}
+
+const providerConsole = {
+  source: 'demo_provider_accounts_v2',
+  generated_for: '2026-07-09',
+  provider: {
+    id: 'provider-northstar',
+    slug: 'northstar-isp',
+    name: 'Northstar ISP',
+    operator: { name: 'Sofia Weber', email: 'sofia.ops@northstar.example', role: 'site_manager' },
+  },
+  summary: {},
+  plans: [
+    { code: 'monitor', label: 'DMARQ Monitor', monthly_charge_cents: 1900, domains: 5, users: 10, messages: 500000, retention_days: 90 },
+    { code: 'protect', label: 'DMARQ Protect', monthly_charge_cents: 3900, domains: 15, users: 25, messages: 2000000, retention_days: 180 },
+    { code: 'protect_plus', label: 'DMARQ Protect Plus', monthly_charge_cents: 7900, domains: 50, users: 100, messages: 10000000, retention_days: 400 },
+  ],
+  accounts: [
+    providerAccount({ slug: 'bakery-example', name: 'Bäckerei Morgenrot GmbH', customerNumber: 'NS-10042', health: 'healthy', planCode: 'monitor', planLabel: 'DMARQ Monitor', domain: 'bakery.example', messages: 64300, compliance: 98.7, billingStatus: 'current', userName: 'Taylor Brooks', userEmail: 'taylor@bakery.example' }),
+    providerAccount({ slug: 'lawfirm-example', name: 'Kanzlei Hansen & Partner', customerNumber: 'NS-10087', health: 'critical', planCode: 'protect_plus', planLabel: 'DMARQ Protect Plus', domain: 'lawfirm.example', messages: 142700, compliance: 71.4, billingStatus: 'current', userName: 'Dr. Lena Hansen', userEmail: 'admin@lawfirm.example' }),
+  ],
+  support_access_demo: {
+    mode: 'read_only_customer_view',
+    operator: { name: 'Sofia Weber', email: 'sofia.ops@northstar.example', role: 'site_manager' },
+    reason: 'Kundensupport und Konfigurationsprüfung',
+    safeguards: [
+      'Zeitlich begrenzte Demo-Sitzung',
+      'Operator, Zielbenutzer und Grund werden protokolliert',
+      'Kundenansicht ist schreibgeschützt',
+      'DNS- und Provider-Schreibzugriffe bleiben deaktiviert',
+    ],
+  },
+};
+
 function json(body, status = 200) {
   return { status, contentType: 'application/json', body: JSON.stringify(body) };
 }
@@ -413,38 +570,33 @@ async function installApiMocks(page) {
     }
 
     if (method === 'POST' && path === '/api/v1/operator/demo/support-session') {
+      const requestBody = route.request().postDataJSON();
+      const account = providerConsole.accounts.find((item) => item.slug === requestBody.account_slug) || providerConsole.accounts[0];
+      const targetUser = account.users.find((user) => user.email === requestBody.target_user_email) || account.users[0];
+      const auditEvent = {
+        event_id: 'audit-demo-browser-001',
+        action: 'support_access.started',
+        occurred_at: '2026-07-09T09:45:00Z',
+        operator_email: 'sofia.ops@northstar.example',
+        target_user_email: targetUser.email,
+        target_user_name: targetUser.name,
+        target_role: targetUser.role,
+        account_slug: account.slug,
+        workspace_slug: account.slug,
+        domain: account.domains[0].name,
+        reason: requestBody.reason,
+        result: 'demo_session_ready',
+      };
       await route.fulfill(
         json({
           demo_mode: true,
           session: {
             mode: 'read_only_customer_view',
-            target_user: {
-              name: 'Taylor Brooks',
-              email: 'taylor@bakery.example',
-              workspace_slug: 'bakery-example',
-              domain: 'bakery.example',
-            },
-            audit_events: [
-              {
-                event_id: 'audit-demo-browser-001',
-                action: 'support_access.started',
-                operator_email: 'nora.ops@northstar.example',
-                target_user_email: 'taylor@bakery.example',
-                workspace_slug: 'bakery-example',
-                domain: 'bakery.example',
-                result: 'demo_session_ready',
-              },
-            ],
+            account: { slug: account.slug, name: account.name, customer_number: account.customer_number },
+            target_user: { ...targetUser, workspace_slug: account.slug, domain: account.domains[0].name },
+            audit_events: [auditEvent],
           },
-          audit_event: {
-            event_id: 'audit-demo-browser-001',
-            action: 'support_access.started',
-            operator_email: 'nora.ops@northstar.example',
-            target_user_email: 'taylor@bakery.example',
-            workspace_slug: 'bakery-example',
-            domain: 'bakery.example',
-            result: 'demo_session_ready',
-          },
+          audit_event: auditEvent,
         })
       );
       return;
@@ -841,10 +993,7 @@ async function installApiMocks(page) {
     };
     responses['/api/v1/operator/demo/provider-console'] = {
       demo_mode: true,
-      provider_console: {
-        source: 'demo_multi_user_deployment',
-        ...responses['/api/v1/operator/demo/multi-user'].deployment,
-      },
+      provider_console: providerConsole,
     };
 
     if (
@@ -884,7 +1033,7 @@ async function installCspViolationRecorder(page) {
 
 test.beforeEach(async ({ page }) => {
   await installCspViolationRecorder(page);
-  await installApiMocks(page);
+  if (!realProviderBackend && !productProviderBackend) await installApiMocks(page);
 });
 
 test.afterEach(async ({ page }) => {
@@ -1096,59 +1245,162 @@ test('tls reports page renders summary data from the registered Alpine component
   await expect(page.getByText('No TLS report data is available for the current filters.')).not.toBeVisible();
 });
 
-test('provider demo exposes tenant, billing, and user management console', async ({ page }) => {
+test('provider demo supports site-manager account management and full customer impersonation', async ({ page }) => {
+  test.setTimeout(60_000);
+  test.skip(!realProviderBackend, 'requires the relational provider-demo backend');
   const response = await page.goto('/');
   expect(response, 'provider demo navigation should return a response').not.toBeNull();
   await expect(page).toHaveURL(/\/provider-demo$/);
 
-  await expect(page.getByRole('heading', { name: 'Mandanten & Billing verwalten' })).toBeVisible();
-  await expect(page.getByText('Öffentliche Demo - read-only')).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Mandanten', exact: true })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Neuen Mandanten anlegen', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Kundenkonten verwalten' })).toBeVisible();
+  await expect(page.getByText('Interaktive Demo:', { exact: true })).toBeVisible();
+  await expect(page.locator('[data-provider-account-row]')).toHaveCount(6);
 
-  await page.getByRole('button', { name: 'Mandant anlegen' }).click();
-  await page.getByPlaceholder('Acme GmbH').fill('Demo Kanzlei');
-  await page.getByPlaceholder('acme.example').fill('kanzlei.example');
-  await page.getByRole('button', { name: 'Mandant erstellen' }).click();
-  await expect(page.getByRole('heading', { name: 'Demo Kanzlei' })).toBeVisible();
-  await expect(page.locator('[data-provider-demo-workspace="demo-kanzlei-main"]').getByText('kanzlei.example')).toBeVisible();
-  await expect(page.getByText('Mandant wurde lokal angelegt.')).toBeVisible();
+  const lawfirmRow = page.locator('[data-provider-account-row="lawfirm-example"]');
+  await expect(lawfirmRow.getByText('Kanzlei Hansen & Partner')).toBeVisible();
+  await expect(lawfirmRow.getByText('Kritisch')).toBeVisible();
+  await lawfirmRow.getByRole('button', { name: 'Account öffnen', exact: true }).click();
+
+  const accountView = page.locator('[data-provider-account-view]');
+  await expect(accountView.getByRole('heading', { name: 'Kanzlei Hansen & Partner' })).toBeVisible();
+  await expect(accountView.locator('header').getByText('Fehlgeschlagene Sender priorisieren und DKIM/SPF vor einer Policy-Änderung reparieren.')).toBeVisible();
+
+  await page.locator('nav [data-provider-account-tab="domains"]').click();
+  const lawfirmDomainCell = accountView.getByRole('cell', { name: 'lawfirm.example', exact: true });
+  await expect(lawfirmDomainCell).toBeVisible();
+  const lawfirmDomainRow = lawfirmDomainCell.locator('..');
+  await expect(lawfirmDomainRow).toContainText('68,2 %');
+
+  await page.locator('nav [data-provider-account-tab="users"]').click();
+  await page.getByRole('button', { name: 'Benutzer einladen' }).click();
+  const userDialog = page.getByRole('dialog', { name: 'Benutzer einladen' });
+  await userDialog.getByLabel('Name', { exact: true }).fill('Mara Admin');
+  await userDialog.getByLabel('E-Mail', { exact: true }).fill('mara@lawfirm.example');
+  await userDialog.getByRole('button', { name: 'Einladung simulieren' }).click();
+  await expect(accountView.getByRole('cell', { name: 'mara@lawfirm.example' })).toBeVisible();
+
+  await page.locator('nav [data-provider-account-tab="billing"]').click();
+  await page.getByLabel('Monatlicher Betrag').fill('99');
+  await page.getByLabel('Rechnungsempfänger').fill('finance@lawfirm.example');
+  await page.getByRole('button', { name: 'Billing speichern' }).click();
+  await expect(page.getByText(/Lokal gespeichert/)).toBeVisible();
+
+  await page.getByRole('button', { name: 'Kundenansicht öffnen' }).click();
+  const supportDialog = page.getByRole('dialog', { name: 'Kundenansicht öffnen' });
+  await expect(supportDialog.getByLabel('Ansicht als')).not.toHaveValue('');
+  await supportDialog.getByLabel('Grund').fill('DKIM-Ausfall gemeinsam mit dem Kunden prüfen');
+  await supportDialog.getByRole('button', { name: 'Support-Sitzung starten' }).click();
+
+  await expect(page).toHaveURL(/\/dashboard$/);
+  const supportBanner = page.locator('[data-support-session-banner]');
+  await expect(supportBanner.getByText('Kanzlei Hansen & Partner · Ansicht als admin@lawfirm.example')).toBeVisible();
+  await expect(supportBanner.getByText(/Modell: DMARQ Protect Plus/)).toBeVisible();
+  await page.goto('/domains');
+  const customerLawfirmRow = page.getByRole('row').filter({
+    has: page.getByText('lawfirm.example', { exact: true }),
+  });
+  const secureLawfirmRow = page.getByRole('row').filter({
+    has: page.getByText('secure.lawfirm.example', { exact: true }),
+  });
+  await expect(customerLawfirmRow).toContainText('quarantine');
+  await expect(secureLawfirmRow).toContainText('none');
+  await expect(page.getByRole('cell', { name: 'bakery.example' })).toHaveCount(0);
+  await page.goto('/members');
+  await expect(page.getByRole('table').getByText('admin@lawfirm.example', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Invite or Link Member' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Deactivate' })).toHaveCount(0);
+  await page.locator('[data-support-session-exit]').click();
+  await expect(page).toHaveURL(/\/provider-demo#accounts$/);
+  await expect(page.locator('[data-provider-account-row="lawfirm-example"]')).toContainText('Kanzlei Hansen & Partner');
+  await expect(page.locator('[data-workspace-switcher]')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Neues Kundenkonto' }).click();
+  const createDialog = page.getByRole('dialog', { name: 'Kundenkonto anlegen' });
+  await createDialog.getByLabel('Firmenname').fill('Demo Kanzlei');
+  await createDialog.getByLabel('Primäre Domain').fill('kanzlei.example');
+  await createDialog.getByRole('button', { name: 'Account erstellen' }).click();
+  await expect(accountView.getByRole('heading', { name: 'Demo Kanzlei' })).toBeVisible();
 
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'Demo Kanzlei' })).toBeVisible();
-  await expect(page.getByText('Lokale Demo-Änderungen wurden wiederhergestellt.')).toBeVisible();
+  await expect(accountView.getByRole('heading', { name: 'Demo Kanzlei' })).toBeVisible();
+  await expect(
+    accountView.locator('section[x-show="showAccountOverview"]').getByRole('cell', { name: 'kanzlei.example', exact: true })
+  ).toBeVisible();
 
-  await page.locator('nav [data-provider-demo-tab="billing"]').click();
-  await page.getByLabel('Rechnungsempfänger').fill('Demo Provider GmbH');
-  await page.getByLabel('Monatlicher Betrag').fill('499');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: 'Provider-Verwaltung' }).click();
+  const mobileAccountCard = page.locator('[data-provider-account-card="demo-kanzlei"]');
+  await expect(mobileAccountCard).toBeVisible();
+  await expect(page.locator('[data-provider-account-row="demo-kanzlei"]')).toBeHidden();
+  await expect.poll(async () => page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+  await mobileAccountCard.getByRole('button', { name: 'Account öffnen' }).click();
+  await page.getByRole('button', { name: 'Kundenansicht öffnen' }).click();
+  await expect(page.getByRole('dialog', { name: 'Kundenansicht öffnen' })).toBeVisible();
+  await expect.poll(async () => page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+  await page.getByRole('dialog', { name: 'Kundenansicht öffnen' }).getByRole('button', { name: 'Schließen' }).click();
+  await expect(page.locator('[data-provider-demo-expression-error]')).toBeHidden();
+});
+
+test('production provider mode persists a customer and opens its role-scoped product view', async ({ page }) => {
+  test.setTimeout(60_000);
+  test.skip(!productProviderBackend, 'requires a fresh production provider backend');
+
+  const response = await page.goto('/provider');
+  expect(response, 'production provider navigation should return a response').not.toBeNull();
+  await expect(page).toHaveURL(/\/provider$/);
+  await expect(page.getByRole('heading', { name: 'Kundenkonten verwalten' })).toBeVisible();
+  await expect(page.getByText('CKLNet · Site Manager')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Single-user-Demo' })).toHaveCount(0);
+  await expect(page.getByText('Sofia Weber')).toHaveCount(0);
+  await expect(page.locator('[data-provider-account-row]')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Neues Kundenkonto' }).click();
+  const createDialog = page.getByRole('dialog', { name: 'Kundenkonto anlegen' });
+  await createDialog.getByLabel('Firmenname').fill('CKLNet Pilotkunde');
+  await createDialog.getByLabel('Primäre Domain').fill('pilot.customer.example');
+  await createDialog.getByLabel('Plan').selectOption('protect');
+  await createDialog.getByRole('button', { name: 'Account erstellen' }).click();
+
+  const accountView = page.locator('[data-provider-account-view]');
+  await expect(accountView.getByRole('heading', { name: 'CKLNet Pilotkunde' })).toBeVisible();
+  await expect(accountView.getByRole('cell', { name: 'pilot.customer.example', exact: true })).toBeVisible();
+
+  await page.locator('nav [data-provider-account-tab="users"]').click();
+  await page.getByRole('button', { name: 'Benutzer einladen' }).click();
+  const userDialog = page.getByRole('dialog', { name: 'Benutzer einladen' });
+  await userDialog.getByLabel('Name', { exact: true }).fill('Pilot Admin');
+  await userDialog.getByLabel('E-Mail', { exact: true }).fill('admin@pilot.customer.example');
+  await userDialog.getByLabel('Rolle').selectOption('workspace_admin');
+  await userDialog.getByRole('button', { name: 'Benutzer einladen' }).click();
+  await expect(accountView.getByRole('cell', { name: 'admin@pilot.customer.example' })).toBeVisible();
+
+  await page.locator('nav [data-provider-account-tab="billing"]').click();
+  await page.getByLabel('Monatlicher Betrag').fill('149');
+  await page.getByLabel('Rechnungsempfänger').fill('billing@pilot.customer.example');
+  await page.getByLabel('Rechnungsreferenz').fill('CKL-PILOT-001');
   await page.getByRole('button', { name: 'Billing speichern' }).click();
   await expect(page.getByText(/Gespeichert/)).toBeVisible();
-  await page.locator('nav [data-provider-demo-tab="provider"]').click();
-  await expect(page.getByRole('cell', { name: 'Demo Kanzlei' })).toBeVisible();
-  await expect(page.getByRole('cell', { name: '499 €' })).toBeVisible();
-  await page.locator('[data-provider-demo-drill-workspace][data-provider-demo-workspace="demo-kanzlei-main"]').click();
-  await expect(page.getByText('Mandantenkontext aktiv:', { exact: true })).toBeVisible();
-  await expect(page.getByText('Demo Kanzlei / Primary workspace')).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Domain-Detail öffnen' })).toHaveAttribute(
-    'href',
-    '/domains/kanzlei.example?tenant=demo-kanzlei&workspace=demo-kanzlei-main'
-  );
-  await page.getByRole('button', { name: 'Benutzerverwaltung öffnen' }).click();
-  await expect(page.getByRole('heading', { name: 'Benutzer im Mandanten' })).toBeVisible();
 
-  await page.locator('nav [data-provider-demo-tab="users"]').click();
-  const userForm = page.locator('[data-provider-demo-user-form]');
-  await userForm.getByLabel('Name', { exact: true }).fill('Mara Admin');
-  await userForm.getByLabel('E-Mail', { exact: true }).fill('mara@kanzlei.example');
-  await userForm.getByRole('button', { name: 'Benutzer hinzufügen' }).click();
-  await expect(page.getByText('mara@kanzlei.example')).toBeVisible();
-  await userForm.getByLabel('Name', { exact: true }).fill('Mara Duplicate');
-  await userForm.getByLabel('E-Mail', { exact: true }).fill('mara@kanzlei.example');
-  await userForm.getByRole('button', { name: 'Benutzer hinzufügen' }).click();
-  await expect(page.getByText('Diese E-Mail existiert bereits in diesem Mandanten.')).toBeVisible();
+  await page.reload();
+  await expect(accountView.getByRole('heading', { name: 'CKLNet Pilotkunde' })).toBeVisible();
+  await page.locator('nav [data-provider-account-tab="billing"]').click();
+  await expect(page.getByLabel('Monatlicher Betrag')).toHaveValue('149');
+  await expect(page.getByLabel('Rechnungsempfänger')).toHaveValue('billing@pilot.customer.example');
+  await expect(page.getByLabel('Rechnungsreferenz')).toHaveValue('CKL-PILOT-001');
 
-  await expect(page.locator('[data-provider-demo-expression-error]')).toBeHidden();
-  await page.getByRole('button', { name: 'Support-View öffnen' }).click();
-  await expect(page.getByText('Support-View bereit')).toBeVisible();
-  await expect(page.getByText('demo_session_ready')).toBeVisible();
+  await page.getByRole('button', { name: 'Kundenansicht öffnen' }).click();
+  const supportDialog = page.getByRole('dialog', { name: 'Kundenansicht öffnen' });
+  await supportDialog.getByLabel('Grund').fill('Produktiven Kundenzugang verifizieren');
+  await supportDialog.getByRole('button', { name: 'Support-Sitzung starten' }).click();
+
+  await expect(page).toHaveURL(/\/dashboard$/);
+  const supportBanner = page.locator('[data-support-session-banner]');
+  await expect(supportBanner).toContainText('CKLNet Pilotkunde · Ansicht als admin@pilot.customer.example');
+  await expect(supportBanner).toContainText('Rollenberechtigungen aktiv');
+  await expect(supportBanner).toContainText('Modell: DMARQ Protect');
+  await page.goto('/members');
+  await expect(page.getByRole('heading', { name: 'Invite or Link Member' })).toBeVisible();
+  await page.locator('[data-support-session-exit]').click();
+  await expect(page).toHaveURL(/\/provider#accounts$/);
+  await expect(page.locator('[data-provider-account-row="cklnet-pilotkunde"]')).toContainText('CKLNet Pilotkunde');
 });

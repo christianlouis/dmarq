@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import case, distinct, func, or_
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.config import get_settings
+from app.core.config import get_settings, uses_legacy_demo_fixtures
 from app.models.domain import Domain
 from app.models.report import DMARCReport, ReportRecord
 from app.models.workspace import Workspace
@@ -312,7 +312,7 @@ def hydrate_report_store_from_db(
     workspace_id: Optional[int] = None,
 ) -> int:
     """Load persisted reports into ReportStore when the database has report rows."""
-    if get_settings().DEMO_MODE:
+    if uses_legacy_demo_fixtures(get_settings()):
         return seed_demo_report_store(store)
 
     count_query = db.query(DMARCReport.id)

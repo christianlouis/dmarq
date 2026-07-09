@@ -27,10 +27,10 @@ def _is_demo_backfill_simulation(request: Request) -> bool:
 
 
 def _is_demo_support_session_simulation(request: Request) -> bool:
-    return (
-        request.method.upper() == "POST"
-        and request.url.path == "/api/v1/operator/demo/support-session"
-    )
+    return request.url.path in {
+        "/api/v1/operator/demo/support-session",
+        "/api/v1/operator/support-session",
+    } and request.method.upper() in {"POST", "DELETE"}
 
 
 class DemoReadOnlyMiddleware(BaseHTTPMiddleware):
