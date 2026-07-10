@@ -372,6 +372,8 @@ def support_session_allows_inactive_tenant_read(
         "support_read_only"
     ):
         return False
+    if workspace_id is None and organization_id is None:
+        return False
     if workspace_id is not None and _workspace_id_from_auth_context(auth_context) != workspace_id:
         return False
     if (

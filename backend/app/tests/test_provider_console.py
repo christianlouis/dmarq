@@ -188,6 +188,33 @@ def test_all_write_permissions_are_registered_as_tenant_mutations():
     assert write_permissions <= workspace_access.TENANT_MUTATION_PERMISSIONS
 
 
+def test_inactive_tenant_support_read_requires_an_exact_scope():
+    auth_context = {
+        "auth_type": "support_session",
+        "support_read_only": True,
+        "workspace_id": 42,
+        "organization_id": 7,
+    }
+
+    assert not workspace_access.support_session_allows_inactive_tenant_read(auth_context)
+    assert workspace_access.support_session_allows_inactive_tenant_read(
+        auth_context,
+        workspace_id=42,
+    )
+    assert workspace_access.support_session_allows_inactive_tenant_read(
+        auth_context,
+        organization_id=7,
+    )
+    assert not workspace_access.support_session_allows_inactive_tenant_read(
+        auth_context,
+        workspace_id=41,
+    )
+    assert not workspace_access.support_session_allows_inactive_tenant_read(
+        auth_context,
+        organization_id=8,
+    )
+
+
 def test_read_only_support_session_scopes_normal_customer_apis(
     client: TestClient,
     db_session: Session,
