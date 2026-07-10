@@ -310,17 +310,14 @@ async def end_support_session(
     """End the active support session and record the exit."""
     payload = support_session_from_request(request)
     if payload is not None:
-        try:
-            workspace = _workspace_or_404(db, int(payload["workspace_id"]))
-        except HTTPException:
-            workspace = None
+        workspace = db.query(Workspace).filter(Workspace.id == int(payload["workspace_id"])).first()
+        operator = payload.get("operator") or {}
+        operator_auth = {
+            "auth_type": "provider_operator",
+            "user_id": operator.get("id") or operator.get("email") or "provider_operator",
+            "email": operator.get("email"),
+        }
         if workspace is not None:
-            operator = payload.get("operator") or {}
-            operator_auth = {
-                "auth_type": "provider_operator",
-                "user_id": operator.get("id") or operator.get("email") or "provider_operator",
-                "email": operator.get("email"),
-            }
             record_workspace_audit_log(
                 db,
                 workspace=workspace,

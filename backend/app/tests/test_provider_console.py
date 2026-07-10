@@ -15,6 +15,7 @@ from app.models.report import DMARCReport
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog, WorkspaceMembership
+from app.services import workspace_access
 from app.services.demo_provider_seed import seed_demo_provider_database
 from app.services.provider_access import require_provider_operator_access
 from app.services.provider_console import build_provider_console
@@ -79,6 +80,10 @@ def test_provider_demo_seed_is_idempotent_and_builds_console(db_session: Session
         "secure.lawfirm.example": "none",
     }
     assert len(lawfirm["users"]) == 3
+    praxis = next(
+        account for account in console["accounts"] if account["slug"] == "praxis-stadtpark"
+    )
+    assert praxis["billing"]["status"] == "past_due"
 
 
 def test_provider_console_uses_a_fixed_bulk_query_budget(db_session: Session):
@@ -157,6 +162,16 @@ def test_default_provider_plan_bootstrap_is_additive_and_idempotent(db_session: 
     db_session.refresh(custom)
     assert custom.name == "CKLNet Custom Monitor"
     assert custom.monthly_price_cents == 2300
+
+
+def test_all_write_permissions_are_registered_as_tenant_mutations():
+    write_permissions = {
+        value
+        for name, value in vars(workspace_access).items()
+        if name == "PERMISSION_WORKSPACE_ADMIN"
+        or (name.startswith("PERMISSION_") and name.endswith("_WRITE"))
+    }
+    assert write_permissions <= workspace_access.TENANT_MUTATION_PERMISSIONS
 
 
 def test_read_only_support_session_scopes_normal_customer_apis(
@@ -296,3 +311,25 @@ def test_operator_can_start_and_end_audited_role_scoped_session(
     )
     assert ended_audit.actor_type == "provider_operator"
     assert ended_audit.actor_id == str(started.json()["session"]["operator"]["id"])
+
+
+def test_support_session_cookie_is_cleared_when_workspace_was_removed(client: TestClient):
+    token, _ = create_support_session_token(
+        workspace_id=999_999,
+        organization_id=999_999,
+        target_user_id=999_999,
+        target_user_email="removed@customer.example",
+        target_user_role="workspace_owner",
+        operator={"id": "provider-operator", "email": "operator@example.com"},
+        reason="Close a stale support session",
+        read_only=True,
+    )
+    client.cookies.set(SUPPORT_SESSION_COOKIE, token)
+
+    response = client.delete("/api/v1/operator/support-session")
+
+    assert response.status_code == 200
+    assert response.json()["active"] is False
+    cookie_header = response.headers["set-cookie"]
+    assert cookie_header.startswith(f'{SUPPORT_SESSION_COOKIE}=""')
+    assert "Max-Age=0" in cookie_header

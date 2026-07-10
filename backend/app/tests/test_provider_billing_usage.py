@@ -35,6 +35,7 @@ from app.services.organizations import (
     MAX_PROVIDER_PAYLOAD_SUMMARY_LENGTH,
     bootstrap_default_commercial_foundation,
     build_usage_export,
+    ensure_entitlements,
     provision_provider_customer,
     update_external_subscription_state,
 )
@@ -117,6 +118,53 @@ def _create_provider_token(
         scopes=scopes or sorted(PROVIDER_SCOPES),
         allowed_scopes=PROVIDER_SCOPES,
         global_token=True,
+    )
+
+
+def test_plan_entitlement_refresh_deactivates_only_stale_plan_grants(db_session: Session):
+    organization, _, subscription = _add_provider_customer(
+        db_session,
+        slug="entitlement-refresh",
+        external_customer_id="cust-entitlement-refresh",
+        external_subscription_id="sub-entitlement-refresh",
+    )
+    stale_plan = Entitlement(
+        organization_id=organization.id,
+        subscription_id=subscription.id,
+        key="premium_feature",
+        value="true",
+        source="plan",
+        active=True,
+    )
+    manual = Entitlement(
+        organization_id=organization.id,
+        key="manual_exception",
+        value="true",
+        source="operator",
+        active=True,
+    )
+    db_session.add_all([stale_plan, manual])
+    db_session.flush()
+
+    ensure_entitlements(
+        db_session,
+        organization,
+        subscription,
+        {"aggregate_reports": "true"},
+        commit=False,
+    )
+
+    assert stale_plan.active is False
+    assert manual.active is True
+    assert (
+        db_session.query(Entitlement)
+        .filter(
+            Entitlement.organization_id == organization.id,
+            Entitlement.key == "aggregate_reports",
+            Entitlement.active.is_(True),
+        )
+        .count()
+        == 1
     )
 
 
@@ -635,15 +683,22 @@ def test_provider_customer_provisioning_endpoint_creates_customer(
                 "external_customer_id": "cust-endpoint",
                 "external_subscription_id": "sub-endpoint",
                 "external_event_id": "evt-endpoint",
-                "organization_slug": "Endpoint Customer Renamed",
-                "organization_name": "Endpoint Customer Renamed",
-                "workspace_slug": "Endpoint Customer Renamed Workspace",
+                "organization_slug": "Renamed Endpoint Customer",
+                "organization_name": "Renamed Endpoint Customer",
+                "workspace_slug": "renamed-endpoint-workspace",
+                "primary_domain": "renamed.endpoint.example",
             },
         )
         assert replay.status_code == 200
         assert replay.json()["result"]["idempotent_replay"] is True
         db_session.refresh(domain)
         assert domain.workspace.slug == "endpoint-customer-workspace"
+        assert (
+            db_session.query(Organization).filter(Organization.slug.like("%endpoint%")).count() == 1
+        )
+        assert (
+            db_session.query(Domain).filter(Domain.name == "renamed.endpoint.example").count() == 0
+        )
 
 
 def test_provider_customer_provisioning_endpoint_requires_provider_id(

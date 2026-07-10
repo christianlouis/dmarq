@@ -856,7 +856,7 @@ function providerDemo() {
         persistState() {
             try {
                 sessionStorage.setItem(this.storageKey, JSON.stringify({
-                    accounts: this.accounts,
+                    accounts: this.demoMode ? this.accounts : undefined,
                     selectedAccountSlug: this.selectedAccountSlug,
                     viewMode: this.viewMode,
                     accountTab: this.accountTab,

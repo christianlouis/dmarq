@@ -1381,7 +1381,16 @@ test('production provider mode persists a customer and opens its role-scoped pro
   await page.getByRole('button', { name: 'Billing speichern' }).click();
   await expect(page.getByText(/Gespeichert/)).toBeVisible();
 
+  await page.evaluate(() => {
+    sessionStorage.setItem('dmarq-provider-console-v3', JSON.stringify({
+      accounts: [{slug: 'stale-browser-account', name: 'Stale browser account'}],
+      selectedAccountSlug: 'cklnet-pilotkunde',
+      viewMode: 'account',
+      accountTab: 'billing',
+    }));
+  });
   await page.reload();
+  await expect(page.getByText('Stale browser account')).toHaveCount(0);
   await expect(accountView.getByRole('heading', { name: 'CKLNet Pilotkunde' })).toBeVisible();
   await page.locator('nav [data-provider-account-tab="billing"]').click();
   await expect(page.getByLabel('Monatlicher Betrag')).toHaveValue('149');

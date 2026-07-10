@@ -381,12 +381,13 @@ async def provision_provider_customer_endpoint(
             payload_summary=payload.payload_summary,
             commit=False,
         )
-        if not result.get("idempotent_replay"):
-            organization, workspace = _load_provisioned_customer(db, payload)
-            _apply_provider_billing_details(db, payload, organization)
-            _apply_provider_primary_domain(db, payload, workspace)
-            result["organization"] = organization_summary(db, organization)
+        if result.get("idempotent_replay"):
+            return {"result": result}
+        organization, workspace = _load_provisioned_customer(db, payload)
+        _apply_provider_billing_details(db, payload, organization)
+        _apply_provider_primary_domain(db, payload, workspace)
         db.commit()
+        result["organization"] = organization_summary(db, organization)
     except ValueError as exc:
         db.rollback()
         raise HTTPException(
