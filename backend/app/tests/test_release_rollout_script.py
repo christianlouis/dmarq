@@ -93,6 +93,23 @@ def test_release_workflow_skips_gitops_for_stale_main_runs():
     ) in workflow
 
 
+def test_release_workflow_promotes_multi_user_demo_with_nonprod():
+    """Every release must keep the separate provider demo on the current image."""
+    workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    manifest = "apps/dmarq/greenfield-demo-multi/dmarq-stack.yaml"
+
+    update_step = workflow.split("- name: Update image tags in GitOps manifests", maxsplit=1)[
+        1
+    ].split("- name: Commit and push manifest update", maxsplit=1)[0]
+    commit_step = workflow.split("- name: Commit and push manifest update", maxsplit=1)[1].split(
+        "promote-prod:", maxsplit=1
+    )[0]
+
+    assert manifest in update_step
+    assert manifest in commit_step
+    assert workflow.count(manifest) == 2
+
+
 def test_release_workflow_dispatches_gitops_deploy_after_release():
     """Semantic-release commits must trigger the deploy workflow explicitly."""
     workflow = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
