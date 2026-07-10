@@ -350,6 +350,17 @@ def _workspace_id_from_auth_context(auth_context: dict) -> Optional[int]:
     return workspace_id if workspace_id > 0 else None
 
 
+def _organization_id_from_auth_context(auth_context: dict) -> Optional[int]:
+    """Return the organization bound to support-session auth, when present."""
+    if (auth_context or {}).get("auth_type") != "support_session":
+        return None
+    try:
+        organization_id = int((auth_context or {}).get("organization_id") or 0)
+    except (TypeError, ValueError):
+        return None
+    return organization_id if organization_id > 0 else None
+
+
 def resolve_authorized_workspace(
     db: Session,
     auth_context: dict,
@@ -383,13 +394,13 @@ def resolve_authorized_workspace(
     return workspace
 
 
-def role_for_organization(
+def _regular_role_for_organization(
     db: Session,
     auth_context: dict,
     organization: Organization,
     permission: str,
 ) -> str:
-    """Resolve an effective organization role for tenant-state endpoints."""
+    """Resolve organization access outside a provider support session."""
     if is_platform_admin_auth(auth_context):
         return ROLE_WORKSPACE_OWNER
 
@@ -442,12 +453,55 @@ def role_for_organization(
     return ""
 
 
-def organization_ids_for_permission(
+def _support_session_role_for_organization(
+    db: Session,
+    auth_context: dict,
+    organization: Organization,
+    permission: str,
+) -> str:
+    """Resolve organization access from only the support session's bound workspace."""
+    bound_organization_id = _organization_id_from_auth_context(auth_context)
+    bound_workspace_id = _workspace_id_from_auth_context(auth_context)
+    if bound_organization_id != organization.id or bound_workspace_id is None:
+        return ""
+    workspace = (
+        db.query(Workspace)
+        .filter(
+            Workspace.id == bound_workspace_id,
+            Workspace.organization_id == organization.id,
+            Workspace.active.is_(True),
+        )
+        .first()
+    )
+    if workspace is None:
+        return ""
+    role = role_for_workspace(db, auth_context, workspace)
+    return role if role_allows(role, permission) else ""
+
+
+def role_for_organization(
+    db: Session,
+    auth_context: dict,
+    organization: Organization,
+    permission: str,
+) -> str:
+    """Resolve an effective organization role for tenant-state endpoints."""
+    if (auth_context or {}).get("auth_type") == "support_session":
+        return _support_session_role_for_organization(
+            db,
+            auth_context,
+            organization,
+            permission,
+        )
+    return _regular_role_for_organization(db, auth_context, organization, permission)
+
+
+def _regular_organization_ids_for_permission(
     db: Session,
     auth_context: dict,
     permission: str,
 ) -> Optional[List[int]]:
-    """Return authorized organization IDs, or None for platform-wide access."""
+    """Return organization IDs outside a provider support session."""
     if is_platform_admin_auth(auth_context):
         return None
 
@@ -499,6 +553,37 @@ def organization_ids_for_permission(
     return sorted(organization_ids)
 
 
+def _support_session_organization_ids_for_permission(
+    db: Session,
+    auth_context: dict,
+    permission: str,
+) -> List[int]:
+    """Return only the organization bound to the support session, when authorized."""
+    organization_id = _organization_id_from_auth_context(auth_context)
+    if organization_id is None:
+        return []
+    organization = (
+        db.query(Organization)
+        .filter(Organization.id == organization_id, Organization.active.is_(True))
+        .first()
+    )
+    if organization is None:
+        return []
+    role = role_for_organization(db, auth_context, organization, permission)
+    return [organization_id] if role_allows(role, permission) else []
+
+
+def organization_ids_for_permission(
+    db: Session,
+    auth_context: dict,
+    permission: str,
+) -> Optional[List[int]]:
+    """Return authorized organization IDs, or None for platform-wide access."""
+    if (auth_context or {}).get("auth_type") == "support_session":
+        return _support_session_organization_ids_for_permission(db, auth_context, permission)
+    return _regular_organization_ids_for_permission(db, auth_context, permission)
+
+
 def require_organization_permission(
     auth_context: dict,
     permission: str,
@@ -506,6 +591,13 @@ def require_organization_permission(
     organization: Organization,
 ) -> None:
     """Raise HTTP 403 when the caller cannot access organization tenant state."""
+    if (auth_context or {}).get("auth_type") == "support_session":
+        bound_organization_id = _organization_id_from_auth_context(auth_context)
+        if bound_organization_id != organization.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This support session is scoped to a different organization",
+            )
     if role_for_organization(db, auth_context, organization, permission):
         return
     raise HTTPException(

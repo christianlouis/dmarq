@@ -269,6 +269,16 @@ def test_operator_can_start_and_end_audited_role_scoped_session(
     assert current.status_code == 200
     assert current.json()["active"] is True
 
+    organizations = client.get("/api/v1/organizations")
+    assert organizations.status_code == 200
+    assert [row["slug"] for row in organizations.json()["organizations"]] == ["lawfirm-example"]
+
+    cross_organization_members = client.get(
+        f"/api/v1/memberships/organizations/{other_workspace.organization_id}"
+    )
+    assert cross_organization_members.status_code == 403
+    assert "scoped to a different organization" in cross_organization_members.json()["detail"]
+
     cross_workspace_mutation = client.post(
         f"/api/v1/memberships/workspaces/{other_workspace.id}/invites",
         json={"email": "blocked-cross-scope@bakery.example", "role": "analyst"},

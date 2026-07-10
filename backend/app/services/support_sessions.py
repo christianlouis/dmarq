@@ -92,6 +92,7 @@ def support_session_auth_context(request: Request) -> Optional[Dict[str, Any]]:
         "auth_type": SUPPORT_SESSION_TOKEN_TYPE,
         "user_id": payload["target_user_id"],
         "workspace_id": payload["workspace_id"],
+        "organization_id": payload.get("organization_id"),
         "support_session_id": payload.get("session_id"),
         "operator": payload.get("operator") or {},
         "reason": payload.get("reason"),
