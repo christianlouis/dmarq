@@ -136,7 +136,11 @@ def _ensure_account_foundation(
     workspace.forensic_retention_days = min(workspace.report_retention_days, 90)
     workspace.tls_report_retention_days = workspace.report_retention_days
     subscription.plan_id = plan.id
-    subscription.status = "trialing" if account["billing"]["status"] == "trial" else "active"
+    billing_status = account["billing"]["status"]
+    subscription.status = {
+        "current": "active",
+        "trial": "trialing",
+    }.get(billing_status, billing_status)
     subscription.current_period_start = datetime.utcnow()
     subscription.current_period_end = _naive_datetime(
         f"{account['billing']['next_invoice_at']}T00:00:00Z"

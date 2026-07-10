@@ -418,7 +418,12 @@ def ensure_entitlements(
         )
         .all()
     }
+    entitlement_keys = set(entitlements)
     created_or_existing = []
+    for key, entitlement in existing.items():
+        if key not in entitlement_keys and entitlement.source == "plan":
+            entitlement.active = False
+
     for key, value in entitlements.items():
         entitlement = existing.get(key)
         if entitlement:

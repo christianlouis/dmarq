@@ -635,12 +635,15 @@ def test_provider_customer_provisioning_endpoint_creates_customer(
                 "external_customer_id": "cust-endpoint",
                 "external_subscription_id": "sub-endpoint",
                 "external_event_id": "evt-endpoint",
-                "organization_slug": "Endpoint Customer",
-                "organization_name": "Endpoint Customer",
+                "organization_slug": "Endpoint Customer Renamed",
+                "organization_name": "Endpoint Customer Renamed",
+                "workspace_slug": "Endpoint Customer Renamed Workspace",
             },
         )
         assert replay.status_code == 200
         assert replay.json()["result"]["idempotent_replay"] is True
+        db_session.refresh(domain)
+        assert domain.workspace.slug == "endpoint-customer-workspace"
 
 
 def test_provider_customer_provisioning_endpoint_requires_provider_id(

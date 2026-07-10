@@ -872,7 +872,9 @@ function providerDemo() {
                 const raw = sessionStorage.getItem(this.storageKey);
                 if (!raw) return false;
                 const state = JSON.parse(raw);
-                if (Array.isArray(state.accounts) && state.accounts.length) this.accounts = state.accounts;
+                if (this.demoMode && Array.isArray(state.accounts) && state.accounts.length) {
+                    this.accounts = state.accounts;
+                }
                 this.selectedAccountSlug = state.selectedAccountSlug || this.accounts[0]?.slug || '';
                 this.viewMode = ['provider', 'account'].includes(state.viewMode) ? state.viewMode : 'provider';
                 this.accountTab = state.accountTab || 'overview';
