@@ -214,6 +214,7 @@ if (typeof document !== 'undefined') {
         if (!(target instanceof Element)) return;
         const button = target.closest('[data-support-session-exit]');
         if (!button) return;
+        const originalText = button.textContent;
         button.disabled = true;
         try {
             const response = await fetch('/api/v1/operator/support-session', {
@@ -225,7 +226,8 @@ if (typeof document !== 'undefined') {
             window.location.assign(button.dataset.supportSessionExitUrl || '/provider#accounts');
         } catch (_) {
             button.disabled = false;
-            button.textContent = 'Sitzung konnte nicht beendet werden';
+            button.textContent = originalText;
+            button.setAttribute('data-support-session-exit-error', 'Sitzung konnte nicht beendet werden');
         }
     });
 })();

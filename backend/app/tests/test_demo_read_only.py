@@ -81,12 +81,16 @@ def test_demo_mode_allows_synthetic_support_session_simulation():
 
 def test_demo_mode_only_allows_product_support_sessions_for_provider_demo():
     with _build_demo_guard_client() as legacy_client:
-        assert legacy_client.post("/api/v1/operator/support-session").status_code == 403
-        assert legacy_client.delete("/api/v1/operator/support-session").status_code == 403
+        legacy_start = legacy_client.post("/api/v1/operator/support-session")
+        legacy_end = legacy_client.delete("/api/v1/operator/support-session")
+        assert legacy_start.status_code == 403
+        assert legacy_end.status_code == 403
 
     with _build_demo_guard_client(provider_demo_enabled=True) as provider_client:
-        assert provider_client.post("/api/v1/operator/support-session").status_code == 200
-        assert provider_client.delete("/api/v1/operator/support-session").status_code == 200
+        provider_start = provider_client.post("/api/v1/operator/support-session")
+        provider_end = provider_client.delete("/api/v1/operator/support-session")
+        assert provider_start.status_code == 200
+        assert provider_end.status_code == 200
 
 
 def test_normal_mode_allows_mutating_methods():
