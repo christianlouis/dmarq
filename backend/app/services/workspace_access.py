@@ -239,6 +239,13 @@ def require_workspace_permission(
     workspace: Optional[Workspace] = None,
 ) -> None:
     """Raise HTTP 403 for missing access or HTTP 402 for read-only accounts."""
+    if (auth_context or {}).get("auth_type") == "support_session" and workspace is not None:
+        bound_workspace_id = _workspace_id_from_auth_context(auth_context)
+        if bound_workspace_id is None or workspace.id != bound_workspace_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This support session is scoped to a different workspace",
+            )
     if (
         (auth_context or {}).get("auth_type") == "support_session"
         and (auth_context or {}).get("support_read_only")

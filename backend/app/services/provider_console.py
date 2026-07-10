@@ -6,7 +6,8 @@ import json
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
-from sqlalchemy.orm import Session
+from sqlalchemy import func
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
 from app.models.domain import Domain
@@ -116,34 +117,29 @@ def _recommended_action(
 
 
 def _user_rows(
-    db: Session,
     organization: Organization,
     workspaces: List[Workspace],
+    workspace_memberships: Dict[int, List[WorkspaceMembership]],
 ) -> List[Dict[str, Any]]:
     roles: Dict[int, str] = {}
-    for membership in (
-        db.query(OrganizationMembership)
-        .filter(
-            OrganizationMembership.organization_id == organization.id,
-            OrganizationMembership.active.is_(True),
-        )
-        .all()
-    ):
+    users_by_id: Dict[int, User] = {}
+    for membership in organization.memberships:
+        if not membership.active or membership.user is None:
+            continue
         roles[membership.user_id] = membership.role
-    workspace_ids = [workspace.id for workspace in workspaces]
-    if workspace_ids:
-        for membership in (
-            db.query(WorkspaceMembership)
-            .filter(
-                WorkspaceMembership.workspace_id.in_(workspace_ids),
-                WorkspaceMembership.active.is_(True),
-            )
-            .all()
-        ):
+        users_by_id[membership.user_id] = membership.user
+    for workspace in workspaces:
+        for membership in workspace_memberships.get(workspace.id, []):
+            if not membership.active or membership.user is None:
+                continue
             roles.setdefault(membership.user_id, membership.role)
+            users_by_id[membership.user_id] = membership.user
     if not roles:
         return []
-    users = db.query(User).filter(User.id.in_(list(roles))).order_by(User.email.asc()).all()
+    users = sorted(
+        (users_by_id[user_id] for user_id in roles if user_id in users_by_id),
+        key=lambda user: user.email,
+    )
     return [
         {
             "id": user.id,
@@ -264,30 +260,24 @@ def _activity_rows(rows: List[WorkspaceAuditLog]) -> List[Dict[str, Any]]:
 
 
 def _account_payload(  # pylint: disable=too-many-locals
-    db: Session,
     organization: Organization,
     *,
     period_start: datetime,
+    workspace_memberships: Dict[int, List[WorkspaceMembership]],
+    audits: List[WorkspaceAuditLog],
 ) -> Dict[str, Any]:
-    workspaces = (
-        db.query(Workspace)
-        .filter(Workspace.organization_id == organization.id)
-        .order_by(Workspace.active.desc(), Workspace.slug.asc())
-        .all()
+    workspaces = sorted(
+        organization.workspaces,
+        key=lambda workspace: (not workspace.active, workspace.slug),
     )
-    workspace_ids = [workspace.id for workspace in workspaces]
-    domains = (
-        db.query(Domain)
-        .filter(Domain.workspace_id.in_(workspace_ids or [-1]), Domain.active.is_(True))
-        .order_by(Domain.name.asc())
-        .all()
+    domains = sorted(
+        (domain for workspace in workspaces for domain in workspace.domains if domain.active),
+        key=lambda domain: domain.name,
     )
-    domain_ids = [domain.id for domain in domains]
-    reports = (
-        db.query(DMARCReport)
-        .filter(DMARCReport.domain_id.in_(domain_ids or [-1]))
-        .order_by(DMARCReport.processed_at.desc(), DMARCReport.id.desc())
-        .all()
+    reports = sorted(
+        (report for domain in domains for report in domain.reports),
+        key=lambda report: (report.processed_at or datetime.min, report.id),
+        reverse=True,
     )
     reports_by_domain: Dict[int, List[DMARCReport]] = {}
     for report in reports:
@@ -298,34 +288,22 @@ def _account_payload(  # pylint: disable=too-many-locals
     messages = sum(_report_messages(report) for report in recent_reports)
     passed = sum(_report_passed_messages(report) for report in recent_reports)
     compliance_rate = round((passed / messages) * 100, 1) if messages else 0.0
-    users = _user_rows(db, organization, workspaces)
+    users = _user_rows(organization, workspaces, workspace_memberships)
     primary_contact = next(
         (user for user in users if user["role"] in {"organization_owner", "workspace_owner"}),
         users[0] if users else None,
     ) or {"name": "Nicht zugewiesen", "email": "Nicht zugewiesen"}
-    subscriptions = (
-        db.query(Subscription)
-        .filter(Subscription.organization_id == organization.id)
-        .order_by(Subscription.created_at.desc(), Subscription.id.desc())
-        .all()
+    subscriptions = sorted(
+        organization.subscriptions,
+        key=lambda subscription: (subscription.created_at or datetime.min, subscription.id),
+        reverse=True,
     )
     subscription = subscriptions[0] if subscriptions else None
     plan = subscription.plan if subscription is not None else None
-    billing_account = (
-        db.query(BillingAccount)
-        .filter(BillingAccount.organization_id == organization.id)
-        .order_by(BillingAccount.id.asc())
-        .first()
-    )
+    billing_accounts = sorted(organization.billing_accounts, key=lambda account: account.id)
+    billing_account = billing_accounts[0] if billing_accounts else None
     domain_rows = _domain_rows(domains, reports_by_domain, period_start=period_start)
     health = _health(compliance_rate, domains, len(recent_reports))
-    audits = (
-        db.query(WorkspaceAuditLog)
-        .filter(WorkspaceAuditLog.workspace_id.in_(workspace_ids or [-1]))
-        .order_by(WorkspaceAuditLog.created_at.desc(), WorkspaceAuditLog.id.desc())
-        .limit(12)
-        .all()
-    )
     completed_steps = sum(
         [
             bool(domains),
@@ -440,6 +418,68 @@ def _account_payload(  # pylint: disable=too-many-locals
     }
 
 
+def _workspace_memberships_for_console(
+    db: Session,
+    workspace_ids: List[int],
+) -> Dict[int, List[WorkspaceMembership]]:
+    grouped: Dict[int, List[WorkspaceMembership]] = {}
+    if not workspace_ids:
+        return grouped
+    rows = (
+        db.query(WorkspaceMembership)
+        .options(selectinload(WorkspaceMembership.user))
+        .filter(
+            WorkspaceMembership.workspace_id.in_(workspace_ids),
+            WorkspaceMembership.active.is_(True),
+        )
+        .all()
+    )
+    for row in rows:
+        grouped.setdefault(row.workspace_id, []).append(row)
+    return grouped
+
+
+def _recent_audits_for_console(
+    db: Session,
+    organization_ids: List[int],
+) -> Dict[int, List[WorkspaceAuditLog]]:
+    grouped: Dict[int, List[WorkspaceAuditLog]] = {}
+    if not organization_ids:
+        return grouped
+    ranked = (
+        db.query(
+            WorkspaceAuditLog.id.label("audit_id"),
+            Workspace.organization_id.label("organization_id"),
+            func.row_number()
+            .over(
+                partition_by=Workspace.organization_id,
+                order_by=(
+                    WorkspaceAuditLog.created_at.desc(),
+                    WorkspaceAuditLog.id.desc(),
+                ),
+            )
+            .label("position"),
+        )
+        .join(Workspace, Workspace.id == WorkspaceAuditLog.workspace_id)
+        .filter(Workspace.organization_id.in_(organization_ids))
+        .subquery()
+    )
+    rows = (
+        db.query(WorkspaceAuditLog, ranked.c.organization_id)
+        .join(ranked, ranked.c.audit_id == WorkspaceAuditLog.id)
+        .filter(ranked.c.position <= 12)
+        .order_by(
+            ranked.c.organization_id.asc(),
+            WorkspaceAuditLog.created_at.desc(),
+            WorkspaceAuditLog.id.desc(),
+        )
+        .all()
+    )
+    for audit, organization_id in rows:
+        grouped.setdefault(int(organization_id), []).append(audit)
+    return grouped
+
+
 def build_provider_console(
     db: Session,
     *,
@@ -453,6 +493,15 @@ def build_provider_console(
     period_start = datetime.combine(anchor - timedelta(days=29), datetime.min.time())
     query = (
         db.query(Organization)
+        .options(
+            selectinload(Organization.workspaces)
+            .selectinload(Workspace.domains)
+            .selectinload(Domain.reports)
+            .selectinload(DMARCReport.records),
+            selectinload(Organization.memberships).selectinload(OrganizationMembership.user),
+            selectinload(Organization.billing_accounts),
+            selectinload(Organization.subscriptions).selectinload(Subscription.plan),
+        )
         .join(BillingAccount, BillingAccount.organization_id == Organization.id)
         .filter(BillingAccount.billing_mode.like("provider_%"))
         .distinct()
@@ -461,8 +510,19 @@ def build_provider_console(
         ids = [int(value) for value in organization_ids]
         query = query.filter(Organization.id.in_(ids or [-1]))
     organizations = query.order_by(Organization.active.desc(), Organization.name.asc()).all()
+    organization_id_list = [organization.id for organization in organizations]
+    workspace_ids = [
+        workspace.id for organization in organizations for workspace in organization.workspaces
+    ]
+    workspace_memberships = _workspace_memberships_for_console(db, workspace_ids)
+    audits_by_organization = _recent_audits_for_console(db, organization_id_list)
     accounts = [
-        _account_payload(db, organization, period_start=period_start)
+        _account_payload(
+            organization,
+            period_start=period_start,
+            workspace_memberships=workspace_memberships,
+            audits=audits_by_organization.get(organization.id, []),
+        )
         for organization in organizations
     ]
     plans = (

@@ -311,6 +311,12 @@ async def end_support_session(
     payload = support_session_from_request(request)
     if payload is not None:
         workspace = _workspace_or_404(db, int(payload["workspace_id"]))
+        operator = payload.get("operator") or {}
+        operator_auth = {
+            "auth_type": "provider_operator",
+            "user_id": operator.get("id") or operator.get("email") or "provider_operator",
+            "email": operator.get("email"),
+        }
         record_workspace_audit_log(
             db,
             workspace=workspace,
@@ -320,12 +326,12 @@ async def end_support_session(
             entity_name=payload.get("target_user_email"),
             details={
                 "summary": "Provider operator ended the customer support session",
-                "operator": payload.get("operator") or {},
+                "operator": operator,
                 "reason": payload.get("reason"),
                 "customer_visible": True,
             },
             request=request,
-            auth_context=_auth,
+            auth_context=operator_auth,
             commit=True,
         )
     response.delete_cookie(SUPPORT_SESSION_COOKIE, path="/")

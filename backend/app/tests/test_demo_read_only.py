@@ -6,11 +6,18 @@ from fastapi.testclient import TestClient
 from app.middleware.demo import DemoReadOnlyMiddleware
 
 
-def _build_demo_guard_client(demo_mode: bool = True) -> TestClient:
+def _build_demo_guard_client(
+    demo_mode: bool = True,
+    *,
+    provider_demo_enabled: bool = False,
+) -> TestClient:
     app = FastAPI()
     app.add_middleware(
         DemoReadOnlyMiddleware,
-        settings_provider=lambda: SimpleNamespace(DEMO_MODE=demo_mode),
+        settings_provider=lambda: SimpleNamespace(
+            DEMO_MODE=demo_mode,
+            PROVIDER_DEMO_ENABLED=provider_demo_enabled,
+        ),
     )
 
     @app.api_route(
@@ -30,6 +37,10 @@ def _build_demo_guard_client(demo_mode: bool = True) -> TestClient:
 
     @app.post("/api/v1/operator/demo/support-session")
     async def simulated_support_session():
+        return {"ok": True}
+
+    @app.api_route("/api/v1/operator/support-session", methods=["POST", "DELETE"])
+    async def product_support_session():
         return {"ok": True}
 
     return TestClient(app)
@@ -66,6 +77,16 @@ def test_demo_mode_allows_synthetic_support_session_simulation():
         response = client.post("/api/v1/operator/demo/support-session")
 
         assert response.status_code == 200
+
+
+def test_demo_mode_only_allows_product_support_sessions_for_provider_demo():
+    with _build_demo_guard_client() as legacy_client:
+        assert legacy_client.post("/api/v1/operator/support-session").status_code == 403
+        assert legacy_client.delete("/api/v1/operator/support-session").status_code == 403
+
+    with _build_demo_guard_client(provider_demo_enabled=True) as provider_client:
+        assert provider_client.post("/api/v1/operator/support-session").status_code == 200
+        assert provider_client.delete("/api/v1/operator/support-session").status_code == 200
 
 
 def test_normal_mode_allows_mutating_methods():

@@ -3,9 +3,11 @@
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.security import add_api_key
 from app.models.health_score_snapshot import HealthScoreSnapshot
 from app.models.mail_source import MailSource
 from app.models.organization import Plan, Subscription
@@ -77,6 +79,24 @@ def test_provider_demo_seed_is_idempotent_and_builds_console(db_session: Session
         "secure.lawfirm.example": "none",
     }
     assert len(lawfirm["users"]) == 3
+
+
+def test_provider_console_uses_a_fixed_bulk_query_budget(db_session: Session):
+    seed_demo_provider_database(db_session)
+    db_session.expunge_all()
+    statements = []
+
+    def _record_statement(*_args):
+        statements.append(_args[2])
+
+    event.listen(db_session.bind, "before_cursor_execute", _record_statement)
+    try:
+        console = build_provider_console(db_session, demo_mode=True)
+    finally:
+        event.remove(db_session.bind, "before_cursor_execute", _record_statement)
+
+    assert console["summary"]["accounts"] == 6
+    assert len(statements) <= 18
 
 
 def test_provider_operator_access_uses_explicit_email_allowlist(
@@ -184,6 +204,12 @@ def test_read_only_support_session_scopes_normal_customer_apis(
     assert members.status_code == 200
     assert len(members.json()["memberships"]) == 4
 
+    cross_workspace_members = client.get(
+        f"/api/v1/memberships/workspaces/{other_workspace.id}?include_inactive=true"
+    )
+    assert cross_workspace_members.status_code == 403
+    assert "scoped to a different workspace" in cross_workspace_members.json()["detail"]
+
     mutation = client.post(
         f"/api/v1/memberships/workspaces/{workspace.id}/invites",
         json={"email": "blocked@lawfirm.example", "role": "analyst"},
@@ -201,13 +227,26 @@ def test_read_only_support_session_scopes_normal_customer_apis(
 
 
 def test_operator_can_start_and_end_audited_role_scoped_session(
-    authed_client: TestClient,
+    client: TestClient,
     db_session: Session,
 ):
     workspace, user, _, _ = _seeded_lawfirm(db_session)
+    other_workspace = db_session.query(Workspace).filter(Workspace.slug == "bakery-example").one()
+    db_session.add(
+        WorkspaceMembership(
+            workspace_id=other_workspace.id,
+            user_id=user.id,
+            role="workspace_owner",
+            active=True,
+        )
+    )
+    db_session.commit()
+    api_key = "provider-console-support-session-test-key"
+    add_api_key(api_key)
 
-    started = authed_client.post(
+    started = client.post(
         "/api/v1/operator/support-session",
+        headers={"X-API-Key": api_key},
         json={
             "workspace_id": workspace.id,
             "target_user_id": user.id,
@@ -226,16 +265,24 @@ def test_operator_can_start_and_end_audited_role_scoped_session(
         == 1
     )
 
-    current = authed_client.get("/api/v1/operator/support-session")
+    current = client.get("/api/v1/operator/support-session")
     assert current.status_code == 200
     assert current.json()["active"] is True
 
-    ended = authed_client.delete("/api/v1/operator/support-session")
+    cross_workspace_mutation = client.post(
+        f"/api/v1/memberships/workspaces/{other_workspace.id}/invites",
+        json={"email": "blocked-cross-scope@bakery.example", "role": "analyst"},
+    )
+    assert cross_workspace_mutation.status_code == 403
+    assert "scoped to a different workspace" in cross_workspace_mutation.json()["detail"]
+
+    ended = client.delete("/api/v1/operator/support-session")
     assert ended.status_code == 200
     assert ended.json()["active"] is False
-    assert (
+    ended_audit = (
         db_session.query(WorkspaceAuditLog)
         .filter(WorkspaceAuditLog.action == "support_session.ended")
-        .count()
-        == 1
+        .one()
     )
+    assert ended_audit.actor_type == "provider_operator"
+    assert ended_audit.actor_id == str(started.json()["session"]["operator"]["id"])
