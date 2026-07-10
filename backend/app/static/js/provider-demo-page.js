@@ -995,8 +995,13 @@ function providerDemo() {
         roleLabel(value) {
             return {
                 organization_owner: 'Organisationsinhaber',
+                organization_admin: 'Organisations-Admin',
+                workspace_owner: 'Workspace-Inhaber',
                 workspace_admin: 'Workspace-Admin',
                 security_analyst: 'Security-Analyst',
+                domain_admin: 'Domain-Admin',
+                analyst: 'Analyst',
+                operator: 'Operator',
                 auditor: 'Auditor',
                 billing_admin: 'Billing-Admin',
                 site_manager: 'Site Manager',
@@ -1016,7 +1021,8 @@ function providerDemo() {
         },
 
         impersonationUserOptionLabel(user) {
-            return `${user.name} · ${this.roleLabel(user.role)} · ${user.email}`;
+            const supportRole = user.support_role || user.role;
+            return `${user.name} · ${this.roleLabel(supportRole)} · ${user.email}`;
         },
 
         dateLabel(value) {

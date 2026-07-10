@@ -361,6 +361,27 @@ def _organization_id_from_auth_context(auth_context: dict) -> Optional[int]:
     return organization_id if organization_id > 0 else None
 
 
+def support_session_allows_inactive_tenant_read(
+    auth_context: dict,
+    *,
+    workspace_id: Optional[int] = None,
+    organization_id: Optional[int] = None,
+) -> bool:
+    """Allow read-only support sessions to inspect their exact inactive tenant scope."""
+    if (auth_context or {}).get("auth_type") != "support_session" or not (auth_context or {}).get(
+        "support_read_only"
+    ):
+        return False
+    if workspace_id is not None and _workspace_id_from_auth_context(auth_context) != workspace_id:
+        return False
+    if (
+        organization_id is not None
+        and _organization_id_from_auth_context(auth_context) != organization_id
+    ):
+        return False
+    return True
+
+
 def resolve_authorized_workspace(
     db: Session,
     auth_context: dict,
@@ -377,14 +398,13 @@ def resolve_authorized_workspace(
     if selected_workspace_id is None:
         workspace = assign_default_workspace_to_unscoped_rows(db)
     else:
-        workspace = (
-            db.query(Workspace)
-            .filter(
-                Workspace.id == selected_workspace_id,
-                Workspace.active.is_(True),
-            )
-            .first()
-        )
+        workspace_query = db.query(Workspace).filter(Workspace.id == selected_workspace_id)
+        if not support_session_allows_inactive_tenant_read(
+            auth_context,
+            workspace_id=selected_workspace_id,
+        ):
+            workspace_query = workspace_query.filter(Workspace.active.is_(True))
+        workspace = workspace_query.first()
         if workspace is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -464,15 +484,17 @@ def _support_session_role_for_organization(
     bound_workspace_id = _workspace_id_from_auth_context(auth_context)
     if bound_organization_id != organization.id or bound_workspace_id is None:
         return ""
-    workspace = (
-        db.query(Workspace)
-        .filter(
-            Workspace.id == bound_workspace_id,
-            Workspace.organization_id == organization.id,
-            Workspace.active.is_(True),
-        )
-        .first()
+    workspace_query = db.query(Workspace).filter(
+        Workspace.id == bound_workspace_id,
+        Workspace.organization_id == organization.id,
     )
+    if not support_session_allows_inactive_tenant_read(
+        auth_context,
+        workspace_id=bound_workspace_id,
+        organization_id=organization.id,
+    ):
+        workspace_query = workspace_query.filter(Workspace.active.is_(True))
+    workspace = workspace_query.first()
     if workspace is None:
         return ""
     role = role_for_workspace(db, auth_context, workspace)
@@ -562,11 +584,13 @@ def _support_session_organization_ids_for_permission(
     organization_id = _organization_id_from_auth_context(auth_context)
     if organization_id is None:
         return []
-    organization = (
-        db.query(Organization)
-        .filter(Organization.id == organization_id, Organization.active.is_(True))
-        .first()
-    )
+    organization_query = db.query(Organization).filter(Organization.id == organization_id)
+    if not support_session_allows_inactive_tenant_read(
+        auth_context,
+        organization_id=organization_id,
+    ):
+        organization_query = organization_query.filter(Organization.active.is_(True))
+    organization = organization_query.first()
     if organization is None:
         return []
     role = role_for_organization(db, auth_context, organization, permission)
@@ -597,6 +621,13 @@ def require_organization_permission(
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="This support session is scoped to a different organization",
+            )
+        if (auth_context or {}).get(
+            "support_read_only"
+        ) and permission in TENANT_MUTATION_PERMISSIONS:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This support session is read-only",
             )
     if role_for_organization(db, auth_context, organization, permission):
         return

@@ -29,6 +29,7 @@ from app.services.workspace_access import (
     ROLE_WORKSPACE_OWNER,
     require_organization_permission,
     require_workspace_permission,
+    support_session_allows_inactive_tenant_read,
 )
 from app.services.workspace_audit import record_workspace_audit_log
 
@@ -117,12 +118,18 @@ def _ensure_workspace_accepts_mutation(workspace: Workspace) -> None:
     )
 
 
-def _organization_or_404(db: Session, organization_id: int) -> Organization:
-    organization = (
-        db.query(Organization)
-        .filter(Organization.id == organization_id, Organization.active.is_(True))
-        .first()
-    )
+def _organization_or_404(
+    db: Session,
+    organization_id: int,
+    auth_context: dict,
+) -> Organization:
+    query = db.query(Organization).filter(Organization.id == organization_id)
+    if not support_session_allows_inactive_tenant_read(
+        auth_context,
+        organization_id=organization_id,
+    ):
+        query = query.filter(Organization.active.is_(True))
+    organization = query.first()
     if organization is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -557,7 +564,7 @@ async def list_organization_memberships(
     _auth: dict = Depends(require_admin_auth),
 ) -> MembershipListResponse:
     """List users assigned across one organization."""
-    organization = _organization_or_404(db, organization_id)
+    organization = _organization_or_404(db, organization_id, _auth)
     require_organization_permission(_auth, PERMISSION_MEMBERS_READ, db, organization)
     query = (
         db.query(OrganizationMembership)
@@ -591,7 +598,7 @@ async def upsert_organization_membership(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Payload user_id must match path user_id",
         )
-    organization = _organization_or_404(db, organization_id)
+    organization = _organization_or_404(db, organization_id, _auth)
     require_organization_permission(_auth, PERMISSION_WORKSPACE_ADMIN, db, organization)
     user = _user_or_404(db, user_id)
     role = _normalize_role(payload.role, ORGANIZATION_ROLES)
@@ -616,7 +623,7 @@ async def invite_organization_member(
     _auth: dict = Depends(require_admin_auth),
 ) -> MembershipResponse:
     """Invite or link a user by email and assign an organization role."""
-    organization = _organization_or_404(db, organization_id)
+    organization = _organization_or_404(db, organization_id, _auth)
     require_organization_permission(_auth, PERMISSION_WORKSPACE_ADMIN, db, organization)
     role = _normalize_role(payload.role, ORGANIZATION_ROLES)
     _require_sso_identity_linking(db, organization, payload)
@@ -646,7 +653,7 @@ async def deactivate_organization_membership(
     _auth: dict = Depends(require_admin_auth),
 ) -> MembershipResponse:
     """Deactivate one organization membership without deleting audit history."""
-    organization = _organization_or_404(db, organization_id)
+    organization = _organization_or_404(db, organization_id, _auth)
     require_organization_permission(_auth, PERMISSION_WORKSPACE_ADMIN, db, organization)
     membership = (
         db.query(OrganizationMembership)
