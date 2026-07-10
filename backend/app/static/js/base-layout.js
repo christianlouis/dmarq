@@ -208,6 +208,32 @@ if (typeof document !== 'undefined') {
     };
 })();
 
+(function bindSupportSessionExit() {
+    document.addEventListener('click', async (event) => {
+        const target = event.target;
+        if (!(target instanceof Element)) return;
+        const button = target.closest('[data-support-session-exit]');
+        if (!button) return;
+        const originalLabel = button.textContent;
+        button.disabled = true;
+        try {
+            const response = await fetch('/api/v1/operator/support-session', {
+                method: 'DELETE',
+                headers: {Accept: 'application/json'},
+            });
+            if (!response.ok) throw new Error('Support session could not be ended');
+            localStorage.removeItem('dmarq.selectedWorkspaceId');
+            window.location.assign(button.dataset.supportSessionExitUrl || '/provider#accounts');
+        } catch (_) {
+            button.disabled = false;
+            button.textContent = 'Sitzung konnte nicht beendet werden';
+            window.setTimeout(() => {
+                if (button.isConnected) button.textContent = originalLabel;
+            }, 2500);
+        }
+    });
+})();
+
 (function restoreThemePreference() {
     const darkMode = localStorage.getItem('darkMode') === 'true';
     if (darkMode) {

@@ -36,6 +36,7 @@ from app.services.organizations import (
     OrganizationPlanLimitError,
     account_state_for_subscriptions,
     bootstrap_default_commercial_foundation,
+    ensure_entitlements,
     get_or_create_starter_plan,
     list_organization_summaries,
     organization_plan_limit,
@@ -1045,6 +1046,71 @@ def test_duplicate_active_entitlements_use_latest_row(db_session: Session):
 
     summary = organization_summary(db_session, organization)
     assert summary["entitlements"]["webhooks"]["value"] == "true"
+
+
+def test_ensure_entitlements_deactivates_stale_plan_grants(db_session: Session):
+    plan = get_or_create_starter_plan(db_session)
+    organization = Organization(slug="stale-plan-entitlements", name="Stale Plan Entitlements")
+    db_session.add(organization)
+    db_session.flush()
+    subscription = Subscription(
+        organization_id=organization.id,
+        plan_id=plan.id,
+        billing_mode=BILLING_MODE_PROVIDER_RESALE,
+        status="active",
+        current_period_start=datetime.utcnow(),
+    )
+    db_session.add(subscription)
+    db_session.flush()
+    db_session.add_all(
+        [
+            Entitlement(
+                organization_id=organization.id,
+                subscription_id=subscription.id,
+                key="old_plan_feature",
+                value="true",
+                source="plan",
+                active=True,
+            ),
+            Entitlement(
+                organization_id=organization.id,
+                key="manual_override",
+                value="true",
+                source="manual",
+                active=True,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    ensure_entitlements(
+        db_session,
+        organization,
+        subscription,
+        {"new_plan_feature": "true"},
+    )
+
+    old_plan_feature = (
+        db_session.query(Entitlement)
+        .filter(Entitlement.organization_id == organization.id)
+        .filter(Entitlement.key == "old_plan_feature")
+        .one()
+    )
+    manual_override = (
+        db_session.query(Entitlement)
+        .filter(Entitlement.organization_id == organization.id)
+        .filter(Entitlement.key == "manual_override")
+        .one()
+    )
+    assert old_plan_feature.active is False
+    assert manual_override.active is True
+    assert (
+        db_session.query(Entitlement)
+        .filter(Entitlement.organization_id == organization.id)
+        .filter(Entitlement.key == "new_plan_feature", Entitlement.active.is_(True))
+        .count()
+        == 1
+    )
 
 
 def test_account_state_reports_provider_grace_without_blocking(db_session: Session):

@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, status
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
+from app.core.config import get_settings, uses_legacy_demo_fixtures
 from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.services.demo_data import build_demo_dashboard_statistics
@@ -211,7 +211,7 @@ async def get_dashboard_statistics(
         selected_workspace_id=selected_workspace_id,
     )
 
-    if get_settings().DEMO_MODE:
+    if uses_legacy_demo_fixtures(get_settings()):
         stats = build_demo_dashboard_statistics(period_days=resolved_days)
         stats["api_version"] = "1.0"
         stats["period_days"] = resolved_days
@@ -284,7 +284,7 @@ async def get_domain_statistics(
         selected_workspace_id=selected_workspace_id,
     )
 
-    if get_settings().DEMO_MODE:
+    if uses_legacy_demo_fixtures(get_settings()):
         stats = build_demo_dashboard_statistics(period_days=resolved_days, domain=domain_id)
         stats["api_version"] = "1.0"
         stats["period_days"] = resolved_days

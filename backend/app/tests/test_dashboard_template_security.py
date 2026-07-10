@@ -2625,10 +2625,8 @@ def test_base_template_propagates_selected_workspace_context():
     assert "data-release-modal-trigger" in template
     assert 'aria-label="Show release notes for {{ release_info.label }}"' in template
     assert 'aria-label="Open account menu"' in template
-    assert (
-        '<span class="text-[11px] font-semibold leading-tight">{{ "Provider" if provider_demo_enabled else "Dashboard" }}</span>'
-        in template
-    )
+    assert '<span class="text-[11px] font-semibold leading-tight">Provider</span>' in template
+    assert '<span class="text-[11px] font-semibold leading-tight">Dashboard</span>' in template
     for rail_label in (
         "Domains",
         "Reports",
@@ -2638,8 +2636,7 @@ def test_base_template_propagates_selected_workspace_context():
         "Settings",
     ):
         assert (
-            f'<span class="text-[11px] font-semibold leading-tight">{rail_label}</span>'
-            in template
+            f'<span class="text-[11px] font-semibold leading-tight">{rail_label}</span>' in template
         )
     assert 'href="/static/css/app.css"' in template
     assert "cdn.tailwindcss.com" not in template
@@ -2695,11 +2692,15 @@ def test_base_template_uses_provider_console_navigation_for_provider_demo():
         "layouts/base.html",
         multi_workspace_ui_enabled=False,
         provider_demo_enabled=True,
+        provider_console_page=True,
     )
 
     assert 'aria-label="DMARQ Provider Console"' in rendered
     assert 'href="/provider-demo"' in rendered
-    assert "Provider Console" in rendered
+    assert "Kundenkonten" in rendered
+    assert "Billing offen" in rendered
+    assert "Single-user-Demo" in rendered
+    assert "Öffentliche Demo - read-only" not in rendered
     assert 'href="/members"' not in rendered
 
 
@@ -2789,23 +2790,25 @@ def test_provider_demo_is_separate_from_dashboard_controls():
     dashboard = _dashboard_template()
 
     assert "data-provider-demo" in template
-    assert "/api/v1/operator/demo/provider-console" in script
-    assert "/api/v1/operator/demo/multi-user" in script
-    assert "/api/v1/operator/demo/support-session" in script
+    assert "/api/v1/operator/provider-console" in script
+    assert "/api/v1/operator/support-session" in script
+    assert "/api/v1/operator/demo/provider-console" not in script
+    assert "/api/v1/operator/demo/support-session" not in script
     assert "/api/v1/operator/demo/multi-user" not in dashboard
     assert "/api/v1/operator/demo/support-session" not in dashboard
-    assert "Provider console" in template
-    assert "Mandanten & Billing verwalten" in template
-    assert "Neuen Mandanten anlegen" in template
-    assert "Billing-Settings pro Mandant" in template
-    assert "Benutzer anlegen" in template
-    assert "Single-user demo" in template
+    assert "Kundenkonten verwalten" in template
+    assert "Kundenkonten" in template
+    assert "Kundenkonto anlegen" in template
+    assert "Billing & Limits" in template
+    assert "Benutzer einladen" in template
+    assert "Single-user-Demo" in template
     assert "https://demo.dmarq.org/" in template
-    assert "data-provider-demo-support-session" in template
-    assert "data-provider-demo-create-form" in template
-    assert "data-provider-demo-provider-console" in template
-    assert "data-provider-demo-open-users" in template
-    assert "data-provider-demo-drill-workspace" in template
+    assert "data-provider-impersonation-form" in template
+    assert "data-provider-create-form" in template
+    assert "data-provider-account-view" in template
+    assert "data-provider-customer-view" not in template
+    assert "data-provider-account-open" in template
+    assert "data-provider-customer-tab" not in template
     assert "data-provider-demo-expression-error" in template
     assert "Alpine Expression Error" in script
     assert "workspace.domains.join" not in template
@@ -2816,11 +2819,13 @@ def test_provider_demo_is_separate_from_dashboard_controls():
     assert "oeffnen" not in template
     assert "Aender" not in template
     assert 'href="/members"' not in template
+    assert "/domains/" not in template
     assert "Operator checklist" not in template
     assert "providerDemo" in script
-    assert "createTenant" in script
+    assert "createAccount" in script
     assert "saveBilling" in script
     assert "addUser" in script
+    assert "startSupportSession" in script
     assert "x-html" not in template
     assert "innerHTML" not in script
 

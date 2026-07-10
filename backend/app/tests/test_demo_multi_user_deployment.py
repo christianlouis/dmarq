@@ -1,6 +1,8 @@
 from fastapi.testclient import TestClient
 
 from app.services.demo_data import build_demo_multi_user_deployment
+from app.services.demo_provider import build_demo_provider_console
+from app.services.demo_provider_seed import seed_demo_provider_database
 
 
 class _DemoSettings:
@@ -86,9 +88,13 @@ def test_demo_multi_user_deployment_has_opinionated_default_and_impersonation():
     }
     assert deployment["support_access_demo"]["mode"] == "read_only_customer_view"
     assert deployment["support_access_demo"]["target_user"]["workspace_slug"] == "bakery-example"
-    assert deployment["support_access_demo"]["audit_events"][0]["action"] == "support_access.started"
+    assert (
+        deployment["support_access_demo"]["audit_events"][0]["action"] == "support_access.started"
+    )
     assert deployment["support_access_demo"]["audit_events"][0]["result"] == "demo_session_ready"
-    assert "DNS and provider writes remain disabled" in deployment["support_access_demo"]["safeguards"]
+    assert (
+        "DNS and provider writes remain disabled" in deployment["support_access_demo"]["safeguards"]
+    )
     assert deployment["impersonation_policy"]["mode"] == "demo_only"
     assert deployment["impersonation_policy"]["audit_label"] == (
         "support impersonation audit event"
@@ -155,6 +161,45 @@ def test_demo_multi_user_journey_steps_point_to_existing_demo_objects():
         assert step["expected_takeaway"]
 
 
+def test_demo_provider_console_has_complete_site_manager_accounts():
+    console = build_demo_provider_console()
+
+    assert console["source"] == "demo_provider_accounts_v2"
+    assert console["provider"]["name"] == "Northstar ISP"
+    assert console["provider"]["operator"]["role"] == "site_manager"
+    assert console["summary"]["accounts"] == len(console["accounts"]) >= 6
+    assert console["summary"]["at_risk_accounts"] >= 3
+    assert console["summary"]["messages_30d"] > 0
+    assert console["summary"]["monthly_revenue_cents"] > 0
+    assert console["plans"]
+
+    for account in console["accounts"]:
+        assert account["customer_number"]
+        assert account["plan_code"]
+        assert account["plan_label"]
+        assert account["primary_contact"]["email"]
+        assert account["billing"]["invoice_reference"]
+        assert account["domains"]
+        assert account["users"]
+        assert account["activity"]
+        assert account["settings"]["report_mailbox"]
+        assert account["recommended_action"]
+        assert "messages_30d" in account["usage"]
+        assert "compliance_rate" in account["usage"]
+
+    lawfirm = next(
+        account for account in console["accounts"] if account["slug"] == "lawfirm-example"
+    )
+    assert lawfirm["health"] == "critical"
+    assert len(lawfirm["domains"]) == 2
+    assert lawfirm["reports"]
+    assert any(user["can_impersonate"] for user in lawfirm["users"])
+    assert any(
+        target["account_slug"] == "lawfirm-example"
+        for target in console["support_access_demo"]["allowed_targets"]
+    )
+
+
 def test_operator_demo_multi_user_endpoint_returns_showcase(
     authed_client: TestClient,
     monkeypatch,
@@ -178,12 +223,14 @@ def test_operator_demo_multi_user_endpoint_returns_showcase(
 
 def test_operator_demo_provider_console_endpoint_returns_ui_shaped_dataset(
     authed_client: TestClient,
+    db_session,
     monkeypatch,
 ):
     monkeypatch.setattr(
         "app.api.api_v1.endpoints.operator.get_settings",
         _settings_with_demo_enabled,
     )
+    seed_demo_provider_database(db_session)
 
     response = authed_client.get("/api/v1/operator/demo/provider-console")
 
@@ -191,10 +238,13 @@ def test_operator_demo_provider_console_endpoint_returns_ui_shaped_dataset(
     payload = response.json()
     console = payload["provider_console"]
     assert payload["demo_mode"] is True
-    assert console["source"] == "demo_multi_user_deployment"
-    assert console["organizations"][0]["slug"] == "dmarq-foundation"
-    assert console["support_access_demo"]["mode"] == "read_only_customer_view"
-    assert console["billing_modes"][0]["mode"] == "direct_stripe"
+    assert console["source"] == "provider_accounts_db_v1"
+    assert console["provider"]["slug"] == "northstar-isp"
+    assert console["accounts"][0]["slug"] == "bakery-example"
+    assert console["accounts"][0]["domains"]
+    assert console["accounts"][0]["reports"]
+    assert console["support_access_demo"]["mode"] == "audited_workspace_session"
+    assert console["plans"][0]["code"] == "monitor"
 
 
 def test_operator_demo_multi_user_endpoint_is_hidden_outside_demo_mode(
@@ -238,6 +288,8 @@ def test_operator_demo_support_session_returns_audit_event(
         "/api/v1/operator/demo/support-session",
         json={
             "workspace_slug": "lawfirm-example",
+            "account_slug": "lawfirm-example",
+            "target_user_email": "admin@lawfirm.example",
             "reason": "Check DKIM outage with customer admin",
         },
     )
@@ -248,8 +300,10 @@ def test_operator_demo_support_session_returns_audit_event(
     assert payload["session"]["mode"] == "read_only_customer_view"
     assert payload["audit_event"]["action"] == "support_access.started"
     assert payload["audit_event"]["workspace_slug"] == "lawfirm-example"
+    assert payload["audit_event"]["account_slug"] == "lawfirm-example"
     assert payload["audit_event"]["domain"] == "lawfirm.example"
     assert payload["audit_event"]["target_user_email"] == "admin@lawfirm.example"
+    assert payload["session"]["account"]["name"] == "Kanzlei Hansen & Partner"
     assert payload["audit_event"]["reason"] == "Check DKIM outage with customer admin"
     assert payload["audit_event"]["result"] == "demo_session_ready"
 

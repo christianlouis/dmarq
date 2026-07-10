@@ -1085,7 +1085,6 @@ class TestMailSourcesAPIAuthed:
             "get_settings",
             lambda: SimpleNamespace(DEMO_MODE=True),
         )
-
         sources_response = authed_client.get("/api/v1/mail-sources")
         assert sources_response.status_code == 200
         sources = sources_response.json()

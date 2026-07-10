@@ -20,6 +20,7 @@ from app.services.organizations import (
     require_organization_plan_limit,
 )
 from app.services.workspace_access import (
+    PERMISSION_MEMBERS_READ,
     PERMISSION_WORKSPACE_ADMIN,
     ROLE_ANALYST,
     ROLE_AUDITOR,
@@ -430,7 +431,7 @@ async def list_workspace_memberships(
 ) -> MembershipListResponse:
     """List users assigned to one workspace."""
     workspace = _workspace_or_404(db, workspace_id)
-    require_workspace_permission(_auth, PERMISSION_WORKSPACE_ADMIN, db, workspace)
+    require_workspace_permission(_auth, PERMISSION_MEMBERS_READ, db, workspace)
     query = (
         db.query(WorkspaceMembership)
         .options(selectinload(WorkspaceMembership.user))
@@ -557,7 +558,7 @@ async def list_organization_memberships(
 ) -> MembershipListResponse:
     """List users assigned across one organization."""
     organization = _organization_or_404(db, organization_id)
-    require_organization_permission(_auth, PERMISSION_WORKSPACE_ADMIN, db, organization)
+    require_organization_permission(_auth, PERMISSION_MEMBERS_READ, db, organization)
     query = (
         db.query(OrganizationMembership)
         .options(selectinload(OrganizationMembership.user))

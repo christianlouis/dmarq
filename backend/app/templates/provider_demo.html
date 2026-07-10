@@ -1,481 +1,365 @@
 {% extends "layouts/base.html" %}
 
-{% block title %}DMARQ - Provider Console{% endblock %}
+{% block title %}DMARQ - Provider-Verwaltung{% endblock %}
 
 {% block content %}
-<div class="mx-auto max-w-7xl space-y-5" x-data="providerDemo" data-provider-demo>
-    <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-            <p class="text-xs font-semibold uppercase tracking-wide text-[#39a0aa]">Provider console</p>
-            <h1 class="mt-2 text-3xl font-bold text-[#07071f]">Mandanten & Billing verwalten</h1>
-            <p class="mt-2 max-w-3xl text-sm text-base-content/70">
-                Multi-Tenant-Arbeitsplatz für Provider: Mandanten anlegen, Accounts öffnen, Billing steuern, Workspaces und Benutzer verwalten.
-            </p>
-        </div>
-        <div class="flex flex-wrap gap-2">
-            <button type="button"
-                    class="btn btn-primary btn-sm"
-                    data-provider-demo-create-focus>
-                Mandant anlegen
-            </button>
-            <button type="button"
-                    class="btn btn-outline btn-sm"
-                    data-provider-demo-refresh
-                    :disabled="loading">
-                <span x-show="loading" class="loading loading-spinner loading-xs"></span>
-                Aktualisieren
-            </button>
-            <a href="https://demo.dmarq.org/" class="btn btn-ghost btn-sm">Single-user demo</a>
+<div x-data="providerDemo" data-provider-demo class="mx-auto min-w-0 max-w-[96rem]">
+    <div x-show="expressionError"
+         x-cloak
+         data-provider-demo-expression-error
+         role="alert"
+         class="mb-4 rounded-md border border-[#ff6f3c]/40 bg-[#fff2ec] p-3 text-sm text-[#8a2d0d]"
+         x-text="expressionError"></div>
+
+    <div x-show="loading" class="grid min-h-[34rem] place-items-center" role="status">
+        <div class="text-center">
+            <span class="loading loading-spinner loading-lg text-[#272a5f]"></span>
+            <p class="mt-3 text-sm text-base-content/60">Provider-Daten werden geladen...</p>
         </div>
     </div>
 
     <div x-show="error"
          x-cloak
          role="alert"
-         class="rounded-lg border border-[#ff6f3c]/40 bg-[#fff2ec] p-4 text-sm text-[#8a2d0d]">
-        <span x-text="error"></span>
+         class="rounded-md border border-[#ff6f3c]/40 bg-[#fff2ec] p-5 text-[#8a2d0d]">
+        <div class="font-semibold">Provider-Verwaltung konnte nicht geladen werden</div>
+        <p class="mt-1 text-sm" x-text="error"></p>
+        <button type="button" class="btn btn-outline btn-sm mt-4" data-provider-retry>Erneut versuchen</button>
     </div>
 
-    <div x-show="expressionError"
-         x-cloak
-         role="alert"
-         data-provider-demo-expression-error
-         class="rounded-lg border border-[#ff6f3c]/40 bg-[#fff2ec] p-4 text-sm text-[#8a2d0d]">
-        <div class="font-semibold">Provider-Demo Ausdrucksfehler</div>
-        <div class="mt-1" x-text="expressionError"></div>
-    </div>
+    <div x-show="ready" x-cloak>
+        <div x-show="showProviderView" x-cloak>
+            <header class="flex flex-col gap-5 border-b border-base-300 pb-6 lg:flex-row lg:items-end lg:justify-between">
+                <div>
+                    <div class="text-xs font-semibold uppercase tracking-wide text-[#32838c]" x-text="providerIdentityLabel"></div>
+                    <h1 class="mt-2 text-3xl font-bold text-[#07071f]">Kundenkonten verwalten</h1>
+                    <p class="mt-2 max-w-3xl text-sm text-base-content/65">
+                        Accounts, Zustände, Benutzer und Abrechnung an einem Ort. Öffne ein Kundenkonto für Details oder starte eine protokollierte Support-Sitzung.
+                    </p>
+                </div>
+                <div class="flex flex-wrap items-center gap-2">
+                    {% if provider_demo_enabled %}
+                    <a class="btn btn-ghost btn-sm lg:hidden" href="https://demo.dmarq.org/">Single-user-Demo</a>
+                    {% endif %}
+                    <button type="button" class="btn btn-primary btn-sm" data-provider-create-open>Neues Kundenkonto</button>
+                </div>
+            </header>
 
-    <div x-show="hasLocalChanges || statusMessage"
-         x-cloak
-         role="status"
-         aria-live="polite"
-         class="rounded-lg border border-[#d7efe8] bg-[#eefaf6] p-4 text-sm text-[#0f6b4d]">
-        <div class="font-semibold" x-text="localChangesLabel"></div>
-        <div class="mt-1" x-show="statusMessage" x-text="statusMessage"></div>
-    </div>
+            <div x-show="demoMode" x-cloak class="mt-6 rounded-md border border-[#9bd6c7] bg-[#eefaf6] px-4 py-3 text-sm text-[#0f6b4d]" role="status">
+                <span class="font-semibold">Interaktive Demo:</span>
+                Änderungen an Kunden, Benutzern und Billing bleiben für diese Browser-Sitzung erhalten. Externe Systeme und DNS werden nicht verändert.
+            </div>
 
-    <div x-show="loading" class="grid gap-4 md:grid-cols-4">
-        <div class="h-28 animate-pulse rounded-lg bg-base-200"></div>
-        <div class="h-28 animate-pulse rounded-lg bg-base-200"></div>
-        <div class="h-28 animate-pulse rounded-lg bg-base-200"></div>
-        <div class="h-28 animate-pulse rounded-lg bg-base-200"></div>
-        <div class="h-96 animate-pulse rounded-lg bg-base-200 md:col-span-4"></div>
-    </div>
+            <section class="mt-6 grid grid-cols-2 border-y border-base-300 xl:grid-cols-5" aria-label="Provider-Kennzahlen">
+                <div class="border-b border-r border-base-300 px-4 py-5 xl:border-b-0">
+                    <div class="text-xs font-semibold uppercase text-base-content/50">Kundenkonten</div>
+                    <div class="mt-2 text-2xl font-semibold sm:text-3xl" x-text="accountCount"></div>
+                    <div class="mt-1 text-xs text-base-content/55" x-text="activeAccountCountLabel"></div>
+                </div>
+                <div class="border-b border-base-300 px-4 py-5 xl:border-b-0 xl:border-r">
+                    <div class="text-xs font-semibold uppercase text-base-content/50">Handlungsbedarf</div>
+                    <div class="mt-2 text-2xl font-semibold text-[#a33d15] sm:text-3xl" x-text="atRiskAccountCount"></div>
+                    <div class="mt-1 text-xs text-base-content/55">kritisch, auffällig oder überfällig</div>
+                </div>
+                <div class="border-b border-r border-base-300 px-4 py-5 xl:border-b-0">
+                    <div class="text-xs font-semibold uppercase text-base-content/50">Mailvolumen · 30 Tage</div>
+                    <div class="mt-2 text-2xl font-semibold sm:text-3xl" x-text="messageVolumeLabel"></div>
+                    <div class="mt-1 text-xs text-base-content/55" x-text="domainCountLabel"></div>
+                </div>
+                <div class="border-b border-base-300 px-4 py-5 xl:border-b-0 xl:border-r">
+                    <div class="text-xs font-semibold uppercase text-base-content/50">Compliance</div>
+                    <div class="mt-2 text-2xl font-semibold sm:text-3xl" x-text="providerComplianceLabel"></div>
+                    <div class="mt-1 text-xs text-base-content/55">volumengewichtet</div>
+                </div>
+                <div class="col-span-2 px-4 py-5 xl:col-span-1">
+                    <div class="text-xs font-semibold uppercase text-base-content/50">Monatlicher Umsatz</div>
+                    <div class="mt-2 text-2xl font-semibold sm:text-3xl" x-text="providerRevenueLabel"></div>
+                    <div class="mt-1 text-xs text-base-content/55" x-text="revenueContextLabel"></div>
+                </div>
+            </section>
 
-    <div x-show="ready" x-cloak class="space-y-5">
-        <section class="grid gap-4 md:grid-cols-4">
-            <div class="rounded-lg border border-base-300 bg-base-100 p-5 shadow-sm">
-                <div class="text-sm text-base-content/60">Mandanten</div>
-                <div class="mt-2 text-3xl font-semibold" x-text="tenantCount"></div>
-                <div class="mt-1 text-xs text-base-content/60" x-text="providerCustomerCountLabel"></div>
-            </div>
-            <div class="rounded-lg border border-base-300 bg-base-100 p-5 shadow-sm">
-                <div class="text-sm text-base-content/60">Workspaces</div>
-                <div class="mt-2 text-3xl font-semibold" x-text="workspaceCount"></div>
-                <div class="mt-1 text-xs text-base-content/60">über alle Mandanten</div>
-            </div>
-            <div class="rounded-lg border border-base-300 bg-base-100 p-5 shadow-sm">
-                <div class="text-sm text-base-content/60">Monatsvolumen</div>
-                <div class="mt-2 text-3xl font-semibold" x-text="messageVolumeLabel"></div>
-                <div class="mt-1 text-xs text-base-content/60">aggregierte DMARC-Mails</div>
-            </div>
-            <div class="rounded-lg border border-base-300 bg-base-100 p-5 shadow-sm">
-                <div class="text-sm text-base-content/60">Provider-Umsatz</div>
-                <div class="mt-2 text-3xl font-semibold" x-text="providerRevenueLabel"></div>
-                <div class="mt-1 text-xs text-base-content/60">monatlich simuliert</div>
-            </div>
-        </section>
-
-        <section class="grid gap-5 xl:grid-cols-[22rem_1fr]">
-            <aside class="space-y-4">
-                <div class="rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm">
-                    <div class="flex items-center justify-between gap-3">
-                        <h2 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">Mandanten</h2>
-                        <span class="rounded-full bg-base-200 px-2 py-1 text-xs font-semibold" x-text="filteredTenants.length"></span>
+            <section id="accounts" class="mt-8" aria-labelledby="accounts-heading">
+                <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                    <div>
+                        <h2 id="accounts-heading" class="text-xl font-semibold">Kundenkonten</h2>
+                        <p class="mt-1 text-sm text-base-content/60">Nach Risiko sortiert. Der nächste sinnvolle Schritt bleibt pro Account sichtbar.</p>
                     </div>
-                    <label class="mt-4 input input-bordered input-sm flex items-center gap-2">
-                        <span class="text-xs text-base-content/50">Suche</span>
-                        <input type="search"
-                               class="grow"
-                               placeholder="Name, Plan, Status"
-                               x-model="tenantSearch"
-                               aria-label="Mandanten suchen">
-                    </label>
-                    <div class="mt-4 max-h-[28rem] space-y-2 overflow-auto pr-1">
-                        <template x-for="tenant in filteredTenants" :key="tenant.slug">
-                            <button type="button"
-                                    class="w-full rounded-lg border p-3 text-left transition"
-                                    :class="tenantButtonClass(tenant)"
-                                    :aria-pressed="isSelectedTenant(tenant)"
-                                    :data-provider-demo-tenant="tenant.slug">
-                                <div class="flex items-center justify-between gap-3">
-                                    <span class="font-semibold text-[#07071f]" x-text="tenant.name"></span>
-                                    <span class="rounded-full px-2 py-1 text-xs font-semibold"
-                                          :class="statusClass(tenant.billing_status)"
-                                          x-text="tenantBillingStatusLabel(tenant)"></span>
-                                </div>
-                                <div class="mt-2 flex flex-wrap gap-1">
-                                    <span class="rounded bg-base-200 px-2 py-1 text-xs" x-text="tenant.plan_tier"></span>
-                                    <span class="rounded bg-base-200 px-2 py-1 text-xs" x-text="tenantWorkspaceLabel(tenant)"></span>
-                                    <span class="rounded bg-base-200 px-2 py-1 text-xs" x-text="tenantUserLabel(tenant)"></span>
-                                </div>
-                            </button>
-                        </template>
+                    <div class="flex flex-col gap-2 sm:flex-row">
+                        <label class="input input-bordered input-sm flex min-w-64 items-center gap-2">
+                            <span class="text-xs font-semibold text-base-content/50">Suche</span>
+                            <input type="search" class="grow" x-model="accountSearch" placeholder="Name, Domain, Kundennummer" aria-label="Kundenkonten suchen">
+                        </label>
+                        <label class="form-control">
+                            <span class="sr-only">Sortierung</span>
+                            <select class="select select-bordered select-sm" x-model="accountSort" aria-label="Kundenkonten sortieren">
+                                <option value="risk">Handlungsbedarf zuerst</option>
+                                <option value="name">Name</option>
+                                <option value="volume">Mailvolumen</option>
+                                <option value="revenue">Umsatz</option>
+                            </select>
+                        </label>
                     </div>
                 </div>
 
-                <form class="rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm"
-                      data-provider-demo-create-form
-                      @submit.prevent="createTenant">
-                    <h2 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">Neuen Mandanten anlegen</h2>
-                    <div class="mt-4 space-y-3">
-                        <label class="form-control">
-                            <span class="label-text">Mandantenname</span>
-                            <input class="input input-bordered input-sm"
-                                   type="text"
-                                   x-model="tenantDraft.name"
-                                   placeholder="Acme GmbH"
-                                   required>
-                        </label>
-                        <label class="form-control">
-                            <span class="label-text">Primäre Domain</span>
-                            <input class="input input-bordered input-sm"
-                                   type="text"
-                                   x-model="tenantDraft.domain"
-                                   placeholder="acme.example"
-                                   required>
-                        </label>
-                        <div class="grid gap-3 sm:grid-cols-2">
-                            <label class="form-control">
-                                <span class="label-text">Plan</span>
-                                <select class="select select-bordered select-sm" x-model="tenantDraft.plan_tier">
-                                    <option value="Starter">Starter</option>
-                                    <option value="Business">Business</option>
-                                    <option value="Enterprise">Enterprise</option>
-                                    <option value="Provider Managed">Provider Managed</option>
-                                </select>
-                            </label>
-                            <label class="form-control">
-                                <span class="label-text">Billing</span>
-                                <select class="select select-bordered select-sm" x-model="tenantDraft.collection_model">
-                                    <option value="provider_pass_through">Provider-Rechnung</option>
-                                    <option value="self_service_subscription">Self-service</option>
-                                    <option value="contract_invoice">Vertrag</option>
-                                </select>
-                            </label>
-                        </div>
-                    </div>
-                    <button class="btn btn-primary btn-sm mt-4 w-full" type="submit">Mandant erstellen</button>
-                </form>
-            </aside>
-
-            <div class="space-y-5">
-                <section class="rounded-lg border border-base-300 bg-base-100 p-5 shadow-sm">
-                    <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                        <div>
-                            <div class="text-xs font-semibold uppercase tracking-wide text-[#39a0aa]">Aktiver Mandant</div>
-                            <h2 class="mt-1 text-2xl font-semibold text-[#07071f]" x-text="selectedTenant.name"></h2>
-                            <p class="mt-2 max-w-3xl text-sm text-base-content/70" x-text="selectedTenant.demo_story"></p>
-                        </div>
-                        <div class="flex flex-wrap gap-2">
-                            <button type="button"
-                                    class="btn btn-outline btn-sm"
-                                    data-provider-demo-provider-console
-                                    x-show="drillInActive"
-                                    x-cloak>
-                                Zur Provider-Konsole
-                            </button>
-                            <button type="button"
-                                    class="btn btn-primary btn-sm"
-                                    data-provider-demo-drill-account>
-                                In Account abtauchen
-                            </button>
-                            <button type="button"
-                                    class="btn btn-outline btn-sm"
-                                    data-provider-demo-support-session
-                                    :disabled="startingSupportSession">
-                                <span x-show="startingSupportSession" class="loading loading-spinner loading-xs"></span>
-                                Support-View öffnen
-                            </button>
-                        </div>
-                    </div>
-                    <div x-show="drillInActive"
-                         x-cloak
-                         class="mt-4 rounded-md border border-[#d7efe8] bg-[#eefaf6] p-3 text-sm text-[#0f6b4d]">
-                        <span class="font-semibold">Mandantenkontext aktiv:</span>
-                        <span x-text="drillInContextLabel"></span>
-                    </div>
-                    <div class="mt-5 grid gap-3 md:grid-cols-4">
-                        <div class="rounded-md bg-base-200 p-3">
-                            <div class="text-xs text-base-content/60">Plan</div>
-                            <div class="mt-1 font-semibold" x-text="selectedTenant.plan_tier"></div>
-                        </div>
-                        <div class="rounded-md bg-base-200 p-3">
-                            <div class="text-xs text-base-content/60">Billing Status</div>
-                            <div class="mt-1 font-semibold" x-text="selectedTenantBillingStatusLabel"></div>
-                        </div>
-                        <div class="rounded-md bg-base-200 p-3">
-                            <div class="text-xs text-base-content/60">Domains</div>
-                            <div class="mt-1 font-semibold" x-text="selectedTenantDomainCount"></div>
-                        </div>
-                        <div class="rounded-md bg-base-200 p-3">
-                            <div class="text-xs text-base-content/60">Monatsumsatz</div>
-                            <div class="mt-1 font-semibold" x-text="selectedTenantMonthlyChargeLabel"></div>
-                        </div>
-                    </div>
-                </section>
-
-                <nav class="flex flex-wrap gap-2" aria-label="Provider-Console-Tabs">
-                    <template x-for="tab in tabs" :key="tab.id">
+                <div class="mt-4 flex flex-wrap gap-2" aria-label="Account-Filter">
+                    <template x-for="filter in accountFilters" :key="filter.id">
                         <button type="button"
                                 class="btn btn-sm"
-                                :class="tabButtonClass(tab)"
-                                :data-provider-demo-tab="tab.id"
-                                x-text="tab.label"></button>
+                                :class="accountFilterClass(filter)"
+                                :data-provider-account-filter="filter.id"
+                                x-text="filter.label"></button>
                     </template>
-                </nav>
+                </div>
 
-                <section x-show="activeTab === 'account'" x-cloak class="grid gap-5 xl:grid-cols-[1fr_20rem]">
-                    <div class="rounded-lg border border-base-300 bg-base-100 p-5 shadow-sm">
-                        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                            <div>
-                                <h2 class="text-lg font-semibold">Account-Workspaces</h2>
-                                <p class="mt-1 text-sm text-base-content/60">Direkter Drill-down in die Mandantenbereiche.</p>
+                <div class="mt-4 space-y-3 md:hidden">
+                    <template x-for="account in filteredAccounts" :key="account.slug">
+                        <article class="rounded-md border border-base-300 bg-base-100 p-4 shadow-sm" :data-provider-account-card="account.slug">
+                            <div class="flex items-start justify-between gap-3">
+                                <div>
+                                    <h3 class="font-semibold" x-text="account.name"></h3>
+                                    <p class="mt-0.5 text-xs text-base-content/55" x-text="accountIdentityLabel(account)"></p>
+                                </div>
+                                <span class="shrink-0 rounded-full px-2 py-1 text-xs font-semibold" :class="healthClass(account.health)" x-text="healthLabel(account.health)"></span>
                             </div>
-                            <button class="btn btn-outline btn-sm" type="button" data-provider-demo-add-workspace>Workspace anlegen</button>
-                        </div>
-                        <div class="mt-4 grid gap-3 lg:grid-cols-2">
-                            <template x-for="workspace in selectedTenant.workspaces" :key="workspace.slug">
-                                <button type="button"
-                                        class="rounded-lg border p-4 text-left transition"
-                                        :class="workspaceButtonClass(workspace)"
-                                        :data-provider-demo-workspace="workspace.slug">
-                                    <div class="flex items-center justify-between gap-3">
-                                        <span class="font-semibold" x-text="workspace.name"></span>
-                                        <span class="rounded-full px-2 py-1 text-xs font-semibold"
-                                              :class="healthClass(workspace.health)"
-                                              x-text="humanize(workspace.health)"></span>
-                                    </div>
-                                    <p class="mt-2 text-xs text-base-content/60" x-text="workspaceDomainsLabel(workspace)"></p>
-                                    <ul class="mt-3 list-disc space-y-1 pl-4 text-sm text-base-content/70">
-                                        <template x-for="finding in workspace.primary_findings" :key="finding">
-                                            <li x-text="finding"></li>
-                                        </template>
-                                    </ul>
-                                </button>
-                            </template>
-                        </div>
-                    </div>
-                    <aside class="rounded-lg border border-base-300 bg-base-100 p-5 shadow-sm">
-                        <h2 class="text-lg font-semibold" x-text="selectedWorkspace.name"></h2>
-                        <p class="mt-2 text-sm text-base-content/60" x-text="selectedWorkspaceDomainsLabel"></p>
-                        <div class="mt-4 space-y-2">
-                            <a class="btn btn-primary btn-sm w-full"
-                               :href="selectedWorkspaceDomainHref">
-                                Domain-Detail öffnen
-                            </a>
-                            <a class="btn btn-outline btn-sm w-full" :href="selectedWorkspaceReportsHref">Reports öffnen</a>
-                            <button class="btn btn-outline btn-sm w-full"
-                                    type="button"
-                                    data-provider-demo-open-users>
-                                Benutzerverwaltung öffnen
-                            </button>
-                        </div>
-                        <div class="mt-5 border-t border-base-300 pt-4">
-                            <h3 class="text-sm font-semibold">Nächster sinnvoller Schritt</h3>
-                            <p class="mt-2 text-sm text-base-content/70" x-text="selectedTenantAction"></p>
-                        </div>
-                    </aside>
-                </section>
+                            <p class="mt-3 text-sm text-base-content/70" x-text="account.recommended_action"></p>
+                            <dl class="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-base-300 pt-3 text-sm">
+                                <div><dt class="text-xs text-base-content/50">Plan</dt><dd class="font-medium" x-text="account.plan_label"></dd></div>
+                                <div><dt class="text-xs text-base-content/50">Billing</dt><dd x-text="billingStatusLabel(account.billing.status)"></dd></div>
+                                <div><dt class="text-xs text-base-content/50">Mailvolumen</dt><dd x-text="accountMessageLabel(account)"></dd></div>
+                                <div><dt class="text-xs text-base-content/50">Compliance</dt><dd x-text="accountComplianceLabel(account)"></dd></div>
+                            </dl>
+                            <button type="button" class="btn btn-primary btn-sm mt-4 w-full" :data-provider-account-open="account.slug">Account öffnen</button>
+                        </article>
+                    </template>
+                </div>
 
-                <section x-show="activeTab === 'billing'" x-cloak class="rounded-lg border border-base-300 bg-base-100 p-5 shadow-sm">
-                    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                            <h2 class="text-lg font-semibold">Billing-Settings pro Mandant</h2>
-                            <p class="mt-1 text-sm text-base-content/60">Ändere Plan, Rechnungsempfänger, Zahlungsweg und Limits für den ausgewählten Mandanten.</p>
-                        </div>
-                        <span class="rounded-full bg-base-200 px-3 py-1 text-xs font-semibold" x-text="billingSavedLabel"></span>
-                    </div>
-                    <form class="mt-5 grid gap-4 lg:grid-cols-3" @submit.prevent="saveBilling">
-                        <label class="form-control">
-                            <span class="label-text">Plan</span>
-                            <select class="select select-bordered" x-model="billingDraft.plan_tier">
-                                <option>Starter</option>
-                                <option>Business</option>
-                                <option>Enterprise</option>
-                                <option>Provider Managed</option>
-                            </select>
-                        </label>
-                        <label class="form-control">
-                            <span class="label-text">Rechnungsempfänger</span>
-                            <input class="input input-bordered" type="text" x-model="billingDraft.invoice_owner">
-                        </label>
-                        <label class="form-control">
-                            <span class="label-text">Abrechnungsmodell</span>
-                            <select class="select select-bordered" x-model="billingDraft.collection_model">
-                                <option value="self_service_subscription">Self-service-Abonnement</option>
-                                <option value="contract_invoice">Vertragsrechnung</option>
-                                <option value="provider_pass_through">Provider-Rechnung</option>
-                                <option value="none">Keine</option>
-                            </select>
-                        </label>
-                        <label class="form-control">
-                            <span class="label-text">Zahlungsweg</span>
-                            <select class="select select-bordered" x-model="billingDraft.payment_rail">
-                                <option value="card_on_file">Hinterlegte Karte</option>
-                                <option value="bank_transfer">Überweisung</option>
-                                <option value="isp_monthly_invoice">Monatliche Provider-Rechnung</option>
-                                <option value="none">Keiner</option>
-                            </select>
-                        </label>
-                        <label class="form-control">
-                            <span class="label-text">Rechnungsreferenz</span>
-                            <input class="input input-bordered" type="text" x-model="billingDraft.invoice_reference">
-                        </label>
-                        <label class="form-control">
-                            <span class="label-text">Monatlicher Betrag</span>
-                            <input class="input input-bordered" type="number" min="0" step="1" x-model.number="billingDraft.monthly_euros">
-                        </label>
-                        <label class="form-control">
-                            <span class="label-text">Benutzerlimit</span>
-                            <input class="input input-bordered" type="number" min="1" x-model.number="billingDraft.user_limit">
-                        </label>
-                        <label class="form-control">
-                            <span class="label-text">Message-Limit</span>
-                            <input class="input input-bordered" type="number" min="0" x-model.number="billingDraft.message_limit">
-                        </label>
-                        <div class="flex items-end">
-                            <button class="btn btn-primary w-full" type="submit">Billing speichern</button>
-                        </div>
-                    </form>
-                </section>
-
-                <section x-show="activeTab === 'users'" x-cloak class="grid gap-5 xl:grid-cols-[1fr_20rem]">
-                    <div class="rounded-lg border border-base-300 bg-base-100 p-5 shadow-sm">
-                        <div class="flex items-center justify-between gap-3">
-                            <h2 class="text-lg font-semibold">Benutzer im Mandanten</h2>
-                            <span class="rounded-full bg-base-200 px-3 py-1 text-xs font-semibold" x-text="selectedTenantUserCountLabel"></span>
-                        </div>
-                        <div class="mt-4 overflow-x-auto">
-                            <table class="table table-sm">
-                                <thead>
-                                    <tr>
-                                        <th>Name</th>
-                                        <th>E-Mail</th>
-                                        <th>Rollen</th>
-                                        <th>Persona</th>
-                                        <th>Support</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <template x-for="user in selectedTenant.users" :key="user.email">
-                                        <tr>
-                                            <td class="font-semibold" x-text="user.name"></td>
-                                            <td x-text="user.email"></td>
-                                            <td x-text="userRolesLabel(user)"></td>
-                                            <td x-text="humanize(user.demo_persona)"></td>
-                                            <td>
-                                                <span class="rounded-full px-2 py-1 text-xs font-semibold"
-                                                      :class="supportAccessClass(user)"
-                                                      x-text="supportAccessLabel(user)"></span>
-                                            </td>
-                                        </tr>
-                                    </template>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                    <form class="rounded-lg border border-base-300 bg-base-100 p-5 shadow-sm"
-                          data-provider-demo-user-form
-                          @submit.prevent="addUser">
-                        <h2 class="text-lg font-semibold">Benutzer anlegen</h2>
-                        <div x-show="userError"
-                             x-cloak
-                             role="alert"
-                             class="mt-3 rounded-md border border-[#ff6f3c]/40 bg-[#fff2ec] p-3 text-sm text-[#8a2d0d]"
-                             x-text="userError"></div>
-                        <div class="mt-4 space-y-3">
-                            <label class="form-control">
-                                <span class="label-text">Name</span>
-                                <input class="input input-bordered input-sm" type="text" x-model="userDraft.name" required>
-                            </label>
-                            <label class="form-control">
-                                <span class="label-text">E-Mail</span>
-                                <input class="input input-bordered input-sm" type="email" x-model="userDraft.email" required>
-                            </label>
-                            <label class="form-control">
-                                <span class="label-text">Rolle</span>
-                                <select class="select select-bordered select-sm" x-model="userDraft.role">
-                                    <option value="organization_owner">Organisationsinhaber</option>
-                                    <option value="workspace_admin">Workspace-Admin</option>
-                                    <option value="security_analyst">Security-Analyst</option>
-                                    <option value="provider_operator">Provider-Operator</option>
-                                </select>
-                            </label>
-                        </div>
-                        <button class="btn btn-primary btn-sm mt-4 w-full" type="submit">Benutzer hinzufügen</button>
-                    </form>
-                </section>
-
-                <section x-show="activeTab === 'provider'" x-cloak class="rounded-lg border border-base-300 bg-base-100 p-5 shadow-sm">
-                    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                            <h2 class="text-lg font-semibold">Provider-Kunden & Abrechnung</h2>
-                            <p class="mt-1 text-sm text-base-content/60">Kunden, die über Provider-Billing laufen, mit Status, Plan und monatlicher Belastung.</p>
-                        </div>
-                        <button class="btn btn-outline btn-sm" type="button" data-provider-demo-tab="billing">Billing bearbeiten</button>
-                    </div>
-                    <div class="mt-4 overflow-x-auto">
-                        <table class="table table-sm">
-                            <thead>
-                                <tr>
-                                    <th>Kunde</th>
-                                    <th>Status</th>
-                                    <th>Plan</th>
-                                    <th class="text-right">Messages</th>
-                                    <th class="text-right">Monatlich</th>
-                                    <th></th>
+                <div class="mt-4 hidden overflow-x-auto border-y border-base-300 bg-base-100 md:block">
+                    <table class="table table-sm min-w-[62rem]">
+                        <thead>
+                            <tr>
+                                <th>Account</th>
+                                <th>Status</th>
+                                <th>Plan</th>
+                                <th class="text-right">Domains</th>
+                                <th class="text-right">Benutzer</th>
+                                <th class="text-right">Mails · 30 T.</th>
+                                <th class="text-right">Compliance</th>
+                                <th>Billing</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="account in filteredAccounts" :key="account.slug">
+                                <tr class="align-middle hover:bg-base-200/70" :data-provider-account-row="account.slug">
+                                    <td>
+                                        <button type="button" class="text-left" :data-provider-account-open="account.slug">
+                                            <span class="block font-semibold text-[#07071f]" x-text="account.name"></span>
+                                            <span class="mt-0.5 block text-xs text-base-content/55" x-text="accountIdentityLabel(account)"></span>
+                                            <span class="mt-1 block max-w-md text-xs text-base-content/65" x-text="account.recommended_action"></span>
+                                        </button>
+                                    </td>
+                                    <td><span class="rounded-full px-2 py-1 text-xs font-semibold" :class="healthClass(account.health)" x-text="healthLabel(account.health)"></span></td>
+                                    <td x-text="account.plan_label"></td>
+                                    <td class="text-right" x-text="accountDomainCount(account)"></td>
+                                    <td class="text-right" x-text="accountUserCount(account)"></td>
+                                    <td class="text-right font-medium" x-text="accountMessageLabel(account)"></td>
+                                    <td class="text-right" x-text="accountComplianceLabel(account)"></td>
+                                    <td><span class="rounded-full px-2 py-1 text-xs font-semibold" :class="billingStatusClass(account.billing.status)" x-text="billingStatusLabel(account.billing.status)"></span></td>
+                                    <td class="text-right">
+                                        <button type="button" class="btn btn-outline btn-xs" :data-provider-account-open="account.slug">Account öffnen</button>
+                                    </td>
                                 </tr>
-                            </thead>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+                <div x-show="showNoAccounts" x-cloak class="mt-4 border-y border-base-300 px-5 py-12 text-center">
+                    <h3 class="font-semibold">Keine passenden Accounts</h3>
+                    <p class="mt-1 text-sm text-base-content/60">Filter zurücksetzen oder ein neues Kundenkonto anlegen.</p>
+                    <button type="button" class="btn btn-outline btn-sm mt-4" data-provider-account-filter="all">Alle anzeigen</button>
+                </div>
+            </section>
+        </div>
+
+        <div x-show="showAccountView" x-cloak data-provider-account-view class="min-w-0">
+            <nav class="mb-5 flex items-center gap-2 text-sm" aria-label="Breadcrumb">
+                <button type="button" class="font-semibold text-[#272a5f] hover:underline" data-provider-back>Provider-Verwaltung</button>
+                <span class="text-base-content/35">/</span>
+                <span x-text="selectedAccount.name"></span>
+            </nav>
+
+            <header class="flex flex-col gap-5 border-b border-base-300 pb-6 xl:flex-row xl:items-start xl:justify-between">
+                <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <span class="rounded-full px-2 py-1 text-xs font-semibold" :class="healthClass(selectedAccount.health)" x-text="healthLabel(selectedAccount.health)"></span>
+                        <span class="rounded-full bg-base-200 px-2 py-1 text-xs font-semibold" x-text="accountStatusLabel(selectedAccount.status)"></span>
+                        <span class="text-xs text-base-content/55" x-text="selectedAccount.customer_number"></span>
+                    </div>
+                    <h1 class="mt-3 text-3xl font-bold" x-text="selectedAccount.name"></h1>
+                    <p class="mt-2 max-w-3xl text-sm text-base-content/65" x-text="selectedAccount.recommended_action"></p>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    <button type="button" class="btn btn-outline btn-sm" data-provider-account-tab="billing">Billing bearbeiten</button>
+                    <button type="button" class="btn btn-primary btn-sm" data-provider-impersonation-open>Kundenansicht öffnen</button>
+                </div>
+            </header>
+
+            <section class="mt-6 grid grid-cols-2 border-y border-base-300 xl:grid-cols-4" aria-label="Account-Kennzahlen">
+                <div class="border-b border-r border-base-300 px-4 py-4 xl:border-b-0">
+                    <div class="text-xs uppercase text-base-content/50">Mails · 30 Tage</div>
+                    <div class="mt-1 text-2xl font-semibold" x-text="selectedAccountMessageLabel"></div>
+                </div>
+                <div class="border-b border-base-300 px-4 py-4 xl:border-b-0 xl:border-r">
+                    <div class="text-xs uppercase text-base-content/50">Compliance</div>
+                    <div class="mt-1 text-2xl font-semibold" x-text="selectedAccountComplianceLabel"></div>
+                </div>
+                <div class="border-r border-base-300 px-4 py-4">
+                    <div class="text-xs uppercase text-base-content/50">Domains / Benutzer</div>
+                    <div class="mt-1 text-2xl font-semibold" x-text="selectedAccountResourceLabel"></div>
+                </div>
+                <div class="px-4 py-4">
+                    <div class="text-xs uppercase text-base-content/50">Monatlich</div>
+                    <div class="mt-1 text-2xl font-semibold" x-text="selectedAccountRevenueLabel"></div>
+                </div>
+            </section>
+
+            <nav class="mt-6 flex gap-1 overflow-x-auto border-b border-base-300" aria-label="Account-Verwaltung">
+                <template x-for="tab in accountTabs" :key="tab.id">
+                    <button type="button"
+                            class="min-h-10 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-semibold"
+                            :class="accountTabClass(tab)"
+                            :data-provider-account-tab="tab.id"
+                            x-text="tab.label"></button>
+                </template>
+            </nav>
+
+            <section x-show="showAccountOverview" x-cloak class="mt-6 grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
+                <div class="min-w-0">
+                    <div class="rounded-md border border-[#f5c16c] bg-[#fff8e5] p-4">
+                        <div class="text-xs font-semibold uppercase text-[#7a4b00]">Nächste sinnvolle Aktion</div>
+                        <p class="mt-2 font-semibold text-[#5b3900]" x-text="selectedAccount.recommended_action"></p>
+                        <p class="mt-1 text-sm text-[#7a4b00]" x-text="selectedAccount.onboarding.next_step"></p>
+                    </div>
+                    <div class="mt-6 min-w-0 max-w-full overflow-x-auto border-y border-base-300 bg-base-100">
+                        <table class="table table-sm min-w-[52rem]">
+                            <thead><tr><th>Domain</th><th>Policy</th><th>Status</th><th class="text-right">Compliance</th><th class="text-right">Mails</th><th>Offene Hinweise</th></tr></thead>
                             <tbody>
-                                <template x-for="customer in providerCustomers" :key="customer.external_customer_id">
+                                <template x-for="domain in selectedAccount.domains" :key="domain.name">
                                     <tr>
-                                        <td class="font-semibold" x-text="customer.name"></td>
-                                        <td x-text="customerBillingStatusLabel(customer)"></td>
-                                        <td x-text="customer.subscription_tier"></td>
-                                        <td class="text-right" x-text="formatNumber(customer.aggregate_messages)"></td>
-                                        <td class="text-right" x-text="formatMoney(customer.monthly_charge_cents)"></td>
-                                        <td class="text-right">
-                                            <button class="btn btn-ghost btn-xs"
-                                                    type="button"
-                                                    data-provider-demo-drill-workspace
-                                                    :data-provider-demo-workspace="customer.workspace_slug">
-                                                    Account öffnen
-                                            </button>
-                                        </td>
+                                        <td class="font-semibold" x-text="domain.name"></td>
+                                        <td x-text="policyLabel(domain.policy)"></td>
+                                        <td><span class="rounded-full px-2 py-1 text-xs font-semibold" :class="healthClass(domain.health)" x-text="healthLabel(domain.health)"></span></td>
+                                        <td class="text-right" x-text="domainComplianceLabel(domain)"></td>
+                                        <td class="text-right" x-text="domainMessageLabel(domain)"></td>
+                                        <td x-text="domainFindingsLabel(domain)"></td>
                                     </tr>
                                 </template>
                             </tbody>
                         </table>
                     </div>
-                </section>
-
-                <div x-show="supportSessionResult"
-                     x-cloak
-                     class="rounded-md border border-[#d7efe8] bg-[#eefaf6] p-4 text-sm text-[#0f6b4d]"
-                     role="status"
-                     aria-live="polite">
-                    <div class="font-semibold">Support-View bereit</div>
-                    <div class="mt-1" x-text="supportSessionSummary"></div>
                 </div>
-                <div x-show="supportSessionError"
-                     x-cloak
-                     class="rounded-md border border-[#ff6f3c]/40 bg-[#fff2ec] p-4 text-sm text-[#8a2d0d]"
-                     role="alert"
-                     x-text="supportSessionError"></div>
-            </div>
+                <aside class="border-l border-base-300 pl-5">
+                    <h2 class="text-sm font-semibold uppercase text-base-content/50">Account-Kontakt</h2>
+                    <dl class="mt-3 space-y-3 text-sm">
+                        <div><dt class="text-base-content/50">Kontakt</dt><dd class="font-semibold" x-text="selectedAccount.primary_contact.name"></dd></div>
+                        <div><dt class="text-base-content/50">E-Mail</dt><dd x-text="selectedAccount.primary_contact.email"></dd></div>
+                        <div><dt class="text-base-content/50">Plan</dt><dd x-text="selectedAccount.plan_label"></dd></div>
+                        <div><dt class="text-base-content/50">Onboarding</dt><dd x-text="selectedAccountOnboardingLabel"></dd></div>
+                    </dl>
+                    <button type="button" class="btn btn-primary btn-sm mt-5 w-full" data-provider-impersonation-open>Als Kunde öffnen</button>
+                </aside>
+            </section>
+
+            <section x-show="showAccountDomains" x-cloak class="mt-6">
+                <div class="flex items-end justify-between gap-4">
+                    <div><h2 class="text-xl font-semibold">Domains</h2><p class="mt-1 text-sm text-base-content/60">Authentifizierung, Policy und Berichtseingang im Account.</p></div>
+                </div>
+                <div class="mt-4 overflow-x-auto border-y border-base-300 bg-base-100">
+                    <table class="table table-sm min-w-[70rem]">
+                        <thead><tr><th>Domain</th><th>Policy</th><th>Status</th><th class="text-right">Mails</th><th class="text-right">Reports</th><th class="text-right">SPF</th><th class="text-right">DKIM</th><th>Letzter Report</th></tr></thead>
+                        <tbody><template x-for="domain in selectedAccount.domains" :key="domain.name"><tr><td class="font-semibold" x-text="domain.name"></td><td x-text="policyLabel(domain.policy)"></td><td><span class="rounded-full px-2 py-1 text-xs font-semibold" :class="healthClass(domain.health)" x-text="healthLabel(domain.health)"></span></td><td class="text-right" x-text="domainMessageLabel(domain)"></td><td class="text-right" x-text="domain.reports_30d"></td><td class="text-right" x-text="spfLabel(domain)"></td><td class="text-right" x-text="dkimLabel(domain)"></td><td x-text="dateTimeLabel(domain.last_report_at)"></td></tr></template></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section x-show="showAccountUsers" x-cloak class="mt-6">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                    <div><h2 class="text-xl font-semibold">Benutzer</h2><p class="mt-1 text-sm text-base-content/60" x-text="selectedAccountUserLimitLabel"></p></div>
+                    <button type="button" class="btn btn-primary btn-sm" data-provider-user-open>Benutzer einladen</button>
+                </div>
+                <div class="mt-4 overflow-x-auto border-y border-base-300 bg-base-100">
+                    <table class="table table-sm min-w-[58rem]">
+                        <thead><tr><th>Name</th><th>E-Mail</th><th>Rolle</th><th>Status</th><th>MFA</th><th>Zuletzt aktiv</th><th>Support-Ansicht</th></tr></thead>
+                        <tbody><template x-for="user in selectedAccount.users" :key="user.email"><tr><td class="font-semibold" x-text="user.name"></td><td x-text="user.email"></td><td x-text="roleLabel(user.role)"></td><td x-text="userStatusLabel(user.status)"></td><td x-text="mfaLabel(user)"></td><td x-text="dateTimeLabel(user.last_active_at)"></td><td x-text="impersonationAccessLabel(user)"></td></tr></template></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section x-show="showAccountBilling" x-cloak class="mt-6 max-w-5xl">
+                <div><h2 class="text-xl font-semibold">Billing & Limits</h2><p class="mt-1 text-sm text-base-content/60">Abrechnung und Plan gelten für dieses Kundenkonto.</p></div>
+                <form class="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3" data-provider-billing-form>
+                    <label class="form-control"><span class="label-text">Plan</span><select class="select select-bordered" x-model="billingDraft.plan_code"><template x-for="plan in plans" :key="plan.code"><option :value="plan.code" x-text="plan.label"></option></template></select></label>
+                    <label class="form-control"><span class="label-text">Billing-Status</span><select class="select select-bordered" x-model="billingDraft.status"><option value="current">Aktuell</option><option value="trial">Testphase</option><option value="grace_period">Grace Period</option><option value="past_due">Überfällig</option></select></label>
+                    <label class="form-control"><span class="label-text">Monatlicher Betrag</span><input class="input input-bordered" type="number" min="0" step="1" x-model.number="billingDraft.monthly_euros"></label>
+                    <label class="form-control"><span class="label-text">Rechnungsempfänger</span><input class="input input-bordered" type="email" x-model="billingDraft.billing_contact"></label>
+                    <label class="form-control"><span class="label-text">Rechnungsreferenz</span><input class="input input-bordered" type="text" x-model="billingDraft.invoice_reference"></label>
+                    <label class="form-control"><span class="label-text">Abrechnungsmodell</span><select class="select select-bordered" x-model="billingDraft.collection_model"><option value="provider_pass_through">Provider-Rechnung</option><option value="contract_invoice">Vertragsrechnung</option><option value="self_service_subscription">Self-service</option></select></label>
+                    <div class="md:col-span-2 xl:col-span-3 flex items-center justify-between border-t border-base-300 pt-4"><span class="text-sm text-[#0f6b4d]" x-text="billingSavedLabel"></span><button type="submit" class="btn btn-primary">Billing speichern</button></div>
+                </form>
+            </section>
+
+            <section x-show="showAccountActivity" x-cloak class="mt-6 max-w-5xl">
+                <div><h2 class="text-xl font-semibold">Aktivitätsprotokoll</h2><p class="mt-1 text-sm text-base-content/60">Account-, Import-, Billing- und Support-Ereignisse.</p></div>
+                <ol class="mt-5 divide-y divide-base-300 border-y border-base-300 bg-base-100">
+                    <template x-for="event in selectedAccount.activity" :key="event.id">
+                        <li class="grid gap-2 px-4 py-4 sm:grid-cols-[11rem_11rem_1fr]"><time class="text-sm text-base-content/55" x-text="dateTimeLabel(event.occurred_at)"></time><span class="text-sm font-semibold" x-text="event.actor"></span><span class="text-sm" x-text="event.summary"></span></li>
+                    </template>
+                </ol>
+            </section>
+        </div>
+
+    </div>
+
+    <div x-show="showCreateAccountDialog" x-cloak class="fixed inset-0 z-50 grid place-items-center bg-[#07071f]/45 p-4" role="presentation">
+        <section class="max-h-[calc(100vh-2rem)] w-full min-w-0 max-w-xl overflow-y-auto rounded-lg bg-base-100 p-6 shadow-xl" role="dialog" aria-modal="true" aria-labelledby="create-account-title">
+            <div class="flex items-start justify-between gap-4"><div><h2 id="create-account-title" class="text-xl font-semibold">Kundenkonto anlegen</h2><p class="mt-1 text-sm text-base-content/60" x-text="accountCreateContextLabel"></p></div><button type="button" class="btn btn-ghost btn-sm" data-provider-create-close>Schließen</button></div>
+            <form class="mt-5 grid gap-4 sm:grid-cols-2" data-provider-create-form>
+                <label class="form-control sm:col-span-2"><span class="label-text">Firmenname</span><input class="input input-bordered" type="text" x-model="accountDraft.name" required placeholder="Acme GmbH"></label>
+                <label class="form-control"><span class="label-text">Primäre Domain</span><input class="input input-bordered" type="text" x-model="accountDraft.domain" required placeholder="acme.example"></label>
+                <label class="form-control"><span class="label-text">Plan</span><select class="select select-bordered" x-model="accountDraft.plan_code"><template x-for="plan in plans" :key="plan.code"><option :value="plan.code" x-text="plan.label"></option></template></select></label>
+                <div x-show="accountDraftError" x-cloak class="sm:col-span-2 rounded-md border border-[#ff6f3c]/40 bg-[#fff2ec] p-3 text-sm text-[#8a2d0d]" x-text="accountDraftError"></div>
+                <div class="sm:col-span-2 flex justify-end gap-2 border-t border-base-300 pt-4"><button type="button" class="btn btn-ghost" data-provider-create-close>Abbrechen</button><button type="submit" class="btn btn-primary">Account erstellen</button></div>
+            </form>
         </section>
     </div>
+
+    <div x-show="showUserDialog" x-cloak class="fixed inset-0 z-50 grid place-items-center bg-[#07071f]/45 p-4" role="presentation">
+        <section class="max-h-[calc(100vh-2rem)] w-full min-w-0 max-w-lg overflow-y-auto rounded-lg bg-base-100 p-6 shadow-xl" role="dialog" aria-modal="true" aria-labelledby="add-user-title">
+            <div class="flex items-start justify-between gap-4"><div><h2 id="add-user-title" class="text-xl font-semibold">Benutzer einladen</h2><p class="mt-1 text-sm text-base-content/60" x-text="selectedAccount.name"></p></div><button type="button" class="btn btn-ghost btn-sm" data-provider-user-close>Schließen</button></div>
+            <form class="mt-5 space-y-4" data-provider-user-form>
+                <label class="form-control"><span class="label-text">Name</span><input class="input input-bordered" type="text" x-model="userDraft.name" required></label>
+                <label class="form-control"><span class="label-text">E-Mail</span><input class="input input-bordered" type="email" x-model="userDraft.email" required></label>
+                <label class="form-control"><span class="label-text">Rolle</span><select class="select select-bordered" x-model="userDraft.role"><option value="organization_owner">Organisationsinhaber</option><option value="workspace_admin">Workspace-Admin</option><option value="security_analyst">Security-Analyst</option><option value="auditor">Auditor</option><option value="billing_admin">Billing-Admin</option></select></label>
+                <div x-show="userDraftError" x-cloak class="rounded-md border border-[#ff6f3c]/40 bg-[#fff2ec] p-3 text-sm text-[#8a2d0d]" x-text="userDraftError"></div>
+                <div class="flex justify-end gap-2 border-t border-base-300 pt-4"><button type="button" class="btn btn-ghost" data-provider-user-close>Abbrechen</button><button type="submit" class="btn btn-primary" x-text="userInviteActionLabel"></button></div>
+            </form>
+        </section>
+    </div>
+
+    <div x-show="showImpersonationDialog" x-cloak class="fixed inset-0 z-50 grid place-items-center bg-[#07071f]/45 p-4" role="presentation">
+        <section class="max-h-[calc(100vh-2rem)] w-full min-w-0 max-w-2xl overflow-y-auto rounded-lg bg-base-100 p-6 shadow-xl" role="dialog" aria-modal="true" aria-labelledby="support-session-title">
+            <div class="flex items-start justify-between gap-4"><div><div class="text-xs font-semibold uppercase text-[#32838c]">Protokollierter Support-Zugriff</div><h2 id="support-session-title" class="mt-1 text-xl font-semibold">Kundenansicht öffnen</h2><p class="mt-1 text-sm text-base-content/60" x-text="selectedAccount.name"></p></div><button type="button" class="btn btn-ghost btn-sm" data-provider-impersonation-close>Schließen</button></div>
+            <form class="mt-5 grid min-w-0 gap-4" data-provider-impersonation-form>
+                <label class="form-control min-w-0"><span class="label-text">Ansicht als</span><select class="select select-bordered w-full min-w-0 max-w-full" x-model="supportDraft.target_user_id"><template x-for="user in impersonationUsers" :key="user.id"><option :value="String(user.id)" x-text="impersonationUserOptionLabel(user)"></option></template></select></label>
+                <label class="form-control"><span class="label-text">Grund</span><textarea class="textarea textarea-bordered min-h-24" x-model="supportDraft.reason" required placeholder="Warum ist der Zugriff erforderlich?"></textarea></label>
+                <div class="break-words rounded-md border border-[#9bd6c7] bg-[#eefaf6] p-4 text-sm text-[#0f6b4d]"><div class="font-semibold">Sicherheitsrahmen</div><ul class="mt-2 list-disc space-y-1 pl-5"><template x-for="safeguard in supportSafeguards" :key="safeguard"><li x-text="safeguard"></li></template></ul></div>
+                <div x-show="supportSessionError" x-cloak class="rounded-md border border-[#ff6f3c]/40 bg-[#fff2ec] p-3 text-sm text-[#8a2d0d]" x-text="supportSessionError"></div>
+                <div class="flex flex-wrap justify-end gap-2 border-t border-base-300 pt-4"><button type="button" class="btn btn-ghost" data-provider-impersonation-close>Abbrechen</button><button type="submit" class="btn btn-primary" :disabled="startingSupportSession"><span x-show="startingSupportSession" class="loading loading-spinner loading-xs"></span> Support-Sitzung starten</button></div>
+            </form>
+        </section>
+    </div>
+
+    <div x-show="statusMessage" x-cloak class="toast toast-end z-[60]" role="status" aria-live="polite"><div class="alert border border-[#9bd6c7] bg-[#eefaf6] text-[#0f6b4d] shadow-lg"><span x-text="statusMessage"></span></div></div>
 </div>
 {% endblock %}
 

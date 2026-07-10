@@ -18,7 +18,7 @@ from jose import JWTError, jwt
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
+from app.core.config import get_settings, uses_legacy_demo_fixtures
 from app.core.database import get_db
 from app.core.redaction import sanitize_for_log
 from app.core.security import require_admin_auth
@@ -37,12 +37,13 @@ from app.services.mailbox_recovery import (
     connection_diagnostic,
     connection_test_response,
     diagnostic_category,
-    import_row_diagnostic,
     import_result_diagnostic,
+    import_row_diagnostic,
     redact_recovery_text,
 )
 from app.services.microsoft_graph_client import MicrosoftGraphClient
 from app.services.workspace_access import (
+    PERMISSION_MAIL_SOURCES_READ,
     PERMISSION_MAIL_SOURCES_WRITE,
     parse_selected_workspace_id,
     resolve_authorized_workspace,
@@ -322,12 +323,14 @@ def _authorized_mail_source_workspace(
     auth_context: Dict[str, Any],
     db: Session,
     selected_workspace_id: Optional[int] = None,
+    *,
+    permission: str = PERMISSION_MAIL_SOURCES_WRITE,
 ):
     """Resolve and authorize the selected workspace for mail-source operations."""
     return resolve_authorized_workspace(
         db,
         auth_context,
-        PERMISSION_MAIL_SOURCES_WRITE,
+        permission,
         selected_workspace_id=selected_workspace_id,
     )
 
@@ -516,11 +519,16 @@ def _connection_state_for_source(
 
         diagnostic = import_row_diagnostic(latest_import)
         category = (diagnostic or {}).get("category")
-        if latest_import and latest_import.status == "failed" and category in {
-            "auth_expired",
-            "authentication",
-            "permissions",
-        }:
+        if (
+            latest_import
+            and latest_import.status == "failed"
+            and category
+            in {
+                "auth_expired",
+                "authentication",
+                "permissions",
+            }
+        ):
             return {
                 "connection_status": "reauth_required",
                 "connection_attention": True,
@@ -862,7 +870,7 @@ def _demo_mail_source_response(row: Dict[str, Any]) -> MailSourceResponse:
 
 
 def _demo_mail_source_by_id(source_id: int) -> Optional[Dict[str, Any]]:
-    if not get_settings().DEMO_MODE:
+    if not uses_legacy_demo_fixtures(get_settings()):
         return None
     return next((row for row in build_demo_mail_sources() if row["id"] == source_id), None)
 
@@ -1090,9 +1098,10 @@ async def list_mail_sources(
         _auth,
         db,
         _selected_workspace_id(selected_workspace),
+        permission=PERMISSION_MAIL_SOURCES_READ,
     )
     sources = workspace_mail_source_query(db, workspace).order_by(MailSource.id).all()
-    if not sources and get_settings().DEMO_MODE:
+    if not sources and uses_legacy_demo_fixtures(get_settings()):
         return [_demo_mail_source_response(row) for row in build_demo_mail_sources()]
     latest_imports = _latest_imports_by_source(db, [int(source.id) for source in sources])
     return [_source_to_response(s, latest_imports.get(int(s.id))) for s in sources]
@@ -1162,6 +1171,7 @@ async def get_mail_source(
         _auth,
         db,
         _selected_workspace_id(selected_workspace),
+        permission=PERMISSION_MAIL_SOURCES_READ,
     )
     source = _get_source_or_404(source_id, db, workspace)
     return _source_to_response(source, _latest_import_for_source(db, int(source.id)))
@@ -1180,6 +1190,7 @@ async def list_mail_source_imports(
         _auth,
         db,
         _selected_workspace_id(selected_workspace),
+        permission=PERMISSION_MAIL_SOURCES_READ,
     )
     _get_source_or_404(source_id, db, workspace)
     safe_limit = min(max(limit, 1), 100)
@@ -1211,6 +1222,7 @@ async def list_mail_source_backfills(
         _auth,
         db,
         _selected_workspace_id(selected_workspace),
+        permission=PERMISSION_MAIL_SOURCES_READ,
     )
     _get_source_or_404(source_id, db, workspace)
     rows = (
@@ -1337,6 +1349,7 @@ async def get_mail_source_backfill(
         _auth,
         db,
         _selected_workspace_id(selected_workspace),
+        permission=PERMISSION_MAIL_SOURCES_READ,
     )
     source = _get_source_or_404(source_id, db, workspace)
     row = _get_backfill_or_404(job_id, source, workspace, db)

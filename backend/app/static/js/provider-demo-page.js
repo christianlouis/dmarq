@@ -1,40 +1,58 @@
 function providerDemo() {
     return {
-        loading: false,
+        loading: true,
         error: '',
-        deployment: null,
-        tenants: [],
-        tenantSearch: '',
-        storageKey: 'dmarq-provider-demo-state-v1',
-        hasLocalChanges: false,
-        statusMessage: '',
-        selectedTenantSlug: '',
-        selectedWorkspaceSlug: '',
-        drillInActive: false,
-        activeTab: 'account',
-        billingDraft: {},
-        billingSavedAt: '',
-        startingSupportSession: false,
-        supportSessionResult: null,
-        supportSessionError: '',
         expressionError: '',
-        tenantDraft: {
+        consoleData: null,
+        accounts: [],
+        plans: [],
+        accountSearch: '',
+        accountFilter: 'all',
+        accountSort: 'risk',
+        selectedAccountSlug: '',
+        viewMode: 'provider',
+        accountTab: 'overview',
+        createAccountDialogOpen: false,
+        userDialogOpen: false,
+        impersonationDialogOpen: false,
+        startingSupportSession: false,
+        supportSession: null,
+        supportSessionError: '',
+        statusMessage: '',
+        billingSavedAt: '',
+        storageKey: 'dmarq-provider-console-v3',
+        toastTimer: null,
+        accountDraftError: '',
+        userDraftError: '',
+        accountDraft: {
             name: '',
             domain: '',
-            plan_tier: 'Business',
-            collection_model: 'provider_pass_through',
+            plan_code: 'protect',
         },
         userDraft: {
             name: '',
             email: '',
             role: 'workspace_admin',
         },
-        userError: '',
-        tabs: [
-            {id: 'account', label: 'Account'},
-            {id: 'billing', label: 'Billing'},
+        billingDraft: {},
+        supportDraft: {
+            target_user_id: '',
+            target_user_email: '',
+            reason: 'Kundensupport und Konfigurationsprüfung',
+        },
+        accountFilters: [
+            {id: 'all', label: 'Alle'},
+            {id: 'needs_attention', label: 'Handlungsbedarf'},
+            {id: 'onboarding', label: 'Onboarding'},
+            {id: 'billing', label: 'Billing offen'},
+            {id: 'healthy', label: 'Stabil'},
+        ],
+        accountTabs: [
+            {id: 'overview', label: 'Übersicht'},
+            {id: 'domains', label: 'Domains'},
             {id: 'users', label: 'Benutzer'},
-            {id: 'provider', label: 'Provider-Billing'},
+            {id: 'billing', label: 'Billing & Limits'},
+            {id: 'activity', label: 'Aktivität'},
         ],
 
         init() {
@@ -47,69 +65,89 @@ function providerDemo() {
             const root = this.$root || this.$el;
             if (!root) return;
             root.addEventListener('click', event => {
-                const refresh = event.target.closest('[data-provider-demo-refresh]');
-                if (refresh) {
-                    this.load({force: true});
+                if (!(event.target instanceof Element)) return;
+                const target = event.target;
+
+                if (target.closest('[data-provider-retry]')) {
+                    this.load();
+                    return;
+                }
+                if (target.closest('[data-provider-create-open]')) {
+                    this.openCreateAccountDialog();
+                    return;
+                }
+                if (target.closest('[data-provider-create-close]')) {
+                    this.closeCreateAccountDialog();
+                    return;
+                }
+                if (target.closest('[data-provider-user-open]')) {
+                    this.openUserDialog();
+                    return;
+                }
+                if (target.closest('[data-provider-user-close]')) {
+                    this.closeUserDialog();
+                    return;
+                }
+                if (target.closest('[data-provider-impersonation-open]')) {
+                    this.openImpersonationDialog();
+                    return;
+                }
+                if (target.closest('[data-provider-impersonation-close]')) {
+                    this.closeImpersonationDialog();
+                    return;
+                }
+                if (target.closest('[data-provider-back]')) {
+                    this.returnToProvider();
                     return;
                 }
 
-                const createFocus = event.target.closest('[data-provider-demo-create-focus]');
-                if (createFocus) {
-                    this.focusCreateTenant();
+                const filterButton = target.closest('[data-provider-account-filter]');
+                if (filterButton) {
+                    this.accountFilter = filterButton.dataset.providerAccountFilter || 'all';
                     return;
                 }
-
-                const tenantButton = event.target.closest('[data-provider-demo-tenant]');
-                if (tenantButton) {
-                    this.selectTenant(tenantButton.dataset.providerDemoTenant);
+                const accountButton = target.closest('[data-provider-account-open]');
+                if (accountButton) {
+                    this.openAccount(accountButton.dataset.providerAccountOpen);
                     return;
                 }
-
-                const tabButton = event.target.closest('[data-provider-demo-tab]');
-                if (tabButton) {
-                    this.activeTab = tabButton.dataset.providerDemoTab;
+                const accountTabButton = target.closest('[data-provider-account-tab]');
+                if (accountTabButton) {
+                    this.accountTab = accountTabButton.dataset.providerAccountTab || 'overview';
                     return;
                 }
+            });
 
-                const workspaceButton = event.target.closest('[data-provider-demo-workspace]');
-                if (workspaceButton) {
-                    this.selectWorkspace(workspaceButton.dataset.providerDemoWorkspace);
-                    if (workspaceButton.closest('[data-provider-demo-drill-workspace]')) {
-                        this.enterTenantAccount();
-                    }
+            root.addEventListener('submit', event => {
+                if (!(event.target instanceof HTMLFormElement)) return;
+                if (event.target.matches('[data-provider-create-form]')) {
+                    event.preventDefault();
+                    this.createAccount();
                     return;
                 }
-
-                const drillButton = event.target.closest('[data-provider-demo-drill-account]');
-                if (drillButton) {
-                    this.enterTenantAccount();
+                if (event.target.matches('[data-provider-user-form]')) {
+                    event.preventDefault();
+                    this.addUser();
                     return;
                 }
-
-                const providerButton = event.target.closest('[data-provider-demo-provider-console]');
-                if (providerButton) {
-                    this.drillInActive = false;
-                    this.activeTab = 'provider';
+                if (event.target.matches('[data-provider-billing-form]')) {
+                    event.preventDefault();
+                    this.saveBilling();
                     return;
                 }
-
-                const usersButton = event.target.closest('[data-provider-demo-open-users]');
-                if (usersButton) {
-                    this.activeTab = 'users';
-                    return;
-                }
-
-                const addWorkspaceButton = event.target.closest('[data-provider-demo-add-workspace]');
-                if (addWorkspaceButton) {
-                    this.addWorkspace();
-                    return;
-                }
-
-                const supportButton = event.target.closest('[data-provider-demo-support-session]');
-                if (supportButton) {
+                if (event.target.matches('[data-provider-impersonation-form]')) {
+                    event.preventDefault();
                     this.startSupportSession();
                 }
             });
+
+            document.addEventListener('keydown', event => {
+                if (event.key !== 'Escape') return;
+                this.closeCreateAccountDialog();
+                this.closeUserDialog();
+                this.closeImpersonationDialog();
+            });
+            window.addEventListener('hashchange', () => this.applyHash());
         },
 
         installDemoExpressionErrorRibbon() {
@@ -118,37 +156,33 @@ function providerDemo() {
             console.error = (...args) => {
                 const message = args.map(value => String(value || '')).join(' ');
                 if (message.includes('Alpine Expression Error')) {
-                    this.expressionError = 'Ein Alpine-Ausdruck konnte nicht ausgewertet werden. Bitte Provider-Demo-Template prüfen.';
+                    this.expressionError = 'Die Provider-Oberfläche konnte einen Ausdruck nicht auswerten.';
                 }
                 originalError(...args);
             };
         },
 
-        async load(options = {}) {
-            const force = Boolean(options.force);
-            if (force && this.hasLocalChanges && !window.confirm('Lokale Demo-Änderungen verwerfen und Demo-Daten neu laden?')) {
-                return;
-            }
+        async load() {
             this.loading = true;
             this.error = '';
             try {
-                if (force) {
-                    this.clearLocalState();
-                }
                 const payload = await this.fetchProviderConsoleData();
-                this.deployment = payload.provider_console || payload.deployment || {};
-                this.tenants = this.buildTenants(this.deployment.organizations || []);
-                const restored = !force && this.restoreLocalState();
-                if (!restored) {
-                    const providerCustomer = this.tenants.find(tenant => tenant.billing_mode === 'provider_resale');
-                    this.selectTenant(providerCustomer?.slug || this.tenants[0]?.slug || '');
+                this.consoleData = payload.provider_console || {};
+                this.accounts = this.clone(this.consoleData.accounts || []);
+                this.plans = this.clone(this.consoleData.plans || []);
+                const restored = this.restoreState();
+                if (!restored || !this.selectedAccountSlug) {
+                    this.selectedAccountSlug = this.accounts[0]?.slug || '';
                 }
+                this.ensureSelectedAccount();
+                this.resetBillingDraft();
+                this.applyHash();
             } catch (error) {
+                this.consoleData = null;
+                this.accounts = [];
                 this.error = error.name === 'AbortError'
-                    ? 'Provider-Console-Daten haben zu lange gebraucht.'
-                    : error.message || 'Provider Console konnte nicht geladen werden.';
-                this.deployment = null;
-                this.tenants = [];
+                    ? 'Der Provider-Datensatz hat zu lange gebraucht.'
+                    : error.message || 'Provider-Daten sind nicht verfügbar.';
             } finally {
                 this.loading = false;
             }
@@ -158,657 +192,693 @@ function providerDemo() {
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), 10000);
             try {
-                const response = await fetch('/api/v1/operator/demo/provider-console', {
+                const response = await fetch('/api/v1/operator/provider-console', {
                     headers: {Accept: 'application/json'},
                     signal: controller.signal,
                 });
-                if (response.ok) {
-                    return response.json();
+                if (!response.ok) {
+                    throw new Error('Provider-Console-Daten fehlen in diesem Deployment.');
                 }
-                const fallback = await fetch('/api/v1/operator/demo/multi-user', {
-                    headers: {Accept: 'application/json'},
-                    signal: controller.signal,
-                });
-                if (!fallback.ok) {
-                    throw new Error('Provider-Console-Daten sind in diesem Deployment nicht verfügbar.');
-                }
-                return fallback.json();
+                return response.json();
             } finally {
                 clearTimeout(timeout);
             }
         },
 
-        buildTenants(organizations) {
-            return organizations.map(organization => {
-                const providerCustomer = (organization.provider_customers || [])[0] || {};
-                const billingProfile = organization.billing_profile || {};
-                const entitlements = organization.entitlements || {};
-                const tenant = {
-                    ...this.clone(organization),
-                    plan_tier: organization.plan_tier || providerCustomer.subscription_tier || 'Business',
-                    billing_status: providerCustomer.billing_status || organization.billing_status || 'active',
-                    monthly_charge_cents: Number(providerCustomer.monthly_charge_cents || 0),
-                    billing_profile: {
-                        invoice_owner: billingProfile.invoice_owner || 'Provider',
-                        collection_model: billingProfile.collection_model || organization.billing_mode || 'provider_pass_through',
-                        payment_rail: billingProfile.payment_rail || 'bank_transfer',
-                        invoice_reference: billingProfile.invoice_reference || organization.slug || '',
-                    },
-                    entitlements: {
-                        ...entitlements,
-                        users: entitlements.users || {
-                            used: (organization.users || []).length,
-                            included: 25,
-                        },
-                        aggregate_messages: entitlements.aggregate_messages || {
-                            used: this.aggregateMessages(organization),
-                            included: 1_000_000,
-                        },
-                    },
-                    users: this.clone(organization.users || []),
-                    workspaces: this.clone(organization.workspaces || []),
-                };
-                this.syncProviderCustomer(tenant);
-                return tenant;
-            });
-        },
-
         get ready() {
-            return Boolean(this.deployment) && !this.loading;
+            return Boolean(this.consoleData) && !this.loading && !this.error;
         },
 
-        get filteredTenants() {
-            const needle = this.tenantSearch.trim().toLowerCase();
-            if (!needle) return this.tenants;
-            return this.tenants.filter(tenant => {
+        get demoMode() {
+            return Boolean(this.consoleData?.demo_mode);
+        },
+
+        get providerIdentityLabel() {
+            return `${this.consoleData?.provider?.name || 'DMARQ Provider'} · Site Manager`;
+        },
+
+        get revenueContextLabel() {
+            return this.demoMode ? 'simulierte Provider-Abrechnung' : 'aktive Vertragswerte';
+        },
+
+        get accountCreateContextLabel() {
+            return this.demoMode
+                ? 'Die Demo erstellt einen vollständigen Account für diese Browser-Sitzung.'
+                : 'Organisation, Workspace, Domain, Subscription und Billing-Profil werden dauerhaft angelegt.';
+        },
+
+        get userInviteActionLabel() {
+            return this.demoMode ? 'Einladung simulieren' : 'Benutzer einladen';
+        },
+
+        get showProviderView() {
+            return this.viewMode === 'provider';
+        },
+
+        get showAccountView() {
+            return this.viewMode === 'account';
+        },
+
+        get showCreateAccountDialog() {
+            return this.createAccountDialogOpen;
+        },
+
+        get showUserDialog() {
+            return this.userDialogOpen;
+        },
+
+        get showImpersonationDialog() {
+            return this.impersonationDialogOpen;
+        },
+
+        get selectedAccount() {
+            return this.accounts.find(account => account.slug === this.selectedAccountSlug)
+                || this.accounts[0]
+                || this.emptyAccount();
+        },
+
+        get filteredAccounts() {
+            const needle = this.accountSearch.trim().toLowerCase();
+            const filtered = this.accounts.filter(account => {
+                if (!this.accountMatchesFilter(account)) return false;
+                if (!needle) return true;
+                const domainNames = (account.domains || []).map(domain => domain.name).join(' ');
                 return [
-                    tenant.name,
-                    tenant.slug,
-                    tenant.plan_tier,
-                    tenant.billing_status,
-                    tenant.billing_mode,
-                    tenant.billing_profile?.invoice_owner,
+                    account.name,
+                    account.short_name,
+                    account.customer_number,
+                    account.plan_label,
+                    account.status,
+                    account.health,
+                    domainNames,
                 ].some(value => String(value || '').toLowerCase().includes(needle));
             });
+            return filtered.sort((left, right) => this.compareAccounts(left, right));
         },
 
-        get selectedTenant() {
-            return this.tenants.find(tenant => tenant.slug === this.selectedTenantSlug)
-                || this.tenants[0]
-                || this.emptyTenant();
+        get showNoAccounts() {
+            return this.filteredAccounts.length === 0;
         },
 
-        get selectedWorkspace() {
-            return (this.selectedTenant.workspaces || []).find(
-                workspace => workspace.slug === this.selectedWorkspaceSlug,
-            ) || (this.selectedTenant.workspaces || [])[0] || this.emptyWorkspace();
+        get accountCount() {
+            return this.accounts.length;
         },
 
-        get selectedWorkspacePrimaryDomain() {
-            return (this.selectedWorkspace.domains || [])[0] || '';
+        get activeAccountCount() {
+            return this.accounts.filter(account => account.status === 'active').length;
         },
 
-        get selectedWorkspaceDomainHref() {
-            return this.selectedWorkspacePrimaryDomain
-                ? this.contextualHref(`/domains/${this.selectedWorkspacePrimaryDomain}`)
-                : this.contextualHref('/domains');
+        get activeAccountCountLabel() {
+            return `${this.activeAccountCount} aktiv`;
         },
 
-        get selectedWorkspaceReportsHref() {
-            return this.contextualHref('/reports');
+        get atRiskAccountCount() {
+            return this.accounts.filter(account => ['critical', 'warning', 'attention'].includes(account.health)).length;
         },
 
-        get selectedWorkspaceDomainsLabel() {
-            return this.workspaceDomainsLabel(this.selectedWorkspace);
-        },
-
-        get selectedTenantBillingStatusLabel() {
-            return this.tenantBillingStatusLabel(this.selectedTenant);
-        },
-
-        get selectedTenantMonthlyChargeLabel() {
-            return this.formatMoney(this.selectedTenant.monthly_charge_cents);
-        },
-
-        get providerCustomers() {
-            return this.tenants
-                .filter(tenant => this.isProviderBilledTenant(tenant))
-                .map(tenant => this.providerCustomerFromTenant(tenant));
-        },
-
-        get supportAccessDemo() {
-            return this.deployment?.support_access_demo || {};
-        },
-
-        get tenantCount() {
-            return this.tenants.length;
-        },
-
-        get providerCustomerCount() {
-            return this.providerCustomers.length;
-        },
-
-        get providerCustomerCountLabel() {
-            return `${this.providerCustomerCount} Provider-Kunden`;
-        },
-
-        get workspaceCount() {
-            return this.tenants.reduce((total, tenant) => total + (tenant.workspaces || []).length, 0);
+        get messageVolume() {
+            return this.accounts.reduce((sum, account) => sum + Number(account.usage?.messages_30d || 0), 0);
         },
 
         get messageVolumeLabel() {
-            const total = this.tenants.reduce((sum, tenant) => sum + this.aggregateMessages(tenant), 0);
-            return this.compactNumber(total);
+            return this.compactNumber(this.messageVolume);
+        },
+
+        get domainCount() {
+            return this.accounts.reduce((sum, account) => sum + (account.domains || []).length, 0);
+        },
+
+        get domainCountLabel() {
+            return `${this.domainCount} überwachte Domains`;
+        },
+
+        get providerComplianceLabel() {
+            const weighted = this.accounts.reduce((sum, account) => {
+                return sum + Number(account.usage?.messages_30d || 0) * Number(account.usage?.compliance_rate || 0);
+            }, 0);
+            const rate = this.messageVolume ? weighted / this.messageVolume : 0;
+            return `${rate.toLocaleString('de-DE', {minimumFractionDigits: 1, maximumFractionDigits: 1})} %`;
         },
 
         get providerRevenueLabel() {
-            const cents = this.providerCustomers.reduce(
-                (sum, customer) => sum + Number(customer.monthly_charge_cents || 0),
-                0,
-            );
+            const cents = this.accounts.reduce((sum, account) => {
+                if (account.billing?.status === 'trial') return sum;
+                return sum + Number(account.billing?.monthly_charge_cents || 0);
+            }, 0);
             return this.formatMoney(cents);
         },
 
-        get selectedTenantDomainCount() {
-            const count = (this.selectedTenant.workspaces || []).reduce(
-                (total, workspace) => total + (workspace.domains || []).length,
-                0,
-            );
-            return `${count} Domains`;
+        get showAccountOverview() {
+            return this.accountTab === 'overview';
         },
 
-        get selectedTenantUserCountLabel() {
-            return this.tenantUserLabel(this.selectedTenant);
+        get showAccountDomains() {
+            return this.accountTab === 'domains';
         },
 
-        get selectedTenantAction() {
-            const health = this.selectedWorkspace.health || 'monitoring';
-            return {
-                healthy: 'Policy-Erhöhung planen oder wöchentliches Monitoring bestätigen.',
-                monitoring: 'Unbekannte Sender prüfen, bevor ein strengerer DMARC-Policy-Schritt gesetzt wird.',
-                warning: 'Sender-Remediation öffnen und Frist im Mandantenplan setzen.',
-                attention: 'Den stärksten Sender-Drift reparieren, bevor Billing- oder Policy-Änderungen passieren.',
-                critical: 'Nicht erzwingen. Erst DKIM/SPF-Ausrichtung und DNS-Lookups stabilisieren.',
-            }[health] || 'Mandanten-Workspace prüfen, bevor die nächste Aktion ausgeführt wird.';
+        get showAccountUsers() {
+            return this.accountTab === 'users';
         },
 
-        get drillInContextLabel() {
-            if (!this.drillInActive) return '';
-            return `${this.selectedTenant.name} / ${this.selectedWorkspace.name}`;
+        get showAccountBilling() {
+            return this.accountTab === 'billing';
+        },
+
+        get showAccountActivity() {
+            return this.accountTab === 'activity';
+        },
+
+        get selectedAccountMessageLabel() {
+            return this.formatNumber(this.selectedAccount.usage?.messages_30d || 0);
+        },
+
+        get selectedAccountComplianceLabel() {
+            return this.accountComplianceLabel(this.selectedAccount);
+        },
+
+        get selectedAccountResourceLabel() {
+            return `${this.accountDomainCount(this.selectedAccount)} / ${this.accountUserCount(this.selectedAccount)}`;
+        },
+
+        get selectedAccountRevenueLabel() {
+            return this.formatMoney(this.selectedAccount.billing?.monthly_charge_cents || 0);
+        },
+
+        get selectedAccountOnboardingLabel() {
+            const onboarding = this.selectedAccount.onboarding || {};
+            return `${onboarding.completed_steps || 0} von ${onboarding.total_steps || 0} Schritten`;
+        },
+
+        get selectedAccountUserLimitLabel() {
+            const users = this.selectedAccount.entitlements?.users || {};
+            return `${users.used || 0} von ${users.included || 0} Plätzen belegt.`;
         },
 
         get billingSavedLabel() {
-            return this.billingSavedAt ? `Gespeichert ${this.billingSavedAt}` : 'Demo-Änderungen lokal';
-        },
-
-        get localChangesLabel() {
-            return this.hasLocalChanges
-                ? 'Lokale Simulation aktiv - Änderungen bleiben in diesem Browser erhalten.'
-                : '';
-        },
-
-        get supportSessionSummary() {
-            const event = this.supportSessionResult?.audit_event;
-            if (!event) return '';
-            return `${event.operator_email} öffnete ${event.domain} als ${event.target_user_email}; ${event.result}.`;
-        },
-
-        selectTenant(slug) {
-            if (!slug) return;
-            this.selectedTenantSlug = slug;
-            this.selectedWorkspaceSlug = (this.selectedTenant.workspaces || [])[0]?.slug || '';
-            this.resetBillingDraft();
-            this.supportSessionResult = null;
-            this.supportSessionError = '';
-            this.userError = '';
-            this.drillInActive = false;
-        },
-
-        selectWorkspace(workspaceSlug) {
-            if (!workspaceSlug) return;
-            const owningTenant = this.tenants.find(tenant => {
-                return (tenant.workspaces || []).some(workspace => workspace.slug === workspaceSlug);
-            });
-            if (owningTenant) {
-                this.selectedTenantSlug = owningTenant.slug;
+            if (this.billingSavedAt) {
+                return `${this.demoMode ? 'Lokal gespeichert' : 'Gespeichert'} · ${this.billingSavedAt}`;
             }
-            this.selectedWorkspaceSlug = workspaceSlug;
-            this.activeTab = 'account';
-            this.resetBillingDraft();
-            this.userError = '';
+            return this.demoMode
+                ? 'Demo-Änderungen bleiben in dieser Sitzung.'
+                : 'Plan- und Billing-Änderungen werden dauerhaft gespeichert.';
         },
 
-        enterTenantAccount() {
-            this.activeTab = 'account';
-            this.drillInActive = true;
-            this.statusMessage = `Mandantenkontext aktiv: ${this.selectedTenant.name}.`;
+        get impersonationUsers() {
+            return (this.selectedAccount.users || []).filter(user => user.can_impersonate);
+        },
+
+        get supportSafeguards() {
+            return this.consoleData?.support_access_demo?.safeguards || [];
+        },
+
+        accountMatchesFilter(account) {
+            if (this.accountFilter === 'all') return true;
+            if (this.accountFilter === 'needs_attention') {
+                return ['critical', 'warning', 'attention'].includes(account.health);
+            }
+            if (this.accountFilter === 'onboarding') return account.status === 'onboarding';
+            if (this.accountFilter === 'billing') {
+                return ['past_due', 'grace_period'].includes(account.billing?.status);
+            }
+            if (this.accountFilter === 'healthy') return account.health === 'healthy';
+            return true;
+        },
+
+        applyHash() {
+            const hash = window.location.hash.replace('#', '');
+            if (!hash) return;
+            this.viewMode = 'provider';
+            this.supportSession = null;
+            this.accountFilter = hash === 'billing' ? 'billing' : 'all';
+            this.persistState();
+            if (hash === 'accounts' || hash === 'billing') {
+                requestAnimationFrame(() => document.getElementById('accounts')?.scrollIntoView({block: 'start'}));
+            }
+        },
+
+        compareAccounts(left, right) {
+            if (this.accountSort === 'name') return left.name.localeCompare(right.name, 'de');
+            if (this.accountSort === 'volume') return Number(right.usage?.messages_30d || 0) - Number(left.usage?.messages_30d || 0);
+            if (this.accountSort === 'revenue') return Number(right.billing?.monthly_charge_cents || 0) - Number(left.billing?.monthly_charge_cents || 0);
+            const rank = {critical: 0, warning: 1, attention: 2, monitoring: 3, healthy: 4};
+            return (rank[left.health] ?? 9) - (rank[right.health] ?? 9) || left.name.localeCompare(right.name, 'de');
+        },
+
+        accountFilterClass(filter) {
+            return this.accountFilter === filter.id
+                ? 'btn-primary'
+                : 'btn-ghost border border-base-300';
+        },
+
+        accountTabClass(tab) {
+            return this.accountTab === tab.id
+                ? 'border-[#272a5f] text-[#272a5f]'
+                : 'border-transparent text-base-content/55 hover:text-base-content';
+        },
+
+        openAccount(slug) {
+            if (!this.accounts.some(account => account.slug === slug)) return;
+            if (window.location.hash) {
+                window.history.replaceState(
+                    null,
+                    '',
+                    `${window.location.pathname}${window.location.search}`
+                );
+            }
+            this.selectedAccountSlug = slug;
+            this.viewMode = 'account';
+            this.accountTab = 'overview';
+            this.supportSession = null;
+            this.resetBillingDraft();
+            this.persistState();
+            window.scrollTo({top: 0, behavior: 'smooth'});
+        },
+
+        returnToProvider() {
+            this.viewMode = 'provider';
+            this.supportSession = null;
+            this.persistState();
+            window.scrollTo({top: 0, behavior: 'smooth'});
+        },
+
+        openCreateAccountDialog() {
+            this.accountDraftError = '';
+            this.createAccountDialogOpen = true;
+        },
+
+        closeCreateAccountDialog() {
+            this.createAccountDialogOpen = false;
+            this.accountDraftError = '';
+        },
+
+        openUserDialog() {
+            this.userDraftError = '';
+            this.userDialogOpen = true;
+        },
+
+        closeUserDialog() {
+            this.userDialogOpen = false;
+            this.userDraftError = '';
+        },
+
+        openImpersonationDialog() {
+            this.supportSessionError = '';
+            const firstUser = this.impersonationUsers[0];
+            if (!firstUser) {
+                this.showStatus('Für diesen Account ist kein impersonierbarer Benutzer vorhanden.');
+                return;
+            }
+            this.supportDraft = {
+                target_user_id: String(firstUser.id),
+                target_user_email: firstUser.email,
+                reason: 'Kundensupport und Konfigurationsprüfung',
+            };
+            this.impersonationDialogOpen = true;
+        },
+
+        closeImpersonationDialog() {
+            if (this.startingSupportSession) return;
+            this.impersonationDialogOpen = false;
+            this.supportSessionError = '';
+        },
+
+        async createAccount() {
+            this.accountDraftError = '';
+            const name = this.accountDraft.name.trim();
+            const domain = this.normalizeDomain(this.accountDraft.domain);
+            if (!name || !domain || !this.isValidDomain(domain)) {
+                this.accountDraftError = 'Bitte Firmenname und eine gültige Domain eintragen.';
+                return;
+            }
+            if (this.accounts.some(account => (account.domains || []).some(item => item.name === domain))) {
+                this.accountDraftError = 'Diese Domain gehört bereits zu einem Kundenkonto.';
+                return;
+            }
+            const plan = this.plans.find(item => item.code === this.accountDraft.plan_code) || this.plans[0] || {};
+            const slug = this.uniqueSlug(name);
+            if (!this.demoMode) {
+                try {
+                    const now = Date.now();
+                    const customerNumber = `DM-${now}`;
+                    const response = await fetch('/api/v1/provider/customers', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json', Accept: 'application/json'},
+                        body: JSON.stringify({
+                            provider_id: this.consoleData.provider?.slug || 'dmarq-provider',
+                            external_customer_id: customerNumber,
+                            external_subscription_id: `sub-${slug}-${now}`,
+                            organization_slug: slug,
+                            organization_name: name,
+                            workspace_slug: slug,
+                            workspace_name: `${name} Mail Security`,
+                            plan_code: plan.code || 'starter',
+                            external_product_code: plan.code || 'starter',
+                            external_event_id: `console-create-${slug}-${now}`,
+                            payload_summary: 'Created through the DMARQ provider console',
+                            primary_domain: domain,
+                            dmarc_report_mailbox: `dmarc@${domain}`,
+                            invoice_reference: customerNumber,
+                            invoice_delivery_mode: 'provider_invoice',
+                            billing_contact_email: `billing@${domain}`,
+                            monthly_price_cents: Number(plan.monthly_charge_cents || 0),
+                        }),
+                    });
+                    if (!response.ok) {
+                        const payload = await response.json().catch(() => ({}));
+                        throw new Error(this.apiErrorMessage(payload, 'Kundenkonto konnte nicht angelegt werden.'));
+                    }
+                    sessionStorage.removeItem(this.storageKey);
+                    await this.load();
+                    this.openAccount(slug);
+                    this.closeCreateAccountDialog();
+                    this.showStatus('Kundenkonto wurde angelegt.');
+                } catch (error) {
+                    this.accountDraftError = error.message || 'Kundenkonto konnte nicht angelegt werden.';
+                }
+                return;
+            }
+            const now = new Date().toISOString();
+            const account = {
+                id: `acct-${slug}`,
+                slug,
+                customer_number: `NS-DEMO-${String(this.accounts.length + 1).padStart(3, '0')}`,
+                name,
+                short_name: name,
+                status: 'onboarding',
+                health: 'monitoring',
+                plan_code: plan.code || 'monitor',
+                plan_label: plan.label || 'DMARQ Monitor',
+                created_at: now,
+                last_activity_at: now,
+                primary_contact: {name: 'Account Admin', email: `admin@${domain}`, phone: ''},
+                billing: {
+                    status: 'trial',
+                    invoice_owner: 'Northstar ISP',
+                    billing_contact: `billing@${domain}`,
+                    collection_model: 'provider_pass_through',
+                    payment_rail: 'isp_monthly_invoice',
+                    invoice_reference: `NS-DEMO-${this.accounts.length + 1}`,
+                    monthly_charge_cents: 0,
+                    next_invoice_at: this.daysFromNow(30),
+                },
+                usage: {messages_30d: 0, reports_30d: 0, compliance_rate: 0, change_percent: 0},
+                entitlements: {
+                    domains: {used: 1, included: Number(plan.domains || 5)},
+                    users: {used: 1, included: Number(plan.users || 10)},
+                    messages: {used: 0, included: Number(plan.messages || 500000)},
+                    retention_days: {used: 0, included: Number(plan.retention_days || 90)},
+                },
+                onboarding: {completed_steps: 1, total_steps: 5, next_step: 'Ersten DMARC-Report importieren und DNS-Besitz bestätigen.'},
+                recommended_action: 'Reporting-Ziel und DNS-Besitz bestätigen, bevor eine Policy empfohlen wird.',
+                domains: [{
+                    name: domain,
+                    health: 'monitoring',
+                    policy: 'none',
+                    compliance_rate: 0,
+                    messages_30d: 0,
+                    reports_30d: 0,
+                    source_count: 0,
+                    spf_alignment: 0,
+                    dkim_alignment: 0,
+                    last_report_at: null,
+                    open_findings: ['Noch keine Aggregate-Reports eingegangen.'],
+                }],
+                users: [{
+                    id: `usr-${slug}-admin`,
+                    name: 'Account Admin',
+                    email: `admin@${domain}`,
+                    role: 'organization_owner',
+                    status: 'invited',
+                    last_active_at: null,
+                    mfa_enabled: false,
+                    can_impersonate: true,
+                }],
+                reports: [],
+                activity: [{id: `${slug}-created`, occurred_at: now, actor: 'Sofia Weber', action: 'account.created', summary: 'Kundenkonto in der Demo angelegt.'}],
+                settings: {report_mailbox: `dmarc@${domain}`, timezone: 'Europe/Berlin', weekly_digest: true, ai_redaction: 'strict'},
+            };
+            this.accounts.unshift(account);
+            this.accountDraft = {name: '', domain: '', plan_code: 'protect'};
+            this.closeCreateAccountDialog();
+            this.openAccount(slug);
+            this.showStatus('Kundenkonto wurde in der Demo angelegt.');
+        },
+
+        async addUser() {
+            this.userDraftError = '';
+            const name = this.userDraft.name.trim();
+            const email = this.userDraft.email.trim().toLowerCase();
+            if (!name || !this.isValidEmail(email)) {
+                this.userDraftError = 'Bitte Name und eine gültige E-Mail-Adresse eintragen.';
+                return;
+            }
+            if ((this.selectedAccount.users || []).some(user => user.email.toLowerCase() === email)) {
+                this.userDraftError = 'Diese E-Mail existiert bereits in diesem Kundenkonto.';
+                return;
+            }
+            const limit = Number(this.selectedAccount.entitlements?.users?.included || 0);
+            if (limit && this.selectedAccount.users.length >= limit) {
+                this.userDraftError = `Das Benutzerlimit von ${limit} Plätzen ist erreicht.`;
+                return;
+            }
+            if (!this.demoMode) {
+                const workspaceRole = {
+                    organization_owner: 'workspace_owner',
+                    workspace_admin: 'workspace_owner',
+                    security_analyst: 'analyst',
+                    billing_admin: 'auditor',
+                }[this.userDraft.role] || this.userDraft.role;
+                try {
+                    const workspaceResponse = await fetch(
+                        `/api/v1/memberships/workspaces/${this.selectedAccount.workspace_id}/invites`,
+                        {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json', Accept: 'application/json'},
+                            body: JSON.stringify({email, full_name: name, role: workspaceRole}),
+                        }
+                    );
+                    if (!workspaceResponse.ok) {
+                        const payload = await workspaceResponse.json().catch(() => ({}));
+                        throw new Error(this.apiErrorMessage(payload, 'Benutzer konnte nicht eingeladen werden.'));
+                    }
+                    if (['organization_owner', 'billing_admin'].includes(this.userDraft.role)) {
+                        const organizationResponse = await fetch(
+                            `/api/v1/memberships/organizations/${this.selectedAccount.organization_id}/invites`,
+                            {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/json', Accept: 'application/json'},
+                                body: JSON.stringify({email, full_name: name, role: this.userDraft.role}),
+                            }
+                        );
+                        if (!organizationResponse.ok) {
+                            const payload = await organizationResponse.json().catch(() => ({}));
+                            throw new Error(this.apiErrorMessage(payload, 'Organisationsrolle konnte nicht gesetzt werden.'));
+                        }
+                    }
+                    sessionStorage.removeItem(this.storageKey);
+                    const accountSlug = this.selectedAccount.slug;
+                    await this.load();
+                    this.openAccount(accountSlug);
+                    this.accountTab = 'users';
+                    this.closeUserDialog();
+                    this.showStatus('Benutzer wurde eingeladen.');
+                } catch (error) {
+                    this.userDraftError = error.message || 'Benutzer konnte nicht eingeladen werden.';
+                }
+                return;
+            }
+            this.selectedAccount.users.push({
+                id: `usr-${this.selectedAccount.slug}-${Date.now()}`,
+                name,
+                email,
+                role: this.userDraft.role,
+                status: 'invited',
+                last_active_at: null,
+                mfa_enabled: false,
+                can_impersonate: ['organization_owner', 'workspace_admin', 'security_analyst'].includes(this.userDraft.role),
+            });
+            this.selectedAccount.entitlements.users.used = this.selectedAccount.users.length;
+            this.selectedAccount.activity.unshift({
+                id: `${this.selectedAccount.slug}-invite-${Date.now()}`,
+                occurred_at: new Date().toISOString(),
+                actor: 'Sofia Weber',
+                action: 'user.invited',
+                summary: `${email} wurde als ${this.roleLabel(this.userDraft.role)} eingeladen.`,
+            });
+            this.userDraft = {name: '', email: '', role: 'workspace_admin'};
+            this.closeUserDialog();
+            this.persistState();
+            this.showStatus('Benutzereinladung wurde lokal simuliert.');
         },
 
         resetBillingDraft() {
-            const tenant = this.selectedTenant;
-            const profile = tenant.billing_profile || {};
-            const userLimit = tenant.entitlements?.users?.included || tenant.users.length || 1;
-            const messageLimit = tenant.entitlements?.aggregate_messages?.included || 0;
+            const billing = this.selectedAccount.billing || {};
             this.billingDraft = {
-                plan_tier: tenant.plan_tier || 'Business',
-                invoice_owner: profile.invoice_owner || 'Provider',
-                collection_model: profile.collection_model || 'provider_pass_through',
-                payment_rail: profile.payment_rail || 'bank_transfer',
-                invoice_reference: profile.invoice_reference || tenant.slug || '',
-                monthly_euros: Math.round(Number(tenant.monthly_charge_cents || 0) / 100),
-                user_limit: Number(userLimit),
-                message_limit: Number(messageLimit),
+                plan_code: this.selectedAccount.plan_code || this.plans[0]?.code || 'monitor',
+                status: billing.status || 'current',
+                monthly_euros: Math.round(Number(billing.monthly_charge_cents || 0) / 100),
+                billing_contact: billing.billing_contact || '',
+                invoice_reference: billing.invoice_reference || '',
+                collection_model: billing.collection_model || 'provider_pass_through',
             };
             this.billingSavedAt = '';
         },
 
-        saveBilling() {
-            const tenant = this.selectedTenant;
-            tenant.plan_tier = this.billingDraft.plan_tier;
-            tenant.billing_profile = {
-                invoice_owner: this.billingDraft.invoice_owner,
-                collection_model: this.billingDraft.collection_model,
-                payment_rail: this.billingDraft.payment_rail,
-                invoice_reference: this.billingDraft.invoice_reference,
-            };
-            tenant.billing_mode = this.billingModeForCollection(this.billingDraft.collection_model);
-            tenant.monthly_charge_cents = Number(this.billingDraft.monthly_euros || 0) * 100;
-            tenant.entitlements.users = {
-                used: tenant.users.length,
-                included: Number(this.billingDraft.user_limit || tenant.users.length || 1),
-            };
-            tenant.entitlements.aggregate_messages = {
-                used: this.aggregateMessages(tenant),
-                included: Number(this.billingDraft.message_limit || 0),
-            };
-            this.billingSavedAt = new Date().toLocaleTimeString('de-DE', {
-                hour: '2-digit',
-                minute: '2-digit',
+        async saveBilling() {
+            const account = this.selectedAccount;
+            const plan = this.plans.find(item => item.code === this.billingDraft.plan_code) || {};
+            if (!this.demoMode) {
+                try {
+                    const now = Date.now();
+                    const response = await fetch('/api/v1/provider/customers', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json', Accept: 'application/json'},
+                        body: JSON.stringify({
+                            provider_id: account.billing.provider_id || this.consoleData.provider?.slug || 'dmarq-provider',
+                            external_customer_id: account.customer_number,
+                            external_subscription_id: account.billing.external_subscription_id,
+                            organization_slug: account.slug,
+                            organization_name: account.name,
+                            workspace_slug: account.slug,
+                            workspace_name: `${account.short_name || account.name} Mail Security`,
+                            plan_code: this.billingDraft.plan_code,
+                            external_product_code: this.billingDraft.plan_code,
+                            external_event_id: `console-billing-${account.slug}-${now}`,
+                            payload_summary: 'Updated through the DMARQ provider console',
+                            invoice_reference: this.billingDraft.invoice_reference.trim(),
+                            invoice_delivery_mode: 'provider_invoice',
+                            billing_contact_email: this.billingDraft.billing_contact.trim(),
+                            monthly_price_cents: Number(this.billingDraft.monthly_euros || 0) * 100,
+                        }),
+                    });
+                    if (!response.ok) {
+                        const payload = await response.json().catch(() => ({}));
+                        throw new Error(this.apiErrorMessage(payload, 'Billing konnte nicht gespeichert werden.'));
+                    }
+                    const statusValue = {
+                        current: 'active',
+                        trial: 'trialing',
+                        grace_period: 'past_due_provider_reported',
+                        past_due: 'past_due_provider_reported',
+                    }[this.billingDraft.status] || 'active';
+                    const statusResponse = await fetch(
+                        `/api/v1/provider/subscriptions/${encodeURIComponent(account.billing.external_subscription_id)}/state`,
+                        {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json', Accept: 'application/json'},
+                            body: JSON.stringify({
+                                status: statusValue,
+                                provider_id: account.billing.provider_id || this.consoleData.provider?.slug,
+                                external_event_id: `console-status-${account.slug}-${now}`,
+                                payload_summary: 'Updated through the DMARQ provider console',
+                            }),
+                        }
+                    );
+                    if (!statusResponse.ok) {
+                        const payload = await statusResponse.json().catch(() => ({}));
+                        throw new Error(this.apiErrorMessage(payload, 'Billing-Status konnte nicht gespeichert werden.'));
+                    }
+                    sessionStorage.removeItem(this.storageKey);
+                    const accountSlug = account.slug;
+                    await this.load();
+                    this.openAccount(accountSlug);
+                    this.accountTab = 'billing';
+                    this.billingSavedAt = new Date().toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'});
+                    this.showStatus('Billing und Planlimits wurden gespeichert.');
+                } catch (error) {
+                    this.showStatus(error.message || 'Billing konnte nicht gespeichert werden.');
+                }
+                return;
+            }
+            account.plan_code = this.billingDraft.plan_code;
+            account.plan_label = plan.label || account.plan_label;
+            account.billing.status = this.billingDraft.status;
+            account.billing.monthly_charge_cents = Number(this.billingDraft.monthly_euros || 0) * 100;
+            account.billing.billing_contact = this.billingDraft.billing_contact.trim();
+            account.billing.invoice_reference = this.billingDraft.invoice_reference.trim();
+            account.billing.collection_model = this.billingDraft.collection_model;
+            if (plan.domains) account.entitlements.domains.included = Number(plan.domains);
+            if (plan.users) account.entitlements.users.included = Number(plan.users);
+            if (plan.messages) account.entitlements.messages.included = Number(plan.messages);
+            if (plan.retention_days) account.entitlements.retention_days.included = Number(plan.retention_days);
+            account.activity.unshift({
+                id: `${account.slug}-billing-${Date.now()}`,
+                occurred_at: new Date().toISOString(),
+                actor: 'Sofia Weber',
+                action: 'billing.updated',
+                summary: `${account.plan_label}, ${this.billingStatusLabel(account.billing.status)}, ${this.formatMoney(account.billing.monthly_charge_cents)} monatlich.`,
             });
-            this.syncProviderCustomer(tenant);
-            this.persistLocalState('Billing-Settings wurden lokal gespeichert.');
-        },
-
-        createTenant() {
-            const name = this.tenantDraft.name.trim();
-            const domain = this.normalizeDomain(this.tenantDraft.domain);
-            if (!name || !domain) return;
-            const slug = this.uniqueSlug(name);
-            const workspaceSlug = `${slug}-main`;
-            const tenant = {
-                slug,
-                name,
-                demo_story: 'Neu angelegter Demo-Mandant für Provider-Onboarding, Billing und Benutzerverwaltung.',
-                billing_mode: this.tenantDraft.collection_model,
-                billing_status: 'draft',
-                plan_tier: this.tenantDraft.plan_tier,
-                monthly_charge_cents: 0,
-                billing_profile: {
-                    invoice_owner: 'Provider',
-                    collection_model: this.tenantDraft.collection_model,
-                    payment_rail: 'bank_transfer',
-                    invoice_reference: slug,
-                },
-                entitlements: {
-                    users: {used: 1, included: 25},
-                    aggregate_messages: {used: 0, included: 1_000_000},
-                },
-                usage: [],
-                provider_customers: [],
-                users: [
-                    {
-                        name: 'Mandanten Admin',
-                        email: `admin@${domain}`,
-                        roles: ['organization_owner'],
-                        demo_persona: 'customer-admin',
-                        can_impersonate: false,
-                    },
-                ],
-                workspaces: [
-                    {
-                        slug: workspaceSlug,
-                        name: 'Primary workspace',
-                        health: 'monitoring',
-                        domains: [domain],
-                        primary_findings: [
-                            'DMARC-Policy und Reporting-Ziel prüfen.',
-                            'SPF/DKIM-Quellen vor Enforcement bestätigen.',
-                        ],
-                    },
-                ],
-            };
-            this.syncProviderCustomer(tenant);
-            this.tenants.unshift(tenant);
-            this.tenantDraft = {
-                name: '',
-                domain: '',
-                plan_tier: 'Business',
-                collection_model: 'provider_pass_through',
-            };
-            this.selectTenant(slug);
-            this.activeTab = 'account';
-            this.persistLocalState('Mandant wurde lokal angelegt.');
-        },
-
-        addUser() {
-            this.userError = '';
-            const name = this.userDraft.name.trim();
-            const email = this.userDraft.email.trim().toLowerCase();
-            if (!name || !email) {
-                this.userError = 'Name und E-Mail sind erforderlich.';
-                return;
-            }
-            if (!this.isValidEmail(email)) {
-                this.userError = 'Bitte eine gültige E-Mail-Adresse eintragen.';
-                return;
-            }
-            const tenant = this.selectedTenant;
-            if ((tenant.users || []).some(user => String(user.email || '').toLowerCase() === email)) {
-                this.userError = 'Diese E-Mail existiert bereits in diesem Mandanten.';
-                return;
-            }
-            const userLimit = Number(tenant.entitlements?.users?.included || 0);
-            if (userLimit > 0 && (tenant.users || []).length >= userLimit) {
-                this.userError = `Benutzerlimit von ${userLimit} erreicht. Bitte zuerst das Billing-Limit erhöhen.`;
-                return;
-            }
-            tenant.users.push({
-                name,
-                email,
-                roles: [this.userDraft.role],
-                demo_persona: this.userDraft.role === 'provider_operator' ? 'isp-operator' : 'customer-admin',
-                can_impersonate: this.userDraft.role === 'provider_operator',
-            });
-            tenant.entitlements.users = {
-                ...(tenant.entitlements.users || {}),
-                used: tenant.users.length,
-            };
-            this.userDraft = {
-                name: '',
-                email: '',
-                role: 'workspace_admin',
-            };
-            this.persistLocalState('Benutzer wurde lokal angelegt.');
-        },
-
-        addWorkspace() {
-            const tenant = this.selectedTenant;
-            const index = (tenant.workspaces || []).length + 1;
-            const slug = `${tenant.slug}-workspace-${index}`;
-            tenant.workspaces.push({
-                slug,
-                name: `Workspace ${index}`,
-                health: 'monitoring',
-                domains: [`workspace-${index}.${tenant.slug}.example`],
-                primary_findings: [
-                    'Neue Domain importieren und DNS-Baseline prüfen.',
-                    'Reporting-Adresse und Senderquellen bestätigen.',
-                ],
-            });
-            this.selectedWorkspaceSlug = slug;
-            this.persistLocalState('Workspace wurde lokal angelegt.');
+            this.billingSavedAt = new Date().toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'});
+            this.persistState();
+            this.showStatus('Billing und Planlimits wurden lokal aktualisiert.');
         },
 
         async startSupportSession() {
-            this.startingSupportSession = true;
             this.supportSessionError = '';
-            this.supportSessionResult = null;
-            const primaryDomain = this.selectedWorkspacePrimaryDomain || 'example.invalid';
+            const reason = this.supportDraft.reason.trim();
+            const targetUser = this.impersonationUsers.find(
+                user => String(user.id) === String(this.supportDraft.target_user_id)
+                    || user.email === this.supportDraft.target_user_email
+            );
+            if (!reason || !targetUser || !this.selectedAccount.workspace_id) {
+                this.supportSessionError = 'Zielbenutzer und Grund sind erforderlich.';
+                return;
+            }
+            this.startingSupportSession = true;
             try {
-                const response = await fetch('/api/v1/operator/demo/support-session', {
+                const response = await fetch('/api/v1/operator/support-session', {
                     method: 'POST',
-                    headers: {
-                        Accept: 'application/json',
-                        'Content-Type': 'application/json',
-                    },
+                    headers: {'Content-Type': 'application/json', Accept: 'application/json'},
                     body: JSON.stringify({
-                        workspace_slug: this.selectedWorkspace.slug || 'bakery-example',
-                        reason: `Provider demo support view for ${primaryDomain}`,
+                        workspace_id: Number(this.selectedAccount.workspace_id),
+                        target_user_id: Number(targetUser.id),
+                        reason,
+                        access_mode: this.demoMode ? 'read_only' : 'role_scoped',
                     }),
                 });
                 if (!response.ok) {
-                    throw new Error('Support-Session Demo-Endpoint ist nicht erreichbar.');
+                    const payload = await response.json().catch(() => ({}));
+                    throw new Error(payload.detail || 'Support-Sitzung konnte nicht gestartet werden.');
                 }
-                this.supportSessionResult = await response.json();
+                const payload = await response.json();
+                this.supportSession = payload.session;
+                this.impersonationDialogOpen = false;
+                this.persistState();
+                localStorage.setItem('dmarq.selectedWorkspaceId', String(this.selectedAccount.workspace_id));
+                window.location.assign('/dashboard');
             } catch (error) {
-                const operator = (this.tenants.flatMap(tenant => tenant.users || [])).find(user => user.can_impersonate)
-                    || (this.selectedTenant.users || [])[0]
-                    || {email: 'operator@provider.example'};
-                const targetUser = (this.selectedTenant.users || [])[0] || {email: `admin@${primaryDomain}`};
-                this.supportSessionResult = {
-                    result: 'demo_session_ready',
-                    audit_event: {
-                        operator_email: operator.email,
-                        target_user_email: targetUser.email,
-                        domain: primaryDomain,
-                        workspace_slug: this.selectedWorkspace.slug,
-                        reason: `Provider demo support view for ${primaryDomain}`,
-                        result: 'demo_session_ready',
-                    },
-                };
+                this.supportSessionError = error.message || 'Support-Sitzung konnte nicht gestartet werden.';
             } finally {
                 this.startingSupportSession = false;
             }
         },
 
-        focusCreateTenant() {
-            this.$nextTick(() => {
-                const field = this.$root?.querySelector('[data-provider-demo-create-form] input');
-                if (field) field.focus();
-            });
-        },
-
-        isSelectedTenant(tenant) {
-            return tenant.slug === this.selectedTenantSlug;
-        },
-
-        isSelectedWorkspace(workspace) {
-            return workspace.slug === this.selectedWorkspaceSlug;
-        },
-
-        tenantButtonClass(tenant) {
-            return this.isSelectedTenant(tenant)
-                ? 'border-[#272a5f] bg-[#f3f4ff]'
-                : 'border-base-300 bg-white hover:border-[#39a0aa]';
-        },
-
-        tabButtonClass(tab) {
-            return this.activeTab === tab.id ? 'btn-primary' : 'btn-outline';
-        },
-
-        workspaceButtonClass(workspace) {
-            return this.isSelectedWorkspace(workspace)
-                ? 'border-[#272a5f] bg-[#f3f4ff]'
-                : 'border-base-300 bg-white hover:border-[#39a0aa]';
-        },
-
-        tenantWorkspaceLabel(tenant) {
-            return `${(tenant.workspaces || []).length} Workspaces`;
-        },
-
-        tenantUserLabel(tenant) {
-            return `${(tenant.users || []).length} Benutzer`;
-        },
-
-        userRolesLabel(user) {
-            return (user.roles || []).map(role => this.humanize(role)).join(', ');
-        },
-
-        supportAccessClass(user) {
-            return user.can_impersonate
-                ? 'bg-[#eefaf6] text-[#0f6b4d]'
-                : 'bg-base-200 text-base-content/60';
-        },
-
-        supportAccessLabel(user) {
-            return user.can_impersonate ? 'erlaubt' : 'aus';
-        },
-
-        isProviderBilledTenant(tenant) {
-            const collectionModel = tenant.billing_profile?.collection_model || tenant.billing_mode;
-            return collectionModel === 'provider_pass_through' || tenant.billing_mode === 'provider_resale';
-        },
-
-        providerCustomerFromTenant(tenant) {
-            const existing = (tenant.provider_customers || [])[0] || {};
-            return {
-                external_customer_id: existing.external_customer_id || `demo-${tenant.slug}`,
-                workspace_slug: existing.workspace_slug || (tenant.workspaces || [])[0]?.slug || '',
-                name: existing.name || tenant.name,
-                billing_status: existing.billing_status || tenant.billing_status || 'active',
-                subscription_tier: tenant.plan_tier || existing.subscription_tier || 'Business',
-                monthly_charge_cents: Number(tenant.monthly_charge_cents || existing.monthly_charge_cents || 0),
-                aggregate_messages: this.aggregateMessages(tenant),
-            };
-        },
-
-        syncProviderCustomer(tenant) {
-            if (!tenant) return;
-            if (!this.isProviderBilledTenant(tenant)) {
-                tenant.provider_customers = [];
-                return;
-            }
-            tenant.provider_customers = [this.providerCustomerFromTenant(tenant)];
-        },
-
-        billingModeForCollection(collectionModel) {
-            if (collectionModel === 'provider_pass_through') return 'provider_resale';
-            if (collectionModel === 'self_service_subscription') return 'direct_stripe';
-            if (collectionModel === 'contract_invoice') return 'contract_invoice';
-            return collectionModel || 'none';
-        },
-
-        isValidEmail(email) {
-            return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || ''));
-        },
-
-        tenantBillingStatusLabel(tenant) {
-            return this.humanize(tenant.billing_status || tenant.billing_mode);
-        },
-
-        customerBillingStatusLabel(customer) {
-            return this.humanize(customer.billing_status);
-        },
-
-        workspaceDomainsLabel(workspace) {
-            return (workspace.domains || []).join(', ');
-        },
-
-        contextualHref(path) {
-            const tenant = encodeURIComponent(this.selectedTenant.slug || '');
-            const workspace = encodeURIComponent(this.selectedWorkspace.slug || '');
-            const separator = String(path || '').includes('?') ? '&' : '?';
-            return tenant && workspace
-                ? `${path}${separator}tenant=${tenant}&workspace=${workspace}`
-                : path;
-        },
-
-        healthClass(health) {
-            return {
-                healthy: 'bg-[#eefaf6] text-[#0f6b4d]',
-                monitoring: 'bg-[#eef3ff] text-[#272a5f]',
-                warning: 'bg-[#fff8e5] text-[#8a5a00]',
-                attention: 'bg-[#fff8e5] text-[#8a5a00]',
-                critical: 'bg-[#fff2ec] text-[#8a2d0d]',
-            }[health] || 'bg-base-200 text-base-content/70';
-        },
-
-        statusClass(status) {
-            return {
-                active: 'bg-[#eefaf6] text-[#0f6b4d]',
-                included: 'bg-[#eefaf6] text-[#0f6b4d]',
-                billable_addon: 'bg-[#eef3ff] text-[#272a5f]',
-                grace_period: 'bg-[#fff8e5] text-[#8a5a00]',
-                draft: 'bg-base-200 text-base-content/70',
-            }[status] || 'bg-base-200 text-base-content/70';
-        },
-
-        humanize(value) {
-            return String(value || '')
-                .replace(/[_-]+/g, ' ')
-                .replace(/\b\w/g, char => char.toUpperCase());
-        },
-
-        formatNumber(value) {
-            return new Intl.NumberFormat('de-DE').format(Number(value || 0));
-        },
-
-        compactNumber(value) {
-            return new Intl.NumberFormat('de-DE', {
-                notation: 'compact',
-                maximumFractionDigits: 1,
-            }).format(Number(value || 0));
-        },
-
-        formatMoney(cents) {
-            return new Intl.NumberFormat('de-DE', {
-                style: 'currency',
-                currency: 'EUR',
-                maximumFractionDigits: 0,
-            }).format(Number(cents || 0) / 100);
-        },
-
-        aggregateMessages(tenant) {
-            return (tenant.usage || [])
-                .filter(row => row.metric === 'aggregate_messages')
-                .reduce((sum, row) => sum + Number(row.quantity || 0), 0);
-        },
-
-        normalizeDomain(value) {
-            return String(value || '')
-                .trim()
-                .toLowerCase()
-                .replace(/^https?:\/\//, '')
-                .replace(/\/.*$/, '')
-                .replace(/[^a-z0-9.-]+/g, '');
-        },
-
-        uniqueSlug(name) {
-            const base = String(name || 'tenant')
-                .trim()
-                .toLowerCase()
-                .replace(/[^a-z0-9]+/g, '-')
-                .replace(/^-+|-+$/g, '') || 'tenant';
-            let slug = base;
-            let index = 2;
-            const existing = new Set(this.tenants.map(tenant => tenant.slug));
-            while (existing.has(slug)) {
-                slug = `${base}-${index}`;
-                index += 1;
-            }
-            return slug;
-        },
-
-        persistLocalState(message) {
+        persistState() {
             try {
                 sessionStorage.setItem(this.storageKey, JSON.stringify({
-                    tenants: this.tenants,
-                    selectedTenantSlug: this.selectedTenantSlug,
-                    selectedWorkspaceSlug: this.selectedWorkspaceSlug,
-                    activeTab: this.activeTab,
+                    accounts: this.demoMode ? this.accounts : undefined,
+                    selectedAccountSlug: this.selectedAccountSlug,
+                    viewMode: this.viewMode,
+                    accountTab: this.accountTab,
+                    supportSession: this.supportSession,
                 }));
-                this.hasLocalChanges = true;
-                this.statusMessage = message || 'Demo-Änderung wurde lokal gespeichert.';
             } catch (error) {
-                this.statusMessage = 'Demo-Änderung ist sichtbar, konnte aber nicht im Browser gespeichert werden.';
+                console.warn('Provider demo state could not be saved', error);
             }
         },
 
-        restoreLocalState() {
+        restoreState() {
             try {
-                const stored = sessionStorage.getItem(this.storageKey);
-                if (!stored) return false;
-                const state = JSON.parse(stored);
-                if (!Array.isArray(state.tenants) || state.tenants.length === 0) return false;
-                this.tenants = state.tenants;
-                this.selectedTenantSlug = state.selectedTenantSlug || this.tenants[0]?.slug || '';
-                this.selectedWorkspaceSlug = state.selectedWorkspaceSlug
-                    || (this.selectedTenant.workspaces || [])[0]?.slug
-                    || '';
-                this.activeTab = state.activeTab || 'account';
-                this.hasLocalChanges = true;
-                this.statusMessage = 'Lokale Demo-Änderungen wurden wiederhergestellt.';
-                this.resetBillingDraft();
+                const raw = sessionStorage.getItem(this.storageKey);
+                if (!raw) return false;
+                const state = JSON.parse(raw);
+                if (this.demoMode && Array.isArray(state.accounts) && state.accounts.length) {
+                    this.accounts = state.accounts;
+                }
+                this.selectedAccountSlug = state.selectedAccountSlug || this.accounts[0]?.slug || '';
+                this.viewMode = ['provider', 'account'].includes(state.viewMode) ? state.viewMode : 'provider';
+                this.accountTab = state.accountTab || 'overview';
+                this.supportSession = state.supportSession || null;
                 return true;
             } catch (error) {
                 sessionStorage.removeItem(this.storageKey);
@@ -816,42 +886,232 @@ function providerDemo() {
             }
         },
 
-        clearLocalState() {
-            sessionStorage.removeItem(this.storageKey);
-            this.hasLocalChanges = false;
-            this.statusMessage = '';
+        ensureSelectedAccount() {
+            if (!this.accounts.some(account => account.slug === this.selectedAccountSlug)) {
+                this.selectedAccountSlug = this.accounts[0]?.slug || '';
+                this.viewMode = 'provider';
+                this.supportSession = null;
+            }
         },
 
-        emptyTenant() {
-            return {
-                slug: '',
-                name: 'Kein Mandant',
-                demo_story: '',
-                billing_mode: 'unknown',
-                billing_status: 'unknown',
-                plan_tier: 'None',
-                monthly_charge_cents: 0,
-                billing_profile: {},
-                entitlements: {users: {used: 0, included: 0}, aggregate_messages: {used: 0, included: 0}},
-                users: [],
-                workspaces: [],
-                usage: [],
-                provider_customers: [],
-            };
+        showStatus(message) {
+            this.statusMessage = message;
+            if (this.toastTimer) clearTimeout(this.toastTimer);
+            this.toastTimer = setTimeout(() => {
+                this.statusMessage = '';
+            }, 4200);
         },
 
-        emptyWorkspace() {
+        accountIdentityLabel(account) {
+            const domain = account.domains?.[0]?.name || 'keine Domain';
+            return `${account.customer_number} · ${domain}`;
+        },
+
+        accountDomainCount(account) {
+            const count = (account.domains || []).length;
+            return `${count} ${count === 1 ? 'Domain' : 'Domains'}`;
+        },
+
+        accountUserCount(account) {
+            const count = (account.users || []).length;
+            return `${count} ${count === 1 ? 'Benutzer' : 'Benutzer'}`;
+        },
+
+        accountMessageLabel(account) {
+            return this.compactNumber(account.usage?.messages_30d || 0);
+        },
+
+        accountComplianceLabel(account) {
+            return `${Number(account.usage?.compliance_rate || 0).toLocaleString('de-DE', {minimumFractionDigits: 1, maximumFractionDigits: 1})} %`;
+        },
+
+        domainComplianceLabel(domain) {
+            return `${Number(domain.compliance_rate || 0).toLocaleString('de-DE', {minimumFractionDigits: 1, maximumFractionDigits: 1})} %`;
+        },
+
+        domainMessageLabel(domain) {
+            return this.formatNumber(domain.messages_30d || 0);
+        },
+
+        domainFindingsLabel(domain) {
+            const findings = domain.open_findings || [];
+            return findings.length ? findings.join(' · ') : 'Keine offenen Hinweise';
+        },
+
+        spfLabel(domain) {
+            return `${Number(domain.spf_alignment || 0).toLocaleString('de-DE', {minimumFractionDigits: 1, maximumFractionDigits: 1})} %`;
+        },
+
+        dkimLabel(domain) {
+            return `${Number(domain.dkim_alignment || 0).toLocaleString('de-DE', {minimumFractionDigits: 1, maximumFractionDigits: 1})} %`;
+        },
+
+        healthLabel(value) {
             return {
-                slug: '',
-                name: 'Kein Workspace',
-                health: 'monitoring',
-                domains: [],
-                primary_findings: [],
-            };
+                healthy: 'Stabil',
+                monitoring: 'Monitoring',
+                warning: 'Auffällig',
+                attention: 'Prüfen',
+                critical: 'Kritisch',
+            }[value] || 'Unbekannt';
+        },
+
+        healthClass(value) {
+            return {
+                healthy: 'bg-[#e6f6ef] text-[#0f6b4d]',
+                monitoring: 'bg-[#e7f4f6] text-[#256c74]',
+                warning: 'bg-[#fff0db] text-[#8a5200]',
+                attention: 'bg-[#fff0db] text-[#8a5200]',
+                critical: 'bg-[#ffe9e2] text-[#9b3210]',
+            }[value] || 'bg-base-200 text-base-content/70';
+        },
+
+        billingStatusLabel(value) {
+            return {
+                current: 'Aktuell',
+                trial: 'Testphase',
+                grace_period: 'Grace Period',
+                past_due: 'Überfällig',
+            }[value] || 'Unbekannt';
+        },
+
+        billingStatusClass(value) {
+            return {
+                current: 'bg-[#e6f6ef] text-[#0f6b4d]',
+                trial: 'bg-[#e7f4f6] text-[#256c74]',
+                grace_period: 'bg-[#fff0db] text-[#8a5200]',
+                past_due: 'bg-[#ffe9e2] text-[#9b3210]',
+            }[value] || 'bg-base-200 text-base-content/70';
+        },
+
+        accountStatusLabel(value) {
+            return {active: 'Aktiv', onboarding: 'Onboarding', suspended: 'Pausiert'}[value] || value;
+        },
+
+        policyLabel(value) {
+            return {none: 'p=none', quarantine: 'p=quarantine', reject: 'p=reject'}[value] || value;
+        },
+
+        roleLabel(value) {
+            return {
+                organization_owner: 'Organisationsinhaber',
+                workspace_admin: 'Workspace-Admin',
+                security_analyst: 'Security-Analyst',
+                auditor: 'Auditor',
+                billing_admin: 'Billing-Admin',
+                site_manager: 'Site Manager',
+            }[value] || value;
+        },
+
+        userStatusLabel(value) {
+            return {active: 'Aktiv', invited: 'Eingeladen', disabled: 'Deaktiviert'}[value] || value;
+        },
+
+        mfaLabel(user) {
+            return user.mfa_enabled ? 'Aktiv' : 'Nicht aktiv';
+        },
+
+        impersonationAccessLabel(user) {
+            return user.can_impersonate ? 'Erlaubt' : 'Nicht erlaubt';
+        },
+
+        impersonationUserOptionLabel(user) {
+            return `${user.name} · ${this.roleLabel(user.role)} · ${user.email}`;
+        },
+
+        dateLabel(value) {
+            if (!value) return 'Noch nie';
+            const dateValue = new Date(value);
+            if (Number.isNaN(dateValue.getTime())) return String(value);
+            return dateValue.toLocaleDateString('de-DE', {day: '2-digit', month: '2-digit', year: 'numeric'});
+        },
+
+        dateTimeLabel(value) {
+            if (!value) return 'Noch nie';
+            const dateValue = new Date(value);
+            if (Number.isNaN(dateValue.getTime())) return String(value);
+            return dateValue.toLocaleString('de-DE', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'});
+        },
+
+        formatNumber(value) {
+            return Number(value || 0).toLocaleString('de-DE');
+        },
+
+        compactNumber(value) {
+            return new Intl.NumberFormat('de-DE', {notation: 'compact', maximumFractionDigits: 1}).format(Number(value || 0));
+        },
+
+        formatMoney(cents) {
+            return new Intl.NumberFormat('de-DE', {style: 'currency', currency: 'EUR', maximumFractionDigits: 0}).format(Number(cents || 0) / 100);
+        },
+
+        normalizeDomain(value) {
+            return String(value || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '');
+        },
+
+        isValidDomain(value) {
+            return /^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(value);
+        },
+
+        isValidEmail(value) {
+            return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+        },
+
+        apiErrorMessage(payload, fallback) {
+            const detail = payload?.detail;
+            if (typeof detail === 'string' && detail.trim()) return detail;
+            if (Array.isArray(detail) && detail.length) {
+                return detail.map(item => item.msg || String(item)).join(' · ');
+            }
+            if (detail && typeof detail === 'object') return detail.message || fallback;
+            return fallback;
+        },
+
+        uniqueSlug(name) {
+            const base = String(name || '')
+                .normalize('NFKD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-|-$/g, '') || 'customer';
+            let slug = base;
+            let suffix = 2;
+            while (this.accounts.some(account => account.slug === slug)) {
+                slug = `${base}-${suffix}`;
+                suffix += 1;
+            }
+            return slug;
+        },
+
+        daysFromNow(days) {
+            const value = new Date();
+            value.setDate(value.getDate() + days);
+            return value.toISOString().slice(0, 10);
         },
 
         clone(value) {
-            return JSON.parse(JSON.stringify(value || null));
+            return JSON.parse(JSON.stringify(value));
+        },
+
+        emptyAccount() {
+            return {
+                slug: '',
+                name: '',
+                customer_number: '',
+                status: 'unknown',
+                health: 'monitoring',
+                plan_label: '',
+                primary_contact: {},
+                billing: {},
+                usage: {},
+                entitlements: {users: {}, retention_days: {}},
+                onboarding: {},
+                domains: [],
+                users: [],
+                reports: [],
+                activity: [],
+                settings: {},
+            };
         },
     };
 }

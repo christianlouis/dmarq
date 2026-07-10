@@ -1312,6 +1312,17 @@ class DemoDNSProvider(BaseDNSProvider):
     """Deterministic DNS provider for the opt-in public demo mode."""
 
     def __init__(self) -> None:
+        from app.services.demo_provider import build_demo_provider_seed_spec
+
+        provider_spec = build_demo_provider_seed_spec()
+        self._example_domains = {
+            domain["name"] for account in provider_spec["accounts"] for domain in account["domains"]
+        }
+        self._example_dmarc_policies = {
+            domain["name"]: domain["policy"]
+            for account in provider_spec["accounts"]
+            for domain in account["domains"]
+        }
         self._records = {
             "dmarq.org": ["v=spf1 include:_spf.mail.example -all"],
             "_dmarc.dmarq.org": [
@@ -1365,6 +1376,26 @@ class DemoDNSProvider(BaseDNSProvider):
         normalized = _normalize_dns_name(name)
         if normalized in self._records:
             return list(self._records[normalized])
+        if normalized.startswith("_dmarc."):
+            domain = normalized.removeprefix("_dmarc.")
+            if domain in self._example_domains:
+                policy = self._example_dmarc_policies.get(domain, "quarantine")
+                return [f"v=DMARC1; p={policy}; rua=mailto:dmarc@{domain}; adkim=r; aspf=r"]
+        if "._domainkey." in normalized:
+            domain = normalized.partition("._domainkey.")[2]
+            if domain in self._example_domains:
+                return [
+                    "v=DKIM1; k=rsa; p="
+                    "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAdmarqproviderdemo"
+                    "keymaterialforsyntheticcustomeraccountsonlynotforproductionuse"
+                    "andlongenoughtoavoidweakkeywarnings1234567890abcdef"
+                ]
+        if normalized.startswith("_smtp._tls."):
+            domain = normalized.removeprefix("_smtp._tls.")
+            if domain in self._example_domains:
+                return [f"v=TLSRPTv1; rua=mailto:tlsrpt@{domain}"]
+        if normalized in self._example_domains:
+            return ["v=spf1 include:_spf.provider-demo.invalid -all"]
         raise LookupError(f"Demo DNS record not found for {name}")
 
     async def lookup_ptr(self, ip: str) -> Optional[str]:
@@ -1390,6 +1421,8 @@ class DemoDNSProvider(BaseDNSProvider):
             return ["mx1.dmarq.org", "mx2.dmarq.org"]
         if normalized == "dmarq.com":
             return ["mail.dmarq.com"]
+        if normalized in self._example_domains:
+            return [f"mail.{normalized}"]
         return []
 
     async def lookup_ns(self, domain: str) -> List[str]:
@@ -1398,6 +1431,8 @@ class DemoDNSProvider(BaseDNSProvider):
             return ["ada.ns.cloudflare.com", "ian.ns.cloudflare.com"]
         if normalized == "dmarq.com":
             return ["ns1.digitalocean.com", "ns2.digitalocean.com"]
+        if normalized in self._example_domains:
+            return ["ns1.provider-demo.invalid", "ns2.provider-demo.invalid"]
         return []
 
     async def lookup_tlsa(self, name: str) -> List[str]:

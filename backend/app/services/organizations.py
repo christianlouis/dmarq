@@ -418,10 +418,18 @@ def ensure_entitlements(
         )
         .all()
     }
+    entitlement_keys = set(entitlements)
     created_or_existing = []
+    for key, entitlement in existing.items():
+        if key not in entitlement_keys and entitlement.source == "plan":
+            entitlement.active = False
+
     for key, value in entitlements.items():
         entitlement = existing.get(key)
         if entitlement:
+            entitlement.value = value
+            entitlement.subscription_id = subscription.id
+            entitlement.source = "plan"
             created_or_existing.append(entitlement)
             continue
         entitlement = Entitlement(
@@ -442,6 +450,21 @@ def ensure_entitlements(
     else:
         db.flush()
     return created_or_existing
+
+
+def plan_entitlements(plan: Plan) -> Dict[str, str]:
+    """Translate persisted plan limits and feature flags into entitlements."""
+    entitlements = {
+        feature.strip(): "true" for feature in (plan.features or "").split(",") if feature.strip()
+    }
+    limits = {
+        "monitored_domains": plan.included_sending_domains,
+        "aggregate_messages": plan.included_message_volume,
+        "users": plan.included_users,
+        "retention_days": plan.retention_days,
+    }
+    entitlements.update({key: str(value) for key, value in limits.items() if value is not None})
+    return entitlements
 
 
 def bootstrap_default_commercial_foundation(
@@ -496,6 +519,7 @@ def _billing_account_to_dict(account: BillingAccount) -> Dict[str, Any]:
         "external_customer_id": account.external_customer_id,
         "stripe_customer_id": account.stripe_customer_id,
         "invoice_delivery_mode": account.invoice_delivery_mode,
+        "billing_contact_email": account.billing_contact_email,
         "tax_reference": account.tax_reference,
     }
 
@@ -531,6 +555,7 @@ def _subscription_to_dict(subscription: Subscription) -> Dict[str, Any]:
         "stripe_subscription_id": subscription.stripe_subscription_id,
         "external_subscription_id": subscription.external_subscription_id,
         "external_product_code": subscription.external_product_code,
+        "monthly_price_cents": subscription.monthly_price_cents,
         "canceled_at": _iso(subscription.canceled_at),
         "plan": _plan_to_dict(subscription.plan),
     }
@@ -1451,8 +1476,6 @@ def provision_provider_customer(
         field_name="workspace_name",
     )
     plan_key = (plan_code or STARTER_PLAN_CODE).strip()
-    if plan_key != STARTER_PLAN_CODE:
-        raise ValueError("plan_code must be starter until provider entitlements are configurable")
 
     replay_event = _find_provider_event(
         db,
@@ -1498,7 +1521,7 @@ def provision_provider_customer(
         db,
         organization,
         subscription,
-        STARTER_PLAN_ENTITLEMENTS,
+        plan_entitlements(plan),
         commit=False,
     )
     event = BillingEvent(

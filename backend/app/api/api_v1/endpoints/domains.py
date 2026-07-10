@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
+from app.core.config import get_settings, uses_legacy_demo_fixtures
 from app.core.database import SessionLocal, get_db
 from app.core.security import require_admin_auth
 from app.models.domain import Domain
@@ -4262,7 +4262,7 @@ async def build_domain_health_evidence_export_rows(
         end_date=end_date,
         limit=limit,
     )
-    if not snapshots and get_settings().DEMO_MODE:
+    if not snapshots and uses_legacy_demo_fixtures(get_settings()):
         points = _demo_history_points(
             domain_id,
             start_date=start_date,
@@ -4819,7 +4819,7 @@ async def get_workspace_health_score_history(
         end_date=end_date,
         limit=limit,
     )
-    if not snapshots and get_settings().DEMO_MODE:
+    if not snapshots and uses_legacy_demo_fixtures(get_settings()):
         store = ReportStore()
         hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
         domains = _domain_names_for_summary(
@@ -4869,7 +4869,7 @@ async def export_workspace_health_evidence(
         end_date=end_date,
         limit=limit,
     )
-    if not snapshots and get_settings().DEMO_MODE:
+    if not snapshots and uses_legacy_demo_fixtures(get_settings()):
         store = ReportStore()
         hydrate_report_store_from_db(db, store, workspace_id=workspace.id)
         domains = _domain_names_for_summary(
@@ -6581,7 +6581,7 @@ async def get_domain_health_score_history(
         end_date=end_date,
         limit=limit,
     )
-    if not snapshots and get_settings().DEMO_MODE:
+    if not snapshots and uses_legacy_demo_fixtures(get_settings()):
         return _history_response_from_points(
             domain_id,
             _demo_history_points(

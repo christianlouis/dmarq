@@ -26,10 +26,12 @@ def _is_demo_backfill_simulation(request: Request) -> bool:
     )
 
 
-def _is_demo_support_session_simulation(request: Request) -> bool:
-    return (
-        request.method.upper() == "POST"
-        and request.url.path == "/api/v1/operator/demo/support-session"
+def _is_demo_support_session_simulation(request: Request, settings: Any) -> bool:
+    method = request.method.upper()
+    if request.url.path == "/api/v1/operator/demo/support-session":
+        return method == "POST"
+    return bool(getattr(settings, "PROVIDER_DEMO_ENABLED", False)) and (
+        request.url.path == "/api/v1/operator/support-session" and method in {"POST", "DELETE"}
     )
 
 
@@ -50,7 +52,7 @@ class DemoReadOnlyMiddleware(BaseHTTPMiddleware):
             settings.DEMO_MODE
             and request.method.upper() not in SAFE_METHODS
             and not _is_demo_backfill_simulation(request)
-            and not _is_demo_support_session_simulation(request)
+            and not _is_demo_support_session_simulation(request, settings)
         ):
             return JSONResponse(
                 status_code=status.HTTP_403_FORBIDDEN,
