@@ -18,6 +18,7 @@ from app.services.workspace_access import (
     PERMISSION_AUDIT_READ,
     organization_ids_for_permission,
     require_organization_permission,
+    support_session_allows_inactive_tenant_read,
 )
 
 router = APIRouter()
@@ -53,11 +54,13 @@ async def get_organization(
 ) -> OrganizationResponse:
     """Return one organization summary."""
     bootstrap_default_commercial_foundation(db)
-    organization = (
-        db.query(Organization)
-        .filter(Organization.id == organization_id, Organization.active.is_(True))
-        .first()
-    )
+    query = db.query(Organization).filter(Organization.id == organization_id)
+    if not support_session_allows_inactive_tenant_read(
+        _auth,
+        organization_id=organization_id,
+    ):
+        query = query.filter(Organization.active.is_(True))
+    organization = query.first()
     if organization is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

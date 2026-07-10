@@ -168,6 +168,7 @@ def _workspace_role(role: str) -> str:
         "organization_owner": "workspace_owner",
         "organization_admin": "workspace_owner",
         "workspace_admin": "workspace_owner",
+        "security_analyst": "analyst",
         "billing_admin": "auditor",
     }.get(role, role)
 

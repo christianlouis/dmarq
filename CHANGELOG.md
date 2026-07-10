@@ -150,6 +150,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cleaned up root directory for clarity
 
 ### Fixed
+- Fixed provider drill-down for suspended customers so an exactly scoped,
+  read-only support session can still inspect customer domains, organizations,
+  and members without reactivating the tenant or permitting mutations.
+- Fixed support-target defaults and labels so the console prefers a primary
+  workspace owner and shows the role that will actually govern the customer
+  session, instead of defaulting to a limited billing or analyst identity.
 - Fixed provider support sessions leaking standalone demo statistics, TLS,
   forensic, mail-source, and DNS-policy fixtures into customer-scoped views.
 - Fixed provider customer provisioning lookups after organization slug

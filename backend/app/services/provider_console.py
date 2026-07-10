@@ -24,6 +24,27 @@ from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_access import WorkspaceAuditLog, WorkspaceMembership
 
+SUPPORT_ROLE_PRIORITY = {
+    "workspace_owner": 0,
+    "domain_admin": 1,
+    "operator": 2,
+    "analyst": 3,
+    "auditor": 4,
+}
+ACCOUNT_ROLE_PRIORITY = {
+    "organization_owner": 0,
+    "organization_admin": 1,
+    "workspace_owner": 2,
+    "workspace_admin": 3,
+    "billing_admin": 4,
+    "security_analyst": 5,
+    "domain_admin": 6,
+    "operator": 7,
+    "analyst": 8,
+    "auditor": 9,
+    "organization_auditor": 10,
+}
+
 
 def _iso(value: Optional[datetime]) -> Optional[str]:
     if value is None:
@@ -122,7 +143,9 @@ def _user_rows(
     workspace_memberships: Dict[int, List[WorkspaceMembership]],
 ) -> List[Dict[str, Any]]:
     roles: Dict[int, str] = {}
+    support_roles: Dict[int, str] = {}
     users_by_id: Dict[int, User] = {}
+    primary_workspace_id = workspaces[0].id if workspaces else None
     for membership in organization.memberships:
         if not membership.active or membership.user is None:
             continue
@@ -134,11 +157,17 @@ def _user_rows(
                 continue
             roles.setdefault(membership.user_id, membership.role)
             users_by_id[membership.user_id] = membership.user
+            if workspace.id == primary_workspace_id:
+                support_roles[membership.user_id] = membership.role
     if not roles:
         return []
     users = sorted(
         (users_by_id[user_id] for user_id in roles if user_id in users_by_id),
-        key=lambda user: user.email,
+        key=lambda user: (
+            SUPPORT_ROLE_PRIORITY.get(support_roles.get(user.id, ""), 99),
+            ACCOUNT_ROLE_PRIORITY.get(roles[user.id], 99),
+            user.email,
+        ),
     )
     return [
         {
@@ -146,11 +175,14 @@ def _user_rows(
             "name": user.full_name or user.email,
             "email": user.email,
             "role": roles[user.id],
+            "support_role": support_roles.get(user.id),
             "status": "active" if user.is_active else "inactive",
             "last_active_at": _iso(user.updated_at or user.created_at),
             "mfa_enabled": bool(user.is_verified),
             "can_impersonate": bool(
-                user.is_active and roles[user.id] not in {"auditor", "organization_auditor"}
+                user.is_active
+                and support_roles.get(user.id)
+                and roles[user.id] not in {"auditor", "organization_auditor"}
             ),
         }
         for user in users
@@ -563,7 +595,7 @@ def build_provider_console(
             "target_user_id": user["id"],
             "target_user": user["email"],
             "target_user_name": user["name"],
-            "target_role": user["role"],
+            "target_role": user.get("support_role") or user["role"],
             "health": account["health"],
         }
         for account in accounts

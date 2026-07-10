@@ -241,6 +241,12 @@ async def start_support_session(
         .order_by(BillingAccount.id.asc())
         .first()
     )
+    read_only = (
+        get_settings().DEMO_MODE
+        or payload.access_mode == "read_only"
+        or not workspace.active
+        or (workspace.organization is not None and not workspace.organization.active)
+    )
     token, session = create_support_session_token(
         workspace_id=workspace.id,
         organization_id=workspace.organization_id,
@@ -255,7 +261,7 @@ async def start_support_session(
         ),
         plan_code=(subscription.plan.code if subscription is not None else None),
         plan_label=(subscription.plan.name if subscription is not None else None),
-        read_only=get_settings().DEMO_MODE or payload.access_mode == "read_only",
+        read_only=read_only,
     )
     audit = record_workspace_audit_log(
         db,
@@ -270,6 +276,7 @@ async def start_support_session(
             "target_user_id": target_user.id,
             "target_role": membership.role,
             "reason": payload.reason.strip(),
+            "access_mode": "read_only" if read_only else "role_scoped",
             "expires_at": session["expires_at"],
             "customer_visible": True,
         },

@@ -97,6 +97,15 @@ Public provider demos force read-only access. A production provider operator may
 request role-scoped access; the target user's normal RBAC still applies. Read-only
 sessions can inspect membership and mail-source status but cannot invite users,
 change roles, alter connectors, mutate domains, or perform provider/DNS writes.
+The target selector prefers an eligible owner of the account's primary workspace
+and labels each option with the effective workspace role used by the session.
+Selecting a more limited user deliberately preserves that user's narrower RBAC.
+
+Suspended or inactive customer accounts remain available for diagnosis through
+an exactly bound read-only support session. DMARQ does not reactivate the account:
+it permits scoped reads of the inactive organization and workspace, forces the
+session to read-only even if role-scoped access was requested, and rejects tenant
+mutations before any account data can change.
 
 ## Safety Boundaries
 

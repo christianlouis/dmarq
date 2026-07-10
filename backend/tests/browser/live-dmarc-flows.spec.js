@@ -1341,6 +1341,56 @@ test('provider demo supports site-manager account management and full customer i
   await expect(page.locator('[data-provider-demo-expression-error]')).toBeHidden();
 });
 
+test('provider demo can enter every seeded customer support scope', async ({ page }) => {
+  test.setTimeout(120_000);
+  test.skip(!realProviderBackend, 'requires the relational provider-demo backend');
+
+  const expectedAccounts = {
+    'bakery-example': { domains: ['bakery.example'], owner: 'anna@bakery.example' },
+    'feldwerk-logistics': { domains: ['feldwerk.example'], owner: 'jonas@feldwerk.example' },
+    'lawfirm-example': {
+      domains: ['lawfirm.example', 'secure.lawfirm.example'],
+      owner: 'admin@lawfirm.example',
+    },
+    'retail-example': {
+      domains: ['retail.example', 'shop.retail.example'],
+      owner: 'ops@retail.example',
+    },
+    'studio-example': {
+      domains: ['alerts.studio.example', 'studio.example'],
+      owner: 'elena@studio.example',
+    },
+    'praxis-stadtpark': { domains: ['praxis.example'], owner: 'nele@praxis.example' },
+  };
+
+  for (const [accountSlug, expected] of Object.entries(expectedAccounts)) {
+    await page.goto('/provider-demo#accounts');
+    const accountRow = page.locator(`[data-provider-account-row="${accountSlug}"]`);
+    await expect(accountRow).toBeVisible();
+    await accountRow.getByRole('button', { name: 'Account öffnen', exact: true }).click();
+    await page.getByRole('button', { name: 'Kundenansicht öffnen' }).click();
+
+    const supportDialog = page.getByRole('dialog', { name: 'Kundenansicht öffnen' });
+    await expect(supportDialog.getByLabel('Ansicht als')).not.toHaveValue('');
+    await supportDialog.getByLabel('Grund').fill(`Support-Scope für ${accountSlug} prüfen`);
+    await supportDialog.getByRole('button', { name: 'Support-Sitzung starten' }).click();
+
+    await expect(page).toHaveURL(/\/dashboard$/);
+    await expect(page.locator('[data-support-session-banner]')).toBeVisible();
+    await page.goto('/domains');
+    for (const domain of expected.domains) {
+      const domainRow = page.getByRole('row').filter({
+        has: page.getByText(domain, { exact: true }),
+      });
+      await expect(domainRow).toBeVisible();
+    }
+    await page.goto('/members');
+    await expect(page.getByRole('table').getByText(expected.owner, { exact: true })).toBeVisible();
+    await page.locator('[data-support-session-exit]').click();
+    await expect(page).toHaveURL(/\/provider-demo#accounts$/);
+  }
+});
+
 test('production provider mode persists a customer and opens its role-scoped product view', async ({ page }) => {
   test.setTimeout(60_000);
   test.skip(!productProviderBackend, 'requires a fresh production provider backend');

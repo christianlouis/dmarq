@@ -84,6 +84,20 @@ def test_provider_demo_seed_is_idempotent_and_builds_console(db_session: Session
         account for account in console["accounts"] if account["slug"] == "praxis-stadtpark"
     )
     assert praxis["billing"]["status"] == "past_due"
+    retail = next(account for account in console["accounts"] if account["slug"] == "retail-example")
+    assert retail["users"][0]["email"] == "ops@retail.example"
+    assert (
+        next(user for user in retail["users"] if user["email"] == "finance@retail.example")[
+            "support_role"
+        ]
+        == "auditor"
+    )
+    assert (
+        next(user for user in lawfirm["users"] if user["email"] == "security@lawfirm.example")[
+            "support_role"
+        ]
+        == "analyst"
+    )
 
 
 def test_provider_console_uses_a_fixed_bulk_query_budget(db_session: Session):
@@ -172,6 +186,33 @@ def test_all_write_permissions_are_registered_as_tenant_mutations():
         or (name.startswith("PERMISSION_") and name.endswith("_WRITE"))
     }
     assert write_permissions <= workspace_access.TENANT_MUTATION_PERMISSIONS
+
+
+def test_inactive_tenant_support_read_requires_an_exact_scope():
+    auth_context = {
+        "auth_type": "support_session",
+        "support_read_only": True,
+        "workspace_id": 42,
+        "organization_id": 7,
+    }
+
+    assert not workspace_access.support_session_allows_inactive_tenant_read(auth_context)
+    assert workspace_access.support_session_allows_inactive_tenant_read(
+        auth_context,
+        workspace_id=42,
+    )
+    assert workspace_access.support_session_allows_inactive_tenant_read(
+        auth_context,
+        organization_id=7,
+    )
+    assert not workspace_access.support_session_allows_inactive_tenant_read(
+        auth_context,
+        workspace_id=41,
+    )
+    assert not workspace_access.support_session_allows_inactive_tenant_read(
+        auth_context,
+        organization_id=8,
+    )
 
 
 def test_read_only_support_session_scopes_normal_customer_apis(
@@ -311,6 +352,70 @@ def test_operator_can_start_and_end_audited_role_scoped_session(
     )
     assert ended_audit.actor_type == "provider_operator"
     assert ended_audit.actor_id == str(started.json()["session"]["operator"]["id"])
+
+
+def test_every_seeded_customer_support_session_can_read_its_tenant_scope(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch,
+):
+    seed_demo_provider_database(db_session)
+    console = build_provider_console(db_session, demo_mode=True)
+    api_key = "provider-console-all-customer-support-test-key"
+    add_api_key(api_key)
+    monkeypatch.setattr(get_settings(), "DEMO_MODE", False)
+
+    for account in console["accounts"]:
+        target = next(user for user in account["users"] if user["can_impersonate"])
+        started = client.post(
+            "/api/v1/operator/support-session",
+            headers={"X-API-Key": api_key},
+            json={
+                "workspace_id": account["workspace_id"],
+                "target_user_id": target["id"],
+                "reason": f"Verify support scope for {account['slug']}",
+                "access_mode": "role_scoped",
+            },
+        )
+        assert started.status_code == 200, account["slug"]
+        assert started.json()["session"]["read_only"] is (account["slug"] == "praxis-stadtpark")
+
+        workspaces = client.get("/api/v1/workspaces")
+        organizations = client.get("/api/v1/organizations")
+        organization = client.get(f"/api/v1/organizations/{account['organization_id']}")
+        domains = client.get("/api/v1/domains/summary")
+        members = client.get(f"/api/v1/memberships/organizations/{account['organization_id']}")
+
+        assert workspaces.status_code == 200, account["slug"]
+        assert [row["slug"] for row in workspaces.json()["workspaces"]] == [account["slug"]]
+        assert organizations.status_code == 200, account["slug"]
+        assert [row["slug"] for row in organizations.json()["organizations"]] == [account["slug"]]
+        assert organization.status_code == 200, account["slug"]
+        assert organization.json()["organization"]["slug"] == account["slug"]
+        assert domains.status_code == 200, account["slug"]
+        assert {row["domain_name"] for row in domains.json()["domains"]} == {
+            domain["name"] for domain in account["domains"]
+        }
+        assert members.status_code == 200, account["slug"]
+        assert members.json()["memberships"]
+
+        if account["slug"] == "praxis-stadtpark":
+            blocked_mutation = client.post(
+                f"/api/v1/memberships/organizations/{account['organization_id']}/invites",
+                json={
+                    "email": "blocked@praxis.example",
+                    "role": "organization_owner",
+                },
+            )
+            assert blocked_mutation.status_code == 403
+            assert blocked_mutation.json()["detail"] == "This support session is read-only"
+
+        ended = client.delete(
+            "/api/v1/operator/support-session",
+            headers={"X-API-Key": api_key},
+        )
+        assert ended.status_code == 200, account["slug"]
+        assert ended.json()["active"] is False
 
 
 def test_support_session_cookie_is_cleared_when_workspace_was_removed(client: TestClient):
