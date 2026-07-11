@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from app.models.report import ForensicReport
-
+from app.services.forensic_redaction import ForensicRedactionPolicy, redact_forensic_value
 
 AUTH_RESULT_PATTERN = re.compile(r"\b(dkim|spf|dmarc)=([a-zA-Z0-9_-]+)", re.IGNORECASE)
 HEADER_DOMAIN_PATTERN = re.compile(r"\bheader\.d=([^;\s]+)", re.IGNORECASE)
@@ -174,20 +174,24 @@ def _rfc9991_feedback_signals(feedback_headers: Dict[str, Any]) -> List[str]:
     return signals
 
 
-def analyze_forensic_report(row: ForensicReport) -> Dict[str, Any]:
+def analyze_forensic_report(
+    row: ForensicReport,
+    redaction_policy: Optional[ForensicRedactionPolicy] = None,
+) -> Dict[str, Any]:
     """Build a privacy-preserving operator analysis for one forensic sample."""
     feedback_headers = _feedback_headers(row)
     auth_results = _parse_authentication_results(row.authentication_results or "")
     header_domain = _first_match(
         HEADER_DOMAIN_PATTERN, row.authentication_results or ""
     ) or _normalize(feedback_headers.get("dkim_domain"))
-    mailfrom_domain = _first_match(MAILFROM_DOMAIN_PATTERN, row.authentication_results or "")
+    mailfrom_value = _first_match(MAILFROM_DOMAIN_PATTERN, row.authentication_results or "")
+    mailfrom_domain = mailfrom_value.rsplit("@", 1)[-1] if "@" in mailfrom_value else mailfrom_value
     failure_kind = _failure_kind(row, auth_results)
     priority = _priority(row, failure_kind)
     reported_domain = _clean_value(row.reported_domain or (row.domain.name if row.domain else ""))
     source_ip = _clean_value(row.source_ip)
 
-    return {
+    analysis = {
         "id": row.id,
         "report_id": row.report_id,
         "domain": reported_domain,
@@ -208,6 +212,7 @@ def analyze_forensic_report(row: ForensicReport) -> Dict[str, Any]:
         "mail_from_domain": mailfrom_domain,
         "privacy_note": "Analysis uses redacted headers and metadata only; message bodies are not stored.",
     }
+    return redact_forensic_value(analysis, redaction_policy) if redaction_policy else analysis
 
 
 def _group_key(row: ForensicReport) -> Tuple[str, str, str, str]:
@@ -227,17 +232,26 @@ def _latest(left: Optional[datetime], right: Optional[datetime]) -> Optional[dat
     return max(left, right)
 
 
-def summarize_forensic_samples(rows: Iterable[ForensicReport]) -> Dict[str, Any]:
+def summarize_forensic_samples(
+    rows: Iterable[ForensicReport],
+    redaction_policy: Optional[ForensicRedactionPolicy] = None,
+    total_available: Optional[int] = None,
+) -> Dict[str, Any]:
     """Summarize forensic samples into investigation groups and top examples."""
     reports = list(rows)
-    analyses = [analyze_forensic_report(row) for row in reports]
+    analyses = [analyze_forensic_report(row, redaction_policy=redaction_policy) for row in reports]
     priority_counts = Counter(item["priority"] for item in analyses)
     failure_counts = Counter(item["auth_failure"] for item in analyses)
-    result_counts = Counter(_normalize(row.delivery_result) or "unknown" for row in reports)
+    result_counts = Counter(item["delivery_result"] for item in analyses)
     grouped: Dict[Tuple[str, str, str, str], Dict[str, Any]] = {}
 
     for row, analysis in zip(reports, analyses):
-        key = _group_key(row)
+        key = (
+            analysis["domain"],
+            analysis["source_ip"],
+            analysis["auth_failure"],
+            analysis["delivery_result"],
+        )
         group = grouped.setdefault(
             key,
             {
@@ -245,7 +259,7 @@ def summarize_forensic_samples(rows: Iterable[ForensicReport]) -> Dict[str, Any]
                 "domain": key[0],
                 "source_ip": key[1],
                 "auth_failure": analysis["auth_failure"],
-                "delivery_result": key[3],
+                "delivery_result": analysis["delivery_result"],
                 "count": 0,
                 "priority": analysis["priority"],
                 "latest_arrival": None,
@@ -281,7 +295,8 @@ def summarize_forensic_samples(rows: Iterable[ForensicReport]) -> Dict[str, Any]
         reverse=True,
     )
     return {
-        "total": len(reports),
+        "total_available": total_available if total_available is not None else len(reports),
+        "analyzed": len(reports),
         "priority_counts": dict(priority_counts),
         "failure_counts": dict(failure_counts),
         "result_counts": dict(result_counts),

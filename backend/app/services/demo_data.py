@@ -2081,13 +2081,15 @@ def analyze_demo_forensic_reports(
     page_size: int = 200,
     today: Optional[date] = None,
 ) -> Dict[str, Any]:
-    rows = _filter_demo_forensics(
+    all_rows = _filter_demo_forensics(
         build_demo_forensic_reports(today=today),
         domain=domain,
         source_ip=source_ip,
         auth_failure=auth_failure,
         delivery_result=delivery_result,
-    )[:page_size]
+    )
+    total_available = len(all_rows)
+    rows = all_rows[:page_size]
     samples = [row["analysis"] for row in rows]
     priority_counts = Counter(sample["priority"] for sample in samples)
     failure_counts = Counter(sample["auth_failure"] for sample in samples)
@@ -2126,6 +2128,8 @@ def analyze_demo_forensic_reports(
     )
     return {
         "total": len(rows),
+        "total_available": total_available,
+        "analyzed": len(rows),
         "priority_counts": dict(priority_counts),
         "failure_counts": dict(failure_counts),
         "result_counts": dict(result_counts),
