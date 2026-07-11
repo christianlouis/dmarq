@@ -66,7 +66,8 @@ class ForensicAnalysisGroupResponse(BaseModel):
 
 
 class ForensicAnalysisResponse(BaseModel):
-    total: int
+    total_available: int
+    analyzed: int
     priority_counts: Dict[str, int] = Field(default_factory=dict)
     failure_counts: Dict[str, int] = Field(default_factory=dict)
     result_counts: Dict[str, int] = Field(default_factory=dict)
@@ -177,7 +178,7 @@ def _filtered_forensic_query(
 
 def _response_for_row(row: ForensicReport, redaction_policy) -> ForensicReportResponse:
     data = forensic_report_to_dict(row, redaction_policy=redaction_policy)
-    data["analysis"] = analyze_forensic_report(row)
+    data["analysis"] = analyze_forensic_report(row, redaction_policy=redaction_policy)
     return ForensicReportResponse(**data)
 
 
@@ -329,12 +330,20 @@ async def analyze_forensic_reports(
         delivery_result=delivery_result,
         workspace_id=workspace.id,
     )
+    total_available = query.count()
     rows = (
         query.order_by(ForensicReport.arrival_date.desc().nullslast(), ForensicReport.id.desc())
         .limit(page_size)
         .all()
     )
-    return ForensicAnalysisResponse(**summarize_forensic_samples(rows))
+    redaction_policy = get_forensic_redaction_policy(db)
+    return ForensicAnalysisResponse(
+        **summarize_forensic_samples(
+            rows,
+            redaction_policy=redaction_policy,
+            total_available=total_available,
+        )
+    )
 
 
 @router.get("/{report_id}", response_model=ForensicReportResponse)
