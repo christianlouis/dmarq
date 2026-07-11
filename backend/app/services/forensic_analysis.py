@@ -242,11 +242,16 @@ def summarize_forensic_samples(
     analyses = [analyze_forensic_report(row, redaction_policy=redaction_policy) for row in reports]
     priority_counts = Counter(item["priority"] for item in analyses)
     failure_counts = Counter(item["auth_failure"] for item in analyses)
-    result_counts = Counter(_normalize(row.delivery_result) or "unknown" for row in reports)
+    result_counts = Counter(item["delivery_result"] for item in analyses)
     grouped: Dict[Tuple[str, str, str, str], Dict[str, Any]] = {}
 
     for row, analysis in zip(reports, analyses):
-        key = _group_key(row)
+        key = (
+            analysis["domain"],
+            analysis["source_ip"],
+            analysis["auth_failure"],
+            analysis["delivery_result"],
+        )
         group = grouped.setdefault(
             key,
             {
@@ -254,7 +259,7 @@ def summarize_forensic_samples(
                 "domain": key[0],
                 "source_ip": key[1],
                 "auth_failure": analysis["auth_failure"],
-                "delivery_result": key[3],
+                "delivery_result": analysis["delivery_result"],
                 "count": 0,
                 "priority": analysis["priority"],
                 "latest_arrival": None,

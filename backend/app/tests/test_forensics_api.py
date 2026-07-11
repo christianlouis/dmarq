@@ -176,6 +176,14 @@ def test_demo_mode_forensic_endpoints_return_synthetic_data(authed_client, monke
     assert analysis_data["total_available"] > 0
     assert analysis_data["groups"]
 
+    truncated_analysis_response = authed_client.get(
+        "/api/v1/forensics/analysis?domain=dmarq.org&page_size=1"
+    )
+    assert truncated_analysis_response.status_code == 200
+    truncated_analysis_data = truncated_analysis_response.json()
+    assert truncated_analysis_data["total_available"] > 1
+    assert truncated_analysis_data["analyzed"] == 1
+
 
 def test_forensic_analysis_groups_failure_samples(authed_client, db_session):
     dkim = ForensicParser.parse_bytes(SAMPLE_FORENSIC_EMAIL)
@@ -211,6 +219,7 @@ def test_forensic_analysis_groups_failure_samples(authed_client, db_session):
     assert response.status_code == 200
     data = response.json()
     assert data["total_available"] == 2
+    assert data["analyzed"] == 2
     assert data["priority_counts"]["high"] == 2
     assert data["failure_counts"]["dkim"] == 1
     assert data["failure_counts"]["spf"] == 1
@@ -222,6 +231,14 @@ def test_forensic_analysis_groups_failure_samples(authed_client, db_session):
     assert "DKIM selector: mail2026" in signals
     assert "SPF DNS: v=spf1 include:_spf.example.com -all" in signals
     assert "DKIM canonicalized body was supplied but not stored" in signals
+
+    truncated_response = authed_client.get(
+        "/api/v1/forensics/analysis?domain=example.com&page_size=1"
+    )
+    assert truncated_response.status_code == 200
+    truncated_data = truncated_response.json()
+    assert truncated_data["total_available"] == 2
+    assert truncated_data["analyzed"] == 1
 
 
 def test_forensic_report_responses_include_sample_analysis(authed_client):

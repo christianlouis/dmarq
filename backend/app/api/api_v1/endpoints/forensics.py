@@ -66,6 +66,7 @@ class ForensicAnalysisGroupResponse(BaseModel):
 
 
 class ForensicAnalysisResponse(BaseModel):
+    total: Optional[int] = None
     total_available: int
     analyzed: int
     priority_counts: Dict[str, int] = Field(default_factory=dict)
