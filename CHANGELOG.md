@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Kept provider support-session user selection CSP-safe and resolved the
+  selected user by ID before stale email fallback state, so multi-user account
+  impersonation opens the customer view for the operator's actual selection.
 - Kept workspace-scoped status and navigation reads available during long
   SQLite mailbox backfills by avoiding no-op legacy workspace migration writes.
 - Kept Docker and Kubernetes HTTP readiness independent from scheduled mailbox
