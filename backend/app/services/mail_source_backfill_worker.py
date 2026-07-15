@@ -11,6 +11,7 @@ from typing import Any, Dict, Iterable, List, Optional
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from app.core.database import SessionLocal
 from app.core.redaction import redact_sensitive_text
 from app.models.mail_source import MailSource
 from app.models.mail_source_backfill import MailSourceBackfillJob
@@ -656,6 +657,27 @@ def run_mail_source_backfill_job(db: Session, job: MailSourceBackfillJob) -> boo
     if source.method == "M365_GRAPH":
         return run_m365_backfill_job(db, job)
     return False
+
+
+def run_mail_source_backfill_job_by_id(job_id: int) -> bool:
+    """Run one queued backfill in a standalone session for API background tasks."""
+    db = SessionLocal()
+    try:
+        job = (
+            db.query(MailSourceBackfillJob)
+            .filter(MailSourceBackfillJob.id == job_id)
+            .with_for_update(skip_locked=True)
+            .first()
+        )
+        if job is None:
+            return False
+        return run_mail_source_backfill_job(db, job)
+    except Exception:  # pylint: disable=broad-exception-caught
+        db.rollback()
+        logger.exception("Background backfill job id=%s could not start", job_id)
+        return False
+    finally:
+        db.close()
 
 
 def run_due_imap_backfill_jobs(db: Session, limit: int = 1) -> int:

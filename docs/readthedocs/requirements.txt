@@ -1,6 +1,6 @@
-mkdocs==1.4.3
-mkdocs-material==9.1.15
-mkdocstrings==0.21.2
-mkdocstrings-python==1.1.2
-pymdown-extensions==10.21.3
-mkdocs-git-revision-date-localized-plugin==1.2.0
+mkdocs==1.6.1
+mkdocs-material==9.7.6
+mkdocstrings==1.0.6
+mkdocstrings-python==2.0.5
+pymdown-extensions==11.0.1
+mkdocs-git-revision-date-localized-plugin==1.5.3

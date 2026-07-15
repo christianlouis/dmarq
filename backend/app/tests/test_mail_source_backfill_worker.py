@@ -1,5 +1,6 @@
 import json
 from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock
 
 from app.models.mail_source import MailSource
 from app.models.mail_source_backfill import MailSourceBackfillJob
@@ -14,6 +15,7 @@ from app.services.mail_source_backfill_worker import (
     run_imap_backfill_job,
     run_m365_backfill_job,
     run_mail_source_backfill_job,
+    run_mail_source_backfill_job_by_id,
 )
 from app.services.workspaces import get_or_create_default_workspace
 
@@ -633,6 +635,26 @@ def test_run_mail_source_backfill_dispatches_or_skips(db_session, monkeypatch):
     assert run_mail_source_backfill_job(db_session, imap_job) is True
     assert run_mail_source_backfill_job(db_session, gmail_job) is True
     assert run_mail_source_backfill_job(db_session, m365_job) is True
+
+
+def test_run_mail_source_backfill_job_by_id_uses_standalone_session(db_session, monkeypatch):
+    workspace, source = _source(db_session)
+    job = _job(db_session, workspace, source)
+    standalone = MagicMock(wraps=db_session)
+    dispatched = MagicMock(return_value=True)
+    monkeypatch.setattr(
+        "app.services.mail_source_backfill_worker.SessionLocal",
+        lambda: standalone,
+    )
+    monkeypatch.setattr(
+        "app.services.mail_source_backfill_worker.run_mail_source_backfill_job",
+        dispatched,
+    )
+
+    assert run_mail_source_backfill_job_by_id(job.id) is True
+    dispatched.assert_called_once()
+    assert dispatched.call_args.args[1].id == job.id
+    standalone.close.assert_called_once()
 
 
 def test_run_imap_backfill_skips_unsupported_status_or_future_retry(db_session):

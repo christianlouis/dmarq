@@ -1943,6 +1943,9 @@ def test_mail_sources_list_actions_are_bound_from_external_script():
     assert "data-mail-source-backfill-modal" in template
     assert "data-backfill-days" in template
     assert "bindPageControls" in script
+    assert "feedback.type === 'warning'" in template
+    assert "already imported report" in script
+    assert "review Import History" in script
     assert "sourceById" in script
     assert "data-mail-source-toggle" in script
     assert "event.key !== 'Escape'" in script
