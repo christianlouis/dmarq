@@ -101,6 +101,26 @@ def test_ci_cancels_superseded_runs_for_the_same_ref():
     assert "cancel-in-progress: true" in workflow
 
 
+def test_greenfield_smoke_uses_rendered_config_for_database_isolation():
+    """An intentionally unpublished DB port must not fail the smoke command itself."""
+    workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+    smoke = workflow.split("docker-compose-smoke:", maxsplit=1)[1].split("security:", maxsplit=1)[0]
+    assert "./scripts/verify-docker-compose.sh" in smoke
+    assert "port db 5432" not in smoke
+    assert "--format '{{ json .Config.ExposedPorts }}' dmarq-app:local" in smoke
+
+
+def test_compose_verifier_supports_plugin_and_standalone_compose():
+    """Greenfield verification must work with both documented Compose variants."""
+    script = (REPO_ROOT / "scripts" / "verify-docker-compose.sh").read_text(encoding="utf-8")
+
+    assert "docker compose version" in script
+    assert "command -v docker-compose" in script
+    assert "set -- docker-compose" in script
+    assert '"$@" config --format json' in script
+
+
 def test_release_workflow_promotes_multi_user_demo_with_nonprod():
     """Every release must keep the separate provider demo on the current image."""
     workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")

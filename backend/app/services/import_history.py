@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.redaction import redact_sensitive_text
 from app.models.mail_source import MailSource
 from app.models.mail_source_import import MailSourceImport
+from app.utils.stats_summarizer import StatsSummarizer
 
 MAX_STORED_ERRORS = 10
 MAX_ERROR_LENGTH = 500
@@ -58,6 +59,27 @@ def _json_details(values: Optional[Iterable[Any]]) -> str:
     return json.dumps(details)
 
 
+def _invalidate_imported_report_caches(source: MailSource, results: Dict[str, Any]) -> None:
+    """Discard cached dashboard/domain summaries after persisted report imports."""
+    imported = int(results.get("reports_found", 0) or 0) + int(
+        results.get("forensic_reports_found", 0) or 0
+    )
+    if imported <= 0:
+        return
+
+    workspace_id = getattr(source, "workspace_id", None)
+    summarizer = StatsSummarizer()
+    summarizer.invalidate_cache(workspace_id=workspace_id)
+
+    imported_domains = {
+        str(detail.get("domain") or "").strip().lower()
+        for detail in results.get("details", [])
+        if isinstance(detail, dict) and detail.get("status") == "imported"
+    }
+    for domain in imported_domains - {""}:
+        summarizer.invalidate_cache(domain, workspace_id=workspace_id)
+
+
 def record_import_attempt(
     db: Session,
     source: MailSource,
@@ -87,4 +109,5 @@ def record_import_attempt(
         finished_at=datetime.utcnow(),
     )
     db.add(attempt)
+    _invalidate_imported_report_caches(source, results)
     return attempt

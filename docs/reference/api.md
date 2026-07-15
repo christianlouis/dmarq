@@ -350,8 +350,8 @@ settings are preserved unless `overwrite_existing` is set to `true`.
 ### Mail Source Backfills
 
 Mailbox backfills are admin endpoints for resumable historical imports. Creating
-a backfill queues a progress row; connector workers can then process the window
-without blocking the UI.
+a backfill queues a progress row and starts it as an API background task; the
+scheduled connector worker remains a fallback without blocking the UI.
 
 | Endpoint | Purpose |
 | --- | --- |
@@ -361,7 +361,8 @@ without blocking the UI.
 | `POST /mail-sources/{source_id}/backfills/{job_id}/cancel` | Cancel a queued, running, or backoff job |
 | `POST /mail-sources/{source_id}/backfills/{job_id}/retry` | Re-queue a failed, cancelled, or backoff job |
 
-The Mail Sources UI shows the latest backfill status, processed message counts,
+The Mail Sources UI automatically follows active jobs and shows the latest
+backfill status, processed message counts,
 reports found, duplicates, retry timing, progress percentage, and operator
 controls. Backfill responses also include computed fields for
 `requested_window_days`, `elapsed_seconds`, `status_summary`, `can_cancel`, and

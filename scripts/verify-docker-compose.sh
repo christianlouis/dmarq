@@ -8,7 +8,16 @@ cd "$ROOT_DIR"
 config_file=$(mktemp "${TMPDIR:-/tmp}/dmarq-compose.XXXXXX")
 trap 'rm -f "$config_file"' EXIT HUP INT TERM
 
-docker compose config --format json > "$config_file"
+if docker compose version >/dev/null 2>&1; then
+    set -- docker compose
+elif command -v docker-compose >/dev/null 2>&1; then
+    set -- docker-compose
+else
+    echo "Docker Compose is required (docker compose or docker-compose)." >&2
+    exit 1
+fi
+
+"$@" config --format json > "$config_file"
 
 python3 - "$config_file" "$ROOT_DIR/.env" <<'PY'
 import json

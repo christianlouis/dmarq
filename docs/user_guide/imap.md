@@ -55,7 +55,8 @@ After the first fetch:
 
 Use **Backfill** when reports exist outside the normal recent polling window.
 Start with a small date range, inspect the result, and widen it only when
-needed.
+needed. A queued backfill starts immediately in the background, and the Mail
+Sources page refreshes its progress until it completes or needs attention.
 
 ## Scheduled Polling
 
@@ -84,8 +85,12 @@ policy. Passwords and tokens are never returned by the Mail Sources API.
 
 - Toggle a source off to stop scheduled checks without deleting its history.
 - Edit the source to change its folder, interval, or credentials. Leave the
-  password blank only when the form explicitly says the stored password will be
-  retained.
+  password blank to retain the encrypted stored password. DMARQ omits the blank
+  field in the browser and also ignores an explicitly empty password at the API
+  boundary.
+- In an existing source, **Test Connection** uses the saved password while the
+  field remains blank. Enter a new password only when you want to test and then
+  save a credential replacement.
 - Test again after changing credentials or folders.
 - Delete a source only when its configuration and operational history are no
   longer needed. Imported DMARC reports are separate persisted records.

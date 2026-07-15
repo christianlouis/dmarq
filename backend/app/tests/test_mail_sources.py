@@ -529,6 +529,54 @@ class TestMailSourceImportModel:
         assert "**redacted**" in attempt.errors
         assert "**redacted**" in attempt.details
 
+    def test_record_import_attempt_invalidates_imported_report_caches(self, db_session: Session):
+        source = MailSource(name="Cache Refresh", method="IMAP", workspace_id=23)
+        db_session.add(source)
+        db_session.commit()
+
+        with patch("app.services.import_history.StatsSummarizer") as summarizer_class:
+            record_import_attempt(
+                db_session,
+                source,
+                {
+                    "success": True,
+                    "reports_found": 2,
+                    "details": [
+                        {"status": "imported", "domain": "Example.COM"},
+                        {"status": "imported", "domain": "second.example"},
+                        {"status": "duplicate", "domain": "ignored.example"},
+                    ],
+                },
+                started_at=datetime.utcnow(),
+                trigger="manual",
+            )
+
+        invalidate = summarizer_class.return_value.invalidate_cache
+        invalidate.assert_any_call(workspace_id=23)
+        invalidate.assert_any_call("example.com", workspace_id=23)
+        invalidate.assert_any_call("second.example", workspace_id=23)
+        assert invalidate.call_count == 3
+
+    def test_record_import_attempt_keeps_caches_for_duplicate_only_run(self, db_session: Session):
+        source = MailSource(name="Duplicate Cache", method="IMAP")
+        db_session.add(source)
+        db_session.commit()
+
+        with patch("app.services.import_history.StatsSummarizer") as summarizer_class:
+            record_import_attempt(
+                db_session,
+                source,
+                {
+                    "success": True,
+                    "reports_found": 0,
+                    "duplicate_reports": 2,
+                },
+                started_at=datetime.utcnow(),
+                trigger="manual",
+            )
+
+        summarizer_class.assert_not_called()
+
 
 class TestMailSourceBackfillModel:
     """Unit tests for persisted mail source backfill progress rows."""
@@ -594,7 +642,18 @@ def test_mail_sources_template_exposes_backfill_progress_controls():
     assert "/backfills?limit=5" in script
     assert "/backfills/${job.id}/cancel" in script
     assert "/backfills/${job.id}/retry" in script
+    assert "startBackfillPolling" in script
+    assert "backfillIsTerminal" in script
     assert "Queue Backfill" in template
+    assert "data-stored-secret-preserved" in template
+    assert ':required="!editingId"' in template
+    assert "Saved password remains unchanged" in template
+    assert "useStoredCredentials" in script
+    assert "with the saved password" in script
+    assert "isTestingSource(source)" in template
+    assert "Boolean(" not in template
+    assert "new Date(" not in template
+    assert "`" not in template
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
     assert "canCancelBackfill" in template
     assert "canRetryBackfill" in template
@@ -705,6 +764,17 @@ class TestMailSourcesAPI:
 
 class TestMailSourcesAPIAuthed:
     """HTTP-level tests using the authed_client fixture (auth dependency bypassed)."""
+
+    @pytest.fixture(autouse=True)
+    def _defer_background_backfills(self, monkeypatch):
+        """Keep API lifecycle assertions deterministic while recording dispatches."""
+        deferred = MagicMock(return_value=True)
+        monkeypatch.setattr(
+            mail_sources_endpoint,
+            "run_mail_source_backfill_job_by_id",
+            deferred,
+        )
+        return deferred
 
     # ------------------------------------------------------------------
     # List
@@ -989,6 +1059,7 @@ class TestMailSourcesAPIAuthed:
         self,
         authed_client: TestClient,
         db_session: Session,
+        _defer_background_backfills,
     ):
         workspace = get_or_create_default_workspace(db_session)
         _add_domain(db_session, workspace, verified=False)
@@ -1034,6 +1105,7 @@ class TestMailSourcesAPIAuthed:
         assert get_response.status_code == 200
         assert get_response.json()["id"] == job["id"]
         assert get_response.json()["can_cancel"] is True
+        _defer_background_backfills.assert_called_once_with(job["id"])
 
         row = db_session.get(MailSourceBackfillJob, job["id"])
         row.cursor = json.dumps(
@@ -1284,6 +1356,50 @@ class TestMailSourcesAPIAuthed:
         )
         assert update_resp.status_code == 200
         assert update_resp.json()["method"] == "POP3"
+
+    def test_update_blank_password_preserves_stored_secret_for_connection_test(
+        self,
+        authed_client: TestClient,
+        db_session: Session,
+    ):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={
+                "name": "Stored Gmail IMAP",
+                "method": "IMAP",
+                "server": "imap.gmail.com",
+                "port": 993,
+                "username": "reports@example.com",
+                "password": "stored-app-password",
+            },
+        )
+        source_id = create_resp.json()["id"]
+
+        update_resp = authed_client.put(
+            f"/api/v1/mail-sources/{source_id}",
+            json={"name": "Stored Gmail IMAP Updated", "password": ""},
+        )
+
+        source = db_session.get(MailSource, source_id)
+        db_session.refresh(source)
+        assert update_resp.status_code == 200
+        assert source.password == "stored-app-password"
+
+        mock_client = MagicMock()
+        mock_client.test_connection.return_value = (
+            True,
+            "Connection successful",
+            {"message_count": 1, "unread_count": 0, "dmarc_count": 1},
+        )
+        with patch(
+            "app.api.api_v1.endpoints.mail_sources.IMAPClient",
+            return_value=mock_client,
+        ) as client_class:
+            test_resp = authed_client.post(f"/api/v1/mail-sources/{source_id}/test")
+
+        assert test_resp.status_code == 200
+        assert test_resp.json()["success"] is True
+        assert client_class.call_args.kwargs["password"] == "stored-app-password"
 
     def test_update_enable_allows_unverified_report_domains(
         self,

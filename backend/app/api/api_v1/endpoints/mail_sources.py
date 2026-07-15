@@ -13,7 +13,16 @@ import math
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    status,
+)
 from jose import JWTError, jwt
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -33,6 +42,7 @@ from app.services.demo_data import (
 from app.services.gmail_client import GmailClient
 from app.services.imap_client import IMAPClient
 from app.services.import_history import record_import_attempt
+from app.services.mail_source_backfill_worker import run_mail_source_backfill_job_by_id
 from app.services.mailbox_recovery import (
     connection_diagnostic,
     connection_test_response,
@@ -1247,6 +1257,7 @@ async def create_mail_source_backfill(
     source_id: int,
     payload: MailSourceBackfillCreate,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
     selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
@@ -1327,6 +1338,7 @@ async def create_mail_source_backfill(
     )
     db.commit()
     db.refresh(row)
+    background_tasks.add_task(run_mail_source_backfill_job_by_id, row.id)
     return _backfill_to_response(row)
 
 
@@ -1429,6 +1441,7 @@ async def retry_mail_source_backfill(
     source_id: int,
     job_id: int,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_admin_auth),
     selected_workspace: Optional[str] = Header(default=None, alias="X-DMARQ-Workspace-ID"),
@@ -1493,6 +1506,7 @@ async def retry_mail_source_backfill(
     )
     db.commit()
     db.refresh(row)
+    background_tasks.add_task(run_mail_source_backfill_job_by_id, row.id)
     return _backfill_to_response(row)
 
 
@@ -1548,6 +1562,9 @@ async def update_mail_source(
     source = _get_source_or_404(source_id, db, workspace)
 
     update_data = payload.model_dump(exclude_unset=True)
+    for secret_field in ("password", "gmail_client_secret", "m365_client_secret"):
+        if update_data.get(secret_field) == "":
+            update_data.pop(secret_field)
     if "method" in update_data and update_data["method"]:
         update_data["method"] = update_data["method"].upper()
     for field, value in update_data.items():

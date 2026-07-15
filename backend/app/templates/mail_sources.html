@@ -57,6 +57,19 @@
             {% endcall %}
         {% endcall %}
     </template>
+    <template x-if="feedback.message && feedback.type === 'warning'">
+        {% call alert(variant="warning") %}
+            {% call alert_description() %}
+                <span x-text="feedback.message"></span>
+                <div class="mt-2 text-xs font-medium" x-show="feedback.diagnostic_summary" x-text="feedback.diagnostic_summary"></div>
+                <ul class="mt-2 list-disc pl-5 text-xs space-y-1" x-show="feedback.recovery_steps && feedback.recovery_steps.length">
+                    <template x-for="step in feedback.recovery_steps" :key="step">
+                        <li x-text="step"></li>
+                    </template>
+                </ul>
+            {% endcall %}
+        {% endcall %}
+    </template>
 
     <!-- Sources list -->
     {% call card() %}
@@ -102,7 +115,7 @@
                                                 x-text="source.connection_message"></p>
                                         </div>
                                     </td>
-                                    <td x-text="source.last_checked ? new Date(source.last_checked).toLocaleString() : 'Never'"></td>
+                                    <td x-text="lastCheckedLabel(source)"></td>
                                     <td class="min-w-72">
                                         <template x-if="backfillLoading[source.id]">
                                             <p class="text-xs text-muted-foreground">Loading backfill status…</p>
@@ -134,7 +147,7 @@
                                                     <span><strong class="text-foreground" x-text="latestBackfill(source).duplicate_reports"></strong> duplicates</span>
                                                 </div>
                                                 <p class="text-[11px] text-warning" x-show="latestBackfill(source).next_retry_at"
-                                                    x-text="`Retry ${formatDate(latestBackfill(source).next_retry_at)}`"></p>
+                                                    x-text="backfillRetryLabel(latestBackfill(source))"></p>
                                                 <p class="text-[11px] text-error" x-show="latestBackfill(source).errors && latestBackfill(source).errors.length"
                                                     x-text="latestBackfill(source).errors[0]"></p>
                                                 <div class="flex flex-wrap gap-1">
@@ -185,7 +198,7 @@
                                                 </svg>
                                             </button>
                                             <button class="btn btn-ghost btn-xs" :data-source-id="source.id" data-mail-source-test title="Test connection"
-                                                :disabled="testing[source.id]">
+                                                :disabled="isTestingSource(source)">
                                                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                                                     fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                                                     stroke-linejoin="round">
@@ -194,7 +207,7 @@
                                                 </svg>
                                             </button>
                                             <button class="btn btn-ghost btn-xs" :data-source-id="source.id" data-mail-source-fetch title="Run import now"
-                                                :disabled="Boolean(fetching[source.id])">
+                                                :disabled="isFetching(source)">
                                                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                                                     fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                                                     stroke-linejoin="round">
@@ -203,7 +216,7 @@
                                                 </svg>
                                             </button>
                                             <button class="btn btn-ghost btn-xs" :data-source-id="source.id" data-mail-source-backfill title="Backfill date range"
-                                                :disabled="Boolean(fetching[source.id])">
+                                                :disabled="isFetching(source)">
                                                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                                                     fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                                                     stroke-linejoin="round">
@@ -251,7 +264,7 @@
                     <div>
                         {% call card_title() %}Import History{% endcall %}
                         {% call card_description() %}
-                            <span x-text="historySource ? `${historySource.name} • ${sourceTargetLabel(historySource)}` : ''"></span>
+                            <span x-text="importHistoryTitle(historySource)"></span>
                         {% endcall %}
                     </div>
                     <button class="btn btn-ghost btn-sm" data-mail-source-history-close>Close</button>
@@ -295,7 +308,7 @@
                                         <td>
                                             <template x-if="entry.errors && entry.errors.length">
                                                 <details class="max-w-xs">
-                                                    <summary class="cursor-pointer" x-text="`${entry.error_count} error${entry.error_count === 1 ? '' : 's'}`"></summary>
+                                                    <summary class="cursor-pointer" x-text="importErrorLabel(entry)"></summary>
                                                     <ul class="list-disc pl-4 mt-2 text-xs space-y-1">
                                                         <template x-for="error in entry.errors" :key="error">
                                                             <li x-text="error"></li>
@@ -312,19 +325,19 @@
                                                 <details class="max-w-sm">
                                                     <summary class="cursor-pointer" x-text="formatDetailsSummary(entry.details)"></summary>
                                                     <div class="mt-2 space-y-2 text-xs">
-                                                        <template x-for="detail in entry.details" :key="`${detail.status}-${detail.message_id || ''}-${detail.filename || ''}-${detail.report_id || ''}`">
+                                                        <template x-for="detail in entry.details" :key="detailKey(detail)">
                                                             <div class="rounded border border-base-300 p-2">
                                                                 <div class="flex flex-wrap items-center gap-2">
                                                                     <span class="badge badge-sm" :class="detailBadgeClass(detail.status)" x-text="detail.status"></span>
                                                                     <span class="font-mono" x-show="detail.report_id" x-text="detail.report_id"></span>
                                                                 </div>
                                                                 <div class="mt-1 text-muted-foreground">
-                                                                    <span x-show="detail.mailbox || detail.folder" x-text="`${detail.mailbox || 'mailbox'} / ${detail.folder || 'folder'}`"></span>
+                                                                    <span x-show="detail.mailbox || detail.folder" x-text="detailMailboxFolder(detail)"></span>
                                                                     <span x-show="(detail.mailbox || detail.folder) && (detail.filename || detail.domain || detail.reason || detail.error)"> • </span>
                                                                     <span x-show="detail.filename" x-text="detail.filename"></span>
-                                                                    <span x-show="detail.domain" x-text="` • ${detail.domain}`"></span>
-                                                                    <span x-show="detail.reason" x-text="` • ${(detail.reason || '').replaceAll('_', ' ')}`"></span>
-                                                                    <span x-show="detail.error" x-text="` • ${detail.error}`"></span>
+                                                                    <span x-show="detail.domain" x-text="detailSuffix(detail.domain)"></span>
+                                                                    <span x-show="detail.reason" x-text="detailReasonSuffix(detail.reason)"></span>
+                                                                    <span x-show="detail.error" x-text="detailSuffix(detail.error)"></span>
                                                                 </div>
                                                             </div>
                                                         </template>
@@ -396,6 +409,7 @@
                         <div>
                             <label class="label"><span class="label-text font-medium">Username <span class="text-error">*</span></span></label>
                             <input type="text" x-model="form.username" placeholder="dmarc@example.com"
+                                autocomplete="username"
                                 class="input input-bordered w-full" />
                         </div>
                     </template>
@@ -404,11 +418,14 @@
                     <template x-if="form.method === 'IMAP' || form.method === 'POP3'">
                         <div>
                             <label class="label">
-                                <span class="label-text font-medium">Password <span class="text-error">*</span></span>
-                                <span class="label-text-alt text-muted-foreground" x-show="editingId">Leave blank to keep existing</span>
+                                <span class="label-text font-medium">Password <span class="text-error" x-show="!editingId">*</span></span>
+                                <span class="label-text-alt text-muted-foreground" x-show="editingId" data-stored-secret-preserved>Leave blank to keep the saved password</span>
                             </label>
                             <div class="relative">
                                 <input :type="showPassword ? 'text' : 'password'" x-model="form.password"
+                                    :required="!editingId"
+                                    :placeholder="editingId ? 'Saved password remains unchanged' : 'App password or mailbox password'"
+                                    autocomplete="new-password"
                                     class="input input-bordered w-full pr-10" />
                                 <button type="button" class="absolute right-2 top-3 text-muted-foreground hover:text-foreground"
                                     data-mail-source-password-toggle>
@@ -717,7 +734,7 @@
             <div class="flex justify-end gap-2">
                 <button class="btn btn-ghost btn-sm" data-mail-source-backfill-close>Cancel</button>
                 <button class="btn btn-primary btn-sm" data-mail-source-backfill-run
-                    :disabled="!validBackfillDays() || Boolean(backfillAction[backfillSource && backfillSource.id])">
+                    :disabled="!validBackfillDays() || hasBackfillAction(backfillSource)">
                     Queue Backfill
                 </button>
             </div>

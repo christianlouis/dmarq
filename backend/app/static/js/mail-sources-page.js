@@ -12,6 +12,7 @@ function mailSourcesApp() {
         backfillJobs: {},
         backfillLoading: {},
         backfillAction: {},
+        backfillPollTimers: {},
         backfillSource: null,
         backfillDays: 30,
         historySource: null,
@@ -208,9 +209,26 @@ function mailSourcesApp() {
                     this.feedback = this.apiErrorFeedback(result, 'Import error', 'Import failed');
                     return;
                 }
+                const imported = Number(result.reports_found || 0) + Number(result.forensic_reports_found || 0);
+                const duplicates = Number(result.duplicate_reports || 0) + Number(result.duplicate_forensic_reports || 0);
+                const errors = Number(result.error_count || 0);
+                let outcome;
+                if (imported === 0 && duplicates > 0) {
+                    outcome = `No new reports; ${duplicates} already imported report${duplicates === 1 ? '' : 's'} confirmed.`;
+                } else {
+                    outcome = `${imported} new report${imported === 1 ? '' : 's'} imported`;
+                    if (duplicates > 0) {
+                        outcome += `; ${duplicates} already imported report${duplicates === 1 ? '' : 's'} confirmed`;
+                    }
+                    outcome += '.';
+                }
+                if (errors > 0) {
+                    outcome += ` ${errors} other attachment${errors === 1 ? '' : 's'} could not be parsed; review Import History.`;
+                }
                 this.feedback = {
-                    message: `Import finished for ${source.name} (${safeDays} day${safeDays === 1 ? '' : 's'}): ${result.reports_found} report${result.reports_found === 1 ? '' : 's'}, ${result.duplicate_reports || 0} duplicate${result.duplicate_reports === 1 ? '' : 's'}.`,
-                    type: result.success ? 'success' : 'error',
+                    message: `Import finished for ${source.name} (${safeDays} day${safeDays === 1 ? '' : 's'}): ${outcome}`,
+                    type: result.success ? (errors > 0 ? 'warning' : 'success') : 'error',
+                    ...this.diagnosticFromResult(result),
                 };
                 await this.loadSources();
                 if (this.historySource && this.historySource.id === source.id) {
@@ -267,6 +285,12 @@ function mailSourcesApp() {
                     throw new Error(this.apiErrorMessage(data, 'Failed to load backfill jobs'));
                 }
                 this.backfillJobs = { ...this.backfillJobs, [source.id]: data };
+                const latest = data[0];
+                if (!latest || this.backfillIsTerminal(latest.status)) {
+                    this.stopBackfillPolling(source.id);
+                } else {
+                    this.startBackfillPolling(source);
+                }
             } catch (e) {
                 if (!silent) {
                     this.feedback = { message: `Backfill status error: ${e.message}`, type: 'error' };
@@ -305,6 +329,7 @@ function mailSourcesApp() {
                 };
                 const existing = this.backfillJobs[source.id] || [];
                 this.backfillJobs = { ...this.backfillJobs, [source.id]: [data, ...existing].slice(0, 5) };
+                this.startBackfillPolling(source);
                 await this.loadBackfills(source, true);
             } catch (e) {
                 this.feedback = { ...this.emptyFeedback(), message: `Backfill error: ${e.message}`, type: 'error' };
@@ -326,6 +351,7 @@ function mailSourcesApp() {
                     throw new Error(this.apiErrorMessage(data, 'Failed to cancel backfill'));
                 }
                 this.replaceBackfill(source, data);
+                this.stopBackfillPolling(source.id);
                 this.feedback = { message: `Backfill cancelled for ${source.name}.`, type: 'success' };
             } catch (e) {
                 this.feedback = { message: `Cancel error: ${e.message}`, type: 'error' };
@@ -347,6 +373,7 @@ function mailSourcesApp() {
                     throw new Error(this.apiErrorMessage(data, 'Failed to retry backfill'));
                 }
                 this.replaceBackfill(source, data);
+                this.startBackfillPolling(source);
                 this.feedback = { message: `Backfill retried for ${source.name}.`, type: 'success' };
             } catch (e) {
                 this.feedback = { message: `Retry error: ${e.message}`, type: 'error' };
@@ -362,6 +389,30 @@ function mailSourcesApp() {
                 nextRows.unshift(updated);
             }
             this.backfillJobs = { ...this.backfillJobs, [source.id]: nextRows.slice(0, 5) };
+        },
+
+        backfillIsTerminal(status) {
+            return ['completed', 'failed', 'cancelled'].includes(status);
+        },
+
+        startBackfillPolling(source) {
+            if (!source || this.backfillPollTimers[source.id]) return;
+            const poll = async () => {
+                await this.loadBackfills(source, true);
+                const latest = this.latestBackfill(source);
+                if (!latest || this.backfillIsTerminal(latest.status)) {
+                    this.stopBackfillPolling(source.id);
+                    return;
+                }
+                this.backfillPollTimers[source.id] = window.setTimeout(poll, 2000);
+            };
+            this.backfillPollTimers[source.id] = window.setTimeout(poll, 500);
+        },
+
+        stopBackfillPolling(sourceId) {
+            const timer = this.backfillPollTimers[sourceId];
+            if (timer) window.clearTimeout(timer);
+            delete this.backfillPollTimers[sourceId];
         },
 
         async loadImportHistory(source) {
@@ -391,6 +442,50 @@ function mailSourcesApp() {
 
         formatDate(value) {
             return value ? new Date(value).toLocaleString() : '—';
+        },
+
+        lastCheckedLabel(source) {
+            return source && source.last_checked ? this.formatDate(source.last_checked) : 'Never';
+        },
+
+        isFetching(source) {
+            return Boolean(source && this.fetching[source.id]);
+        },
+
+        isTestingSource(source) {
+            return Boolean(source && this.testing[source.id]);
+        },
+
+        hasBackfillAction(source) {
+            return Boolean(source && this.backfillAction[source.id]);
+        },
+
+        importHistoryTitle(source) {
+            return source ? `${source.name} • ${this.sourceTargetLabel(source)}` : '';
+        },
+
+        importErrorLabel(entry) {
+            const count = Number(entry && entry.error_count ? entry.error_count : 0);
+            return `${count} error${count === 1 ? '' : 's'}`;
+        },
+
+        detailKey(detail) {
+            if (!detail) return 'detail';
+            return [detail.status, detail.message_id, detail.filename, detail.report_id]
+                .filter(Boolean)
+                .join('-');
+        },
+
+        detailMailboxFolder(detail) {
+            return `${detail.mailbox || 'mailbox'} / ${detail.folder || 'folder'}`;
+        },
+
+        detailSuffix(value) {
+            return value ? ` • ${value}` : '';
+        },
+
+        detailReasonSuffix(value) {
+            return this.detailSuffix((value || '').replaceAll('_', ' '));
         },
 
         sourceAccountLabel(source) {
@@ -479,6 +574,10 @@ function mailSourcesApp() {
             return labels[status] || status || 'Unknown';
         },
 
+        backfillRetryLabel(job) {
+            return job && job.next_retry_at ? `Retry ${this.formatDate(job.next_retry_at)}` : '';
+        },
+
         backfillBadgeClass(status) {
             if (status === 'completed') return 'badge-success';
             if (status === 'running') return 'badge-info';
@@ -503,7 +602,10 @@ function mailSourcesApp() {
         },
 
         backfillWindowLabel(job) {
-            if (job && job.requested_window_days) return `${job.requested_window_days} days`;
+            if (job && job.requested_window_days) {
+                const days = Number(job.requested_window_days);
+                return `${days} day${days === 1 ? '' : 's'}`;
+            }
             if (!job || !job.requested_start || !job.requested_end) return 'Default search window';
             const start = new Date(job.requested_start).toLocaleDateString();
             const end = new Date(job.requested_end).toLocaleDateString();
@@ -747,7 +849,7 @@ function mailSourcesApp() {
             this.feedback = { message: '', type: '' };
             try {
                 const payload = { ...this.form };
-                // Don't send empty password on edit
+                // A blank edit field means the encrypted stored secret remains unchanged.
                 if (this.editingId && !payload.password) {
                     delete payload.password;
                 }
@@ -854,6 +956,11 @@ function mailSourcesApp() {
             this.isTesting = true;
             this.testResult = this.emptyTestResult();
             try {
+                const useStoredCredentials = Boolean(
+                    this.editingId
+                    && !this.form.password
+                    && ['IMAP', 'POP3'].includes(this.form.method)
+                );
                 const payload = {
                     server: this.form.server,
                     port: this.form.port,
@@ -862,17 +969,23 @@ function mailSourcesApp() {
                     ssl: this.form.use_ssl,
                     method: this.form.method,
                 };
-                const resp = await fetch('/api/v1/mail-sources/test-connection', {
+                const url = useStoredCredentials
+                    ? `/api/v1/mail-sources/${this.editingId}/test`
+                    : '/api/v1/mail-sources/test-connection';
+                const options = {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload),
-                });
+                };
+                if (!useStoredCredentials) {
+                    options.headers = { 'Content-Type': 'application/json' };
+                    options.body = JSON.stringify(payload);
+                }
+                const resp = await fetch(url, options);
                 const result = await resp.json();
                 const diagnostic = this.diagnosticFromResult(result);
                 this.testResult = {
                     success: result.success,
                     message: result.success
-                        ? `✓ Connected. ${result.message_count || 0} messages, ${result.dmarc_count || 0} potential DMARC reports.`
+                        ? `✓ Connected${useStoredCredentials ? ' with the saved password' : ''}. ${result.message_count || 0} messages, ${result.dmarc_count || 0} potential DMARC reports.`
                         : `✗ ${result.message}`,
                     ...diagnostic,
                 };
