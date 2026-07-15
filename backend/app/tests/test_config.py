@@ -68,6 +68,20 @@ class TestBackendCorsOriginsValidator:
             "https://b.example.com",
         ]
 
+    def test_comma_separated_environment_value(self, monkeypatch):
+        """Compose and Kubernetes can inject a comma-separated string."""
+        monkeypatch.setenv(
+            "BACKEND_CORS_ORIGINS",
+            "https://app.example.com,https://admin.example.com",
+        )
+
+        settings = Settings()
+
+        assert settings.BACKEND_CORS_ORIGINS == [
+            "https://app.example.com",
+            "https://admin.example.com",
+        ]
+
 
 class TestWorkspaceUiMode:
     """Tests for self-hosted versus multi-workspace UI settings."""

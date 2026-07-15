@@ -1,7 +1,5 @@
 # DMARQ User Guide
 
-![DMARQ Logo](../../backend/app/static/img/logotype_horizontal_dark.png)
-
 *Secure Email. Simplified.*
 
 ## Table of Contents
@@ -41,10 +39,14 @@ DMARC (Domain-based Message Authentication, Reporting, and Conformance) is an em
 
 ### First-Time Setup
 
-1. **Access the DMARQ dashboard**: Navigate to the URL provided by your administrator
-2. **Create an account**: Click "Sign Up" and follow the registration process
-3. **Add your first domain**: Click "Add Domain" on the dashboard and enter your domain details
-4. **Upload a DMARC report**: Use the "Upload Report" button to add your first report
+1. **Open DMARQ**: Navigate to the URL provided by your administrator.
+2. **Complete setup**: On a local single-user installation, enter the owner
+   contact email. It is not a local username or password. Internet-facing
+   installations use the identity provider configured by the administrator.
+3. **Add your first domain**: Open **Domains**, choose **Add domain**, and enter
+   the domain name.
+4. **Import a report**: Upload a DMARC aggregate report, or open **Mail Sources**
+   to connect the mailbox that receives reports.
 
 ### Public Demo Instances
 
@@ -59,8 +61,6 @@ read-only.
 ## Dashboard Overview
 
 The DMARQ dashboard provides an at-a-glance view of your email authentication status:
-
-![Dashboard Screenshot](placeholder_dashboard.png)
 
 ### Key Elements
 
@@ -122,7 +122,7 @@ DMARQ can automatically fetch DMARC reports from your email account:
 
 ### Setting Up IMAP
 
-1. Go to "Settings" > "IMAP Configuration"
+1. Open **Mail Sources** and choose **Add mail source**.
 2. Enter your IMAP server details:
    - Server address
    - Port
@@ -143,11 +143,15 @@ DMARQ can automatically fetch DMARC reports from your email account:
 
 ### User Settings
 
-Manage your account information and preferences:
+Available account and access settings depend on the deployment authentication
+mode. A local auth-disabled installation has no DMARQ password to change.
+Identity-provider deployments manage credentials and MFA at that provider.
 
-- Update your profile information
-- Change password
+DMARQ settings can include:
+
 - Set notification preferences
+- Review workspace membership and access
+- Configure application and integration defaults when authorized
 
 ### Domain Settings
 

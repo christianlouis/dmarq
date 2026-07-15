@@ -1,56 +1,54 @@
-version: '3.8'
+name: dmarq
 
 services:
-  # Database service
   db:
     image: postgres:14-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Run ./scripts/bootstrap-docker-env.sh first}
+      POSTGRES_USER: ${POSTGRES_USER:?Run ./scripts/bootstrap-docker-env.sh first}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run ./scripts/bootstrap-docker-env.sh first} # ggignore
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    environment:
-      - POSTGRES_PASSWORD=dmarq_secure_password
-      - POSTGRES_USER=dmarq_user
-      - POSTGRES_DB=dmarq_db
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U dmarq_user -d dmarq_db"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 5s
     networks:
       - dmarq-network
-    ports:
-      - "5433:5432"  # Map to non-standard port to avoid conflicts
 
-  # Integrated backend with frontend service
   app:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: ${DMARQ_IMAGE:-ghcr.io/christianlouis/dmarq:docker-stable}
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Run ./scripts/bootstrap-docker-env.sh first}
+      SECRET_KEY: ${SECRET_KEY:?Run ./scripts/bootstrap-docker-env.sh first}
+      ADMIN_API_KEY: ${ADMIN_API_KEY:?Run ./scripts/bootstrap-docker-env.sh first}
+      NODE_ENV: production
     volumes:
-      - app_data:/app/data      # persist SQLite database and other application data
+      - app_data:/app/data
     depends_on:
       db:
         condition: service_healthy
-    environment:
-      - SERVICE_FQDN_APP_8080
-      - DATABASE_URL=postgresql://dmarq_user:dmarq_secure_password@db:5432/dmarq_db
-      - SECRET_KEY=your_secret_key_change_in_production
-      - DEBUG=True
-      - ENVIRONMENT=development
-      - DEMO_MODE=false
-      - DELETE_IMPORTED_EMAILS=false
-      # Add NODE_ENV for Tailwind
-      - NODE_ENV=production
+    ports:
+      - "${DMARQ_BIND_ADDRESS:-127.0.0.1}:${DMARQ_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
     networks:
       - dmarq-network
 
-# Define networks
 networks:
   dmarq-network:
     driver: bridge
 
-# Define volumes
 volumes:
   postgres_data:
-    driver: local
   app_data:
-    driver: local

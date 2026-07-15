@@ -141,13 +141,19 @@ Protocol boundary:
 You can deploy DMARQ in minutes using Docker Compose:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/dmarq.git
+git clone https://github.com/christianlouis/dmarq.git
 cd dmarq
-cp .env.example .env
-docker compose up --build
+./scripts/bootstrap-docker-env.sh
+docker compose pull
+docker compose up -d --wait
 ```
 
-Then visit [http://localhost](http://localhost) to access the dashboard and upload your DMARC reports.
+Then visit [http://localhost:8080](http://localhost:8080). The default binds only
+to `127.0.0.1` and runs as a local single-user instance without a DMARQ login.
+Configure Logto, OIDC, Authentik, or a trusted authentication proxy before
+exposing it publicly. See the [Docker setup guide](docs/deployment/docker.md) for
+verification, the `docker-stable` and `docker-latest` channels, Gmail IMAP
+ingestion, updates, and production configuration.
 
 ### Development Setup
 

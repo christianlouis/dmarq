@@ -292,9 +292,12 @@ IMAP_PASSWORD="STRONG_IMAP_PASSWORD"
 # CORS Origins (REQUIRED - Be specific, no wildcards)
 BACKEND_CORS_ORIGINS="https://dmarq.yourdomain.com"
 
-# Admin User (for initial setup)
-FIRST_SUPERUSER="admin@example.com"
-FIRST_SUPERUSER_PASSWORD="STRONG_ADMIN_PASSWORD_CHANGE_AFTER_FIRST_LOGIN"
+# Authentication (required for an internet-facing deployment)
+AUTH_MODE="oidc"
+AUTH_DISABLED=false
+OIDC_ISSUER_URL="https://idp.example.com"
+OIDC_CLIENT_ID="dmarq"
+OIDC_CLIENT_SECRET="STRONG_OIDC_CLIENT_SECRET"
 
 # Optional: Cloudflare Integration
 # CLOUDFLARE_API_TOKEN="your_cloudflare_api_token"

@@ -2,15 +2,17 @@ import json
 import logging
 import secrets
 from functools import lru_cache
-from typing import List, Optional, Set, Union
+from typing import Annotated, List, Optional, Set, Union
 
 # Try to import from pydantic_settings first (newer versions)
 try:
     from pydantic import EmailStr, validator  # pylint: disable=ungrouped-imports
-    from pydantic_settings import BaseSettings
+    from pydantic_settings import BaseSettings, NoDecode
 except ImportError:
     # Fall back to older pydantic version
     from pydantic import BaseSettings, EmailStr, validator
+
+    NoDecode = object
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +57,12 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60  # 1 hour
 
     # CORS
-    BACKEND_CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173"]
+    # NoDecode lets the validator accept both comma-separated values commonly
+    # injected by Compose/Kubernetes and JSON lists.
+    BACKEND_CORS_ORIGINS: Annotated[List[str], NoDecode] = [
+        "http://localhost:3000",
+        "http://localhost:5173",
+    ]
 
     # IMAP Settings
     IMAP_SERVER: Optional[str] = None

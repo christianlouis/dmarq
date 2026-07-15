@@ -49,10 +49,14 @@ DMARQ requires the ability to run Docker containers or a Python application serv
 
 For Docker installations:
 ```bash
-git pull
-docker-compose down
-docker-compose up -d --build
+git pull --ff-only
+docker compose pull
+docker compose up -d --wait
 ```
+
+The default Compose configuration uses the tested `docker-stable` image. See
+the [Docker Setup](deployment/docker.md) guide for preview-channel and local
+source-build instructions.
 
 For manual installations:
 ```bash
@@ -130,7 +134,7 @@ cp data/dmarq.db backup-$(date +%Y%m%d).db
 
 For PostgreSQL:
 ```bash
-docker-compose exec db pg_dump -U dmarq dmarq > backup-$(date +%Y%m%d).sql
+docker compose exec db pg_dump -U dmarq dmarq > backup-$(date +%Y%m%d).sql
 ```
 
 ### Can I run DMARQ behind a reverse proxy?
@@ -161,7 +165,7 @@ Check the following:
 
 ### How do I report a bug?
 
-You can report bugs on our [GitHub Issues](https://github.com/yourusername/dmarq/issues) page. Please include:
+You can report bugs on our [GitHub Issues](https://github.com/christianlouis/dmarq/issues) page. Please include:
 1. Steps to reproduce the issue
 2. Expected behavior
 3. Actual behavior
@@ -194,7 +198,7 @@ See our [Contributing Guide](development/contributing.md) for more information.
 
 ### Where do I find the source code?
 
-The source code is available on GitHub: [https://github.com/yourusername/dmarq](https://github.com/yourusername/dmarq)
+The source code is available on GitHub: [https://github.com/christianlouis/dmarq](https://github.com/christianlouis/dmarq)
 
 ### Is there a community forum?
 

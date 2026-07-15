@@ -46,7 +46,7 @@ DMARQ releases from the `main` branch through GitHub Actions.
 Run these checks after the deployment updates:
 
 ```bash
-curl -fsS https://your-dmarq-host.example.com/health
+curl -fsS https://your-dmarq-host.example.com/healthz
 curl -fsS https://your-dmarq-host.example.com/api/v1/health
 curl -fsS https://your-dmarq-host.example.com/api/v1/health/release
 ```
@@ -87,7 +87,7 @@ Then verify in the browser:
 Check logs after smoke testing:
 
 ```bash
-docker compose logs --tail=100 backend
+docker compose logs --tail=100 app
 ```
 
 For systemd deployments:

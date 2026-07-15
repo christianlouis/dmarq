@@ -11,15 +11,12 @@ function setupWizard() {
         enabledMailSources: 0,
         mailboxRecoveryHint: null,
         steps: [
-            { id: 1, title: 'Admin', detail: 'Contact details' },
+            { id: 1, title: 'Owner', detail: 'Operational contact' },
             { id: 2, title: 'System', detail: 'Name and URL' },
             { id: 3, title: 'Ready', detail: 'Start using DMARQ' },
         ],
         admin: {
             email: '',
-            username: '',
-            password: '',
-            confirmPassword: '',
         },
         system: {
             app_name: document.querySelector('[data-app-name]')?.dataset.appName || 'DMARQ',
@@ -102,18 +99,10 @@ function setupWizard() {
         },
         async submitAdmin() {
             this.error = '';
-            if (this.admin.password !== this.admin.confirmPassword) {
-                this.error = 'Passwords do not match.';
-                return;
-            }
             await this.save('/api/v1/setup/admin', {
                 email: this.admin.email,
-                username: this.admin.username,
-                password: this.admin.password,
             }, () => {
                 this.currentStep = 2;
-                this.admin.password = '';
-                this.admin.confirmPassword = '';
             });
         },
         async submitSystem() {

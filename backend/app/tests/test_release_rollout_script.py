@@ -121,3 +121,21 @@ def test_release_workflow_dispatches_gitops_deploy_after_release():
     assert 'release_ref="${RELEASE_TAG}"' in workflow
     assert 'release_tag="${RELEASE_TAG}"' in workflow
     assert "-f deploy_gitops=true" in workflow
+
+
+def test_docker_channels_smoke_before_stable_promotion():
+    """The preview image must pass a registry smoke before stable promotion."""
+    workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+    assert "type=raw,value=docker-latest,enable={{is_default_branch}}" in workflow
+    assert "registry-image-smoke:" in workflow
+    assert "Verify release identity and DMARC ingestion" in workflow
+    assert "needs: [docker, registry-image-smoke]" in workflow
+
+    promotion = workflow.split("promote-docker-stable:", maxsplit=1)[1].split(
+        "# ── Stage 4", maxsplit=1
+    )[0]
+    assert "ghcr.io/${{ github.repository }}:docker-stable" not in promotion
+    assert '"${IMAGE_REPOSITORY}:docker-stable"' in promotion
+    assert "docker buildx imagetools create" in promotion
+    assert "Start and verify docker-stable" in promotion

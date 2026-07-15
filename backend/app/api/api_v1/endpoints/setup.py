@@ -105,11 +105,16 @@ class SetupStatusResponse(BaseModel):
 
 
 class AdminSetupRequest(BaseModel):
-    """Admin user setup request body"""
+    """Owner contact recorded during first-run setup.
+
+    Authentication is configured through AUTH_MODE. This endpoint deliberately
+    does not accept a password because DMARQ has no local password login flow.
+    """
 
     email: EmailStr
-    username: str
-    password: str
+
+    class Config:
+        extra = "forbid"
 
 
 class SystemConfigRequest(BaseModel):
@@ -171,10 +176,7 @@ async def setup_admin(
     db: Session = Depends(get_db),
     _auth: dict = Depends(require_setup_write_auth),
 ):
-    """
-    Setup admin user during initial system configuration.
-    For Milestone 1, this simply stores the admin email in memory.
-    """
+    """Store the deployment owner contact during initial configuration."""
     if _setup_is_complete(db):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Setup already completed"
@@ -190,7 +192,7 @@ async def setup_admin(
     )
     db.commit()
 
-    return {"message": "Admin user setup completed"}
+    return {"message": "Owner contact saved"}
 
 
 @router.post("/system", status_code=200)

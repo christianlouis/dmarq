@@ -199,6 +199,7 @@ class TestExternalAuthProviders:
 
         assert providers["disabled"]["status"] == "ready"
         assert providers["local"]["status"] == "planned"
+        assert providers["local"]["configured"] is False
         assert providers["logto"]["auth_mode"] == "logto"
         assert providers["authentik"]["configured"] is True
         assert providers["authentik"]["active"] is True

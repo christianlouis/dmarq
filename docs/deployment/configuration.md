@@ -21,23 +21,20 @@ For deployment verification, upgrades, rollback, and routine checks, use the [Op
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
-| `DB_TYPE` | Database type | `sqlite` | `sqlite`, `postgres` |
-| `DB_PATH` | Path to SQLite database | `./data/dmarq.db` | `/app/data/dmarq.db` |
-| `DB_HOST` | PostgreSQL host | `localhost` | `postgres`, `db.example.com` |
-| `DB_PORT` | PostgreSQL port | `5432` | `5432` |
-| `DB_USER` | PostgreSQL username | `dmarq` | `dmarq_user` |
-| `DB_PASS` | PostgreSQL password | - | `secure_password` |
-| `DB_NAME` | PostgreSQL database name | `dmarq` | `dmarq_production` |
+| `DATABASE_URL` | SQLAlchemy database URL. Supports SQLite and PostgreSQL. | `sqlite:///./data/dmarq.db` | `postgresql://dmarq:secret@db:5432/dmarq` |
+
+`POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD` configure only the
+PostgreSQL container in the provided Compose stack. DMARQ itself always reads
+`DATABASE_URL`. The Docker bootstrap script generates matching values.
 
 ### Security Settings
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
 | `SECRET_KEY` | Secret key for session security | - | `da39a3ee5e6b4b0d3255bfef95601890` |
-| `ALLOWED_HOSTS` | Comma-separated list of allowed hosts | `localhost,127.0.0.1` | `dmarq.example.com,api.dmarq.com` |
-| `DEBUG` | Enable debug mode | `false` | `true`, `false` |
-| `LOG_LEVEL` | Application logging level | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
-| `CORS_ORIGINS` | Allowed CORS origins | `http://localhost:8000` | `https://dmarq.example.com` |
+| `ADMIN_API_KEY` | Stable key for explicitly authorized admin API calls | generated in memory | 64-character random hex value |
+| `ENVIRONMENT` | Enables production startup safety checks when set to `production` | `development` | `production` |
+| `BACKEND_CORS_ORIGINS` | Comma-separated or JSON list of allowed browser API origins | local development origins | `https://dmarq.example.com` |
 | `CSP_COMPATIBILITY_MODE` | Temporarily restore the legacy Alpine compatibility policy with `unsafe-eval` and inline styles. Use only as an emergency fallback for custom templates or extensions that have not been migrated to the bundled CSP-compatible frontend runtime. | `false` | `true`, `false` |
 | `CSP_REPORT_ONLY` | Also emit the strict Content Security Policy as report-only. This is mainly useful together with `CSP_COMPATIBILITY_MODE=true` while diagnosing custom frontend extensions. | `false` | `true`, `false` |
 | `CSP_ENFORCE_STRICT` | Legacy no-op compatibility flag. Strict CSP is now the default. Keep unset for new deployments. | `false` | `true`, `false` |
@@ -235,31 +232,29 @@ explicitly reviewed through the DNS provider repair flow.
 
 ### IMAP Settings
 
+These variables are a legacy one-time bootstrap path. When all three credential
+values are present and no mail source exists, DMARQ creates one enabled IMAP
+source with a 60-minute interval. New installations should normally configure
+mailboxes in **Mail Sources**, where SSL, folder, interval, connection testing,
+and import history are stored per source.
+
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
-| `IMAP_ENABLED` | Enable IMAP report fetching | `false` | `true`, `false` |
 | `IMAP_SERVER` | IMAP server address | - | `imap.gmail.com` |
 | `IMAP_PORT` | IMAP server port | `993` | `993`, `143` |
 | `IMAP_USERNAME` | IMAP username | - | `dmarc@example.com` |
 | `IMAP_PASSWORD` | IMAP password | - | `app_password_here` |
-| `IMAP_USE_SSL` | Use SSL for IMAP connection | `true` | `true`, `false` |
-| `IMAP_POLLING_INTERVAL` | Minutes between polling | `60` | `30`, `60`, `120` |
 | `IMAP_FOLDER` | IMAP folder to check | `INBOX` | `DMARC`, `reports` |
-| `IMAP_MARK_AS_READ` | Mark processed emails as read | `true` | `true`, `false` |
-| `IMAP_ARCHIVE_FOLDER` | Folder to move processed emails to | - | `Processed`, `Archive` |
 | `DELETE_IMPORTED_EMAILS` | Delete IMAP emails after a DMARC report is successfully imported | `false` | `true`, `false` |
 
 ### Application Settings
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
-| `APP_NAME` | Custom instance name | `DMARQ` | `Company DMARC Monitor` |
-| `TIMEZONE` | Application timezone | `UTC` | `America/New_York`, `Europe/London` |
+| `PROJECT_NAME` | Instance name used by server-rendered pages | `DMARQ` | `Company DMARC Monitor` |
+| `PUBLIC_BASE_URL` | Public origin used behind a proxy/ingress and for OAuth callbacks | request origin | `https://dmarq.example.com` |
 | `LANGUAGE` | Default language for operator-facing guidance | `en` | `en`, `de` |
 | `DMARQ_DEFAULT_LOCALE` | Optional override for localized guidance; falls back to `LANGUAGE` | - | `de` |
-| `REPORTS_PER_PAGE` | Reports to show per page | `25` | `10`, `50`, `100` |
-| `MAX_UPLOAD_SIZE` | Maximum file upload size (MB) | `10` | `20`, `50` |
-| `SESSION_LIFETIME` | Session lifetime in minutes | `1440` (24h) | `60`, `720` |
 | `DEMO_MODE` | Force generated demo reports and demo DNS records for public demo instances. Do not enable on production customer data. | `false` | `true` |
 
 ### Sender Reputation Feeds
@@ -526,52 +521,39 @@ Remote remediation plans are cached with `ai.remediation_cache_seconds`
 (`86400` by default). Demo mode uses template-backed plans and a longer fixed
 cache window.
 
-### Advanced Configuration
-
-| Variable | Description | Default | Example |
-|----------|-------------|---------|---------|
-| `WORKERS` | Number of worker processes | `1` | `2`, `4` |
-| `WORKER_CONCURRENCY` | Tasks per worker | `2` | `4`, `8` |
-| `MAX_CONNECTIONS` | Database connection pool size | `10` | `20`, `50` |
-| `CACHE_TYPE` | Cache backend type | `memory` | `memory`, `redis` |
-| `CACHE_URL` | Cache backend URL | - | `redis://localhost:6379/0` |
-| `CACHE_TTL` | Cache TTL in seconds | `300` | `600`, `1800` |
-
 ## Configuration Examples
 
 ### Basic SQLite Setup
 
 ```
-DB_TYPE=sqlite
-DB_PATH=./data/dmarq.db
+DATABASE_URL=sqlite:///./data/dmarq.db
 SECRET_KEY=your_secure_key_here
+AUTH_MODE=disabled
+AUTH_DISABLED=true
 ```
 
 ### Production PostgreSQL Setup
 
 ```
-DB_TYPE=postgres
-DB_HOST=postgres.example.com
-DB_PORT=5432
-DB_USER=dmarq
-DB_PASS=secure_password
-DB_NAME=dmarq_production
+DATABASE_URL=postgresql://dmarq:secure_password@postgres.example.com:5432/dmarq_production
 SECRET_KEY=your_secure_key_here
-ALLOWED_HOSTS=dmarq.example.com
-DEBUG=false
+ADMIN_API_KEY=another_secure_key_here
+ENVIRONMENT=production
+PUBLIC_BASE_URL=https://dmarq.example.com
+BACKEND_CORS_ORIGINS=https://dmarq.example.com
+AUTH_MODE=oidc
+AUTH_DISABLED=false
 ```
 
 ### With IMAP Enabled
 
 ```
-IMAP_ENABLED=true
 IMAP_SERVER=imap.gmail.com
 IMAP_PORT=993
 IMAP_USERNAME=dmarc@example.com
 IMAP_PASSWORD=app_password_here
-IMAP_USE_SSL=true
-IMAP_POLLING_INTERVAL=30
-IMAP_MARK_AS_READ=true
+IMAP_FOLDER=INBOX
+DELETE_IMPORTED_EMAILS=false
 ```
 
 ### With Apprise Notifications

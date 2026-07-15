@@ -1465,8 +1465,9 @@ Error responses include a JSON body with details:
 
 DMARQ provides client libraries for common programming languages:
 
-- Python: [dmarq-python](https://github.com/yourusername/dmarq-python)
-- JavaScript/Node.js: [dmarq-node](https://github.com/yourusername/dmarq-node)
+DMARQ does not currently publish official Python or JavaScript SDK packages.
+Use the documented HTTP API and OpenAPI schema, and pin any generated client to
+the DMARQ release it targets.
 
 ## API Versioning
 

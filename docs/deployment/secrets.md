@@ -23,7 +23,6 @@ Store these values in a 1Password Environment for each deployment target:
 | `HETZNER_API_TOKEN` | Secret | Optional fallback Hetzner DNS token name for deployments that already inject generic Hetzner credentials. |
 | `LINODE_API_TOKEN` | Secret | Optional read-only Linode DNS domain import token. |
 | `LINODE_TOKEN` | Secret | Optional fallback Linode token name for deployments that already inject generic Linode credentials. |
-| `FIRST_SUPERUSER_PASSWORD` | Secret | Only needed for bootstrap flows that create an initial local admin. |
 
 Non-sensitive values, such as `IMAP_SERVER`, `IMAP_USERNAME`, `LOGTO_ENDPOINT`,
 `LOGTO_APP_ID`, `AUTHENTIK_ISSUER_URL`, `AUTHENTIK_CLIENT_ID`,
@@ -52,14 +51,18 @@ For local runs, mount the 1Password Environment as a local `.env` file:
 Then start DMARQ normally:
 
 ```bash
-docker compose up -d
+docker compose pull
+docker compose up -d --wait
 ```
+
+To build a development checkout instead, add the documented
+`docker-compose.build.yml` override.
 
 or, for a manual backend run:
 
 ```bash
 cd backend
-uvicorn app.main:app --host 127.0.0.1 --port 8000
+uvicorn app.main:app --host 127.0.0.1 --port 8080
 ```
 
 The mounted `.env` file is managed by 1Password. Do not copy its contents into commits, issues, pull requests, or chat messages.
@@ -70,7 +73,7 @@ For Docker Compose hosts, mount the Environment as the project `.env` file and k
 
 ```bash
 docker compose pull
-docker compose up -d
+docker compose up -d --wait
 ```
 
 This lets Compose read the mounted `.env` file while 1Password remains the system that stores and syncs the actual secret values.
@@ -85,7 +88,7 @@ For manual Linux deployments, prefer a 1Password-mounted env file referenced by 
 [Service]
 EnvironmentFile=/opt/dmarq/.env
 WorkingDirectory=/opt/dmarq/backend
-ExecStart=/opt/dmarq/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+ExecStart=/opt/dmarq/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8080
 ```
 
 Restrict the service user and file permissions so only the DMARQ process and the operator account can read the mounted file.

@@ -117,6 +117,9 @@ class TestSetupPage:
         assert "data-setup-admin-form" in response.text
         assert "data-setup-system-form" in response.text
         assert "data-setup-back" in response.text
+        assert "not a login account" in response.text
+        assert "Username" not in response.text
+        assert "Confirm password" not in response.text
         assert 'data-app-name="DMARQ"' in response.text
         assert 'src="/static/js/setup-page.js"' in response.text
         assert "bindControls()" in script
@@ -195,25 +198,29 @@ class TestSetupAdmin:
     def test_admin_setup_succeeds_on_first_call(self, client: TestClient):
         response = client.post(
             "/api/v1/setup/admin",
+            json={"email": "admin@example.com"},
+        )
+        assert response.status_code == 201
+        assert response.json()["message"] == "Owner contact saved"
+
+    def test_admin_setup_rejects_password_fields(self, client: TestClient):
+        response = client.post(
+            "/api/v1/setup/admin",
             json={
                 "email": "admin@example.com",
                 "username": "admin",
-                "password": "test-placeholder-password",
+                "password": "".join(("rejected", "-field")),
             },
         )
-        assert response.status_code == 201
-        assert "message" in response.json()
+
+        assert response.status_code == 422
 
     def test_admin_setup_requires_auth_if_already_complete(self, client: TestClient):
         setup_status["is_setup_complete"] = True
 
         response = client.post(
             "/api/v1/setup/admin",
-            json={
-                "email": "admin2@example.com",
-                "username": "admin2",
-                "password": "pass",
-            },
+            json={"email": "admin2@example.com"},
         )
 
         assert response.status_code == 401
@@ -227,11 +234,7 @@ class TestSetupAdmin:
         try:
             response = client.post(
                 "/api/v1/setup/admin",
-                json={
-                    "email": "admin2@example.com",
-                    "username": "admin2",
-                    "password": "pass",
-                },
+                json={"email": "admin2@example.com"},
                 headers={"X-API-Key": api_key},
             )
         finally:

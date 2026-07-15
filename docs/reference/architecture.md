@@ -10,7 +10,23 @@ DMARQ is designed as a modern web application with a clear separation between th
 
 ### Backend Components
 
-![DMARQ Architecture](../assets/images/architecture_diagram.png)
+The deployed data flow is:
+
+```text
+Browser / API client
+        |
+        v
+FastAPI + server-rendered UI (container port 8080)
+        |
+        +--> PostgreSQL or SQLite
+        +--> mailbox connectors and scheduled polling
+        +--> DNS and provider read integrations
+        +--> report parser, remediation, and exports
+```
+
+Docker Compose runs the application and PostgreSQL on one private network.
+Kubernetes can use the same application image with a cluster-managed database
+and settings injected through Secrets and ConfigMaps.
 
 #### API Server
 
