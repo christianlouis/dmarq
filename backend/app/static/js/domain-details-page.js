@@ -717,6 +717,15 @@ function domainDetailsApp(domainId = '') {
             return item.repair_progression?.next_safe_action || this.primaryRemediationNextStep;
         },
 
+        get primaryRemediationScopeNote() {
+            const itemId = String(this.primaryRemediationItem?.id || '').toLowerCase();
+            const optionalPosture = ['bimi', 'mta_sts', 'mta-sts', 'tls_rpt', 'tls-rpt'];
+            if (optionalPosture.some(token => itemId.includes(token))) {
+                return 'No higher-priority DMARC authentication blocker is active. This is an optional posture improvement.';
+            }
+            return 'DMARQ prioritizes active DMARC failures, sender alignment, and enforcement blockers before optional posture work.';
+        },
+
         get primaryRemediationReadinessContext() {
             const reasons = this.primaryRemediationItem?.repair_progression?.readiness_reasons || [];
             return reasons[0] || 'Review current evidence before opening, dispatching, or closing this remediation.';

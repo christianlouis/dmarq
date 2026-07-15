@@ -23,7 +23,11 @@
                 {% endif %}
             </p>
         </div>
-        <div class="flex flex-wrap gap-2">
+        <div class="flex flex-wrap gap-2" x-show="showSetupForm">
+            <span x-show="hasUnsavedDraft"
+                  class="inline-flex items-center rounded-full bg-[#fff4df] px-3 py-1 text-xs font-semibold text-[#8a5b00]">
+                Unsaved setup changes
+            </span>
             <button type="button" class="btn btn-primary" :disabled="saving" data-onboarding-preview>
                 <span x-show="previewing" class="loading loading-spinner loading-xs"></span>
                 Preview tasks
@@ -54,8 +58,58 @@
         </div>
     </div>
 
-    <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
-        <section class="space-y-6">
+    <div x-show="setupStateLoading && singleUserMode"
+         role="status"
+         class="rounded-lg border border-[#e6e3e1] bg-white p-5 shadow-sm">
+        <div class="flex items-center gap-3">
+            <span class="loading loading-spinner loading-sm text-[#2f9da6]"></span>
+            <span class="text-sm font-medium text-[#5f5c78]">Checking the current setup...</span>
+        </div>
+    </div>
+
+    <div x-show="setupStateError && singleUserMode"
+         role="alert"
+         class="rounded-lg border border-[#ffcfbd] bg-[#fff2ec] p-4 text-sm text-[#8a2d0d]">
+        <p class="font-semibold">Setup status is unavailable</p>
+        <p class="mt-1" x-text="setupStateError"></p>
+    </div>
+
+    <section x-show="showSetupStatus"
+             class="rounded-lg bg-white p-6 shadow-sm"
+             aria-labelledby="current-setup-heading">
+        <div class="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+                <p class="text-sm font-semibold uppercase tracking-wide text-[#2f9da6]">Current setup</p>
+                <h2 id="current-setup-heading" class="mt-1 text-2xl font-semibold text-[#07071f]" x-text="setupHeadline"></h2>
+                <p class="mt-2 max-w-2xl text-sm leading-6 text-[#5f5c78]" x-text="setupSummary"></p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+                <a :href="setupPrimaryHref" class="btn btn-primary" x-text="setupPrimaryLabel"></a>
+                <button type="button" class="btn btn-outline" data-onboarding-reconfigure>
+                    Reconfigure setup
+                </button>
+            </div>
+        </div>
+        <div class="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <template x-for="item in setupStatusItems" :key="item.id">
+                <a :href="item.href"
+                   class="flex items-start gap-3 rounded-md border border-[#e6e3e1] p-4 transition hover:border-[#2f9da6] hover:bg-[#f7fbfb]">
+                    <span class="mt-0.5 grid h-6 w-6 flex-none place-items-center rounded-full text-xs font-bold"
+                          :class="item.complete ? 'bg-[#e7f6f2] text-[#176d58]' : item.optional ? 'bg-[#f1f0ef] text-[#6c687b]' : 'bg-[#fff0e8] text-[#9c3f18]'"
+                          x-text="item.complete ? 'OK' : item.optional ? 'Opt' : '!'">
+                    </span>
+                    <span class="min-w-0">
+                        <span class="block font-semibold text-[#120d36]" x-text="item.label"></span>
+                        <span class="mt-1 block text-sm leading-5 text-[#5f5c78]" x-text="item.detail"></span>
+                        <span class="mt-2 block text-sm font-semibold text-[#247982]" x-text="item.action"></span>
+                    </span>
+                </a>
+            </template>
+        </div>
+    </section>
+
+    <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]" x-show="showSetupForm">
+        <form class="space-y-6" data-onboarding-form>
             <div class="grid gap-6 xl:grid-cols-2">
                 {% if multi_workspace_ui_enabled %}
                 <div class="rounded-lg bg-white p-6 shadow-sm">
@@ -158,7 +212,8 @@
                     <label class="form-control mt-4">
                         <span class="label-text font-medium">DMARC report mailbox</span>
                         <input x-model.trim="form.reportMailbox" type="email"
-                               class="input input-bordered" placeholder="dmarc@example.com">
+                               class="input input-bordered" placeholder="dmarc@example.com"
+                               autocomplete="email">
                     </label>
                 </div>
             </div>
@@ -196,7 +251,8 @@
                     <label class="form-control">
                         <span class="label-text font-medium">Username</span>
                         <input x-model.trim="form.imapUsername" type="text"
-                               class="input input-bordered" placeholder="dmarc@example.com">
+                               class="input input-bordered" placeholder="dmarc@example.com"
+                               autocomplete="username">
                     </label>
                     <label class="form-control">
                         <span class="label-text font-medium">Password</span>
@@ -214,7 +270,7 @@
                     A report source can be connected later from Mail Sources.
                 </div>
             </div>
-        </section>
+        </form>
 
         <aside class="space-y-6">
             <div class="rounded-lg bg-white p-6 shadow-sm">
@@ -271,10 +327,6 @@
                             <p class="mt-1 text-sm text-[#07071f]/60">
                                 DMARQ will show the exact domain, DNS, and report-source tasks first. Apply stays locked until the preview matches the current form.
                             </p>
-                            <button type="button" class="btn btn-primary btn-sm mt-4" :disabled="saving" data-onboarding-preview>
-                                <span x-show="previewing" class="loading loading-spinner loading-xs"></span>
-                                Preview setup tasks
-                            </button>
                         </div>
                     </template>
                     <template x-for="task in tasks" :key="task.id">

@@ -40,50 +40,32 @@
         <p class="mt-1" x-text="dashboardRefreshError"></p>
     </div>
 
-    <div class="rounded-lg bg-white p-4 shadow-sm" x-show="hasReportData" x-cloak data-tour="date-filter">
-        <div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-            <div class="grid gap-1">
-                <label class="text-sm font-semibold text-[#120d36]" for="dashboard-date-interval">
-                    Date range
-                </label>
-                <div class="flex flex-wrap items-center gap-2">
-                    <select id="dashboard-date-interval"
-                            class="rounded-md border border-[#dfdfdf] bg-white px-3 py-2 text-sm font-semibold text-[#120d36]"
-                            x-model="dateInterval"
-                            data-dashboard-date-interval>
-                        <template x-for="option in dateIntervalOptions" :key="option.value">
-                            <option :value="option.value"
-                                    :selected="option.value === dateInterval"
-                                    x-text="option.label"></option>
-                        </template>
-                    </select>
-                    <template x-if="dateInterval === 'custom'">
-                        <div class="flex flex-wrap items-center gap-2">
-                            <input type="date"
-                                   class="rounded-md border border-[#dfdfdf] bg-white px-3 py-2 text-sm text-[#120d36]"
-                                   aria-label="Custom start date"
-                                   x-model="customStartDate">
-                            <input type="date"
-                                   class="rounded-md border border-[#dfdfdf] bg-white px-3 py-2 text-sm text-[#120d36]"
-                                   aria-label="Custom end date"
-                                   x-model="customEndDate">
-                            <button type="button"
-                                    class="rounded-md bg-[#272a5f] px-3 py-2 text-sm font-semibold text-white hover:bg-[#171346]"
-                                    data-dashboard-custom-apply>
-                                Apply
-                            </button>
-                        </div>
-                    </template>
+    <section class="rounded-lg border border-[#d8edf0] bg-[#f3fbfc] p-5 shadow-sm"
+             x-show="hasReportData" x-cloak aria-labelledby="dashboard-next-action-heading">
+        <div class="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+            <div class="flex min-w-0 items-start gap-4">
+                <span class="mt-1 h-3 w-3 flex-none rounded-full"
+                      :class="severityDotClass(dashboardNextAction.severity)"></span>
+                <div class="min-w-0">
+                    <p class="text-xs font-semibold uppercase tracking-wide text-[#247982]" x-text="dashboardNextAction.eyebrow"></p>
+                    <h2 id="dashboard-next-action-heading" class="mt-1 text-2xl font-semibold text-[#07071f]" x-text="dashboardNextAction.title"></h2>
+                    <p class="mt-2 max-w-3xl text-sm leading-6 text-[#5f5c78]" x-text="dashboardNextAction.detail"></p>
+                    <div class="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-[#5f5c78]">
+                        <span class="rounded-full bg-white px-3 py-1" x-text="dashboardScopeLabel"></span>
+                        <span class="rounded-full bg-white px-3 py-1" x-text="intakeSchedulerLabel"></span>
+                    </div>
                 </div>
             </div>
-            <p class="text-sm text-[#5f5c78]" x-text="dateRangeLabel"></p>
+            <a :href="dashboardNextAction.href"
+               class="btn btn-primary w-full flex-none lg:w-auto"
+               x-text="dashboardNextAction.label"></a>
         </div>
-    </div>
+    </section>
 
     <section class="rounded-lg bg-white p-6 shadow-sm" x-show="healthSummary && hasReportData" x-cloak data-tour="health-score">
         <div class="grid gap-6 xl:grid-cols-[18rem_minmax(0,1fr)]">
             <div class="rounded-lg bg-[#f4f3f2] p-5">
-                <p class="text-xs font-semibold uppercase tracking-wide text-[#2f9da5]">System Health</p>
+                <p class="text-xs font-semibold uppercase tracking-wide text-[#2f9da5]">Traffic-weighted health</p>
                 <div class="mt-4 flex items-end gap-4">
                     <div class="text-6xl font-bold leading-none text-[#120d36]" x-text="healthScore"></div>
                     <div class="pb-1">
@@ -94,6 +76,7 @@
                     </div>
                 </div>
                 <p class="mt-4 text-sm text-[#5f5c78]">
+                    <span>Weighted by message volume. </span>
                     <span x-text="healthAttentionDomains"></span>
                     <span> of </span>
                     <span x-text="healthDomainCount"></span>
@@ -145,18 +128,18 @@
                 <div>
                     <div class="flex items-start justify-between gap-3">
                         <div>
-                            <h2 class="text-2xl font-semibold tracking-normal text-[#07071f]">Action Plan</h2>
-                            <p class="mt-1 text-sm text-[#5f5c78]">Prioritized fixes linked to domain remediation queues.</p>
+                            <h2 class="text-2xl font-semibold tracking-normal text-[#07071f]">More actions</h2>
+                            <p class="mt-1 text-sm text-[#5f5c78]">Additional fixes after the primary next action above.</p>
                         </div>
                         <a href="/domains" class="text-sm font-semibold text-[#2f9da5] hover:text-[#272a5f]">Open domains</a>
                     </div>
                     <div class="mt-4 grid gap-3">
-                        <template x-if="!hasTopHealthActions">
+                        <template x-if="!hasSecondaryHealthActions">
                             <div class="rounded-md border border-[#e6e3e1] p-4 text-sm text-[#5f5c78]">
-                                No immediate remediation actions. Keep monitoring reports and DNS drift.
+                                No additional remediation actions. Keep monitoring reports and DNS drift.
                             </div>
                         </template>
-                        <template x-for="action in topHealthActions" :key="action.domain + action.type">
+                        <template x-for="action in secondaryHealthActions" :key="action.domain + action.type">
                             <a class="rounded-md border border-[#e6e3e1] p-4 transition hover:border-[#2f9da5] hover:shadow-sm"
                                :href="domainActionHref(action)">
                                 <div class="flex items-start justify-between gap-3">
@@ -219,6 +202,49 @@
             </div>
         </div>
     </section>
+
+    <details class="rounded-lg border border-[#dfdfdf] bg-white shadow-sm"
+             x-show="hasReportData" x-cloak data-tour="date-filter">
+        <summary class="flex cursor-pointer list-none flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+                <p class="font-semibold text-[#120d36]">Analytics window</p>
+                <p class="mt-1 text-sm text-[#5f5c78]">Change the evidence period used by trends and report-volume analytics.</p>
+            </div>
+            <span class="w-fit rounded bg-[#f4f3f2] px-2 py-1 text-xs font-semibold text-[#5f5c78]" x-text="dateRangeLabel"></span>
+        </summary>
+        <div class="border-t border-[#dfdfdf] p-4">
+            <div class="flex flex-wrap items-center gap-2">
+                <label class="sr-only" for="dashboard-date-interval">Date range</label>
+                <select id="dashboard-date-interval"
+                        class="rounded-md border border-[#dfdfdf] bg-white px-3 py-2 text-sm font-semibold text-[#120d36]"
+                        x-model="dateInterval"
+                        data-dashboard-date-interval>
+                    <template x-for="option in dateIntervalOptions" :key="option.value">
+                        <option :value="option.value"
+                                :selected="option.value === dateInterval"
+                                x-text="option.label"></option>
+                    </template>
+                </select>
+                <template x-if="dateInterval === 'custom'">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <input type="date"
+                               class="rounded-md border border-[#dfdfdf] bg-white px-3 py-2 text-sm text-[#120d36]"
+                               aria-label="Custom start date"
+                               x-model="customStartDate">
+                        <input type="date"
+                               class="rounded-md border border-[#dfdfdf] bg-white px-3 py-2 text-sm text-[#120d36]"
+                               aria-label="Custom end date"
+                               x-model="customEndDate">
+                        <button type="button"
+                                class="rounded-md bg-[#272a5f] px-3 py-2 text-sm font-semibold text-white hover:bg-[#171346]"
+                                data-dashboard-custom-apply>
+                            Apply
+                        </button>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </details>
 
     <details class="rounded-lg border border-[#dfdfdf] bg-white shadow-sm"
              x-show="healthSummary && hasReportData" x-cloak>
@@ -605,7 +631,17 @@
     </section>
     </details>
 
-    <div class="grid grid-cols-1 gap-6 xl:grid-cols-12" x-show="hasReportData" x-cloak>
+    <details class="rounded-lg border border-[#dfdfdf] bg-white shadow-sm"
+             x-show="hasReportData" x-cloak>
+        <summary class="flex cursor-pointer list-none flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+                <p class="font-semibold text-[#120d36]">Analytics and evidence</p>
+                <p class="mt-1 text-sm text-[#5f5c78]">Trends, enforcement, sending sources, changes, and the full domain table.</p>
+            </div>
+            <span class="w-fit rounded bg-[#f4f3f2] px-2 py-1 text-xs font-semibold text-[#5f5c78]" x-text="dateRangeLabel"></span>
+        </summary>
+        <div class="space-y-6 border-t border-[#dfdfdf] p-4 sm:p-6">
+    <div class="grid grid-cols-1 gap-6 xl:grid-cols-12">
         <section class="rounded-lg bg-white p-6 shadow-sm xl:col-span-6" data-tour="compliance-chart">
             <div class="mb-3 grid gap-2 sm:flex sm:items-start sm:justify-between sm:gap-4">
                 <h2 class="min-w-0 text-2xl font-semibold tracking-normal text-[#07071f]">
@@ -783,6 +819,8 @@
             {% endcall %}
         {% endcall %}
     </div>
+        </div>
+    </details>
     
     <!-- No Data Message -->
     <div x-show="!dashboardLoading && !dashboardError && !hasReportData" x-cloak>
@@ -792,9 +830,9 @@
                     <p class="text-sm font-semibold uppercase tracking-wide text-[#2f9da5]">Welcome to DMARQ</p>
                     <h3 class="mt-2 text-2xl font-semibold text-[#120d36]">Start by connecting your report mailbox</h3>
                     <p class="mt-2 max-w-2xl text-sm text-[#5f5c78]">DMARQ needs aggregate reports before it can identify senders, measure authentication, or recommend DNS changes.</p>
-                    <p class="mt-2 text-sm font-semibold text-[#247982]" x-show="hasDomainData">
-                        <span x-text="domains.length"></span>
-                        monitored domain<span x-show="domains.length !== 1">s</span> already added. Report intake is the next step.
+                    <p class="mt-2 text-sm font-semibold text-[#247982]" x-show="hasConfiguredDomainData">
+                        <span x-text="configuredDomainCount"></span>
+                        monitored domain<span x-show="configuredDomainCount !== 1">s</span> already added. Report intake is the next step.
                     </p>
                     <div class="mt-5 flex flex-wrap gap-2">
                         {% call button_link(href="/mail-sources", variant="primary") %}
