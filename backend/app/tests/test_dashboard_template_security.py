@@ -160,6 +160,37 @@ def _provider_demo_script() -> str:
     return _read_project_file("static", "js", "provider-demo-page.js")
 
 
+def _run_provider_demo_expression(expression: str) -> str:
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is required to execute provider-demo-page.js behavior tests")
+
+    script_path = Path(__file__).resolve().parents[1] / "static" / "js" / "provider-demo-page.js"
+    runner = textwrap.dedent("""
+        const fs = require('fs');
+        const script = fs.readFileSync(process.argv[1], 'utf8');
+        const document = {addEventListener: () => {}};
+        const Alpine = {data: () => {}};
+        const window = {};
+        const providerDemoFactory = new Function(
+            'document',
+            'Alpine',
+            'window',
+            `${script}\nreturn providerDemo;`
+        )(document, Alpine, window);
+        const app = providerDemoFactory();
+        const expression = process.argv[2];
+        process.stdout.write(String(new Function('app', `return ${expression};`)(app)));
+        """)
+    result = subprocess.run(
+        [node, "-e", runner, str(script_path), expression],
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+    return result.stdout
+
+
 def _reports_template() -> str:
     return _read_project_file("templates", "reports.html")
 
@@ -3167,8 +3198,40 @@ def test_provider_demo_is_separate_from_dashboard_controls():
     assert "saveBilling" in script
     assert "addUser" in script
     assert "startSupportSession" in script
+    assert "String(user.id)" not in template
+    assert ':value="impersonationUserId(user)"' in template
+    assert "impersonationUserId(user)" in script
     assert "x-html" not in template
     assert "innerHTML" not in script
+
+
+def test_provider_demo_impersonation_user_ids_stay_string_values():
+    result = _run_provider_demo_expression(
+        "[app.impersonationUserId({id: 42}), "
+        "app.impersonationUserId({id: 'user-7'}), "
+        "app.impersonationUserId(null)].join('|')"
+    )
+
+    assert result == "42|user-7|"
+
+
+def test_provider_demo_resolves_selected_impersonation_user_by_id_before_stale_email():
+    result = _run_provider_demo_expression(
+        "(() => {"
+        "app.accounts = [{slug: 'account', users: ["
+        "{id: 1, email: 'first@example.test', can_impersonate: true},"
+        "{id: 2, email: 'second@example.test', can_impersonate: true}"
+        "]}];"
+        "app.selectedAccountSlug = 'account';"
+        "app.supportDraft = {target_user_id: '2', target_user_email: 'first@example.test'};"
+        "const selected = app.selectedImpersonationUser();"
+        "app.supportDraft.target_user_id = '';"
+        "const fallback = app.selectedImpersonationUser();"
+        "return [selected.email, fallback.email].join('|');"
+        "})()"
+    )
+
+    assert result == "second@example.test|first@example.test"
 
 
 def test_dashboard_distinguishes_loading_error_and_empty_states():

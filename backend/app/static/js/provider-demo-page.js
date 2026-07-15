@@ -816,14 +816,12 @@ function providerDemo() {
         async startSupportSession() {
             this.supportSessionError = '';
             const reason = this.supportDraft.reason.trim();
-            const targetUser = this.impersonationUsers.find(
-                user => String(user.id) === String(this.supportDraft.target_user_id)
-                    || user.email === this.supportDraft.target_user_email
-            );
+            const targetUser = this.selectedImpersonationUser();
             if (!reason || !targetUser || !this.selectedAccount.workspace_id) {
                 this.supportSessionError = 'Zielbenutzer und Grund sind erforderlich.';
                 return;
             }
+            this.supportDraft.target_user_email = targetUser.email;
             this.startingSupportSession = true;
             try {
                 const response = await fetch('/api/v1/operator/support-session', {
@@ -1023,6 +1021,23 @@ function providerDemo() {
         impersonationUserOptionLabel(user) {
             const supportRole = user.support_role || user.role;
             return `${user.name} · ${this.roleLabel(supportRole)} · ${user.email}`;
+        },
+
+        impersonationUserId(user) {
+            return user && user.id != null ? String(user.id) : '';
+        },
+
+        selectedImpersonationUser() {
+            const selectedId = this.supportDraft.target_user_id;
+            if (selectedId !== '' && selectedId != null) {
+                const idMatch = this.impersonationUsers.find(
+                    user => this.impersonationUserId(user) === String(selectedId)
+                );
+                if (idMatch) return idMatch;
+            }
+            return this.impersonationUsers.find(
+                user => user.email === this.supportDraft.target_user_email
+            ) || null;
         },
 
         dateLabel(value) {
