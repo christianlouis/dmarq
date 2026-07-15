@@ -211,6 +211,12 @@ function dashboardApp() {
             };
         },
 
+        get showDashboardNextAction() {
+            return this.hasReportData ||
+                this.intakeState.reauthSources > 0 ||
+                this.intakeState.attentionSources > 0;
+        },
+
         get dashboardScopeLabel() {
             const hidden = Number(this.hiddenEmptyDomainsCount || 0);
             if (!hidden) return 'Report-backed domains only';

@@ -14,7 +14,7 @@ function workspaceOnboarding(options = {}) {
         setupStateError: '',
         setupStateLoaded: false,
         configuring: false,
-        initialDraftSignature: '',
+        draftDirty: false,
         setupState: {
             domains: 0,
             reports: 0,
@@ -48,7 +48,11 @@ function workspaceOnboarding(options = {}) {
             return this.singleUserMode && this.setupStateLoaded && this.hasExistingSetup && !this.configuring;
         },
         get showSetupForm() {
-            return this.multiWorkspaceUiEnabled || !this.setupStateLoaded || !this.hasExistingSetup || this.configuring;
+            if (this.multiWorkspaceUiEnabled || this.configuring) return true;
+            return this.setupStateLoaded &&
+                !this.setupStateLoading &&
+                !this.setupStateError &&
+                !this.hasExistingSetup;
         },
         get setupStatusItems() {
             const state = this.setupState;
@@ -129,7 +133,7 @@ function workspaceOnboarding(options = {}) {
             return 'Domains, report intake, and DMARC evidence are available. Optional integrations can be configured when needed.';
         },
         get hasUnsavedDraft() {
-            return Boolean(this.initialDraftSignature && this.initialDraftSignature !== this.currentPreviewSignature);
+            return this.draftDirty;
         },
         get showWorkspaceSwitchSuccess() {
             return this.multiWorkspaceUiEnabled && Boolean(this.result?.workspace);
@@ -183,14 +187,17 @@ function workspaceOnboarding(options = {}) {
             if (flag === 'true' || flag === 'false') {
                 this.multiWorkspaceUiEnabled = flag === 'true';
             }
+            this.draftDirty = localStorage.getItem('dmarq.onboarding.draftDirty') === 'true';
             this.draftFields().forEach((field) => {
                 const storedValue = localStorage.getItem(`dmarq.onboarding.${field}`);
                 if (storedValue !== null) {
                     this.form[field] = storedValue;
                 }
-                this.$watch(`form.${field}`, () => this.persistDraft());
+                this.$watch(`form.${field}`, () => {
+                    this.draftDirty = true;
+                    this.persistDraft();
+                });
             });
-            this.initialDraftSignature = this.currentPreviewSignature;
             this.bindControls();
             this.loadSetupState();
         },
@@ -379,7 +386,7 @@ function workspaceOnboarding(options = {}) {
                         ? 'Mail health setup was applied.'
                         : 'Workspace onboarding was applied.';
                     this.persistAppliedWorkspace(data.result);
-                    this.initialDraftSignature = this.currentPreviewSignature;
+                    this.draftDirty = false;
                     await this.loadSetupState();
                 }
                 this.persistDraft();
@@ -420,6 +427,7 @@ function workspaceOnboarding(options = {}) {
             this.draftFields().forEach((field) => {
                 localStorage.setItem(`dmarq.onboarding.${field}`, this.form[field] || '');
             });
+            localStorage.setItem('dmarq.onboarding.draftDirty', String(this.draftDirty));
         },
     };
 }

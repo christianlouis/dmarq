@@ -217,6 +217,7 @@ function reportDetailApp(reportId = '') {
                     unknown: 0,
                     ips: [],
                     nextAction: '',
+                    nextActionPriority: -1,
                 };
                 const count = Number(record.count || 0);
                 const dkim = String(record.dkim_result || '').toLowerCase();
@@ -231,16 +232,20 @@ function reportDetailApp(reportId = '') {
                 if (mixed) cluster.mixed += count;
                 if (unknown) cluster.unknown += count;
                 if (record.source_ip && !cluster.ips.includes(record.source_ip)) cluster.ips.push(record.source_ip);
-                if (!cluster.nextAction) {
-                    cluster.nextAction = (record.next_steps || [])[0] ||
-                        this.recordSenderRemediationHint(record) ||
-                        (record.failure_reasons || [])[0] || '';
+                const actionPriority = authFailure ? 3 : mixed ? 2 : unknown ? 1 : 0;
+                const nextAction = (record.next_steps || [])[0] ||
+                    this.recordSenderRemediationHint(record) ||
+                    (record.failure_reasons || [])[0] || '';
+                if (actionPriority > cluster.nextActionPriority) {
+                    cluster.nextAction = nextAction;
+                    cluster.nextActionPriority = actionPriority;
                 }
                 clusters.set(key, cluster);
             });
             return Array.from(clusters.values())
                 .sort((left, right) => (
                     right.failures - left.failures ||
+                    right.mixed - left.mixed ||
                     right.unknown - left.unknown ||
                     right.messages - left.messages
                 ))
@@ -301,6 +306,10 @@ function reportDetailApp(reportId = '') {
         setRecordRiskFilter(filter) {
             this.recordRiskFilter = filter;
             this.recordPageSize = 25;
+            const records = this.$root && typeof this.$root.querySelector === 'function'
+                ? this.$root.querySelector('#report-records')
+                : null;
+            if (records) records.open = true;
             window.location.hash = 'report-records';
         },
 

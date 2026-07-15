@@ -216,6 +216,34 @@ def _onboarding_script() -> str:
     return _read_project_file("static", "js", "onboarding-page.js")
 
 
+def _run_onboarding_expression(storage: dict[str, str], expression: str) -> object:
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is required to execute onboarding-page.js behavior tests")
+
+    script_path = Path(__file__).resolve().parents[1] / "static" / "js" / "onboarding-page.js"
+    runner = textwrap.dedent("""
+        const fs = require('fs');
+        const script = fs.readFileSync(process.argv[1], 'utf8');
+        const onboardingFactory = new Function(`${script}\nreturn workspaceOnboarding;`)();
+        const values = new Map(Object.entries(JSON.parse(process.argv[2])));
+        global.localStorage = {
+            getItem: (key) => values.has(key) ? values.get(key) : null,
+            setItem: (key, value) => values.set(key, String(value)),
+        };
+        const app = onboardingFactory();
+        const result = new Function('app', `return ${process.argv[3]};`)(app);
+        process.stdout.write(JSON.stringify(result));
+        """)
+    result = subprocess.run(
+        [node, "-e", runner, str(script_path), json.dumps(storage), expression],
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+    return json.loads(result.stdout)
+
+
 def _forensic_reports_template() -> str:
     return _read_project_file("templates", "forensic_reports.html")
 
@@ -258,6 +286,7 @@ def _run_report_detail_expression(payload: dict[str, object], expression: str) -
         const fs = require('fs');
         const script = fs.readFileSync(process.argv[1], 'utf8');
         const reportDetailFactory = new Function(`${script}\nreturn reportDetailApp;`)();
+        global.window = { location: { hash: '' } };
         const app = reportDetailFactory('report-id');
         app.report = { records: JSON.parse(process.argv[2]) };
         const result = new Function('app', `return ${process.argv[3]};`)(app);
@@ -1405,11 +1434,21 @@ def test_dashboard_uses_external_page_script_for_csp_migration():
     assert "Traffic-weighted health" in template
     assert "Weighted by message volume." in template
     assert 'id="dashboard-next-action-heading"' in template
+    assert 'x-show="showDashboardNextAction"' in template
     assert "data-dashboard-demo-tour-close" in script
     assert "ownerDocument.addEventListener('keydown'" in script
     assert "removeEventListener('keydown'" in script
     assert not _has_inline_style(template)
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
+
+
+def test_dashboard_keeps_mailbox_recovery_visible_without_reports():
+    result = _run_dashboard_expression(
+        "(() => { app.hasReportData = false; app.intakeState.reauthSources = 1; "
+        "return app.showDashboardNextAction; })()"
+    )
+
+    assert result == "true"
 
 
 def test_operations_uses_external_page_script_for_csp_migration():
@@ -2680,6 +2719,90 @@ def test_report_detail_distinguishes_dmarc_failure_from_mixed_authentication():
     assert result["clusters"][0]["mixed"] == 2
 
 
+def test_report_detail_cluster_action_uses_highest_risk_record():
+    payload = {
+        "records": [
+            {
+                "count": 100,
+                "dkim_result": "pass",
+                "spf_result": "pass",
+                "disposition": "none",
+                "next_steps": ["Keep monitoring this sender."],
+                "source_details": {
+                    "network": "Example Network",
+                    "sender": {"provider": "Example Sender", "status": "known"},
+                },
+            },
+            {
+                "count": 1,
+                "dkim_result": "fail",
+                "spf_result": "fail",
+                "disposition": "reject",
+                "next_steps": ["Fix this sender's authentication."],
+                "source_details": {
+                    "network": "Example Network",
+                    "sender": {"provider": "Example Sender", "status": "known"},
+                },
+            },
+        ]
+    }
+
+    result = _run_report_detail_expression(payload, "app.senderClusters[0]")
+
+    assert result["nextAction"] == "Fix this sender's authentication."
+
+
+def test_report_detail_keeps_mixed_cluster_before_truncation():
+    clean_records = [
+        {
+            "count": 100,
+            "dkim_result": "pass",
+            "spf_result": "pass",
+            "disposition": "none",
+            "source_details": {
+                "network": f"Clean Network {index}",
+                "sender": {"provider": f"Clean Sender {index}", "status": "known"},
+            },
+        }
+        for index in range(8)
+    ]
+    payload = {
+        "records": clean_records
+        + [
+            {
+                "count": 1,
+                "dkim_result": "pass",
+                "spf_result": "fail",
+                "disposition": "none",
+                "source_details": {
+                    "network": "Mixed Network",
+                    "sender": {"provider": "Mixed Sender", "status": "known"},
+                },
+            }
+        ]
+    }
+
+    result = _run_report_detail_expression(
+        payload,
+        "app.senderClusters.map(cluster => cluster.provider)",
+    )
+
+    assert len(result) == 8
+    assert result[0] == "Mixed Sender"
+
+
+def test_report_detail_filter_opens_raw_evidence():
+    result = _run_report_detail_expression(
+        {"records": []},
+        "(() => { const target = { open: false }; "
+        "app.$root = { querySelector: () => target }; "
+        "app.setRecordRiskFilter('auth_review'); "
+        "return { open: target.open, hash: window.location.hash, filter: app.recordRiskFilter }; })()",
+    )
+
+    assert result == {"open": True, "hash": "report-records", "filter": "auth_review"}
+
+
 def test_report_detail_count_labels_handle_singular_and_plural():
     result = _run_report_detail_expression(
         {"records": []},
@@ -2943,6 +3066,35 @@ def test_onboarding_template_uses_single_user_setup_story_by_default():
     assert "Account boundary" not in rendered
     assert "Owner ready" not in rendered
     assert "Starter plan entitlement records" not in rendered
+
+
+def test_onboarding_hides_unconfirmed_setup_and_restores_draft_dirty_state():
+    result = _run_onboarding_expression(
+        {
+            "dmarq.onboarding.domain": "example.com",
+            "dmarq.onboarding.draftDirty": "true",
+        },
+        "(() => { app.$el = { dataset: { multiWorkspaceUi: 'false' } }; "
+        "app.$root = { addEventListener: () => {} }; app.$watch = () => {}; "
+        "app.loadSetupState = () => {}; app.init(); "
+        "const loadingFormVisible = app.showSetupForm; "
+        "const restoredDraftDirty = app.hasUnsavedDraft; "
+        "app.setupStateLoading = false; app.setupStateLoaded = true; "
+        "app.setupStateError = 'Status unavailable'; "
+        "const failedFormVisible = app.showSetupForm; "
+        "app.setupStateError = ''; const freshFormVisible = app.showSetupForm; "
+        "app.draftDirty = false; app.persistDraft(); "
+        "return { loadingFormVisible, restoredDraftDirty, failedFormVisible, "
+        "freshFormVisible, storedDirty: localStorage.getItem('dmarq.onboarding.draftDirty') }; })()",
+    )
+
+    assert result == {
+        "loadingFormVisible": False,
+        "restoredDraftDirty": True,
+        "failedFormVisible": False,
+        "freshFormVisible": True,
+        "storedDirty": "false",
+    }
 
 
 def test_onboarding_template_keeps_workspace_story_for_multi_workspace_mode():
