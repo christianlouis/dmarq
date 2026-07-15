@@ -1,7 +1,7 @@
 name: CI
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event.inputs.release_ref || 'branch' }}
   cancel-in-progress: true
 
 on:

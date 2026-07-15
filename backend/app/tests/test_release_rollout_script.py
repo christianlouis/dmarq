@@ -94,10 +94,13 @@ def test_release_workflow_skips_gitops_for_stale_main_runs():
 
 
 def test_ci_cancels_superseded_runs_for_the_same_ref():
-    """A newer main or PR run must own moving image tags and deployment gates."""
+    """Superseded branch runs cancel without aborting tag release dispatches."""
     workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
-    assert "group: ci-${{ github.workflow }}-${{ github.ref }}" in workflow
+    assert (
+        "group: ci-${{ github.workflow }}-${{ github.ref }}-"
+        "${{ github.event.inputs.release_ref || 'branch' }}"
+    ) in workflow
     assert "cancel-in-progress: true" in workflow
 
 
