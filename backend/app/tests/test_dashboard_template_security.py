@@ -1846,6 +1846,11 @@ def test_report_detail_uses_external_page_script_for_csp_migration():
     assert "reputationLabel" in script
     assert "reputationEvidencePreview" in script
     assert "senderStatusClass" in script
+    assert "normalizeReport" in script
+    assert "reportDomainUrl" in script
+    assert "?." not in template
+    assert "??" not in template
+    assert "encodeURIComponent" not in template
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
 
 

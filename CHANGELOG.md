@@ -10,8 +10,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Kept workspace-scoped status and navigation reads available during long
   SQLite mailbox backfills by avoiding no-op legacy workspace migration writes.
+- Kept Docker and Kubernetes HTTP readiness independent from scheduled mailbox
+  scans by moving blocking connector work off the application event loop and
+  delaying the first cycle until startup completes.
+- Recognized common provider subjects such as `Report domain:` during IMAP
+  connection tests, ignored unrelated archives without parse-error noise, and
+  parsed quoted Gmail folder names correctly.
+- Restored report-detail and forensics interactions under strict CSP and kept
+  each DKIM remediation card tied to its matching selector.
 
 ### Added
+- Added honest, incremental IMAP backfill diagnostics with checked, recognized,
+  new, existing, ignored, and warning counts plus persisted polling progress.
+- Replaced the wide Mail Sources account table with responsive account rows,
+  a clear Import action, direct historical backfill access, and progressively
+  disclosed connection, history, edit, and delete controls.
 - Simplified the first-run information hierarchy without removing capabilities:
   the core navigation now leads with dashboard, domains, reports, mail sources,
   and settings; specialized tools remain available under More and Advanced;

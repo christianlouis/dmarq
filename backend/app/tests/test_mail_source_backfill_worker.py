@@ -83,8 +83,10 @@ def test_run_due_imap_backfill_completes_job_and_records_import(db_session, monk
         def __init__(self, **kwargs):
             self.kwargs = kwargs
 
-        def fetch_reports(self, days):
+        def fetch_reports(self, days, progress_callback=None):
             assert days == 10
+            if progress_callback:
+                progress_callback({**results, "processed": 5, "total_messages": 12})
             return results
 
     monkeypatch.setattr(
@@ -157,7 +159,7 @@ def test_run_imap_backfill_marks_exhausted_attempt_failed(db_session, monkeypatc
         def __init__(self, **_kwargs):
             pass
 
-        def fetch_reports(self, days):
+        def fetch_reports(self, days, **_kwargs):
             raise RuntimeError("login failed for token=secret-value")
 
     monkeypatch.setattr(

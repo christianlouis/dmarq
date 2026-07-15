@@ -219,7 +219,9 @@ class MailSourceBackfillResponse(BaseModel):
     requested_by: Optional[str] = None
     processed: int
     reports_found: int
+    recognized_reports: int
     duplicate_reports: int
+    skipped_attachments: int
     error_count: int
     attempt_count: int
     max_attempts: int
@@ -765,6 +767,7 @@ def _backfill_status_summary(
     processed: int,
     reports_found: int,
     duplicate_reports: int,
+    skipped_attachments: int,
     error_count: int,
     attempt_count: int,
     max_attempts: int,
@@ -775,8 +778,10 @@ def _backfill_status_summary(
     if status_value == "queued":
         return f"Queued to scan a {window}."
     if status_value == "running":
+        recognized_reports = reports_found + duplicate_reports
         return (
-            f"Scanning a {window}; {processed} messages checked and {reports_found} reports found."
+            f"Scanning a {window}; {processed} messages checked and "
+            f"{recognized_reports} reports recognized."
         )
     if status_value == "backoff":
         return (
@@ -784,9 +789,17 @@ def _backfill_status_summary(
             f"attempt {attempt_count} of {max_attempts}."
         )
     if status_value == "completed":
+        recognized_reports = reports_found + duplicate_reports
+        if skipped_attachments == 1:
+            skipped_suffix = " 1 unrelated attachment was ignored."
+        elif skipped_attachments:
+            skipped_suffix = f" {skipped_attachments} unrelated attachments were ignored."
+        else:
+            skipped_suffix = ""
         return (
-            f"Completed a {window}; {reports_found} reports imported or confirmed "
-            f"and {duplicate_reports} duplicates skipped."
+            f"Completed a {window}; {recognized_reports} reports recognized "
+            f"({reports_found} new, {duplicate_reports} already imported)."
+            f"{skipped_suffix}"
         )
     if status_value == "failed":
         return f"Failed after attempt {attempt_count} of {max_attempts}."
@@ -805,6 +818,7 @@ def _backfill_metadata(
     processed: int,
     reports_found: int,
     duplicate_reports: int,
+    skipped_attachments: int,
     error_count: int,
     attempt_count: int,
     max_attempts: int,
@@ -815,12 +829,15 @@ def _backfill_metadata(
         "requested_window_days": requested_window_days,
         "elapsed_seconds": _backfill_elapsed_seconds(started_at, finished_at, now=now),
         "progress_percent": _backfill_progress_percent(status_value, processed),
+        "recognized_reports": reports_found + duplicate_reports,
+        "skipped_attachments": skipped_attachments,
         "status_summary": _backfill_status_summary(
             status_value=status_value,
             requested_window_days=requested_window_days,
             processed=processed,
             reports_found=reports_found,
             duplicate_reports=duplicate_reports,
+            skipped_attachments=skipped_attachments,
             error_count=error_count,
             attempt_count=attempt_count,
             max_attempts=max_attempts,
@@ -832,6 +849,8 @@ def _backfill_metadata(
 
 def _backfill_to_response(row: MailSourceBackfillJob) -> MailSourceBackfillResponse:
     """Convert a backfill job ORM row to an API response."""
+    details = _decode_json_details(row.details)
+    skipped_attachments = sum(1 for detail in details if detail.get("status") == "skipped")
     metadata = _backfill_metadata(
         status_value=row.status,
         requested_start=row.requested_start,
@@ -841,6 +860,7 @@ def _backfill_to_response(row: MailSourceBackfillJob) -> MailSourceBackfillRespo
         processed=row.processed,
         reports_found=row.reports_found,
         duplicate_reports=row.duplicate_reports,
+        skipped_attachments=skipped_attachments,
         error_count=row.error_count,
         attempt_count=row.attempt_count,
         max_attempts=row.max_attempts,
@@ -865,7 +885,7 @@ def _backfill_to_response(row: MailSourceBackfillJob) -> MailSourceBackfillRespo
         cursor_checkpoint=cursor_checkpoint,
         **metadata,
         errors=_decode_json_list(row.errors),
-        details=_decode_json_details(row.details),
+        details=details,
         started_at=row.started_at,
         finished_at=row.finished_at,
         cancelled_at=row.cancelled_at,
@@ -886,6 +906,8 @@ def _demo_mail_source_by_id(source_id: int) -> Optional[Dict[str, Any]]:
 
 
 def _demo_backfill_response(row: Dict[str, Any]) -> MailSourceBackfillResponse:
+    details = row.get("details") if isinstance(row.get("details"), list) else []
+    skipped_attachments = sum(1 for detail in details if detail.get("status") == "skipped")
     metadata = _backfill_metadata(
         status_value=str(row["status"]),
         requested_start=row.get("requested_start"),
@@ -895,6 +917,7 @@ def _demo_backfill_response(row: Dict[str, Any]) -> MailSourceBackfillResponse:
         processed=int(row.get("processed") or 0),
         reports_found=int(row.get("reports_found") or 0),
         duplicate_reports=int(row.get("duplicate_reports") or 0),
+        skipped_attachments=skipped_attachments,
         error_count=int(row.get("error_count") or 0),
         attempt_count=int(row.get("attempt_count") or 0),
         max_attempts=int(row.get("max_attempts") or 1),

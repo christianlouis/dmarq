@@ -635,6 +635,12 @@ def test_mail_sources_template_exposes_backfill_progress_controls():
     assert 'x-data="mailSourcesApp"' in template
     assert "mailSourcesApp()" not in template
     assert "data-backfill-progress" in template
+    assert "data-mail-source-card" in template
+    assert "Import now" in template
+    assert "More actions" in template
+    assert "backfillRecognized" in script
+    assert "backfillSkipped" in script
+    assert "Server / Account" not in template
     assert "status_summary" in template
     assert "progress_percent" in script
     assert "can_cancel" in script
@@ -1092,6 +1098,8 @@ class TestMailSourcesAPIAuthed:
         assert job["requested_window_days"] == 31
         assert job["elapsed_seconds"] is None
         assert job["progress_percent"] == 0
+        assert job["recognized_reports"] == 0
+        assert job["skipped_attachments"] == 0
         assert job["can_cancel"] is True
         assert job["can_retry"] is False
         assert job["status_summary"] == "Queued to scan a 31-day mailbox window."

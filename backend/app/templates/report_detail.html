@@ -51,11 +51,11 @@
                         <p class="mt-2 text-[#5f5c78]">
                             Submitted by <span x-text="report.org_name"></span>
                             &bull;
-                            <a :href="'/domains/' + encodeURIComponent(report.domain)" class="font-semibold text-[#2f9da5] hover:text-[#272a5f]" x-text="report.domain"></a>
+                            <a :href="reportDomainUrl" class="font-semibold text-[#2f9da5] hover:text-[#272a5f]" x-text="report.domain"></a>
                         </p>
                     </div>
                     <div class="flex flex-wrap gap-2">
-                        <a :href="'/domains/' + encodeURIComponent(report.domain)" class="btn btn-outline btn-sm border-[#dfdfdf] text-[#272a5f] hover:border-[#2f9da5] hover:bg-[#f4f3f2]">
+                        <a :href="reportDomainUrl" class="btn btn-outline btn-sm border-[#dfdfdf] text-[#272a5f] hover:border-[#2f9da5] hover:bg-[#f4f3f2]">
                             Back to Domain
                         </a>
                         <a href="/reports" class="btn btn-outline btn-sm border-[#dfdfdf] text-[#272a5f] hover:border-[#2f9da5] hover:bg-[#f4f3f2]">
@@ -131,16 +131,16 @@
                         <div class="space-y-3">
                             <div class="flex flex-wrap items-center gap-2">
                                 <span class="inline-flex items-center rounded px-2 py-1 text-xs font-semibold"
-                                      :class="reportReputationClass(report.reputation_summary?.status)"
-                                      x-text="report.reputation_summary?.status_label || 'Reputation unavailable'"></span>
+                                      :class="reportReputationClass(report.reputation_summary.status)"
+                                      x-text="report.reputation_summary.status_label || 'Reputation unavailable'"></span>
                                 <span class="inline-flex items-center rounded bg-base-200 px-2 py-1 font-mono text-xs text-base-content/80"
                                       x-text="reportReputationRiskLabel(report.reputation_summary)"></span>
                                 <span class="inline-flex items-center rounded px-2 py-1 text-xs"
-                                      :class="reputationFeedClass(report.reputation_summary?.feed_status)"
-                                      x-text="report.reputation_summary?.feed_summary || 'No reputation feed evidence is available.'"></span>
+                                      :class="reputationFeedClass(report.reputation_summary.feed_status)"
+                                      x-text="report.reputation_summary.feed_summary || 'No reputation feed evidence is available.'"></span>
                             </div>
-                            <p class="text-sm text-[#5f5c78]" x-text="report.reputation_summary?.status_detail || 'Sender reputation could not be calculated for this report.'"></p>
-                            <template x-if="report.reputation_summary?.worst_source">
+                            <p class="text-sm text-[#5f5c78]" x-text="report.reputation_summary.status_detail || 'Sender reputation could not be calculated for this report.'"></p>
+                            <template x-if="report.reputation_summary.worst_source">
                                 <div class="rounded border border-[#dfdfdf] bg-[#fbfbfb] p-3 text-sm text-[#5f5c78]">
                                     <div class="font-semibold text-[#120d36]">
                                         Highest-risk source:
@@ -158,23 +158,23 @@
                         <div class="grid grid-cols-2 gap-3 text-sm">
                             <div class="rounded border border-[#dfdfdf] p-3">
                                 <div class="text-xs font-semibold uppercase tracking-wide text-[#5f5c78]">Sources</div>
-                                <div class="text-2xl font-bold text-[#120d36]" x-text="report.reputation_summary?.total_sources ?? 0"></div>
+                                <div class="text-2xl font-bold text-[#120d36]" x-text="report.reputation_summary.total_sources || 0"></div>
                             </div>
                             <div class="rounded border border-[#dfdfdf] p-3">
                                 <div class="text-xs font-semibold uppercase tracking-wide text-[#5f5c78]">Listed</div>
-                                <div class="text-2xl font-bold text-[#ff6f3c]" x-text="report.reputation_summary?.listed_sources ?? 0"></div>
+                                <div class="text-2xl font-bold text-[#ff6f3c]" x-text="report.reputation_summary.listed_sources || 0"></div>
                             </div>
                             <div class="rounded border border-[#dfdfdf] p-3">
                                 <div class="text-xs font-semibold uppercase tracking-wide text-[#5f5c78]">Needs review</div>
-                                <div class="text-2xl font-bold text-[#c77700]" x-text="report.reputation_summary?.sources_needing_review ?? 0"></div>
+                                <div class="text-2xl font-bold text-[#c77700]" x-text="report.reputation_summary.sources_needing_review || 0"></div>
                             </div>
                             <div class="rounded border border-[#dfdfdf] p-3">
                                 <div class="text-xs font-semibold uppercase tracking-wide text-[#5f5c78]">Clean</div>
-                                <div class="text-2xl font-bold text-[#2f9da5]" x-text="report.reputation_summary?.clean_sources ?? 0"></div>
+                                <div class="text-2xl font-bold text-[#2f9da5]" x-text="report.reputation_summary.clean_sources || 0"></div>
                             </div>
                         </div>
                     </div>
-                    <template x-if="(report.reputation_summary?.recommendations || []).length">
+                    <template x-if="(report.reputation_summary.recommendations || []).length">
                         <div class="mt-4 rounded border border-[#d8edf0] bg-[#f3fbfc] p-3">
                             <div class="mb-2 text-sm font-semibold text-[#120d36]">Recommended next steps</div>
                             <ul class="space-y-1 text-sm text-[#5f5c78]">
@@ -338,50 +338,50 @@
                                             </div>
                                             <p x-show="recordSenderEvidence(record)" x-text="recordSenderEvidence(record)"></p>
                                             <p x-show="recordSenderRemediationHint(record)" class="text-[#120d36]" x-text="recordSenderRemediationHint(record)"></p>
-                                            <div x-show="record.source_details?.hostname">
+                                            <div x-show="record.source_details.hostname">
                                                 PTR: <span class="font-mono" x-text="record.source_details.hostname"></span>
                                             </div>
                                             <div>
                                                 <span x-text="sourceLocation(record)"></span>
                                             </div>
-                                            <div x-show="record.source_details?.city">
+                                            <div x-show="record.source_details.city">
                                                 City: <span x-text="record.source_details.city"></span>
                                             </div>
-                                            <div x-show="record.source_details?.asn || record.source_details?.network">
-                                                <span x-text="record.source_details?.asn || 'ASN unknown'"></span>
-                                                <span x-show="record.source_details?.network"> · </span>
-                                                <span x-text="record.source_details?.network || ''"></span>
+                                            <div x-show="record.source_details.asn || record.source_details.network">
+                                                <span x-text="record.source_details.asn || 'ASN unknown'"></span>
+                                                <span x-show="record.source_details.network"> · </span>
+                                                <span x-text="record.source_details.network || ''"></span>
                                             </div>
-                                            <div class="flex flex-wrap gap-1" x-show="record.source_details?.bgp_prefix || record.source_details?.registry || record.source_details?.allocated">
-                                                <span x-show="record.source_details?.bgp_prefix"
+                                            <div class="flex flex-wrap gap-1" x-show="record.source_details.bgp_prefix || record.source_details.registry || record.source_details.allocated">
+                                                <span x-show="record.source_details.bgp_prefix"
                                                       class="inline-flex items-center rounded bg-base-200 px-2 py-0.5 font-mono"
                                                       x-text="record.source_details.bgp_prefix"></span>
-                                                <span x-show="record.source_details?.registry"
+                                                <span x-show="record.source_details.registry"
                                                       class="inline-flex items-center rounded bg-base-200 px-2 py-0.5 uppercase"
                                                       x-text="record.source_details.registry"></span>
-                                                <span x-show="record.source_details?.allocated"
+                                                <span x-show="record.source_details.allocated"
                                                       class="inline-flex items-center rounded bg-base-200 px-2 py-0.5"
                                                       x-text="'allocated ' + record.source_details.allocated"></span>
                                             </div>
-                                            <div x-show="record.source_details?.network_source">
+                                            <div x-show="record.source_details.network_source">
                                                 Network data: <span x-text="record.source_details.network_source"></span>
                                             </div>
-                                            <div x-show="record.source_details?.organization || record.source_details?.domain">
-                                                <span x-show="record.source_details?.organization" x-text="record.source_details.organization"></span>
-                                                <span x-show="record.source_details?.organization && record.source_details?.domain"> · </span>
-                                                <span x-show="record.source_details?.domain" x-text="record.source_details.domain"></span>
+                                            <div x-show="record.source_details.organization || record.source_details.domain">
+                                                <span x-show="record.source_details.organization" x-text="record.source_details.organization"></span>
+                                                <span x-show="record.source_details.organization && record.source_details.domain"> · </span>
+                                                <span x-show="record.source_details.domain" x-text="record.source_details.domain"></span>
                                             </div>
-                                            <a x-show="record.source_details?.radar_url"
+                                            <a x-show="record.source_details.radar_url"
                                                :href="record.source_details.radar_url"
                                                target="_blank"
                                                rel="noopener noreferrer"
                                                class="inline-flex text-primary hover:underline">Open in Cloudflare Radar</a>
-                                            <div x-show="record.source_details?.network_error && !record.source_details?.asn && !record.source_details?.network"
+                                            <div x-show="record.source_details.network_error && !record.source_details.asn && !record.source_details.network"
                                                  x-text="record.source_details.network_error"></div>
-                                            <div x-show="record.reputation?.first_seen || record.reputation?.last_seen">
-                                                <span x-show="record.reputation?.last_seen">Last sent <span x-text="seenLabel(record.reputation.last_seen)"></span></span>
-                                                <span x-show="record.reputation?.first_seen && record.reputation?.last_seen"> · </span>
-                                                <span x-show="record.reputation?.first_seen">First seen <span x-text="seenLabel(record.reputation.first_seen)"></span></span>
+                                            <div x-show="record.reputation && (record.reputation.first_seen || record.reputation.last_seen)">
+                                                <span x-show="record.reputation && record.reputation.last_seen">Last sent <span x-text="seenLabel(record.reputation.last_seen)"></span></span>
+                                                <span x-show="record.reputation && record.reputation.first_seen && record.reputation.last_seen"> · </span>
+                                                <span x-show="record.reputation && record.reputation.first_seen">First seen <span x-text="seenLabel(record.reputation.first_seen)"></span></span>
                                             </div>
                                         </div>
                                     {% endcall %}
@@ -407,7 +407,7 @@
                                                         <span> · </span>
                                                         <span x-text="reputationAgeLabel(record.reputation)"></span>
                                                     </div>
-                                                    <template x-if="record.reputation.listings?.length">
+                                                    <template x-if="record.reputation.listings && record.reputation.listings.length">
                                                         <div class="font-semibold text-[#ff6f3c]">
                                                             DNSBL: <span x-text="record.reputation.listings.join(', ')"></span>
                                                         </div>

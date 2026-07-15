@@ -65,6 +65,29 @@ def _copy_result_counts(job: MailSourceBackfillJob, results: Dict[str, Any]) -> 
     job.error_count = int(results.get("error_count", len(results.get("errors") or [])) or 0)
 
 
+def _persist_imap_progress(
+    db: Session,
+    job: MailSourceBackfillJob,
+    results: Dict[str, Any],
+    *,
+    days: int,
+) -> None:
+    """Persist bounded IMAP progress so UI polling is useful during large scans."""
+    processed = int(results.get("processed", 0) or 0)
+    total = int(results.get("total_messages", 0) or 0)
+    if processed % 5 and processed != total:
+        return
+    _copy_result_counts(job, results)
+    job.cursor = _cursor_checkpoint(
+        connector="imap",
+        state="running",
+        days=days,
+        results=results,
+    )
+    job.updated_at = datetime.utcnow()
+    db.commit()
+
+
 def _combined_result_counts(
     job: MailSourceBackfillJob,
     results: Dict[str, Any],
@@ -256,7 +279,15 @@ def run_imap_backfill_job(db: Session, job: MailSourceBackfillJob) -> bool:
             db=db,
             workspace_id=source.workspace_id,
         )
-        results = client.fetch_reports(days=days)
+        results = client.fetch_reports(
+            days=days,
+            progress_callback=lambda progress: _persist_imap_progress(
+                db,
+                job,
+                progress,
+                days=days,
+            ),
+        )
         source.last_checked = datetime.utcnow()
         attempt = record_import_attempt(
             db,
