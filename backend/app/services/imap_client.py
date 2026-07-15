@@ -1,6 +1,7 @@
 import email
 import imaplib
 import logging
+import shlex
 from datetime import datetime, timedelta
 from email.header import decode_header
 from typing import Any, Callable, Dict, Optional, Tuple
@@ -81,45 +82,10 @@ class IMAPClient:
     @staticmethod
     def _mailbox_name_from_list_response(response: str) -> str:
         """Return the final IMAP LIST token without regex backtracking."""
-        tokens: list[str] = []
-        current: list[str] = []
-        in_quote = False
-        escaped = False
-
-        for character in response.strip():
-            if in_quote:
-                if escaped:
-                    if character in {'"', "\\"}:
-                        current.append(character)
-                    else:
-                        current.extend(("\\", character))
-                    escaped = False
-                elif character == "\\":
-                    escaped = True
-                elif character == '"':
-                    in_quote = False
-                    tokens.append("".join(current))
-                    current = []
-                else:
-                    current.append(character)
-                continue
-
-            if character.isspace():
-                if current:
-                    tokens.append("".join(current))
-                    current = []
-            elif character == '"':
-                if current:
-                    tokens.append("".join(current))
-                    current = []
-                in_quote = True
-            else:
-                current.append(character)
-
-        if in_quote:
+        try:
+            tokens = shlex.split(response.strip(), posix=True)
+        except ValueError:
             return ""
-        if current:
-            tokens.append("".join(current))
         return tokens[-1] if tokens else ""
 
     def _list_mailboxes(self, mailbox_data: list) -> list:
