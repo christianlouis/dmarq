@@ -7,6 +7,7 @@ function reportDetailApp(reportId = '') {
         reputationRefreshing: false,
         reputationRefreshError: '',
         recordRiskFilter: 'all',
+        recordPageSize: 25,
 
         async init() {
             this.reportId = this.$el?.dataset?.reportId || this.reportId;
@@ -35,6 +36,18 @@ function reportDetailApp(reportId = '') {
                 const refreshReputationButton = event.target.closest('[data-report-refresh-reputation]');
                 if (refreshReputationButton && root.contains(refreshReputationButton)) {
                     this.fetchReport({ refreshReputation: true });
+                    return;
+                }
+
+                const riskFilterButton = event.target.closest('[data-report-risk-filter]');
+                if (riskFilterButton && root.contains(riskFilterButton)) {
+                    this.setRecordRiskFilter(riskFilterButton.dataset.reportRiskFilter || 'all');
+                    return;
+                }
+
+                const showMoreButton = event.target.closest('[data-report-show-more-records]');
+                if (showMoreButton && root.contains(showMoreButton)) {
+                    this.recordPageSize += 25;
                     return;
                 }
 
@@ -76,6 +89,10 @@ function reportDetailApp(reportId = '') {
                 }
                 if (response.ok) {
                     this.report = this.normalizeReport(await response.json());
+                    if (!refreshReputation) {
+                        this.recordRiskFilter = this.recordRiskCounts.authReview > 0 ? 'auth_review' : 'all';
+                        this.recordPageSize = 25;
+                    }
                     if (!refreshReputation) {
                         this.reputationRefreshError = '';
                     }
@@ -171,6 +188,143 @@ function reportDetailApp(reportId = '') {
         get filteredRecords() {
             const records = this.report?.records || [];
             return records.filter((record) => this.recordRiskMatches(record, this.recordRiskFilter));
+        },
+
+        get visibleFilteredRecords() {
+            return this.filteredRecords.slice(0, this.recordPageSize);
+        },
+
+        get hiddenFilteredRecordCount() {
+            return Math.max(this.filteredRecords.length - this.visibleFilteredRecords.length, 0);
+        },
+
+        get senderClusters() {
+            const clusters = new Map();
+            (this.report?.records || []).forEach((record) => {
+                const details = record.source_details || {};
+                const sender = this.recordSender(record);
+                const provider = sender.provider || sender.name || details.organization || 'Unknown sender';
+                const network = details.network || details.asn || details.bgp_prefix || 'Unknown network';
+                const key = `${provider}|${network}`;
+                const cluster = clusters.get(key) || {
+                    key,
+                    provider,
+                    network,
+                    messages: 0,
+                    records: 0,
+                    failures: 0,
+                    mixed: 0,
+                    unknown: 0,
+                    ips: [],
+                    nextAction: '',
+                    nextActionPriority: -1,
+                };
+                const count = Number(record.count || 0);
+                const dkim = String(record.dkim_result || '').toLowerCase();
+                const spf = String(record.spf_result || '').toLowerCase();
+                const disposition = String(record.disposition || '').toLowerCase();
+                const authFailure = (dkim === 'fail' && spf === 'fail') || ['reject', 'quarantine'].includes(disposition);
+                const mixed = (dkim === 'pass' && spf === 'fail') || (dkim === 'fail' && spf === 'pass');
+                const unknown = this.recordSenderStatus(record) === 'unknown' || provider === 'Unknown sender';
+                cluster.messages += count;
+                cluster.records += 1;
+                if (authFailure) cluster.failures += count;
+                if (mixed) cluster.mixed += count;
+                if (unknown) cluster.unknown += count;
+                if (record.source_ip && !cluster.ips.includes(record.source_ip)) cluster.ips.push(record.source_ip);
+                const actionPriority = authFailure ? 3 : mixed ? 2 : unknown ? 1 : 0;
+                const nextAction = (record.next_steps || [])[0] ||
+                    this.recordSenderRemediationHint(record) ||
+                    (record.failure_reasons || [])[0] || '';
+                if (actionPriority > cluster.nextActionPriority) {
+                    cluster.nextAction = nextAction;
+                    cluster.nextActionPriority = actionPriority;
+                }
+                clusters.set(key, cluster);
+            });
+            return Array.from(clusters.values())
+                .sort((left, right) => (
+                    right.failures - left.failures ||
+                    right.mixed - left.mixed ||
+                    right.unknown - left.unknown ||
+                    right.messages - left.messages
+                ))
+                .slice(0, 8);
+        },
+
+        get investigationCounts() {
+            return (this.report?.records || []).reduce((counts, record) => {
+                const count = Number(record.count || 0);
+                const dkim = String(record.dkim_result || '').toLowerCase();
+                const spf = String(record.spf_result || '').toLowerCase();
+                const disposition = String(record.disposition || '').toLowerCase();
+                if ((dkim === 'fail' && spf === 'fail') || ['reject', 'quarantine'].includes(disposition)) {
+                    counts.failed += count;
+                } else if ((dkim === 'pass' && spf === 'fail') || (dkim === 'fail' && spf === 'pass')) {
+                    counts.mixed += count;
+                } else if (!dkim || !spf || (dkim !== 'pass' && spf !== 'pass')) {
+                    counts.unknown += count;
+                }
+                return counts;
+            }, { failed: 0, mixed: 0, unknown: 0 });
+        },
+
+        get investigationTitle() {
+            const counts = this.investigationCounts;
+            if (counts.failed > 0) {
+                return `${this.countLabel(counts.failed, 'message')} ${counts.failed === 1 ? 'needs' : 'need'} authentication review`;
+            }
+            if (counts.mixed > 0) {
+                return `${this.countLabel(counts.mixed, 'message')} ${counts.mixed === 1 ? 'has' : 'have'} mixed SPF and DKIM results`;
+            }
+            if (counts.unknown > 0) {
+                return `${this.countLabel(counts.unknown, 'message')} ${counts.unknown === 1 ? 'needs' : 'need'} classification`;
+            }
+            return 'No authentication failure requires action';
+        },
+
+        countLabel(count, singular) {
+            const normalized = Number(count || 0);
+            return `${normalized} ${singular}${normalized === 1 ? '' : 's'}`;
+        },
+
+        get investigationDetail() {
+            const first = this.senderClusters.find(cluster => cluster.failures || cluster.mixed || cluster.unknown);
+            if (!first) return 'Keep monitoring this domain for new or changed sending sources.';
+            const signal = first.failures ? 'failing authentication' : first.mixed ? 'mixed authentication' : 'unclassified traffic';
+            return `${first.provider} on ${first.network} is the largest ${signal} cluster in this report.`;
+        },
+
+        get investigationPrimaryLabel() {
+            return this.investigationCounts.failed > 0 ? 'Review failing records' : 'Review source evidence';
+        },
+
+        get investigationPrimaryFilter() {
+            return this.investigationCounts.failed > 0 ? 'auth_review' : 'all';
+        },
+
+        setRecordRiskFilter(filter) {
+            this.recordRiskFilter = filter;
+            this.recordPageSize = 25;
+            const records = this.$root && typeof this.$root.querySelector === 'function'
+                ? this.$root.querySelector('#report-records')
+                : null;
+            if (records) records.open = true;
+            window.location.hash = 'report-records';
+        },
+
+        clusterStatusLabel(cluster) {
+            if (cluster.failures > 0) return `${cluster.failures} failing`;
+            if (cluster.mixed > 0) return `${cluster.mixed} mixed`;
+            if (cluster.unknown > 0) return `${cluster.unknown} unknown`;
+            return 'No auth issue';
+        },
+
+        clusterStatusClass(cluster) {
+            if (cluster.failures > 0) return 'bg-red-100 text-red-800';
+            if (cluster.mixed > 0) return 'bg-yellow-100 text-yellow-800';
+            if (cluster.unknown > 0) return 'bg-gray-100 text-gray-700';
+            return 'bg-green-100 text-green-800';
         },
 
         get recordRiskCounts() {

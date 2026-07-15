@@ -10,6 +10,19 @@ function workspaceOnboarding(options = {}) {
         tasks: [],
         lastPreviewSignature: '',
         initialized: false,
+        setupStateLoading: true,
+        setupStateError: '',
+        setupStateLoaded: false,
+        configuring: false,
+        draftDirty: false,
+        setupState: {
+            domains: 0,
+            reports: 0,
+            sources: 0,
+            healthySources: 0,
+            dnsProviderConnected: false,
+            notificationsConfigured: false,
+        },
         form: {
             organizationName: '',
             workspaceName: '',
@@ -27,6 +40,100 @@ function workspaceOnboarding(options = {}) {
         },
         get singleUserMode() {
             return !this.multiWorkspaceUiEnabled;
+        },
+        get hasExistingSetup() {
+            return this.setupState.domains > 0 || this.setupState.sources > 0 || this.setupState.reports > 0;
+        },
+        get showSetupStatus() {
+            return this.singleUserMode && this.setupStateLoaded && this.hasExistingSetup && !this.configuring;
+        },
+        get showSetupForm() {
+            if (this.multiWorkspaceUiEnabled || this.configuring) return true;
+            return this.setupStateLoaded &&
+                !this.setupStateLoading &&
+                !this.setupStateError &&
+                !this.hasExistingSetup;
+        },
+        get setupStatusItems() {
+            const state = this.setupState;
+            return [
+                {
+                    id: 'domain',
+                    label: 'Monitored domains',
+                    complete: state.domains > 0,
+                    detail: state.domains > 0
+                        ? `${state.domains} domain${state.domains === 1 ? '' : 's'} configured`
+                        : 'Add the first domain you want to monitor.',
+                    href: '/domains',
+                    action: state.domains > 0 ? 'Review domains' : 'Add a domain',
+                },
+                {
+                    id: 'source',
+                    label: 'Report mailbox',
+                    complete: state.healthySources > 0,
+                    detail: state.sources === 0
+                        ? 'No Gmail or IMAP source is connected.'
+                        : state.healthySources > 0
+                            ? `${state.healthySources} enabled source${state.healthySources === 1 ? '' : 's'} ready`
+                            : `${state.sources} source${state.sources === 1 ? '' : 's'} need attention`,
+                    href: '/mail-sources',
+                    action: state.sources === 0 ? 'Connect mailbox' : 'Review mail sources',
+                },
+                {
+                    id: 'reports',
+                    label: 'DMARC evidence',
+                    complete: state.reports > 0,
+                    detail: state.reports > 0
+                        ? `${state.reports} aggregate report${state.reports === 1 ? '' : 's'} imported`
+                        : 'Import reports before acting on sender or policy guidance.',
+                    href: state.sources > 0 ? '/mail-sources' : '/upload',
+                    action: state.sources > 0 ? 'Import reports' : 'Choose import method',
+                },
+                {
+                    id: 'dns',
+                    label: 'DNS provider',
+                    complete: state.dnsProviderConnected,
+                    detail: state.dnsProviderConnected
+                        ? 'A provider connection is available for read or repair workflows.'
+                        : 'Optional: connect a provider for verified previews and approved changes.',
+                    href: '/settings#provider-integrations',
+                    action: state.dnsProviderConnected ? 'Review provider' : 'Connect provider',
+                    optional: true,
+                },
+                {
+                    id: 'notifications',
+                    label: 'Notifications',
+                    complete: state.notificationsConfigured,
+                    detail: state.notificationsConfigured
+                        ? 'Operator notifications are configured.'
+                        : 'Optional: add a notification target after report intake works.',
+                    href: '/settings#notification-settings',
+                    action: state.notificationsConfigured ? 'Review notifications' : 'Configure notifications',
+                    optional: true,
+                },
+            ];
+        },
+        get firstRequiredSetupAction() {
+            return this.setupStatusItems.find(item => !item.complete && !item.optional) || null;
+        },
+        get setupPrimaryHref() {
+            return this.firstRequiredSetupAction?.href || '/';
+        },
+        get setupPrimaryLabel() {
+            return this.firstRequiredSetupAction?.action || 'Open dashboard';
+        },
+        get setupHeadline() {
+            if (this.firstRequiredSetupAction) return 'Continue setup';
+            return 'Core monitoring is ready';
+        },
+        get setupSummary() {
+            if (this.firstRequiredSetupAction) {
+                return `${this.firstRequiredSetupAction.label} is the next required step.`;
+            }
+            return 'Domains, report intake, and DMARC evidence are available. Optional integrations can be configured when needed.';
+        },
+        get hasUnsavedDraft() {
+            return this.draftDirty;
         },
         get showWorkspaceSwitchSuccess() {
             return this.multiWorkspaceUiEnabled && Boolean(this.result?.workspace);
@@ -80,17 +187,28 @@ function workspaceOnboarding(options = {}) {
             if (flag === 'true' || flag === 'false') {
                 this.multiWorkspaceUiEnabled = flag === 'true';
             }
+            this.draftDirty = localStorage.getItem('dmarq.onboarding.draftDirty') === 'true';
             this.draftFields().forEach((field) => {
                 const storedValue = localStorage.getItem(`dmarq.onboarding.${field}`);
                 if (storedValue !== null) {
                     this.form[field] = storedValue;
                 }
-                this.$watch(`form.${field}`, () => this.persistDraft());
+                this.$watch(`form.${field}`, () => {
+                    this.draftDirty = true;
+                    this.persistDraft();
+                });
             });
             this.bindControls();
+            this.loadSetupState();
         },
         bindControls() {
             const root = this.$root;
+            root?.addEventListener('submit', (event) => {
+                if (!(event.target instanceof Element)) return;
+                if (!event.target.matches('[data-onboarding-form]')) return;
+                event.preventDefault();
+                this.previewPlan();
+            });
             root?.addEventListener('click', (event) => {
                 if (!(event.target instanceof Element)) return;
                 const previewButton = event.target.closest('[data-onboarding-preview]');
@@ -104,9 +222,60 @@ function workspaceOnboarding(options = {}) {
                     return;
                 }
                 const pathButton = event.target.closest('[data-onboarding-mail-path]');
-                if (!pathButton) return;
-                this.form.mailSourcePath = pathButton.getAttribute('data-onboarding-mail-path') || 'imap';
+                if (pathButton) {
+                    this.form.mailSourcePath = pathButton.getAttribute('data-onboarding-mail-path') || 'imap';
+                    return;
+                }
+                const reconfigureButton = event.target.closest('[data-onboarding-reconfigure]');
+                if (reconfigureButton && root.contains(reconfigureButton)) {
+                    this.configuring = true;
+                }
             });
+        },
+        async loadSetupState() {
+            if (!this.singleUserMode) {
+                this.setupStateLoading = false;
+                this.setupStateLoaded = true;
+                return;
+            }
+            this.setupStateLoading = true;
+            this.setupStateError = '';
+            try {
+                const [domainResponse, sourceResponse, providerResponse, notificationResponse] = await Promise.all([
+                    fetch('/api/v1/domains/summary?include_empty=true'),
+                    fetch('/api/v1/mail-sources'),
+                    fetch('/api/v1/domains/dns/providers'),
+                    fetch('/api/v1/settings/notifications.apprise_enabled'),
+                ]);
+                if (!domainResponse.ok || !sourceResponse.ok) {
+                    throw new Error('Core setup status could not be loaded.');
+                }
+                const domains = await domainResponse.json();
+                const sources = await sourceResponse.json();
+                const providers = providerResponse.ok ? await providerResponse.json() : {};
+                const notifications = notificationResponse.ok ? await notificationResponse.json() : {};
+                const providerList = Array.isArray(providers.providers) ? providers.providers : [];
+                const sourceList = Array.isArray(sources) ? sources : [];
+                this.setupState = {
+                    domains: Number(domains.total_domains || 0),
+                    reports: Number(domains.reports_processed || 0),
+                    sources: sourceList.length,
+                    healthySources: sourceList.filter(source => (
+                        source.enabled && !source.connection_attention && source.connection_status !== 'reauth_required'
+                    )).length,
+                    dnsProviderConnected: providerList.some(provider => (
+                        provider.credentials_configured || provider.connection_status === 'connected'
+                    )),
+                    notificationsConfigured: ['true', '1', 'yes', 'on'].includes(
+                        String(notifications.value || '').trim().toLowerCase()
+                    ),
+                };
+            } catch (error) {
+                this.setupStateError = error.message || 'Setup status could not be loaded.';
+            } finally {
+                this.setupStateLoading = false;
+                this.setupStateLoaded = true;
+            }
         },
         draftFields() {
             return [
@@ -217,6 +386,8 @@ function workspaceOnboarding(options = {}) {
                         ? 'Mail health setup was applied.'
                         : 'Workspace onboarding was applied.';
                     this.persistAppliedWorkspace(data.result);
+                    this.draftDirty = false;
+                    await this.loadSetupState();
                 }
                 this.persistDraft();
             } catch (err) {
@@ -256,6 +427,7 @@ function workspaceOnboarding(options = {}) {
             this.draftFields().forEach((field) => {
                 localStorage.setItem(`dmarq.onboarding.${field}`, this.form[field] || '');
             });
+            localStorage.setItem('dmarq.onboarding.draftDirty', String(this.draftDirty));
         },
     };
 }

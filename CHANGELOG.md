@@ -18,8 +18,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parsed quoted Gmail folder names correctly.
 - Restored report-detail and forensics interactions under strict CSP and kept
   each DKIM remediation card tied to its matching selector.
+- Stopped remediation queues from advertising provider previews when the
+  connector exists but its credentials are not configured; manual DNS guidance
+  remains available until a provider connection is ready.
+- Labeled the dashboard health score as traffic-weighted so a high-volume
+  healthy domain cannot visually hide the separate count of domains needing
+  attention.
 
 ### Added
+- Added state-aware self-hosted onboarding that recognizes existing domains,
+  mailbox health, imported evidence, DNS-provider credentials, and notification
+  setup, then routes operators to the first required incomplete step instead of
+  reopening a blank setup form.
+- Added one dashboard next-action surface with report-backed domain scope,
+  explicit scheduled-import state, and progressively disclosed analytics so
+  remediation or mailbox recovery leads before secondary metrics.
+- Added report investigation summaries and provider/network source clusters,
+  with failing traffic first, compact IP evidence, paginated raw records, and
+  destructive report deletion moved into an overflow menu.
+- Clarified domain-remediation priority so active DMARC and sender-alignment
+  blockers lead while optional BIMI, MTA-STS, and TLS posture work is identified
+  as secondary when no higher-impact issue is active.
 - Added honest, incremental IMAP backfill diagnostics with checked, recognized,
   new, existing, ignored, and warning counts plus persisted polling progress.
 - Replaced the wide Mail Sources account table with responsive account rows,

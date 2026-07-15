@@ -216,6 +216,34 @@ def _onboarding_script() -> str:
     return _read_project_file("static", "js", "onboarding-page.js")
 
 
+def _run_onboarding_expression(storage: dict[str, str], expression: str) -> object:
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is required to execute onboarding-page.js behavior tests")
+
+    script_path = Path(__file__).resolve().parents[1] / "static" / "js" / "onboarding-page.js"
+    runner = textwrap.dedent("""
+        const fs = require('fs');
+        const script = fs.readFileSync(process.argv[1], 'utf8');
+        const onboardingFactory = new Function(`${script}\nreturn workspaceOnboarding;`)();
+        const values = new Map(Object.entries(JSON.parse(process.argv[2])));
+        global.localStorage = {
+            getItem: (key) => values.has(key) ? values.get(key) : null,
+            setItem: (key, value) => values.set(key, String(value)),
+        };
+        const app = onboardingFactory();
+        const result = new Function('app', `return ${process.argv[3]};`)(app);
+        process.stdout.write(JSON.stringify(result));
+        """)
+    result = subprocess.run(
+        [node, "-e", runner, str(script_path), json.dumps(storage), expression],
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+    return json.loads(result.stdout)
+
+
 def _forensic_reports_template() -> str:
     return _read_project_file("templates", "forensic_reports.html")
 
@@ -246,6 +274,31 @@ def _report_detail_template() -> str:
 
 def _report_detail_script() -> str:
     return _read_project_file("static", "js", "report-detail-page.js")
+
+
+def _run_report_detail_expression(payload: dict[str, object], expression: str) -> object:
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is required to execute report-detail-page.js behavior tests")
+
+    script_path = Path(__file__).resolve().parents[1] / "static" / "js" / "report-detail-page.js"
+    runner = textwrap.dedent("""
+        const fs = require('fs');
+        const script = fs.readFileSync(process.argv[1], 'utf8');
+        const reportDetailFactory = new Function(`${script}\nreturn reportDetailApp;`)();
+        global.window = { location: { hash: '' } };
+        const app = reportDetailFactory('report-id');
+        app.report = { records: JSON.parse(process.argv[2]) };
+        const result = new Function('app', `return ${process.argv[3]};`)(app);
+        process.stdout.write(JSON.stringify(result));
+        """)
+    result = subprocess.run(
+        [node, "-e", runner, str(script_path), json.dumps(payload["records"]), expression],
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+    return json.loads(result.stdout)
 
 
 def test_settings_cloudflare_oauth_uses_popup_with_full_window_fallback():
@@ -1371,11 +1424,31 @@ def test_dashboard_uses_external_page_script_for_csp_migration():
     assert "data-dashboard-custom-apply" in script
     assert "data-dashboard-dns-health-domain" in script
     assert "data-dashboard-trigger-poll" in script
+    assert "dashboardNextAction" in script
+    assert "severityDotClass(severity)" in script
+    assert "Report-backed domains only" in script
+    assert "Scheduled checks active" in script
+    assert "/api/v1/domains/summary?include_empty=false" in script
+    assert "Analytics window" in template
+    assert "Analytics and evidence" in template
+    assert "Traffic-weighted health" in template
+    assert "Weighted by message volume." in template
+    assert 'id="dashboard-next-action-heading"' in template
+    assert 'x-show="showDashboardNextAction"' in template
     assert "data-dashboard-demo-tour-close" in script
     assert "ownerDocument.addEventListener('keydown'" in script
     assert "removeEventListener('keydown'" in script
     assert not _has_inline_style(template)
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
+
+
+def test_dashboard_keeps_mailbox_recovery_visible_without_reports():
+    result = _run_dashboard_expression(
+        "(() => { app.hasReportData = false; app.intakeState.reauthSources = 1; "
+        "return app.showDashboardNextAction; })()"
+    )
+
+    assert result == "true"
 
 
 def test_operations_uses_external_page_script_for_csp_migration():
@@ -1832,6 +1905,7 @@ def test_report_detail_uses_external_page_script_for_csp_migration():
     assert "record.reputation.feed_summary" in template
     assert "recordRiskFilter" in template
     assert "filteredRecords" in template
+    assert "visibleFilteredRecords" in template
     assert "recordRiskCounts" in template
     assert "recordRiskMatches(record, this.recordRiskFilter)" in script
     assert "recordRiskLabel()" in template
@@ -1846,6 +1920,15 @@ def test_report_detail_uses_external_page_script_for_csp_migration():
     assert "seenLabel(record.reputation.last_seen)" in template
     assert "Use Recalculate reputation" in template
     assert "reputationFeedClass" in script
+    assert "Investigation summary" in template
+    assert "Sending source clusters" in template
+    assert "Raw record evidence" in template
+    assert "senderClusters" in script
+    assert "investigationCounts" in script
+    assert "data-report-risk-filter" in template
+    assert "data-report-risk-filter" in script
+    assert "data-report-show-more-records" in template
+    assert "data-report-show-more-records" in script
     assert "reputationLabel" in script
     assert "reputationEvidencePreview" in script
     assert "senderStatusClass" in script
@@ -2475,6 +2558,7 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "primaryRemediationItem" in script
     assert "primaryRemediationNextStep" in script
     assert "primaryRemediationNextSafeAction" in script
+    assert "primaryRemediationScopeNote" in script
     assert "primaryRemediationReadinessContext" in script
     assert "primaryRemediationBlockedText" in script
     assert "primaryRemediationDispatchText" in script
@@ -2504,6 +2588,7 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "repairReadinessLabel(primaryRemediationItem.repair_progression)" in template
     assert "repairReadinessScore(primaryRemediationItem.repair_progression)" in template
     assert "Next safe action" in template
+    assert "primaryRemediationScopeNote" in template
     assert "Freshness required" in template
     assert "primaryRemediationFreshnessText" in template
     assert "primaryRemediationClosureGateText" in template
@@ -2593,6 +2678,138 @@ def test_report_detail_exposes_record_review_guidance_without_html_injection():
     assert "record.next_steps" in template
     assert "Needs review" in template
     assert "x-html" not in template
+
+
+def test_report_detail_distinguishes_dmarc_failure_from_mixed_authentication():
+    payload = {
+        "records": [
+            {
+                "count": 1,
+                "dkim_result": "fail",
+                "spf_result": "fail",
+                "disposition": "reject",
+                "source_ip": "192.0.2.10",
+                "source_details": {
+                    "network": "Example Network",
+                    "sender": {"provider": "Example Sender", "status": "known"},
+                },
+            },
+            {
+                "count": 2,
+                "dkim_result": "fail",
+                "spf_result": "pass",
+                "disposition": "none",
+                "source_ip": "192.0.2.11",
+                "source_details": {
+                    "network": "Example Network",
+                    "sender": {"provider": "Example Sender", "status": "known"},
+                },
+            },
+        ]
+    }
+
+    result = _run_report_detail_expression(
+        payload,
+        "({ counts: app.investigationCounts, title: app.investigationTitle, clusters: app.senderClusters })",
+    )
+
+    assert result["counts"] == {"failed": 1, "mixed": 2, "unknown": 0}
+    assert result["title"] == "1 message needs authentication review"
+    assert result["clusters"][0]["failures"] == 1
+    assert result["clusters"][0]["mixed"] == 2
+
+
+def test_report_detail_cluster_action_uses_highest_risk_record():
+    payload = {
+        "records": [
+            {
+                "count": 100,
+                "dkim_result": "pass",
+                "spf_result": "pass",
+                "disposition": "none",
+                "next_steps": ["Keep monitoring this sender."],
+                "source_details": {
+                    "network": "Example Network",
+                    "sender": {"provider": "Example Sender", "status": "known"},
+                },
+            },
+            {
+                "count": 1,
+                "dkim_result": "fail",
+                "spf_result": "fail",
+                "disposition": "reject",
+                "next_steps": ["Fix this sender's authentication."],
+                "source_details": {
+                    "network": "Example Network",
+                    "sender": {"provider": "Example Sender", "status": "known"},
+                },
+            },
+        ]
+    }
+
+    result = _run_report_detail_expression(payload, "app.senderClusters[0]")
+
+    assert result["nextAction"] == "Fix this sender's authentication."
+
+
+def test_report_detail_keeps_mixed_cluster_before_truncation():
+    clean_records = [
+        {
+            "count": 100,
+            "dkim_result": "pass",
+            "spf_result": "pass",
+            "disposition": "none",
+            "source_details": {
+                "network": f"Clean Network {index}",
+                "sender": {"provider": f"Clean Sender {index}", "status": "known"},
+            },
+        }
+        for index in range(8)
+    ]
+    payload = {
+        "records": clean_records
+        + [
+            {
+                "count": 1,
+                "dkim_result": "pass",
+                "spf_result": "fail",
+                "disposition": "none",
+                "source_details": {
+                    "network": "Mixed Network",
+                    "sender": {"provider": "Mixed Sender", "status": "known"},
+                },
+            }
+        ]
+    }
+
+    result = _run_report_detail_expression(
+        payload,
+        "app.senderClusters.map(cluster => cluster.provider)",
+    )
+
+    assert len(result) == 8
+    assert result[0] == "Mixed Sender"
+
+
+def test_report_detail_filter_opens_raw_evidence():
+    result = _run_report_detail_expression(
+        {"records": []},
+        "(() => { const target = { open: false }; "
+        "app.$root = { querySelector: () => target }; "
+        "app.setRecordRiskFilter('auth_review'); "
+        "return { open: target.open, hash: window.location.hash, filter: app.recordRiskFilter }; })()",
+    )
+
+    assert result == {"open": True, "hash": "report-records", "filter": "auth_review"}
+
+
+def test_report_detail_count_labels_handle_singular_and_plural():
+    result = _run_report_detail_expression(
+        {"records": []},
+        "[app.countLabel(1, 'IP'), app.countLabel(2, 'IP'), app.countLabel(1, 'record')]",
+    )
+
+    assert result == ["1 IP", "2 IPs", "1 record"]
 
 
 def test_members_template_uses_membership_api_without_html_injection():
@@ -2834,11 +3051,50 @@ def test_onboarding_template_uses_single_user_setup_story_by_default():
     assert "showWorkspaceSwitchSuccess" in template
     assert "taskPreviewLabel" in template
     assert "showNoTasks" in template
+    assert "Current setup" in template
+    assert "setupStatusItems" in script
+    assert "loadSetupState()" in script
+    assert "/api/v1/domains/summary?include_empty=true" in script
+    assert "/api/v1/mail-sources" in script
+    assert "data-onboarding-reconfigure" in template
+    assert "data-onboarding-reconfigure" in script
+    assert "data-onboarding-form" in template
+    assert "data-onboarding-form" in script
+    assert "Unsaved setup changes" in template
     assert 'x-init="init()"' not in template
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
     assert "Account boundary" not in rendered
     assert "Owner ready" not in rendered
     assert "Starter plan entitlement records" not in rendered
+
+
+def test_onboarding_hides_unconfirmed_setup_and_restores_draft_dirty_state():
+    result = _run_onboarding_expression(
+        {
+            "dmarq.onboarding.domain": "example.com",
+            "dmarq.onboarding.draftDirty": "true",
+        },
+        "(() => { app.$el = { dataset: { multiWorkspaceUi: 'false' } }; "
+        "app.$root = { addEventListener: () => {} }; app.$watch = () => {}; "
+        "app.loadSetupState = () => {}; app.init(); "
+        "const loadingFormVisible = app.showSetupForm; "
+        "const restoredDraftDirty = app.hasUnsavedDraft; "
+        "app.setupStateLoading = false; app.setupStateLoaded = true; "
+        "app.setupStateError = 'Status unavailable'; "
+        "const failedFormVisible = app.showSetupForm; "
+        "app.setupStateError = ''; const freshFormVisible = app.showSetupForm; "
+        "app.draftDirty = false; app.persistDraft(); "
+        "return { loadingFormVisible, restoredDraftDirty, failedFormVisible, "
+        "freshFormVisible, storedDirty: localStorage.getItem('dmarq.onboarding.draftDirty') }; })()",
+    )
+
+    assert result == {
+        "loadingFormVisible": False,
+        "restoredDraftDirty": True,
+        "failedFormVisible": False,
+        "freshFormVisible": True,
+        "storedDirty": "false",
+    }
 
 
 def test_onboarding_template_keeps_workspace_story_for_multi_workspace_mode():
