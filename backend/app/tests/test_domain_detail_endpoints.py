@@ -176,6 +176,13 @@ def test_configured_dns_write_providers_require_credentials(db_session, monkeypa
     assert domains_endpoint._configured_dns_write_provider_ids(db_session) == ["route53"]
 
 
+def test_provider_credentials_configured_accepts_lexicon_environment(db_session, monkeypatch):
+    monkeypatch.setenv("LEXICON_DIGITALOCEAN_AUTH_TOKEN", "test-token")
+
+    assert domains_endpoint._provider_credentials_configured(db_session, "digitalocean")
+    assert not domains_endpoint._provider_credentials_configured(db_session, "dnsimple")
+
+
 @pytest.fixture(autouse=True)
 def _stub_source_network_enrichment(monkeypatch):
     """Keep domain endpoint tests deterministic unless a test overrides enrichment."""

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Protocol
 
@@ -216,6 +217,18 @@ def lexicon_runtime_available() -> bool:
     """Return whether the optional Lexicon runtime can be imported."""
     return bool(
         importlib.util.find_spec("lexicon.client") and importlib.util.find_spec("lexicon.config")
+    )
+
+
+def lexicon_provider_environment_configured(provider_id: str) -> bool:
+    """Return whether provider-scoped Lexicon environment config is present."""
+    normalized = normalize_provider_id(provider_id)
+    if normalized not in LEXICON_PROVIDERS:
+        return False
+    provider_prefix = f"LEXICON_{normalized.upper().replace('-', '_')}_"
+    return any(
+        key.startswith(provider_prefix) and bool(str(value).strip())
+        for key, value in os.environ.items()
     )
 
 
