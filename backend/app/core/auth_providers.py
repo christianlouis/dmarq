@@ -322,7 +322,10 @@ def auth_provider_configured(provider: str, settings: Settings | None = None) ->
             and _generic_oidc_matches_preset(provider, cfg)
         )
     if provider == "local":
-        return bool(cfg.FIRST_SUPERUSER and cfg.FIRST_SUPERUSER_PASSWORD)
+        # Local browser password authentication is not implemented. Keep the
+        # planned provider visible in the registry without claiming that legacy
+        # bootstrap variables create a usable sign-in path.
+        return False
     return False
 
 

@@ -8,7 +8,11 @@ DMARQ uses a relational database to store all its data. The schema is designed t
 
 ## Schema Diagram
 
-![Database Schema](../assets/images/database_schema.png)
+The schema is migration-managed with Alembic. Organizations contain workspaces;
+memberships attach users and roles to those boundaries; domains and mail sources
+belong to a workspace; imported report rows retain the workspace and domain
+scope used by dashboards, exports, remediation, and provider support sessions.
+The tables below are the canonical schema reference.
 
 ## Core Tables
 

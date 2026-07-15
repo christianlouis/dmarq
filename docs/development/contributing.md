@@ -4,7 +4,7 @@ Thank you for your interest in contributing to DMARQ! This guide will help you g
 
 ## Code of Conduct
 
-Please read and follow our [Code of Conduct](https://github.com/yourusername/dmarq/blob/main/CODE_OF_CONDUCT.md) to keep our community approachable and respectable.
+Please read and follow our [Code of Conduct](https://github.com/christianlouis/dmarq/blob/main/CODE_OF_CONDUCT.md) to keep our community approachable and respectable.
 
 ## How to Contribute
 
@@ -49,7 +49,7 @@ When contributing translations:
 
 1. **Fork the repository**
 
-   Start by forking the [DMARQ repository](https://github.com/yourusername/dmarq) on GitHub.
+   Start by forking the [DMARQ repository](https://github.com/christianlouis/dmarq) on GitHub.
 
 2. **Clone your fork**
 
@@ -63,8 +63,13 @@ When contributing translations:
    Using Docker (recommended):
 
    ```bash
-   docker-compose -f docker-compose.dev.yml up
+   ./scripts/bootstrap-docker-env.sh
+   docker compose -f docker-compose.yml -f docker-compose.build.yml \
+     up -d --build --wait
    ```
+
+   The build override is deliberately separate from the normal installation
+   path, which pulls the published `docker-stable` image.
 
    Or manually:
 
@@ -183,7 +188,7 @@ pytest --cov=app
 
 5. **Submit a pull request**
 
-   Go to the [DMARQ repository](https://github.com/yourusername/dmarq) and create a pull request from your branch to the `develop` branch.
+   Go to the [DMARQ repository](https://github.com/christianlouis/dmarq) and create a pull request from your branch to the `develop` branch.
 
    Include in your PR description:
    - What changes you've made
@@ -246,4 +251,5 @@ If you need help with your contribution, you can:
 
 ## Recognition
 
-All contributors are recognized in our [CONTRIBUTORS.md](https://github.com/yourusername/dmarq/blob/main/CONTRIBUTORS.md) file. We appreciate your help in making DMARQ better!
+Contributors are recognized through the repository's Git history and GitHub
+contributor list. We appreciate your help in making DMARQ better.

@@ -33,20 +33,20 @@ SQLite is easiest to back up when the app is stopped. The `.backup` command is s
 mkdir -p backups
 backup_file="backups/dmarq-$(date +%Y%m%d-%H%M%S).db"
 
-docker compose stop backend
+docker compose stop app
 sqlite3 data/dmarq.db ".backup $backup_file"
 sqlite3 "$backup_file" "PRAGMA integrity_check;"
-docker compose start backend
+docker compose start app
 ```
 
 Restore a SQLite backup:
 
 ```bash
-docker compose stop backend
+docker compose stop app
 cp data/dmarq.db "data/dmarq-before-restore-$(date +%Y%m%d-%H%M%S).db"
 cp backups/dmarq-backup.db data/dmarq.db
-docker compose start backend
-docker compose logs --tail=100 backend
+docker compose start app
+docker compose logs --tail=100 app
 ```
 
 ### Manual SQLite
@@ -82,8 +82,8 @@ mkdir -p backups
 backup_file="backups/dmarq-$(date +%Y%m%d-%H%M%S).dump"
 
 docker compose exec -T db pg_dump \
-  -U "${DB_USER:-dmarq}" \
-  -d "${DB_NAME:-dmarq}" \
+  -U "${POSTGRES_USER:-dmarq}" \
+  -d "${POSTGRES_DB:-dmarq}" \
   --format=custom \
   > "$backup_file"
 
@@ -93,17 +93,17 @@ pg_restore --list "$backup_file" >/dev/null
 Restore a Docker Compose PostgreSQL backup:
 
 ```bash
-docker compose stop backend
+docker compose stop app
 
 cat backups/dmarq-backup.dump | docker compose exec -T db pg_restore \
-  -U "${DB_USER:-dmarq}" \
-  -d "${DB_NAME:-dmarq}" \
+  -U "${POSTGRES_USER:-dmarq}" \
+  -d "${POSTGRES_DB:-dmarq}" \
   --clean \
   --if-exists \
   --no-owner
 
-docker compose start backend
-docker compose logs --tail=100 backend
+docker compose start app
+docker compose logs --tail=100 app
 ```
 
 ### Manual PostgreSQL

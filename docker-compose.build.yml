@@ -1,0 +1,6 @@
+services:
+  app:
+    image: dmarq-app:local
+    build:
+      context: ./backend
+      dockerfile: Dockerfile

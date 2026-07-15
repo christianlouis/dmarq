@@ -15,74 +15,32 @@ For day-to-day production operation, use the [Operator Runbook](../deployment/op
 
 ## Docker Deployment (Recommended)
 
-The easiest way to deploy DMARQ is using Docker and Docker Compose. This approach packages all dependencies and provides a consistent environment.
+The canonical, tested Docker instructions live in
+[Docker Setup](../deployment/docker.md). The short version is:
 
 ### Prerequisites
 
-- Docker Engine 20.10.0 or later
-- Docker Compose v2.0.0 or later
+- Docker Engine 24 or later
+- Docker Compose v2.20 or later
+- OpenSSL
 - 2GB RAM minimum (4GB recommended)
 - 20GB storage space
 
 ### Deployment Steps
 
-1. **Clone the repository**
+```bash
+git clone https://github.com/christianlouis/dmarq.git
+cd dmarq
+./scripts/bootstrap-docker-env.sh
+docker compose pull
+docker compose up -d --wait
+curl -fsS http://localhost:8080/healthz
+```
 
-   ```bash
-   git clone https://github.com/yourusername/dmarq.git
-   cd dmarq
-   ```
-
-2. **Configure environment variables**
-
-   Create a `.env` file in the project root:
-
-   ```
-   # Database Configuration
-   DB_TYPE=sqlite  # or postgres for production
-   DB_PATH=./data/dmarq.db  # for SQLite
-   # For PostgreSQL:
-   # DB_HOST=postgres
-   # DB_PORT=5432
-   # DB_USER=dmarq
-   # DB_PASS=secure_password
-   # DB_NAME=dmarq
-
-   # IMAP Configuration (optional)
-   IMAP_ENABLED=false
-   # IMAP_SERVER=mail.example.com
-   # IMAP_PORT=993
-   # IMAP_USERNAME=dmarc@example.com
-   # IMAP_PASSWORD=your_secure_password
-   # IMAP_USE_SSL=true
-   # IMAP_POLLING_INTERVAL=60
-
-   # Security Settings
-   SECRET_KEY=generate_a_secure_random_key
-   ALLOWED_HOSTS=localhost,127.0.0.1
-   ```
-
-   Generate a secure random key for `SECRET_KEY`:
-
-   ```bash
-   openssl rand -hex 32
-   ```
-
-3. **Start the containers**
-
-   ```bash
-   docker-compose up -d
-   ```
-
-4. **Access the application**
-
-   Open your browser and navigate to `http://localhost:8000`
-
-5. **Check container status**
-
-   ```bash
-   docker-compose ps
-   ```
+Open `http://localhost:8080`. PostgreSQL is not published to the host. The
+application is bound to `127.0.0.1` and uses auth-disabled single-user mode by
+default. Follow the canonical guide before changing that bind address or
+exposing the instance.
 
 ### Updating the Deployment
 
@@ -90,9 +48,9 @@ To update to a newer version:
 
 ```bash
 git pull
-docker-compose down
-docker-compose build
-docker-compose up -d
+docker compose pull
+docker compose up -d --wait
+curl -fsS http://localhost:8080/healthz
 ```
 
 ## Manual Installation
@@ -135,7 +93,7 @@ For environments where Docker isn't available, you can install DMARQ manually.
 5. **Start the application**
 
    ```bash
-   uvicorn main:app --host 0.0.0.0 --port 8000
+   uvicorn app.main:app --host 127.0.0.1 --port 8080
    ```
 
 6. **Set up a production server**
@@ -150,8 +108,8 @@ For environments where Docker isn't available, you can install DMARQ manually.
 
    [Service]
    User=dmarq
-   WorkingDirectory=/path/to/dmarq/backend/app
-   ExecStart=/path/to/dmarq/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000
+   WorkingDirectory=/path/to/dmarq/backend
+   ExecStart=/path/to/dmarq/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8080
    Restart=always
 
    [Install]
@@ -166,33 +124,31 @@ DMARQ can be configured through environment variables:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DEBUG` | Enable debug mode | `false` |
 | `SECRET_KEY` | Secret key for session security | Required |
-| `ALLOWED_HOSTS` | Comma-separated list of allowed hosts | `localhost,127.0.0.1` |
+| `ADMIN_API_KEY` | Stable admin API key for automation | Generated in memory |
+| `ENVIRONMENT` | Apply production startup checks when set to `production` | `development` |
+| `PUBLIC_BASE_URL` | Public browser and OAuth origin | Auto-detected |
+| `BACKEND_CORS_ORIGINS` | Explicit browser origins allowed to call the API | Local development origins |
 
 ### Database Settings
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DB_TYPE` | Database type (sqlite, postgres) | `sqlite` |
-| `DB_PATH` | Path to SQLite database file | `./data/dmarq.db` |
-| `DB_HOST` | PostgreSQL host | - |
-| `DB_PORT` | PostgreSQL port | `5432` |
-| `DB_USER` | PostgreSQL username | - |
-| `DB_PASS` | PostgreSQL password | - |
-| `DB_NAME` | PostgreSQL database name | - |
+| `DATABASE_URL` | SQLAlchemy SQLite or PostgreSQL URL | `sqlite:///./data/dmarq.db` |
 
 ### IMAP Settings
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `IMAP_ENABLED` | Enable IMAP report fetching | `false` |
 | `IMAP_SERVER` | IMAP server address | - |
 | `IMAP_PORT` | IMAP server port | `993` |
 | `IMAP_USERNAME` | IMAP username | - |
 | `IMAP_PASSWORD` | IMAP password | - |
-| `IMAP_USE_SSL` | Use SSL for IMAP connection | `true` |
-| `IMAP_POLLING_INTERVAL` | Minutes between polling | `60` |
+| `IMAP_FOLDER` | Initial mailbox folder | `INBOX` |
+| `DELETE_IMPORTED_EMAILS` | Delete successfully imported email | `false` |
+
+The `IMAP_*` variables are only a legacy one-time source bootstrap. Prefer the
+Mail Sources UI for SSL, polling interval, connection testing, and history.
 
 ## Database Setup
 
@@ -214,19 +170,14 @@ SQLite is suitable for smaller deployments with fewer domains and reports. No ad
 2. **Update environment variables**
 
    ```
-   DB_TYPE=postgres
-   DB_HOST=your_postgres_host
-   DB_PORT=5432
-   DB_USER=dmarq
-   DB_PASS=secure_password
-   DB_NAME=dmarq
+   DATABASE_URL=postgresql://dmarq:secure_password@your_postgres_host:5432/dmarq
    ```
 
 3. **Run database migrations**
 
    ```bash
-   cd backend/app
-   python -m alembic upgrade head
+   cd backend
+   alembic upgrade head
    ```
 
 ## Production Best Practices
@@ -252,7 +203,7 @@ For production deployments, consider the following:
      ssl_certificate_key /path/to/key.pem;
 
      location / {
-       proxy_pass http://127.0.0.1:8000;
+       proxy_pass http://127.0.0.1:8080;
        proxy_set_header Host $host;
        proxy_set_header X-Real-IP $remote_addr;
      }
@@ -309,16 +260,16 @@ For production deployments, consider the following:
 4. **Run database migrations**
    
    ```bash
-   cd backend/app
-   python -m alembic upgrade head
+   cd backend
+   alembic upgrade head
    ```
 
 5. **Restart the application**
    
    ```bash
    # For Docker
-   docker-compose down
-   docker-compose up -d
+   docker compose pull
+   docker compose up -d --wait
    
    # For manual installations
    sudo systemctl restart dmarq
@@ -331,8 +282,8 @@ For minor version upgrades (e.g., 1.1.0 to 1.2.0), the process is similar but ge
 ```bash
 git fetch --tags
 git checkout v1.2.0  # Replace with your target version
-docker-compose down
-docker-compose up -d
+docker compose pull
+docker compose up -d --wait
 ```
 
 Always check the release notes for any specific upgrade instructions or breaking changes.

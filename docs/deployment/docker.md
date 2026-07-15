@@ -1,298 +1,253 @@
 # Docker Setup
 
-This guide covers how to deploy DMARQ using Docker, which is the recommended deployment method.
+Docker Compose is the recommended way to run a single-host DMARQ instance. The
+default stack pulls the tested `docker-stable` image from GHCR, starts PostgreSQL
+on an internal network, and publishes DMARQ only on
+`127.0.0.1:8080`.
 
 ## Prerequisites
 
-Before deploying DMARQ with Docker, ensure you have:
-
-- Docker Engine 20.10.0 or later
-- Docker Compose v2.0.0 or later
-- 2GB RAM minimum (4GB recommended)
-- 20GB storage space
+- Docker Engine 24 or later
+- Docker Compose v2.20 or later (`docker compose version`)
+- OpenSSL
+- Python 3.10 or later for `scripts/verify-docker-compose.sh`
+- 2 GB RAM minimum, 4 GB recommended
+- 20 GB free storage
 
 ## Quick Start
 
-The fastest way to get DMARQ running is to use Docker Compose:
+Run these commands from a new checkout:
 
-1. **Clone the repository**
-
-   ```bash
-   git clone https://github.com/yourusername/dmarq.git
-   cd dmarq
-   ```
-
-2. **Configure environment variables**
-
-   Create a `.env` file in the project root. For production, prefer a 1Password-mounted `.env` file; see [Secret Handling with 1Password](secrets.md).
-
-   ```
-   # Database Configuration
-   DB_TYPE=sqlite  # or postgres for production
-   DB_PATH=./data/dmarq.db  # for SQLite
-   # For PostgreSQL:
-   # DB_HOST=postgres
-   # DB_PORT=5432
-   # DB_USER=dmarq
-   # DB_PASS=secure_password
-   # DB_NAME=dmarq
-
-   # IMAP Configuration (optional)
-   IMAP_ENABLED=false
-   # IMAP_SERVER=mail.example.com
-   # IMAP_PORT=993
-   # IMAP_USERNAME=dmarc@example.com
-   # IMAP_PASSWORD=your_secure_password
-   # IMAP_USE_SSL=true
-   # IMAP_POLLING_INTERVAL=60
-   # DELETE_IMPORTED_EMAILS=false
-
-   # Security Settings
-   SECRET_KEY=generate_a_secure_random_key
-   # WEBHOOK_SECRET=generate_a_separate_webhook_secret
-   ALLOWED_HOSTS=localhost,127.0.0.1
-   ```
-
-   Generate a secure random key for `SECRET_KEY`:
-
-   ```bash
-   openssl rand -hex 32
-   ```
-
-3. **Start the containers**
-
-   ```bash
-   docker-compose up -d
-   ```
-
-4. **Access the application**
-
-   Open your browser and navigate to `http://localhost:8000`
-
-## Understanding the Docker Setup
-
-The `docker-compose.yml` file defines the following services:
-
-- **backend**: The FastAPI application that handles API requests, processes reports, and serves the web interface
-- **db**: A PostgreSQL database container (when using Postgres instead of SQLite)
-
-### Docker Compose File Structure
-
-The `docker-compose.yml` file looks like this:
-
-```yaml
-version: '3.8'
-
-services:
-  backend:
-    build: 
-      context: ./backend
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./data:/app/data
-    environment:
-      - DB_TYPE=${DB_TYPE:-sqlite}
-      - DB_PATH=${DB_PATH:-./data/dmarq.db}
-      - DB_HOST=${DB_HOST:-postgres}
-      - DB_PORT=${DB_PORT:-5432}
-      - DB_USER=${DB_USER:-dmarq}
-      - DB_PASS=${DB_PASS:-dmarqpassword}
-      - DB_NAME=${DB_NAME:-dmarq}
-      - IMAP_ENABLED=${IMAP_ENABLED:-false}
-      - IMAP_SERVER=${IMAP_SERVER:-}
-      - IMAP_PORT=${IMAP_PORT:-993}
-      - IMAP_USERNAME=${IMAP_USERNAME:-}
-      - IMAP_PASSWORD=${IMAP_PASSWORD:-}
-      - IMAP_USE_SSL=${IMAP_USE_SSL:-true}
-      - IMAP_POLLING_INTERVAL=${IMAP_POLLING_INTERVAL:-60}
-      - DELETE_IMPORTED_EMAILS=${DELETE_IMPORTED_EMAILS:-false}
-      - SECRET_KEY=${SECRET_KEY:-insecure_key_change_me_in_production}
-      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
-      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1}
-    depends_on:
-      - db
-    restart: unless-stopped
-
-  db:
-    image: postgres:14-alpine
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    environment:
-      - POSTGRES_USER=${DB_USER:-dmarq}
-      - POSTGRES_PASSWORD=${DB_PASS:-dmarqpassword}
-      - POSTGRES_DB=${DB_NAME:-dmarq}
-    restart: unless-stopped
-
-volumes:
-  postgres_data:
+```bash
+git clone https://github.com/christianlouis/dmarq.git
+cd dmarq
+./scripts/bootstrap-docker-env.sh
+docker compose pull
+docker compose up -d --wait
 ```
 
-## Configuration Options
+The bootstrap script creates `.env` from `.env.example`, generates stable
+application, API, and database secrets, and never prints those values. Open
+[http://localhost:8080](http://localhost:8080) after both containers are
+healthy.
 
-### Environment Variables
+The default is a local single-user installation:
 
-All configuration in the Docker setup is done via environment variables, either directly in the `docker-compose.yml` file or through a separate `.env` file. See the [Configuration](configuration.md) page for detailed information about all available variables.
+- DMARQ is bound to `127.0.0.1`, not every network interface.
+- PostgreSQL is available only to the application container.
+- `AUTH_MODE=disabled` means no DMARQ login is required on that local address.
+- Reports and configuration persist in Docker volumes across restarts.
 
-For production, store secret values in 1Password Environments and inject them into Compose with a mounted `.env` file or your deployment runner's secret-injection feature. Do not commit `.env` files that contain `SECRET_KEY`, database credentials, IMAP passwords, OAuth secrets, or API tokens.
+Do not expose this default directly to the internet. Configure an identity
+provider or a trusted authentication proxy before changing
+`DMARQ_BIND_ADDRESS` to `0.0.0.0`.
 
-### Volumes
+## Verify The Installation
 
-The Docker Compose setup uses these volumes:
-
-- **./data**: Local directory mapped to `/app/data` in the container, stores SQLite database (if used) and other persistent data
-- **postgres_data**: Docker volume for PostgreSQL data (when using Postgres)
-
-## Production Deployment
-
-For production deployments, consider these additional steps:
-
-For an operator-focused sequence that covers Docker Compose, Coolify, verification, upgrades, and rollback, use the [Operator Runbook](operations.md). For incident response and ingestion/auth troubleshooting, use [Troubleshooting Playbooks](troubleshooting.md).
-
-### Using a Reverse Proxy
-
-In production, it's recommended to use a reverse proxy like Nginx or Traefik in front of DMARQ:
-
-```yaml
-version: '3.8'
-
-services:
-  # ...existing services...
-  
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/conf.d:/etc/nginx/conf.d
-      - ./nginx/ssl:/etc/nginx/ssl
-    depends_on:
-      - backend
-    restart: unless-stopped
+```bash
+docker compose ps
+curl -fsS http://localhost:8080/healthz
+curl -fsS http://localhost:8080/api/v1/health
+./scripts/verify-docker-compose.sh
 ```
 
-Example Nginx configuration:
+Both services must be `healthy`. The Compose verification checks the effective
+environment, host binding, application port, health check, matching database
+identity, and the absence of a published PostgreSQL port.
+
+For a release-grade acceptance test on a new host, follow the
+[Greenfield Deployment Verification](greenfield-verification.md) checklist.
+
+## Configuration
+
+Compose reads `.env` in two ways:
+
+1. It uses the PostgreSQL values, host bind address, and host port while
+   rendering the stack.
+2. It passes the application variables to the DMARQ container through
+   `env_file`.
+
+The effective configuration can be inspected without revealing it in an issue
+or support transcript:
+
+```bash
+docker compose config --quiet
+```
+
+Core Docker values are:
+
+| Variable | Purpose | Local default |
+|----------|---------|---------------|
+| `DMARQ_BIND_ADDRESS` | Host interface that publishes DMARQ | `127.0.0.1` |
+| `DMARQ_PORT` | Host HTTP port | `8080` |
+| `DMARQ_IMAGE` | Published DMARQ image | `ghcr.io/christianlouis/dmarq:docker-stable` |
+| `POSTGRES_DB` | Database created by the Compose PostgreSQL service | `dmarq` |
+| `POSTGRES_USER` | Database user created by Compose | `dmarq` |
+| `POSTGRES_PASSWORD` | Database password generated by the bootstrap script | generated |
+| `DATABASE_URL` | SQLAlchemy connection URL used by DMARQ | generated consistently |
+| `SECRET_KEY` | Stable session and credential-encryption key | generated |
+| `ADMIN_API_KEY` | Stable key for explicitly authorized API administration | generated |
+| `PUBLIC_BASE_URL` | Browser/OAuth base URL | `http://localhost:8080` |
+| `AUTH_MODE` | Browser authentication provider | `disabled` |
+| `AUTH_DISABLED` | Local no-login mode | `true` |
+
+See [Configuration](configuration.md) for application settings. Optional
+mailboxes should normally be added under **Mail Sources** in the web interface.
+The legacy `IMAP_*` variables create one initial source only when all required
+values are present and no source already exists.
+
+`docker-stable` is the normal installation channel. `docker-latest` tracks a
+successfully built `main` branch for preview testing. Production and Kubernetes
+operators should prefer an immutable release or short-SHA tag when exact
+rollback and auditability matter.
+
+### Build The Checkout Instead
+
+Maintainers and contributors can build the current checkout with the separate
+override file. This is not the normal installation path:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.build.yml \
+  up -d --build --wait
+```
+
+### Changing `.env`
+
+`docker compose restart` does not reload environment variables. Recreate the
+application container after changing `.env`:
+
+```bash
+docker compose up -d --force-recreate --wait app
+```
+
+Use `docker compose config` and `docker compose exec app env` to diagnose
+effective values. Never paste secret-bearing output into an issue.
+
+## Authentication Modes
+
+For an internet-facing installation, set `AUTH_DISABLED=false`, choose one of
+the supported modes, and configure its values:
+
+- `AUTH_MODE=logto`
+- `AUTH_MODE=authentik`
+- `AUTH_MODE=oidc`
+- `AUTH_MODE=trusted_proxy`
+
+Register the callback URL as:
+
+```text
+https://your-dmarq-host.example/api/v1/auth/callback
+```
+
+Set `PUBLIC_BASE_URL` and the provider-specific redirect URI to the public HTTPS
+origin. Production startup blocks an unprotected auth-disabled configuration
+unless the operator adds the explicit escape hatch
+`ALLOW_AUTH_DISABLED_IN_PRODUCTION=true`.
+
+DMARQ does not currently implement a local username/password browser login. The
+owner email on `/setup` is an operational contact, not a login account.
+
+## Reverse Proxy
+
+Keep the Compose bind address on `127.0.0.1` when Nginx, Caddy, or Traefik runs
+on the same host. Proxy to `http://127.0.0.1:8080` and forward the original host
+and HTTPS scheme. Example Nginx location:
 
 ```nginx
-server {
-    listen 80;
-    server_name dmarq.example.com;
-    return 301 https://$server_name$request_uri;
-}
-
-server {
-    listen 443 ssl;
-    server_name dmarq.example.com;
-
-    ssl_certificate /etc/nginx/ssl/cert.pem;
-    ssl_certificate_key /etc/nginx/ssl/key.pem;
-
-    location / {
-        proxy_pass http://backend:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
+location / {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto https;
 }
 ```
 
-### Docker Compose Profiles
+Use TLS and an application authentication mode even when the reverse proxy is
+publicly reachable. `AUTH_MODE=trusted_proxy` is valid only when requests cannot
+bypass that proxy and it strips spoofed identity headers.
 
-For more complex deployments, you can use Docker Compose profiles:
+## Mailbox Ingestion
 
-```yaml
-version: '3.8'
+To collect Gmail DMARC reports without a Gmail API OAuth client, add a standard
+IMAP source:
 
-services:
-  backend:
-    # ...existing config...
-    profiles: [app, all]
-  
-  db:
-    # ...existing config...
-    profiles: [app, all]
-  
-  nginx:
-    # ...nginx config...
-    profiles: [production, all]
-```
+| Field | Value |
+|-------|-------|
+| Method | IMAP |
+| Server | `imap.gmail.com` |
+| Port | `993` |
+| SSL | enabled |
+| Username | full Gmail address |
+| Password | Google App Password, not the normal account password |
+| Folder | `INBOX` or the label/folder that receives reports |
 
-Then start only specific profiles:
+Use **Test connection**, then **Fetch now**. DMARQ records every manual and
+scheduled attempt in import history. Keep **Delete imported emails** disabled
+until ingestion and duplicate handling have been verified.
 
-```bash
-docker-compose --profile production up -d
-```
+## Update
 
-## Updating DMARQ
-
-Before updating a production deployment, follow the [Release Checklist](release-checklist.md) and create a database backup.
-The full operator upgrade sequence is documented in [Operator Runbook](operations.md).
-
-To update to a newer version:
+Back up PostgreSQL first, then:
 
 ```bash
-# Pull the latest code
-git pull
-
-# Stop the containers
-docker-compose down
-
-# Rebuild and start
-docker-compose up -d --build
+git pull --ff-only
+docker compose pull
+docker compose up -d --wait
+curl -fsS http://localhost:8080/healthz
 ```
 
-## Monitoring and Maintenance
+Migrations run automatically in the application entrypoint. Do not use
+`docker compose down -v` during a normal update; `-v` deletes the database.
 
-### Viewing Logs
-
-To view logs from the containers:
+## Logs And Backups
 
 ```bash
-# All logs
-docker-compose logs
-
-# Just backend logs
-docker-compose logs backend
-
-# Follow logs in real-time
-docker-compose logs -f
+docker compose logs --tail=200 app
+docker compose logs -f app
+docker compose exec -T db pg_dump \
+  -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom \
+  > "dmarq-$(date +%Y%m%d-%H%M%S).dump"
 ```
 
-### Container Health Checks
+See [Database Backup and Restore](backups.md) before upgrades or restore work.
 
-Monitor the health of your containers:
+## Kubernetes Compatibility
 
-```bash
-docker-compose ps
-```
-
-### Database Backups
-
-Back up the database before upgrades and on a regular schedule. See [Database Backup and Restore](backups.md) for SQLite and PostgreSQL backup, restore, and verification commands.
+The Compose stack does not change DMARQ's image entrypoint, container port
+`8080`, `/healthz` probe, `DATABASE_URL`, or application environment-variable
+contract. Kubernetes and GitOps deployments should continue to inject values
+through Secrets/ConfigMaps, use a cluster-managed PostgreSQL service if desired,
+and pin the released `ghcr.io/christianlouis/dmarq` image. Docker-only variables
+`DMARQ_BIND_ADDRESS`, `DMARQ_PORT`, and `POSTGRES_*` are consumed by Compose and
+do not need to exist in Kubernetes.
 
 ## Troubleshooting
 
-### Container Won't Start
+### Browser cannot connect
 
-If containers fail to start:
+```bash
+docker compose ps
+docker compose port app 8080
+curl -v http://127.0.0.1:8080/healthz
+docker compose logs --tail=200 app
+```
 
-1. Check logs: `docker-compose logs backend`
-2. Verify environment variables: `docker-compose config`
-3. Check disk space: `df -h`
-4. Ensure ports aren't already in use: `netstat -tuln | grep 8000`
+### Authentication changes have no effect
 
-### Database Connection Issues
+Confirm `.env`, then recreate rather than restart:
 
-If the application can't connect to the database:
+```bash
+docker compose config --quiet
+docker compose up -d --force-recreate --wait app
+```
 
-1. Check the DB environment variables in `.env`
-2. For Postgres, ensure the `db` service is running: `docker-compose ps db`
-3. Try connecting manually: `docker-compose exec db psql -U dmarq dmarq`
+### Database is unhealthy
 
-### Mounting Issues
+```bash
+docker compose logs --tail=200 db
+docker compose exec db pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+```
 
-If you encounter volume mounting problems:
-
-1. Check file permissions on the host
-2. Use absolute paths in your volume mappings
-3. On Windows, ensure you've enabled Docker file sharing for the relevant drives
+Changing PostgreSQL identity variables does not mutate an existing database
+volume. For a real installation, migrate or restore the database. Only a
+disposable test can be reset with `docker compose down -v`.

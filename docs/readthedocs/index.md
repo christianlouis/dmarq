@@ -64,5 +64,5 @@ By implementing DMARC, domain owners can tell receiving mail servers what to do 
 Need help with DMARQ? We're here to assist:
 
 - [Frequently Asked Questions](faq.md)
-- [GitHub Issues](https://github.com/yourusername/dmarq/issues)
+- [GitHub Issues](https://github.com/christianlouis/dmarq/issues)
 - Email support: support@example.com

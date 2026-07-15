@@ -22,7 +22,7 @@ First, clone the repository and set up a virtual environment:
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/dmarq.git
+git clone https://github.com/christianlouis/dmarq.git
 cd dmarq
 
 # Create and activate a virtual environment
@@ -43,34 +43,28 @@ pip install -r requirements.txt
 
 Create a `.env` file in the backend directory with your configuration. For production, prefer a 1Password-mounted `.env` file; see [Secret Handling with 1Password](secrets.md).
 
-```
-# Database Configuration
-DB_TYPE=sqlite  # or postgres for production
-DB_PATH=./data/dmarq.db  # for SQLite
-# For PostgreSQL:
-# DB_HOST=localhost
-# DB_PORT=5432
-# DB_USER=dmarq
-# DB_PASS=secure_password
-# DB_NAME=dmarq
+```dotenv
+DATABASE_URL=sqlite:///./data/dmarq.db
+SECRET_KEY=generate_a_secure_random_key
+ADMIN_API_KEY=generate_a_second_random_key
+ENVIRONMENT=development
+PUBLIC_BASE_URL=http://localhost:8080
+AUTH_MODE=disabled
+AUTH_DISABLED=true
 
-# IMAP Configuration (optional)
-IMAP_ENABLED=false
-# IMAP_SERVER=mail.example.com
+# Optional one-time IMAP source bootstrap
+# IMAP_SERVER=imap.gmail.com
 # IMAP_PORT=993
 # IMAP_USERNAME=dmarc@example.com
-# IMAP_PASSWORD=your_secure_password
-# IMAP_USE_SSL=true
-# IMAP_POLLING_INTERVAL=60
-
-# Security Settings
-SECRET_KEY=generate_a_secure_random_key
-ALLOWED_HOSTS=localhost,127.0.0.1
+# IMAP_PASSWORD=app_password
+# IMAP_FOLDER=INBOX
+DELETE_IMPORTED_EMAILS=false
 ```
 
-Generate a secure random key for `SECRET_KEY`:
+Generate separate random values for `SECRET_KEY` and `ADMIN_API_KEY`:
 
 ```bash
+openssl rand -hex 32
 openssl rand -hex 32
 ```
 
@@ -82,9 +76,8 @@ For SQLite:
 # Create the data directory
 mkdir -p data
 
-# Initialize the database
-cd app
-python -m alembic upgrade head
+# Initialize the database (from the backend directory)
+alembic upgrade head
 ```
 
 For PostgreSQL:
@@ -94,9 +87,8 @@ For PostgreSQL:
 sudo -u postgres psql -c "CREATE USER dmarq WITH PASSWORD 'secure_password';"
 sudo -u postgres psql -c "CREATE DATABASE dmarq OWNER dmarq;"
 
-# Initialize the database
-cd app
-python -m alembic upgrade head
+# Set DATABASE_URL to PostgreSQL, then initialize it
+alembic upgrade head
 ```
 
 ### 5. Start the Application (Development)
@@ -104,8 +96,7 @@ python -m alembic upgrade head
 For development or testing, you can run the application directly with Uvicorn:
 
 ```bash
-cd app
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn app.main:app --host 127.0.0.1 --port 8080 --reload
 ```
 
 ### 6. Production Deployment with Systemd
@@ -127,8 +118,8 @@ After=network.target
 
 [Service]
 User=dmarq
-WorkingDirectory=/path/to/dmarq/backend/app
-ExecStart=/path/to/dmarq/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000
+WorkingDirectory=/path/to/dmarq/backend
+ExecStart=/path/to/dmarq/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8080
 Restart=always
 Environment="PATH=/path/to/dmarq/venv/bin"
 EnvironmentFile=/path/to/dmarq/backend/.env
@@ -169,7 +160,7 @@ server {
     server_name dmarq.example.com;
     
     location / {
-        proxy_pass http://127.0.0.1:8000;
+        proxy_pass http://127.0.0.1:8080;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -222,7 +213,7 @@ After=network.target
 
 [Service]
 User=dmarq
-WorkingDirectory=/path/to/dmarq/backend/app
+WorkingDirectory=/path/to/dmarq/backend
 ExecStart=/path/to/dmarq/venv/bin/celery -A worker worker --loglevel=info
 Restart=always
 Environment="PATH=/path/to/dmarq/venv/bin"
@@ -260,8 +251,7 @@ cd backend
 pip install -r requirements.txt
 
 # Apply any database migrations
-cd app
-python -m alembic upgrade head
+   alembic upgrade head
 
 # Restart the service
 sudo systemctl restart dmarq
@@ -281,7 +271,7 @@ If the application fails to start:
 
 If the application can't connect to the database:
 
-1. Check the DB environment variables in `.env`
+1. Check `DATABASE_URL` in `.env`
 2. For PostgreSQL, verify the database exists: `sudo -u postgres psql -c "\l" | grep dmarq`
 3. Check if you can connect manually: `psql -U dmarq -h localhost dmarq`
 
@@ -291,7 +281,7 @@ If Nginx isn't serving the application:
 
 1. Check Nginx error logs: `sudo tail -f /var/log/nginx/error.log`
 2. Verify the Nginx configuration: `sudo nginx -t`
-3. Make sure the application is running: `curl http://localhost:8000`
+3. Make sure the application is running: `curl http://localhost:8080/healthz`
 
 ## Monitoring and Maintenance
 

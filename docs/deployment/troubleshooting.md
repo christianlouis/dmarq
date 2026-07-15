@@ -7,7 +7,7 @@ Use these playbooks when DMARQ is running but an operator workflow is not behavi
 Start with these checks:
 
 ```bash
-curl -fsS https://your-dmarq-host.example.com/health
+curl -fsS https://your-dmarq-host.example.com/healthz
 curl -fsS https://your-dmarq-host.example.com/api/v1/health
 ```
 
@@ -15,7 +15,7 @@ For Docker Compose:
 
 ```bash
 docker compose ps
-docker compose logs --tail=100 backend
+docker compose logs --tail=100 app
 ```
 
 For systemd:
@@ -57,13 +57,13 @@ Likely causes:
 
 - Identity-provider redirect URL does not match the deployed public URL.
 - OAuth mail-source redirects are built from an internal `http://` proxy URL instead of the public `https://` URL.
-- `ALLOWED_HOSTS` does not include the public hostname.
+- `PUBLIC_BASE_URL` or the identity-provider callback URL does not match the public hostname.
 - `SECRET_KEY` changed unexpectedly, invalidating sessions.
 - `AUTH_DISABLED`, `LOGTO_SKIP_SSL_VERIFY`, or `OIDC_SKIP_SSL_VERIFY` is set incorrectly for the environment.
 
 Actions:
 
-1. Confirm `ALLOWED_HOSTS` includes the host users open in the browser.
+1. Confirm `PUBLIC_BASE_URL` and the identity-provider callback use the host users open in the browser.
 2. Confirm Logto, Authentik, or generic OIDC callback URLs match the DMARQ callback URL exactly.
 3. Confirm `SECRET_KEY` is stable across restarts.
 4. Clear browser cookies after intentional auth changes.

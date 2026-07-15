@@ -24,7 +24,11 @@
                 <img src="/static/img/monogram_light.png" alt="{{ app_name }} logo" class="h-10 w-10">
                 <span class="font-heading text-2xl font-bold text-primary">{{ app_name }}</span>
             </a>
+            {% if auth_disabled %}
+            <a x-show="complete" href="/" class="btn btn-primary btn-sm">Open dashboard</a>
+            {% else %}
             <a x-show="complete" href="/login" class="btn btn-primary btn-sm">Sign in</a>
+            {% endif %}
         </div>
     </header>
 
@@ -68,26 +72,17 @@
 
                     <form x-show="!statusLoading && currentStep === 1" class="space-y-5" data-setup-admin-form>
                         <div>
-                            <h2 class="text-xl font-semibold">Admin contact</h2>
-                            <p class="mt-1 text-sm text-base-content/60">This contact is saved with the setup record.</p>
+                            <h2 class="text-xl font-semibold">Owner contact</h2>
+                            <p class="mt-1 text-sm leading-6 text-base-content/60">
+                                This is an operational contact, not a login account. Sign-in is controlled by the authentication mode shown on this page.
+                            </p>
                         </div>
 
-                        <div class="grid gap-4 sm:grid-cols-2">
+                        <div class="max-w-xl">
                             <label class="form-control">
-                                <span class="label-text font-medium">Email</span>
+                                <span class="label-text font-medium">Owner email</span>
                                 <input x-model.trim="admin.email" type="email" required autocomplete="email" class="input input-bordered">
-                            </label>
-                            <label class="form-control">
-                                <span class="label-text font-medium">Username</span>
-                                <input x-model.trim="admin.username" type="text" required autocomplete="username" class="input input-bordered">
-                            </label>
-                            <label class="form-control">
-                                <span class="label-text font-medium">Password</span>
-                                <input x-model="admin.password" type="password" required autocomplete="new-password" class="input input-bordered">
-                            </label>
-                            <label class="form-control">
-                                <span class="label-text font-medium">Confirm password</span>
-                                <input x-model="admin.confirmPassword" type="password" required autocomplete="new-password" class="input input-bordered">
+                                <span class="label-text-alt text-base-content/60">Used only as the deployment contact in setup records.</span>
                             </label>
                         </div>
 
@@ -156,15 +151,19 @@
                             </svg>
                             <div>
                                 <p class="font-semibold">Setup is complete.</p>
-                                <p class="text-sm" x-text="message || 'DMARQ is ready for sign-in and report ingestion.'"></p>
+                                <p class="text-sm" x-text="message || 'DMARQ is ready for report ingestion.'"></p>
                             </div>
                         </div>
                         <div class="flex flex-wrap gap-3">
+                            {% if auth_disabled %}
+                            <a href="/" class="btn btn-primary">Open dashboard</a>
+                            {% else %}
                             <a href="/login" class="btn btn-primary">Sign in</a>
-                            {% if auth_configured %}
+                            {% endif %}
+                            {% if auth_configured and not auth_disabled %}
                             <a href="/onboarding" class="btn btn-secondary">Start workspace onboarding</a>
                             {% endif %}
-                            <a href="/" class="btn btn-outline">Open dashboard</a>
+                            <a href="/mail-sources" class="btn btn-outline">Connect mailbox</a>
                         </div>
                     </div>
                 </div>
@@ -175,7 +174,11 @@
             <div class="card bg-base-100 shadow">
                 <div class="card-body">
                     <h2 class="card-title text-lg">Authentication</h2>
-                    {% if auth_configured %}
+                    {% if auth_disabled %}
+                    <div role="alert" class="alert alert-info py-3 text-sm">
+                        <span>Local single-user mode is active. No DMARQ sign-in is required.</span>
+                    </div>
+                    {% elif auth_configured %}
                     <div role="alert" class="alert alert-success py-3 text-sm">
                         <span>{{ auth_provider_label }} is configured.</span>
                     </div>

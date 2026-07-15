@@ -107,7 +107,9 @@ Open your browser to http://localhost:8080
 For a full stack with database:
 
 ```bash
-docker compose up --build
+./scripts/bootstrap-docker-env.sh
+docker compose -f docker-compose.yml -f docker-compose.build.yml \
+  up -d --build --wait
 ```
 
 ## Making Changes

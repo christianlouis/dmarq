@@ -510,8 +510,8 @@ detect-secrets scan
 
 - [GitHub Copilot Best Practices](https://github.blog/2023-06-20-how-to-write-better-prompts-for-github-copilot/)
 - [AI-Assisted Coding Security Guide](https://owasp.org/www-project-ai-security-and-privacy-guide/)
-- [DMARQ Contributing Guide](CONTRIBUTING.md)
-- [DMARQ Security Policy](SECURITY.md)
+- [DMARQ Contributing Guide](https://github.com/christianlouis/dmarq/blob/main/CONTRIBUTING.md)
+- [DMARQ Security Policy](https://github.com/christianlouis/dmarq/blob/main/SECURITY.md)
 
 ## Questions and Support
 

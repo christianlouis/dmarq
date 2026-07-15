@@ -41,7 +41,7 @@ manually outside this flow.
 - DMARQ deployed with a reachable HTTPS URL (for example
   `https://dmarq.example.com`).
 - `WEBHOOK_SECRET` set in the DMARQ environment. See
-  [Configuration](deployment/configuration.md#cloudflare-integration) and
+  [Configuration](deployment/configuration.md#dns-provider-integrations) and
   [Secret Handling with 1Password](deployment/secrets.md).
 - Optional: `WEBHOOK_MAX_EMAIL_SIZE_MB` if your report attachments require a
   limit other than the 25 MB default.
@@ -305,6 +305,6 @@ For general webhook import failures, see
 
 ## Related documentation
 
-- [Configuration — Cloudflare Integration](deployment/configuration.md#cloudflare-integration)
+- [Configuration — DNS Provider Integrations](deployment/configuration.md#dns-provider-integrations)
 - [DMARC Format Compatibility](reference/dmarc-compatibility.md)
 - [Webhook Imports Fail](deployment/troubleshooting.md#webhook-imports-fail)

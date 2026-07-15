@@ -70,8 +70,10 @@ Runs only on pushes to `main` after both **Test** and **Security** pass.
 - Builds the static Tailwind/DaisyUI CSS bundle from `backend/package.json`
   before the Python runtime image is assembled. Production pages must load
   `/static/css/app.css` and must not load the Tailwind browser compiler.
-- Pushes to `ghcr.io/<owner>/dmarq` with three tags:
-  - `latest` (default branch only)
+- Pushes to `ghcr.io/<owner>/dmarq` with channel and immutable tags:
+  - `docker-latest` (default branch preview channel)
+  - `docker-stable` (release/promotion channel)
+  - `latest` and `stable` compatibility aliases
   - branch name (e.g. `main`)
   - short commit SHA (e.g. `a1b2c3d`)
 - Layer cache is stored via GitHub Actions cache (`type=gha`).

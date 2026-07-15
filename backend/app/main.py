@@ -718,6 +718,7 @@ async def setup(request: Request):
             "auth_configured": settings.auth_configured,
             "auth_provider": settings.active_auth_provider,
             "auth_provider_label": settings.auth_provider_label,
+            "auth_disabled": settings.active_auth_provider == "disabled",
             "auth_provider_options": auth_provider_registry(settings),
         },
     )

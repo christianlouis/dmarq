@@ -17,7 +17,7 @@ on:
         required: false
         type: string
       promote_stable:
-        description: Also publish the stable image tag
+        description: Promote the verified image to docker-stable and stable
         required: false
         default: false
         type: boolean
@@ -44,6 +44,11 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Verify Docker Compose configuration contract
+        run: |
+          ./scripts/bootstrap-docker-env.sh
+          ./scripts/verify-docker-compose.sh
 
       - name: Set up Python 3.13
         uses: actions/setup-python@v5
@@ -122,6 +127,44 @@ jobs:
           flags: unittests
           name: codecov-umbrella
           fail_ci_if_error: false
+
+  docker-compose-smoke:
+    name: Docker Compose Greenfield Smoke
+    runs-on: ubuntu-latest
+    needs: lint
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Bootstrap a new standalone environment
+        run: ./scripts/bootstrap-docker-env.sh
+
+      - name: Build and start the documented stack
+        run: >-
+          docker compose
+          -f docker-compose.yml
+          -f docker-compose.build.yml
+          up -d --build --wait
+
+      - name: Verify host, API, database isolation, and image contract
+        run: |
+          curl -fsS http://127.0.0.1:8080/healthz
+          curl -fsS http://127.0.0.1:8080/api/v1/health
+          ./scripts/verify-docker-compose.sh
+          test -z "$(docker compose -f docker-compose.yml -f docker-compose.build.yml port db 5432)"
+          docker image inspect dmarq-app:local \
+            --format '{{ json .Config.ExposedPorts }}' | grep -q '8080/tcp'
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.yml -f docker-compose.build.yml logs --no-color --tail=300
+
+      - name: Remove the disposable stack
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.build.yml down -v --remove-orphans
 
   security:
     name: Security Scan
@@ -217,7 +260,7 @@ jobs:
   docker:
     name: Docker Build & Publish
     runs-on: ubuntu-latest
-    needs: [test, security]
+    needs: [test, security, docker-compose-smoke]
     if: >-
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
@@ -277,8 +320,8 @@ jobs:
             type=semver,pattern={{version}}
             type=raw,value=${{ steps.release_ref.outputs.short_sha }}
             type=raw,value=${{ github.event.inputs.release_tag }},enable=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != '' }}
-            type=raw,value=stable,enable=${{ startsWith(github.ref, 'refs/tags/v') || github.event.inputs.promote_stable == 'true' }}
             type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=docker-latest,enable={{is_default_branch}}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
@@ -311,11 +354,135 @@ jobs:
           echo "::error::Verified image tag did not become available in GHCR: $IMAGE"
           exit 1
 
+  registry-image-smoke:
+    name: Published Docker Image Smoke
+    runs-on: ubuntu-latest
+    needs: [docker]
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Checkout selected release ref
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.release_ref != ''
+        env:
+          RELEASE_REF: ${{ github.event.inputs.release_ref }}
+        run: |
+          git fetch --tags --force --depth=100 origin main
+          git checkout "$RELEASE_REF"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Start the published immutable image
+        env:
+          VERIFIED_IMAGE: ${{ needs.docker.outputs.image }}
+        run: |
+          ./scripts/bootstrap-docker-env.sh
+          sed -i "s|^DMARQ_IMAGE=.*|DMARQ_IMAGE=\"${VERIFIED_IMAGE}\"|" .env
+          docker compose pull
+          docker compose up -d --wait
+
+      - name: Verify release identity and DMARC ingestion
+        env:
+          EXPECTED_SHA: ${{ needs.docker.outputs.short_sha }}
+        run: |
+          curl -fsS http://127.0.0.1:8080/healthz
+          curl -fsS http://127.0.0.1:8080/api/v1/health
+          python3 scripts/check_release_rollout.py \
+            --base-url http://127.0.0.1:8080 \
+            --expected-sha "$EXPECTED_SHA"
+          curl -fsS \
+            -F 'file=@backend/app/tests/fixtures/dmarc_aggregate/rfc7489-google.xml;type=application/xml' \
+            http://127.0.0.1:8080/api/v1/reports/upload \
+            | grep -q '"success":true'
+          curl -fsS http://127.0.0.1:8080/api/v1/domains/domains \
+            | grep -q '"name":"example.com"'
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail=300
+
+      - name: Remove the disposable stack
+        if: always()
+        run: docker compose down -v --remove-orphans
+
+  promote-docker-stable:
+    name: Promote And Smoke docker-stable
+    runs-on: ubuntu-latest
+    needs: [docker, registry-image-smoke]
+    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.promote_stable == 'true'
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Checkout selected release ref
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.release_ref != ''
+        env:
+          RELEASE_REF: ${{ github.event.inputs.release_ref }}
+        run: |
+          git fetch --tags --force --depth=100 origin main
+          git checkout "$RELEASE_REF"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Promote the verified digest
+        env:
+          SOURCE_IMAGE: ${{ needs.docker.outputs.image }}
+          IMAGE_REPOSITORY: ghcr.io/${{ github.repository }}
+        run: |
+          docker buildx imagetools create \
+            --tag "${IMAGE_REPOSITORY}:docker-stable" \
+            --tag "${IMAGE_REPOSITORY}:stable" \
+            "$SOURCE_IMAGE"
+          docker buildx imagetools inspect "${IMAGE_REPOSITORY}:docker-stable"
+
+      - name: Start and verify docker-stable
+        env:
+          IMAGE_REPOSITORY: ghcr.io/${{ github.repository }}
+          EXPECTED_SHA: ${{ needs.docker.outputs.short_sha }}
+        run: |
+          ./scripts/bootstrap-docker-env.sh
+          sed -i "s|^DMARQ_IMAGE=.*|DMARQ_IMAGE=\"${IMAGE_REPOSITORY}:docker-stable\"|" .env
+          docker compose pull
+          docker compose up -d --wait
+          curl -fsS http://127.0.0.1:8080/healthz
+          python3 scripts/check_release_rollout.py \
+            --base-url http://127.0.0.1:8080 \
+            --expected-sha "$EXPECTED_SHA"
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail=300
+
+      - name: Remove the disposable stack
+        if: always()
+        run: docker compose down -v --remove-orphans
+
   # ── Stage 4: GitOps – update non-production k8s manifests ────────────────
   update-k8s-manifest:
     name: Update K8s Manifests
     runs-on: ubuntu-latest
-    needs: [docker]
+    needs: [docker, registry-image-smoke]
     if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_gitops == 'true')
     permissions:
       contents: read
@@ -440,7 +607,7 @@ jobs:
   promote-prod-k8s-manifest:
     name: Promote Production K8s Manifest
     runs-on: ubuntu-latest
-    needs: [docker]
+    needs: [docker, registry-image-smoke]
     if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_gitops == 'true')
     environment: dmarq-production-gitops
     permissions:

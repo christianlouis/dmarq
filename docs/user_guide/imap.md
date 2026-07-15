@@ -1,103 +1,111 @@
 # IMAP Integration
 
-DMARQ can automatically retrieve DMARC reports from your email inbox using IMAP. This guide explains how to set up and manage IMAP integration.
+DMARQ can retrieve DMARC aggregate reports from a mailbox on a schedule. IMAP
+is the simplest Gmail-compatible option when you do not want to configure a
+Google Cloud OAuth client.
 
-## Overview
+## Before You Start
 
-DMARC reports are typically sent to a dedicated email address that you specify in your DMARC record. DMARQ can connect to this mailbox using IMAP to fetch and process these reports automatically.
+You need:
 
-## Prerequisites
+1. A mailbox that receives DMARC aggregate reports from the `rua=` address in
+   your domain's DMARC record.
+2. IMAP access to that mailbox.
+3. A provider-specific App Password when normal password authentication is
+   disabled or the account uses MFA. Never enter the normal Google account
+   password into DMARQ.
 
-Before configuring IMAP integration, you need:
+For Gmail, use:
 
-1. An email account dedicated to receiving DMARC reports
-2. IMAP access enabled for this email account
-3. Your DMARC record configured to send reports to this email address
+| Field | Value |
+|-------|-------|
+| Method | `IMAP` |
+| Server | `imap.gmail.com` |
+| Port | `993` |
+| SSL/TLS | enabled |
+| Username | full Gmail address |
+| Password | Google App Password |
+| Folder | `INBOX`, or the folder/label receiving reports |
 
-## Configuration Steps
+## Add A Mail Source
 
-### 1. Enable IMAP Integration
+1. Open **Mail Sources**.
+2. Choose **Add mail source**.
+3. Enter a recognizable source name.
+4. Select **IMAP** and fill in server, port, username, password, TLS, and folder.
+5. Choose a polling interval. The minimum is 15 minutes.
+6. Keep the source enabled.
+7. Select **Test Connection** before saving.
+8. Save the source, then select **Fetch now**.
 
-1. Navigate to **Settings** > **IMAP Integration**
-2. Toggle **Enable IMAP** to ON
+The connection test checks authentication and mailbox access. **Fetch now**
+creates an import-history entry and processes supported DMARC attachments.
 
-### 2. Enter IMAP Server Details
+## Verify The First Import
 
-Fill in the following information:
-- **IMAP Server**: The hostname of your IMAP server (e.g., `imap.gmail.com`)
-- **IMAP Port**: The port number (typically 993 for SSL)
-- **Use SSL/TLS**: Toggle ON for secure connections (recommended)
+After the first fetch:
 
-### 3. Enter Authentication Details
+1. Open the source's **Import history**.
+2. Confirm that the attempt completed and review its parsed, duplicate, skipped,
+   and failed counts.
+3. Open **Reports** and confirm the expected reporting organization and domain.
+4. Compare report message totals and date range with the source XML.
+5. Run **Fetch now** again. An unchanged mailbox should produce duplicate or
+   no-new-report results without increasing existing report totals.
 
-- **Username**: Your email address
-- **Password**: Your email password or app password
-  - For Gmail and other providers with 2FA, you'll need to create an app-specific password
+Use **Backfill** when reports exist outside the normal recent polling window.
+Start with a small date range, inspect the result, and widen it only when
+needed.
 
-### 4. Configure Mailbox Settings
+## Scheduled Polling
 
-- **Folder**: The mailbox folder to check for reports (usually "INBOX")
-- **Polling Interval**: How frequently DMARQ should check for new reports (e.g., every 60 minutes)
-- **Report Processing**: Choose what to do after processing:
-  - Mark as read
-  - Move to a specific folder
-  - Delete after processing
+Enabled sources are checked by the application scheduler according to their
+polling interval. A successful connection test alone does not prove scheduled
+polling. Leave the instance running through at least one interval and confirm a
+new scheduled entry appears in import history.
 
-### 5. Test Connection
+The application must have only the intended scheduler topology. If multiple
+application replicas each run the in-process scheduler, they can perform the
+same mailbox check. Use the deployment's documented worker/scheduler strategy
+before scaling an ingestion instance horizontally.
 
-1. Click **Test Connection** to verify your IMAP settings
-2. DMARQ will attempt to connect and report success or failure
-3. If successful, you'll see the number of unread messages in the specified folder
+## Credential Storage And Rotation
 
-## Advanced IMAP Settings
+DMARQ encrypts persisted mailbox credentials using the deployment
+`SECRET_KEY`. Keep that key stable across restarts and upgrades. If it changes,
+previously stored credentials cannot be decrypted and the source must be
+re-entered.
 
-### Email Filtering
+For an ephemeral acceptance test, revoke the App Password after testing. For a
+maintained instance, store and rotate it according to the deployment's secret
+policy. Passwords and tokens are never returned by the Mail Sources API.
 
-You can configure DMARQ to only process certain emails:
+## Pause, Edit, Or Remove A Source
 
-- **Subject Filter**: Only process emails with subjects containing specific text
-- **Sender Filter**: Only process emails from specific senders
-- **Age Filter**: Only process emails newer than a specific age
+- Toggle a source off to stop scheduled checks without deleting its history.
+- Edit the source to change its folder, interval, or credentials. Leave the
+  password blank only when the form explicitly says the stored password will be
+  retained.
+- Test again after changing credentials or folders.
+- Delete a source only when its configuration and operational history are no
+  longer needed. Imported DMARC reports are separate persisted records.
 
-### Attachment Handling
+## Troubleshooting
 
-Configure how DMARQ handles report attachments:
+Run **Test connection** first. DMARQ returns a diagnostic category and recovery
+steps for common failures:
 
-- **Supported Formats**: XML, ZIP, GZ, EML
-- **Size Limit**: Maximum attachment size to process (default: 10MB)
-- **Processing Priority**: Which attachments to process first
+| Category | Action |
+|----------|--------|
+| `authentication` | Verify the full username and generate a fresh App Password. Re-enter it without spaces. |
+| `connectivity` | Confirm server, port, TLS, DNS, and outbound firewall access from the DMARQ host. |
+| `mailbox_not_found` | Match the folder name and nested separator exactly. |
+| `folder_search` | Confirm reports reach that folder, then run a bounded backfill. |
+| `parsing` | Inspect import details for malformed XML or corrupt ZIP/GZIP attachments. |
+| `duplicate_only` | Normal for an unchanged mailbox; investigate delivery only when fresh reports are expected. |
 
-### Troubleshooting IMAP Connections
-
-If you're having trouble with IMAP integration, run **Test connection** from **Mail Sources** first. DMARQ returns a diagnostic category and recovery steps for the most common cases:
-
-| Category | What to check |
-|----------|---------------|
-| `authentication` | Verify username and password, and use an app password when MFA is enabled. |
-| `connectivity` | Confirm server address, port, TLS, DNS, and firewall access from the DMARQ host. |
-| `mailbox_not_found` | Match the folder name exactly, including case and nested separators. |
-| `folder_search` | Confirm DMARC reports are delivered to the selected folder, then run a wider backfill. |
-| `parsing` | Check import details for malformed XML, unsupported attachments, or corrupt ZIP/GZIP files. |
-| `duplicate_only` | Treat this as normal when the mailbox is quiet; check folder delivery if fresh reports are expected. |
-
-If the category is not enough to resolve the issue, check **Operations** for mailbox recovery guidance and review the latest import history from **Mail Sources**. Keep passwords, tokens, and provider error secrets redacted in notes and issue comments.
-
-## Managing IMAP Integration
-
-### Monitoring Activity
-
-You can monitor IMAP integration activity:
-
-1. Navigate to **Settings** > **IMAP Integration**
-2. View the **Activity Log** section
-3. Check when reports were last fetched and how many were processed
-
-### Pausing Integration
-
-To temporarily disable IMAP fetching:
-
-1. Navigate to **Settings** > **IMAP Integration**
-2. Toggle **Enable IMAP** to OFF
-3. Click **Save Changes**
-
-DMARQ will stop checking for new reports until you re-enable the integration.
+An expired or revoked App Password appears as an authentication failure and
+requires a new password. Gmail API OAuth sources instead expose authorization
+health and request reconnection when refresh access is missing or rejected.
+Check **Operations** and the source's import history for the latest actionable
+diagnostic before reviewing container logs.

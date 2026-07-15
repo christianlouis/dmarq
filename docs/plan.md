@@ -188,10 +188,20 @@ To make it easy to run the entire platform, DMARQ provides a Docker-based deploy
 
 With this structure, **Docker Compose** can define three main services:
 1. **db**: The PostgreSQL database. In `docker-compose.yml`, this uses the official postgres image, with environment for password, and a volume for data persistence.
-2. **backend**: The FastAPI app image. We create a Dockerfile in `backend/` that starts from a Python base image, installs dependencies (from a `requirements.txt` or `pyproject.toml`), copies the FastAPI app code, and runs Uvicorn (or Hypercorn) to serve the app (for example: `uvicorn app:app --host 0.0.0.0 --port 8000`). This container would link to `db` for database access (the DB URL set via env such as `DATABASE_URL=postgresql://...`).
+2. **app**: The FastAPI application image. The implemented Dockerfile in
+   `backend/` installs dependencies, builds frontend assets, copies the
+   application, runs migrations through its entrypoint, and serves DMARQ on
+   container port `8080`. The service reaches PostgreSQL through `DATABASE_URL`
+   on the private deployment network.
 3. **frontend**: The static assets served by the backend. The backend serves the Jinja2 templates and static files directly, eliminating the need for a separate frontend container.
 
-The **compose setup** enables anyone to do `docker-compose up -d` and have the system running at `http://localhost` (frontend and API). We will ensure CORS is allowed from the frontend origin in FastAPI settings (or if served under same domain, configure nginx to proxy API requests to backend, e.g., prefix `/api/`).
+The implemented **Compose setup** lets an operator bootstrap a secret-bearing
+`.env`, pull the tested `docker-stable` image, and start the full application on
+`http://localhost:8080`. PostgreSQL remains internal to the Compose network.
+Developers who need to build the checkout use the separate
+`docker-compose.build.yml` override. See the maintained
+[Docker Setup](deployment/docker.md) guide rather than this historical plan for
+the current commands and security defaults.
 
 ### Running and Deployment Considerations
 

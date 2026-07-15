@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added a published-image Docker installation path with generated persistent
+  secrets, an internal-only PostgreSQL service, a clean-host verification
+  script, registry-image smoke tests, and separate `docker-stable`,
+  `docker-latest`, and local source-build channels.
+- Added a zero-knowledge greenfield deployment checklist covering setup, DMARC
+  fixture ingestion, persistence, Gmail IMAP acceptance, duplicate handling,
+  scheduled polling, and the Kubernetes runtime contract.
 - Added a product-backed site-manager console at `/provider` with risk-sorted
   customer accounts, domain/report/user/billing drill-down, persistent provider
   provisioning, active plan selection, and mobile account cards.
@@ -150,6 +157,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cleaned up root directory for clarity
 
 ### Fixed
+- Fixed the greenfield Compose deployment contract so documented ports,
+  database credentials, CORS parsing, setup behavior, health checks, and image
+  selection match the running containers without undocumented maintainer input.
 - Fixed provider drill-down for suspended customers so an exactly scoped,
   read-only support session can still inspect customer domains, organizations,
   and members without reactivating the tenant or permitting mutations.

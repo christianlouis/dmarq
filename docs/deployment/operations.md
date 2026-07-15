@@ -8,21 +8,23 @@ This runbook is for people who deploy and operate DMARQ. It focuses on repeatabl
 
 Use Docker Compose for a single-host deployment or a small production instance.
 
-1. Put configuration in the project `.env` file, preferably mounted from a 1Password Environment.
+1. Create configuration with `./scripts/bootstrap-docker-env.sh`, or mount the project `.env` file from a 1Password Environment.
 2. Use PostgreSQL for production. SQLite is acceptable for local or low-volume personal deployments.
 3. Start the stack:
 
    ```bash
-   docker compose up -d
+   docker compose pull
+   docker compose up -d --wait
    ```
 
 4. Verify:
 
    ```bash
    docker compose ps
-   docker compose logs --tail=100 backend
-   curl -fsS http://localhost:8000/health
-   curl -fsS http://localhost:8000/api/v1/health
+   docker compose logs --tail=100 app
+   curl -fsS http://localhost:8080/healthz
+   curl -fsS http://localhost:8080/api/v1/health
+   ./scripts/verify-docker-compose.sh
    ```
 
 ### Coolify
@@ -35,7 +37,7 @@ Use Coolify when you want Git-based Docker deployment with managed environment v
    - `/app/data` when using SQLite or file-backed runtime data.
 3. Add environment variables in Coolify or inject them from 1Password. Keep `SECRET_KEY`, database credentials, mailbox passwords, OAuth secrets, `WEBHOOK_SECRET`, and Cloudflare tokens concealed.
 4. Deploy the app and confirm the backend container stays healthy.
-5. Verify the public URL with `/health`, `/api/v1/health`, the dashboard, and Mail Sources.
+5. Verify the public URL with `/healthz`, `/api/v1/health`, the dashboard, and Mail Sources.
 
 Do not mount the source tree over the production container. Production containers should run the image contents, not a local development volume.
 
@@ -52,7 +54,7 @@ Use manual installation when Docker is not available.
    ```bash
    sudo systemctl status dmarq
    sudo journalctl -u dmarq -n 100
-   curl -fsS http://127.0.0.1:8000/health
+   curl -fsS http://127.0.0.1:8080/healthz
    ```
 
 ### Kubernetes Or GitOps
@@ -69,7 +71,7 @@ Use Kubernetes when DMARQ is deployed through a cluster-state repository.
 
 After a new deployment:
 
-1. Open `/health` and `/api/v1/health`.
+1. Open `/healthz` and `/api/v1/health`.
 2. Complete the initial setup flow or confirm login works.
 3. Add one monitored domain.
 4. Upload a known-good DMARC aggregate report.
@@ -111,7 +113,7 @@ Use this sequence for every production upgrade:
 
 - Rotate credentials according to your policy.
 - Confirm the restore procedure still works in a temporary environment.
-- Review `ALLOWED_HOSTS`, Logto redirect URLs, Cloudflare tokens, and mailbox access.
+- Review `PUBLIC_BASE_URL`, identity-provider redirect URLs, Cloudflare tokens, and mailbox access.
 
 ## Rollback
 
@@ -123,4 +125,3 @@ Rollback is safest when the database schema did not change. If a migration ran, 
 4. Start DMARQ.
 5. Run health checks, dashboard checks, and Mail Sources checks.
 6. Record the rollback cause and open a follow-up issue.
-
