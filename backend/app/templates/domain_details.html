@@ -1459,7 +1459,7 @@
                                     <div>
                                         <dt class="text-[#5f5c78]">Compliance</dt>
                                         <dd class="mt-1 font-semibold text-[#120d36]">
-                                            <span x-text="pathValue(latestHealthPoint, 'compliance_rate', '-')"></span><span x-show="latestHealthPoint.compliance_rate !== undefined">%</span>
+                                            <span x-text="pathValue(latestHealthPoint, 'compliance_rate', '-')"></span><span x-show="latestHealthPoint.compliance_rate !== undefined && latestHealthPoint.compliance_rate !== null">%</span>
                                         </dd>
                                     </div>
                                     <div>

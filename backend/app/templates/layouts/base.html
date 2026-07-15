@@ -19,7 +19,7 @@
     'rollout': {'image_tag_matches_short_sha': false},
     'changes': []
 }) %}
-<html lang="en" data-theme="dmarqlight" data-multi-workspace-ui="{{ 'true' if workspace_switcher_enabled else 'false' }}" data-demo-mode="{{ 'true' if demo_mode else 'false' }}" class="overflow-x-hidden dark:data-theme-dmarqdark">
+<html lang="en" data-theme="dmarqlight" data-multi-workspace-ui="{{ 'true' if workspace_switcher_enabled else 'false' }}" data-demo-mode="{{ 'true' if demo_mode else 'false' }}" class="overflow-x-hidden">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -212,7 +212,7 @@
             <span class="text-[11px] font-semibold leading-tight">Mail Sources</span>
         </a>
         {% if effective_multi_workspace_ui %}
-        <a href="/members" aria-label="Members" title="Members" class="group flex w-24 flex-col items-center gap-1 rounded-lg p-2 text-white/55 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
+        <a href="/members" aria-label="Members" title="Members" class="group flex w-24 flex-col items-center gap-1 rounded-lg p-2 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white {{ 'bg-white/10 text-white shadow-sm' if current_path.startswith('/members') else 'text-white/55' }}">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8.5 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm7 1a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM2 19.5C2 15.9 4.9 13 8.5 13S15 15.9 15 19.5V21H2v-1.5Zm12.8 1.5v-1.5c0-2-.7-3.8-1.9-5.2.8-.2 1.7-.3 2.6-.3 3 0 5.5 2.5 5.5 5.5V21h-6.2Z"/></svg>
             <span class="text-[11px] font-semibold leading-tight">Members</span>
         </a>

@@ -603,7 +603,7 @@ function mailSourcesApp() {
 
         backfillRecognized(job) {
             if (!job) return 0;
-            if (Number.isFinite(Number(job.recognized_reports))) {
+            if (job.recognized_reports != null && Number.isFinite(Number(job.recognized_reports))) {
                 return Number(job.recognized_reports);
             }
             return Number(job.reports_found || 0) + Number(job.duplicate_reports || 0);
@@ -611,7 +611,7 @@ function mailSourcesApp() {
 
         backfillSkipped(job) {
             if (!job) return 0;
-            if (Number.isFinite(Number(job.skipped_attachments))) {
+            if (job.skipped_attachments != null && Number.isFinite(Number(job.skipped_attachments))) {
                 return Number(job.skipped_attachments);
             }
             return (job.details || []).filter(detail => detail.status === 'skipped').length;

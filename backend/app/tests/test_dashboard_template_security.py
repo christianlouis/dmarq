@@ -315,7 +315,7 @@ def test_dashboard_empty_state_leads_with_report_mailbox_without_hiding_upload()
     assert "this.hasEnabledMailSources = (data.enabled_sources || 0) > 0" in script
     assert "hasReportData: false" in script
     assert "this.hasReportData = Number(data.total_reports || 0) > 0" in script
-    assert '!hasReportData' in template
+    assert "!hasReportData" in template
     assert "Report intake is the next step." in template
 
 
@@ -1503,7 +1503,10 @@ def test_domains_uses_external_page_script_for_csp_migration():
     assert "visibleDomains()" in template
     assert "without reports or volume hidden" in template
     assert "Show empty domains" in template
-    assert "All monitored domains are hidden because no report or mail volume has been observed yet." in template
+    assert (
+        "All monitored domains are hidden because no report or mail volume has been observed yet."
+        in template
+    )
     assert "visibleDomains().length === 0 ? 'hidden md:block' : 'block'" in template
     assert "domain.dns_state_label" in template
     assert "domain.dns_state_class" in template
@@ -2724,6 +2727,21 @@ def test_base_template_propagates_selected_workspace_context():
     assert "event.target" in script
     assert "target instanceof Element" in script
     assert "!modal.open" in script
+    assert "current_path.startswith('/members')" in template
+
+
+def test_theme_scripts_use_the_configured_dark_theme_name():
+    root = Path(__file__).resolve().parents[1]
+    files = [
+        root / "templates" / "layouts" / "base.html",
+        root / "static" / "js" / "base-layout.js",
+        root / "static" / "js" / "login-page.js",
+        root / "static" / "js" / "setup-page.js",
+    ]
+    contents = [path.read_text() for path in files]
+
+    assert all("dmarqdark" not in content for content in contents)
+    assert all("'data-theme', 'dark'" in content for content in contents[1:])
 
 
 def test_base_template_hides_workspace_controls_in_single_user_mode():

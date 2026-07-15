@@ -19,5 +19,5 @@ document.addEventListener('alpine:init', () => {
 });
 
 if (localStorage.getItem('darkMode') === 'true') {
-    document.documentElement.setAttribute('data-theme', 'dmarqdark');
+    document.documentElement.setAttribute('data-theme', 'dark');
 }
