@@ -121,10 +121,14 @@
                             </div>
                             <h2 class="mt-2 text-lg font-semibold text-[#07071f]" x-text="primaryRemediationItem.title"></h2>
                             <p class="mt-1 text-sm text-[#5f5c78]" x-text="primaryRemediationItem.detail"></p>
+                            <p class="mt-2 text-xs font-medium text-[#5f5c78]" x-text="primaryRemediationScopeNote"></p>
                             <p class="mt-3 text-sm text-[#120d36]">
                                 <span class="font-semibold">Next step: </span>
                                 <span x-text="primaryRemediationNextSafeAction"></span>
                             </p>
+                            <a :href="primaryRemediationCtaHref"
+                               class="btn mt-4 w-full border-0 bg-[#2f9da5] text-white hover:bg-[#272a5f] lg:hidden"
+                               x-text="primaryRemediationCtaLabel"></a>
                             <details class="mt-3 rounded-md border border-[#e6e3e1] bg-white">
                                 <summary class="cursor-pointer px-3 py-2 text-sm font-semibold text-[#272a5f]">Technical workflow details</summary>
                                 <div class="grid gap-3 border-t border-[#e6e3e1] p-3 md:grid-cols-2 xl:grid-cols-3">
@@ -196,7 +200,7 @@
                         </div>
                         <div class="flex w-full flex-col gap-2 sm:w-auto">
                             <a :href="primaryRemediationCtaHref"
-                               class="btn btn-sm border-0 bg-[#2f9da5] text-white hover:bg-[#272a5f]"
+                               class="btn btn-sm hidden border-0 bg-[#2f9da5] text-white hover:bg-[#272a5f] lg:inline-flex"
                                x-text="primaryRemediationCtaLabel"></a>
                             <button type="button"
                                     x-show="primaryRemediationItem.evidence_refresh"

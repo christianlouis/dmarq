@@ -248,6 +248,30 @@ def _report_detail_script() -> str:
     return _read_project_file("static", "js", "report-detail-page.js")
 
 
+def _run_report_detail_expression(payload: dict[str, object], expression: str) -> object:
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is required to execute report-detail-page.js behavior tests")
+
+    script_path = Path(__file__).resolve().parents[1] / "static" / "js" / "report-detail-page.js"
+    runner = textwrap.dedent("""
+        const fs = require('fs');
+        const script = fs.readFileSync(process.argv[1], 'utf8');
+        const reportDetailFactory = new Function(`${script}\nreturn reportDetailApp;`)();
+        const app = reportDetailFactory('report-id');
+        app.report = { records: JSON.parse(process.argv[2]) };
+        const result = new Function('app', `return ${process.argv[3]};`)(app);
+        process.stdout.write(JSON.stringify(result));
+        """)
+    result = subprocess.run(
+        [node, "-e", runner, str(script_path), json.dumps(payload["records"]), expression],
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+    return json.loads(result.stdout)
+
+
 def test_settings_cloudflare_oauth_uses_popup_with_full_window_fallback():
     template = _settings_template()
     script = _settings_script()
@@ -1371,6 +1395,16 @@ def test_dashboard_uses_external_page_script_for_csp_migration():
     assert "data-dashboard-custom-apply" in script
     assert "data-dashboard-dns-health-domain" in script
     assert "data-dashboard-trigger-poll" in script
+    assert "dashboardNextAction" in script
+    assert "severityDotClass(severity)" in script
+    assert "Report-backed domains only" in script
+    assert "Scheduled checks active" in script
+    assert "/api/v1/domains/summary?include_empty=false" in script
+    assert "Analytics window" in template
+    assert "Analytics and evidence" in template
+    assert "Traffic-weighted health" in template
+    assert "Weighted by message volume." in template
+    assert 'id="dashboard-next-action-heading"' in template
     assert "data-dashboard-demo-tour-close" in script
     assert "ownerDocument.addEventListener('keydown'" in script
     assert "removeEventListener('keydown'" in script
@@ -1832,6 +1866,7 @@ def test_report_detail_uses_external_page_script_for_csp_migration():
     assert "record.reputation.feed_summary" in template
     assert "recordRiskFilter" in template
     assert "filteredRecords" in template
+    assert "visibleFilteredRecords" in template
     assert "recordRiskCounts" in template
     assert "recordRiskMatches(record, this.recordRiskFilter)" in script
     assert "recordRiskLabel()" in template
@@ -1846,6 +1881,15 @@ def test_report_detail_uses_external_page_script_for_csp_migration():
     assert "seenLabel(record.reputation.last_seen)" in template
     assert "Use Recalculate reputation" in template
     assert "reputationFeedClass" in script
+    assert "Investigation summary" in template
+    assert "Sending source clusters" in template
+    assert "Raw record evidence" in template
+    assert "senderClusters" in script
+    assert "investigationCounts" in script
+    assert "data-report-risk-filter" in template
+    assert "data-report-risk-filter" in script
+    assert "data-report-show-more-records" in template
+    assert "data-report-show-more-records" in script
     assert "reputationLabel" in script
     assert "reputationEvidencePreview" in script
     assert "senderStatusClass" in script
@@ -2475,6 +2519,7 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "primaryRemediationItem" in script
     assert "primaryRemediationNextStep" in script
     assert "primaryRemediationNextSafeAction" in script
+    assert "primaryRemediationScopeNote" in script
     assert "primaryRemediationReadinessContext" in script
     assert "primaryRemediationBlockedText" in script
     assert "primaryRemediationDispatchText" in script
@@ -2504,6 +2549,7 @@ def test_domain_details_distinguishes_loading_error_and_empty_states():
     assert "repairReadinessLabel(primaryRemediationItem.repair_progression)" in template
     assert "repairReadinessScore(primaryRemediationItem.repair_progression)" in template
     assert "Next safe action" in template
+    assert "primaryRemediationScopeNote" in template
     assert "Freshness required" in template
     assert "primaryRemediationFreshnessText" in template
     assert "primaryRemediationClosureGateText" in template
@@ -2593,6 +2639,54 @@ def test_report_detail_exposes_record_review_guidance_without_html_injection():
     assert "record.next_steps" in template
     assert "Needs review" in template
     assert "x-html" not in template
+
+
+def test_report_detail_distinguishes_dmarc_failure_from_mixed_authentication():
+    payload = {
+        "records": [
+            {
+                "count": 1,
+                "dkim_result": "fail",
+                "spf_result": "fail",
+                "disposition": "reject",
+                "source_ip": "192.0.2.10",
+                "source_details": {
+                    "network": "Example Network",
+                    "sender": {"provider": "Example Sender", "status": "known"},
+                },
+            },
+            {
+                "count": 2,
+                "dkim_result": "fail",
+                "spf_result": "pass",
+                "disposition": "none",
+                "source_ip": "192.0.2.11",
+                "source_details": {
+                    "network": "Example Network",
+                    "sender": {"provider": "Example Sender", "status": "known"},
+                },
+            },
+        ]
+    }
+
+    result = _run_report_detail_expression(
+        payload,
+        "({ counts: app.investigationCounts, title: app.investigationTitle, clusters: app.senderClusters })",
+    )
+
+    assert result["counts"] == {"failed": 1, "mixed": 2, "unknown": 0}
+    assert result["title"] == "1 message needs authentication review"
+    assert result["clusters"][0]["failures"] == 1
+    assert result["clusters"][0]["mixed"] == 2
+
+
+def test_report_detail_count_labels_handle_singular_and_plural():
+    result = _run_report_detail_expression(
+        {"records": []},
+        "[app.countLabel(1, 'IP'), app.countLabel(2, 'IP'), app.countLabel(1, 'record')]",
+    )
+
+    assert result == ["1 IP", "2 IPs", "1 record"]
 
 
 def test_members_template_uses_membership_api_without_html_injection():
@@ -2834,6 +2928,16 @@ def test_onboarding_template_uses_single_user_setup_story_by_default():
     assert "showWorkspaceSwitchSuccess" in template
     assert "taskPreviewLabel" in template
     assert "showNoTasks" in template
+    assert "Current setup" in template
+    assert "setupStatusItems" in script
+    assert "loadSetupState()" in script
+    assert "/api/v1/domains/summary?include_empty=true" in script
+    assert "/api/v1/mail-sources" in script
+    assert "data-onboarding-reconfigure" in template
+    assert "data-onboarding-reconfigure" in script
+    assert "data-onboarding-form" in template
+    assert "data-onboarding-form" in script
+    assert "Unsaved setup changes" in template
     assert 'x-init="init()"' not in template
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
     assert "Account boundary" not in rendered

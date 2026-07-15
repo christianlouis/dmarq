@@ -61,22 +61,49 @@
                         <a href="/reports" class="btn btn-outline btn-sm border-[#dfdfdf] text-[#272a5f] hover:border-[#2f9da5] hover:bg-[#f4f3f2]">
                             All Reports
                         </a>
-                        <button type="button"
-                                class="btn btn-outline btn-sm border-[#dfdfdf] text-[#272a5f] hover:border-[#2f9da5] hover:bg-[#f4f3f2]"
-                                data-report-refresh-reputation
-                                :disabled="reputationRefreshing">
-                            <span x-show="reputationRefreshing" class="loading loading-spinner loading-xs"></span>
-                            <span x-text="reputationRefreshing ? 'Refreshing reputation...' : 'Recalculate reputation'"></span>
-                        </button>
-                        <button class="btn btn-error btn-sm"
-                                data-report-delete
-                                :data-report-domain="report.domain"
-                                :data-report-id="report.report_id">
-                            Delete Report
-                        </button>
+                        <details class="dropdown dropdown-end">
+                            <summary class="btn btn-outline btn-sm border-[#dfdfdf] text-[#272a5f] hover:border-[#2f9da5] hover:bg-[#f4f3f2]">
+                                More actions
+                            </summary>
+                            <div class="menu dropdown-content z-20 mt-2 w-64 rounded-lg border border-[#e6e3e1] bg-white p-2 shadow-lg">
+                                <button type="button"
+                                        class="rounded-md px-3 py-2 text-left text-sm font-semibold text-[#272a5f] hover:bg-[#f4f3f2]"
+                                        data-report-refresh-reputation
+                                        :disabled="reputationRefreshing">
+                                    <span x-text="reputationRefreshing ? 'Refreshing reputation...' : 'Recalculate reputation'"></span>
+                                </button>
+                                <button type="button"
+                                        class="rounded-md px-3 py-2 text-left text-sm font-semibold text-[#a33717] hover:bg-[#fff2ec]"
+                                        data-report-delete
+                                        :data-report-domain="report.domain"
+                                        :data-report-id="report.report_id">
+                                    Delete report
+                                </button>
+                            </div>
+                        </details>
                     </div>
                 </div>
             </div>
+
+            <section class="rounded-lg border border-[#d8edf0] bg-[#f3fbfc] p-5 shadow-sm"
+                     aria-labelledby="report-investigation-heading">
+                <div class="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                        <p class="text-xs font-semibold uppercase tracking-wide text-[#247982]">Investigation summary</p>
+                        <h2 id="report-investigation-heading" class="mt-1 text-2xl font-semibold text-[#07071f]" x-text="investigationTitle"></h2>
+                        <p class="mt-2 max-w-3xl text-sm leading-6 text-[#5f5c78]" x-text="investigationDetail"></p>
+                        <div class="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
+                            <span class="rounded-full bg-white px-3 py-1 text-[#8a2d0d]"><span x-text="investigationCounts.failed"></span> failing</span>
+                            <span class="rounded-full bg-white px-3 py-1 text-[#8a5b00]"><span x-text="investigationCounts.mixed"></span> mixed</span>
+                            <span class="rounded-full bg-white px-3 py-1 text-[#5f5c78]"><span x-text="investigationCounts.unknown"></span> unknown</span>
+                        </div>
+                    </div>
+                    <button type="button"
+                            class="btn btn-primary w-full flex-none lg:w-auto"
+                            :data-report-risk-filter="investigationPrimaryFilter"
+                            x-text="investigationPrimaryLabel"></button>
+                </div>
+            </section>
 
             <!-- Summary Cards -->
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -187,6 +214,42 @@
                 {% endcall %}
             {% endcall %}
 
+            {% call card() %}
+                {% call card_header() %}
+                    {% call card_title() %}Sending source clusters{% endcall %}
+                    {% call card_description() %}Providers and networks grouped before individual IP evidence{% endcall %}
+                {% endcall %}
+                {% call card_content() %}
+                    <div class="grid gap-3 lg:grid-cols-2">
+                        <template x-for="cluster in senderClusters" :key="cluster.key">
+                            <article class="rounded-md border border-[#e6e3e1] p-4">
+                                <div class="flex items-start justify-between gap-3">
+                                    <div class="min-w-0">
+                                        <h3 class="truncate font-semibold text-[#120d36]" x-text="cluster.provider"></h3>
+                                        <p class="mt-1 truncate text-sm text-[#5f5c78]" x-text="cluster.network"></p>
+                                    </div>
+                                    <span class="flex-none rounded-full px-2 py-1 text-xs font-semibold"
+                                          :class="clusterStatusClass(cluster)"
+                                          x-text="clusterStatusLabel(cluster)"></span>
+                                </div>
+                                <div class="mt-3 flex flex-wrap gap-2 text-xs text-[#5f5c78]">
+                                    <span class="rounded bg-[#f4f3f2] px-2 py-1" x-text="countLabel(cluster.messages, 'message')"></span>
+                                    <span class="rounded bg-[#f4f3f2] px-2 py-1" x-text="countLabel(cluster.ips.length, 'IP')"></span>
+                                    <span class="rounded bg-[#f4f3f2] px-2 py-1" x-text="countLabel(cluster.records, 'record')"></span>
+                                </div>
+                                <p class="mt-3 text-sm font-semibold text-[#272a5f]"
+                                   x-show="cluster.nextAction"
+                                   x-text="cluster.nextAction"></p>
+                                <details class="mt-3 text-xs text-[#5f5c78]">
+                                    <summary class="cursor-pointer font-semibold text-[#247982]">Show IP evidence</summary>
+                                    <p class="mt-2 break-words font-mono" x-text="cluster.ips.join(', ') || 'No source IP recorded'"></p>
+                                </details>
+                            </article>
+                        </template>
+                    </div>
+                {% endcall %}
+            {% endcall %}
+
             <!-- Report Metadata -->
             {% call card() %}
                 {% call card_header() %}
@@ -289,6 +352,15 @@
                             </select>
                         </label>
                     </div>
+                    <details id="report-records" class="rounded-md border border-[#e6e3e1]">
+                        <summary class="flex cursor-pointer list-none items-center justify-between gap-3 p-4">
+                            <span>
+                                <span class="block font-semibold text-[#120d36]">Raw record evidence</span>
+                                <span class="mt-1 block text-sm text-[#5f5c78]">Expand individual IP, authentication, reputation, and policy results.</span>
+                            </span>
+                            <span class="rounded bg-[#f4f3f2] px-2 py-1 text-xs font-semibold text-[#5f5c78]" x-text="recordRiskLabel()"></span>
+                        </summary>
+                        <div class="overflow-x-auto border-t border-[#e6e3e1] p-3">
                     {% call table() %}
                         {% call thead() %}
                             {% call tr() %}
@@ -318,7 +390,7 @@
                                     </td>
                                 </tr>
                             </template>
-                            <template x-for="(record, index) in filteredRecords" :key="index">
+                            <template x-for="(record, index) in visibleFilteredRecords" :key="record.source_ip + '-' + index">
                                 {% call tr() %}
                                     {% call td() %}
                                         <span class="font-mono text-sm" x-text="record.source_ip"></span>
@@ -482,6 +554,14 @@
                             </template>
                         {% endcall %}
                     {% endcall %}
+                            <div class="mt-3 flex items-center justify-between gap-3" x-show="hiddenFilteredRecordCount > 0">
+                                <p class="text-sm text-[#5f5c78]">
+                                    <span x-text="hiddenFilteredRecordCount"></span> more matching records
+                                </p>
+                                <button type="button" class="btn btn-outline btn-sm" data-report-show-more-records>Show 25 more</button>
+                            </div>
+                        </div>
+                    </details>
                 {% endcall %}
             {% endcall %}
         </div>

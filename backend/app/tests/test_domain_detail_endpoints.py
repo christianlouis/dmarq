@@ -128,7 +128,9 @@ def _stub_approval_ready_remediation(monkeypatch):
 
     monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_domain_grade)
     monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", fake_dns_guidance)
-    monkeypatch.setattr(domains_endpoint, "_ready_dns_write_provider_ids", lambda: ["cloudflare"])
+    monkeypatch.setattr(
+        domains_endpoint, "_configured_dns_write_provider_ids", lambda _db: ["cloudflare"]
+    )
     monkeypatch.setattr(
         domains_endpoint,
         "_recommended_dns_write_provider",
@@ -157,6 +159,21 @@ def seeded_client(authed_client: TestClient, db_session):
     db_session.commit()
     ReportStore.get_instance().add_report(REPORT_DICT_POLICY)
     return authed_client
+
+
+def test_configured_dns_write_providers_require_credentials(db_session, monkeypatch):
+    monkeypatch.setattr(
+        domains_endpoint,
+        "_ready_dns_write_provider_ids",
+        lambda: ["cloudflare", "route53"],
+    )
+    monkeypatch.setattr(
+        domains_endpoint,
+        "_provider_credentials_configured",
+        lambda _db, provider_id: provider_id == "route53",
+    )
+
+    assert domains_endpoint._configured_dns_write_provider_ids(db_session) == ["route53"]
 
 
 @pytest.fixture(autouse=True)
@@ -816,7 +833,9 @@ def test_domain_remediation_queue_groups_dns_and_health_actions(
 
     monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_domain_grade)
     monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", fake_dns_guidance)
-    monkeypatch.setattr(domains_endpoint, "_ready_dns_write_provider_ids", lambda: ["cloudflare"])
+    monkeypatch.setattr(
+        domains_endpoint, "_configured_dns_write_provider_ids", lambda _db: ["cloudflare"]
+    )
     monkeypatch.setattr(
         domains_endpoint,
         "_recommended_dns_write_provider",
@@ -1479,7 +1498,9 @@ def test_domain_remediation_notification_lifecycle_audit_records_sanitized_marke
 
     monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_domain_grade)
     monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", fake_dns_guidance)
-    monkeypatch.setattr(domains_endpoint, "_ready_dns_write_provider_ids", lambda: ["cloudflare"])
+    monkeypatch.setattr(
+        domains_endpoint, "_configured_dns_write_provider_ids", lambda _db: ["cloudflare"]
+    )
     monkeypatch.setattr(
         domains_endpoint,
         "_recommended_dns_write_provider",
@@ -1630,7 +1651,9 @@ def test_domain_remediation_notification_lifecycle_audit_rejects_mismatched_even
 
     monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_domain_grade)
     monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", fake_dns_guidance)
-    monkeypatch.setattr(domains_endpoint, "_ready_dns_write_provider_ids", lambda: ["cloudflare"])
+    monkeypatch.setattr(
+        domains_endpoint, "_configured_dns_write_provider_ids", lambda _db: ["cloudflare"]
+    )
     monkeypatch.setattr(
         domains_endpoint,
         "_recommended_dns_write_provider",
@@ -1705,7 +1728,7 @@ def test_domain_remediation_notification_lifecycle_audit_rejects_unknown_item(
 
     monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_domain_grade)
     monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", fake_dns_guidance)
-    monkeypatch.setattr(domains_endpoint, "_ready_dns_write_provider_ids", lambda: [])
+    monkeypatch.setattr(domains_endpoint, "_configured_dns_write_provider_ids", lambda _db: [])
 
     response = seeded_client.post(
         f"/api/v1/domains/{DOMAIN}/remediation/notifications/audit",
@@ -1760,7 +1783,9 @@ def test_domain_remediation_notification_lifecycle_audit_rejects_mismatched_dedu
 
     monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_domain_grade)
     monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", fake_dns_guidance)
-    monkeypatch.setattr(domains_endpoint, "_ready_dns_write_provider_ids", lambda: ["cloudflare"])
+    monkeypatch.setattr(
+        domains_endpoint, "_configured_dns_write_provider_ids", lambda _db: ["cloudflare"]
+    )
     monkeypatch.setattr(
         domains_endpoint,
         "_recommended_dns_write_provider",
@@ -1827,7 +1852,7 @@ def test_domain_remediation_queue_hydrates_report_store_with_workspace_filter(
     monkeypatch.setattr(domains_endpoint, "hydrate_report_store_from_db", fake_hydrate)
     monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_domain_grade)
     monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", fake_dns_guidance)
-    monkeypatch.setattr(domains_endpoint, "_ready_dns_write_provider_ids", lambda: [])
+    monkeypatch.setattr(domains_endpoint, "_configured_dns_write_provider_ids", lambda _db: [])
 
     response = seeded_client.get(f"/api/v1/domains/{DOMAIN}/remediation")
 
@@ -1873,7 +1898,7 @@ def test_domain_remediation_queue_falls_back_for_legacy_report_domains(
     monkeypatch.setattr(domains_endpoint, "hydrate_report_store_from_db", fake_hydrate)
     monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_domain_grade)
     monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", fake_dns_guidance)
-    monkeypatch.setattr(domains_endpoint, "_ready_dns_write_provider_ids", lambda: [])
+    monkeypatch.setattr(domains_endpoint, "_configured_dns_write_provider_ids", lambda _db: [])
 
     response = authed_client.get(f"/api/v1/domains/{DOMAIN}/remediation")
 
@@ -1922,7 +1947,7 @@ def test_domain_remediation_queue_accepts_numeric_domain_id(
     monkeypatch.setattr(domains_endpoint, "hydrate_report_store_from_db", fake_hydrate)
     monkeypatch.setattr(domains_endpoint, "_build_domain_health_grade", fake_domain_grade)
     monkeypatch.setattr(domains_endpoint, "_build_domain_dns_guidance", fake_dns_guidance)
-    monkeypatch.setattr(domains_endpoint, "_ready_dns_write_provider_ids", lambda: [])
+    monkeypatch.setattr(domains_endpoint, "_configured_dns_write_provider_ids", lambda _db: [])
 
     response = seeded_client.get(f"/api/v1/domains/{domain.id}/remediation")
 

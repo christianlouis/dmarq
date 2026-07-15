@@ -44,6 +44,13 @@ function dashboardApp() {
         hasEnabledMailSources: false,
         triggerPollStatus: '',
         triggerPollMessage: '',
+        hiddenEmptyDomainsCount: 0,
+        intakeState: {
+            schedulerActive: false,
+            attentionSources: 0,
+            reauthSources: 0,
+            lastCheck: '',
+        },
         demoDeployment: null,
         selectedDemoScenarioId: 'single-user-multiple-domains',
         selectedDemoZoomLevel: 'workspace',
@@ -152,6 +159,76 @@ function dashboardApp() {
 
         get hasTopHealthActions() {
             return this.topHealthActions.length > 0;
+        },
+
+        get secondaryHealthActions() {
+            return this.topHealthActions.slice(1);
+        },
+
+        get hasSecondaryHealthActions() {
+            return this.secondaryHealthActions.length > 0;
+        },
+
+        get dashboardNextAction() {
+            if (this.intakeState.reauthSources > 0) {
+                return {
+                    eyebrow: 'Report intake blocked',
+                    title: 'Reconnect the report mailbox',
+                    detail: 'A connected mailbox needs authorization before scheduled imports can continue.',
+                    label: 'Review mail source',
+                    href: '/mail-sources',
+                    severity: 'high',
+                };
+            }
+            if (this.intakeState.attentionSources > 0) {
+                return {
+                    eyebrow: 'Report intake needs attention',
+                    title: 'Resolve the mailbox connection warning',
+                    detail: 'DMARQ cannot rely on fresh evidence until the affected source succeeds again.',
+                    label: 'Review mail source',
+                    href: '/mail-sources',
+                    severity: 'high',
+                };
+            }
+            const action = this.topHealthActions[0];
+            if (action) {
+                return {
+                    eyebrow: `${action.severity || 'medium'} priority`,
+                    title: action.title || 'Review the highest-priority domain issue',
+                    detail: action.next_step || action.detail || 'Review current evidence before changing DNS or sender configuration.',
+                    label: 'Open remediation',
+                    href: this.domainActionHref(action),
+                    severity: action.severity || 'medium',
+                };
+            }
+            return {
+                eyebrow: 'Monitoring',
+                title: 'No immediate remediation action',
+                detail: 'Keep report intake running and review new sender or DNS changes when they appear.',
+                label: 'Review reports',
+                href: '/reports',
+                severity: 'info',
+            };
+        },
+
+        get dashboardScopeLabel() {
+            const hidden = Number(this.hiddenEmptyDomainsCount || 0);
+            if (!hidden) return 'Report-backed domains only';
+            return `Report-backed domains only · ${hidden} empty domain${hidden === 1 ? '' : 's'} hidden`;
+        },
+
+        get configuredDomainCount() {
+            return this.domains.length + Number(this.hiddenEmptyDomainsCount || 0);
+        },
+
+        get hasConfiguredDomainData() {
+            return this.configuredDomainCount > 0;
+        },
+
+        get intakeSchedulerLabel() {
+            if (this.triggerPollRunning) return 'Import running';
+            if (this.intakeState.schedulerActive) return 'Scheduled checks active';
+            return this.hasEnabledMailSources ? 'Scheduled checks stopped' : 'No source configured';
         },
 
         get selectedDnsPolicyLabel() {
@@ -399,6 +476,12 @@ function dashboardApp() {
                 }
                 const data = await response.json();
                 this.hasEnabledMailSources = (data.enabled_sources || 0) > 0;
+                this.intakeState = {
+                    schedulerActive: Boolean(data.is_running),
+                    attentionSources: Number(data.attention_sources || 0),
+                    reauthSources: Number(data.reauth_required_sources || 0),
+                    lastCheck: data.latest_source_check || data.last_check || '',
+                };
                 
                 const statusIcon = document.getElementById('imap-status-icon');
                 const statusText = document.getElementById('imap-status-text');
@@ -414,7 +497,7 @@ function dashboardApp() {
                 } else if (data.is_running && (data.enabled_sources || 0) > 0) {
                     statusIcon.classList.remove('bg-red-500');
                     statusIcon.classList.add('bg-green-500');
-                    statusText.textContent = 'Running';
+                    statusText.textContent = 'Scheduled checks active';
                 } else {
                     statusIcon.classList.remove('bg-green-500');
                     statusIcon.classList.add('bg-red-500');
@@ -489,12 +572,13 @@ function dashboardApp() {
             this.dashboardError = '';
             this.dashboardRefreshError = '';
             try {
-                const response = await fetch('/api/v1/domains/summary');
+                const response = await fetch('/api/v1/domains/summary?include_empty=false');
                 if (!response.ok) {
                     throw new Error('Dashboard data could not be loaded. Check the API service and try again.');
                 }
                 const data = await response.json();
                 this.domainSummaryLoadedAt = new Date().toISOString();
+                this.hiddenEmptyDomainsCount = Number(data.empty_domains_hidden || 0);
 
                 if (data && data.domains && data.domains.length > 0) {
                     this.domains = data.domains || [];
@@ -536,6 +620,7 @@ function dashboardApp() {
                 }
                 this.dashboardError = message;
                 this.domains = [];
+                this.hiddenEmptyDomainsCount = 0;
                 this.healthSummary = null;
                 this.healthHistory = null;
                 this.selectedDnsDomain = '';
@@ -1796,6 +1881,14 @@ function dashboardApp() {
             if (value === 'high') return 'text-[#b8431d]';
             if (value === 'medium') return 'text-[#8a6418]';
             return 'text-[#247982]';
+        },
+
+        severityDotClass(severity) {
+            const value = String(severity || '').toLowerCase();
+            if (value === 'critical') return 'bg-[#9f2525]';
+            if (value === 'high') return 'bg-[#b8431d]';
+            if (value === 'medium') return 'bg-[#c28a18]';
+            return 'bg-[#2f9da5]';
         },
 
         demoOrganizations() {

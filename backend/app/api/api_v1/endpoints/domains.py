@@ -785,6 +785,15 @@ def _provider_credentials_configured(db: Session, provider_id: Optional[str]) ->
     return False
 
 
+def _configured_dns_write_provider_ids(db: Session) -> List[str]:
+    """Return write-capable provider IDs that also have configured credentials."""
+    return [
+        provider_id
+        for provider_id in _ready_dns_write_provider_ids()
+        if _provider_credentials_configured(db, provider_id)
+    ]
+
+
 def _dns_provider_repair_context(
     db: Session,
     *,
@@ -6250,7 +6259,7 @@ async def _build_domain_remediation_queue_for_workspace(
         refresh=refresh,
     )
     guidance = await _build_domain_dns_guidance(db, store, domain_name, refresh=refresh)
-    available_providers = _ready_dns_write_provider_ids()
+    available_providers = _configured_dns_write_provider_ids(db)
     recommended_provider = _recommended_dns_write_provider(
         guidance.get("dns_provider"),
         available_providers,
