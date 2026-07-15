@@ -1,9 +1,10 @@
 import email
 import imaplib
 import logging
+import shlex
 from datetime import datetime, timedelta
 from email.header import decode_header
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 from app.core.config import get_settings
 from app.services.dmarc_parser import DMARCParser
@@ -78,6 +79,15 @@ class IMAPClient:
         escaped = self.folder.replace("\\", "\\\\").replace('"', '\\"')
         return f'"{escaped}"'
 
+    @staticmethod
+    def _mailbox_name_from_list_response(response: str) -> str:
+        """Return the final IMAP LIST token without regex backtracking."""
+        try:
+            tokens = shlex.split(response.strip(), posix=True)
+        except ValueError:
+            return ""
+        return tokens[-1] if tokens else ""
+
     def _list_mailboxes(self, mailbox_data: list) -> list:
         """Parse the raw IMAP LIST response into a list of mailbox name strings."""
         available_mailboxes = []
@@ -85,12 +95,8 @@ class IMAPClient:
             if isinstance(mailbox, bytes):
                 try:
                     mailbox_str = mailbox.decode("utf-8")
-                    # Extract the mailbox name (after the last quote)
-                    parts = mailbox_str.split('"')
-                    if len(parts) > 2:
-                        mailbox_name = parts[-1].strip()
-                        if mailbox_name.startswith(" "):
-                            mailbox_name = mailbox_name[1:]
+                    mailbox_name = self._mailbox_name_from_list_response(mailbox_str)
+                    if mailbox_name:
                         available_mailboxes.append(mailbox_name)
                 except Exception:  # pylint: disable=broad-exception-caught
                     # Silently skip mailboxes that can't be parsed; they are simply
@@ -101,6 +107,16 @@ class IMAPClient:
                     # responses).  This is expected behaviour and not a critical error.
                     pass  # nosec B110
         return available_mailboxes
+
+    @staticmethod
+    def _candidate_message_ids(mail: Any) -> set[bytes]:
+        """Find likely aggregate reports across common provider subject formats."""
+        message_ids: set[bytes] = set()
+        for subject in ("DMARC", "Report domain:", "Aggregate Report", "Report-ID:"):
+            status, data = mail.search(None, f'SUBJECT "{subject}"')
+            if status == "OK" and data:
+                message_ids.update(data[0].split())
+        return message_ids
 
     def test_connection(self) -> Tuple[bool, str, Dict[str, Any]]:
         """
@@ -153,10 +169,7 @@ class IMAPClient:
                 unread_count = len(data[0].split())
 
             # Gather some stats about potential DMARC reports
-            dmarc_count = 0
-            status, data = mail.search(None, 'SUBJECT "DMARC"')
-            if status == "OK":
-                dmarc_count = len(data[0].split())
+            dmarc_count = len(self._candidate_message_ids(mail))
 
             # Close connection
             mail.close()
@@ -166,6 +179,7 @@ class IMAPClient:
                 "message_count": message_count,
                 "unread_count": unread_count,
                 "dmarc_count": dmarc_count,
+                "dmarc_count_strategy": "common_provider_subjects",
                 "available_mailboxes": available_mailboxes,
                 "server": self.server,
                 "port": self.port,
@@ -253,7 +267,11 @@ class IMAPClient:
                 error="Message processing failed. Check server logs for details.",
             )
 
-    def fetch_reports(self, days: int = 7) -> Dict[str, Any]:
+    def fetch_reports(
+        self,
+        days: int = 7,
+        progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+    ) -> Dict[str, Any]:
         """
         Fetch and process DMARC reports from the configured mailbox
 
@@ -291,13 +309,18 @@ class IMAPClient:
 
             # Get list of email IDs
             email_ids = data[0].split()
+            stats["total_messages"] = len(email_ids)
 
             # Track domains before processing to identify new ones
             domains_before = set(self.report_store.get_domains())
 
             # Process each email
-            for email_id in email_ids:
+            for index, email_id in enumerate(email_ids, start=1):
                 self._process_single_email(mail, email_id, stats)
+                # A mailbox scan reports every inspected message, including ordinary mail.
+                stats["processed"] = index
+                if progress_callback:
+                    progress_callback(dict(stats))
 
             # Actually remove emails marked for deletion
             if self.delete_emails and stats["deleted"] > 0:
@@ -585,10 +608,27 @@ class IMAPClient:
         try:
             content = part.get_payload(decode=True)
             if not content:
+                if stats is not None:
+                    stats["skipped_attachments"] = stats.get("skipped_attachments", 0) + 1
                 self._append_detail(
                     stats,
                     status="skipped",
                     reason="empty_attachment",
+                    message_id=message_id,
+                    filename=filename,
+                )
+                return False
+
+            # Ordinary mail often contains archives. Only send archives with an XML
+            # payload to the parser; parser security-limit failures still remain errors.
+            xml_content = DMARCParser._extract_xml_content(content, filename)
+            if xml_content is None:
+                if stats is not None:
+                    stats["skipped_attachments"] = stats.get("skipped_attachments", 0) + 1
+                self._append_detail(
+                    stats,
+                    status="skipped",
+                    reason="unrelated_attachment",
                     message_id=message_id,
                     filename=filename,
                 )
@@ -647,6 +687,8 @@ class IMAPClient:
 
             filename = self._decode_email_header(filename)
             if not self._is_dmarc_filename(filename):
+                if stats is not None:
+                    stats["skipped_attachments"] = stats.get("skipped_attachments", 0) + 1
                 self._append_detail(
                     stats,
                     status="skipped",

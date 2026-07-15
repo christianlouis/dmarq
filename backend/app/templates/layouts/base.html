@@ -8,6 +8,7 @@
 {% set provider_console_url = '/provider-demo' if provider_demo_enabled else '/provider' %}
 {% set effective_multi_workspace_ui = multi_workspace_ui_enabled or provider_demo_enabled or support_session %}
 {% set workspace_switcher_enabled = effective_multi_workspace_ui and not provider_console_shell %}
+{% set current_path = request.url.path if request is defined else '/' %}
 {% set release_info = release_info | default({
     'label': 'vlocal',
     'version': 'local',
@@ -18,7 +19,7 @@
     'rollout': {'image_tag_matches_short_sha': false},
     'changes': []
 }) %}
-<html lang="en" data-theme="dmarqlight" data-multi-workspace-ui="{{ 'true' if workspace_switcher_enabled else 'false' }}" data-demo-mode="{{ 'true' if demo_mode else 'false' }}" class="dark:data-theme-dmarqdark">
+<html lang="en" data-theme="dmarqlight" data-multi-workspace-ui="{{ 'true' if workspace_switcher_enabled else 'false' }}" data-demo-mode="{{ 'true' if demo_mode else 'false' }}" class="overflow-x-hidden">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -44,7 +45,7 @@
 
     {% block head %}{% endblock %}
 </head>
-<body class="min-h-screen bg-[#f4f3f2] font-body antialiased text-[#07071f]">
+<body class="min-h-screen overflow-x-hidden bg-[#f4f3f2] font-body antialiased text-[#07071f]">
     <header class="fixed inset-x-0 top-0 z-40 flex h-24 items-center bg-[#272a5f] px-5 text-white shadow-sm md:px-10"
             x-data="userMenu"
             data-user-menu>
@@ -85,25 +86,15 @@
                 </select>
             </div>
             {% endif %}
-            <nav class="hidden items-center gap-1 text-sm font-semibold lg:flex" aria-label="Primary">
-                {% if provider_console_shell %}
+            {% if provider_console_shell %}
+            <nav class="hidden items-center gap-1 text-sm font-semibold lg:flex" aria-label="Provider navigation">
                 <a href="{{ provider_console_url }}#accounts" class="rounded-md px-3 py-2 text-white/90 hover:bg-white/10">Kundenkonten</a>
                 <a href="{{ provider_console_url }}#billing" class="rounded-md px-3 py-2 text-white/80 hover:bg-white/10">Billing offen</a>
                 {% if provider_demo_enabled %}
                 <a href="https://demo.dmarq.org/" class="rounded-md px-3 py-2 text-white/80 hover:bg-white/10">Single-user-Demo</a>
                 {% endif %}
-                {% else %}
-                <a href="/" class="rounded-md px-3 py-2 text-white/90 hover:bg-white/10">Dashboard</a>
-                <a href="/domains" class="rounded-md px-3 py-2 text-white/80 hover:bg-white/10">Domains</a>
-                <a href="/reports" class="rounded-md px-3 py-2 text-white/80 hover:bg-white/10">Reports</a>
-                <a href="/forensics" class="rounded-md px-3 py-2 text-white/80 hover:bg-white/10">Forensics</a>
-                <a href="/tls-reports" class="rounded-md px-3 py-2 text-white/80 hover:bg-white/10">TLS</a>
-                {% if effective_multi_workspace_ui %}
-                <a href="/members" class="rounded-md px-3 py-2 text-white/80 hover:bg-white/10">Members</a>
-                {% endif %}
-                <a href="/onboarding" class="rounded-md px-3 py-2 text-white/80 hover:bg-white/10">Onboarding</a>
-                {% endif %}
             </nav>
+            {% endif %}
             <div>
                 {% if provider_console_shell and provider_demo_enabled %}
                 <div class="grid h-12 w-12 place-items-center rounded-full border border-white/40 bg-white/90 text-sm font-semibold text-[#272a5f]"
@@ -137,6 +128,10 @@
                             <li><a href="/members">Members</a></li>
                             {% endif %}
                             <li><a href="/settings">Settings</a></li>
+                            <li class="menu-title mt-1 px-2 py-1"><span>Advanced tools</span></li>
+                            <li><a href="/forensics">Forensic reports</a></li>
+                            <li><a href="/tls-reports">TLS reports</a></li>
+                            <li><a href="/onboarding">Setup assistant</a></li>
                             <li>
                                 <button type="button"
                                         class="justify-between"
@@ -200,33 +195,42 @@
         <a href="/"
            aria-label="Dashboard"
            title="Dashboard"
-           class="group flex w-24 flex-col items-center gap-1 rounded-lg p-2 text-white shadow-sm hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
+           class="group flex w-24 flex-col items-center gap-1 rounded-lg p-2 hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white {{ 'bg-white/10 text-white shadow-sm' if current_path == '/' else 'text-white/65 hover:text-white' }}">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3 3 10.7V21h6v-6h6v6h6V10.7L12 3Z"/></svg>
             <span class="text-[11px] font-semibold leading-tight">Dashboard</span>
         </a>
-        <a href="/domains" aria-label="Domains" title="Domains" class="group flex w-24 flex-col items-center gap-1 rounded-lg p-2 text-white/70 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
+        <a href="/domains" aria-label="Domains" title="Domains" class="group flex w-24 flex-col items-center gap-1 rounded-lg p-2 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white {{ 'bg-white/10 text-white shadow-sm' if current_path.startswith('/domains') else 'text-white/65' }}">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5Zm4 2v2h8V7H8Zm0 4v2h8v-2H8Zm0 4v2h5v-2H8Z"/></svg>
             <span class="text-[11px] font-semibold leading-tight">Domains</span>
         </a>
-        <a href="/reports" aria-label="Reports" title="Reports" class="group flex w-24 flex-col items-center gap-1 rounded-lg p-2 text-white/55 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
+        <a href="/reports" aria-label="Reports" title="Reports" class="group flex w-24 flex-col items-center gap-1 rounded-lg p-2 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white {{ 'bg-white/10 text-white shadow-sm' if current_path.startswith('/reports') else 'text-white/65' }}">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 3h7l5 5v13H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm6 1.5V9h4.5L13 4.5ZM8 13h8v2H8v-2Zm0 4h6v2H8v-2Z"/></svg>
             <span class="text-[11px] font-semibold leading-tight">Reports</span>
         </a>
-        <a href="/forensics" aria-label="Forensics" title="Forensics" class="group flex w-24 flex-col items-center gap-1 rounded-lg p-2 text-white/55 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 4h14v16H5V4Zm3 4v2h8V8H8Zm0 4v2h8v-2H8Zm0 4v2h5v-2H8Z"/></svg>
-            <span class="text-[11px] font-semibold leading-tight">Forensics</span>
+        <a href="/mail-sources" aria-label="Mail Sources" title="Mail Sources" class="group flex w-24 flex-col items-center gap-1 rounded-lg p-2 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white {{ 'bg-white/10 text-white shadow-sm' if current_path.startswith('/mail-sources') else 'text-white/65' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5h18v14H3V5Zm2 2v1.2l7 4.7 7-4.7V7H5Zm14 10v-6.4l-7 4.7-7-4.7V17h14Z"/></svg>
+            <span class="text-[11px] font-semibold leading-tight">Mail Sources</span>
         </a>
         {% if effective_multi_workspace_ui %}
-        <a href="/members" aria-label="Members" title="Members" class="group flex w-24 flex-col items-center gap-1 rounded-lg p-2 text-white/55 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
+        <a href="/members" aria-label="Members" title="Members" class="group flex w-24 flex-col items-center gap-1 rounded-lg p-2 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white {{ 'bg-white/10 text-white shadow-sm' if current_path.startswith('/members') else 'text-white/55' }}">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8.5 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm7 1a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM2 19.5C2 15.9 4.9 13 8.5 13S15 15.9 15 19.5V21H2v-1.5Zm12.8 1.5v-1.5c0-2-.7-3.8-1.9-5.2.8-.2 1.7-.3 2.6-.3 3 0 5.5 2.5 5.5 5.5V21h-6.2Z"/></svg>
             <span class="text-[11px] font-semibold leading-tight">Members</span>
         </a>
         {% endif %}
-        <a href="/onboarding" aria-label="Onboarding" title="Onboarding" class="group flex w-24 flex-col items-center gap-1 rounded-lg p-2 text-white/55 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 4h16v4H4V4Zm0 6h7v10H4V10Zm9 0h7v4h-7v-4Zm0 6h7v4h-7v-4Z"/></svg>
-            <span class="text-[11px] font-semibold leading-tight">Onboarding</span>
-        </a>
-        <a href="/settings" aria-label="Settings" title="Settings" class="group mt-auto flex w-24 flex-col items-center gap-1 rounded-lg p-2 text-white/55 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
+        <details class="group relative mt-auto w-24">
+            <summary class="flex cursor-pointer list-none flex-col items-center gap-1 rounded-lg p-2 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white {{ 'bg-white/10 text-white shadow-sm' if current_path.startswith('/forensics') or current_path.startswith('/tls-reports') or current_path.startswith('/onboarding') else 'text-white/65' }}"
+                     aria-label="More tools" title="More tools">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 10a2 2 0 1 1 0 4 2 2 0 0 1 0-4Zm6 0a2 2 0 1 1 0 4 2 2 0 0 1 0-4Zm6 0a2 2 0 1 1 0 4 2 2 0 0 1 0-4Z"/></svg>
+                <span class="text-[11px] font-semibold leading-tight">More</span>
+            </summary>
+            <div class="absolute bottom-0 left-24 z-50 ml-3 w-60 rounded-lg border border-[#dfdfdf] bg-white p-2 text-[#120d36] shadow-xl">
+                <p class="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[#5f5c78]">Specialized tools</p>
+                <a href="/forensics" class="block rounded-md px-3 py-2 text-sm font-semibold hover:bg-[#f4f3f2]">Forensic reports</a>
+                <a href="/tls-reports" class="block rounded-md px-3 py-2 text-sm font-semibold hover:bg-[#f4f3f2]">TLS reports</a>
+                <a href="/onboarding" class="block rounded-md px-3 py-2 text-sm font-semibold hover:bg-[#f4f3f2]">Setup assistant</a>
+            </div>
+        </details>
+        <a href="/settings" aria-label="Settings" title="Settings" class="group flex w-24 flex-col items-center gap-1 rounded-lg p-2 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white {{ 'bg-white/10 text-white shadow-sm' if current_path.startswith('/settings') else 'text-white/65' }}">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.4 13.5a7.8 7.8 0 0 0 0-3l2-1.5-2-3.5-2.4 1a7.6 7.6 0 0 0-2.6-1.5L14 2h-4l-.4 3a7.6 7.6 0 0 0-2.6 1.5l-2.4-1-2 3.5 2 1.5a7.8 7.8 0 0 0 0 3l-2 1.5 2 3.5 2.4-1a7.6 7.6 0 0 0 2.6 1.5l.4 3h4l.4-3a7.6 7.6 0 0 0 2.6-1.5l2.4 1 2-3.5-2-1.5ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z"/></svg>
             <span class="text-[11px] font-semibold leading-tight">Settings</span>
         </a>
@@ -240,7 +244,18 @@
         {% endif %}
     </aside>
 
-    <main class="min-h-screen pt-24 md:ml-28">
+    {% if not provider_console_shell %}
+    <nav class="fixed inset-x-0 bottom-0 z-40 grid h-16 grid-cols-5 border-t border-white/10 bg-[#272a5f] text-white shadow-lg md:hidden"
+         aria-label="Primary navigation">
+        <a href="/" class="grid place-items-center text-[11px] font-semibold {{ 'bg-white/10 text-white' if current_path == '/' else 'text-white/65' }}">Dashboard</a>
+        <a href="/domains" class="grid place-items-center text-[11px] font-semibold {{ 'bg-white/10 text-white' if current_path.startswith('/domains') else 'text-white/65' }}">Domains</a>
+        <a href="/reports" class="grid place-items-center text-[11px] font-semibold {{ 'bg-white/10 text-white' if current_path.startswith('/reports') else 'text-white/65' }}">Reports</a>
+        <a href="/mail-sources" class="grid place-items-center text-center text-[11px] font-semibold {{ 'bg-white/10 text-white' if current_path.startswith('/mail-sources') else 'text-white/65' }}">Mail Sources</a>
+        <a href="/settings" class="grid place-items-center text-[11px] font-semibold {{ 'bg-white/10 text-white' if current_path.startswith('/settings') else 'text-white/65' }}">Settings</a>
+    </nav>
+    {% endif %}
+
+    <main class="min-h-screen pb-20 pt-24 md:ml-28 md:pb-0">
         <div class="p-4 md:p-6 lg:p-8">
         {% if support_session %}
         <div class="mb-5 flex flex-col gap-3 rounded-lg border border-[#39a0aa] bg-[#e7f4f6] p-4 text-sm text-[#175b62] sm:flex-row sm:items-center sm:justify-between"

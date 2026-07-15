@@ -75,7 +75,7 @@ function reportDetailApp(reportId = '') {
                     response = await fetch(requestUrl);
                 }
                 if (response.ok) {
-                    this.report = await response.json();
+                    this.report = this.normalizeReport(await response.json());
                     if (!refreshReputation) {
                         this.reputationRefreshError = '';
                     }
@@ -143,6 +143,23 @@ function reportDetailApp(reportId = '') {
         formatDate(timestamp) {
             if (!timestamp) return '—';
             return new Date(timestamp * 1000).toLocaleString();
+        },
+
+        normalizeReport(report) {
+            const normalized = report && typeof report === 'object' ? report : {};
+            return {
+                ...normalized,
+                reputation_summary: normalized.reputation_summary || {},
+                records: (normalized.records || []).map((record) => ({
+                    ...record,
+                    source_details: record.source_details || {},
+                })),
+            };
+        },
+
+        get reportDomainUrl() {
+            const domain = this.report?.domain || '';
+            return domain ? `/domains/${encodeURIComponent(domain)}` : '/domains';
         },
 
         passRateClass(rate) {

@@ -238,7 +238,7 @@ if (typeof document !== 'undefined') {
     const darkMode = localStorage.getItem('darkMode') === 'true';
     if (darkMode) {
         document.documentElement.classList.add('dark');
-        document.documentElement.setAttribute('data-theme', 'dmarqdark');
+        document.documentElement.setAttribute('data-theme', 'dark');
     } else {
         document.documentElement.classList.remove('dark');
         document.documentElement.setAttribute('data-theme', 'dmarqlight');

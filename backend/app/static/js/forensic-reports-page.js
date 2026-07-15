@@ -122,6 +122,12 @@ function forensicReportsApp() {
         get visibleAnalysisGroups() {
             return this.analysis.groups.slice(0, 3);
         },
+        get highPriorityCount() {
+            return Number(this.analysis.priority_counts?.high || 0);
+        },
+        get mediumPriorityCount() {
+            return Number(this.analysis.priority_counts?.medium || 0);
+        },
         async fetchReports() {
             this.loading = true;
             this.error = '';
@@ -157,6 +163,7 @@ function forensicReportsApp() {
             const analysis = await response.json();
             this.analysis = {
                 ...analysis,
+                priority_counts: analysis.priority_counts || {},
                 groups: (analysis.groups || []).map((group) => this.normalizeAnalysisGroup(group)),
             };
         },

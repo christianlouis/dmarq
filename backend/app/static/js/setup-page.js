@@ -82,7 +82,7 @@ function setupWizard() {
         },
         applyTheme() {
             if (localStorage.getItem('darkMode') === 'true') {
-                document.documentElement.setAttribute('data-theme', 'dmarqdark');
+                document.documentElement.setAttribute('data-theme', 'dark');
             }
         },
         stepClass(stepId) {

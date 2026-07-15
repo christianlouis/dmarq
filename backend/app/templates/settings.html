@@ -40,34 +40,62 @@
         </div>
     </template>
 
-    <header class="rounded-lg border border-[#dfdfdf] bg-white p-5 shadow-sm">
+    <header id="settings-setup" class="scroll-mt-28 rounded-lg border border-[#dfdfdf] bg-white p-5 shadow-sm">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
-                <p class="text-sm font-semibold uppercase tracking-wide text-[#2f9da6]">Configuration</p>
+                <p class="text-sm font-semibold uppercase tracking-wide text-[#2f9da6]">Recommended setup</p>
                 <h1 class="mt-1 text-2xl font-bold text-[#120d36]">Finish the next safe setup step</h1>
                 <p class="mt-2 max-w-3xl text-sm text-[#5f5c78]">
-                    Start with report defaults and mail-source intake, then connect DNS providers. Advanced automation stays folded until it is needed.
+                    Connect the mailbox that receives DMARC reports first. Add domains and DNS automation only after report intake is working.
                 </p>
             </div>
             <div class="flex flex-wrap gap-2">
-                <a href="#dmarc-defaults-section" class="btn btn-primary btn-md">Review DMARC defaults</a>
-                <a href="/mail-sources" class="btn btn-outline btn-md">Connect report mailbox</a>
+                <a href="/mail-sources" class="btn btn-primary btn-md">Connect report mailbox</a>
+                <a href="/domains" class="btn btn-outline btn-md">Add or review domains</a>
             </div>
         </div>
-        <nav class="mt-5 flex gap-2 overflow-x-auto pb-1 text-sm font-semibold" aria-label="Settings sections">
-            <a href="#general-settings" class="rounded-full border border-[#dfdfdf] px-3 py-1 text-[#272a5f] hover:border-[#2f9da5]">General</a>
-            <a href="#dmarc-defaults-section" class="rounded-full border border-[#dfdfdf] px-3 py-1 text-[#272a5f] hover:border-[#2f9da5]">DMARC defaults</a>
-            <a href="#dns-resolver-settings" class="rounded-full border border-[#dfdfdf] px-3 py-1 text-[#272a5f] hover:border-[#2f9da5]">DNS resolver</a>
-            <a href="#provider-integrations" class="rounded-full border border-[#dfdfdf] px-3 py-1 text-[#272a5f] hover:border-[#2f9da5]">DNS providers</a>
-            <a href="#mail-service-imports" class="rounded-full border border-[#dfdfdf] px-3 py-1 text-[#272a5f] hover:border-[#2f9da5]">Sender imports</a>
-            <a href="#account-readiness-settings" class="rounded-full border border-[#dfdfdf] px-3 py-1 text-[#272a5f] hover:border-[#2f9da5]">Account readiness</a>
-            <a href="#notification-settings" class="rounded-full border border-[#dfdfdf] px-3 py-1 text-[#272a5f] hover:border-[#2f9da5]">Notifications</a>
-            <a href="#mail-sources-shortcut" class="rounded-full border border-[#dfdfdf] px-3 py-1 text-[#272a5f] hover:border-[#2f9da5]">Mail sources</a>
-        </nav>
+        <ol class="mt-5 grid gap-2 border-t border-[#e6e3e1] pt-4 text-sm sm:grid-cols-2 xl:grid-cols-4">
+            <li class="flex items-center gap-3"><span class="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#272a5f] text-xs font-bold text-white">1</span><a class="font-semibold text-[#120d36] hover:text-[#2f9da5]" href="/mail-sources">Connect reports</a></li>
+            <li class="flex items-center gap-3"><span class="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#edf7f7] text-xs font-bold text-[#247982]">2</span><a class="font-semibold text-[#120d36] hover:text-[#2f9da5]" href="/domains">Add domains</a></li>
+            <li class="flex items-center gap-3"><span class="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#edf7f7] text-xs font-bold text-[#247982]">3</span><a class="font-semibold text-[#120d36] hover:text-[#2f9da5]" href="#provider-integrations">Review DNS</a></li>
+            <li class="flex items-center gap-3"><span class="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#edf7f7] text-xs font-bold text-[#247982]">4</span><a class="font-semibold text-[#120d36] hover:text-[#2f9da5]" href="#notification-settings">Choose notifications</a></li>
+        </ol>
     </header>
 
+    <div class="grid items-start gap-6 lg:grid-cols-[15rem_minmax(0,1fr)]">
+        <aside class="rounded-lg border border-[#dfdfdf] bg-white p-3 shadow-sm lg:sticky lg:top-28" aria-label="Settings navigation">
+            <nav class="grid gap-1 text-sm">
+                <a href="#settings-setup" class="rounded-md bg-[#edf7f7] px-3 py-2 font-semibold text-[#1f6f76]">Setup</a>
+                <a href="#general-settings" class="rounded-md px-3 py-2 font-semibold text-[#272a5f] hover:bg-[#f4f3f2]">General</a>
+                <a href="#dmarc-defaults-section" class="rounded-md px-3 py-2 font-semibold text-[#272a5f] hover:bg-[#f4f3f2]">DMARC defaults</a>
+                <a href="#provider-integrations" class="rounded-md px-3 py-2 font-semibold text-[#272a5f] hover:bg-[#f4f3f2]">Domains and DNS</a>
+                <a href="#notification-settings" class="rounded-md px-3 py-2 font-semibold text-[#272a5f] hover:bg-[#f4f3f2]">Notifications</a>
+                <a href="/mail-sources" class="rounded-md px-3 py-2 font-semibold text-[#272a5f] hover:bg-[#f4f3f2]">Report mailbox</a>
+            </nav>
+            <div class="mt-3 border-t border-[#e6e3e1] pt-3">
+                <p class="px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-[#8a879e]">Advanced</p>
+                <a href="#dns-resolver-settings" class="block rounded-md px-3 py-2 text-sm text-[#5f5c78] hover:bg-[#f4f3f2]">DNS resolver</a>
+                <a href="#mail-service-imports" class="block rounded-md px-3 py-2 text-sm text-[#5f5c78] hover:bg-[#f4f3f2]">Sender imports</a>
+                <a href="#forensic-settings" class="block rounded-md px-3 py-2 text-sm text-[#5f5c78] hover:bg-[#f4f3f2]">Privacy</a>
+                <a href="#webhook-settings" class="block rounded-md px-3 py-2 text-sm text-[#5f5c78] hover:bg-[#f4f3f2]">Webhooks</a>
+                <a href="#automation-settings" class="block rounded-md px-3 py-2 text-sm text-[#5f5c78] hover:bg-[#f4f3f2]">AI and agents</a>
+                <a href="#account-readiness-settings" class="block rounded-md px-3 py-2 text-sm text-[#5f5c78] hover:bg-[#f4f3f2]">Account diagnostics</a>
+                <div class="mt-2 border-t border-[#e6e3e1] pt-2">
+                    <a href="/forensics" class="block rounded-md px-3 py-2 text-sm text-[#5f5c78] hover:bg-[#f4f3f2]">Forensic reports</a>
+                    <a href="/tls-reports" class="block rounded-md px-3 py-2 text-sm text-[#5f5c78] hover:bg-[#f4f3f2]">TLS reports</a>
+                    <a href="/onboarding" class="block rounded-md px-3 py-2 text-sm text-[#5f5c78] hover:bg-[#f4f3f2]">Setup assistant</a>
+                </div>
+            </div>
+        </aside>
+        <div class="min-w-0 space-y-6">
+
     <!-- ── Account/Auth Milestone ───────────────────────────────────────── -->
-    <section id="account-readiness-settings" class="scroll-mt-28">
+    <details id="account-readiness-settings" class="scroll-mt-28" {{ 'open' if effective_multi_workspace_ui else '' }}>
+        <summary class="cursor-pointer rounded-lg border border-[#dfdfdf] bg-white p-4 text-sm font-semibold text-[#120d36] shadow-sm">
+            Account and access diagnostics
+            <span class="ml-2 text-xs font-normal text-[#5f5c78]">Authentication, roles, billing, and support readiness</span>
+        </summary>
+        <section class="mt-4">
     {% call card() %}
         {% call card_header() %}
             <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -148,7 +176,8 @@
             </template>
         {% endcall %}
     {% endcall %}
-    </section>
+        </section>
+    </details>
 
     <!-- ── General ──────────────────────────────────────────────────────── -->
     <section id="general-settings" class="scroll-mt-28">
@@ -1309,6 +1338,8 @@
     {% endcall %}
     </section>
 
+        </div>
+    </div>
 </div>
 {% endblock %}
 

@@ -32,7 +32,7 @@
         <p class="mt-1" x-text="dashboardError"></p>
     </div>
 
-    <div x-show="!dashboardLoading && dashboardRefreshError && hasDomainData"
+    <div x-show="!dashboardLoading && dashboardRefreshError && hasReportData"
          x-cloak
          class="rounded-lg border border-[#ffcfbd] bg-[#fff2ec] p-4 text-sm text-[#8a2d0d]"
          role="status">
@@ -40,7 +40,7 @@
         <p class="mt-1" x-text="dashboardRefreshError"></p>
     </div>
 
-    <div class="rounded-lg bg-white p-4 shadow-sm" x-show="hasDomainData" x-cloak data-tour="date-filter">
+    <div class="rounded-lg bg-white p-4 shadow-sm" x-show="hasReportData" x-cloak data-tour="date-filter">
         <div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div class="grid gap-1">
                 <label class="text-sm font-semibold text-[#120d36]" for="dashboard-date-interval">
@@ -80,7 +80,7 @@
         </div>
     </div>
 
-    <section class="rounded-lg bg-white p-6 shadow-sm" x-show="healthSummary && hasDomainData" x-cloak data-tour="health-score">
+    <section class="rounded-lg bg-white p-6 shadow-sm" x-show="healthSummary && hasReportData" x-cloak data-tour="health-score">
         <div class="grid gap-6 xl:grid-cols-[18rem_minmax(0,1fr)]">
             <div class="rounded-lg bg-[#f4f3f2] p-5">
                 <p class="text-xs font-semibold uppercase tracking-wide text-[#2f9da5]">System Health</p>
@@ -220,7 +220,19 @@
         </div>
     </section>
 
-    <section class="rounded-lg bg-white p-6 shadow-sm" x-show="healthSummary && hasDomainData" x-cloak>
+    <details class="rounded-lg border border-[#dfdfdf] bg-white shadow-sm"
+             x-show="healthSummary && hasReportData" x-cloak>
+        <summary class="flex cursor-pointer list-none flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+                <p class="font-semibold text-[#120d36]">Advanced remediation workflow</p>
+                <p class="mt-1 text-sm text-[#5f5c78]">Approvals, provider checks, evidence freshness, and the complete fix queue.</p>
+            </div>
+            <span class="w-fit rounded bg-[#edf7f7] px-2 py-1 text-xs font-semibold text-[#247982]">
+                <span x-text="remediationLoop().total_items || remediationTotals().total || 0"></span>
+                <span> active items</span>
+            </span>
+        </summary>
+    <section class="border-t border-[#dfdfdf] p-6">
         <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
             <div>
                 <p class="text-xs font-semibold uppercase tracking-wide text-[#2f9da5]">Remediation Loop</p>
@@ -255,11 +267,11 @@
             <div class="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                 <div>
                     <p class="font-semibold text-[#120d36]">Remediation loop completion</p>
-                    <p class="mt-1 text-[#5f5c78]" x-text="remediationLoop().completion?.next_step || 'Keep the remediation loop open until every closure gate is represented.'"></p>
+                    <p class="mt-1 text-[#5f5c78]" x-text="remediationCompletion().next_step || 'Keep the remediation loop open until every closure gate is represented.'"></p>
                     <p class="mt-2 text-xs font-semibold text-[#45505f]">
-                        <span x-text="remediationLoop().completion?.criteria_met || 0"></span>
+                        <span x-text="remediationCompletion().criteria_met || 0"></span>
                         <span>/</span>
-                        <span x-text="remediationLoop().completion?.criteria_total || 0"></span>
+                        <span x-text="remediationCompletion().criteria_total || 0"></span>
                         <span> completion gates met</span>
                     </p>
                 </div>
@@ -499,11 +511,11 @@
                         <div class="mt-2 grid gap-2 sm:grid-cols-2">
                             <div class="rounded bg-white px-2 py-1 text-[#45505f]">
                                 <span class="font-semibold">Freshness: </span>
-                                <span x-text="item.verification_plan?.freshness_requirement || 'fresh report or DNS evidence'"></span>
+                                <span x-text="pathValue(item, 'verification_plan.freshness_requirement', 'fresh report or DNS evidence')"></span>
                             </div>
                             <div class="rounded bg-white px-2 py-1 text-[#45505f]">
                                 <span class="font-semibold">Closure gate: </span>
-                                <span x-text="item.verification_plan?.closure_gate || item.completion_criteria"></span>
+                                <span x-text="pathValue(item, 'verification_plan.closure_gate', item.completion_criteria)"></span>
                             </div>
                             <div class="rounded bg-white px-2 py-1 text-[#45505f]">
                                 <span class="font-semibold">Failure mode: </span>
@@ -523,22 +535,22 @@
                        x-show="dashboardRemediationFollowUpAgeText(item)"
                        x-text="dashboardRemediationFollowUpAgeText(item)"></p>
                     <div class="mt-3 rounded border border-[#d8ebe8] bg-[#f2fbf9] p-3 text-xs"
-                         x-show="item.evidence_refresh?.required">
+                         x-show="pathValue(item, 'evidence_refresh.required', false)">
                         <div class="flex flex-wrap items-center justify-between gap-2">
                             <p class="font-semibold uppercase tracking-wide text-[#247982]">Fresh evidence path</p>
                             <span class="rounded px-2 py-1 font-semibold"
                                   :class="evidenceRefreshClass(item.evidence_refresh)"
-                                  x-text="item.evidence_refresh?.label || evidenceRefreshLabel(item.evidence_refresh)"></span>
+                                  x-text="pathValue(item, 'evidence_refresh.label', evidenceRefreshLabel(item.evidence_refresh))"></span>
                         </div>
-                        <p class="mt-2 text-[#120d36]" x-text="item.evidence_refresh?.recommended_action"></p>
+                        <p class="mt-2 text-[#120d36]" x-text="pathValue(item, 'evidence_refresh.recommended_action')"></p>
                         <p class="mt-1 text-[#45505f]">
                             <span class="font-semibold">Done when: </span>
-                            <span x-text="item.evidence_refresh?.completion_signal || item.completion_criteria"></span>
+                            <span x-text="pathValue(item, 'evidence_refresh.completion_signal', item.completion_criteria)"></span>
                         </p>
                         <p class="mt-2 text-[#7a4a00]"
                            x-show="remediationStaleEvidenceText(item)"
                            x-text="remediationStaleEvidenceText(item)"></p>
-                        <a x-show="item.evidence_refresh?.ui_anchor"
+                        <a x-show="pathValue(item, 'evidence_refresh.ui_anchor')"
                            :href="domainEvidenceHref(item)"
                            class="mt-2 inline-flex rounded bg-white px-2 py-1 font-semibold text-[#1f7c83]">
                             Open evidence section
@@ -591,8 +603,9 @@
             </p>
         </div>
     </section>
+    </details>
 
-    <div class="grid grid-cols-1 gap-6 xl:grid-cols-12" x-show="hasDomainData" x-cloak>
+    <div class="grid grid-cols-1 gap-6 xl:grid-cols-12" x-show="hasReportData" x-cloak>
         <section class="rounded-lg bg-white p-6 shadow-sm xl:col-span-6" data-tour="compliance-chart">
             <div class="mb-3 grid gap-2 sm:flex sm:items-start sm:justify-between sm:gap-4">
                 <h2 class="min-w-0 text-2xl font-semibold tracking-normal text-[#07071f]">
@@ -718,7 +731,7 @@
         </section>
     </div>
 
-    <div class="rounded-lg bg-white p-6 shadow-sm" x-show="hasDomainData" x-cloak>
+    <div class="rounded-lg bg-white p-6 shadow-sm" x-show="hasReportData" x-cloak>
         <div class="mb-4 flex items-center justify-between gap-4">
             <div>
                 <h2 class="text-2xl font-semibold tracking-normal text-[#07071f]">What Changed</h2>
@@ -730,13 +743,13 @@
     </div>
 
     <!-- Domain Compliance Table -->
-    <div x-show="hasDomainData" x-cloak data-tour="domain-table">
+    <div x-show="hasReportData" x-cloak data-tour="domain-table">
         {% call card() %}
             {% call card_header() %}
-                <div class="flex items-center justify-between">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     {% call card_title() %}Domain Compliance{% endcall %}
                     <button type="button"
-                            class="btn btn-outline btn-sm"
+                            class="btn btn-outline btn-sm w-full sm:w-auto"
                             :disabled="dashboardLoading || remediationRefreshRunning"
                             data-dashboard-refresh>
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path></svg>
@@ -772,25 +785,32 @@
     </div>
     
     <!-- No Data Message -->
-    <div x-show="!dashboardLoading && !dashboardError && !hasDomainData" x-cloak>
+    <div x-show="!dashboardLoading && !dashboardError && !hasReportData" x-cloak>
         {% call card() %}
             {% call card_content() %}
-                <div class="flex flex-col items-center justify-center py-12 text-center">
-                    <div class="rounded-full p-4 bg-muted mb-4">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-muted-foreground"><circle cx="12" cy="12" r="10"></circle><path d="m8 12 4 0"></path><path d="m16 12 0 .01"></path><path d="M12 16v-4"></path></svg>
-                    </div>
-                    <h3 class="text-lg font-semibold mb-2">No DMARC reports have been uploaded yet</h3>
-                    <p class="text-muted-foreground mb-4 max-w-md">Upload a report or configure IMAP integration to see statistics and gain insights into your domain's email authentication.</p>
-                    <div class="flex gap-2">
-                        {% call button_link(href="/upload") %}
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" x2="12" y1="3" y2="15"></line></svg>
-                            Upload Report
+                <div class="mx-auto max-w-3xl py-8">
+                    <p class="text-sm font-semibold uppercase tracking-wide text-[#2f9da5]">Welcome to DMARQ</p>
+                    <h3 class="mt-2 text-2xl font-semibold text-[#120d36]">Start by connecting your report mailbox</h3>
+                    <p class="mt-2 max-w-2xl text-sm text-[#5f5c78]">DMARQ needs aggregate reports before it can identify senders, measure authentication, or recommend DNS changes.</p>
+                    <p class="mt-2 text-sm font-semibold text-[#247982]" x-show="hasDomainData">
+                        <span x-text="domains.length"></span>
+                        monitored domain<span x-show="domains.length !== 1">s</span> already added. Report intake is the next step.
+                    </p>
+                    <div class="mt-5 flex flex-wrap gap-2">
+                        {% call button_link(href="/mail-sources", variant="primary") %}
+                            Connect report mailbox
                         {% endcall %}
-                        {% call button_link(href="/settings", variant="outline") %}
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-                            Configure mail sources
+                        {% call button_link(href="/domains", variant="outline") %}
+                            Add or review domains
                         {% endcall %}
                     </div>
+                    <details class="mt-5 max-w-xl rounded-md border border-[#e6e3e1] bg-[#fbfaf9]">
+                        <summary class="cursor-pointer px-4 py-3 text-sm font-semibold text-[#272a5f]">Other import options</summary>
+                        <div class="border-t border-[#e6e3e1] px-4 py-3 text-sm text-[#5f5c78]">
+                            <p>Already have a DMARC XML or ZIP file? Import it once instead of connecting a mailbox.</p>
+                            <a href="/upload" class="mt-2 inline-flex font-semibold text-[#247982] hover:text-[#272a5f]">Upload a report file</a>
+                        </div>
+                    </details>
                 </div>
             {% endcall %}
         {% endcall %}
@@ -800,11 +820,12 @@
     <div>
         {% call card() %}
             {% call card_header() %}
-                <div class="flex items-center justify-between">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     {% call card_title() %}Report Intake Status{% endcall %}
                     <button type="button"
-                            class="btn btn-outline btn-sm"
-                            :disabled="triggerPollRunning"
+                            class="btn btn-outline btn-sm w-full sm:w-auto"
+                            :disabled="triggerPollRunning || !hasEnabledMailSources"
+                            :title="hasEnabledMailSources ? 'Check enabled report sources now' : 'Connect and enable a report source first'"
                             data-dashboard-trigger-poll>
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="m3 2 2 4h8L7 14h2l-4 8 1-6H4l2-8H3z"></path></svg>
                         <span x-text="triggerPollRunning ? 'Polling...' : 'Trigger Poll Now'"></span>

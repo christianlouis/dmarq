@@ -635,6 +635,14 @@ def test_mail_sources_template_exposes_backfill_progress_controls():
     assert 'x-data="mailSourcesApp"' in template
     assert "mailSourcesApp()" not in template
     assert "data-backfill-progress" in template
+    assert "data-mail-source-card" in template
+    assert "Import now" in template
+    assert "More actions" in template
+    assert "backfillRecognized" in script
+    assert "backfillSkipped" in script
+    assert "job.recognized_reports != null" in script
+    assert "job.skipped_attachments != null" in script
+    assert "Server / Account" not in template
     assert "status_summary" in template
     assert "progress_percent" in script
     assert "can_cancel" in script
@@ -1092,6 +1100,8 @@ class TestMailSourcesAPIAuthed:
         assert job["requested_window_days"] == 31
         assert job["elapsed_seconds"] is None
         assert job["progress_percent"] == 0
+        assert job["recognized_reports"] == 0
+        assert job["skipped_attachments"] == 0
         assert job["can_cancel"] is True
         assert job["can_retry"] is False
         assert job["status_summary"] == "Queued to scan a 31-day mailbox window."
@@ -1128,6 +1138,31 @@ class TestMailSourcesAPIAuthed:
         assert checkpoint_response.status_code == 200
         assert checkpoint_response.json()["cursor_checkpoint"]["connector"] == "gmail"
         assert checkpoint_response.json()["cursor_checkpoint"]["page_cursor"] == "**redacted**"
+
+        row.details = json.dumps([{"status": "skipped"}] * 50)
+        checkpoint = json.loads(row.cursor)
+        checkpoint["skipped_attachments"] = 100
+        row.cursor = json.dumps(checkpoint)
+        row.status = "completed"
+        db_session.commit()
+
+        count_response = authed_client.get(
+            f"/api/v1/mail-sources/{source_id}/backfills/{job['id']}"
+        )
+
+        assert count_response.status_code == 200
+        assert count_response.json()["skipped_attachments"] == 100
+        assert "100 unrelated attachments were ignored" in count_response.json()["status_summary"]
+
+        checkpoint["skipped_attachments"] = 1
+        row.cursor = json.dumps(checkpoint)
+        db_session.commit()
+
+        singular_response = authed_client.get(
+            f"/api/v1/mail-sources/{source_id}/backfills/{job['id']}"
+        )
+
+        assert "1 unrelated attachment was ignored" in singular_response.json()["status_summary"]
 
     def test_backfill_cursor_checkpoint_preserves_legacy_formats(self):
         legacy = mail_sources_endpoint._backfill_cursor_checkpoint(

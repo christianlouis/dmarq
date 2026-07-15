@@ -375,6 +375,11 @@ function domainsApp() {
             return Math.max(localEmptyCount, this.emptyDomainsCount || 0);
         },
 
+        emptyDomainToggleLabel() {
+            if (this.showEmptyDomains) return 'Hide empty domains';
+            return `Show ${this.hiddenEmptyDomainCount()} empty`;
+        },
+
         activeDomainCount() {
             return this.visibleDomains().length;
         },

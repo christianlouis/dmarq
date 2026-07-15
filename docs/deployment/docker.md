@@ -181,9 +181,21 @@ IMAP source:
 | Password | Google App Password, not the normal account password |
 | Folder | `INBOX` or the label/folder that receives reports |
 
-Use **Test connection**, then **Fetch now**. DMARQ records every manual and
-scheduled attempt in import history. Keep **Delete imported emails** disabled
-until ingestion and duplicate handling have been verified.
+Use **Test connection**, then **Import now**. The connection test counts likely
+DMARC messages across common provider subject formats; it does not import or
+change mail. DMARQ records every manual and scheduled attempt in import history.
+Keep **Delete imported emails** disabled until ingestion and duplicate handling
+have been verified.
+
+For older messages, use **Backfill date range**. Progress distinguishes mailbox
+messages checked, DMARC reports recognized, new reports, reports already in the
+database, unrelated attachments ignored, and actionable warnings. A duplicate-
+only run is successful and should report recognized existing reports instead of
+claiming that no reports were found.
+
+Scheduled mailbox scans start after the HTTP service is ready and run outside
+the request loop. A large inbox must not prevent `/healthz`, the setup flow, or
+the browser UI from becoming available after a container restart.
 
 ## Update
 

@@ -444,6 +444,18 @@ async def test_build_dns_guidance_lints_dkim_selector_health():
     assert "dkim_selector_cname_broken" in findings
     assert "dkim_selector_missing" in findings
     assert findings["dkim_selector_missing"].record_name == "old._domainkey.example.com"
+    assert (
+        findings["dkim_selector_missing"].target_record.name
+        == "old._domainkey.example.com"
+    )
+    assert (
+        findings["dkim_selector_cname_broken"].target_record.name
+        == "mailchimp._domainkey.example.com"
+    )
+    assert (
+        findings["dkim_selector_key_too_short"].target_record.name
+        == "short._domainkey.example.com"
+    )
     assert findings["dkim_selector_cname_broken"].record_type == "CNAME"
     assert findings["dkim_selector_key_too_short"].remediation_steps
 

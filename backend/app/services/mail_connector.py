@@ -91,6 +91,7 @@ def initial_import_stats(
         "forensic_reports_found": 0,
         "duplicate_reports": 0,
         "duplicate_forensic_reports": 0,
+        "skipped_attachments": 0,
         "new_domains": [],
         "errors": [],
         "new_ingested_ids": [],

@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 
 from fastapi.testclient import TestClient
+from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -61,6 +62,32 @@ def test_default_workspace_claims_legacy_rows(db_session: Session):
     assert domain.workspace_id == workspace.id
     assert source.workspace_id == workspace.id
     assert user.workspace_id == workspace.id
+
+
+def test_default_workspace_assignment_is_read_only_without_legacy_rows(db_session: Session):
+    """Normal workspace resolution must not contend with an active SQLite writer."""
+    workspace = get_or_create_default_workspace(db_session)
+    db_session.add_all(
+        [
+            Domain(name="scoped.example", workspace_id=workspace.id, active=True),
+            MailSource(name="Scoped inbox", method="IMAP", workspace_id=workspace.id),
+            User(email="scoped@example.com", workspace_id=workspace.id),
+        ]
+    )
+    db_session.commit()
+    statements = []
+
+    def _record_statement(*args):
+        statements.append(args[2])
+
+    event.listen(db_session.bind, "before_cursor_execute", _record_statement)
+    try:
+        resolved = assign_default_workspace_to_unscoped_rows(db_session)
+    finally:
+        event.remove(db_session.bind, "before_cursor_execute", _record_statement)
+
+    assert resolved.id == workspace.id
+    assert not any(statement.lstrip().upper().startswith("UPDATE") for statement in statements)
 
 
 def test_workspace_scoped_queries_exclude_other_tenants(db_session: Session):

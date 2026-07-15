@@ -109,8 +109,8 @@
                     {% call card_description() %}Grouped investigation hints from redacted forensic metadata{% endcall %}
                 </div>
                 <div class="flex gap-2">
-                    <span class="badge badge-error badge-outline">High <span x-text="analysis.priority_counts?.high || 0"></span></span>
-                    <span class="badge badge-warning badge-outline">Medium <span x-text="analysis.priority_counts?.medium || 0"></span></span>
+                    <span class="badge badge-error badge-outline">High <span x-text="highPriorityCount"></span></span>
+                    <span class="badge badge-warning badge-outline">Medium <span x-text="mediumPriorityCount"></span></span>
                 </div>
             </div>
         {% endcall %}

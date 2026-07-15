@@ -386,6 +386,15 @@ def _next_sleep_seconds(
         return 3600
 
 
+def _run_mailbox_scheduler_cycle() -> List[MailSource]:
+    """Run blocking mailbox and delivery work outside the application event loop."""
+    enabled_sources = _poll_all_enabled_sources()
+    _run_due_mail_source_backfills()
+    _send_due_summary_notifications()
+    _deliver_due_webhook_events()
+    return enabled_sources
+
+
 async def scheduled_imap_polling():
     """Background task for periodically checking IMAP for new DMARC reports"""
     try:
@@ -393,10 +402,7 @@ async def scheduled_imap_polling():
             logger.info("Starting scheduled IMAP polling for DMARC reports")
             mark_scheduler_cycle_started()
             try:
-                enabled_sources = _poll_all_enabled_sources()
-                _run_due_mail_source_backfills()
-                _send_due_summary_notifications()
-                _deliver_due_webhook_events()
+                enabled_sources = await run_in_threadpool(_run_mailbox_scheduler_cycle)
                 mark_scheduler_success()
             except Exception as e:  # pylint: disable=broad-exception-caught
                 logger.error("Error in IMAP polling task: %s", str(e))
@@ -414,6 +420,12 @@ async def scheduled_imap_polling():
     except asyncio.CancelledError:
         logger.info("IMAP polling task cancelled")
         mark_scheduler_stopped()
+
+
+async def _scheduled_imap_polling_after_startup(delay_seconds: float = 1.0) -> None:
+    """Let the HTTP server become ready before the first mailbox scan begins."""
+    await asyncio.sleep(delay_seconds)
+    await scheduled_imap_polling()
 
 
 def _migrate_imap_env_vars_to_db() -> None:
@@ -521,7 +533,7 @@ def _start_background_tasks() -> None:
     else:
         logger.info("Starting IMAP polling background task")
         mark_scheduler_started()
-        background_task = asyncio.create_task(scheduled_imap_polling())
+        background_task = asyncio.create_task(_scheduled_imap_polling_after_startup())
     dns_prewarm_task = asyncio.create_task(prewarm_dns_cache())
 
 

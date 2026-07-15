@@ -67,14 +67,20 @@ def assign_default_workspace_to_unscoped_rows(
 ) -> Workspace:
     """Attach legacy unscoped rows to the default workspace."""
     workspace = get_or_create_default_workspace(db, commit=commit)
+    changed = False
     for model in (Domain, MailSource, User):
-        db.query(model).filter(model.workspace_id.is_(None)).update(
-            {model.workspace_id: workspace.id},
-            synchronize_session=False,
+        has_unscoped_rows = (
+            db.query(model.id).filter(model.workspace_id.is_(None)).limit(1).first() is not None
         )
-    if commit:
+        if has_unscoped_rows:
+            db.query(model).filter(model.workspace_id.is_(None)).update(
+                {model.workspace_id: workspace.id},
+                synchronize_session=False,
+            )
+            changed = True
+    if commit and changed:
         db.commit()
-    else:
+    elif not commit and changed:
         db.flush()
     return workspace
 

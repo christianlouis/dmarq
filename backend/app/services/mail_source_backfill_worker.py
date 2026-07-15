@@ -65,6 +65,29 @@ def _copy_result_counts(job: MailSourceBackfillJob, results: Dict[str, Any]) -> 
     job.error_count = int(results.get("error_count", len(results.get("errors") or [])) or 0)
 
 
+def _persist_imap_progress(
+    db: Session,
+    job: MailSourceBackfillJob,
+    results: Dict[str, Any],
+    *,
+    days: int,
+) -> None:
+    """Persist bounded IMAP progress so UI polling is useful during large scans."""
+    processed = int(results.get("processed", 0) or 0)
+    total = int(results.get("total_messages", 0) or 0)
+    if processed % 5 and processed != total:
+        return
+    _copy_result_counts(job, results)
+    job.cursor = _cursor_checkpoint(
+        connector="imap",
+        state="running",
+        days=days,
+        results=results,
+    )
+    job.updated_at = datetime.utcnow()
+    db.commit()
+
+
 def _combined_result_counts(
     job: MailSourceBackfillJob,
     results: Dict[str, Any],
@@ -78,7 +101,25 @@ def _combined_result_counts(
         results.get("duplicate_reports", 0) or 0
     )
     combined["error_count"] = int(job.error_count or 0) + len(results.get("errors") or [])
+    combined["skipped_attachments"] = _stored_skipped_attachments(job) + int(
+        results.get("skipped_attachments", 0) or 0
+    )
     return combined
+
+
+def _stored_skipped_attachments(job: MailSourceBackfillJob) -> int:
+    if not job.cursor:
+        return 0
+    try:
+        payload = json.loads(job.cursor)
+    except (TypeError, ValueError):
+        return 0
+    if not isinstance(payload, dict):
+        return 0
+    try:
+        return max(0, int(payload.get("skipped_attachments", 0) or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _stored_page_cursor(job: MailSourceBackfillJob, connector: str) -> Optional[str]:
@@ -114,6 +155,7 @@ def _cursor_checkpoint(
         "processed": int(stats.get("processed", 0) or 0),
         "reports_found": int(stats.get("reports_found", 0) or 0),
         "duplicate_reports": int(stats.get("duplicate_reports", 0) or 0),
+        "skipped_attachments": int(stats.get("skipped_attachments", 0) or 0),
         "error_count": int(stats.get("error_count", len(stats.get("errors") or [])) or 0),
     }
     search_window_days = stats.get("search_window_days")
@@ -256,7 +298,15 @@ def run_imap_backfill_job(db: Session, job: MailSourceBackfillJob) -> bool:
             db=db,
             workspace_id=source.workspace_id,
         )
-        results = client.fetch_reports(days=days)
+        results = client.fetch_reports(
+            days=days,
+            progress_callback=lambda progress: _persist_imap_progress(
+                db,
+                job,
+                progress,
+                days=days,
+            ),
+        )
         source.last_checked = datetime.utcnow()
         attempt = record_import_attempt(
             db,

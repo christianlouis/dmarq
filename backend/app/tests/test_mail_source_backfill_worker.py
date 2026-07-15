@@ -9,6 +9,7 @@ from app.services.mail_source_backfill_worker import (
     _backfill_window_days,
     _mark_failure,
     _retry_delay,
+    _stored_skipped_attachments,
     run_due_imap_backfill_jobs,
     run_due_mail_source_backfill_jobs,
     run_gmail_backfill_job,
@@ -66,6 +67,14 @@ def _job(db_session, workspace, source, **overrides):
     return row
 
 
+def test_stored_skipped_attachments_rejects_malformed_checkpoints():
+    job = MailSourceBackfillJob()
+
+    for cursor in ("{", "[]", '{"skipped_attachments": "invalid"}'):
+        job.cursor = cursor
+        assert _stored_skipped_attachments(job) == 0
+
+
 def test_run_due_imap_backfill_completes_job_and_records_import(db_session, monkeypatch):
     workspace, source = _source(db_session)
     row = _job(db_session, workspace, source)
@@ -83,8 +92,10 @@ def test_run_due_imap_backfill_completes_job_and_records_import(db_session, monk
         def __init__(self, **kwargs):
             self.kwargs = kwargs
 
-        def fetch_reports(self, days):
+        def fetch_reports(self, days, progress_callback=None):
             assert days == 10
+            if progress_callback:
+                progress_callback({**results, "processed": 5, "total_messages": 12})
             return results
 
     monkeypatch.setattr(
@@ -157,7 +168,7 @@ def test_run_imap_backfill_marks_exhausted_attempt_failed(db_session, monkeypatc
         def __init__(self, **_kwargs):
             pass
 
-        def fetch_reports(self, days):
+        def fetch_reports(self, days, **_kwargs):
             raise RuntimeError("login failed for token=secret-value")
 
     monkeypatch.setattr(
@@ -478,6 +489,7 @@ def test_gmail_backfill_queues_next_page_cursor(db_session, monkeypatch):
                 "processed": 2,
                 "reports_found": 1,
                 "duplicate_reports": 0,
+                "skipped_attachments": 60,
                 "new_domains": [],
                 "new_ingested_ids": ["gmail-id-1"],
                 "errors": [],
@@ -503,6 +515,7 @@ def test_gmail_backfill_queues_next_page_cursor(db_session, monkeypatch):
     assert row.processed == 2
     assert cursor["state"] == "queued"
     assert cursor["page_cursor"] == "gmail-next-page"
+    assert cursor["skipped_attachments"] == 60
     assert source.gmail_ingested_ids == "old-id,gmail-id-1"
 
 
@@ -520,6 +533,7 @@ def test_gmail_backfill_resumes_from_stored_page_cursor(db_session, monkeypatch)
             "processed": 2,
             "reports_found": 1,
             "duplicate_reports": 0,
+            "skipped_attachments": 60,
             "error_count": 0,
             "page_cursor": "gmail-next-page",
         }
@@ -542,6 +556,7 @@ def test_gmail_backfill_resumes_from_stored_page_cursor(db_session, monkeypatch)
                 "processed": 1,
                 "reports_found": 1,
                 "duplicate_reports": 0,
+                "skipped_attachments": 40,
                 "new_domains": [],
                 "new_ingested_ids": ["gmail-id-2"],
                 "errors": [],
@@ -563,6 +578,7 @@ def test_gmail_backfill_resumes_from_stored_page_cursor(db_session, monkeypatch)
     assert row.processed == 3
     assert row.reports_found == 2
     assert cursor["state"] == "completed"
+    assert cursor["skipped_attachments"] == 100
     assert "page_cursor" not in cursor
 
 

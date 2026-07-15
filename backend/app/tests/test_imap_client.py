@@ -211,6 +211,30 @@ class TestListMailboxes:
         result = client._list_mailboxes(raw)
         assert "INBOX" in result
 
+    def test_parses_quoted_gmail_mailbox_entry(self):
+        client = self._make_client()
+        raw = [b'(\\HasNoChildren) "/" "[Gmail]/All Mail"']
+
+        assert client._list_mailboxes(raw) == ["[Gmail]/All Mail"]
+
+    def test_parses_escaped_quote_and_backslash_in_mailbox_entry(self):
+        client = self._make_client()
+        raw = [b'(\\HasNoChildren) "/" "Folder \\"Name\\" \\\\ archive"']
+
+        assert client._list_mailboxes(raw) == ['Folder "Name" \\ archive']
+
+    def test_parses_long_malformed_escape_sequence_without_regex_backtracking(self):
+        client = self._make_client()
+        escaped_name = r"\!" * 10_000
+        raw = [f'(\\HasNoChildren) "/" "{escaped_name}"'.encode()]
+
+        assert client._list_mailboxes(raw) == [escaped_name]
+
+    def test_skips_unclosed_quoted_mailbox_entry(self):
+        client = self._make_client()
+
+        assert client._list_mailboxes([b'(\\HasNoChildren) "/" "Broken folder']) == []
+
     def test_skips_non_bytes_entries(self):
         client = self._make_client()
         result = client._list_mailboxes(["not bytes", None])  # type: ignore[list-item]
@@ -281,6 +305,26 @@ class TestTestConnection:
         assert "successful" in message.lower()
         assert stats["message_count"] == 10
         assert "INBOX" in stats["available_mailboxes"]
+        assert stats["dmarc_count_strategy"] == "common_provider_subjects"
+
+    def test_connection_counts_standard_google_report_subjects(self):
+        client = self._make_client()
+        mock_mail = MagicMock()
+        mock_mail.list.return_value = ("OK", [])
+        mock_mail.select.return_value = ("OK", [b"20"])
+        mock_mail.search.side_effect = [
+            ("OK", [b""]),
+            ("OK", [b"1"]),
+            ("OK", [b"2 3"]),
+            ("OK", [b"3"]),
+            ("OK", [b"4"]),
+        ]
+
+        with patch("imaplib.IMAP4_SSL", return_value=mock_mail):
+            success, _, stats = client.test_connection()
+
+        assert success is True
+        assert stats["dmarc_count"] == 4
 
     def test_connection_selects_configured_folder_with_quotes(self):
         client = IMAPClient(
@@ -505,6 +549,21 @@ class TestProcessAttachments:
         )
         count = client._process_attachments(msg)
         assert count == 1
+
+    def test_unrelated_zip_is_skipped_without_parse_error(self):
+        client = self._make_client()
+        zip_content = _make_zip_content(b"not a DMARC report", "invoice.pdf")
+        msg = email.message_from_bytes(
+            _make_email_with_attachment("documents.zip", zip_content, "application/zip")
+        )
+        stats = {"processed": 0, "reports_found": 0, "errors": []}
+
+        count = client._process_attachments(msg, stats, message_id="42")
+
+        assert count == 0
+        assert stats["errors"] == []
+        assert stats["skipped_attachments"] == 1
+        assert stats["details"][0]["reason"] == "unrelated_attachment"
 
     def test_processes_gzip_attachment(self):
         client = self._make_client()
@@ -895,6 +954,24 @@ class TestFetchReports:
         assert result["success"] is True
         assert result["reports_found"] >= 1
         assert result["details"][0]["status"] == "imported"
+
+    def test_fetch_reports_emits_incremental_progress(self):
+        client = self._make_client()
+        mock_mail = MagicMock()
+        mock_mail.select.return_value = ("OK", [b"2"])
+        mock_mail.search.return_value = ("OK", [b"1 2"])
+        mock_mail.fetch.return_value = (
+            "OK",
+            [(b"1", b"Subject: ordinary mail\r\n\r\nbody")],
+        )
+        snapshots = []
+
+        with patch("imaplib.IMAP4_SSL", return_value=mock_mail):
+            result = client.fetch_reports(days=7, progress_callback=snapshots.append)
+
+        assert result["processed"] == 2
+        assert result["total_messages"] == 2
+        assert [snapshot["processed"] for snapshot in snapshots] == [1, 2]
 
     def test_connection_error_returns_failure(self):
         client = self._make_client()

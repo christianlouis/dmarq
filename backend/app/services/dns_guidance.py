@@ -942,6 +942,14 @@ async def _dkim_selector_findings(
 
     for selector in monitored_selectors:
         record_name = f"{selector}._domainkey.{domain}"
+        selector_target = DNSGuidanceRecord(
+            code=target.code,
+            record_type=target.record_type,
+            name=record_name,
+            value=target.value,
+            purpose=target.purpose,
+            priority=target.priority,
+        )
         record = await _dkim_selector_record(provider, selector, domain)
         if record:
             findings.extend(
@@ -949,20 +957,24 @@ async def _dkim_selector_findings(
                     selector,
                     record_name,
                     record,
-                    target,
+                    selector_target,
                     has_report_evidence=has_report_evidence,
                     observed_selector_set=observed_selector_set,
                 )
             )
             continue
 
-        cname_finding = await _dkim_cname_finding(provider, selector, record_name, target)
+        cname_finding = await _dkim_cname_finding(
+            provider, selector, record_name, selector_target
+        )
         if cname_finding:
             findings.append(cname_finding)
             continue
 
         if selector not in resolved_selectors:
-            findings.append(_dkim_missing_finding(selector, record_name, target))
+            findings.append(
+                _dkim_missing_finding(selector, record_name, selector_target)
+            )
     return findings
 
 
