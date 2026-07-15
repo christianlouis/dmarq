@@ -217,6 +217,19 @@ class TestListMailboxes:
 
         assert client._list_mailboxes(raw) == ["[Gmail]/All Mail"]
 
+    def test_parses_escaped_quote_and_backslash_in_mailbox_entry(self):
+        client = self._make_client()
+        raw = [b'(\\HasNoChildren) "/" "Folder \\"Name\\" \\\\ archive"']
+
+        assert client._list_mailboxes(raw) == ['Folder "Name" \\ archive']
+
+    def test_parses_long_malformed_escape_sequence_without_regex_backtracking(self):
+        client = self._make_client()
+        escaped_name = r"\!" * 10_000
+        raw = [f'(\\HasNoChildren) "/" "{escaped_name}"'.encode()]
+
+        assert client._list_mailboxes(raw) == [escaped_name]
+
     def test_skips_non_bytes_entries(self):
         client = self._make_client()
         result = client._list_mailboxes(["not bytes", None])  # type: ignore[list-item]

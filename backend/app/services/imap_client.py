@@ -1,7 +1,6 @@
 import email
 import imaplib
 import logging
-import re
 from datetime import datetime, timedelta
 from email.header import decode_header
 from typing import Any, Callable, Dict, Optional, Tuple
@@ -79,6 +78,50 @@ class IMAPClient:
         escaped = self.folder.replace("\\", "\\\\").replace('"', '\\"')
         return f'"{escaped}"'
 
+    @staticmethod
+    def _mailbox_name_from_list_response(response: str) -> str:
+        """Return the final IMAP LIST token without regex backtracking."""
+        tokens: list[str] = []
+        current: list[str] = []
+        in_quote = False
+        escaped = False
+
+        for character in response.strip():
+            if in_quote:
+                if escaped:
+                    if character in {'"', "\\"}:
+                        current.append(character)
+                    else:
+                        current.extend(("\\", character))
+                    escaped = False
+                elif character == "\\":
+                    escaped = True
+                elif character == '"':
+                    in_quote = False
+                    tokens.append("".join(current))
+                    current = []
+                else:
+                    current.append(character)
+                continue
+
+            if character.isspace():
+                if current:
+                    tokens.append("".join(current))
+                    current = []
+            elif character == '"':
+                if current:
+                    tokens.append("".join(current))
+                    current = []
+                in_quote = True
+            else:
+                current.append(character)
+
+        if in_quote:
+            return ""
+        if current:
+            tokens.append("".join(current))
+        return tokens[-1] if tokens else ""
+
     def _list_mailboxes(self, mailbox_data: list) -> list:
         """Parse the raw IMAP LIST response into a list of mailbox name strings."""
         available_mailboxes = []
@@ -86,12 +129,9 @@ class IMAPClient:
             if isinstance(mailbox, bytes):
                 try:
                     mailbox_str = mailbox.decode("utf-8")
-                    match = re.search(r'\s+(?:"((?:\\.|[^"])*)"|(\S+))$', mailbox_str)
-                    if match:
-                        mailbox_name = match.group(1) or match.group(2) or ""
-                        mailbox_name = mailbox_name.replace(r'\"', '"').replace("\\\\", "\\")
-                        if mailbox_name:
-                            available_mailboxes.append(mailbox_name)
+                    mailbox_name = self._mailbox_name_from_list_response(mailbox_str)
+                    if mailbox_name:
+                        available_mailboxes.append(mailbox_name)
                 except Exception:  # pylint: disable=broad-exception-caught
                     # Silently skip mailboxes that can't be parsed; they are simply
                     # omitted from the returned list so callers should expect it may
