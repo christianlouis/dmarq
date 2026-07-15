@@ -529,6 +529,32 @@ function domainDetailsApp(domainId = '') {
             }
         },
 
+        pathValue(source, path, fallback = null) {
+            const value = String(path || '')
+                .split('.')
+                .filter(Boolean)
+                .reduce((current, key) => (
+                    current === null || current === undefined ? undefined : current[key]
+                ), source);
+            return value === null || value === undefined ? fallback : value;
+        },
+
+        humanizeTokenList(values) {
+            return (Array.isArray(values) ? values : []).map(value => this.humanizeToken(value)).join(', ');
+        },
+
+        providerRepairRecordLabel(plan) {
+            if (!plan) return 'not a DNS write';
+            return [plan.record_type, plan.record_name].filter(Boolean).join(' ') || 'not a DNS write';
+        },
+
+        sourceAnomalyClass(source) {
+            const anomalies = Array.isArray(source?.anomalies) ? source.anomalies : [];
+            return anomalies.some(anomaly => anomaly?.severity === 'error')
+                ? 'bg-red-100 text-red-800'
+                : 'bg-amber-100 text-amber-800';
+        },
+
         loadStoredVolumeScale() {
             try {
                 return window.localStorage?.getItem('dmarq:domain-volume-scale') || null;

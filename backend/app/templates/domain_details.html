@@ -19,7 +19,7 @@
 
     <div class="grid grid-cols-1 gap-6">
         <!-- Domain Overview -->
-        <div class="rounded-lg bg-white p-6 shadow-sm">
+        <div id="domain-overview" class="scroll-mt-28 rounded-lg bg-white p-6 shadow-sm">
             <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div>
                     <p class="mb-2 text-sm font-semibold uppercase tracking-wide text-[#2f9da5]">Domain detail</p>
@@ -70,6 +70,13 @@
                     </details>
                 </div>
             </div>
+            <nav class="mt-5 grid grid-cols-5 border-b border-[#e6e3e1]" aria-label="Domain sections">
+                <a href="#domain-overview" class="border-b-2 border-[#2f9da5] px-1 py-2 text-center text-xs font-semibold text-[#176d74] sm:px-2 sm:text-sm">Overview</a>
+                <a href="#sending-sources" class="border-b-2 border-transparent px-1 py-2 text-center text-xs font-semibold text-[#5f5c78] hover:border-[#b9dfe2] hover:text-[#176d74] sm:px-2 sm:text-sm">Senders</a>
+                <a href="#dns-records" class="border-b-2 border-transparent px-1 py-2 text-center text-xs font-semibold text-[#5f5c78] hover:border-[#b9dfe2] hover:text-[#176d74] sm:px-2 sm:text-sm">DNS</a>
+                <a href="#recent-reports" class="border-b-2 border-transparent px-1 py-2 text-center text-xs font-semibold text-[#5f5c78] hover:border-[#b9dfe2] hover:text-[#176d74] sm:px-2 sm:text-sm">Reports</a>
+                <a href="#posture-dashboard" class="border-b-2 border-transparent px-1 py-2 text-center text-xs font-semibold text-[#5f5c78] hover:border-[#b9dfe2] hover:text-[#176d74] sm:px-2 sm:text-sm">Advanced</a>
+            </nav>
             <div class="mt-5 rounded-lg border border-[#e6e3e1] bg-[#fbfaf9] p-4">
                 <template x-if="remediationQueueLoading">
                     <div class="flex items-center gap-3 text-sm text-[#5f5c78]">
@@ -114,7 +121,13 @@
                             </div>
                             <h2 class="mt-2 text-lg font-semibold text-[#07071f]" x-text="primaryRemediationItem.title"></h2>
                             <p class="mt-1 text-sm text-[#5f5c78]" x-text="primaryRemediationItem.detail"></p>
-                            <div class="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+                            <p class="mt-3 text-sm text-[#120d36]">
+                                <span class="font-semibold">Next step: </span>
+                                <span x-text="primaryRemediationNextSafeAction"></span>
+                            </p>
+                            <details class="mt-3 rounded-md border border-[#e6e3e1] bg-white">
+                                <summary class="cursor-pointer px-3 py-2 text-sm font-semibold text-[#272a5f]">Technical workflow details</summary>
+                                <div class="grid gap-3 border-t border-[#e6e3e1] p-3 md:grid-cols-2 xl:grid-cols-3">
                                 <div class="rounded-md bg-white p-3">
                                     <p class="text-xs font-semibold uppercase text-[#5f5c78]">Next safe action</p>
                                     <p class="mt-1 text-sm text-[#120d36]" x-text="primaryRemediationNextSafeAction"></p>
@@ -165,7 +178,7 @@
                                     <p class="text-xs font-semibold uppercase text-[#5f5c78]">Operator dispatch</p>
                                     <p class="mt-1 text-sm text-[#120d36]" x-text="primaryRemediationDispatchText"></p>
                                 </div>
-                            </div>
+                                </div>
                             <p class="mt-3 rounded border border-[#f3d2a4] bg-[#fff8ed] px-3 py-2 text-xs font-semibold text-[#7a4a00]"
                                x-show="primaryRemediationStaleWarningText"
                                x-text="primaryRemediationStaleWarningText"></p>
@@ -179,6 +192,7 @@
                                     <span x-text="primaryRemediationFailureModeText"></span>
                                 </p>
                             </div>
+                            </details>
                         </div>
                         <div class="flex w-full flex-col gap-2 sm:w-auto">
                             <a :href="primaryRemediationCtaHref"
@@ -187,7 +201,7 @@
                             <button type="button"
                                     x-show="primaryRemediationItem.evidence_refresh"
                                     class="btn btn-outline btn-sm border-[#dfdfdf] text-[#272a5f] hover:border-[#2f9da5]"
-                                    :disabled="primaryRemediationItem.evidence_refresh?.safe_to_run === false || remediationActionBusy(primaryRemediationItem)"
+                                    :disabled="pathValue(primaryRemediationItem, 'evidence_refresh.safe_to_run') === false || remediationActionBusy(primaryRemediationItem)"
                                     :data-remediation-item-id="primaryRemediationItem.id"
                                     data-domain-detail-remediation-refresh-evidence>
                                 <span x-show="remediationActionBusy(primaryRemediationItem, 'refresh_evidence')" class="loading loading-spinner loading-xs"></span>
@@ -217,7 +231,12 @@
         </div>
 
         <!-- Ownership proof -->
-        <section id="domain-ownership">
+        <details id="domain-ownership" class="scroll-mt-28 rounded-lg border border-[#dfdfdf] bg-white shadow-sm">
+        <summary class="cursor-pointer p-4 text-sm font-semibold text-[#120d36]">
+            Domain ownership and DNS write safety
+            <span class="ml-2 text-xs font-normal text-[#5f5c78]">Proof records and Cloudflare verification</span>
+        </summary>
+        <section class="border-t border-[#dfdfdf] p-4">
         {% call card() %}
             {% call card_header() %}
                 <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -269,6 +288,7 @@
             {% endcall %}
         {% endcall %}
         </section>
+        </details>
 
         <!-- Domain Stats -->
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -387,7 +407,12 @@
         </section>
 
         <!-- Posture Dashboard -->
-        <section id="posture-dashboard">
+        <details id="posture-dashboard" class="scroll-mt-28 rounded-lg border border-[#dfdfdf] bg-white shadow-sm">
+        <summary class="cursor-pointer p-4 text-sm font-semibold text-[#120d36]">
+            Advanced remediation and posture
+            <span class="ml-2 text-xs font-normal text-[#5f5c78]">Complete fix queue, evidence state, drift, and operator playbooks</span>
+        </summary>
+        <section class="border-t border-[#dfdfdf] p-4">
         {% call card() %}
             {% call card_header() %}
                 <div class="flex items-center justify-between">
@@ -667,10 +692,10 @@
                                     <div>
                                         <p class="text-xs font-semibold uppercase text-[#5f5c78]">Remediation loop</p>
                                         <p class="mt-1 text-sm font-semibold text-[#120d36]" x-text="remediationLoopStatusLabel(remediationLoopEffectiveStatus(remediationQueue.loop))"></p>
-                                        <p class="mt-1 text-sm text-[#5f5c78]" x-text="remediationQueue.loop?.next_action || 'Review the highest priority remediation item.'"></p>
+                                        <p class="mt-1 text-sm text-[#5f5c78]" x-text="pathValue(remediationQueue, 'loop.next_action', 'Review the highest priority remediation item.')"></p>
                                     </div>
                                     <span class="rounded bg-[#f4f3f2] px-2 py-1 text-xs font-semibold text-[#45505f]">
-                                        <span>Top: </span><span x-text="remediationIncidentLabel(remediationQueue.loop?.top_incident_type)"></span>
+                                        <span>Top: </span><span x-text="remediationIncidentLabel(pathValue(remediationQueue, 'loop.top_incident_type'))"></span>
                                     </span>
                                     <span class="rounded px-2 py-1 text-xs font-semibold"
                                           :class="remediationCompletionClass(remediationQueue.completion)"
@@ -678,44 +703,44 @@
                                 </div>
                                 <div class="mt-3 flex flex-wrap gap-2 text-xs">
                                     <span class="rounded bg-[#eef7ff] px-2 py-1 font-semibold text-[#24507a]">
-                                        <span x-text="remediationQueue.loop?.repair_ready_for_preview || remediationQueue.loop?.repair_preview_ready || 0"></span><span> provider previews ready</span>
+                                        <span x-text="pathValue(remediationQueue, 'loop.repair_ready_for_preview', pathValue(remediationQueue, 'loop.repair_preview_ready', 0))"></span><span> provider previews ready</span>
                                     </span>
                                     <span class="rounded bg-[#fff8ed] px-2 py-1 font-semibold text-[#7a4a00]">
-                                        <span x-text="remediationQueue.loop?.repair_needs_evidence || 0"></span><span> require fresh evidence</span>
+                                        <span x-text="pathValue(remediationQueue, 'loop.repair_needs_evidence', 0)"></span><span> require fresh evidence</span>
                                     </span>
                                     <span class="rounded bg-[#eef7ff] px-2 py-1 font-semibold text-[#24507a]">
-                                        <span x-text="remediationQueue.loop?.evidence_refresh_dns || remediationQueue.summary?.evidence_refresh_dns || 0"></span><span> DNS refreshes</span>
+                                        <span x-text="pathValue(remediationQueue, 'loop.evidence_refresh_dns', pathValue(remediationQueue, 'summary.evidence_refresh_dns', 0))"></span><span> DNS refreshes</span>
                                     </span>
                                     <span class="rounded bg-[#f2fbf9] px-2 py-1 font-semibold text-[#1f7c83]">
-                                        <span x-text="remediationQueue.loop?.evidence_refresh_reports || remediationQueue.summary?.evidence_refresh_reports || 0"></span><span> report refreshes</span>
+                                        <span x-text="pathValue(remediationQueue, 'loop.evidence_refresh_reports', pathValue(remediationQueue, 'summary.evidence_refresh_reports', 0))"></span><span> report refreshes</span>
                                     </span>
                                     <span class="rounded bg-[#eef7ff] px-2 py-1 font-semibold text-[#24507a]">
-                                        <span x-text="remediationQueue.loop?.repair_waiting_on_operator || 0"></span><span> waiting on operator</span>
+                                        <span x-text="pathValue(remediationQueue, 'loop.repair_waiting_on_operator', 0)"></span><span> waiting on operator</span>
                                     </span>
                                     <span class="rounded bg-[#f4f3f2] px-2 py-1 font-semibold text-[#5f5c78]">
-                                        <span x-text="remediationQueue.loop?.repair_readiness_blocked || remediationQueue.loop?.repair_blocked || 0"></span><span> blocked before repair</span>
+                                        <span x-text="pathValue(remediationQueue, 'loop.repair_readiness_blocked', pathValue(remediationQueue, 'loop.repair_blocked', 0))"></span><span> blocked before repair</span>
                                     </span>
                                     <span class="rounded bg-white px-2 py-1 font-semibold text-[#45505f]">
-                                        <span x-text="remediationQueue.loop?.repair_readiness_score || 0"></span><span>/100 top readiness</span>
+                                        <span x-text="pathValue(remediationQueue, 'loop.repair_readiness_score', 0)"></span><span>/100 top readiness</span>
                                     </span>
                                     <span class="rounded bg-[#fff8ed] px-2 py-1 font-semibold text-[#7a4a00]">
-                                        <span x-text="remediationQueue.loop?.closure_gate_required || 0"></span><span> closure gates</span>
+                                        <span x-text="pathValue(remediationQueue, 'loop.closure_gate_required', 0)"></span><span> closure gates</span>
                                     </span>
                                     <span class="rounded bg-[#f4f3f2] px-2 py-1 font-semibold text-[#5f5c78]">
-                                        <span x-text="remediationQueue.loop?.rollback_guidance || 0"></span><span> rollback notes</span>
+                                        <span x-text="pathValue(remediationQueue, 'loop.rollback_guidance', 0)"></span><span> rollback notes</span>
                                     </span>
                                 </div>
                                 <div class="mt-3 rounded border border-[#d8ebe8] bg-[#f2fbf9] p-3 text-xs text-[#45505f]"
                                      x-show="remediationQueue.completion">
                                     <p class="font-semibold text-[#120d36]">Loop completion gate</p>
-                                    <p class="mt-1" x-text="remediationQueue.completion?.next_step || 'Keep this issue open until all completion gates are represented.'"></p>
+                                    <p class="mt-1" x-text="pathValue(remediationQueue, 'completion.next_step', 'Keep this issue open until all completion gates are represented.')"></p>
                                     <p class="mt-2 font-semibold">
-                                        <span x-text="remediationQueue.completion?.criteria_met || 0"></span>
+                                        <span x-text="pathValue(remediationQueue, 'completion.criteria_met', 0)"></span>
                                         <span>/</span>
-                                        <span x-text="remediationQueue.completion?.criteria_total || 0"></span>
+                                        <span x-text="pathValue(remediationQueue, 'completion.criteria_total', 0)"></span>
                                         <span> gates met</span>
                                         <span> · </span>
-                                        <span x-text="remediationQueue.completion?.remaining_slices || 0"></span>
+                                        <span x-text="pathValue(remediationQueue, 'completion.remaining_slices', 0)"></span>
                                         <span> remaining slices</span>
                                     </p>
                                 </div>
@@ -871,7 +896,7 @@
                                         <template x-if="(item.repair_progression.blocked_by || []).length">
                                             <p class="mt-2 text-xs text-[#7a4a00]">
                                                 <span class="font-semibold">Still blocked by: </span>
-                                                <span x-text="item.repair_progression.blocked_by.map(humanizeToken).join(', ')"></span>
+                                                <span x-text="humanizeTokenList(item.repair_progression.blocked_by)"></span>
                                             </p>
                                         </template>
                                     </div>
@@ -892,7 +917,7 @@
                                             </div>
                                             <div class="rounded bg-white px-3 py-2 text-xs text-[#45505f]">
                                                 <span class="font-semibold">Record: </span>
-                                                <span x-text="[item.provider_repair_plan.record_type, item.provider_repair_plan.record_name].filter(Boolean).join(' ') || 'not a DNS write'"></span>
+                                                <span x-text="providerRepairRecordLabel(item.provider_repair_plan)"></span>
                                             </div>
                                             <div class="rounded bg-white px-3 py-2 text-xs text-[#45505f]">
                                                 <span class="font-semibold">Operation: </span>
@@ -918,7 +943,7 @@
                                                 <p class="mt-1" x-text="providerRepairAttemptHistoryText(item.provider_repair_plan)"></p>
                                                 <ul class="mt-2 space-y-1" x-show="providerRepairAttemptEntries(item.provider_repair_plan).length">
                                                     <template x-for="(entry, index) in providerRepairAttemptEntries(item.provider_repair_plan)"
-                                                              :key="`provider-attempt-${item.id}-${index}`">
+                                                              :key="item.id + '-provider-attempt-' + index">
                                                         <li class="rounded border border-[#e3e0f4] bg-[#f8f7ff] px-2 py-1">
                                                             <p class="font-semibold text-[#120d36]" x-text="entry.label"></p>
                                                             <p class="text-[#5f5c78]" x-show="entry.meta" x-text="entry.meta"></p>
@@ -926,8 +951,8 @@
                                                         </li>
                                                     </template>
                                                 </ul>
-                                                <p class="mt-1 text-[#5f5c78]" x-show="item.provider_repair_plan.attempt_history?.next_step"
-                                                   x-text="item.provider_repair_plan.attempt_history?.next_step"></p>
+                                                <p class="mt-1 text-[#5f5c78]" x-show="pathValue(item, 'provider_repair_plan.attempt_history.next_step')"
+                                                   x-text="pathValue(item, 'provider_repair_plan.attempt_history.next_step')"></p>
                                             </div>
                                         </div>
                                         <p class="mt-2 text-xs font-semibold text-[#7a4a00]"
@@ -1105,7 +1130,7 @@
                                         <p class="mt-2 text-sm text-[#45505f]" x-text="item.evidence_refresh.recommended_action"></p>
                                         <p class="mt-2 rounded bg-white px-3 py-2 text-xs text-[#45505f]">
                                             <span class="font-semibold">Done when: </span>
-                                            <span x-text="item.evidence_refresh.completion_signal || item.verification_plan?.closure_gate || 'Fresh evidence no longer shows this finding.'"></span>
+                                            <span x-text="item.evidence_refresh.completion_signal || pathValue(item, 'verification_plan.closure_gate', 'Fresh evidence no longer shows this finding.')"></span>
                                         </p>
                                         <p class="mt-2 text-xs text-[#7a4a00]"
                                            x-show="item.evidence_refresh.stale_warning"
@@ -1345,6 +1370,7 @@
             {% endcall %}
         {% endcall %}
         </section>
+        </details>
 
         <!-- Health Score Trend -->
         <section id="health-score-history">
@@ -1374,7 +1400,7 @@
                         </div>
                         <div class="mt-3 flex items-end gap-2">
                             <span class="text-5xl font-bold text-[#120d36]"
-                                  x-text="healthHistory.current_score ?? '-'"></span>
+                                  x-text="pathValue(healthHistory, 'current_score', '-')"></span>
                             <span class="pb-2 text-sm text-[#5f5c78]">/100</span>
                         </div>
                         <div class="mt-3 flex flex-wrap gap-2 text-xs">
@@ -1433,12 +1459,12 @@
                                     <div>
                                         <dt class="text-[#5f5c78]">Compliance</dt>
                                         <dd class="mt-1 font-semibold text-[#120d36]">
-                                            <span x-text="latestHealthPoint.compliance_rate ?? '-'"></span><span x-show="latestHealthPoint.compliance_rate !== undefined">%</span>
+                                            <span x-text="pathValue(latestHealthPoint, 'compliance_rate', '-')"></span><span x-show="latestHealthPoint.compliance_rate !== undefined">%</span>
                                         </dd>
                                     </div>
                                     <div>
                                         <dt class="text-[#5f5c78]">Messages</dt>
-                                        <dd class="mt-1 font-semibold text-[#120d36]" x-text="latestHealthPoint.total_emails ?? '-'"></dd>
+                                        <dd class="mt-1 font-semibold text-[#120d36]" x-text="pathValue(latestHealthPoint, 'total_emails', '-')"></dd>
                                     </div>
                                 </dl>
                                 <p class="mt-3 text-xs text-[#5f5c78]">
@@ -1471,9 +1497,9 @@
                                 Check legacy-platform exports before relying on them for parity or a future import.
                             </p>
                         </div>
-                        <span x-show="migrationImport.preview?.batch_fingerprint"
+                        <span x-show="pathValue(migrationImport, 'preview.batch_fingerprint')"
                               class="inline-flex w-fit rounded bg-[#f4f3f2] px-2 py-1 text-xs font-semibold text-[#5f5c78]"
-                              x-text="migrationImport.preview?.batch_fingerprint"></span>
+                              x-text="pathValue(migrationImport, 'preview.batch_fingerprint')"></span>
                     </div>
                     <div class="mt-4 grid gap-3 lg:grid-cols-[1fr_10rem_12rem]">
                         <label class="text-xs font-semibold text-[#5f5c78]">
@@ -1505,7 +1531,7 @@
                             Load sample
                         </button>
                         <button class="btn btn-sm btn-outline"
-                                x-show="migrationImport.preview?.baseline"
+                                x-show="pathValue(migrationImport, 'preview.baseline')"
                                 data-domain-detail-migration-action="apply_preview_baseline">
                             Use suggested baseline
                         </button>
@@ -1515,33 +1541,33 @@
                         <dl class="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
                             <div class="rounded bg-[#f4f3f2] px-3 py-2">
                                 <dt class="text-xs font-semibold text-[#5f5c78]">Rows</dt>
-                                <dd class="mt-1 text-lg font-bold text-[#120d36]" x-text="migrationImport.preview?.normalized_count ?? 0"></dd>
+                                <dd class="mt-1 text-lg font-bold text-[#120d36]" x-text="pathValue(migrationImport, 'preview.normalized_count', 0)"></dd>
                             </div>
                             <div class="rounded bg-[#f4f3f2] px-3 py-2">
                                 <dt class="text-xs font-semibold text-[#5f5c78]">Importable</dt>
-                                <dd class="mt-1 text-lg font-bold text-[#120d36]" x-text="migrationImport.preview?.importable_row_count ?? 0"></dd>
+                                <dd class="mt-1 text-lg font-bold text-[#120d36]" x-text="pathValue(migrationImport, 'preview.importable_row_count', 0)"></dd>
                             </div>
                             <div class="rounded bg-[#f4f3f2] px-3 py-2">
                                 <dt class="text-xs font-semibold text-[#5f5c78]">Planned reports</dt>
-                                <dd class="mt-1 text-lg font-bold text-[#120d36]" x-text="migrationImport.preview?.planned_report_count ?? 0"></dd>
+                                <dd class="mt-1 text-lg font-bold text-[#120d36]" x-text="pathValue(migrationImport, 'preview.planned_report_count', 0)"></dd>
                             </div>
                             <div class="rounded bg-[#f4f3f2] px-3 py-2">
                                 <dt class="text-xs font-semibold text-[#5f5c78]">Existing</dt>
-                                <dd class="mt-1 text-lg font-bold text-[#120d36]" x-text="migrationImport.preview?.existing_report_count ?? 0"></dd>
+                                <dd class="mt-1 text-lg font-bold text-[#120d36]" x-text="pathValue(migrationImport, 'preview.existing_report_count', 0)"></dd>
                             </div>
                             <div class="rounded bg-[#f4f3f2] px-3 py-2">
                                 <dt class="text-xs font-semibold text-[#5f5c78]">Duplicates</dt>
-                                <dd class="mt-1 text-lg font-bold text-[#120d36]" x-text="migrationImport.preview?.duplicate_row_count ?? 0"></dd>
+                                <dd class="mt-1 text-lg font-bold text-[#120d36]" x-text="pathValue(migrationImport, 'preview.duplicate_row_count', 0)"></dd>
                             </div>
                             <div class="rounded bg-[#f4f3f2] px-3 py-2">
                                 <dt class="text-xs font-semibold text-[#5f5c78]">Needs ID</dt>
-                                <dd class="mt-1 text-lg font-bold text-[#120d36]" x-text="migrationImport.preview?.needs_report_id_count ?? 0"></dd>
+                                <dd class="mt-1 text-lg font-bold text-[#120d36]" x-text="pathValue(migrationImport, 'preview.needs_report_id_count', 0)"></dd>
                             </div>
                         </dl>
-                        <div x-show="migrationImport.preview?.warnings?.length" class="rounded-lg border border-yellow-200 bg-yellow-50 p-3">
+                        <div x-show="pathValue(migrationImport, 'preview.warnings.length', 0)" class="rounded-lg border border-yellow-200 bg-yellow-50 p-3">
                             <p class="text-xs font-semibold uppercase text-yellow-800">Warnings</p>
                             <ul class="mt-2 space-y-1 text-sm text-yellow-900">
-                                <template x-for="warning in migrationImport.preview?.warnings || []" :key="warning">
+                                <template x-for="warning in pathValue(migrationImport, 'preview.warnings', [])" :key="warning">
                                     <li x-text="warning"></li>
                                 </template>
                             </ul>
@@ -1559,11 +1585,11 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <template x-for="row in migrationImport.preview?.sample_rows || []" :key="row.row_key">
+                                    <template x-for="row in pathValue(migrationImport, 'preview.sample_rows', [])" :key="row.row_key">
                                         <tr>
                                             <td x-text="row.begin_date || row.end_date || '-'"></td>
                                             <td x-text="row.source_ip || '-'"></td>
-                                            <td x-text="row.count ?? '-'"></td>
+                                            <td x-text="pathValue(row, 'count', '-')"></td>
                                             <td x-text="row.dkim || '-'"></td>
                                             <td x-text="row.spf || '-'"></td>
                                             <td>
@@ -1814,11 +1840,11 @@
                                 <p class="mt-1 text-sm text-[#45505f]" x-text="providerContextSummary"></p>
                                 <div class="mt-3 flex flex-wrap gap-2 text-xs">
                                     <span class="rounded-full bg-white px-2 py-1 text-[#45505f] shadow-sm"
-                                          x-text="providerContext?.can_import_zones ? 'Zone import available' : 'Manual import only'"></span>
+                                          x-text="pathValue(providerContext, 'can_import_zones', false) ? 'Zone import available' : 'Manual import only'"></span>
                                     <span class="rounded-full bg-white px-2 py-1 text-[#45505f] shadow-sm"
-                                          x-text="providerContext?.can_preview_repairs ? 'Repair preview available' : 'Manual repair plan'"></span>
+                                          x-text="pathValue(providerContext, 'can_preview_repairs', false) ? 'Repair preview available' : 'Manual repair plan'"></span>
                                     <span class="rounded-full bg-white px-2 py-1 text-[#45505f] shadow-sm"
-                                          x-text="providerContext?.can_apply_repairs ? 'Approved apply available' : 'No live writes'"></span>
+                                          x-text="pathValue(providerContext, 'can_apply_repairs', false) ? 'Approved apply available' : 'No live writes'"></span>
                                 </div>
                                 <ol class="mt-3 space-y-1 text-sm text-[#45505f]">
                                     <template x-for="step in providerContextSteps" :key="step">
@@ -2274,7 +2300,7 @@
                         {% endcall %}
                     </div>
                     <span class="rounded-full bg-[#edf7f7] px-3 py-1 text-xs font-semibold text-[#247982]"
-                          x-text="(sourceIntelligence.summary?.anomalies || 0) + ' anomalies'"></span>
+                          x-text="pathValue(sourceIntelligence, 'summary.anomalies', 0) + ' anomalies'"></span>
                 </div>
             {% endcall %}
             {% call card_content() %}
@@ -2477,9 +2503,9 @@
                                         <template x-if="source.geo">
                                             <span class="text-xs text-muted-foreground" x-text="sourceGeoSummary(source)"></span>
                                         </template>
-                                        <template x-if="source.anomalies?.length">
+                                        <template x-if="pathValue(source, 'anomalies.length', 0)">
                                             <span class="mt-1 inline-flex w-fit rounded-full px-2 py-0.5 text-xs font-semibold"
-                                                  :class="source.anomalies.some(anomaly => anomaly.severity === 'error') ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'"
+                                                  :class="sourceAnomalyClass(source)"
                                                   x-text="source.anomalies.length === 1 ? '1 anomaly' : source.anomalies.length + ' anomalies'"></span>
                                         </template>
                                         <span class="mt-1 inline-flex w-fit rounded-full px-2 py-0.5 text-xs font-semibold"
@@ -2514,44 +2540,44 @@
                                     <div class="min-w-60 space-y-2 text-xs">
                                         <div class="flex flex-wrap gap-1.5">
                                             <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-medium text-base-content/80">
-                                                <span x-text="source.geo?.country_code || 'ZZ'"></span>
+                                                <span x-text="pathValue(source, 'geo.country_code', 'ZZ')"></span>
                                                 <span class="mx-1">·</span>
-                                                <span x-text="source.geo?.country && source.geo.country !== 'Unknown' ? source.geo.country : 'Country unknown'"></span>
+                                                <span x-text="pathValue(source, 'geo.country') && pathValue(source, 'geo.country') !== 'Unknown' ? pathValue(source, 'geo.country') : 'Country unknown'"></span>
                                             </span>
-                                            <template x-if="source.geo?.asn">
+                                            <template x-if="pathValue(source, 'geo.asn')">
                                                 <span class="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 font-medium text-blue-800" x-text="source.geo.asn"></span>
                                             </template>
-                                            <template x-if="source.geo?.network">
+                                            <template x-if="pathValue(source, 'geo.network')">
                                                 <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-medium text-base-content/80" x-text="source.geo.network"></span>
                                             </template>
-                                            <template x-if="source.geo?.bgp_prefix">
+                                            <template x-if="pathValue(source, 'geo.bgp_prefix')">
                                                 <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-mono font-medium text-base-content/80" x-text="source.geo.bgp_prefix"></span>
                                             </template>
-                                            <template x-if="source.geo?.city">
+                                            <template x-if="pathValue(source, 'geo.city')">
                                                 <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-medium text-base-content/80" x-text="source.geo.city"></span>
                                             </template>
-                                            <template x-if="source.geo?.registry">
+                                            <template x-if="pathValue(source, 'geo.registry')">
                                                 <span class="inline-flex items-center rounded-full bg-base-200 px-2 py-0.5 font-medium uppercase text-base-content/70" x-text="source.geo.registry"></span>
                                             </template>
                                         </div>
-                                        <template x-if="source.geo?.allocated || source.geo?.organization || source.geo?.domain || source.geo?.network_source">
+                                        <template x-if="pathValue(source, 'geo.allocated') || pathValue(source, 'geo.organization') || pathValue(source, 'geo.domain') || pathValue(source, 'geo.network_source')">
                                             <p class="text-muted-foreground">
-                                                <span x-show="source.geo?.allocated">Allocated <span x-text="source.geo.allocated"></span></span>
-                                                <span x-show="source.geo?.allocated && (source.geo?.organization || source.geo?.domain || source.geo?.network_source)"> · </span>
-                                                <span x-show="source.geo?.organization" x-text="source.geo.organization"></span>
-                                                <span x-show="source.geo?.organization && source.geo?.domain"> · </span>
-                                                <span x-show="source.geo?.domain" x-text="source.geo.domain"></span>
-                                                <span x-show="(source.geo?.organization || source.geo?.domain) && source.geo?.network_source"> · </span>
-                                                <span x-show="source.geo?.network_source">Network data: <span x-text="source.geo.network_source"></span></span>
+                                                <span x-show="pathValue(source, 'geo.allocated')">Allocated <span x-text="pathValue(source, 'geo.allocated')"></span></span>
+                                                <span x-show="pathValue(source, 'geo.allocated') && (pathValue(source, 'geo.organization') || pathValue(source, 'geo.domain') || pathValue(source, 'geo.network_source'))"> · </span>
+                                                <span x-show="pathValue(source, 'geo.organization')" x-text="pathValue(source, 'geo.organization')"></span>
+                                                <span x-show="pathValue(source, 'geo.organization') && pathValue(source, 'geo.domain')"> · </span>
+                                                <span x-show="pathValue(source, 'geo.domain')" x-text="pathValue(source, 'geo.domain')"></span>
+                                                <span x-show="(pathValue(source, 'geo.organization') || pathValue(source, 'geo.domain')) && pathValue(source, 'geo.network_source')"> · </span>
+                                                <span x-show="pathValue(source, 'geo.network_source')">Network data: <span x-text="pathValue(source, 'geo.network_source')"></span></span>
                                             </p>
                                         </template>
-                                        <template x-if="source.geo?.radar_url">
+                                        <template x-if="pathValue(source, 'geo.radar_url')">
                                             <a class="text-xs font-medium text-primary hover:underline"
                                                :href="source.geo.radar_url"
                                                target="_blank"
                                                rel="noopener noreferrer">Open in Cloudflare Radar</a>
                                         </template>
-                                        <template x-if="source.geo?.network_error && !source.geo?.asn && !source.geo?.network">
+                                        <template x-if="pathValue(source, 'geo.network_error') && !pathValue(source, 'geo.asn') && !pathValue(source, 'geo.network')">
                                             <p class="text-muted-foreground" x-text="source.geo.network_error"></p>
                                         </template>
                                         <template x-if="source.reputation">
@@ -2575,7 +2601,7 @@
                                                     <span> · </span>
                                                     <span x-text="reputationAgeLabel(source.reputation)"></span>
                                                 </p>
-                                                <template x-if="source.reputation?.listings?.length">
+                                                <template x-if="pathValue(source, 'reputation.listings.length', 0)">
                                                     <p class="font-medium text-[#ff6f3c]">
                                                         <span>Listed on </span>
                                                         <span x-text="source.reputation.listings.slice(0, 2).join(', ')"></span>
@@ -2596,7 +2622,7 @@
                                         <template x-if="!source.reputation">
                                             <p class="text-muted-foreground">Reputation has not been calculated for this source yet. Use Refresh reputation to recalculate cached IP evidence.</p>
                                         </template>
-                                        <template x-if="!source.geo?.asn && !source.geo?.network && !source.reputation">
+                                        <template x-if="!pathValue(source, 'geo.asn') && !pathValue(source, 'geo.network') && !source.reputation">
                                             <p class="text-muted-foreground">No ASN or reputation evidence available yet.</p>
                                         </template>
                                     </div>
@@ -2619,7 +2645,7 @@
                                                 <span x-show="source.report_count" x-text="source.report_count + ' report' + (source.report_count === 1 ? '' : 's')"></span>
                                             </div>
                                         </div>
-                                        <div class="flex h-8 gap-0.5" x-show="source.volume_history?.length" role="img" aria-label="Recent sending volume">
+                                        <div class="flex h-8 gap-0.5" x-show="pathValue(source, 'volume_history.length', 0)" role="img" aria-label="Recent sending volume">
                                             <template x-for="point in sourceVolumeBars(source)" :key="point.date">
                                                 <svg class="h-8 flex-1 overflow-visible" :viewBox="'0 0 ' + point.width + ' 100'" preserveAspectRatio="none" aria-hidden="true">
                                                     <rect

@@ -19,15 +19,15 @@
     <div class="mb-8">
         {% call card() %}
             {% call card_header() %}
-                <div class="flex items-center justify-between">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     {% call card_title() %}Monitored Domains{% endcall %}
-                    <div class="flex items-center gap-2">
+                    <div class="flex flex-wrap items-center gap-2">
                         <button type="button"
                                 class="btn btn-ghost btn-sm"
                                 data-domain-toggle-empty
                                 :aria-pressed="showEmptyDomains ? 'true' : 'false'"
                                 x-show="hiddenEmptyDomainCount() > 0"
-                                x-text="showEmptyDomains ? 'Hide empty domains' : `Show ${hiddenEmptyDomainCount()} empty`">
+                                x-text="emptyDomainToggleLabel()">
                         </button>
                         <button type="button"
                                 class="btn btn-outline btn-sm"
@@ -50,6 +50,17 @@
                 {% endcall %}
             {% endcall %}
             {% call card_content() %}
+                <div class="rounded-md border border-[#e6e3e1] bg-[#fbfaf9] p-4 text-sm text-[#5f5c78] md:hidden"
+                     x-show="!loading && !loadError && visibleDomains().length === 0">
+                    <p x-text="showEmptyDomainHint() ? 'All monitored domains are hidden because no report or mail volume has been observed yet.' : 'No domains found. Add a domain to get started.'"></p>
+                    <button type="button"
+                            class="btn btn-outline btn-sm mt-3"
+                            x-show="showEmptyDomainHint()"
+                            data-domain-toggle-empty>
+                        Show empty domains
+                    </button>
+                </div>
+                <div :class="!loading && !loadError && visibleDomains().length === 0 ? 'hidden md:block' : 'block'">
                 {% call table() %}
                     {% call thead() %}
                         {% call tr() %}
@@ -159,6 +170,7 @@
                         </template>
                     {% endcall %}
                 {% endcall %}
+                </div>
             {% endcall %}
         {% endcall %}
     </div>

@@ -1,6 +1,7 @@
 function dashboardApp() {
     return {
         hasDomainData: false,
+        hasReportData: false,
         volumeTrendChart: null,
         complianceTrendChart: null,
         healthTrendChart: null,
@@ -40,6 +41,7 @@ function dashboardApp() {
         ],
         selectedDnsDomain: '',
         triggerPollRunning: false,
+        hasEnabledMailSources: false,
         triggerPollStatus: '',
         triggerPollMessage: '',
         demoDeployment: null,
@@ -396,6 +398,7 @@ function dashboardApp() {
                     return;
                 }
                 const data = await response.json();
+                this.hasEnabledMailSources = (data.enabled_sources || 0) > 0;
                 
                 const statusIcon = document.getElementById('imap-status-icon');
                 const statusText = document.getElementById('imap-status-text');
@@ -495,6 +498,11 @@ function dashboardApp() {
 
                 if (data && data.domains && data.domains.length > 0) {
                     this.domains = data.domains || [];
+                    this.hasReportData = Number(data.total_reports || 0) > 0 ||
+                        Number(data.total_emails || 0) > 0 ||
+                        this.domains.some(domain => (
+                            Number(domain.total_reports || 0) > 0 || Number(domain.total_emails || 0) > 0
+                        ));
                     this.healthSummary = data.health_summary || null;
                     if (!this.domains.some(domain => domain.domain_name === this.selectedDnsDomain)) {
                         this.selectedDnsDomain = this.domains[0]?.domain_name || '';
@@ -514,6 +522,7 @@ function dashboardApp() {
                     this.healthHistory = null;
                     this.selectedDnsDomain = '';
                     this.hasDomainData = false;
+                    this.hasReportData = false;
                     this.clearDashboardCharts();
                     this.populateChangeSummary([]);
                     this.populateTopSources([]);
@@ -531,6 +540,7 @@ function dashboardApp() {
                 this.healthHistory = null;
                 this.selectedDnsDomain = '';
                 this.hasDomainData = false;
+                this.hasReportData = false;
                 this.clearDashboardCharts();
                 this.populateChangeSummary([]);
                 this.populateTopSources([]);
@@ -1020,6 +1030,20 @@ function dashboardApp() {
 
         remediationLoop() {
             return this.healthSummary?.remediation_loop || {};
+        },
+
+        remediationCompletion() {
+            return this.remediationLoop().completion || {};
+        },
+
+        pathValue(source, path, fallback = null) {
+            const value = String(path || '')
+                .split('.')
+                .filter(Boolean)
+                .reduce((current, key) => (
+                    current === null || current === undefined ? undefined : current[key]
+                ), source);
+            return value === null || value === undefined ? fallback : value;
         },
 
         dashboardRemediationRawItems() {

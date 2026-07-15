@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Simplified the first-run information hierarchy without removing capabilities:
+  the core navigation now leads with dashboard, domains, reports, mail sources,
+  and settings; specialized tools remain available under More and Advanced;
+  dashboard, settings, and domain detail views expose one clear next action
+  before expandable diagnostic, remediation, migration, and provider context.
+- Hardened fresh-install and domain workflows for small screens and strict CSP,
+  including responsive action headers, contained horizontal content, safe
+  nested-data rendering, and working empty-domain visibility controls.
 - Added a published-image Docker installation path with generated persistent
   secrets, an internal-only PostgreSQL service, a clean-host verification
   script, registry-image smoke tests, and separate `docker-stable`,

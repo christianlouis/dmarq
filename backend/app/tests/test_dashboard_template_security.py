@@ -301,6 +301,49 @@ def test_dashboard_domain_details_links_are_encoded():
     assert "encodeURIComponent(domainId)" in script
 
 
+def test_dashboard_empty_state_leads_with_report_mailbox_without_hiding_upload():
+    template = _dashboard_template()
+    script = _dashboard_script()
+
+    assert "Start by connecting your report mailbox" in template
+    assert 'button_link(href="/mail-sources", variant="primary")' in template
+    assert "Other import options" in template
+    assert 'href="/upload"' in template
+    assert ':disabled="triggerPollRunning || !hasEnabledMailSources"' in template
+    assert 'class="btn btn-outline btn-sm w-full sm:w-auto"' in template
+    assert "hasEnabledMailSources: false" in script
+    assert "this.hasEnabledMailSources = (data.enabled_sources || 0) > 0" in script
+    assert "hasReportData: false" in script
+    assert "this.hasReportData = Number(data.total_reports || 0) > 0" in script
+    assert '!hasReportData' in template
+    assert "Report intake is the next step." in template
+
+
+def test_dashboard_remediation_completion_avoids_csp_unsafe_optional_chaining():
+    template = _dashboard_template()
+    script = _dashboard_script()
+
+    assert "?." not in template
+    assert "??" not in template
+    assert "remediationCompletion().next_step" in template
+    assert "remediationCompletion()" in script
+    assert "pathValue(source, path, fallback = null)" in script
+
+
+def test_domain_details_nested_values_are_csp_safe_without_hiding_features():
+    template = _domain_details_template()
+    script = _domain_details_script()
+
+    assert "?." not in template
+    assert "??" not in template
+    assert "pathValue(source, path, fallback = null)" in script
+    assert "=>" not in template
+    assert ".filter(Boolean)" not in template
+    assert "pathValue(remediationQueue, 'loop.next_action'" in template
+    assert "pathValue(migrationImport, 'preview.sample_rows', [])" in template
+    assert "pathValue(source, 'geo.country_code', 'ZZ')" in template
+
+
 def test_dashboard_exposes_workspace_health_history():
     template = _dashboard_template()
     script = _dashboard_script()
@@ -451,7 +494,7 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "dashboardLoading = !refresh || !this.hasDomainData" in script
     assert "remediationRefreshRunning ? 'Refreshing...' : 'Refresh queue'" in template
     assert "Dashboard refresh failed" in template
-    assert "dashboardRefreshError && hasDomainData" in template
+    assert "dashboardRefreshError && hasReportData" in template
     assert '@click="fetchDomainSummary()"' not in template
     assert "domainSummaryLoadedAt" in script
     assert "domainSummaryLoadedAtLabel" in script
@@ -492,8 +535,8 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "repairReadinessReason(item.repair_progression)" in template
     assert "repairReadinessBlockedText(item.repair_progression)" in template
     assert "Next safe action" in template
-    assert "item.verification_plan?.freshness_requirement" in template
-    assert "item.verification_plan?.closure_gate" in template
+    assert "pathValue(item, 'verification_plan.freshness_requirement'" in template
+    assert "pathValue(item, 'verification_plan.closure_gate'" in template
     assert "verificationPlanStatusClass(item.verification_plan)" in template
     assert "verificationPlanStatusLabel(item.verification_plan)" in template
     assert "verificationPlanFailureMode(item.verification_plan)" in template
@@ -1155,6 +1198,9 @@ def test_domain_details_remediation_queue_shows_verification_context():
     template = _domain_details_template()
     script = _domain_details_script()
 
+    assert '<details id="posture-dashboard"' in template
+    assert "Advanced remediation and posture" in template
+    assert "Technical workflow details" in template
     assert 'x-text="verifiedItemsTotalCount()"' in template
     assert "verified_items_total" in script
     assert "verifiedItemsHiddenCount()" in template
@@ -1246,14 +1292,14 @@ def test_domain_details_remediation_queue_shows_verification_context():
     assert "item.verification_plan.failure_mode" in template
     assert "Repair progression" in template
     assert "remediationQueue.summary.repair_preview_ready" in template
-    assert "remediationQueue.loop?.repair_ready_for_preview" in template
-    assert "remediationQueue.loop?.repair_waiting_on_operator" in template
-    assert "remediationQueue.loop?.repair_readiness_blocked" in template
-    assert "remediationQueue.loop?.repair_readiness_score" in template
+    assert "'loop.repair_ready_for_preview'" in template
+    assert "'loop.repair_waiting_on_operator'" in template
+    assert "'loop.repair_readiness_blocked'" in template
+    assert "'loop.repair_readiness_score'" in template
     assert "item.repair_progression.readiness_reasons" in template
     assert "item.repair_progression.blocked_by" in template
     assert "remediationQueue.summary.repair_needs_evidence" in template
-    assert "remediationQueue.loop?.repair_blocked" in template
+    assert "'loop.repair_blocked'" in template
     assert "item.repair_progression.next_gate" in template
     assert "repairProgressionPreviewLabel(item.repair_progression)" in template
     assert "repairProgressionVerificationLabel(item.repair_progression)" in template
@@ -1445,6 +1491,9 @@ def test_domains_uses_external_page_script_for_csp_migration():
     assert "showEmptyDomains" in script
     assert "visibleDomains()" in script
     assert "hiddenEmptyDomainCount()" in script
+    assert "emptyDomainToggleLabel()" in script
+    assert 'x-text="emptyDomainToggleLabel()"' in template
+    assert "`Show ${hiddenEmptyDomainCount()} empty`" not in template
     assert "showEmptyDomainHint()" in script
     assert "dnsStateLabel(domain)" in script
     assert "dnsStateClass(domain)" in script
@@ -1454,6 +1503,8 @@ def test_domains_uses_external_page_script_for_csp_migration():
     assert "visibleDomains()" in template
     assert "without reports or volume hidden" in template
     assert "Show empty domains" in template
+    assert "All monitored domains are hidden because no report or mail volume has been observed yet." in template
+    assert "visibleDomains().length === 0 ? 'hidden md:block' : 'block'" in template
     assert "domain.dns_state_label" in template
     assert "domain.dns_state_class" in template
     assert "domain.dns_checked_label" in template
@@ -1808,11 +1859,15 @@ def test_settings_exposes_provider_agnostic_dns_import_without_html_injection():
     assert "Alpine.data('settingsApp', settingsApp)" in script
     assert "DNS Provider Connectors" in template
     assert 'id="provider-integrations"' in template
-    assert 'aria-label="Settings sections"' in template
-    assert "Review DMARC defaults" in template
+    assert 'aria-label="Settings navigation"' in template
+    assert "DMARC defaults" in template
     assert "Connect report mailbox" in template
     assert 'href="#account-readiness-settings"' in template
-    assert "Account readiness" in template
+    assert "Account and access diagnostics" in template
+    assert '<details id="account-readiness-settings"' in template
+    assert "Forensic reports" in template
+    assert "TLS reports" in template
+    assert "Setup assistant" in template
     assert 'id="dmarc-defaults-section"' in template
     assert 'id="dns-resolver-settings"' in template
     assert 'id="mail-service-imports"' in template
@@ -2081,7 +2136,7 @@ def test_domain_details_exposes_migration_readiness_without_html_injection():
     assert "loadMigrationImportSample" in script
     assert "previewMigrationImport" in script
     assert "applyMigrationPreviewBaseline" in script
-    assert "migrationImport.preview?.sample_rows" in template
+    assert "pathValue(migrationImport, 'preview.sample_rows', [])" in template
     assert "migrationToolsEnabled" in template
     assert "I am migrating data" in template
     assert "data-domain-detail-migration-action" in template
@@ -2099,6 +2154,7 @@ def test_domain_details_exposes_ownership_and_delete_controls_without_html_injec
     script = _domain_details_script()
 
     assert "Domain Ownership" in template
+    assert '<details id="domain-ownership"' in template
     assert "data-domain-detail-reload" in template
     assert "data-domain-detail-refresh-dns" in template
     assert "data-domain-detail-delete" in template
@@ -2210,8 +2266,8 @@ def test_domain_details_exposes_remediation_action_plans_without_html_injection(
     assert "remediationCompletionClass(completion)" in script
     assert "remediationQueue.summary.closure_gate_required" in template
     assert "remediationQueue.summary.rollback_guidance" in template
-    assert "remediationQueue.loop?.closure_gate_required" in template
-    assert "remediationQueue.loop?.rollback_guidance" in template
+    assert "'loop.closure_gate_required'" in template
+    assert "'loop.rollback_guidance'" in template
     assert "item.repair_progression" in template
     assert "repairProgressionNextStep(item.repair_progression)" in template
     assert "repairProgressionClass(item.repair_progression)" in template
@@ -2323,8 +2379,8 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     assert "sourceGeoSummary(source)" in script
     assert "String(value).trim().toLowerCase() !== 'unknown'" in script
     assert "Geo unavailable" in script
-    assert "source.geo?.country_code" in template
-    assert "source.geo?.country" in template
+    assert "pathValue(source, 'geo.country_code', 'ZZ')" in template
+    assert "pathValue(source, 'geo.country')" in template
     assert "source.geo?.region" in script
     assert "source.geo?.asn" in script
     assert "source.geo?.network" in script
@@ -2336,7 +2392,7 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     assert "source.last_seen" in template
     assert "source.active_days" in template
     assert "source.report_count" in template
-    assert "source.volume_history" in template
+    assert "pathValue(source, 'volume_history.length', 0)" in template
     assert "data-domain-detail-refresh-reputation" in template
     assert "data-domain-detail-refresh-reputation" in script
     assert "refreshSourceReputation" in script
@@ -2355,7 +2411,7 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     assert "source.reputation.feed_status" in template
     assert "source.reputation.feed_summary" in template
     assert "reputationRiskLabel" in script
-    assert "source.reputation?.listings" in template
+    assert "pathValue(source, 'reputation.listings.length', 0)" in template
     assert "reputationStatusClass" in script
     assert "reputationFeedClass" in script
     assert "reputationLabel" in script
@@ -2633,14 +2689,17 @@ def test_base_template_propagates_selected_workspace_context():
     for rail_label in (
         "Domains",
         "Reports",
-        "Forensics",
+        "Mail Sources",
         "Members",
-        "Onboarding",
+        "More",
         "Settings",
     ):
         assert (
             f'<span class="text-[11px] font-semibold leading-tight">{rail_label}</span>' in template
         )
+    assert 'href="/forensics"' in template
+    assert 'href="/tls-reports"' in template
+    assert 'href="/onboarding"' in template
     assert 'href="/static/css/app.css"' in template
     assert "cdn.tailwindcss.com" not in template
     assert "Full changelog" in template
@@ -2843,7 +2902,7 @@ def test_dashboard_distinguishes_loading_error_and_empty_states():
     assert "dashboardError" in script
     assert "dashboardRefreshError" in script
     assert "Dashboard data could not be loaded." in script
-    assert 'x-show="!dashboardLoading && !dashboardError && !hasDomainData"' in template
+    assert 'x-show="!dashboardLoading && !dashboardError && !hasReportData"' in template
 
 
 def test_dashboard_trigger_poll_uses_post_action_not_get_link():
