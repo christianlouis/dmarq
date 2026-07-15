@@ -1143,6 +1143,7 @@ class TestMailSourcesAPIAuthed:
         checkpoint = json.loads(row.cursor)
         checkpoint["skipped_attachments"] = 100
         row.cursor = json.dumps(checkpoint)
+        row.status = "completed"
         db_session.commit()
 
         count_response = authed_client.get(
@@ -1151,6 +1152,17 @@ class TestMailSourcesAPIAuthed:
 
         assert count_response.status_code == 200
         assert count_response.json()["skipped_attachments"] == 100
+        assert "100 unrelated attachments were ignored" in count_response.json()["status_summary"]
+
+        checkpoint["skipped_attachments"] = 1
+        row.cursor = json.dumps(checkpoint)
+        db_session.commit()
+
+        singular_response = authed_client.get(
+            f"/api/v1/mail-sources/{source_id}/backfills/{job['id']}"
+        )
+
+        assert "1 unrelated attachment was ignored" in singular_response.json()["status_summary"]
 
     def test_backfill_cursor_checkpoint_preserves_legacy_formats(self):
         legacy = mail_sources_endpoint._backfill_cursor_checkpoint(

@@ -230,6 +230,11 @@ class TestListMailboxes:
 
         assert client._list_mailboxes(raw) == [escaped_name]
 
+    def test_skips_unclosed_quoted_mailbox_entry(self):
+        client = self._make_client()
+
+        assert client._list_mailboxes([b'(\\HasNoChildren) "/" "Broken folder']) == []
+
     def test_skips_non_bytes_entries(self):
         client = self._make_client()
         result = client._list_mailboxes(["not bytes", None])  # type: ignore[list-item]

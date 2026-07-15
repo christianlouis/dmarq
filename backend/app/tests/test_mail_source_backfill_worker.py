@@ -9,6 +9,7 @@ from app.services.mail_source_backfill_worker import (
     _backfill_window_days,
     _mark_failure,
     _retry_delay,
+    _stored_skipped_attachments,
     run_due_imap_backfill_jobs,
     run_due_mail_source_backfill_jobs,
     run_gmail_backfill_job,
@@ -64,6 +65,14 @@ def _job(db_session, workspace, source, **overrides):
     db_session.add(row)
     db_session.commit()
     return row
+
+
+def test_stored_skipped_attachments_rejects_malformed_checkpoints():
+    job = MailSourceBackfillJob()
+
+    for cursor in ("{", "[]", '{"skipped_attachments": "invalid"}'):
+        job.cursor = cursor
+        assert _stored_skipped_attachments(job) == 0
 
 
 def test_run_due_imap_backfill_completes_job_and_records_import(db_session, monkeypatch):
