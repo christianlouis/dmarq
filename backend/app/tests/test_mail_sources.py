@@ -1137,6 +1137,19 @@ class TestMailSourcesAPIAuthed:
         assert checkpoint_response.json()["cursor_checkpoint"]["connector"] == "gmail"
         assert checkpoint_response.json()["cursor_checkpoint"]["page_cursor"] == "**redacted**"
 
+        row.details = json.dumps([{"status": "skipped"}] * 50)
+        checkpoint = json.loads(row.cursor)
+        checkpoint["skipped_attachments"] = 100
+        row.cursor = json.dumps(checkpoint)
+        db_session.commit()
+
+        count_response = authed_client.get(
+            f"/api/v1/mail-sources/{source_id}/backfills/{job['id']}"
+        )
+
+        assert count_response.status_code == 200
+        assert count_response.json()["skipped_attachments"] == 100
+
     def test_backfill_cursor_checkpoint_preserves_legacy_formats(self):
         legacy = mail_sources_endpoint._backfill_cursor_checkpoint(
             "imap:days=10;processed=42;state=backoff;ignored"

@@ -480,6 +480,7 @@ def test_gmail_backfill_queues_next_page_cursor(db_session, monkeypatch):
                 "processed": 2,
                 "reports_found": 1,
                 "duplicate_reports": 0,
+                "skipped_attachments": 60,
                 "new_domains": [],
                 "new_ingested_ids": ["gmail-id-1"],
                 "errors": [],
@@ -505,6 +506,7 @@ def test_gmail_backfill_queues_next_page_cursor(db_session, monkeypatch):
     assert row.processed == 2
     assert cursor["state"] == "queued"
     assert cursor["page_cursor"] == "gmail-next-page"
+    assert cursor["skipped_attachments"] == 60
     assert source.gmail_ingested_ids == "old-id,gmail-id-1"
 
 
@@ -522,6 +524,7 @@ def test_gmail_backfill_resumes_from_stored_page_cursor(db_session, monkeypatch)
             "processed": 2,
             "reports_found": 1,
             "duplicate_reports": 0,
+            "skipped_attachments": 60,
             "error_count": 0,
             "page_cursor": "gmail-next-page",
         }
@@ -544,6 +547,7 @@ def test_gmail_backfill_resumes_from_stored_page_cursor(db_session, monkeypatch)
                 "processed": 1,
                 "reports_found": 1,
                 "duplicate_reports": 0,
+                "skipped_attachments": 40,
                 "new_domains": [],
                 "new_ingested_ids": ["gmail-id-2"],
                 "errors": [],
@@ -565,6 +569,7 @@ def test_gmail_backfill_resumes_from_stored_page_cursor(db_session, monkeypatch)
     assert row.processed == 3
     assert row.reports_found == 2
     assert cursor["state"] == "completed"
+    assert cursor["skipped_attachments"] == 100
     assert "page_cursor" not in cursor
 
 

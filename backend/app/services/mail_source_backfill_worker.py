@@ -101,7 +101,25 @@ def _combined_result_counts(
         results.get("duplicate_reports", 0) or 0
     )
     combined["error_count"] = int(job.error_count or 0) + len(results.get("errors") or [])
+    combined["skipped_attachments"] = _stored_skipped_attachments(job) + int(
+        results.get("skipped_attachments", 0) or 0
+    )
     return combined
+
+
+def _stored_skipped_attachments(job: MailSourceBackfillJob) -> int:
+    if not job.cursor:
+        return 0
+    try:
+        payload = json.loads(job.cursor)
+    except (TypeError, ValueError):
+        return 0
+    if not isinstance(payload, dict):
+        return 0
+    try:
+        return max(0, int(payload.get("skipped_attachments", 0) or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _stored_page_cursor(job: MailSourceBackfillJob, connector: str) -> Optional[str]:
@@ -137,6 +155,7 @@ def _cursor_checkpoint(
         "processed": int(stats.get("processed", 0) or 0),
         "reports_found": int(stats.get("reports_found", 0) or 0),
         "duplicate_reports": int(stats.get("duplicate_reports", 0) or 0),
+        "skipped_attachments": int(stats.get("skipped_attachments", 0) or 0),
         "error_count": int(stats.get("error_count", len(stats.get("errors") or [])) or 0),
     }
     search_window_days = stats.get("search_window_days")

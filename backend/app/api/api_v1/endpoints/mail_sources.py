@@ -850,7 +850,12 @@ def _backfill_metadata(
 def _backfill_to_response(row: MailSourceBackfillJob) -> MailSourceBackfillResponse:
     """Convert a backfill job ORM row to an API response."""
     details = _decode_json_details(row.details)
-    skipped_attachments = sum(1 for detail in details if detail.get("status") == "skipped")
+    cursor_checkpoint = _backfill_cursor_checkpoint(row.cursor)
+    stored_skipped = cursor_checkpoint.get("skipped_attachments") if cursor_checkpoint else None
+    if isinstance(stored_skipped, int) and stored_skipped >= 0:
+        skipped_attachments = stored_skipped
+    else:
+        skipped_attachments = sum(1 for detail in details if detail.get("status") == "skipped")
     metadata = _backfill_metadata(
         status_value=row.status,
         requested_start=row.requested_start,
@@ -865,7 +870,6 @@ def _backfill_to_response(row: MailSourceBackfillJob) -> MailSourceBackfillRespo
         attempt_count=row.attempt_count,
         max_attempts=row.max_attempts,
     )
-    cursor_checkpoint = _backfill_cursor_checkpoint(row.cursor)
     return MailSourceBackfillResponse(
         id=row.id,
         workspace_id=row.workspace_id,
