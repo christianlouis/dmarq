@@ -93,6 +93,14 @@ def test_release_workflow_skips_gitops_for_stale_main_runs():
     ) in workflow
 
 
+def test_ci_cancels_superseded_runs_for_the_same_ref():
+    """A newer main or PR run must own moving image tags and deployment gates."""
+    workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+    assert "group: ci-${{ github.workflow }}-${{ github.ref }}" in workflow
+    assert "cancel-in-progress: true" in workflow
+
+
 def test_release_workflow_promotes_multi_user_demo_with_nonprod():
     """Every release must keep the separate provider demo on the current image."""
     workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
