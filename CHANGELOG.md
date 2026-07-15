@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Kept workspace-scoped status and navigation reads available during long
+  SQLite mailbox backfills by avoiding no-op legacy workspace migration writes.
+
 ### Added
 - Simplified the first-run information hierarchy without removing capabilities:
   the core navigation now leads with dashboard, domains, reports, mail sources,
