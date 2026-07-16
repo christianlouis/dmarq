@@ -89,7 +89,19 @@ secret is returned in the machine-readable result.
 The module is at `deploy/terraform/modules/kubernetes-dmarq`; a runnable example
 is at `deploy/terraform/examples/kubernetes`.
 
+The root module must configure the Helm provider with an explicit kubeconfig.
+The checked-in example defaults to `~/.kube/config` and accepts
+`kubeconfig_path` and `kubeconfig_context` overrides for CI agents and
+multi-cluster operators.
+
 ```hcl
+provider "helm" {
+  kubernetes = {
+    config_path    = pathexpand(var.kubeconfig_path)
+    config_context = var.kubeconfig_context
+  }
+}
+
 module "dmarq" {
   source = "../../modules/kubernetes-dmarq"
 

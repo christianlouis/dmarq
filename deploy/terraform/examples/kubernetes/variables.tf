@@ -1,3 +1,16 @@
+variable "kubeconfig_path" {
+  description = "Path to the kubeconfig used by the Helm provider."
+  type        = string
+  default     = "~/.kube/config"
+}
+
+variable "kubeconfig_context" {
+  description = "Optional kubeconfig context. Null uses the file's current context."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
 variable "existing_secret_name" {
   type    = string
   default = "dmarq"

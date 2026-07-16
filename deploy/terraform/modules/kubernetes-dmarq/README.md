@@ -5,6 +5,10 @@ receive raw credentials. The referenced Kubernetes Secret must already exist,
 normally through External Secrets, Sealed Secrets, SOPS, or an operator-managed
 secret store.
 
+Configure the `hashicorp/helm` provider in the calling root module with an
+explicit kubeconfig path or equivalent in-cluster credentials. The runnable
+example exposes `kubeconfig_path` and `kubeconfig_context` for this purpose.
+
 ```hcl
 module "dmarq" {
   source = "../../modules/kubernetes-dmarq"

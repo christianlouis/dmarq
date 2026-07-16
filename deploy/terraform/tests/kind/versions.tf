@@ -9,4 +9,8 @@ terraform {
   }
 }
 
-provider "helm" {}
+provider "helm" {
+  kubernetes = {
+    config_path = pathexpand("~/.kube/config")
+  }
+}
