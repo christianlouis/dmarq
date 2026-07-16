@@ -7,7 +7,6 @@ from fastapi.testclient import TestClient
 from sqlalchemy import event
 from sqlalchemy.orm import Session
 
-import app.services.organizations as organization_service
 from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.api_token import APIToken
@@ -206,14 +205,21 @@ def test_list_organization_summaries_batches_queries_across_tenants(
                     source="plan",
                     active=True,
                 ),
+                Entitlement(
+                    organization=organization,
+                    subscription=subscription,
+                    key="retention_days",
+                    value="90",
+                    source="plan",
+                    active=True,
+                ),
             ]
         )
         organizations.append(organization)
     db_session.commit()
 
     monkeypatch.setattr(
-        organization_service,
-        "bootstrap_default_commercial_foundation",
+        "app.services.organizations.bootstrap_default_commercial_foundation",
         lambda _db: organizations[0],
     )
     statements = []
@@ -231,7 +237,47 @@ def test_list_organization_summaries_batches_queries_across_tenants(
     assert len(batch_summaries) == 6
     assert all(summary["metrics"]["user_count"] == 1 for summary in batch_summaries)
     assert all(summary["plan_limits"]["users"]["current"] == 1 for summary in batch_summaries)
+    assert all(
+        summary["plan_limits"]["retention_days"]["limit"] == 90 for summary in batch_summaries
+    )
     assert len(statements) <= 12
+
+
+def test_organization_summary_preserves_period_metric_override(db_session: Session, monkeypatch):
+    organization = Organization(slug="period-override", name="Period Override", active=True)
+    workspace = Workspace(
+        slug="period-override-main",
+        name="Period Override Main",
+        organization=organization,
+    )
+    entitlement = Entitlement(
+        organization=organization,
+        key="aggregate_messages",
+        value="100",
+        source="plan",
+        active=True,
+    )
+    db_session.add_all([organization, workspace, entitlement])
+    db_session.commit()
+
+    def fail_if_queried(*_args, **_kwargs):
+        raise AssertionError("aggregate usage must not be queried when an override is supplied")
+
+    monkeypatch.setattr(
+        "app.services.organizations._aggregate_messages_for_period",
+        fail_if_queried,
+    )
+
+    limits = organization_summary(
+        db_session,
+        organization,
+        plan_limit_current_values={"aggregate_messages": 42},
+    )["plan_limits"]
+
+    assert limits["aggregate_messages"]["current"] == 42
+    assert limits["aggregate_messages"]["limit"] == 100
+    today = date.today()
+    assert limits["aggregate_messages"]["period"] == f"{today.year:04d}-{today.month:02d}"
 
 
 def test_organization_summary_exposes_plan_limit_usage(db_session: Session):
@@ -435,7 +481,7 @@ def test_organization_summary_exposes_plan_limit_usage(db_session: Session):
         if summary["slug"] == "limits"
     )
     assert list_summary["plan_limits"]["users"]["message"] == "users are at the plan limit (3/3)."
-    assert "api_tokens" not in list_summary["plan_limits"]
+    assert list_summary["plan_limits"]["api_tokens"]["current"] == 1
 
 
 def test_organization_user_has_active_seat_requires_active_user(db_session: Session):
