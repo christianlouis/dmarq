@@ -1,0 +1,13 @@
+# Historical synthetic test fixtures reviewed 2026-07-16.
+# Each entry is an exact Gitleaks fingerprint; do not replace these with broad
+# path, rule, or commit allowlists.
+08f6e8cdd93f642c6dcddfe501661dc9578b23e3:backend/app/tests/test_gmail_client.py:generic-api-key:842
+c02957471763b43a2c07b1f109887b60dbdf8a1c:backend/app/tests/test_mail_connector.py:generic-api-key:38
+ccb3f3fb7ed0e800c8c406015e86d74d7d807f70:backend/app/tests/test_config.py:generic-api-key:153
+ccb3f3fb7ed0e800c8c406015e86d74d7d807f70:backend/app/tests/test_config.py:generic-api-key:155
+
+# Current-tree fingerprints for those same reviewed fixtures.
+backend/app/tests/test_gmail_client.py:generic-api-key:953
+backend/app/tests/test_mail_connector.py:generic-api-key:38
+backend/app/tests/test_config.py:generic-api-key:193
+backend/app/tests/test_config.py:generic-api-key:195

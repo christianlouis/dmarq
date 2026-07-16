@@ -24,6 +24,7 @@ function providerDemo() {
         toastTimer: null,
         accountDraftError: '',
         userDraftError: '',
+        planLimitAction: null,
         accountDraft: {
             name: '',
             domain: '',
@@ -86,6 +87,10 @@ function providerDemo() {
                 }
                 if (target.closest('[data-provider-user-close]')) {
                     this.closeUserDialog();
+                    return;
+                }
+                if (target.closest('[data-provider-open-billing-from-limit]')) {
+                    this.openBillingFromPlanLimit();
                     return;
                 }
                 if (target.closest('[data-provider-impersonation-open]')) {
@@ -473,12 +478,14 @@ function providerDemo() {
 
         openUserDialog() {
             this.userDraftError = '';
+            this.planLimitAction = null;
             this.userDialogOpen = true;
         },
 
         closeUserDialog() {
             this.userDialogOpen = false;
             this.userDraftError = '';
+            this.planLimitAction = null;
         },
 
         openImpersonationDialog() {
@@ -626,6 +633,7 @@ function providerDemo() {
 
         async addUser() {
             this.userDraftError = '';
+            this.planLimitAction = null;
             const name = this.userDraft.name.trim();
             const email = this.userDraft.email.trim().toLowerCase();
             if (!name || !this.isValidEmail(email)) {
@@ -639,6 +647,11 @@ function providerDemo() {
             const limit = Number(this.selectedAccount.entitlements?.users?.included || 0);
             if (limit && this.selectedAccount.users.length >= limit) {
                 this.userDraftError = `Das Benutzerlimit von ${limit} Plätzen ist erreicht.`;
+                this.planLimitAction = {
+                    metric: 'users',
+                    current: this.selectedAccount.users.length,
+                    limit,
+                };
                 return;
             }
             if (!this.demoMode) {
@@ -659,6 +672,7 @@ function providerDemo() {
                     );
                     if (!workspaceResponse.ok) {
                         const payload = await workspaceResponse.json().catch(() => ({}));
+                        this.capturePlanLimitAction(payload);
                         throw new Error(this.apiErrorMessage(payload, 'Benutzer konnte nicht eingeladen werden.'));
                     }
                     if (['organization_owner', 'billing_admin'].includes(this.userDraft.role)) {
@@ -672,6 +686,7 @@ function providerDemo() {
                         );
                         if (!organizationResponse.ok) {
                             const payload = await organizationResponse.json().catch(() => ({}));
+                            this.capturePlanLimitAction(payload);
                             throw new Error(this.apiErrorMessage(payload, 'Organisationsrolle konnte nicht gesetzt werden.'));
                         }
                     }
@@ -709,6 +724,33 @@ function providerDemo() {
             this.closeUserDialog();
             this.persistState();
             this.showStatus('Benutzereinladung wurde lokal simuliert.');
+        },
+
+        capturePlanLimitAction(payload) {
+            const detail = payload?.detail;
+            if (!detail || typeof detail !== 'object' || detail.code !== 'plan_limit_exceeded') {
+                return false;
+            }
+            this.planLimitAction = {
+                metric: detail.metric || 'users',
+                current: Number(detail.current || 0),
+                limit: Number(detail.limit || 0),
+            };
+            return true;
+        },
+
+        openBillingFromPlanLimit() {
+            const accountSlug = this.selectedAccount.slug;
+            this.closeUserDialog();
+            this.selectedAccountSlug = accountSlug;
+            this.viewMode = 'account';
+            this.accountTab = 'billing';
+            this.supportSession = null;
+            this.resetBillingDraft();
+            this.persistState();
+            if (typeof window.scrollTo === 'function') {
+                window.scrollTo({top: 0, behavior: 'smooth'});
+            }
         },
 
         resetBillingDraft() {

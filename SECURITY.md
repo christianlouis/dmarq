@@ -35,6 +35,11 @@ We take all security vulnerabilities seriously. If you discover a security vulne
 
 ## Known Security Considerations
 
+Temporary base-image findings that cannot yet be remediated safely are recorded
+in the [security risk acceptance register](docs/deployment/security-risk-acceptances.md).
+Each entry has a review deadline and explicit exit conditions; scanner findings
+must not be silently suppressed.
+
 ### Security Remediation Status (Updated: 2026-02-09)
 
 The following security issues have been identified and **REMEDIATED** in the latest version:
@@ -255,6 +260,13 @@ services:
    pip install bandit
    bandit -r backend/app
    ```
+
+The repository's `.gitleaksignore` contains only exact fingerprints for four
+reviewed historical test fixtures. Two are synthetic connector error messages;
+two are the same deliberately fake API-key value used to test environment
+configuration. Do not add broad path, rule, or commit exclusions. Any new
+Gitleaks or GitGuardian finding must be reviewed as potentially valid before it
+is baselined.
 
 ### Code Review Checklist
 

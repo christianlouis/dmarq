@@ -4,8 +4,10 @@ from datetime import date, datetime, timedelta
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from sqlalchemy import event
 from sqlalchemy.orm import Session
 
+import app.services.organizations as organization_service
 from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.api_token import APIToken
@@ -150,6 +152,86 @@ def test_list_organization_summaries_materializes_account_state(db_session: Sess
     assert summaries[0]["account_state"]["can_mutate"] is True
     assert summaries[0]["account_state"]["can_export"] is True
     assert "plan_limits" in summaries[0]
+
+
+def test_list_organization_summaries_batches_queries_across_tenants(
+    db_session: Session,
+    monkeypatch,
+):
+    bootstrap_default_commercial_foundation(db_session)
+    plan = get_or_create_starter_plan(db_session)
+    organizations = []
+    for index in range(6):
+        organization = Organization(
+            slug=f"batch-{index}",
+            name=f"Batch {index}",
+            active=True,
+        )
+        workspace = Workspace(
+            slug=f"batch-{index}-main",
+            name=f"Batch {index} Main",
+            organization=organization,
+        )
+        billing_account = BillingAccount(
+            organization=organization,
+            billing_mode=BILLING_MODE_PROVIDER_RESALE,
+            status="active",
+            invoice_delivery_mode="provider_invoice",
+        )
+        subscription = Subscription(
+            organization=organization,
+            billing_account=billing_account,
+            plan=plan,
+            billing_mode=BILLING_MODE_PROVIDER_RESALE,
+            status="active",
+        )
+        user = User(
+            workspace=workspace,
+            email=f"batch-{index}@example.test",
+            is_active=True,
+            is_verified=True,
+        )
+        db_session.add_all(
+            [
+                organization,
+                workspace,
+                billing_account,
+                subscription,
+                user,
+                Entitlement(
+                    organization=organization,
+                    subscription=subscription,
+                    key="users",
+                    value="5",
+                    source="plan",
+                    active=True,
+                ),
+            ]
+        )
+        organizations.append(organization)
+    db_session.commit()
+
+    monkeypatch.setattr(
+        organization_service,
+        "bootstrap_default_commercial_foundation",
+        lambda _db: organizations[0],
+    )
+    statements = []
+
+    def record_statement(*_args):
+        statements.append(1)
+
+    event.listen(db_session.bind, "before_cursor_execute", record_statement)
+    try:
+        summaries = list_organization_summaries(db_session)
+    finally:
+        event.remove(db_session.bind, "before_cursor_execute", record_statement)
+
+    batch_summaries = [summary for summary in summaries if summary["slug"].startswith("batch-")]
+    assert len(batch_summaries) == 6
+    assert all(summary["metrics"]["user_count"] == 1 for summary in batch_summaries)
+    assert all(summary["plan_limits"]["users"]["current"] == 1 for summary in batch_summaries)
+    assert len(statements) <= 12
 
 
 def test_organization_summary_exposes_plan_limit_usage(db_session: Session):

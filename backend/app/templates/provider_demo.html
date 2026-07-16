@@ -340,7 +340,16 @@
                 <label class="form-control"><span class="label-text">Name</span><input class="input input-bordered" type="text" x-model="userDraft.name" required></label>
                 <label class="form-control"><span class="label-text">E-Mail</span><input class="input input-bordered" type="email" x-model="userDraft.email" required></label>
                 <label class="form-control"><span class="label-text">Rolle</span><select class="select select-bordered" x-model="userDraft.role"><option value="organization_owner">Organisationsinhaber</option><option value="workspace_admin">Workspace-Admin</option><option value="security_analyst">Security-Analyst</option><option value="auditor">Auditor</option><option value="billing_admin">Billing-Admin</option></select></label>
-                <div x-show="userDraftError" x-cloak class="rounded-md border border-[#ff6f3c]/40 bg-[#fff2ec] p-3 text-sm text-[#8a2d0d]" x-text="userDraftError"></div>
+                <div x-show="userDraftError" x-cloak class="rounded-md border border-[#ff6f3c]/40 bg-[#fff2ec] p-3 text-sm text-[#8a2d0d]">
+                    <p x-text="userDraftError"></p>
+                    <button x-show="planLimitAction"
+                            x-cloak
+                            type="button"
+                            class="btn btn-sm mt-3 border-[#8a2d0d]/30 bg-white text-[#8a2d0d] hover:bg-[#fff8f4]"
+                            data-provider-open-billing-from-limit>
+                        Billing &amp; Plan öffnen
+                    </button>
+                </div>
                 <div class="flex justify-end gap-2 border-t border-base-300 pt-4"><button type="button" class="btn btn-ghost" data-provider-user-close>Abbrechen</button><button type="submit" class="btn btn-primary" x-text="userInviteActionLabel"></button></div>
             </form>
         </section>
