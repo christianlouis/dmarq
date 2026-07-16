@@ -378,6 +378,13 @@ def test_dashboard_and_domain_overview_use_progressive_disclosure_for_dense_work
         r"<details\b(?=[^>]*\bopen\b)(?=[^>]*\bdata-dashboard-analytics\b)[^>]*>",
         dashboard,
     )
+    assert (
+        dashboard.index('id="dashboard-next-action-heading"')
+        < dashboard.index("data-dashboard-analytics")
+        < dashboard.index('data-tour="health-score"')
+        < dashboard.index('data-tour="date-filter"')
+        < dashboard.index("Advanced remediation workflow")
+    )
     assert "Filter and sort queue" in domain_details
     assert "Technical workflow details" in domain_details
     assert "Evidence and workflow details" in domain_details
