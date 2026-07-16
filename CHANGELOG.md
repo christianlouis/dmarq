@@ -10,9 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Reduced dashboard and domain-detail information density without removing
   workflows: health and remediation now lead with one concise status and next
-  action, while queue metrics, evidence, DNS, sender intelligence, reports,
-  migration, and audit context remain directly available through progressive
-  disclosure and the existing domain-section navigation.
+  action, the primary analytics view remains open by default, and queue metrics,
+  evidence, DNS, sender intelligence, reports, migration, and audit context
+  remain directly available through progressive disclosure and the existing
+  domain-section navigation.
 - Removed the provider-console organization-summary N+1 query pattern by
   batching workspaces, billing, subscriptions, entitlements, and active seat
   usage, with a query-count regression test across multiple tenants.

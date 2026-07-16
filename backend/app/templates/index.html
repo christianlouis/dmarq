@@ -688,8 +688,9 @@
     </section>
     </details>
 
-    <details class="rounded-lg border border-[#dfdfdf] bg-white shadow-sm"
-             x-show="hasReportData" x-cloak>
+    <details open
+             class="rounded-lg border border-[#dfdfdf] bg-white shadow-sm"
+             x-show="hasReportData" x-cloak data-dashboard-analytics>
         <summary class="flex cursor-pointer list-none flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
             <p class="font-semibold text-[#120d36]">Analytics and evidence</p>
             <span class="w-fit rounded bg-[#f4f3f2] px-2 py-1 text-xs font-semibold text-[#5f5c78]" x-text="dateRangeLabel"></span>

@@ -374,6 +374,10 @@ def test_dashboard_and_domain_overview_use_progressive_disclosure_for_dense_work
     assert "Domain health breakdown" in dashboard
     assert "Queue controls and operational metrics" in dashboard
     assert "Evidence and workflow details" in dashboard
+    assert re.search(
+        r"<details\b(?=[^>]*\bopen\b)(?=[^>]*\bdata-dashboard-analytics\b)[^>]*>",
+        dashboard,
+    )
     assert "Filter and sort queue" in domain_details
     assert "Technical workflow details" in domain_details
     assert "Evidence and workflow details" in domain_details
