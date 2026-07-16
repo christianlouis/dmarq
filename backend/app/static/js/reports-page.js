@@ -123,8 +123,12 @@ function reportsApp() {
 
                 if (this.filters.dateRange !== 'all') {
                     const days = parseInt(this.filters.dateRange, 10);
-                    const cutoff = new Date();
-                    cutoff.setDate(cutoff.getDate() - days);
+                    const now = new Date();
+                    const cutoff = new Date(Date.UTC(
+                        now.getUTCFullYear(),
+                        now.getUTCMonth(),
+                        now.getUTCDate() - (days - 1)
+                    ));
 
                     const reportDate = new Date(report.end_date);
                     if (reportDate < cutoff) {

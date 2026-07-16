@@ -386,7 +386,7 @@ function domainsApp() {
 
         formatCount(value, noun) {
             const count = Number(value || 0);
-            return `${count} ${noun}${count === 1 ? '' : 's'}`;
+            return `${new Intl.NumberFormat().format(count)} ${noun}${count === 1 ? '' : 's'}`;
         },
 
         showEmptyDomainHint() {

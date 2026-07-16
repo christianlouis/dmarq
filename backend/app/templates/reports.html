@@ -81,6 +81,7 @@
                 <template x-if="showWarning">
                     <div class="alert alert-warning mb-4" x-text="warning"></div>
                 </template>
+                <div class="hidden md:block">
                 {% call table() %}
                     {% call thead() %}
                         {% call tr() %}
@@ -173,6 +174,7 @@
                                         </a>
                                         <button class="btn btn-error btn-sm"
                                                 data-report-delete
+                                                data-demo-mutation
                                                 :data-report-domain="report.domain"
                                                 :data-report-id="report.report_id">
                                             Delete
@@ -183,6 +185,54 @@
                         </template>
                     {% endcall %}
                 {% endcall %}
+                </div>
+                <div class="md:hidden">
+                    <div x-show="showLoading" class="py-8 text-center text-sm text-[#5f5c78]" role="status">
+                        <span class="loading loading-spinner loading-sm"></span>
+                        <p class="mt-3 font-semibold text-[#120d36]">Checking report index...</p>
+                    </div>
+                    <div x-show="showError" class="py-8 text-center">
+                        <p class="text-sm text-red-700" x-text="error"></p>
+                        <div class="mt-4 grid gap-2">
+                            <button type="button" class="btn btn-primary btn-sm" data-report-retry-load>Retry loading reports</button>
+                            <a href="/mail-sources" class="btn btn-outline btn-sm">Check Mail Sources</a>
+                        </div>
+                    </div>
+                    <div x-show="showEmpty" class="py-8 text-center">
+                        <p class="font-semibold text-[#120d36]" x-text="emptyStateTitle"></p>
+                        <p class="mt-2 text-sm text-[#5f5c78]" x-text="emptyStateText"></p>
+                        <div class="mt-4 grid gap-2">
+                            <button type="button" class="btn btn-primary btn-sm" data-report-refresh>Trigger report refresh</button>
+                            <a href="/mail-sources" class="btn btn-outline btn-sm">Connect report mailbox</a>
+                        </div>
+                    </div>
+                </div>
+                <div class="grid gap-3 md:hidden" x-show="!showLoading && !showError && !showEmpty">
+                    <template x-for="report in visibleReports" :key="'mobile-' + report.report_id">
+                        <article class="rounded-lg border border-[#dfdfdf] bg-white p-4 shadow-sm">
+                            <div class="flex items-start justify-between gap-3">
+                                <div class="min-w-0">
+                                    <p class="truncate font-semibold text-[#120d36]" x-text="report.domain"></p>
+                                    <p class="mt-1 text-xs text-[#5f5c78]" x-text="report.end_date_label"></p>
+                                </div>
+                                <span class="inline-flex flex-none items-center rounded px-2 py-1 text-xs font-semibold"
+                                      :class="report.pass_rate_class"
+                                      x-text="report.pass_rate_label"></span>
+                            </div>
+                            <dl class="mt-4 grid grid-cols-2 gap-3 text-sm">
+                                <div>
+                                    <dt class="text-xs text-[#5f5c78]">Messages</dt>
+                                    <dd class="mt-1 font-semibold text-[#120d36]" x-text="report.total_count"></dd>
+                                </div>
+                                <div>
+                                    <dt class="text-xs text-[#5f5c78]">Reporter</dt>
+                                    <dd class="mt-1 truncate font-semibold text-[#120d36]" x-text="report.org_name"></dd>
+                                </div>
+                            </dl>
+                            <a :href="report.detail_url" class="btn btn-primary btn-sm mt-4 w-full">View details</a>
+                        </article>
+                    </template>
+                </div>
             {% endcall %}
         {% endcall %}
     </div>

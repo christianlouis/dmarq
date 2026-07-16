@@ -6,6 +6,11 @@ The DMARQ dashboard provides an at-a-glance view of your email authentication st
 
 When you log in to DMARQ, you'll be presented with the main dashboard that displays key metrics about your DMARC compliance and email authentication status. The dashboard is designed to give you immediate insight into the report-and-DNS loop DMARQ focuses on: who sent mail, whether it aligned, which DNS records are healthy, and what should be fixed next.
 
+The first visible surface is the next recommended action. Charts, detailed
+evidence, and the compact all-time domain comparison stay under **Analytics and
+evidence** until you open it. This keeps the initial decision clear without
+removing any investigative data.
+
 ## Dashboard Components
 
 ### DMARC Compliance Rate
@@ -80,6 +85,10 @@ Manual **Trigger Poll Now** results include the number of sources, processed
 messages, discovered reports, and any recovery summary from the failing source.
 For example, a Gmail token problem is reported as a reconnect action instead of
 only saying that polling failed.
+
+In the public demo, this status is calculated from the same seeded mail sources
+shown on the Mail Sources page. Those sources are examples only; their write
+controls are disabled while filters, details, and history remain available.
 
 ### Remediation Loop
 
@@ -162,26 +171,13 @@ forensic report summaries, SMTP TLS report summaries, DNS posture, and exports.
 It intentionally includes healthy senders, partially aligned senders, and a few
 misconfigurations so each dashboard panel has realistic content.
 
-The public demo is meant to start in the same place a normal self-service user
-would: one account with multiple domains. From there, the demo path on the
-dashboard walks through the larger deployment models:
-
-1. Start with `dmarq.org` and `dmarq.com` as a single-user, multi-domain account.
-2. Zoom out to an account view with users, roles, workspaces, plan limits, and billing ownership.
-3. Switch to an ISP/provider view with bundled customer workspaces and monthly billing export examples.
-4. Impersonate a demo customer user to see scoped workspace access.
-5. Compare the same DMARC workflows in a self-hosted deployment where billing remains local.
-
-All demo users, customer IDs, provider IDs, invoices, and domains outside
-`dmarq.org`/`dmarq.com` are generated examples. Support impersonation in the
-demo is explicit UI state; production impersonation should be audited and
-permission-gated.
-
-The account detail panel keeps the active organization, workspace, and viewed
-user visible while you move through the demo path. Workspaces can be selected
-directly; `dmarq.org` and `dmarq.com` link to report-backed domain detail pages,
-while ISP and self-hosted sample domains are marked as demo-only tenant context
-until the demo includes full report stores for those generated tenants.
+The public demo tells the same single-user, multi-domain story as a normal
+self-hosted installation. It starts with `dmarq.org` and `dmarq.com`, realistic
+aggregate evidence, seeded intake sources, and read-only remediation context.
+Write controls are disabled at both the interface and API layers, but users can
+still filter reports, open domain evidence, inspect DNS guidance, and navigate
+the complete product. Multi-tenant provider workflows live in the separate
+provider demo and are not mixed into this dashboard.
 
 ## Customizing the Dashboard
 

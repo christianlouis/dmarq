@@ -208,6 +208,81 @@ if (typeof document !== 'undefined') {
     };
 })();
 
+(function enforcePublicDemoReadOnlyUi() {
+    const readonlyMessage = 'Read-only demo: changes are disabled.';
+    const mutationSelectors = [
+        '[data-demo-mutation]',
+        '[data-demo-readonly-scope="mail-sources"] [data-mail-source-add]',
+        '[data-demo-readonly-scope="mail-sources"] [data-mail-source-toggle]',
+        '[data-demo-readonly-scope="mail-sources"] [data-mail-source-fetch]',
+        '[data-demo-readonly-scope="mail-sources"] [data-mail-source-backfill]',
+        '[data-demo-readonly-scope="mail-sources"] [data-mail-source-edit]',
+        '[data-demo-readonly-scope="mail-sources"] [data-mail-source-test]',
+        '[data-demo-readonly-scope="mail-sources"] [data-mail-source-delete]',
+        '[data-demo-readonly-scope="mail-sources"] [data-mail-source-delete-confirm]',
+        '[data-demo-readonly-scope="mail-sources"] [data-mail-source-backfill-cancel]',
+        '[data-demo-readonly-scope="mail-sources"] [data-mail-source-backfill-retry]',
+        '[data-demo-readonly-scope="mail-sources"] [data-mail-source-backfill-run]',
+        '[data-demo-readonly-scope="mail-sources"] [data-mail-source-connect-gmail]',
+        '[data-demo-readonly-scope="mail-sources"] [data-mail-source-connect-m365]',
+        '[data-demo-readonly-scope="mail-sources"] [data-mail-source-test-m365]',
+        '[data-demo-readonly-scope="mail-sources"] [data-mail-source-test-adhoc]',
+        '[data-demo-readonly-scope="mail-sources"] [data-mail-source-m365-load-folders]',
+        '[data-demo-readonly-scope="mail-sources"] [data-mail-source-form] button[type="submit"]',
+        '[data-demo-readonly-scope="settings"] form input',
+        '[data-demo-readonly-scope="settings"] form select',
+        '[data-demo-readonly-scope="settings"] form textarea',
+        '[data-demo-readonly-scope="settings"] form button[type="submit"]',
+        '[data-demo-readonly-scope="settings"] [data-settings-cloudflare-connect]',
+        '[data-demo-readonly-scope="settings"] [data-settings-discover-dns-zones]',
+        '[data-demo-readonly-scope="settings"] [data-settings-import-dns-zones]',
+        '[data-demo-readonly-scope="settings"] [data-settings-discover-mail-domains]',
+        '[data-demo-readonly-scope="settings"] [data-settings-import-mail-domains]',
+        '[data-demo-readonly-scope="settings"] [data-settings-action]',
+        '[data-demo-readonly-scope="settings"] [data-settings-create-webhook]',
+        '[data-demo-readonly-scope="settings"] [data-settings-save-automation]',
+        '[data-demo-readonly-scope="settings"] [data-settings-save-category]',
+        '[data-demo-readonly-scope="settings"] [data-settings-webhook-action]',
+    ];
+
+    const disableMutationControls = () => {
+        if (document.documentElement.dataset.demoMode !== 'true') return;
+        document.querySelectorAll(mutationSelectors.join(',')).forEach((control) => {
+            if (!(control instanceof HTMLElement)) {
+                return;
+            }
+            const remainsDisabled = 'disabled' in control
+                ? control.disabled === true
+                : control.getAttribute('aria-disabled') === 'true';
+            if (control.dataset.demoReadonlyDisabled === 'true' && remainsDisabled) return;
+            control.dataset.demoReadonlyDisabled = 'true';
+            control.setAttribute('aria-disabled', 'true');
+            control.setAttribute('title', readonlyMessage);
+            if ('disabled' in control) {
+                control.disabled = true;
+            }
+        });
+    };
+
+    const start = () => {
+        if (document.documentElement.dataset.demoMode !== 'true') return;
+        disableMutationControls();
+        const observer = new MutationObserver(disableMutationControls);
+        observer.observe(document.body, {
+            attributes: true,
+            attributeFilter: ['disabled', 'aria-disabled'],
+            childList: true,
+            subtree: true,
+        });
+    };
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', start, {once: true});
+    } else {
+        start();
+    }
+})();
+
 (function bindSupportSessionExit() {
     document.addEventListener('click', async (event) => {
         const target = event.target;

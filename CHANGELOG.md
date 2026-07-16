@@ -10,10 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Reduced dashboard and domain-detail information density without removing
   workflows: health and remediation now lead with one concise status and next
-  action, the primary analytics view follows it immediately and remains open by
-  default, and queue metrics, evidence, DNS, sender intelligence, reports,
+  action, analytics and evidence stay folded until requested, and queue metrics,
+  evidence, DNS, sender intelligence, reports,
   migration, and audit context remain directly available through progressive
   disclosure and the existing domain-section navigation.
+- Kept public-demo exploration honest and consistent by disabling write controls
+  in the browser, matching dashboard intake status to seeded mail sources, and
+  returning read-only ownership context instead of a broken demo-domain 404.
+- Aligned Dashboard and Reports rolling presets to inclusive UTC calendar days,
+  compacted all-time domain rows, and added usable report cards plus complete
+  loading, error, and empty states on small screens.
 - Removed the provider-console organization-summary N+1 query pattern by
   batching workspaces, billing, subscriptions, entitlements, and active seat
   usage, with a query-count regression test across multiple tenants.

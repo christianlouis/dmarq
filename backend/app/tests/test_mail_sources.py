@@ -4564,6 +4564,60 @@ class TestTriggerPollEndpoint:
         assert data["sources"][0]["connection_status"] == "reauth_required"
         assert data["sources"][0]["connection_action_label"] == "Reconnect Gmail"
 
+    def test_poll_status_uses_seeded_sources_in_public_demo(self):
+        """Dashboard intake status matches the mail-source list in fixture-backed demos."""
+        from app.core.security import require_admin_auth
+        from app.main import app as main_app
+
+        async def mock_auth():
+            return {"auth_type": "session"}
+
+        main_app.dependency_overrides[require_admin_auth] = mock_auth
+        mock_db = MagicMock()
+        mock_db.query.return_value.count.return_value = 0
+        mock_db.query.return_value.filter.return_value.all.return_value = []
+        demo_sources = [
+            {
+                "id": 9001,
+                "name": "Aggregate reports",
+                "method": "IMAP",
+                "server": "imap.demo.example",
+                "username": "reports@example.test",
+                "enabled": True,
+                "last_checked": datetime(2026, 7, 16, 7, 30, tzinfo=timezone.utc),
+            },
+            {
+                "id": 9002,
+                "name": "Google reports",
+                "method": "GMAIL_API",
+                "gmail_email": "dmarc@example.test",
+                "enabled": True,
+                "last_checked": datetime(2026, 7, 16, 8, 0, tzinfo=timezone.utc),
+            },
+        ]
+
+        try:
+            with TestClient(main_app) as tc:
+                with (
+                    patch("app.main.SessionLocal", return_value=mock_db),
+                    patch("app.main.uses_legacy_demo_fixtures", return_value=True),
+                    patch("app.main.build_demo_mail_sources", return_value=demo_sources),
+                ):
+                    resp = tc.get("/api/v1/poll-status")
+        finally:
+            main_app.dependency_overrides.clear()
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["enabled_sources"] == 2
+        assert data["total_sources"] == 2
+        assert data["sources_by_method"] == {"IMAP": 1, "GMAIL_API": 1}
+        assert data["source_labels"] == [
+            "IMAP: reports@example.test",
+            "Gmail API: dmarc@example.test",
+        ]
+        assert data["latest_source_check"] == "2026-07-16T08:00:00+00:00"
+
     def test_trigger_poll_with_no_enabled_sources(self):
         """With no enabled sources, the endpoint returns an empty-success response."""
         from app.core.security import require_admin_auth

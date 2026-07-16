@@ -26,7 +26,7 @@ import app.models.workspace  # noqa: F401 – ensure workspace table is register
 import app.models.workspace_access  # noqa: F401 – ensure RBAC/audit tables are registered
 from app.api.api_v1.api import api_router
 from app.core.auth_providers import auth_provider_registry
-from app.core.config import get_settings
+from app.core.config import get_settings, uses_legacy_demo_fixtures
 from app.core.database import Base, SessionLocal, engine, get_db
 from app.core.security import add_api_key, generate_api_key, require_admin_auth
 from app.core.startup_checks import run_startup_checks
@@ -37,6 +37,7 @@ from app.models.domain import Domain
 from app.models.mail_source import MailSource  # noqa: F401 – ensure table is registered
 from app.models.mail_source_import import MailSourceImport
 from app.services.dns_prewarm import prewarm_dns_cache
+from app.services.demo_data import build_demo_mail_sources
 from app.services.gmail_client import GmailClient
 from app.services.imap_client import IMAPClient
 from app.services.import_history import record_import_attempt
@@ -1335,6 +1336,61 @@ def _mail_source_status_summary() -> dict:
         enabled_sources = (
             db.query(MailSource).filter(MailSource.enabled == True).all()  # noqa: E712
         )
+        if not enabled_sources and total_sources == 0 and uses_legacy_demo_fixtures(settings):
+            demo_sources = [row for row in build_demo_mail_sources() if row.get("enabled")]
+            latest_checked = max(
+                (row.get("last_checked") for row in demo_sources if row.get("last_checked")),
+                default=None,
+            )
+            source_statuses = []
+            by_method: dict[str, int] = {}
+            source_labels = []
+            for row in demo_sources:
+                method = str(row.get("method") or "IMAP").upper()
+                by_method[method] = by_method.get(method, 0) + 1
+                account = (
+                    row.get("gmail_email")
+                    or row.get("m365_email")
+                    or row.get("username")
+                    or row.get("server")
+                    or row.get("name")
+                )
+                method_label = {
+                    "GMAIL_API": "Gmail API",
+                    "M365_GRAPH": "Microsoft 365",
+                    "IMAP": "IMAP",
+                }.get(method, method)
+                label = f"{method_label}: {account}"
+                source_labels.append(label)
+                source_statuses.append(
+                    {
+                        "source_id": row.get("id"),
+                        "name": row.get("name"),
+                        "method": method,
+                        "label": label,
+                        "enabled": True,
+                        "last_checked": (
+                            row["last_checked"].isoformat() if row.get("last_checked") else None
+                        ),
+                        "connection_status": (
+                            "connected" if method in {"GMAIL_API", "M365_GRAPH"} else "configured"
+                        ),
+                        "connection_attention": False,
+                        "connection_message": None,
+                        "connection_action_label": None,
+                        "connection_diagnostic_category": "ok",
+                    }
+                )
+            return {
+                "enabled_sources": len(demo_sources),
+                "total_sources": len(demo_sources),
+                "sources_by_method": by_method,
+                "source_labels": source_labels,
+                "sources": source_statuses,
+                "attention_sources": 0,
+                "reauth_required_sources": 0,
+                "latest_source_check": latest_checked.isoformat() if latest_checked else None,
+            }
         latest_imports = _latest_imports_by_source(
             db, [int(source.id) for source in enabled_sources]
         )

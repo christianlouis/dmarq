@@ -2452,8 +2452,6 @@ function dashboardApp() {
                 row.appendChild(this.createGradeCell(domain.health));
                 row.appendChild(this.createRemediationCell(domain.remediation, domain.remediation_workload));
                 row.appendChild(this.createPassRateCell(domain.pass_rate || 0));
-                row.appendChild(this.createTextCell(this.formatLargeNumber(domain.failed_count || 0)));
-                row.appendChild(this.createTextCell(this.formatLargeNumber(domain.report_count || 0)));
                 row.appendChild(this.createDetailsCell(domain));
 
                 tableBody.appendChild(row);
@@ -2509,84 +2507,12 @@ function dashboardApp() {
                 : this.remediationStatusLabel(status);
             wrapper.appendChild(badge);
 
-            const latest = document.createElement('span');
-            latest.className = 'text-xs text-muted-foreground whitespace-nowrap';
-            if (workload?.primary?.state) {
-                const track = this.remediationTrackLabel(workload.primary.remediation_track);
-                const readiness = this.repairReadinessLabel(workload.primary.repair_progression);
-                latest.textContent = `${this.remediationLoopStateLabel(workload.primary.state)} · ${track} · ${readiness}`;
-            } else if (remediation?.latest_at) {
-                latest.textContent = this.remediationActivityText(remediation);
-            } else {
-                latest.textContent = 'No operator action';
-            }
-            wrapper.appendChild(latest);
-
-            const activityText = this.remediationActivityText(remediation);
-            if (activityText && activityText !== latest.textContent) {
-                const activity = document.createElement('span');
-                activity.className = 'max-w-56 truncate text-xs text-muted-foreground';
-                activity.textContent = activityText;
-                wrapper.appendChild(activity);
-            }
-
-            if (workload?.primary?.title) {
-                const action = document.createElement('span');
-                action.className = 'max-w-48 truncate text-xs text-muted-foreground';
-                action.textContent = workload.primary.title;
-                wrapper.appendChild(action);
-            }
-
-            if (workload?.primary) {
-                const nextAction = document.createElement('span');
-                nextAction.className = 'max-w-56 truncate text-xs font-semibold text-[#1f7c83]';
-                nextAction.textContent = this.dashboardRemediationNextActionText(workload.primary);
-                wrapper.appendChild(nextAction);
-            }
-
-            if (workload?.primary?.evidence_refresh?.required) {
-                const evidence = document.createElement('span');
-                evidence.className = 'max-w-56 truncate text-xs font-semibold text-[#247982]';
-                evidence.textContent = workload.primary.evidence_refresh.safe_to_run === false
-                    ? 'Evidence: provider value required'
-                    : `Evidence: ${this.evidenceRefreshLabel(workload.primary.evidence_refresh)}`;
-                wrapper.appendChild(evidence);
-            }
-
-            this.appendCountBadge(wrapper, [
-                [Number(workload?.provider_preview_available || 0), 'provider preview'],
-                [Number(workload?.provider_apply_after_approval || 0), 'apply-ready'],
-                [Number(workload?.provider_apply_blocked || 0), 'apply blocked'],
-                [Number(workload?.provider_apply_history || 0), 'apply history'],
-                [Number(workload?.provider_apply_verified || 0), 'verified'],
-            ], 'max-w-56 truncate text-xs font-semibold text-[#24507a]');
-
-            this.appendCountBadge(wrapper, [
-                [Number(workload?.notification_profile_ready || 0), 'notify-ready'],
-                [Number(workload?.notification_approval_required || 0), 'approval'],
-                [Number(workload?.notification_action_required || 0), 'action'],
-                [Number(workload?.notification_investigation_required || 0), 'investigate'],
-                [Number(workload?.notification_profiles || 0), 'profiles'],
-                [Number(workload?.notification_summary_only || 0), 'summary-only'],
-            ], 'max-w-56 truncate text-xs font-semibold text-[#7a5a24]');
-
-            this.appendCountBadge(wrapper, [
-                [Number(remediation?.dispatch_enqueued || 0), 'dispatched'],
-                [Number(remediation?.needs_operator_follow_up || 0), 'follow-up'],
-                [this.dashboardRemediationFollowUpAgeDays(remediation) >= 1 ? 1 : 0, 'aging follow-up'],
-            ], 'max-w-56 truncate text-xs font-semibold text-[#5f5c78]');
-
-            const followUpAge = this.dashboardRemediationFollowUpAgeText(remediation);
-            if (followUpAge) {
-                const age = document.createElement('span');
-                age.className = `max-w-56 truncate text-xs font-semibold ${
-                    this.dashboardRemediationFollowUpAgeDays(remediation) >= 7
-                        ? 'text-[#8a2d0d]'
-                        : 'text-[#8a6418]'
-                }`;
-                age.textContent = followUpAge;
-                wrapper.appendChild(age);
-            }
+            const summary = document.createElement('span');
+            summary.className = 'max-w-52 truncate text-xs text-muted-foreground';
+            summary.title = workload?.primary?.title || '';
+            summary.textContent = workload?.primary?.title
+                || (remediation?.latest_at ? this.remediationActivityText(remediation) : 'No operator action');
+            wrapper.appendChild(summary);
 
             cell.appendChild(wrapper);
             return cell;

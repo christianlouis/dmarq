@@ -87,10 +87,13 @@ def _custom_date_range(start_date: Optional[str], end_date: Optional[str]) -> Di
 
 def _rolling_date_range(now: datetime, interval: str, days: int) -> Dict[str, Any]:
     interval_name = interval if interval in DATE_INTERVALS else f"last_{days}_days"
+    # Rolling day presets are calendar-day windows in UTC. Starting at midnight
+    # keeps Dashboard and Reports on the same set of included dates.
+    start_day = now.date() - timedelta(days=days - 1)
     return _date_range_response(
         interval=interval_name,
         label=DATE_INTERVALS.get(interval_name, f"Last {days} days"),
-        start_at=now - timedelta(days=days),
+        start_at=datetime.combine(start_day, time.min, tzinfo=timezone.utc),
         end_at=now,
     )
 

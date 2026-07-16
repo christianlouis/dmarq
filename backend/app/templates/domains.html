@@ -36,7 +36,7 @@
                             <span x-show="refreshing" class="loading loading-spinner loading-xs"></span>
                             <span x-text="refreshing ? 'Refreshing...' : 'Reload'"></span>
                         </button>
-                        <button type="button" class="btn btn-outline btn-sm" data-domain-create-open>
+                        <button type="button" class="btn btn-outline btn-sm" data-domain-create-open data-demo-mutation>
                             <span class="mr-1">+</span> Add Domain
                         </button>
                     </div>
@@ -161,6 +161,7 @@
                                         <button type="button"
                                                 class="btn btn-outline btn-sm"
                                                 data-domain-edit
+                                                data-demo-mutation
                                                 :data-domain-index="index">
                                             Edit
                                         </button>

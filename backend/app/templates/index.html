@@ -62,7 +62,7 @@
         </div>
     </section>
 
-    <details open
+    <details
              class="rounded-lg border border-[#dfdfdf] bg-white shadow-sm"
              x-show="hasReportData" x-cloak data-dashboard-analytics>
         <summary class="flex cursor-pointer list-none flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -222,7 +222,7 @@
                     </button>
                 </div>
                 {% call card_description() %}
-                    Overview of domains and their DMARC compliance status
+                    All-time imported evidence. Open a domain for the complete remediation plan.
                 {% endcall %}
             {% endcall %}
             {% call card_content() %}
@@ -230,12 +230,10 @@
                     {% call thead() %}
                         {% call tr() %}
                             {% call th() %}Domain{% endcall %}
-                            {% call th() %}Emails{% endcall %}
+                            {% call th() %}All-time volume{% endcall %}
                             {% call th() %}Grade{% endcall %}
                             {% call th() %}Remediation{% endcall %}
                             {% call th() %}Pass Rate{% endcall %}
-                            {% call th() %}Failed{% endcall %}
-                            {% call th() %}Reports{% endcall %}
                             {% call th("text-right") %}Actions{% endcall %}
                         {% endcall %}
                     {% endcall %}
