@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Restored sender ASN, network, and country enrichment when a selected private
+  DNS resolver is unavailable by falling back to independent public DNS and
+  Cloudflare DoH for Team Cymru lookups. Failed enrichments now retry after a
+  short cache interval instead of remaining unknown for a full day.
 - Reduced dashboard and domain-detail information density without removing
   workflows: health and remediation now lead with one concise status and next
   action, analytics and evidence stay folded until requested, and queue metrics,
