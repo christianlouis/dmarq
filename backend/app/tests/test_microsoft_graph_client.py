@@ -3,13 +3,21 @@
 import base64
 import zipfile
 from io import BytesIO
+from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
 import httpx
 
 from app.models.report import DMARCReport
 from app.services.mail_connector import initial_import_stats
-from app.services.microsoft_graph_client import M365_SCOPES, MicrosoftGraphClient
+from app.services.microsoft_graph_client import (
+    M365_APPLICATION_SCOPE,
+    M365_SCOPES,
+    MicrosoftGraphClient,
+    MicrosoftGraphError,
+    m365_application_configuration_error,
+    m365_source_can_authenticate,
+)
 from app.tests.test_data import SAMPLE_XML
 
 
@@ -35,6 +43,115 @@ def _make_client(db=None, already_ingested=None) -> MicrosoftGraphClient:
 
 
 class TestMicrosoftGraphOAuthHelpers:
+    def test_application_configuration_requires_tenant_credentials_and_mailbox(self):
+        source = SimpleNamespace(
+            m365_auth_mode="application",
+            m365_tenant_id="common",
+            m365_client_id="",
+            m365_client_secret="",
+            m365_mailbox="",
+        )
+
+        assert "tenant-specific" in m365_application_configuration_error(source)
+        assert m365_source_can_authenticate(source) is False
+
+        source.m365_tenant_id = "tenant.example"
+        source.m365_client_id = "client-id"
+        source.m365_client_secret = "client-secret"
+        source.m365_mailbox = "dmarc-reports@example.com"
+
+        assert m365_application_configuration_error(source) is None
+        assert m365_source_can_authenticate(source) is True
+
+    def test_application_client_credentials_read_explicit_mailbox(self, monkeypatch):
+        seen = {}
+
+        def fake_post(url, data=None, timeout=None):
+            seen["token_url"] = url
+            seen["token_data"] = data
+            return httpx.Response(200, json={"access_token": "application-token"})
+
+        def fake_request(method, url, headers=None, params=None, timeout=None):
+            seen["graph_url"] = url
+            seen["authorization"] = headers["Authorization"]
+            return httpx.Response(200, json={"value": []})
+
+        monkeypatch.setattr("app.services.microsoft_graph_client.httpx.post", fake_post)
+        monkeypatch.setattr("app.services.microsoft_graph_client.httpx.request", fake_request)
+        client = MicrosoftGraphClient(
+            tenant_id="tenant-id",
+            client_id="client-id",
+            client_secret="client-secret",
+            access_token="",
+            refresh_token="",
+            auth_mode="application",
+            mailbox="dmarc-reports@example.com",
+            folder="INBOX",
+        )
+
+        result = client.test_connection()
+
+        assert result["success"] is True
+        assert seen["token_url"].endswith("/tenant-id/oauth2/v2.0/token")
+        assert seen["token_data"] == {
+            "client_id": "client-id",
+            "client_secret": "client-secret",
+            "grant_type": "client_credentials",
+            "scope": M365_APPLICATION_SCOPE,
+        }
+        assert seen["graph_url"].endswith(
+            "/users/dmarc-reports%40example.com/mailFolders/inbox/messages"
+        )
+        assert seen["authorization"] == "Bearer application-token"
+        assert client.get_refreshed_tokens() == {"access_token": "application-token"}
+
+    def test_application_client_never_falls_back_to_me(self):
+        client = MicrosoftGraphClient(
+            tenant_id="tenant-id",
+            client_id="client-id",
+            client_secret="client-secret",
+            access_token="",
+            refresh_token="",
+            auth_mode="application",
+            mailbox="",
+        )
+
+        try:
+            client.test_connection()
+        except MicrosoftGraphError as exc:
+            assert "explicit target mailbox" in str(exc)
+        else:
+            raise AssertionError("application access must require a target mailbox")
+
+    def test_application_client_reacquires_token_after_401(self, monkeypatch):
+        token_values = iter(["token-1", "token-2"])
+        seen_authorization = []
+
+        def fake_post(url, data=None, timeout=None):
+            return httpx.Response(200, json={"access_token": next(token_values)})
+
+        def fake_request(method, url, headers=None, params=None, timeout=None):
+            seen_authorization.append(headers["Authorization"])
+            if len(seen_authorization) == 1:
+                return httpx.Response(401, json={"error": {"code": "InvalidToken"}})
+            return httpx.Response(200, json={"value": []})
+
+        monkeypatch.setattr("app.services.microsoft_graph_client.httpx.post", fake_post)
+        monkeypatch.setattr("app.services.microsoft_graph_client.httpx.request", fake_request)
+        client = MicrosoftGraphClient(
+            tenant_id="tenant-id",
+            client_id="client-id",
+            client_secret="client-secret",
+            access_token="",
+            refresh_token="",
+            auth_mode="application",
+            mailbox="dmarc-reports@example.com",
+        )
+
+        assert client.test_connection()["success"] is True
+        assert seen_authorization == ["Bearer token-1", "Bearer token-2"]
+        assert client.get_refreshed_tokens() == {"access_token": "token-2"}
+
     def test_connector_contract_uses_read_only_scopes_and_safe_context(self):
         client = MicrosoftGraphClient(
             tenant_id="organizations",

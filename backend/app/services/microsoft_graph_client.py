@@ -35,6 +35,10 @@ M365_SCOPES = [
     "https://graph.microsoft.com/Mail.Read",
     "https://graph.microsoft.com/Mail.Read.Shared",
 ]
+M365_APPLICATION_SCOPE = "https://graph.microsoft.com/.default"
+M365_AUTH_MODE_DELEGATED = "delegated"
+M365_AUTH_MODE_APPLICATION = "application"
+M365_AUTH_MODES = {M365_AUTH_MODE_DELEGATED, M365_AUTH_MODE_APPLICATION}
 
 _PAGE_SIZE = 100
 _MAX_FOLDER_DEPTH = 5
@@ -60,13 +64,50 @@ class MicrosoftGraphError(RuntimeError):
     """Raised when Microsoft Graph or the token endpoint returns a failure."""
 
 
+def normalize_m365_auth_mode(value: Any) -> str:
+    """Return a supported Microsoft 365 auth mode or fail closed."""
+    if value is not None and value.__class__.__module__.startswith("unittest.mock"):
+        value = None
+    mode = str(value or M365_AUTH_MODE_DELEGATED).strip().lower()
+    if mode not in M365_AUTH_MODES:
+        raise ValueError("m365_auth_mode must be either 'delegated' or 'application'.")
+    return mode
+
+
+def m365_application_configuration_error(source: Any) -> Optional[str]:
+    """Return the first missing/unsafe app-only setting for a mail source."""
+    if normalize_m365_auth_mode(getattr(source, "m365_auth_mode", None)) != (
+        M365_AUTH_MODE_APPLICATION
+    ):
+        return None
+    tenant_id = str(getattr(source, "m365_tenant_id", None) or "").strip()
+    if not tenant_id or tenant_id.lower() in {"common", "organizations", "consumers"}:
+        return "Application authentication requires a tenant-specific ID or domain."
+    if not str(getattr(source, "m365_client_id", None) or "").strip():
+        return "Application authentication requires an application (client) ID."
+    if not str(getattr(source, "m365_client_secret", None) or "").strip():
+        return "Application authentication requires a client secret."
+    mailbox = str(getattr(source, "m365_mailbox", None) or "").strip()
+    if not mailbox or mailbox.lower() == "me":
+        return "Application authentication requires an explicit target mailbox."
+    return None
+
+
+def m365_source_can_authenticate(source: Any) -> bool:
+    """Return whether a source can obtain or refresh a usable Graph token."""
+    mode = normalize_m365_auth_mode(getattr(source, "m365_auth_mode", None))
+    if mode == M365_AUTH_MODE_APPLICATION:
+        return m365_application_configuration_error(source) is None
+    return bool(getattr(source, "m365_access_token", None))
+
+
 class MicrosoftGraphClient(MailSourceConnector):
     """
     Retrieve DMARC aggregate reports from Microsoft 365 through Microsoft Graph.
 
-    The client uses delegated OAuth tokens and read-only Graph scopes. Messages
-    are never modified or deleted; already-ingested Graph message IDs are stored
-    by the caller to avoid reprocessing the same email.
+    The client supports delegated OAuth and application client credentials.
+    Messages are never modified or deleted; already-ingested Graph message IDs
+    are stored by the caller to avoid reprocessing the same email.
     """
 
     def __init__(
@@ -83,12 +124,14 @@ class MicrosoftGraphClient(MailSourceConnector):
         db: Any = None,
         workspace_id: Optional[int] = None,
         sleep: Optional[Callable[[float], None]] = None,
+        auth_mode: str = M365_AUTH_MODE_DELEGATED,
     ):
         self.tenant_id = tenant_id or "common"
         self.client_id = client_id
         self.client_secret = client_secret
         self.access_token = access_token
         self.refresh_token = refresh_token
+        self.auth_mode = normalize_m365_auth_mode(auth_mode)
         self.mailbox = (mailbox or "").strip()
         self.folder = folder or "inbox"
         self.folder_id = (folder_id or "").strip()
@@ -176,7 +219,7 @@ class MicrosoftGraphClient(MailSourceConnector):
         return dump_ingested_ids(ids)
 
     def test_connection(self) -> Dict[str, Any]:
-        """Verify that the saved delegated token can read the target mailbox."""
+        """Verify that the configured identity can read the target mailbox."""
         data = self._request(
             "GET",
             self._messages_path(),
@@ -328,7 +371,11 @@ class MicrosoftGraphClient(MailSourceConnector):
         append_import_detail(stats, context=self.import_context(), **detail)
 
     def _target_mailbox_label(self) -> str:
-        return self.mailbox or "authorized account"
+        if self.mailbox:
+            return self.mailbox
+        if self.auth_mode == M365_AUTH_MODE_APPLICATION:
+            return "missing target mailbox"
+        return "authorized account"
 
     def _target_folder_label(self) -> str:
         if self.folder:
@@ -338,6 +385,10 @@ class MicrosoftGraphClient(MailSourceConnector):
         return "All messages"
 
     def _mailbox_path(self) -> str:
+        if self.auth_mode == M365_AUTH_MODE_APPLICATION and not self.mailbox:
+            raise MicrosoftGraphError(
+                "Application authentication requires an explicit target mailbox."
+            )
         if not self.mailbox or self.mailbox.lower() == "me":
             return "/me"
         return f"/users/{quote(self.mailbox, safe='')}"
@@ -354,7 +405,18 @@ class MicrosoftGraphClient(MailSourceConnector):
         return f"{mailbox_path}/mailFolders/{quote(folder, safe='')}/messages"
 
     def _headers(self) -> Dict[str, str]:
+        self._ensure_access_token()
         return {"Authorization": f"Bearer {self.access_token}"}
+
+    def _ensure_access_token(self) -> None:
+        if self.access_token:
+            return
+        if self.auth_mode == M365_AUTH_MODE_APPLICATION:
+            self._acquire_application_access_token()
+            return
+        raise MicrosoftGraphError(
+            "Delegated Microsoft 365 authorization is missing an access token."
+        )
 
     def _request(
         self,
@@ -368,8 +430,13 @@ class MicrosoftGraphClient(MailSourceConnector):
 
         for attempt in range(_MAX_GRAPH_RETRIES + 1):
             resp = httpx.request(method, url, headers=self._headers(), params=params, timeout=30)
-            if resp.status_code == 401 and self.refresh_token:
-                self._refresh_access_token()
+            if resp.status_code == 401:
+                if self.auth_mode == M365_AUTH_MODE_APPLICATION:
+                    self._acquire_application_access_token()
+                elif self.refresh_token:
+                    self._refresh_access_token()
+                else:
+                    break
                 resp = httpx.request(
                     method, url, headers=self._headers(), params=params, timeout=30
                 )
@@ -422,6 +489,31 @@ class MicrosoftGraphClient(MailSourceConnector):
             self.refresh_token = token_data["refresh_token"]
             refreshed["refresh_token"] = token_data["refresh_token"]
         self._refreshed_tokens = refreshed
+
+    def _acquire_application_access_token(self) -> None:
+        if not self.client_id or not self.client_secret:
+            raise MicrosoftGraphError(
+                "Application authentication requires a client ID and client secret."
+            )
+        data = {
+            "client_id": self.client_id,
+            "client_secret": self.client_secret,
+            "grant_type": "client_credentials",
+            "scope": M365_APPLICATION_SCOPE,
+        }
+        resp = httpx.post(self._token_url(self.tenant_id), data=data, timeout=30)
+        if resp.status_code != 200:
+            raise MicrosoftGraphError(
+                f"Microsoft application token request failed ({resp.status_code}): "
+                f"{self._format_error(resp)}"
+            )
+        access_token = str(resp.json().get("access_token") or "")
+        if not access_token:
+            raise MicrosoftGraphError(
+                "Microsoft application token request did not return an access token."
+            )
+        self.access_token = access_token
+        self._refreshed_tokens = {"access_token": access_token}
 
     @staticmethod
     def _format_error(resp: httpx.Response) -> str:

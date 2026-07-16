@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Distinguished active failing DKIM selectors from active passing, recent,
+  historical, and manually configured evidence. Only current selector failures
+  now enter the primary DNS remediation flow; rotation history remains visible
+  with first/last seen dates and report/message counts under progressive
+  disclosure.
+- Expanded standalone Docker greenfield verification beyond health checks to
+  cover first-run setup, deterministic DMARC fixture ingestion, exact totals,
+  duplicate rejection, application-container recreation, and persisted state.
 - Kept provider support-session user selection CSP-safe and resolved the
   selected user by ID before stale email fallback state, so multi-user account
   impersonation opens the customer view for the operator's actual selection.
@@ -29,6 +37,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   attention.
 
 ### Added
+- Added unattended Microsoft 365 shared-mailbox ingestion through Entra
+  application permissions, including tenant-specific client credentials,
+  explicit mailbox targeting, folder discovery, connection tests, manual and
+  scheduled imports, backfills, encrypted secrets, and Exchange Online RBAC
+  safety guidance without requiring a redirect URI or interactive user.
 - Added state-aware self-hosted onboarding that recognizes existing domains,
   mailbox health, imported evidence, DNS-provider credentials, and notification
   setup, then routes operators to the first required incomplete step instead of

@@ -1977,18 +1977,42 @@
                                 </div>
                             </template>
                         </div>
-                        <!-- Auto-discovered selectors from DMARC reports -->
-                        <template x-if="reportSelectors.length > 0">
-                            <div class="mb-3">
-                                <p class="text-xs text-muted-foreground font-semibold uppercase tracking-wide mb-1">From DMARC reports (auto-detected)</p>
-                                <template x-for="sel in reportSelectors" :key="sel">
-                                    <div class="flex items-center py-1 px-2 rounded bg-muted/50 border border-dashed mb-1">
-                                        <span class="font-mono text-sm text-muted-foreground" x-text="sel"></span>
-                                        <span class="ml-2 text-xs text-muted-foreground italic">auto</span>
+                        <details class="mb-3 rounded-md border border-base-300 bg-base-100"
+                                 x-show="(dnsGuidance.selector_evidence || []).length > 0">
+                            <summary class="cursor-pointer px-3 py-2 text-sm font-semibold text-[#272a5f]">
+                                Selector evidence
+                                <span class="font-normal text-base-content/60"
+                                      x-text="'(' + (dnsGuidance.selector_evidence || []).length + ')' "></span>
+                            </summary>
+                            <div class="space-y-2 border-t border-base-300 p-3">
+                                <p class="text-xs text-base-content/60">
+                                    Only selectors failing in the active report window can become a primary remediation. Passing, recent, and historical selectors remain evidence.
+                                </p>
+                                <template x-for="item in (dnsGuidance.selector_evidence || [])"
+                                          :key="'selector-evidence-' + item.selector">
+                                    <div class="rounded border border-base-300 bg-white p-3">
+                                        <div class="flex flex-wrap items-center gap-2">
+                                            <code class="text-sm font-semibold" x-text="item.selector"></code>
+                                            <span class="rounded px-2 py-1 text-xs font-semibold"
+                                                  :class="selectorEvidenceClass(item.classification)"
+                                                  x-text="selectorEvidenceLabel(item.classification)"></span>
+                                            <span class="text-xs text-base-content/60"
+                                                  x-text="selectorDnsStatusLabel(item.dns_status)"></span>
+                                            <span x-show="item.manual_configured"
+                                                  class="rounded bg-base-200 px-2 py-1 text-xs text-base-content/70">manual</span>
+                                        </div>
+                                        <p class="mt-2 text-xs text-base-content/70" x-text="item.classification_reason"></p>
+                                        <div class="mt-2 grid gap-2 text-xs text-base-content/70 sm:grid-cols-2 lg:grid-cols-5">
+                                            <span><strong>Last seen:</strong> <span x-text="selectorEvidenceLastSeen(item)"></span></span>
+                                            <span><strong>Reports:</strong> <span x-text="item.report_count"></span></span>
+                                            <span><strong>Messages:</strong> <span x-text="formatLargeNumber(item.message_count)"></span></span>
+                                            <span><strong>Current failures:</strong> <span x-text="formatLargeNumber(item.current_failure_count)"></span></span>
+                                            <span><strong>Current passes:</strong> <span x-text="formatLargeNumber(item.current_pass_count)"></span></span>
+                                        </div>
                                     </div>
                                 </template>
                             </div>
-                        </template>
+                        </details>
                         <!-- Add selector form -->
                         <div class="flex items-center gap-2">
                             <input

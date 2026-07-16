@@ -209,6 +209,7 @@ Delivered:
 - Shared mailbox and folder selection support for DMARC report collection. Delivered with shared mailbox targeting, Microsoft Graph folder listing, folder-id based imports, UI selection, and mailbox/folder context in import history.
 - Import-history parity with existing sources (auditable attachment outcomes, duplicates, parse failures). Delivered for Microsoft 365 imports.
 - Backfill support with safe throttling and progressive search windows. Delivered with days-based Graph `receivedDateTime` filters, duplicate-safe reruns, and retry/backoff for throttled or temporarily unavailable Graph requests.
+- Unattended shared-mailbox ingestion through Entra application permissions. Delivered as an explicit client-credentials mode with tenant/mailbox validation, `/users/{mailbox}` targeting, manual and scheduled imports, folder discovery, resumable backfill, encrypted credentials, and Exchange Online RBAC safety guidance.
 - Secret handling mirrors existing guidance (no raw secrets in logs; 1Password-friendly). Delivered with a shared connector protocol, sanitized import-result helpers, duplicate ID serialization helpers, and connector development guidance for future sources.
 
 Exit criteria:

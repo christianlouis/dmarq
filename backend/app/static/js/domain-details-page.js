@@ -35,6 +35,7 @@ function domainDetailsApp(domainId = '') {
             target_records: [],
             dns_provider: null,
             change_plans: [],
+            selector_evidence: [],
             recommended_provider: null,
             available_write_providers: [],
             safety_notes: []
@@ -1086,6 +1087,38 @@ function domainDetailsApp(domainId = '') {
             if (this.dnsGuidance.status === 'attention') return 'bg-yellow-100 text-yellow-800';
             if (this.dnsGuidance.status === 'critical') return 'bg-red-100 text-red-700';
             return 'bg-base-200 text-base-content/70';
+        },
+
+        selectorEvidenceLabel(classification) {
+            const labels = {
+                active_failing: 'Active failing',
+                active_passing: 'Active passing',
+                recently_observed: 'Recently observed',
+                historical: 'Historical evidence',
+                manually_configured: 'Manually configured',
+            };
+            return labels[classification] || 'Evidence';
+        },
+
+        selectorEvidenceClass(classification) {
+            if (classification === 'active_failing') return 'bg-red-100 text-red-700';
+            if (classification === 'active_passing') return 'bg-green-100 text-green-700';
+            if (classification === 'recently_observed') return 'bg-amber-100 text-amber-800';
+            return 'bg-base-200 text-base-content/70';
+        },
+
+        selectorDnsStatusLabel(status) {
+            const labels = {
+                resolved: 'DNS resolves',
+                missing: 'DNS not found',
+                broken_cname: 'CNAME target broken',
+                not_checked: 'Not checked',
+            };
+            return labels[status] || 'Not checked';
+        },
+
+        selectorEvidenceLastSeen(item) {
+            return item?.last_seen ? this.sourceSeenLabel(item.last_seen) : 'No dated evidence';
         },
 
         targetRecordByCode(code) {

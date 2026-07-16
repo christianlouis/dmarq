@@ -413,6 +413,7 @@ forensic, and SMTP TLS reports.
 | port | INTEGER | IMAP/POP server port |
 | username | VARCHAR | Mailbox username |
 | password | TEXT | Encrypted mailbox password |
+| m365_auth_mode | VARCHAR | Microsoft 365 authentication mode: `delegated` or `application` |
 | enabled | BOOLEAN | Whether scheduled imports should poll this source |
 | last_checked | TIMESTAMP | Last polling attempt time |
 | created_at | TIMESTAMP | When the source was created |

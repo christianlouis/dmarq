@@ -178,6 +178,53 @@ def test_poll_single_m365_source_skips_without_token():
     mock_session.assert_not_called()
 
 
+def test_poll_single_m365_application_source_runs_without_stored_token():
+    from app.main import _poll_single_m365_source
+
+    source = SimpleNamespace(
+        id=4,
+        m365_auth_mode="application",
+        m365_access_token=None,
+        m365_tenant_id="tenant-id",
+        m365_client_id="client-id",
+        m365_client_secret="client-secret",
+        m365_refresh_token=None,
+        m365_mailbox="dmarc-reports@example.com",
+        m365_ingested_ids="[]",
+        folder="INBOX",
+    )
+    db_source = SimpleNamespace(**source.__dict__)
+    db = MagicMock()
+    db.query.return_value.get.return_value = db_source
+
+    with (
+        patch("app.main.SessionLocal", return_value=db),
+        patch("app.main.MicrosoftGraphClient") as client_cls,
+        patch("app.main.MicrosoftGraphClient.load_ingested_ids", return_value=[]),
+        patch("app.main.record_import_attempt"),
+    ):
+        client_cls.return_value.fetch_reports.return_value = {
+            "success": True,
+            "processed": 0,
+            "reports_found": 0,
+            "new_domains": [],
+            "new_ingested_ids": [],
+        }
+        client_cls.return_value.get_refreshed_tokens.return_value = {
+            "access_token": "new-application-token"
+        }
+
+        _poll_single_m365_source(source)
+
+    _, kwargs = client_cls.call_args
+    assert kwargs["auth_mode"] == "application"
+    assert kwargs["access_token"] is None
+    assert kwargs["mailbox"] == "dmarc-reports@example.com"
+    assert db_source.m365_access_token == "new-application-token"
+    db.commit.assert_called_once()
+    db.close.assert_called_once()
+
+
 def test_run_due_mail_source_backfills_logs_processed_count():
     from app.main import _run_due_mail_source_backfills
 

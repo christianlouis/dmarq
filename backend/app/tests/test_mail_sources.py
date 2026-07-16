@@ -663,6 +663,22 @@ def test_mail_sources_template_exposes_backfill_progress_controls():
     assert "new Date(" not in template
     assert "`" not in template
     assert not re.search(r"<script\b(?![^>]*\bsrc=)[^>]*>", template, re.IGNORECASE)
+
+
+def test_mail_sources_template_exposes_m365_application_access_safely():
+    template = (Path(__file__).resolve().parents[1] / "templates" / "mail_sources.html").read_text()
+    script = (
+        Path(__file__).resolve().parents[1] / "static" / "js" / "mail-sources-page.js"
+    ).read_text()
+
+    assert 'value="application"' in template
+    assert "Mail.Read application permission" in template
+    assert "Exchange Online RBAC for Applications" in template
+    assert "No redirect URI or user sign-in is used" in template
+    assert "data-mail-source-test-m365" in template
+    assert "data-mail-source-test-m365" in script
+    assert "m365_auth_mode: 'delegated'" in script
+    assert "m365Configured" in script
     assert "canCancelBackfill" in template
     assert "canRetryBackfill" in template
     assert "latestBackfill(source)" in template
@@ -2000,6 +2016,177 @@ class TestMicrosoft365GraphMailSource:
         assert data["m365_connected"] is False
         assert data["m365_email"] is None
 
+    @pytest.mark.parametrize(
+        ("overrides", "expected_detail"),
+        [
+            ({"m365_tenant_id": "common"}, "tenant-specific"),
+            ({"m365_client_id": ""}, "client) ID"),
+            ({"m365_client_secret": ""}, "client secret"),
+            ({"m365_mailbox": ""}, "target mailbox"),
+            ({"m365_mailbox": "me"}, "target mailbox"),
+        ],
+    )
+    def test_application_mode_rejects_incomplete_or_unsafe_configuration(
+        self,
+        authed_client: TestClient,
+        overrides: dict,
+        expected_detail: str,
+    ):
+        payload = {
+            "name": "Application M365",
+            "method": "M365_GRAPH",
+            "m365_auth_mode": "application",
+            "m365_tenant_id": "tenant-id",
+            "m365_client_id": "client-id",
+            "m365_client_secret": "client-secret",
+            "m365_mailbox": "dmarc-reports@example.com",
+        }
+        payload.update(overrides)
+
+        resp = authed_client.post("/api/v1/mail-sources", json=payload)
+
+        assert resp.status_code == 422
+        assert expected_detail in resp.json()["detail"]
+
+    def test_application_mode_is_saved_redacted_and_ready_to_test(
+        self,
+        authed_client: TestClient,
+        db_session: Session,
+    ):
+        resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={
+                "name": "Shared report mailbox",
+                "method": "M365_GRAPH",
+                "m365_auth_mode": "application",
+                "m365_tenant_id": "tenant-id",
+                "m365_client_id": "client-id",
+                "m365_client_secret": "client-secret",
+                "m365_mailbox": "dmarc-reports@example.com",
+            },
+        )
+
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["m365_auth_mode"] == "application"
+        assert data["m365_client_secret"] == "**redacted**"
+        assert data["m365_configured"] is True
+        assert data["m365_connected"] is False
+        assert data["connection_status"] == "ready_to_test"
+        assert data["connection_action_label"] == "Test connection"
+        source = db_session.get(MailSource, data["id"])
+        assert source.m365_client_secret == "client-secret"
+        assert source._m365_client_secret != "client-secret"  # pylint: disable=protected-access
+
+    def test_application_mode_test_acquires_and_persists_access_token(
+        self,
+        authed_client: TestClient,
+        db_session: Session,
+    ):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={
+                "name": "Application test",
+                "method": "M365_GRAPH",
+                "m365_auth_mode": "application",
+                "m365_tenant_id": "tenant-id",
+                "m365_client_id": "client-id",
+                "m365_client_secret": "client-secret",
+                "m365_mailbox": "dmarc-reports@example.com",
+            },
+        )
+        source_id = create_resp.json()["id"]
+        mock_client = MagicMock()
+        mock_client.test_connection.return_value = {
+            "success": True,
+            "message_count": 1,
+            "target_mailbox": "dmarc-reports@example.com",
+        }
+        mock_client.get_refreshed_tokens.return_value = {"access_token": "application-access-token"}
+
+        with patch(
+            "app.api.api_v1.endpoints.mail_sources.MicrosoftGraphClient",
+            return_value=mock_client,
+        ) as client_cls:
+            resp = authed_client.post(f"/api/v1/mail-sources/{source_id}/test")
+
+        assert resp.status_code == 200
+        assert resp.json()["success"] is True
+        assert "dmarc-reports@example.com" in resp.json()["message"]
+        _, kwargs = client_cls.call_args
+        assert kwargs["auth_mode"] == "application"
+        assert kwargs["access_token"] is None
+        assert kwargs["mailbox"] == "dmarc-reports@example.com"
+        source = db_session.get(MailSource, source_id)
+        db_session.refresh(source)
+        assert source.m365_access_token == "application-access-token"
+        assert source.m365_refresh_token is None
+
+    def test_application_mode_rejects_interactive_oauth_endpoints(
+        self,
+        authed_client: TestClient,
+    ):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={
+                "name": "No redirect flow",
+                "method": "M365_GRAPH",
+                "m365_auth_mode": "application",
+                "m365_tenant_id": "tenant-id",
+                "m365_client_id": "client-id",
+                "m365_client_secret": "client-secret",
+                "m365_mailbox": "dmarc-reports@example.com",
+            },
+        )
+        source_id = create_resp.json()["id"]
+
+        authorize = authed_client.get(f"/api/v1/mail-sources/{source_id}/m365/authorize-url")
+        callback = authed_client.post(
+            f"/api/v1/mail-sources/{source_id}/m365/callback",
+            json={"code": "code", "redirect_uri": "https://example.com/callback"},
+        )
+
+        assert authorize.status_code == 400
+        assert "do not use interactive OAuth" in authorize.json()["detail"]
+        assert callback.status_code == 400
+        assert "do not accept" in callback.json()["detail"]
+
+    def test_unchanged_delegated_settings_preserve_existing_tokens(
+        self,
+        authed_client: TestClient,
+        db_session: Session,
+    ):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={
+                "name": "Delegated settings",
+                "method": "M365_GRAPH",
+                "m365_auth_mode": "delegated",
+                "m365_tenant_id": "organizations",
+                "m365_client_id": "client-id",
+                "m365_client_secret": "client-secret",
+            },
+        )
+        source = db_session.get(MailSource, create_resp.json()["id"])
+        source.m365_access_token = "access-token"
+        source.m365_refresh_token = "refresh-token"
+        db_session.commit()
+
+        update = authed_client.put(
+            f"/api/v1/mail-sources/{source.id}",
+            json={
+                "name": "Renamed delegated settings",
+                "m365_auth_mode": "delegated",
+                "m365_tenant_id": "organizations",
+                "m365_client_id": "client-id",
+            },
+        )
+
+        assert update.status_code == 200
+        db_session.refresh(source)
+        assert source.m365_access_token == "access-token"
+        assert source.m365_refresh_token == "refresh-token"
+
     def test_m365_source_test_no_token(self, authed_client: TestClient):
         create_resp = authed_client.post(
             "/api/v1/mail-sources",
@@ -2333,6 +2520,41 @@ class TestMicrosoft365GraphMailSource:
         db_session.refresh(source)
         assert source.m365_access_token == "new-access"
         assert source.m365_refresh_token == "new-refresh"
+
+    def test_m365_application_lists_folders_without_preexisting_token(
+        self,
+        authed_client: TestClient,
+    ):
+        create_resp = authed_client.post(
+            "/api/v1/mail-sources",
+            json={
+                "name": "Application folder list",
+                "method": "M365_GRAPH",
+                "m365_auth_mode": "application",
+                "m365_tenant_id": "tenant-id",
+                "m365_client_id": "client-id",
+                "m365_client_secret": "client-secret",
+                "m365_mailbox": "dmarc-reports@example.com",
+            },
+        )
+        source_id = create_resp.json()["id"]
+        mock_client = MagicMock()
+        mock_client.list_mail_folders.return_value = [
+            {"id": "folder-id", "display_name": "DMARC", "path": "Inbox / DMARC"}
+        ]
+        mock_client.get_refreshed_tokens.return_value = {"access_token": "application-access-token"}
+
+        with patch(
+            "app.api.api_v1.endpoints.mail_sources.MicrosoftGraphClient",
+            return_value=mock_client,
+        ) as client_cls:
+            resp = authed_client.get(f"/api/v1/mail-sources/{source_id}/m365/folders")
+
+        assert resp.status_code == 200
+        assert resp.json()["target_mailbox"] == "dmarc-reports@example.com"
+        _, kwargs = client_cls.call_args
+        assert kwargs["auth_mode"] == "application"
+        assert kwargs["access_token"] is None
 
     def test_m365_list_folders_requires_method_and_token(self, authed_client: TestClient):
         imap_resp = authed_client.post(

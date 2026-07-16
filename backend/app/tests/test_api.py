@@ -8,9 +8,9 @@ from sqlalchemy.exc import IntegrityError
 from starlette.requests import Request
 
 from app.api.api_v1.endpoints import domains as domains_endpoint
-from app.main import app, dashboard, index
+from app.main import app, dashboard
 from app.main import health as root_health
-from app.main import members_page, provider_demo_page, settings
+from app.main import index, members_page, provider_demo_page, settings
 from app.models.domain import Domain
 from app.models.mail_source import MailSource
 from app.models.report import DMARCReport, ReportRecord
@@ -510,6 +510,37 @@ def test_operations_health_surfaces_gmail_reauth_attention(
     assert data["scheduler"]["reauth_required_sources"] == 1
     assert data["scheduler"]["sources"][0]["status"] == "reauth_required"
     assert data["mailbox_recovery"][0]["category"] == "auth_expired"
+
+
+def test_operations_health_accepts_configured_m365_application_source_without_token(
+    authed_client: TestClient,
+    db_session,
+):
+    """Client-credential sources can obtain tokens during each polling cycle."""
+    workspace = get_or_create_default_workspace(db_session)
+    source = MailSource(
+        workspace_id=workspace.id,
+        name="Shared report mailbox",
+        method="M365_GRAPH",
+        enabled=True,
+        m365_auth_mode="application",
+        m365_tenant_id="tenant-id",
+        m365_client_id="client-id",
+        m365_client_secret="client-secret",
+        m365_mailbox="dmarc-reports@example.com",
+        m365_access_token=None,
+    )
+    db_session.add(source)
+    db_session.commit()
+
+    response = authed_client.get("/api/v1/health/operations")
+
+    assert response.status_code == 200
+    source_health = response.json()["scheduler"]["sources"][0]
+    assert source_health["status"] == "ready_to_test"
+    assert source_health["attention"] is False
+    assert source_health["action_label"] == "Test connection"
+    assert source_health["diagnostic_category"] == "ok"
 
 
 def test_setup_status_includes_mailbox_recovery_hint(authed_client: TestClient):

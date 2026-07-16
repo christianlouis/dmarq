@@ -71,6 +71,20 @@ Then:
 6. Change a non-secret `.env` value, recreate the app container, and confirm the
    new value is effective. A plain restart is not sufficient to reload `.env`.
 
+The deterministic setup/import/persistence subset can be run against a fresh
+instance with:
+
+```bash
+python3 scripts/verify-greenfield-product.py
+docker compose up -d --force-recreate --wait app
+python3 scripts/verify-greenfield-product.py --verify-existing
+```
+
+The verifier completes first-run setup, imports the repository DMARC fixture,
+checks exact report/message/compliance totals, rejects a duplicate upload, and
+then confirms the same state after the application container is recreated. Run
+it only against a disposable, unconfigured acceptance instance.
+
 ## Gmail IMAP Check
 
 Use a dedicated Google App Password, never the normal Google account password.

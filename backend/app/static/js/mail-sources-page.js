@@ -23,6 +23,7 @@ function mailSourcesApp() {
         gmailConnected: false,
         gmailEmail: '',
         m365Connected: false,
+        m365Configured: false,
         m365Email: '',
         m365Folders: [],
         m365FoldersLoading: false,
@@ -41,6 +42,7 @@ function mailSourcesApp() {
             enabled: true,
             gmail_client_id: '',
             gmail_client_secret: '',
+            m365_auth_mode: 'delegated',
             m365_tenant_id: 'common',
             m365_client_id: '',
             m365_client_secret: '',
@@ -126,6 +128,9 @@ function mailSourcesApp() {
                 } else if (button.matches('[data-mail-source-connect-m365]')) {
                     event.preventDefault();
                     this.connectM365();
+                } else if (button.matches('[data-mail-source-test-m365]')) {
+                    event.preventDefault();
+                    this.testM365();
                 } else if (button.matches('[data-mail-source-delete-cancel]')) {
                     event.preventDefault();
                     this.deleteTarget = null;
@@ -515,7 +520,11 @@ function mailSourcesApp() {
                 return source.gmail_connected ? 'Connected' : 'Not authorised';
             }
             if (source.method === 'M365_GRAPH') {
-                return source.m365_connected ? 'Connected' : 'Not authorised';
+                if (source.m365_connected) return 'Connected';
+                if (source.m365_auth_mode === 'application' && source.m365_configured) {
+                    return 'Ready to test';
+                }
+                return source.m365_auth_mode === 'application' ? 'Needs configuration' : 'Not authorised';
             }
             return source.username || '—';
         },
@@ -684,6 +693,7 @@ function mailSourcesApp() {
             this.gmailConnected = false;
             this.gmailEmail = '';
             this.m365Connected = false;
+            this.m365Configured = false;
             this.m365Email = '';
             this.m365Folders = [];
             this.m365FoldersError = '';
@@ -700,6 +710,7 @@ function mailSourcesApp() {
                 enabled: true,
                 gmail_client_id: '',
                 gmail_client_secret: '',
+                m365_auth_mode: 'delegated',
                 m365_tenant_id: 'common',
                 m365_client_id: '',
                 m365_client_secret: '',
@@ -715,6 +726,7 @@ function mailSourcesApp() {
             this.gmailConnected = source.gmail_connected || false;
             this.gmailEmail = source.gmail_email || '';
             this.m365Connected = source.m365_connected || false;
+            this.m365Configured = source.m365_configured || false;
             this.m365Email = source.m365_email || '';
             this.m365Folders = [];
             this.m365FoldersError = '';
@@ -731,6 +743,7 @@ function mailSourcesApp() {
                 enabled: source.enabled !== false,
                 gmail_client_id: source.gmail_client_id || '',
                 gmail_client_secret: '',  // never pre-fill client secret
+                m365_auth_mode: source.m365_auth_mode || 'delegated',
                 m365_tenant_id: source.m365_tenant_id || 'common',
                 m365_client_id: source.m365_client_id || '',
                 m365_client_secret: '',  // never pre-fill client secret
@@ -815,6 +828,7 @@ function mailSourcesApp() {
                         const updated = this.sources.find(s => s.id === this.editingId);
                         if (updated) {
                             this.m365Connected = updated.m365_connected || false;
+                            this.m365Configured = updated.m365_configured || false;
                             this.m365Email = updated.m365_email || '';
                             this.form.m365_folder_id = updated.m365_folder_id || this.form.m365_folder_id || '';
                             if (this.m365Connected) {
@@ -828,6 +842,38 @@ function mailSourcesApp() {
                 }, 1000);
             } catch (e) {
                 this.feedback = { message: `Error: ${e.message}`, type: 'error' };
+            }
+        },
+
+        async testM365() {
+            if (!this.editingId) return;
+            this.isTesting = true;
+            this.testResult = this.emptyTestResult();
+            try {
+                const resp = await fetch(`/api/v1/mail-sources/${this.editingId}/test`, {
+                    method: 'POST',
+                });
+                const result = await resp.json();
+                const diagnostic = this.diagnosticFromResult(result);
+                this.testResult = {
+                    success: Boolean(result.success),
+                    message: result.success
+                        ? `Connected. ${result.message}`
+                        : result.message || 'Microsoft 365 connection test failed.',
+                    ...diagnostic,
+                };
+                if (result.success) {
+                    await this.loadSources();
+                    const updated = this.sources.find(source => source.id === this.editingId);
+                    if (updated) {
+                        this.m365Connected = updated.m365_connected || false;
+                        this.m365Configured = updated.m365_configured || false;
+                    }
+                }
+            } catch (e) {
+                this.testResult = { success: false, message: `Test error: ${e.message}` };
+            } finally {
+                this.isTesting = false;
             }
         },
 

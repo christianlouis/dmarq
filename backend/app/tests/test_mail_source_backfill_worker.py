@@ -430,6 +430,55 @@ def test_run_m365_backfill_without_token_moves_to_backoff(db_session):
     assert attempt.status == "failed"
 
 
+def test_run_m365_application_backfill_runs_without_stored_token(db_session, monkeypatch):
+    workspace, source = _source(db_session, method="M365_GRAPH")
+    source.m365_auth_mode = "application"
+    source.m365_tenant_id = "tenant-id"
+    source.m365_access_token = None
+    source.m365_refresh_token = None
+    db_session.commit()
+    row = _job(db_session, workspace, source)
+    captured = {}
+
+    class FakeMicrosoftGraphClient:
+        load_ingested_ids = staticmethod(lambda _value: [])
+        dump_ingested_ids = staticmethod(lambda values: ",".join(values))
+
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def fetch_reports(self, days, **_kwargs):
+            return {
+                "success": True,
+                "processed": 0,
+                "reports_found": 0,
+                "duplicate_reports": 0,
+                "new_domains": [],
+                "new_ingested_ids": [],
+                "errors": [],
+                "details": [],
+            }
+
+        def get_refreshed_tokens(self):
+            return {"access_token": "application-access-token"}
+
+    monkeypatch.setattr(
+        "app.services.mail_source_backfill_worker.MicrosoftGraphClient",
+        FakeMicrosoftGraphClient,
+    )
+
+    assert run_m365_backfill_job(db_session, row) is True
+
+    db_session.refresh(row)
+    db_session.refresh(source)
+    assert row.status == "completed"
+    assert captured["auth_mode"] == "application"
+    assert captured["access_token"] is None
+    assert captured["mailbox"] == "shared@example.com"
+    assert source.m365_access_token == "application-access-token"
+    assert source.m365_refresh_token is None
+
+
 def test_run_m365_backfill_provider_failure_moves_to_backoff(db_session, monkeypatch):
     workspace, source = _source(db_session, method="M365_GRAPH")
     row = _job(db_session, workspace, source, max_attempts=3)

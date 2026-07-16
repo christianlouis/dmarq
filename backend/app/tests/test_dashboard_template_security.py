@@ -2161,6 +2161,7 @@ def test_mail_sources_form_actions_are_bound_from_external_script():
     assert "data-mail-source-test-adhoc" in template
     assert "data-mail-source-connect-gmail" in template
     assert "data-mail-source-connect-m365" in template
+    assert "data-mail-source-test-m365" in template
     assert "data-mail-source-delete-modal" in template
     assert "data-mail-source-delete-cancel" in template
     assert "data-mail-source-delete-confirm" in template
@@ -2173,6 +2174,7 @@ def test_mail_sources_form_actions_are_bound_from_external_script():
     assert "data-mail-source-test-adhoc" in script
     assert "data-mail-source-connect-gmail" in script
     assert "data-mail-source-connect-m365" in script
+    assert "data-mail-source-test-m365" in script
     assert "data-mail-source-delete-cancel" in script
     assert "data-mail-source-delete-confirm" in script
     assert "data-mail-source-form-modal" in script

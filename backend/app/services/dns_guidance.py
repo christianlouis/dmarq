@@ -52,6 +52,7 @@ class DNSLintFinding:
     target_record: Optional[DNSGuidanceRecord] = None
     evidence: List[str] = field(default_factory=list)
     remediation_steps: List[str] = field(default_factory=list)
+    primary_eligible: bool = True
 
 
 @dataclass
@@ -87,6 +88,7 @@ class DNSGuidanceResult:
     target_records: List[DNSGuidanceRecord]
     dns_provider: Optional[DNSProviderDetection] = None
     change_plans: List[DNSChangePlan] = field(default_factory=list)
+    selector_evidence: List[Dict[str, object]] = field(default_factory=list)
 
 
 def _today_id() -> str:
@@ -127,9 +129,7 @@ def _target_records(
     setup_defaults: Optional[MailAuthSetupDefaults] = None,
 ) -> List[DNSGuidanceRecord]:
     defaults = setup_defaults or MailAuthSetupDefaults()
-    dmarc_value = result.dmarc_record or (
-        _dmarc_record_value(domain, defaults)
-    )
+    dmarc_value = result.dmarc_record or (_dmarc_record_value(domain, defaults))
     spf_value = result.spf_record or "v=spf1 -all"
     dkim_selector = (result.dkim_selectors or result.selectors_checked or ["selector1"])[0]
     tls_report_mailbox = _mailbox(defaults.tls_report_mailbox, "tlsrpt", domain)
@@ -243,6 +243,7 @@ def _finding(
     target_record: Optional[DNSGuidanceRecord] = None,
     evidence: Optional[List[str]] = None,
     remediation_steps: Optional[List[str]] = None,
+    primary_eligible: bool = True,
 ) -> DNSLintFinding:
     return DNSLintFinding(
         code=code,
@@ -255,6 +256,7 @@ def _finding(
         target_record=target_record,
         evidence=list(evidence or []),
         remediation_steps=list(remediation_steps or _default_remediation_steps(code)),
+        primary_eligible=primary_eligible,
     )
 
 
@@ -824,6 +826,7 @@ def _dkim_record_findings(
     *,
     has_report_evidence: bool,
     observed_selector_set: set[str],
+    primary_eligible: bool = True,
 ) -> List[DNSLintFinding]:
     findings: List[DNSLintFinding] = []
     if _dkim_record_is_too_short(record):
@@ -844,6 +847,7 @@ def _dkim_record_findings(
                 record_name,
                 target_record=target,
                 evidence=[record],
+                primary_eligible=primary_eligible,
             )
         )
     if has_report_evidence and selector not in observed_selector_set:
@@ -864,6 +868,7 @@ def _dkim_record_findings(
                 record_name,
                 target_record=target,
                 evidence=[record],
+                primary_eligible=primary_eligible,
             )
         )
     return findings
@@ -880,6 +885,8 @@ async def _dkim_cname_finding(
     selector: str,
     record_name: str,
     target: DNSGuidanceRecord,
+    *,
+    primary_eligible: bool = True,
 ) -> Optional[DNSLintFinding]:
     cname_target = await _dkim_cname_target(provider, record_name)
     if not cname_target:
@@ -909,11 +916,16 @@ async def _dkim_cname_finding(
         record_name,
         target_record=target,
         evidence=[f"{record_name} -> {cname_target}"],
+        primary_eligible=primary_eligible,
     )
 
 
 def _dkim_missing_finding(
-    selector: str, record_name: str, target: DNSGuidanceRecord
+    selector: str,
+    record_name: str,
+    target: DNSGuidanceRecord,
+    *,
+    primary_eligible: bool = True,
 ) -> DNSLintFinding:
     return _finding(
         "dkim_selector_missing",
@@ -924,7 +936,62 @@ def _dkim_missing_finding(
         "TXT",
         record_name,
         target_record=target,
+        primary_eligible=primary_eligible,
     )
+
+
+async def _inspect_dkim_selector(
+    provider: BaseDNSProvider,
+    domain: str,
+    result: DomainDNSResult,
+    selector: str,
+    target: DNSGuidanceRecord,
+    *,
+    has_report_evidence: bool,
+    observed_selector_set: set[str],
+    selector_activity: Optional[Dict[str, object]],
+    primary_eligible: bool,
+) -> List[DNSLintFinding]:
+    record_name = f"{selector}._domainkey.{domain}"
+    selector_target = DNSGuidanceRecord(
+        code=target.code,
+        record_type=target.record_type,
+        name=record_name,
+        value=target.value,
+        purpose=target.purpose,
+        priority=target.priority,
+    )
+    record = await _dkim_selector_record(provider, selector, domain)
+    if record:
+        if selector_activity is not None:
+            selector_activity["dns_status"] = "resolved"
+        if not primary_eligible:
+            return []
+        return _dkim_record_findings(
+            selector,
+            record_name,
+            record,
+            selector_target,
+            has_report_evidence=has_report_evidence,
+            observed_selector_set=observed_selector_set,
+        )
+
+    cname_finding = await _dkim_cname_finding(
+        provider,
+        selector,
+        record_name,
+        selector_target,
+    )
+    if cname_finding:
+        if selector_activity is not None:
+            selector_activity["dns_status"] = "broken_cname"
+        return [cname_finding] if primary_eligible else []
+
+    if selector_activity is not None:
+        selector_activity["dns_status"] = "missing"
+    if selector in set(result.dkim_selectors or []) or not primary_eligible:
+        return []
+    return [_dkim_missing_finding(selector, record_name, selector_target)]
 
 
 async def _dkim_selector_findings(
@@ -934,47 +1001,32 @@ async def _dkim_selector_findings(
     target: DNSGuidanceRecord,
     monitored_selectors: List[str],
     observed_selectors: List[str],
+    selector_evidence: Optional[List[Dict[str, object]]] = None,
 ) -> List[DNSLintFinding]:
     findings: List[DNSLintFinding] = []
-    resolved_selectors = set(result.dkim_selectors or [])
     observed_selector_set = set(observed_selectors or [])
     has_report_evidence = bool(observed_selector_set)
+    evidence_by_selector = {
+        str(item.get("selector") or ""): item for item in selector_evidence or []
+    }
 
     for selector in monitored_selectors:
-        record_name = f"{selector}._domainkey.{domain}"
-        selector_target = DNSGuidanceRecord(
-            code=target.code,
-            record_type=target.record_type,
-            name=record_name,
-            value=target.value,
-            purpose=target.purpose,
-            priority=target.priority,
-        )
-        record = await _dkim_selector_record(provider, selector, domain)
-        if record:
-            findings.extend(
-                _dkim_record_findings(
-                    selector,
-                    record_name,
-                    record,
-                    selector_target,
-                    has_report_evidence=has_report_evidence,
-                    observed_selector_set=observed_selector_set,
-                )
+        selector_activity = evidence_by_selector.get(selector)
+        classification = str((selector_activity or {}).get("classification") or "")
+        primary_eligible = not selector_evidence or classification == "active_failing"
+        findings.extend(
+            await _inspect_dkim_selector(
+                provider,
+                domain,
+                result,
+                selector,
+                target,
+                has_report_evidence=has_report_evidence,
+                observed_selector_set=observed_selector_set,
+                selector_activity=selector_activity,
+                primary_eligible=primary_eligible,
             )
-            continue
-
-        cname_finding = await _dkim_cname_finding(
-            provider, selector, record_name, selector_target
         )
-        if cname_finding:
-            findings.append(cname_finding)
-            continue
-
-        if selector not in resolved_selectors:
-            findings.append(
-                _dkim_missing_finding(selector, record_name, selector_target)
-            )
     return findings
 
 
@@ -986,12 +1038,13 @@ async def _dkim_findings(
     *,
     monitored_selectors: Optional[List[str]] = None,
     observed_selectors: Optional[List[str]] = None,
+    selector_evidence: Optional[List[Dict[str, object]]] = None,
 ) -> List[DNSLintFinding]:
     target = _target_by_code(targets, "target_dkim")
     selectors_for_detail = list(
         dict.fromkeys(monitored_selectors or result.selectors_checked or [])
     )
-    if result.dkim and selectors_for_detail:
+    if selectors_for_detail and (result.dkim or selector_evidence is not None):
         return await _dkim_selector_findings(
             provider,
             domain,
@@ -999,6 +1052,7 @@ async def _dkim_findings(
             target,
             selectors_for_detail,
             list(dict.fromkeys(observed_selectors or [])),
+            selector_evidence,
         )
     if result.dkim:
         return []
@@ -1433,6 +1487,8 @@ def build_dns_change_plans(findings: List[DNSLintFinding]) -> List[DNSChangePlan
     """Create read-only operator change plans from DNS lint findings."""
     plans: List[DNSChangePlan] = []
     for finding in findings:
+        if not finding.primary_eligible:
+            continue
         operation = _operation_for_finding(finding)
         proposed_value = _proposed_value(finding)
         if operation == "defer":
@@ -1468,6 +1524,7 @@ async def build_dns_guidance(
     *,
     monitored_selectors: Optional[List[str]] = None,
     observed_selectors: Optional[List[str]] = None,
+    selector_evidence: Optional[List[Dict[str, object]]] = None,
     mail_service_records: Optional[List[Dict[str, str]]] = None,
     setup_defaults: Optional[MailAuthSetupDefaults] = None,
     locale: Optional[str] = None,
@@ -1476,8 +1533,20 @@ async def build_dns_guidance(
     normalized_domain = domain.strip().strip(".").lower()
     dane_result = dane or DANEResult(errors=["No DANE/TLSA context was evaluated."])
     targets = _target_records(normalized_domain, result, setup_defaults=setup_defaults)
+    if selector_evidence is not None:
+        active_selector = next(
+            (
+                str(item.get("selector") or "")
+                for item in selector_evidence
+                if item.get("classification") == "active_failing" and item.get("selector")
+            ),
+            "<provider-selector>",
+        )
+        target_dkim = _target_by_code(targets, "target_dkim")
+        target_dkim.name = f"{active_selector}._domainkey.{normalized_domain}"
     targets.append(_dane_target_record(normalized_domain, dane_result))
     findings: List[DNSLintFinding] = []
+    normalized_selector_evidence = [dict(item) for item in selector_evidence or []]
     findings.extend(_dmarc_findings(normalized_domain, result, targets))
     findings.extend(await _spf_findings(normalized_domain, provider, result, targets))
     findings.extend(
@@ -1488,6 +1557,7 @@ async def build_dns_guidance(
             targets,
             monitored_selectors=monitored_selectors,
             observed_selectors=observed_selectors,
+            selector_evidence=normalized_selector_evidence,
         )
     )
     findings.extend(_mta_sts_findings(mta_sts, targets))
@@ -1503,4 +1573,5 @@ async def build_dns_guidance(
         target_records=targets,
         dns_provider=result.dns_provider,
         change_plans=build_dns_change_plans(findings),
+        selector_evidence=normalized_selector_evidence,
     )

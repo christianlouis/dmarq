@@ -538,6 +538,27 @@ class DNSLintFindingResponse(BaseModel):
     target_record: Optional[DNSGuidanceRecordResponse] = None
     evidence: List[str] = Field(default_factory=list)
     remediation_steps: List[str] = Field(default_factory=list)
+    primary_eligible: bool = True
+
+
+class DKIMSelectorEvidenceResponse(BaseModel):
+    """Report-derived DKIM selector activity shown separately from remediation."""
+
+    selector: str
+    classification: str
+    classification_reason: str
+    first_seen: Optional[int] = None
+    first_seen_at: Optional[str] = None
+    last_seen: Optional[int] = None
+    last_seen_at: Optional[str] = None
+    report_count: int = 0
+    message_count: int = 0
+    current_failure_count: int = 0
+    current_pass_count: int = 0
+    manual_configured: bool = False
+    active_window_days: int = 7
+    recent_window_days: int = 30
+    dns_status: str = "not_checked"
 
 
 class DNSChangePlanItemResponse(BaseModel):
@@ -1120,6 +1141,7 @@ class DNSGuidanceResponse(BaseModel):
     target_records: List[DNSGuidanceRecordResponse]
     dns_provider: Optional[Dict[str, Any]] = None
     change_plans: List[DNSChangePlanItemResponse] = Field(default_factory=list)
+    selector_evidence: List[DKIMSelectorEvidenceResponse] = Field(default_factory=list)
 
 
 class DNSBulkGuidanceItem(BaseModel):
@@ -3041,17 +3063,11 @@ def _get_selectors_from_reports(store: "ReportStore", domain: str) -> List[str]:
     real-world selectors to verify against live DNS, in addition to any
     manually configured selectors.
     """
-    selectors: List[str] = []
-    for report in store.get_domain_reports(domain):
-        for record in report.get("records", []):
-            dkim_entries = record.get("dkim") or []
-            for dkim_entry in dkim_entries:
-                if not isinstance(dkim_entry, dict):
-                    continue
-                sel = dkim_entry.get("selector", "").strip()
-                if sel and sel not in selectors:
-                    selectors.append(sel)
-    return selectors
+    return [
+        str(item["selector"])
+        for item in store.get_domain_selector_evidence(domain)
+        if item.get("selector")
+    ]
 
 
 def _normalize_domain_selectors(selectors: Optional[List[str]]) -> List[str]:
@@ -3614,7 +3630,15 @@ async def _build_domain_dns_health(  # pylint: disable=too-many-locals
 ) -> DNSHealthResponse:
     """Build the shared DNS/posture health payload for a monitored domain."""
     manual_selectors = _get_domain_selectors_from_db(db, domain_id)
-    report_selectors = _get_selectors_from_reports(store, domain_id)
+    selector_evidence = store.get_domain_selector_evidence(
+        domain_id,
+        manual_selectors=manual_selectors,
+    )
+    report_selectors = [
+        str(item["selector"])
+        for item in selector_evidence
+        if int(item.get("report_count") or 0) > 0
+    ]
     combined_selectors = list(dict.fromkeys(manual_selectors + report_selectors))
 
     provider = get_default_provider(db)
@@ -3642,6 +3666,29 @@ async def _build_domain_dns_health(  # pylint: disable=too-many-locals
     bimi_dmarc_ready, bimi_dmarc_issues, bimi_dmarc_evidence = _bimi_dmarc_readiness(
         result.dmarc_record
     )
+    active_failing_selectors = [
+        item for item in selector_evidence if item.get("classification") == "active_failing"
+    ]
+    active_passing_selectors = [
+        item for item in selector_evidence if item.get("classification") == "active_passing"
+    ]
+    report_evidence_exists = any(int(item.get("report_count") or 0) for item in selector_evidence)
+    dated_report_evidence = any(
+        int(item.get("report_count") or 0) and item.get("last_seen") is not None
+        for item in selector_evidence
+    )
+    dkim_healthy = result.dkim
+    dkim_success_message = "At least one DKIM selector resolved."
+    dkim_failure_message = "No DKIM record was found for configured or active failing selectors."
+    if report_evidence_exists and dated_report_evidence and not active_failing_selectors:
+        dkim_healthy = True
+        if active_passing_selectors:
+            dkim_success_message = "Current report evidence shows active DKIM passing traffic."
+        else:
+            dkim_success_message = (
+                "No current DKIM selector failure is present; older selectors remain evidence only."
+            )
+
     checks = [
         _dns_check(
             "dmarc",
@@ -3662,9 +3709,9 @@ async def _build_domain_dns_health(  # pylint: disable=too-many-locals
         _dns_check(
             "dkim",
             "DKIM",
-            result.dkim,
-            "At least one DKIM selector resolved.",
-            "No DKIM record was found for configured or observed selectors.",
+            dkim_healthy,
+            dkim_success_message,
+            dkim_failure_message,
             [
                 _record_evidence(
                     "Selectors checked",
@@ -3732,7 +3779,15 @@ async def _build_domain_dns_guidance(
 ) -> Dict[str, Any]:
     """Build typed DNS lint findings and target records for a monitored domain."""
     manual_selectors = _get_domain_selectors_from_db(db, domain_id)
-    report_selectors = _get_selectors_from_reports(store, domain_id)
+    selector_evidence = store.get_domain_selector_evidence(
+        domain_id,
+        manual_selectors=manual_selectors,
+    )
+    report_selectors = [
+        str(item["selector"])
+        for item in selector_evidence
+        if int(item.get("report_count") or 0) > 0
+    ]
     combined_selectors = list(dict.fromkeys(manual_selectors + report_selectors))
 
     provider = get_default_provider(db)
@@ -3772,6 +3827,7 @@ async def _build_domain_dns_guidance(
         dane_result,
         monitored_selectors=combined_selectors,
         observed_selectors=report_selectors,
+        selector_evidence=selector_evidence,
         mail_service_records=mail_service_records,
         setup_defaults=_mail_auth_setup_defaults(db, stored_domain),
         locale=locale or get_settings().default_locale,

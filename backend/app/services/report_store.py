@@ -2,6 +2,10 @@ import threading
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+ACTIVE_SELECTOR_WINDOW_DAYS = 7
+RECENT_SELECTOR_WINDOW_DAYS = 30
+SECONDS_PER_DAY = 86_400
+
 
 def _auth_status_from_counts(pass_count: int, fail_count: int, unknown_count: int = 0) -> str:
     """Return a compact status label for aggregated authentication results."""
@@ -119,16 +123,18 @@ def _now_timestamp() -> int:
     return int(datetime.now(timezone.utc).timestamp())
 
 
-def _observed_report_window(report: Dict[str, Any]) -> tuple[Optional[int], Optional[int]]:
+def _observed_report_window(
+    report: Dict[str, Any], *, now: Optional[int] = None
+) -> tuple[Optional[int], Optional[int]]:
     """Return a source-observation window, clamped so UI recency never points ahead."""
     begin, end = _report_time_window(report)
     observed_start = begin if begin is not None else end
     observed_end = end if end is not None else begin
-    now = _now_timestamp()
-    if observed_start is not None and observed_start > now:
-        observed_start = now
-    if observed_end is not None and observed_end > now:
-        observed_end = now
+    current_time = int(now if now is not None else _now_timestamp())
+    if observed_start is not None and observed_start > current_time:
+        observed_start = current_time
+    if observed_end is not None and observed_end > current_time:
+        observed_end = current_time
     if observed_start is not None and observed_end is not None and observed_start > observed_end:
         observed_start = observed_end
     return observed_start, observed_end
@@ -138,6 +144,120 @@ def _date_bucket(timestamp: Optional[int]) -> Optional[str]:
     if timestamp is None:
         return None
     return datetime.fromtimestamp(timestamp, tz=timezone.utc).date().isoformat()
+
+
+def _timestamp_iso(timestamp: Optional[int]) -> Optional[str]:
+    if timestamp is None:
+        return None
+    return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat()
+
+
+def _dkim_domain_matches(entry_domain: Any, monitored_domain: str) -> bool:
+    """Keep aligned or potentially relaxed-aligned DKIM evidence for this domain."""
+    value = str(entry_domain or "").strip().strip(".").lower()
+    normalized_domain = monitored_domain.strip().strip(".").lower()
+    if not value:
+        return True
+    return value == normalized_domain or value.endswith(f".{normalized_domain}")
+
+
+def _selector_classification(entry: Dict[str, Any], now: int) -> tuple[str, str]:
+    last_seen = entry.get("last_seen")
+    active_cutoff = now - ACTIVE_SELECTOR_WINDOW_DAYS * SECONDS_PER_DAY
+    recent_cutoff = now - RECENT_SELECTOR_WINDOW_DAYS * SECONDS_PER_DAY
+    current_failures = int(entry.get("current_failure_count") or 0)
+    current_passes = int(entry.get("current_pass_count") or 0)
+
+    if last_seen is not None and int(last_seen) >= active_cutoff and current_failures > 0:
+        return (
+            "active_failing",
+            f"Observed with {current_failures} failing messages in the last "
+            f"{ACTIVE_SELECTOR_WINDOW_DAYS} days.",
+        )
+    if last_seen is not None and int(last_seen) >= active_cutoff and current_passes > 0:
+        return (
+            "active_passing",
+            f"Observed passing DKIM in the last {ACTIVE_SELECTOR_WINDOW_DAYS} days; "
+            "no current selector failure needs DNS remediation.",
+        )
+    if last_seen is not None and int(last_seen) >= recent_cutoff:
+        return (
+            "recently_observed",
+            f"Observed within the last {RECENT_SELECTOR_WINDOW_DAYS} days, but not in "
+            f"the active {ACTIVE_SELECTOR_WINDOW_DAYS}-day failure window.",
+        )
+    report_count = int(entry.get("report_count") or len(entry.get("_report_ids") or []))
+    if report_count > 0:
+        return (
+            "historical",
+            "Only historical report evidence remains; confirm the sender is still used "
+            "before considering a DNS change.",
+        )
+    return (
+        "manually_configured",
+        "Configured by an operator without matching report evidence; keep it visible for "
+        "review, but do not treat it as an active failure.",
+    )
+
+
+def _new_selector_evidence(selector: str) -> Dict[str, Any]:
+    return {
+        "selector": selector,
+        "first_seen": None,
+        "last_seen": None,
+        "message_count": 0,
+        "current_failure_count": 0,
+        "current_pass_count": 0,
+        "_report_ids": set(),
+        "_record_keys": set(),
+    }
+
+
+def _selector_results_from_record(record: Dict[str, Any], domain: str) -> Dict[str, set[str]]:
+    results: Dict[str, set[str]] = {}
+    for auth in record.get("dkim") or []:
+        if not isinstance(auth, dict) or not _dkim_domain_matches(auth.get("domain"), domain):
+            continue
+        selector = str(auth.get("selector") or "").strip()
+        if selector:
+            results.setdefault(selector, set()).add(
+                str(auth.get("result") or "unknown").strip().lower()
+            )
+    return results
+
+
+def _update_selector_evidence(
+    row: Dict[str, Any],
+    *,
+    count: int,
+    report_id: str,
+    record_key: tuple[Any, int],
+    observed_start: Optional[int],
+    observed_end: Optional[int],
+    active_cutoff: int,
+    results: set[str],
+) -> None:
+    if record_key not in row["_record_keys"]:
+        row["_record_keys"].add(record_key)
+        row["message_count"] += count
+    if report_id:
+        row["_report_ids"].add(report_id)
+    if observed_start is not None:
+        row["first_seen"] = (
+            observed_start
+            if row["first_seen"] is None
+            else min(int(row["first_seen"]), observed_start)
+        )
+    if observed_end is not None:
+        row["last_seen"] = (
+            observed_end if row["last_seen"] is None else max(int(row["last_seen"]), observed_end)
+        )
+    if observed_end is None or observed_end < active_cutoff:
+        return
+    if "fail" in results:
+        row["current_failure_count"] += count
+    elif "pass" in results:
+        row["current_pass_count"] += count
 
 
 def _update_source_window(
@@ -428,6 +548,80 @@ class ReportStore:
         if limit is not None:
             return sorted_reports[:limit]
         return sorted_reports
+
+    def get_domain_selector_evidence(
+        self,
+        domain: str,
+        *,
+        manual_selectors: Optional[List[str]] = None,
+        now: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """Derive selector activity and failure evidence from aggregate reports."""
+        current_time = int(now if now is not None else _now_timestamp())
+        active_cutoff = current_time - ACTIVE_SELECTOR_WINDOW_DAYS * SECONDS_PER_DAY
+        evidence: Dict[str, Dict[str, Any]] = {}
+
+        for report in self.get_domain_reports(domain):
+            observed_start, observed_end = _observed_report_window(report, now=current_time)
+            report_id = str(report.get("report_id") or "").strip()
+            for record_index, record in enumerate(report.get("records") or []):
+                count = max(0, int(record.get("count") or 0))
+                for selector, results in _selector_results_from_record(record, domain).items():
+                    row = evidence.setdefault(selector, _new_selector_evidence(selector))
+                    _update_selector_evidence(
+                        row,
+                        count=count,
+                        report_id=report_id,
+                        record_key=(report_id or id(report), record_index),
+                        observed_start=observed_start,
+                        observed_end=observed_end,
+                        active_cutoff=active_cutoff,
+                        results=results,
+                    )
+
+        manual = list(dict.fromkeys(str(value).strip() for value in manual_selectors or []))
+        for selector in manual:
+            if not selector:
+                continue
+            evidence.setdefault(selector, _new_selector_evidence(selector))
+
+        manual_set = set(manual)
+        priority = {
+            "active_failing": 0,
+            "active_passing": 1,
+            "recently_observed": 2,
+            "historical": 3,
+            "manually_configured": 4,
+        }
+        rows: List[Dict[str, Any]] = []
+        for selector, raw in evidence.items():
+            classification, reason = _selector_classification(raw, current_time)
+            rows.append(
+                {
+                    "selector": selector,
+                    "classification": classification,
+                    "classification_reason": reason,
+                    "first_seen": raw["first_seen"],
+                    "first_seen_at": _timestamp_iso(raw["first_seen"]),
+                    "last_seen": raw["last_seen"],
+                    "last_seen_at": _timestamp_iso(raw["last_seen"]),
+                    "report_count": len(raw["_report_ids"]),
+                    "message_count": int(raw["message_count"]),
+                    "current_failure_count": int(raw["current_failure_count"]),
+                    "current_pass_count": int(raw["current_pass_count"]),
+                    "manual_configured": selector in manual_set,
+                    "active_window_days": ACTIVE_SELECTOR_WINDOW_DAYS,
+                    "recent_window_days": RECENT_SELECTOR_WINDOW_DAYS,
+                }
+            )
+        rows.sort(
+            key=lambda row: (
+                priority.get(str(row["classification"]), 99),
+                -int(row.get("last_seen") or 0),
+                str(row["selector"]),
+            )
+        )
+        return rows
 
     def get_domain_sources(self, domain: str, days: int = 30) -> List[Dict[str, Any]]:
         """
