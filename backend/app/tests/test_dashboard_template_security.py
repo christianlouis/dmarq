@@ -366,6 +366,35 @@ def _domain_details_script() -> str:
     return _read_project_file("static", "js", "domain-details-page.js")
 
 
+def test_dashboard_and_domain_overview_use_progressive_disclosure_for_dense_workflows():
+    dashboard = _dashboard_template()
+    domain_details = _domain_details_template()
+
+    assert "Portfolio health" in dashboard
+    assert "Domain health breakdown" in dashboard
+    assert "Queue controls and operational metrics" in dashboard
+    assert "Evidence and workflow details" in dashboard
+    assert re.search(
+        r"<details\b(?=[^>]*\bopen\b)(?=[^>]*\bdata-dashboard-analytics\b)[^>]*>",
+        dashboard,
+    )
+    assert (
+        dashboard.index('id="dashboard-next-action-heading"')
+        < dashboard.index("data-dashboard-analytics")
+        < dashboard.index('data-tour="health-score"')
+        < dashboard.index('data-tour="date-filter"')
+        < dashboard.index("Advanced remediation workflow")
+    )
+    assert "Filter and sort queue" in domain_details
+    assert "Technical workflow details" in domain_details
+    assert "Evidence and workflow details" in domain_details
+    assert "DNS and authentication" in domain_details
+    assert "Source intelligence" in domain_details
+    assert "Sending sources" in domain_details
+    assert "Health history" in domain_details
+    assert "Domain monitored by DMARQ" not in domain_details
+
+
 def test_dashboard_domain_table_uses_safe_dom_rendering():
     """Domain names and counts come from report data and must not be HTML-rendered."""
     script = _dashboard_script()

@@ -62,582 +62,11 @@
         </div>
     </section>
 
-    <section class="rounded-lg bg-white p-6 shadow-sm" x-show="healthSummary && hasReportData" x-cloak data-tour="health-score">
-        <div class="grid gap-6 xl:grid-cols-[18rem_minmax(0,1fr)]">
-            <div class="rounded-lg bg-[#f4f3f2] p-5">
-                <p class="text-xs font-semibold uppercase tracking-wide text-[#2f9da5]">Traffic-weighted health</p>
-                <div class="mt-4 flex items-end gap-4">
-                    <div class="text-6xl font-bold leading-none text-[#120d36]" x-text="healthScore"></div>
-                    <div class="pb-1">
-                        <div class="inline-flex min-w-16 justify-center rounded-md px-3 py-1 text-2xl font-bold"
-                             :class="gradeClass(healthGrade)"
-                             x-text="healthGrade"></div>
-                        <p class="mt-2 text-sm font-semibold capitalize text-[#5f5c78]" x-text="healthStatus"></p>
-                    </div>
-                </div>
-                <p class="mt-4 text-sm text-[#5f5c78]">
-                    <span>Weighted by message volume. </span>
-                    <span x-text="healthAttentionDomains"></span>
-                    <span> of </span>
-                    <span x-text="healthDomainCount"></span>
-                    <span> domains need attention.</span>
-                </p>
-                <div class="mt-5 grid gap-2 border-t border-[#dfdfdf] pt-4 text-sm">
-                    <div class="flex items-center justify-between gap-3">
-                        <span class="text-[#5f5c78]">Remediation activity</span>
-                        <span class="font-semibold text-[#120d36]">
-                            <span x-text="remediationTotals().domains_with_activity || 0"></span>
-                            <span> domains</span>
-                        </span>
-                    </div>
-                    <div class="flex items-center justify-between gap-3">
-                        <span class="text-[#5f5c78]">Operator follow-up</span>
-                        <span class="font-semibold text-[#b8431d]"
-                              x-text="remediationTotals().needs_operator_follow_up || 0"></span>
-                    </div>
-                    <div class="flex items-center justify-between gap-3">
-                        <span class="text-[#5f5c78]">Aging follow-up</span>
-                        <span class="font-semibold text-[#8a2d0d]"
-                              x-text="dashboardRemediationFilterCount('aging_follow_up')"></span>
-                    </div>
-                    <div class="flex items-center justify-between gap-3">
-                        <span class="text-[#5f5c78]">Resolved markers</span>
-                        <span class="font-semibold text-[#247982]"
-                              x-text="remediationTotals().resolved || 0"></span>
-                    </div>
-                    <div class="flex items-center justify-between gap-3">
-                        <span class="text-[#5f5c78]">Verified fixed</span>
-                        <span class="font-semibold text-[#247982]"
-                              x-text="remediationTotals().verified_fixed || 0"></span>
-                    </div>
-                </div>
-                <div class="mt-5 border-t border-[#dfdfdf] pt-4" x-show="hasHealthHistoryPoints">
-                    <div class="mb-3 flex items-center justify-between gap-3">
-                        <p class="text-sm font-semibold text-[#120d36]">Score Trend</p>
-                        <p class="text-sm font-semibold"
-                           :class="healthScoreDeltaClass">
-                            <span x-text="healthScoreDeltaLabel"></span>
-                        </p>
-                    </div>
-                    <div class="h-24">
-                        <canvas id="health-trend-chart" aria-label="System health score trend"></canvas>
-                    </div>
-                </div>
-            </div>
-            <div class="grid gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
-                <div>
-                    <div class="flex items-start justify-between gap-3">
-                        <div>
-                            <h2 class="text-2xl font-semibold tracking-normal text-[#07071f]">More actions</h2>
-                            <p class="mt-1 text-sm text-[#5f5c78]">Additional fixes after the primary next action above.</p>
-                        </div>
-                        <a href="/domains" class="text-sm font-semibold text-[#2f9da5] hover:text-[#272a5f]">Open domains</a>
-                    </div>
-                    <div class="mt-4 grid gap-3">
-                        <template x-if="!hasSecondaryHealthActions">
-                            <div class="rounded-md border border-[#e6e3e1] p-4 text-sm text-[#5f5c78]">
-                                No additional remediation actions. Keep monitoring reports and DNS drift.
-                            </div>
-                        </template>
-                        <template x-for="action in secondaryHealthActions" :key="action.domain + action.type">
-                            <a class="rounded-md border border-[#e6e3e1] p-4 transition hover:border-[#2f9da5] hover:shadow-sm"
-                               :href="domainActionHref(action)">
-                                <div class="flex items-start justify-between gap-3">
-                                    <div>
-                                        <p class="text-xs font-semibold uppercase tracking-wide"
-                                           :class="severityClass(action.severity)"
-                                           x-text="action.severity"></p>
-                                        <h3 class="mt-1 font-semibold text-[#120d36]" x-text="action.title"></h3>
-                                    </div>
-                                    <span class="rounded-full bg-[#edf7f7] px-3 py-1 text-xs font-semibold text-[#247982]">
-                                        +<span x-text="action.score_impact"></span>
-                                    </span>
-                                </div>
-                                <p class="mt-2 text-sm text-[#5f5c78]" x-text="action.detail"></p>
-                                <div x-show="(action.evidence || []).length"
-                                     class="mt-3 flex flex-wrap gap-1.5">
-                                    <template x-for="item in (action.evidence || []).slice(0, 4)"
-                                              :key="item.label + item.value">
-                                        <span class="rounded-full bg-[#f8f7f6] px-2 py-1 text-xs text-[#5f5c78]">
-                                            <span class="font-semibold" x-text="item.label.replaceAll('_', ' ')"></span>
-                                            <span>:</span>
-                                            <span x-text="item.value"></span>
-                                        </span>
-                                    </template>
-                                </div>
-                                <p class="mt-2 text-sm font-semibold text-[#272a5f]" x-text="action.next_step"></p>
-                                <p class="mt-2 text-xs text-[#5f5c78]" x-text="action.domain"></p>
-                                <p class="mt-1 text-xs font-semibold text-[#247982]">Open remediation queue</p>
-                            </a>
-                        </template>
-                    </div>
-                </div>
-                <div>
-                    <h2 class="text-2xl font-semibold tracking-normal text-[#07071f]">Domain Grades</h2>
-                    <div class="mt-4 space-y-3">
-                        <template x-for="domainHealth in healthDomains()" :key="domainHealth.domain">
-                            <a class="flex items-center justify-between gap-3 rounded-md border border-[#e6e3e1] p-3 transition hover:border-[#2f9da5]"
-                               :href="domainHealthHref(domainHealth)">
-                                <div class="min-w-0">
-                                    <p class="truncate font-semibold text-[#120d36]" x-text="domainHealth.domain"></p>
-                                    <p class="mt-1 text-xs capitalize text-[#5f5c78]" x-text="domainHealth.status"></p>
-                                    <template x-if="hasDomainRemediation(domainHealth.domain)">
-                                        <p class="mt-1 text-xs font-semibold"
-                                           :class="remediationStatusClass(domainRemediationStatus(domainHealth.domain))"
-                                           x-text="remediationStatusLabel(domainRemediationStatus(domainHealth.domain))"></p>
-                                    </template>
-                                </div>
-                                <div class="text-right">
-                                    <div class="inline-flex min-w-12 justify-center rounded-md px-2 py-1 text-lg font-bold"
-                                         :class="gradeClass(domainHealth.grade)"
-                                         x-text="domainHealth.grade"></div>
-                                    <p class="mt-1 text-xs text-[#5f5c78]">
-                                        <span x-text="domainHealth.score"></span><span>/100</span>
-                                    </p>
-                                </div>
-                            </a>
-                        </template>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <details class="rounded-lg border border-[#dfdfdf] bg-white shadow-sm"
-             x-show="hasReportData" x-cloak data-tour="date-filter">
+    <details open
+             class="rounded-lg border border-[#dfdfdf] bg-white shadow-sm"
+             x-show="hasReportData" x-cloak data-dashboard-analytics>
         <summary class="flex cursor-pointer list-none flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-                <p class="font-semibold text-[#120d36]">Analytics window</p>
-                <p class="mt-1 text-sm text-[#5f5c78]">Change the evidence period used by trends and report-volume analytics.</p>
-            </div>
-            <span class="w-fit rounded bg-[#f4f3f2] px-2 py-1 text-xs font-semibold text-[#5f5c78]" x-text="dateRangeLabel"></span>
-        </summary>
-        <div class="border-t border-[#dfdfdf] p-4">
-            <div class="flex flex-wrap items-center gap-2">
-                <label class="sr-only" for="dashboard-date-interval">Date range</label>
-                <select id="dashboard-date-interval"
-                        class="rounded-md border border-[#dfdfdf] bg-white px-3 py-2 text-sm font-semibold text-[#120d36]"
-                        x-model="dateInterval"
-                        data-dashboard-date-interval>
-                    <template x-for="option in dateIntervalOptions" :key="option.value">
-                        <option :value="option.value"
-                                :selected="option.value === dateInterval"
-                                x-text="option.label"></option>
-                    </template>
-                </select>
-                <template x-if="dateInterval === 'custom'">
-                    <div class="flex flex-wrap items-center gap-2">
-                        <input type="date"
-                               class="rounded-md border border-[#dfdfdf] bg-white px-3 py-2 text-sm text-[#120d36]"
-                               aria-label="Custom start date"
-                               x-model="customStartDate">
-                        <input type="date"
-                               class="rounded-md border border-[#dfdfdf] bg-white px-3 py-2 text-sm text-[#120d36]"
-                               aria-label="Custom end date"
-                               x-model="customEndDate">
-                        <button type="button"
-                                class="rounded-md bg-[#272a5f] px-3 py-2 text-sm font-semibold text-white hover:bg-[#171346]"
-                                data-dashboard-custom-apply>
-                            Apply
-                        </button>
-                    </div>
-                </template>
-            </div>
-        </div>
-    </details>
-
-    <details class="rounded-lg border border-[#dfdfdf] bg-white shadow-sm"
-             x-show="healthSummary && hasReportData" x-cloak>
-        <summary class="flex cursor-pointer list-none flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-                <p class="font-semibold text-[#120d36]">Advanced remediation workflow</p>
-                <p class="mt-1 text-sm text-[#5f5c78]">Approvals, provider checks, evidence freshness, and the complete fix queue.</p>
-            </div>
-            <span class="w-fit rounded bg-[#edf7f7] px-2 py-1 text-xs font-semibold text-[#247982]">
-                <span x-text="remediationLoop().total_items || remediationTotals().total || 0"></span>
-                <span> active items</span>
-            </span>
-        </summary>
-    <section class="border-t border-[#dfdfdf] p-6">
-        <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-            <div>
-                <p class="text-xs font-semibold uppercase tracking-wide text-[#2f9da5]">Remediation Loop</p>
-                <h2 class="mt-1 text-2xl font-semibold tracking-normal text-[#07071f]">Current fix queue</h2>
-                <p class="mt-2 text-sm text-[#5f5c78]" x-text="remediationLoop().next_action || 'Keep importing reports and monitoring DNS.'"></p>
-                <p class="mt-1 text-xs text-[#5f5c78]" x-show="domainSummaryLoadedAt">
-                    <span>Updated </span><span x-text="domainSummaryLoadedAtLabel"></span>
-                </p>
-            </div>
-            <div class="flex flex-wrap items-center gap-2">
-                <span class="rounded px-2 py-1 text-xs font-semibold"
-                      :class="remediationLoopStatusClass(remediationLoopEffectiveStatus(remediationLoop()))"
-                      x-text="remediationLoopStatusLabel(remediationLoopEffectiveStatus(remediationLoop()))"></span>
-                <span class="rounded bg-[#f4f3f2] px-2 py-1 text-xs font-semibold text-[#45505f]">
-                    <span>Top: </span><span x-text="remediationIncidentLabel(remediationLoop().top_incident_type)"></span>
-                </span>
-                <span class="rounded px-2 py-1 text-xs font-semibold"
-                      :class="remediationCompletionClass(remediationLoop().completion)"
-                      x-text="remediationCompletionLabel(remediationLoop().completion)"></span>
-                <button type="button"
-                        class="rounded border border-[#dfdfdf] bg-white px-3 py-2 text-sm font-semibold text-[#272a5f] hover:border-[#2f9da5] disabled:opacity-60"
-                        :disabled="dashboardLoading || remediationRefreshRunning"
-                        data-dashboard-remediation-refresh>
-                    <span x-show="remediationRefreshRunning" class="loading loading-spinner loading-xs"></span>
-                    <span x-text="remediationRefreshRunning ? 'Refreshing...' : 'Refresh queue'"></span>
-                </button>
-                <a href="/domains" class="text-sm font-semibold text-[#2f9da5] hover:text-[#272a5f]">Open domain worklist</a>
-            </div>
-        </div>
-        <div class="mt-4 rounded-md border border-[#d8ebe8] bg-[#f2fbf9] p-4 text-sm"
-             x-show="remediationLoop().completion">
-            <div class="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                <div>
-                    <p class="font-semibold text-[#120d36]">Remediation loop completion</p>
-                    <p class="mt-1 text-[#5f5c78]" x-text="remediationCompletion().next_step || 'Keep the remediation loop open until every closure gate is represented.'"></p>
-                    <p class="mt-2 text-xs font-semibold text-[#45505f]">
-                        <span x-text="remediationCompletion().criteria_met || 0"></span>
-                        <span>/</span>
-                        <span x-text="remediationCompletion().criteria_total || 0"></span>
-                        <span> completion gates met</span>
-                    </p>
-                </div>
-                <p class="rounded px-2 py-1 text-xs font-semibold"
-                   :class="remediationCompletionClass(remediationLoop().completion)"
-                   x-text="remediationCompletionLabel(remediationLoop().completion)"></p>
-            </div>
-        </div>
-        <div class="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            <div class="rounded-md border border-[#e6e3e1] p-4">
-                <p class="text-sm text-[#5f5c78]">Verified fixed</p>
-                <p class="mt-2 text-3xl font-bold text-[#247982]"
-                   x-text="remediationLoop().verified_fixed || 0"></p>
-                <p class="mt-1 text-xs text-[#5f5c78]">Resolved items no longer observed</p>
-            </div>
-            <div class="rounded-md border border-[#e6e3e1] p-4">
-                <p class="text-sm text-[#5f5c78]">Resolved</p>
-                <p class="mt-2 text-3xl font-bold text-[#247982]"
-                   x-text="remediationLoop().resolved || remediationLoop().fixed || 0"></p>
-                <p class="mt-1 text-xs text-[#5f5c78]">Operator-marked resolved items</p>
-            </div>
-            <div class="rounded-md border border-[#e6e3e1] p-4">
-                <p class="text-sm text-[#5f5c78]">Needs approval</p>
-                <p class="mt-2 text-3xl font-bold text-[#120d36]" x-text="remediationLoop().needs_approval || 0"></p>
-                <p class="mt-1 text-xs text-[#5f5c78]">DNS or policy changes to review</p>
-                <p class="mt-2 text-xs text-[#45505f]">
-                    <span x-text="remediationLoop().verification_pending_operator_approval || 0"></span>
-                    <span> waiting for explicit approval</span>
-                </p>
-            </div>
-            <div class="rounded-md border border-[#e6e3e1] p-4">
-                <p class="text-sm text-[#5f5c78]">Manual action</p>
-                <p class="mt-2 text-3xl font-bold text-[#8a6418]" x-text="remediationLoop().manual_action || 0"></p>
-                <p class="mt-1 text-xs text-[#5f5c78]">Tasks for mail or DNS owners</p>
-            </div>
-            <div class="rounded-md border border-[#e6e3e1] p-4">
-                <p class="text-sm text-[#5f5c78]">Investigate</p>
-                <p class="mt-2 text-3xl font-bold text-[#b8431d]" x-text="remediationLoop().investigate || 0"></p>
-                <p class="mt-1 text-xs text-[#5f5c78]">Sender or report evidence to confirm</p>
-            </div>
-        </div>
-        <div class="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-            <div class="rounded-md border border-[#d8ebe8] bg-[#f2fbf9] p-4">
-                <p class="text-sm text-[#5f5c78]">Repair previews ready</p>
-                <p class="mt-2 text-2xl font-bold text-[#247982]"
-                   x-text="remediationLoop().repair_ready_for_preview || remediationLoop().repair_preview_ready || 0"></p>
-                <p class="mt-1 text-xs text-[#5f5c78]">Provider-backed proposals ready for review</p>
-                <p class="mt-2 text-xs text-[#247982]">
-                    <span x-text="remediationLoop().provider_preview_available || 0"></span><span> provider previews</span>
-                    <span> · </span>
-                    <span x-text="remediationLoop().provider_apply_after_approval || 0"></span><span> apply after approval</span>
-                </p>
-                <p class="mt-1 text-xs text-[#45505f]">
-                    <span x-text="remediationLoop().provider_apply_history || 0"></span><span> apply attempts</span>
-                    <span> · </span>
-                    <span x-text="remediationLoop().provider_apply_verified || 0"></span><span> verified</span>
-                </p>
-            </div>
-            <div class="rounded-md border border-[#d5e9f8] bg-[#f7fbff] p-4">
-                <p class="text-sm text-[#5f5c78]">Notifications ready</p>
-                <p class="mt-2 text-2xl font-bold text-[#24507a]"
-                   x-text="remediationLoop().notification_profile_ready || 0"></p>
-                <p class="mt-1 text-xs text-[#5f5c78]">Operator notification profiles prepared</p>
-                <p class="mt-2 text-xs text-[#24507a]">
-                    <span x-text="remediationLoop().notification_approval_required || 0"></span><span> approval</span>
-                    <span> · </span>
-                    <span x-text="remediationLoop().notification_action_required || 0"></span><span> manual action</span>
-                    <span> · </span>
-                    <span x-text="remediationLoop().notification_investigation_required || 0"></span><span> investigate</span>
-                </p>
-                <p class="mt-1 text-xs text-[#45505f]">
-                    <span x-text="remediationLoop().notification_profiles || 0"></span><span> total profiles</span>
-                    <span> · </span>
-                    <span x-text="remediationLoop().notification_summary_only || 0"></span><span> summary-only</span>
-                </p>
-            </div>
-            <div class="rounded-md border border-[#d5e9f8] bg-[#f7fbff] p-4">
-                <p class="text-sm text-[#5f5c78]">Dispatch activity</p>
-                <p class="mt-2 text-2xl font-bold text-[#24507a]"
-                   x-text="remediationLoop().dispatch_enqueued || 0"></p>
-                <p class="mt-1 text-xs text-[#5f5c78]">Confirmed notification dispatches</p>
-                <p class="mt-2 text-xs text-[#24507a]">
-                    <span x-text="remediationLoop().operator_follow_up || 0"></span><span> domains need follow-up</span>
-                </p>
-                <p class="mt-1 text-xs text-[#8a2d0d]">
-                    <span x-text="dashboardRemediationFilterCount('aging_follow_up')"></span><span> aging follow-ups</span>
-                </p>
-            </div>
-            <div class="rounded-md border border-[#f5dfbd] bg-[#fff8ed] p-4">
-                <p class="text-sm text-[#5f5c78]">Need fresh evidence</p>
-                <p class="mt-2 text-2xl font-bold text-[#8a6418]"
-                   x-text="remediationLoop().repair_needs_evidence || 0"></p>
-                <p class="mt-1 text-xs text-[#5f5c78]">Items that must be verified before closure</p>
-                <p class="mt-2 text-xs text-[#7a4a00]">
-                    <span x-text="remediationLoop().evidence_refresh_dns || 0"></span><span> DNS</span>
-                    <span> · </span>
-                    <span x-text="remediationLoop().evidence_refresh_reports || 0"></span><span> reports</span>
-                    <span> · </span>
-                    <span x-text="remediationLoop().evidence_refresh_reputation || 0"></span><span> reputation</span>
-                    <span> · </span>
-                    <span x-text="remediationLoop().verification_pending_report_evidence || 0"></span><span> manual evidence</span>
-                </p>
-            </div>
-            <div class="rounded-md border border-[#d5e9f8] bg-[#f7fbff] p-4">
-                <p class="text-sm text-[#5f5c78]">Waiting on operator</p>
-                <p class="mt-2 text-2xl font-bold text-[#24507a]"
-                   x-text="remediationLoop().repair_waiting_on_operator || 0"></p>
-                <p class="mt-1 text-xs text-[#5f5c78]">Classification, manual repair, reputation, or review</p>
-                <p class="mt-2 text-xs text-[#24507a]">
-                    <span x-text="remediationLoop().verification_pending_sender_review || 0"></span><span> sender</span>
-                    <span> · </span>
-                    <span x-text="remediationLoop().verification_pending_reputation_review || 0"></span><span> reputation</span>
-                </p>
-            </div>
-            <div class="rounded-md border border-[#e6e3e1] p-4">
-                <p class="text-sm text-[#5f5c78]">Blocked before repair</p>
-                <p class="mt-2 text-2xl font-bold text-[#5f5c78]"
-                   x-text="remediationLoop().repair_readiness_blocked || remediationLoop().repair_blocked || 0"></p>
-                <p class="mt-1 text-xs text-[#5f5c78]">Missing provider values or prerequisites</p>
-                <p class="mt-2 text-xs text-[#5f5c78]">
-                    <span x-text="remediationLoop().verification_blocked_by_prerequisite || 0"></span>
-                    <span> provider values required</span>
-                    <span> · </span>
-                    <span x-text="remediationLoop().provider_apply_blocked || 0"></span><span> apply blocked</span>
-                </p>
-            </div>
-        </div>
-        <div class="mt-5 flex flex-wrap items-center gap-2" x-show="hasRemediationLoopItems()">
-            <label class="flex items-center gap-2 rounded border border-[#e6e3e1] bg-white px-3 py-2 text-xs font-semibold text-[#5f5c78]">
-                <span>Sort</span>
-                <select x-model="dashboardRemediationSort"
-                        class="bg-transparent font-semibold text-[#272a5f] outline-none"
-                        aria-label="Dashboard remediation sort"
-                        data-dashboard-remediation-sort>
-                    <option value="priority">Priority</option>
-                    <option value="readiness">Repair readiness</option>
-                    <option value="freshness">Fresh evidence</option>
-                    <option value="severity">Severity</option>
-                    <option value="dispatch">Dispatch follow-up</option>
-                </select>
-            </label>
-            <template x-for="filter in dashboardRemediationFilterOptions" :key="'dashboard-remediation-filter-' + filter.value">
-                <button type="button"
-                        class="rounded border px-3 py-2 text-xs font-semibold transition"
-                        :class="dashboardRemediationFilterClass(filter.value)"
-                        :aria-pressed="dashboardRemediationFilter === filter.value ? 'true' : 'false'"
-                        :title="dashboardRemediationFilterTitle(filter.value)"
-                        :aria-label="dashboardRemediationFilterTitle(filter.value)"
-                        :data-dashboard-remediation-filter="filter.value">
-                    <span x-text="filter.label"></span>
-                    <span class="ml-1 rounded bg-[#f4f3f2] px-1.5 py-0.5 text-[0.65rem] text-[#45505f]"
-                          x-text="formatLargeNumber(dashboardRemediationFilterCount(filter.value))"></span>
-                </button>
-            </template>
-        </div>
-        <p class="mt-3 text-xs font-semibold text-[#5f5c78]"
-           role="status"
-           x-show="hasRemediationLoopItems()">
-            <span>Showing </span><span x-text="visibleDashboardRemediationItems().length"></span>
-            <span> of </span><span x-text="dashboardRemediationFilteredCount()"></span>
-            <span> remediation cards in </span><span x-text="dashboardRemediationFilterLabel()"></span>
-            <span> view (</span><span x-text="dashboardRemediationTotalCount()"></span><span> total).</span>
-        </p>
-        <div class="mt-5 grid gap-3 lg:grid-cols-2" x-show="hasVisibleDashboardRemediationItems()">
-            <template x-for="item in visibleDashboardRemediationItems()" :key="item.domain + item.type + item.title">
-                <article class="rounded-md border border-[#e6e3e1] p-4 transition hover:border-[#2f9da5] hover:shadow-sm">
-                    <div class="flex items-start justify-between gap-3">
-                        <div class="min-w-0">
-                            <span class="inline-flex rounded-md px-2 py-1 text-xs font-semibold"
-                                  :class="remediationLoopStateClass(item.state)"
-                                  x-text="remediationLoopStateLabel(item.state)"></span>
-                            <span class="ml-2 inline-flex rounded-md bg-[#f8f7f6] px-2 py-1 text-xs font-semibold text-[#5f5c78]"
-                                  x-text="remediationTrackLabel(item.remediation_track)"></span>
-                            <h3 class="mt-2 font-semibold text-[#120d36]" x-text="item.title"></h3>
-                        </div>
-                        <div class="flex shrink-0 flex-col items-end gap-1">
-                            <span class="rounded-full bg-[#f8f7f6] px-3 py-1 text-xs font-semibold text-[#5f5c78]"
-                                  x-text="item.severity"></span>
-                            <span class="rounded-full px-3 py-1 text-xs font-semibold capitalize"
-                                  :class="remediationRiskClass(item.risk_level)"
-                                  x-text="item.priority_band || 'watch'"></span>
-                        </div>
-                    </div>
-                    <p class="mt-2 text-sm text-[#5f5c78]" x-text="item.detail"></p>
-                    <p class="mt-2 text-sm font-semibold text-[#272a5f]" x-text="item.next_step"></p>
-                    <p class="mt-2 rounded border border-[#d8ebe8] bg-[#f2fbf9] p-2 text-xs font-semibold text-[#1f7c83]">
-                        <span>Next action: </span>
-                        <span x-text="dashboardRemediationNextActionText(item)"></span>
-                    </p>
-                    <p class="mt-2 rounded border border-[#f5dfbd] bg-[#fff8ed] p-2 text-xs font-semibold text-[#7a4a00]"
-                       x-show="dashboardRemediationStuckText(item)"
-                       x-text="dashboardRemediationStuckText(item)"></p>
-                    <div class="mt-3 grid gap-2 text-xs text-[#5f5c78] sm:grid-cols-2">
-                        <div>
-                            <p class="font-semibold uppercase tracking-wide text-[#8a879e]">Owner</p>
-                            <p class="mt-1 text-[#120d36]" x-text="item.owner"></p>
-                        </div>
-                        <div>
-                            <p class="font-semibold uppercase tracking-wide text-[#8a879e]">Done when</p>
-                            <p class="mt-1 text-[#120d36]" x-text="item.completion_criteria"></p>
-                        </div>
-                    </div>
-                    <p class="mt-3 rounded border border-[#e6e3e1] bg-[#fbfaf9] p-3 text-xs text-[#5f5c78]"
-                       x-text="item.operator_decision_summary"></p>
-                    <div class="mt-3 rounded border border-[#d5e9f8] bg-[#f7fbff] p-3 text-xs">
-                        <div class="flex flex-wrap items-center justify-between gap-2">
-                            <p class="font-semibold uppercase tracking-wide text-[#24507a]">Repair gate</p>
-                            <span class="rounded px-2 py-1 font-semibold"
-                                  :class="repairProgressionClass(item.repair_progression)"
-                                  x-text="repairProgressionLabel(item.repair_progression)"></span>
-                        </div>
-                        <p class="mt-2 text-[#120d36]" x-text="repairProgressionNextStep(item.repair_progression)"></p>
-                        <div class="mt-2 flex flex-wrap gap-2">
-                            <span class="rounded px-2 py-1 font-semibold"
-                                  :class="repairReadinessClass(item.repair_progression)"
-                                  x-text="repairReadinessLabel(item.repair_progression)"></span>
-                            <span class="rounded bg-white px-2 py-1 font-semibold text-[#5f5c78]">
-                                <span x-text="repairReadinessScore(item.repair_progression)"></span><span>/100 readiness</span>
-                            </span>
-                        </div>
-                        <p class="mt-2 rounded bg-white px-2 py-1 text-[#120d36]">
-                            <span class="font-semibold">Next safe action: </span>
-                            <span x-text="repairProgressionNextSafeAction(item.repair_progression)"></span>
-                        </p>
-                        <p class="mt-2 text-[#45505f]" x-text="repairReadinessReason(item.repair_progression)"></p>
-                        <p class="mt-1 text-[#7a4a00]" x-show="repairReadinessBlockedText(item.repair_progression)"
-                           x-text="repairReadinessBlockedText(item.repair_progression)"></p>
-                    </div>
-                    <div class="mt-3 rounded border border-[#e6e3e1] bg-[#fbfaf9] p-3 text-xs">
-                        <div class="flex flex-wrap items-center justify-between gap-2">
-                            <p class="font-semibold uppercase tracking-wide text-[#8a879e]">Next verification</p>
-                            <span class="rounded px-2 py-1 font-semibold"
-                                  :class="verificationPlanStatusClass(item.verification_plan)"
-                                  x-text="verificationPlanStatusLabel(item.verification_plan)"></span>
-                        </div>
-                        <p class="mt-1 text-[#120d36]" x-text="item.verification_next_check"></p>
-                        <div class="mt-2 grid gap-2 sm:grid-cols-2">
-                            <div class="rounded bg-white px-2 py-1 text-[#45505f]">
-                                <span class="font-semibold">Freshness: </span>
-                                <span x-text="pathValue(item, 'verification_plan.freshness_requirement', 'fresh report or DNS evidence')"></span>
-                            </div>
-                            <div class="rounded bg-white px-2 py-1 text-[#45505f]">
-                                <span class="font-semibold">Closure gate: </span>
-                                <span x-text="pathValue(item, 'verification_plan.closure_gate', item.completion_criteria)"></span>
-                            </div>
-                            <div class="rounded bg-white px-2 py-1 text-[#45505f]">
-                                <span class="font-semibold">Failure mode: </span>
-                                <span x-text="verificationPlanFailureMode(item.verification_plan)"></span>
-                            </div>
-                            <div class="rounded bg-white px-2 py-1 text-[#45505f]">
-                                <span class="font-semibold">Evidence needed: </span>
-                                <span x-text="verificationPlanEvidenceNeededText(item.verification_plan)"></span>
-                            </div>
-                        </div>
-                    </div>
-                    <p class="mt-3 rounded border border-[#d5e9f8] bg-[#f7fbff] p-3 text-xs font-semibold text-[#24507a]"
-                       x-show="dashboardRemediationDispatchText(item)"
-                       x-text="dashboardRemediationDispatchText(item)"></p>
-                    <p class="mt-2 rounded border p-2 text-xs font-semibold"
-                       :class="dashboardRemediationFollowUpAgeClass(item)"
-                       x-show="dashboardRemediationFollowUpAgeText(item)"
-                       x-text="dashboardRemediationFollowUpAgeText(item)"></p>
-                    <div class="mt-3 rounded border border-[#d8ebe8] bg-[#f2fbf9] p-3 text-xs"
-                         x-show="pathValue(item, 'evidence_refresh.required', false)">
-                        <div class="flex flex-wrap items-center justify-between gap-2">
-                            <p class="font-semibold uppercase tracking-wide text-[#247982]">Fresh evidence path</p>
-                            <span class="rounded px-2 py-1 font-semibold"
-                                  :class="evidenceRefreshClass(item.evidence_refresh)"
-                                  x-text="pathValue(item, 'evidence_refresh.label', evidenceRefreshLabel(item.evidence_refresh))"></span>
-                        </div>
-                        <p class="mt-2 text-[#120d36]" x-text="pathValue(item, 'evidence_refresh.recommended_action')"></p>
-                        <p class="mt-1 text-[#45505f]">
-                            <span class="font-semibold">Done when: </span>
-                            <span x-text="pathValue(item, 'evidence_refresh.completion_signal', item.completion_criteria)"></span>
-                        </p>
-                        <p class="mt-2 text-[#7a4a00]"
-                           x-show="remediationStaleEvidenceText(item)"
-                           x-text="remediationStaleEvidenceText(item)"></p>
-                        <a x-show="pathValue(item, 'evidence_refresh.ui_anchor')"
-                           :href="domainEvidenceHref(item)"
-                           class="mt-2 inline-flex rounded bg-white px-2 py-1 font-semibold text-[#1f7c83]">
-                            Open evidence section
-                        </a>
-                    </div>
-                    <p class="mt-2 text-xs text-[#5f5c78]">
-                        <span x-text="item.domain"></span>
-                        <span> · </span>
-                        <a class="font-semibold text-[#1f7c83]"
-                           :href="domainRemediationHref(item.domain)">
-                            Open remediation queue
-                        </a>
-                    </p>
-                </article>
-            </template>
-        </div>
-        <div class="mt-4 rounded border border-[#e6e3e1] bg-white p-4 text-sm"
-             x-show="hasRemediationLoopItems() && !hasVisibleDashboardRemediationItems()">
-            <p class="font-semibold text-[#120d36]" x-text="dashboardRemediationEmptyStateTitle()"></p>
-            <p class="mt-1 text-[#5f5c78]" x-text="dashboardRemediationEmptyStateText()"></p>
-            <p class="mt-2 text-xs font-semibold text-[#8a879e]"
-               x-text="dashboardRemediationEmptyStateMeta()"></p>
-            <button type="button"
-                    class="btn btn-outline btn-xs mt-3 border-[#2f9da5] text-[#1f7c83] hover:border-[#272a5f]"
-                    data-dashboard-remediation-reset-filter>
-                Show all remediation cards
-            </button>
-        </div>
-        <template x-if="hasRemediationLoopItems() && (dashboardRemediationHiddenCount() > 0 || showAllDashboardRemediationItems)">
-            <div class="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs font-semibold text-[#5f5c78]">
-                <p x-show="dashboardRemediationHiddenCount() > 0">
-                    <span>+</span><span x-text="dashboardRemediationHiddenCount()"></span><span> more remediation cards in this view.</span>
-                </p>
-                <p x-show="showAllDashboardRemediationItems && dashboardRemediationHiddenCount() === 0">
-                    <span>Showing all </span><span x-text="dashboardRemediationFilteredCount()"></span><span> matching remediation cards.</span>
-                </p>
-                <button type="button"
-                        class="btn btn-outline btn-xs"
-                        data-dashboard-remediation-toggle-all
-                        x-text="showAllDashboardRemediationItems ? 'Show compact cards' : 'Show all matching cards'">
-                </button>
-            </div>
-        </template>
-        <div class="mt-5 rounded-md border border-[#d8ebe8] bg-[#f2fbf9] p-4 text-sm"
-             x-show="!hasRemediationLoopItems()">
-            <p class="font-semibold text-[#120d36]">No active remediation work queued</p>
-            <p class="mt-1 text-[#5f5c78]">
-                DMARQ did not find a current fix that needs approval, manual action, or sender investigation.
-                Keep importing reports and refreshing DNS evidence so new issues appear here.
-            </p>
-        </div>
-    </section>
-    </details>
-
-    <details class="rounded-lg border border-[#dfdfdf] bg-white shadow-sm"
-             x-show="hasReportData" x-cloak>
-        <summary class="flex cursor-pointer list-none flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-                <p class="font-semibold text-[#120d36]">Analytics and evidence</p>
-                <p class="mt-1 text-sm text-[#5f5c78]">Trends, enforcement, sending sources, changes, and the full domain table.</p>
-            </div>
+            <p class="font-semibold text-[#120d36]">Analytics and evidence</p>
             <span class="w-fit rounded bg-[#f4f3f2] px-2 py-1 text-xs font-semibold text-[#5f5c78]" x-text="dateRangeLabel"></span>
         </summary>
         <div class="space-y-6 border-t border-[#dfdfdf] p-4 sm:p-6">
@@ -821,7 +250,633 @@
     </div>
         </div>
     </details>
-    
+
+    <section class="rounded-lg bg-white p-6 shadow-sm" x-show="healthSummary && hasReportData" x-cloak data-tour="health-score">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+                <p class="text-xs font-semibold uppercase tracking-wide text-[#2f9da5]">Portfolio health</p>
+                <div class="mt-2 flex flex-wrap items-end gap-3">
+                    <span class="text-4xl font-bold leading-none text-[#120d36]" x-text="healthScore"></span>
+                    <span class="inline-flex min-w-11 justify-center rounded px-2 py-1 text-lg font-bold"
+                          :class="gradeClass(healthGrade)"
+                          x-text="healthGrade"></span>
+                    <span class="pb-1 text-sm font-semibold capitalize text-[#5f5c78]" x-text="healthStatus"></span>
+                </div>
+                <p class="mt-2 text-sm text-[#5f5c78]">
+                    <span x-text="healthAttentionDomains"></span>
+                    <span> of </span>
+                    <span x-text="healthDomainCount"></span>
+                    <span> domains need attention.</span>
+                </p>
+            </div>
+            <div class="flex flex-wrap items-center gap-3">
+                <div class="min-w-24 border-l border-[#dfdfdf] pl-3">
+                    <p class="text-xs text-[#5f5c78]">Needs approval</p>
+                    <p class="mt-1 text-lg font-semibold text-[#120d36]" x-text="remediationLoop().needs_approval || 0"></p>
+                </div>
+                <div class="min-w-24 border-l border-[#dfdfdf] pl-3">
+                    <p class="text-xs text-[#5f5c78]">Investigate</p>
+                    <p class="mt-1 text-lg font-semibold text-[#b8431d]" x-text="remediationLoop().investigate || 0"></p>
+                </div>
+                <a href="/domains" class="btn btn-outline btn-sm border-[#dfdfdf] text-[#272a5f] hover:border-[#2f9da5]">
+                    View domains
+                </a>
+            </div>
+        </div>
+        <details class="mt-5 border-t border-[#dfdfdf] pt-4">
+            <summary class="cursor-pointer text-sm font-semibold text-[#272a5f]">
+                Domain health breakdown
+            </summary>
+            <div class="mt-5">
+        <div class="grid gap-6 xl:grid-cols-[18rem_minmax(0,1fr)]">
+            <div class="rounded-lg bg-[#f4f3f2] p-5">
+                <p class="text-xs font-semibold uppercase tracking-wide text-[#2f9da5]">Traffic-weighted health</p>
+                <div class="mt-4 flex items-end gap-4">
+                    <div class="text-6xl font-bold leading-none text-[#120d36]" x-text="healthScore"></div>
+                    <div class="pb-1">
+                        <div class="inline-flex min-w-16 justify-center rounded-md px-3 py-1 text-2xl font-bold"
+                             :class="gradeClass(healthGrade)"
+                             x-text="healthGrade"></div>
+                        <p class="mt-2 text-sm font-semibold capitalize text-[#5f5c78]" x-text="healthStatus"></p>
+                    </div>
+                </div>
+                <p class="mt-4 text-sm text-[#5f5c78]">
+                    <span>Weighted by message volume. </span>
+                    <span x-text="healthAttentionDomains"></span>
+                    <span> of </span>
+                    <span x-text="healthDomainCount"></span>
+                    <span> domains need attention.</span>
+                </p>
+                <div class="mt-5 grid gap-2 border-t border-[#dfdfdf] pt-4 text-sm">
+                    <div class="flex items-center justify-between gap-3">
+                        <span class="text-[#5f5c78]">Remediation activity</span>
+                        <span class="font-semibold text-[#120d36]">
+                            <span x-text="remediationTotals().domains_with_activity || 0"></span>
+                            <span> domains</span>
+                        </span>
+                    </div>
+                    <div class="flex items-center justify-between gap-3">
+                        <span class="text-[#5f5c78]">Operator follow-up</span>
+                        <span class="font-semibold text-[#b8431d]"
+                              x-text="remediationTotals().needs_operator_follow_up || 0"></span>
+                    </div>
+                    <div class="flex items-center justify-between gap-3">
+                        <span class="text-[#5f5c78]">Aging follow-up</span>
+                        <span class="font-semibold text-[#8a2d0d]"
+                              x-text="dashboardRemediationFilterCount('aging_follow_up')"></span>
+                    </div>
+                    <div class="flex items-center justify-between gap-3">
+                        <span class="text-[#5f5c78]">Resolved markers</span>
+                        <span class="font-semibold text-[#247982]"
+                              x-text="remediationTotals().resolved || 0"></span>
+                    </div>
+                    <div class="flex items-center justify-between gap-3">
+                        <span class="text-[#5f5c78]">Verified fixed</span>
+                        <span class="font-semibold text-[#247982]"
+                              x-text="remediationTotals().verified_fixed || 0"></span>
+                    </div>
+                </div>
+                <div class="mt-5 border-t border-[#dfdfdf] pt-4" x-show="hasHealthHistoryPoints">
+                    <div class="mb-3 flex items-center justify-between gap-3">
+                        <p class="text-sm font-semibold text-[#120d36]">Score Trend</p>
+                        <p class="text-sm font-semibold"
+                           :class="healthScoreDeltaClass">
+                            <span x-text="healthScoreDeltaLabel"></span>
+                        </p>
+                    </div>
+                    <div class="h-24">
+                        <canvas id="health-trend-chart" aria-label="System health score trend"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="grid gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
+                <div>
+                    <div class="flex items-start justify-between gap-3">
+                        <div>
+                            <h2 class="text-2xl font-semibold tracking-normal text-[#07071f]">More actions</h2>
+                            <p class="mt-1 text-sm text-[#5f5c78]">Additional fixes after the primary next action above.</p>
+                        </div>
+                        <a href="/domains" class="text-sm font-semibold text-[#2f9da5] hover:text-[#272a5f]">Open domains</a>
+                    </div>
+                    <div class="mt-4 grid gap-3">
+                        <template x-if="!hasSecondaryHealthActions">
+                            <div class="rounded-md border border-[#e6e3e1] p-4 text-sm text-[#5f5c78]">
+                                No additional remediation actions. Keep monitoring reports and DNS drift.
+                            </div>
+                        </template>
+                        <template x-for="action in secondaryHealthActions" :key="action.domain + action.type">
+                            <a class="rounded-md border border-[#e6e3e1] p-4 transition hover:border-[#2f9da5] hover:shadow-sm"
+                               :href="domainActionHref(action)">
+                                <div class="flex items-start justify-between gap-3">
+                                    <div>
+                                        <p class="text-xs font-semibold uppercase tracking-wide"
+                                           :class="severityClass(action.severity)"
+                                           x-text="action.severity"></p>
+                                        <h3 class="mt-1 font-semibold text-[#120d36]" x-text="action.title"></h3>
+                                    </div>
+                                    <span class="rounded-full bg-[#edf7f7] px-3 py-1 text-xs font-semibold text-[#247982]">
+                                        +<span x-text="action.score_impact"></span>
+                                    </span>
+                                </div>
+                                <p class="mt-2 text-sm text-[#5f5c78]" x-text="action.detail"></p>
+                                <div x-show="(action.evidence || []).length"
+                                     class="mt-3 flex flex-wrap gap-1.5">
+                                    <template x-for="item in (action.evidence || []).slice(0, 4)"
+                                              :key="item.label + item.value">
+                                        <span class="rounded-full bg-[#f8f7f6] px-2 py-1 text-xs text-[#5f5c78]">
+                                            <span class="font-semibold" x-text="item.label.replaceAll('_', ' ')"></span>
+                                            <span>:</span>
+                                            <span x-text="item.value"></span>
+                                        </span>
+                                    </template>
+                                </div>
+                                <p class="mt-2 text-sm font-semibold text-[#272a5f]" x-text="action.next_step"></p>
+                                <p class="mt-2 text-xs text-[#5f5c78]" x-text="action.domain"></p>
+                                <p class="mt-1 text-xs font-semibold text-[#247982]">Open remediation queue</p>
+                            </a>
+                        </template>
+                    </div>
+                </div>
+                <div>
+                    <h2 class="text-2xl font-semibold tracking-normal text-[#07071f]">Domain Grades</h2>
+                    <div class="mt-4 space-y-3">
+                        <template x-for="domainHealth in healthDomains()" :key="domainHealth.domain">
+                            <a class="flex items-center justify-between gap-3 rounded-md border border-[#e6e3e1] p-3 transition hover:border-[#2f9da5]"
+                               :href="domainHealthHref(domainHealth)">
+                                <div class="min-w-0">
+                                    <p class="truncate font-semibold text-[#120d36]" x-text="domainHealth.domain"></p>
+                                    <p class="mt-1 text-xs capitalize text-[#5f5c78]" x-text="domainHealth.status"></p>
+                                    <template x-if="hasDomainRemediation(domainHealth.domain)">
+                                        <p class="mt-1 text-xs font-semibold"
+                                           :class="remediationStatusClass(domainRemediationStatus(domainHealth.domain))"
+                                           x-text="remediationStatusLabel(domainRemediationStatus(domainHealth.domain))"></p>
+                                    </template>
+                                </div>
+                                <div class="text-right">
+                                    <div class="inline-flex min-w-12 justify-center rounded-md px-2 py-1 text-lg font-bold"
+                                         :class="gradeClass(domainHealth.grade)"
+                                         x-text="domainHealth.grade"></div>
+                                    <p class="mt-1 text-xs text-[#5f5c78]">
+                                        <span x-text="domainHealth.score"></span><span>/100</span>
+                                    </p>
+                                </div>
+                            </a>
+                        </template>
+                    </div>
+                </div>
+            </div>
+        </div>
+            </div>
+        </details>
+    </section>
+
+    <details class="rounded-lg border border-[#dfdfdf] bg-white shadow-sm"
+             x-show="hasReportData" x-cloak data-tour="date-filter">
+        <summary class="flex cursor-pointer list-none flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <p class="font-semibold text-[#120d36]">Analytics window</p>
+            <span class="w-fit rounded bg-[#f4f3f2] px-2 py-1 text-xs font-semibold text-[#5f5c78]" x-text="dateRangeLabel"></span>
+        </summary>
+        <div class="border-t border-[#dfdfdf] p-4">
+            <div class="flex flex-wrap items-center gap-2">
+                <label class="sr-only" for="dashboard-date-interval">Date range</label>
+                <select id="dashboard-date-interval"
+                        class="rounded-md border border-[#dfdfdf] bg-white px-3 py-2 text-sm font-semibold text-[#120d36]"
+                        x-model="dateInterval"
+                        data-dashboard-date-interval>
+                    <template x-for="option in dateIntervalOptions" :key="option.value">
+                        <option :value="option.value"
+                                :selected="option.value === dateInterval"
+                                x-text="option.label"></option>
+                    </template>
+                </select>
+                <template x-if="dateInterval === 'custom'">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <input type="date"
+                               class="rounded-md border border-[#dfdfdf] bg-white px-3 py-2 text-sm text-[#120d36]"
+                               aria-label="Custom start date"
+                               x-model="customStartDate">
+                        <input type="date"
+                               class="rounded-md border border-[#dfdfdf] bg-white px-3 py-2 text-sm text-[#120d36]"
+                               aria-label="Custom end date"
+                               x-model="customEndDate">
+                        <button type="button"
+                                class="rounded-md bg-[#272a5f] px-3 py-2 text-sm font-semibold text-white hover:bg-[#171346]"
+                                data-dashboard-custom-apply>
+                            Apply
+                        </button>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </details>
+
+    <details class="rounded-lg border border-[#dfdfdf] bg-white shadow-sm"
+             x-show="healthSummary && hasReportData" x-cloak>
+        <summary class="flex cursor-pointer list-none flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <p class="font-semibold text-[#120d36]">Advanced remediation workflow</p>
+            <span class="w-fit rounded bg-[#edf7f7] px-2 py-1 text-xs font-semibold text-[#247982]">
+                <span x-text="remediationLoop().total_items || remediationTotals().total || 0"></span>
+                <span> active items</span>
+            </span>
+        </summary>
+    <section class="border-t border-[#dfdfdf] p-6">
+        <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div>
+                <p class="text-xs font-semibold uppercase tracking-wide text-[#2f9da5]">Remediation Loop</p>
+                <h2 class="mt-1 text-2xl font-semibold tracking-normal text-[#07071f]">Current fix queue</h2>
+                <p class="mt-2 text-sm text-[#5f5c78]" x-text="remediationLoop().next_action || 'Keep importing reports and monitoring DNS.'"></p>
+                <p class="mt-1 text-xs text-[#5f5c78]" x-show="domainSummaryLoadedAt">
+                    <span>Updated </span><span x-text="domainSummaryLoadedAtLabel"></span>
+                </p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <span class="rounded px-2 py-1 text-xs font-semibold"
+                      :class="remediationLoopStatusClass(remediationLoopEffectiveStatus(remediationLoop()))"
+                      x-text="remediationLoopStatusLabel(remediationLoopEffectiveStatus(remediationLoop()))"></span>
+                <span class="rounded bg-[#f4f3f2] px-2 py-1 text-xs font-semibold text-[#45505f]">
+                    <span>Top: </span><span x-text="remediationIncidentLabel(remediationLoop().top_incident_type)"></span>
+                </span>
+                <span class="rounded px-2 py-1 text-xs font-semibold"
+                      :class="remediationCompletionClass(remediationLoop().completion)"
+                      x-text="remediationCompletionLabel(remediationLoop().completion)"></span>
+                <button type="button"
+                        class="rounded border border-[#dfdfdf] bg-white px-3 py-2 text-sm font-semibold text-[#272a5f] hover:border-[#2f9da5] disabled:opacity-60"
+                        :disabled="dashboardLoading || remediationRefreshRunning"
+                        data-dashboard-remediation-refresh>
+                    <span x-show="remediationRefreshRunning" class="loading loading-spinner loading-xs"></span>
+                    <span x-text="remediationRefreshRunning ? 'Refreshing...' : 'Refresh queue'"></span>
+                </button>
+                <a href="/domains" class="text-sm font-semibold text-[#2f9da5] hover:text-[#272a5f]">Open domain worklist</a>
+            </div>
+        </div>
+        <details class="mt-5 rounded-md border border-[#e6e3e1] bg-[#fbfaf9]">
+            <summary class="flex cursor-pointer list-none items-center justify-between gap-3 p-3 text-sm font-semibold text-[#272a5f]">
+                <span>Queue controls and operational metrics</span>
+                <span class="rounded bg-white px-2 py-1 text-xs font-semibold text-[#5f5c78]">
+                    <span x-text="remediationLoop().total_items || remediationTotals().total || 0"></span>
+                    <span> items</span>
+                </span>
+            </summary>
+            <div class="border-t border-[#e6e3e1] p-3">
+        <div class="mt-4 rounded-md border border-[#d8ebe8] bg-[#f2fbf9] p-4 text-sm"
+             x-show="remediationLoop().completion">
+            <div class="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                <div>
+                    <p class="font-semibold text-[#120d36]">Remediation loop completion</p>
+                    <p class="mt-1 text-[#5f5c78]" x-text="remediationCompletion().next_step || 'Keep the remediation loop open until every closure gate is represented.'"></p>
+                    <p class="mt-2 text-xs font-semibold text-[#45505f]">
+                        <span x-text="remediationCompletion().criteria_met || 0"></span>
+                        <span>/</span>
+                        <span x-text="remediationCompletion().criteria_total || 0"></span>
+                        <span> completion gates met</span>
+                    </p>
+                </div>
+                <p class="rounded px-2 py-1 text-xs font-semibold"
+                   :class="remediationCompletionClass(remediationLoop().completion)"
+                   x-text="remediationCompletionLabel(remediationLoop().completion)"></p>
+            </div>
+        </div>
+        <div class="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <div class="rounded-md border border-[#e6e3e1] p-4">
+                <p class="text-sm text-[#5f5c78]">Verified fixed</p>
+                <p class="mt-2 text-3xl font-bold text-[#247982]"
+                   x-text="remediationLoop().verified_fixed || 0"></p>
+                <p class="mt-1 text-xs text-[#5f5c78]">Resolved items no longer observed</p>
+            </div>
+            <div class="rounded-md border border-[#e6e3e1] p-4">
+                <p class="text-sm text-[#5f5c78]">Resolved</p>
+                <p class="mt-2 text-3xl font-bold text-[#247982]"
+                   x-text="remediationLoop().resolved || remediationLoop().fixed || 0"></p>
+                <p class="mt-1 text-xs text-[#5f5c78]">Operator-marked resolved items</p>
+            </div>
+            <div class="rounded-md border border-[#e6e3e1] p-4">
+                <p class="text-sm text-[#5f5c78]">Needs approval</p>
+                <p class="mt-2 text-3xl font-bold text-[#120d36]" x-text="remediationLoop().needs_approval || 0"></p>
+                <p class="mt-1 text-xs text-[#5f5c78]">DNS or policy changes to review</p>
+                <p class="mt-2 text-xs text-[#45505f]">
+                    <span x-text="remediationLoop().verification_pending_operator_approval || 0"></span>
+                    <span> waiting for explicit approval</span>
+                </p>
+            </div>
+            <div class="rounded-md border border-[#e6e3e1] p-4">
+                <p class="text-sm text-[#5f5c78]">Manual action</p>
+                <p class="mt-2 text-3xl font-bold text-[#8a6418]" x-text="remediationLoop().manual_action || 0"></p>
+                <p class="mt-1 text-xs text-[#5f5c78]">Tasks for mail or DNS owners</p>
+            </div>
+            <div class="rounded-md border border-[#e6e3e1] p-4">
+                <p class="text-sm text-[#5f5c78]">Investigate</p>
+                <p class="mt-2 text-3xl font-bold text-[#b8431d]" x-text="remediationLoop().investigate || 0"></p>
+                <p class="mt-1 text-xs text-[#5f5c78]">Sender or report evidence to confirm</p>
+            </div>
+        </div>
+        <div class="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+            <div class="rounded-md border border-[#d8ebe8] bg-[#f2fbf9] p-4">
+                <p class="text-sm text-[#5f5c78]">Repair previews ready</p>
+                <p class="mt-2 text-2xl font-bold text-[#247982]"
+                   x-text="remediationLoop().repair_ready_for_preview || remediationLoop().repair_preview_ready || 0"></p>
+                <p class="mt-1 text-xs text-[#5f5c78]">Provider-backed proposals ready for review</p>
+                <p class="mt-2 text-xs text-[#247982]">
+                    <span x-text="remediationLoop().provider_preview_available || 0"></span><span> provider previews</span>
+                    <span> · </span>
+                    <span x-text="remediationLoop().provider_apply_after_approval || 0"></span><span> apply after approval</span>
+                </p>
+                <p class="mt-1 text-xs text-[#45505f]">
+                    <span x-text="remediationLoop().provider_apply_history || 0"></span><span> apply attempts</span>
+                    <span> · </span>
+                    <span x-text="remediationLoop().provider_apply_verified || 0"></span><span> verified</span>
+                </p>
+            </div>
+            <div class="rounded-md border border-[#d5e9f8] bg-[#f7fbff] p-4">
+                <p class="text-sm text-[#5f5c78]">Notifications ready</p>
+                <p class="mt-2 text-2xl font-bold text-[#24507a]"
+                   x-text="remediationLoop().notification_profile_ready || 0"></p>
+                <p class="mt-1 text-xs text-[#5f5c78]">Operator notification profiles prepared</p>
+                <p class="mt-2 text-xs text-[#24507a]">
+                    <span x-text="remediationLoop().notification_approval_required || 0"></span><span> approval</span>
+                    <span> · </span>
+                    <span x-text="remediationLoop().notification_action_required || 0"></span><span> manual action</span>
+                    <span> · </span>
+                    <span x-text="remediationLoop().notification_investigation_required || 0"></span><span> investigate</span>
+                </p>
+                <p class="mt-1 text-xs text-[#45505f]">
+                    <span x-text="remediationLoop().notification_profiles || 0"></span><span> total profiles</span>
+                    <span> · </span>
+                    <span x-text="remediationLoop().notification_summary_only || 0"></span><span> summary-only</span>
+                </p>
+            </div>
+            <div class="rounded-md border border-[#d5e9f8] bg-[#f7fbff] p-4">
+                <p class="text-sm text-[#5f5c78]">Dispatch activity</p>
+                <p class="mt-2 text-2xl font-bold text-[#24507a]"
+                   x-text="remediationLoop().dispatch_enqueued || 0"></p>
+                <p class="mt-1 text-xs text-[#5f5c78]">Confirmed notification dispatches</p>
+                <p class="mt-2 text-xs text-[#24507a]">
+                    <span x-text="remediationLoop().operator_follow_up || 0"></span><span> domains need follow-up</span>
+                </p>
+                <p class="mt-1 text-xs text-[#8a2d0d]">
+                    <span x-text="dashboardRemediationFilterCount('aging_follow_up')"></span><span> aging follow-ups</span>
+                </p>
+            </div>
+            <div class="rounded-md border border-[#f5dfbd] bg-[#fff8ed] p-4">
+                <p class="text-sm text-[#5f5c78]">Need fresh evidence</p>
+                <p class="mt-2 text-2xl font-bold text-[#8a6418]"
+                   x-text="remediationLoop().repair_needs_evidence || 0"></p>
+                <p class="mt-1 text-xs text-[#5f5c78]">Items that must be verified before closure</p>
+                <p class="mt-2 text-xs text-[#7a4a00]">
+                    <span x-text="remediationLoop().evidence_refresh_dns || 0"></span><span> DNS</span>
+                    <span> · </span>
+                    <span x-text="remediationLoop().evidence_refresh_reports || 0"></span><span> reports</span>
+                    <span> · </span>
+                    <span x-text="remediationLoop().evidence_refresh_reputation || 0"></span><span> reputation</span>
+                    <span> · </span>
+                    <span x-text="remediationLoop().verification_pending_report_evidence || 0"></span><span> manual evidence</span>
+                </p>
+            </div>
+            <div class="rounded-md border border-[#d5e9f8] bg-[#f7fbff] p-4">
+                <p class="text-sm text-[#5f5c78]">Waiting on operator</p>
+                <p class="mt-2 text-2xl font-bold text-[#24507a]"
+                   x-text="remediationLoop().repair_waiting_on_operator || 0"></p>
+                <p class="mt-1 text-xs text-[#5f5c78]">Classification, manual repair, reputation, or review</p>
+                <p class="mt-2 text-xs text-[#24507a]">
+                    <span x-text="remediationLoop().verification_pending_sender_review || 0"></span><span> sender</span>
+                    <span> · </span>
+                    <span x-text="remediationLoop().verification_pending_reputation_review || 0"></span><span> reputation</span>
+                </p>
+            </div>
+            <div class="rounded-md border border-[#e6e3e1] p-4">
+                <p class="text-sm text-[#5f5c78]">Blocked before repair</p>
+                <p class="mt-2 text-2xl font-bold text-[#5f5c78]"
+                   x-text="remediationLoop().repair_readiness_blocked || remediationLoop().repair_blocked || 0"></p>
+                <p class="mt-1 text-xs text-[#5f5c78]">Missing provider values or prerequisites</p>
+                <p class="mt-2 text-xs text-[#5f5c78]">
+                    <span x-text="remediationLoop().verification_blocked_by_prerequisite || 0"></span>
+                    <span> provider values required</span>
+                    <span> · </span>
+                    <span x-text="remediationLoop().provider_apply_blocked || 0"></span><span> apply blocked</span>
+                </p>
+            </div>
+        </div>
+        <div class="mt-5 flex flex-wrap items-center gap-2" x-show="hasRemediationLoopItems()">
+            <label class="flex items-center gap-2 rounded border border-[#e6e3e1] bg-white px-3 py-2 text-xs font-semibold text-[#5f5c78]">
+                <span>Sort</span>
+                <select x-model="dashboardRemediationSort"
+                        class="bg-transparent font-semibold text-[#272a5f] outline-none"
+                        aria-label="Dashboard remediation sort"
+                        data-dashboard-remediation-sort>
+                    <option value="priority">Priority</option>
+                    <option value="readiness">Repair readiness</option>
+                    <option value="freshness">Fresh evidence</option>
+                    <option value="severity">Severity</option>
+                    <option value="dispatch">Dispatch follow-up</option>
+                </select>
+            </label>
+            <template x-for="filter in dashboardRemediationFilterOptions" :key="'dashboard-remediation-filter-' + filter.value">
+                <button type="button"
+                        class="rounded border px-3 py-2 text-xs font-semibold transition"
+                        :class="dashboardRemediationFilterClass(filter.value)"
+                        :aria-pressed="dashboardRemediationFilter === filter.value ? 'true' : 'false'"
+                        :title="dashboardRemediationFilterTitle(filter.value)"
+                        :aria-label="dashboardRemediationFilterTitle(filter.value)"
+                        :data-dashboard-remediation-filter="filter.value">
+                    <span x-text="filter.label"></span>
+                    <span class="ml-1 rounded bg-[#f4f3f2] px-1.5 py-0.5 text-[0.65rem] text-[#45505f]"
+                          x-text="formatLargeNumber(dashboardRemediationFilterCount(filter.value))"></span>
+                </button>
+            </template>
+        </div>
+        <p class="mt-3 text-xs font-semibold text-[#5f5c78]"
+           role="status"
+           x-show="hasRemediationLoopItems()">
+            <span>Showing </span><span x-text="visibleDashboardRemediationItems().length"></span>
+            <span> of </span><span x-text="dashboardRemediationFilteredCount()"></span>
+            <span> remediation cards in </span><span x-text="dashboardRemediationFilterLabel()"></span>
+            <span> view (</span><span x-text="dashboardRemediationTotalCount()"></span><span> total).</span>
+        </p>
+            </div>
+        </details>
+        <div class="mt-5 grid gap-3 lg:grid-cols-2" x-show="hasVisibleDashboardRemediationItems()">
+            <template x-for="item in visibleDashboardRemediationItems()" :key="item.domain + item.type + item.title">
+                <article class="rounded-md border border-[#e6e3e1] p-4 transition hover:border-[#2f9da5] hover:shadow-sm">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                            <span class="inline-flex rounded-md px-2 py-1 text-xs font-semibold"
+                                  :class="remediationLoopStateClass(item.state)"
+                                  x-text="remediationLoopStateLabel(item.state)"></span>
+                            <span class="ml-2 inline-flex rounded-md bg-[#f8f7f6] px-2 py-1 text-xs font-semibold text-[#5f5c78]"
+                                  x-text="remediationTrackLabel(item.remediation_track)"></span>
+                            <h3 class="mt-2 font-semibold text-[#120d36]" x-text="item.title"></h3>
+                        </div>
+                        <div class="flex shrink-0 flex-col items-end gap-1">
+                            <span class="rounded-full bg-[#f8f7f6] px-3 py-1 text-xs font-semibold text-[#5f5c78]"
+                                  x-text="item.severity"></span>
+                            <span class="rounded-full px-3 py-1 text-xs font-semibold capitalize"
+                                  :class="remediationRiskClass(item.risk_level)"
+                                  x-text="item.priority_band || 'watch'"></span>
+                        </div>
+                    </div>
+                    <p class="mt-2 text-sm text-[#5f5c78]" x-text="item.detail"></p>
+                    <p class="mt-2 text-sm font-semibold text-[#272a5f]" x-text="item.next_step"></p>
+                    <p class="mt-2 rounded border border-[#d8ebe8] bg-[#f2fbf9] p-2 text-xs font-semibold text-[#1f7c83]">
+                        <span>Next action: </span>
+                        <span x-text="dashboardRemediationNextActionText(item)"></span>
+                    </p>
+                    <p class="mt-2 rounded border border-[#f5dfbd] bg-[#fff8ed] p-2 text-xs font-semibold text-[#7a4a00]"
+                       x-show="dashboardRemediationStuckText(item)"
+                       x-text="dashboardRemediationStuckText(item)"></p>
+                    <div class="mt-3 flex items-center justify-between gap-3">
+                        <a class="text-sm font-semibold text-[#1f7c83] hover:text-[#272a5f]"
+                           :href="domainRemediationHref(item.domain)">
+                            Open domain
+                        </a>
+                        <span class="text-xs text-[#5f5c78]" x-text="item.domain"></span>
+                    </div>
+                    <details class="mt-3 rounded border border-[#e6e3e1] bg-[#fbfaf9]">
+                        <summary class="cursor-pointer px-3 py-2 text-xs font-semibold text-[#272a5f]">
+                            Evidence and workflow details
+                        </summary>
+                        <div class="border-t border-[#e6e3e1] p-3">
+                    <div class="mt-3 grid gap-2 text-xs text-[#5f5c78] sm:grid-cols-2">
+                        <div>
+                            <p class="font-semibold uppercase tracking-wide text-[#8a879e]">Owner</p>
+                            <p class="mt-1 text-[#120d36]" x-text="item.owner"></p>
+                        </div>
+                        <div>
+                            <p class="font-semibold uppercase tracking-wide text-[#8a879e]">Done when</p>
+                            <p class="mt-1 text-[#120d36]" x-text="item.completion_criteria"></p>
+                        </div>
+                    </div>
+                    <p class="mt-3 rounded border border-[#e6e3e1] bg-[#fbfaf9] p-3 text-xs text-[#5f5c78]"
+                       x-text="item.operator_decision_summary"></p>
+                    <div class="mt-3 rounded border border-[#d5e9f8] bg-[#f7fbff] p-3 text-xs">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <p class="font-semibold uppercase tracking-wide text-[#24507a]">Repair gate</p>
+                            <span class="rounded px-2 py-1 font-semibold"
+                                  :class="repairProgressionClass(item.repair_progression)"
+                                  x-text="repairProgressionLabel(item.repair_progression)"></span>
+                        </div>
+                        <p class="mt-2 text-[#120d36]" x-text="repairProgressionNextStep(item.repair_progression)"></p>
+                        <div class="mt-2 flex flex-wrap gap-2">
+                            <span class="rounded px-2 py-1 font-semibold"
+                                  :class="repairReadinessClass(item.repair_progression)"
+                                  x-text="repairReadinessLabel(item.repair_progression)"></span>
+                            <span class="rounded bg-white px-2 py-1 font-semibold text-[#5f5c78]">
+                                <span x-text="repairReadinessScore(item.repair_progression)"></span><span>/100 readiness</span>
+                            </span>
+                        </div>
+                        <p class="mt-2 rounded bg-white px-2 py-1 text-[#120d36]">
+                            <span class="font-semibold">Next safe action: </span>
+                            <span x-text="repairProgressionNextSafeAction(item.repair_progression)"></span>
+                        </p>
+                        <p class="mt-2 text-[#45505f]" x-text="repairReadinessReason(item.repair_progression)"></p>
+                        <p class="mt-1 text-[#7a4a00]" x-show="repairReadinessBlockedText(item.repair_progression)"
+                           x-text="repairReadinessBlockedText(item.repair_progression)"></p>
+                    </div>
+                    <div class="mt-3 rounded border border-[#e6e3e1] bg-[#fbfaf9] p-3 text-xs">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <p class="font-semibold uppercase tracking-wide text-[#8a879e]">Next verification</p>
+                            <span class="rounded px-2 py-1 font-semibold"
+                                  :class="verificationPlanStatusClass(item.verification_plan)"
+                                  x-text="verificationPlanStatusLabel(item.verification_plan)"></span>
+                        </div>
+                        <p class="mt-1 text-[#120d36]" x-text="item.verification_next_check"></p>
+                        <div class="mt-2 grid gap-2 sm:grid-cols-2">
+                            <div class="rounded bg-white px-2 py-1 text-[#45505f]">
+                                <span class="font-semibold">Freshness: </span>
+                                <span x-text="pathValue(item, 'verification_plan.freshness_requirement', 'fresh report or DNS evidence')"></span>
+                            </div>
+                            <div class="rounded bg-white px-2 py-1 text-[#45505f]">
+                                <span class="font-semibold">Closure gate: </span>
+                                <span x-text="pathValue(item, 'verification_plan.closure_gate', item.completion_criteria)"></span>
+                            </div>
+                            <div class="rounded bg-white px-2 py-1 text-[#45505f]">
+                                <span class="font-semibold">Failure mode: </span>
+                                <span x-text="verificationPlanFailureMode(item.verification_plan)"></span>
+                            </div>
+                            <div class="rounded bg-white px-2 py-1 text-[#45505f]">
+                                <span class="font-semibold">Evidence needed: </span>
+                                <span x-text="verificationPlanEvidenceNeededText(item.verification_plan)"></span>
+                            </div>
+                        </div>
+                    </div>
+                    <p class="mt-3 rounded border border-[#d5e9f8] bg-[#f7fbff] p-3 text-xs font-semibold text-[#24507a]"
+                       x-show="dashboardRemediationDispatchText(item)"
+                       x-text="dashboardRemediationDispatchText(item)"></p>
+                    <p class="mt-2 rounded border p-2 text-xs font-semibold"
+                       :class="dashboardRemediationFollowUpAgeClass(item)"
+                       x-show="dashboardRemediationFollowUpAgeText(item)"
+                       x-text="dashboardRemediationFollowUpAgeText(item)"></p>
+                    <div class="mt-3 rounded border border-[#d8ebe8] bg-[#f2fbf9] p-3 text-xs"
+                         x-show="pathValue(item, 'evidence_refresh.required', false)">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <p class="font-semibold uppercase tracking-wide text-[#247982]">Fresh evidence path</p>
+                            <span class="rounded px-2 py-1 font-semibold"
+                                  :class="evidenceRefreshClass(item.evidence_refresh)"
+                                  x-text="pathValue(item, 'evidence_refresh.label', evidenceRefreshLabel(item.evidence_refresh))"></span>
+                        </div>
+                        <p class="mt-2 text-[#120d36]" x-text="pathValue(item, 'evidence_refresh.recommended_action')"></p>
+                        <p class="mt-1 text-[#45505f]">
+                            <span class="font-semibold">Done when: </span>
+                            <span x-text="pathValue(item, 'evidence_refresh.completion_signal', item.completion_criteria)"></span>
+                        </p>
+                        <p class="mt-2 text-[#7a4a00]"
+                           x-show="remediationStaleEvidenceText(item)"
+                           x-text="remediationStaleEvidenceText(item)"></p>
+                        <a x-show="pathValue(item, 'evidence_refresh.ui_anchor')"
+                           :href="domainEvidenceHref(item)"
+                           class="mt-2 inline-flex rounded bg-white px-2 py-1 font-semibold text-[#1f7c83]">
+                            Open evidence section
+                        </a>
+                    </div>
+                        </div>
+                    </details>
+                    <p class="mt-2 text-xs text-[#5f5c78]">
+                        <span x-text="item.domain"></span>
+                        <span> · </span>
+                        <a class="font-semibold text-[#1f7c83]"
+                           :href="domainRemediationHref(item.domain)">
+                            Open remediation queue
+                        </a>
+                    </p>
+                </article>
+            </template>
+        </div>
+        <div class="mt-4 rounded border border-[#e6e3e1] bg-white p-4 text-sm"
+             x-show="hasRemediationLoopItems() && !hasVisibleDashboardRemediationItems()">
+            <p class="font-semibold text-[#120d36]" x-text="dashboardRemediationEmptyStateTitle()"></p>
+            <p class="mt-1 text-[#5f5c78]" x-text="dashboardRemediationEmptyStateText()"></p>
+            <p class="mt-2 text-xs font-semibold text-[#8a879e]"
+               x-text="dashboardRemediationEmptyStateMeta()"></p>
+            <button type="button"
+                    class="btn btn-outline btn-xs mt-3 border-[#2f9da5] text-[#1f7c83] hover:border-[#272a5f]"
+                    data-dashboard-remediation-reset-filter>
+                Show all remediation cards
+            </button>
+        </div>
+        <template x-if="hasRemediationLoopItems() && (dashboardRemediationHiddenCount() > 0 || showAllDashboardRemediationItems)">
+            <div class="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs font-semibold text-[#5f5c78]">
+                <p x-show="dashboardRemediationHiddenCount() > 0">
+                    <span>+</span><span x-text="dashboardRemediationHiddenCount()"></span><span> more remediation cards in this view.</span>
+                </p>
+                <p x-show="showAllDashboardRemediationItems && dashboardRemediationHiddenCount() === 0">
+                    <span>Showing all </span><span x-text="dashboardRemediationFilteredCount()"></span><span> matching remediation cards.</span>
+                </p>
+                <button type="button"
+                        class="btn btn-outline btn-xs"
+                        data-dashboard-remediation-toggle-all
+                        x-text="showAllDashboardRemediationItems ? 'Show compact cards' : 'Show all matching cards'">
+                </button>
+            </div>
+        </template>
+        <div class="mt-5 rounded-md border border-[#d8ebe8] bg-[#f2fbf9] p-4 text-sm"
+             x-show="!hasRemediationLoopItems()">
+            <p class="font-semibold text-[#120d36]">No active remediation work queued</p>
+            <p class="mt-1 text-[#5f5c78]">
+                DMARQ did not find a current fix that needs approval, manual action, or sender investigation.
+                Keep importing reports and refreshing DNS evidence so new issues appear here.
+            </p>
+        </div>
+    </section>
+    </details>
+
     <!-- No Data Message -->
     <div x-show="!dashboardLoading && !dashboardError && !hasReportData" x-cloak>
         {% call card() %}
