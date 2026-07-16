@@ -1,0 +1,13 @@
+existingSecret: dmarq-test
+image:
+  tag: docker-stable
+config:
+  publicBaseUrl: http://dmarq.dmarq-test.svc.cluster.local
+bootstrap:
+  enabled: true
+  ownerEmail: owner@example.com
+persistence:
+  enabled: false
+postgresql:
+  persistence:
+    enabled: false

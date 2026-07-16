@@ -143,8 +143,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Bootstrap a new standalone environment
-        run: ./scripts/bootstrap-docker-env.sh
+      - name: Validate and render a new standalone environment
+        run: |
+          python3 scripts/dmarqctl.py \
+            --config docs/deployment/examples/agent-install.compose.json \
+            --json preflight
+          python3 scripts/dmarqctl.py \
+            --config docs/deployment/examples/agent-install.compose.json \
+            --json bootstrap --no-start
 
       - name: Build and start the documented stack
         run: >-
@@ -158,7 +164,13 @@ jobs:
           curl -fsS http://127.0.0.1:8080/healthz
           curl -fsS http://127.0.0.1:8080/api/v1/health
           ./scripts/verify-docker-compose.sh
-          python3 scripts/verify-greenfield-product.py
+          python3 scripts/dmarqctl.py \
+            --config docs/deployment/examples/agent-install.compose.json \
+            --json bootstrap --setup-existing
+          python3 scripts/verify-greenfield-product.py --configured
+          python3 scripts/dmarqctl.py \
+            --config docs/deployment/examples/agent-install.compose.json \
+            --json status
           docker image inspect \
             --format '{{ json .Config.ExposedPorts }}' dmarq-app:local | grep -q '8080/tcp'
 
@@ -168,7 +180,13 @@ jobs:
             -f docker-compose.yml \
             -f docker-compose.build.yml \
             up -d --force-recreate --wait app
+          python3 scripts/dmarqctl.py \
+            --config docs/deployment/examples/agent-install.compose.json \
+            --json bootstrap --setup-existing
           python3 scripts/verify-greenfield-product.py --verify-existing
+          python3 scripts/dmarqctl.py \
+            --config docs/deployment/examples/agent-install.compose.json \
+            --json status
 
       - name: Show logs on failure
         if: failure()
@@ -177,6 +195,90 @@ jobs:
       - name: Remove the disposable stack
         if: always()
         run: docker compose -f docker-compose.yml -f docker-compose.build.yml down -v --remove-orphans
+
+  agentic-kubernetes:
+    name: Agentic Helm And Terraform
+    runs-on: ubuntu-latest
+    needs: lint
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.19.0
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.12.2
+          terraform_wrapper: false
+
+      - name: Validate Helm and Terraform packaging
+        run: |
+          helm lint deploy/helm/dmarq -f deploy/helm/dmarq/ci/test-values.yaml
+          helm template dmarq deploy/helm/dmarq \
+            --namespace dmarq \
+            -f deploy/helm/dmarq/ci/test-values.yaml \
+            > /tmp/dmarq.yaml
+          terraform fmt -recursive -check deploy/terraform
+          terraform -chdir=deploy/terraform/modules/kubernetes-dmarq init -backend=false
+          terraform -chdir=deploy/terraform/modules/kubernetes-dmarq validate
+          terraform -chdir=deploy/terraform/examples/kubernetes init -backend=false
+          terraform -chdir=deploy/terraform/examples/kubernetes validate
+
+      - name: Create disposable Kubernetes cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: dmarq-ci
+
+      - name: Create test-only secret boundary
+        run: |
+          kubectl create namespace dmarq
+          kubectl --namespace dmarq create secret generic dmarq \
+            --from-literal=DATABASE_URL='postgresql://dmarq:test-database-password@dmarq-postgresql:5432/dmarq' \
+            --from-literal=SECRET_KEY='ci-only-not-a-secret-ci-only-not-a-secret' \
+            --from-literal=ADMIN_API_KEY='ci-only-not-an-api-key-ci-only-not-an-api-key' \
+            --from-literal=POSTGRES_DB='dmarq' \
+            --from-literal=POSTGRES_USER='dmarq' \
+            --from-literal=POSTGRES_PASSWORD='test-database-password'
+
+      - name: Apply, verify, upgrade, and check drift
+        working-directory: deploy/terraform/tests/kind
+        run: |
+          terraform init -backend=false
+          terraform apply -auto-approve
+          kubectl --namespace dmarq rollout status deployment/dmarq --timeout=10m
+          kubectl --namespace dmarq port-forward service/dmarq 18080:80 >/tmp/dmarq-port-forward.log 2>&1 &
+          PORT_FORWARD_PID=$!
+          trap 'kill "$PORT_FORWARD_PID" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:18080/healthz; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              cat /tmp/dmarq-port-forward.log
+              exit 1
+            fi
+            sleep 2
+          done
+          curl --fail --silent http://127.0.0.1:18080/api/v1/setup/status \
+            | grep -q '"is_setup_complete":true'
+          terraform apply -auto-approve -var='project_name=DMARQ CI Upgrade'
+          terraform plan -detailed-exitcode -var='project_name=DMARQ CI Upgrade'
+
+      - name: Destroy disposable release
+        if: always()
+        working-directory: deploy/terraform/tests/kind
+        run: |
+          if [ -d .terraform ]; then
+            terraform destroy -auto-approve -var='project_name=DMARQ CI Upgrade'
+          fi
+          kubectl --namespace dmarq get all || true
 
   security:
     name: Security Scan

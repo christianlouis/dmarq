@@ -1,0 +1,11 @@
+DMARQ has been installed as {{ include "dmarq.fullname" . }}.
+
+Check readiness:
+  kubectl -n {{ .Release.Namespace }} rollout status deployment/{{ include "dmarq.fullname" . }}
+  kubectl -n {{ .Release.Namespace }} port-forward service/{{ include "dmarq.fullname" . }} 8080:{{ .Values.service.port }}
+  curl --fail http://127.0.0.1:8080/healthz
+
+The Secret {{ .Values.existingSecret }} is referenced, not managed by this chart.
+{{- if not .Values.bootstrap.enabled }}
+First-run setup was not automated. Complete it in the browser or enable bootstrap with an owner email.
+{{- end }}

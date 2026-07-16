@@ -32,6 +32,11 @@ application, API, and database secrets, and never prints those values. Open
 [http://localhost:8080](http://localhost:8080) after both containers are
 healthy.
 
+For unattended setup, use the versioned
+[Agentic Installation](agentic-installation.md) contract. `dmarqctl` performs
+machine-readable preflight, renders the same Compose environment safely, starts
+the published image, and completes first-run setup without a browser.
+
 The default is a local single-user installation:
 
 - DMARQ is bound to `127.0.0.1`, not every network interface.
@@ -237,6 +242,9 @@ through Secrets/ConfigMaps, use a cluster-managed PostgreSQL service if desired,
 and pin the released `ghcr.io/christianlouis/dmarq` image. Docker-only variables
 `DMARQ_BIND_ADDRESS`, `DMARQ_PORT`, and `POSTGRES_*` are consumed by Compose and
 do not need to exist in Kubernetes.
+
+Use the supported [Kubernetes, Helm, and Terraform](kubernetes-terraform.md)
+package for new cluster deployments instead of translating Compose manually.
 
 ## Troubleshooting
 

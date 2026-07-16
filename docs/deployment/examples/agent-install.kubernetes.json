@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "1",
+  "deployment": {
+    "mode": "kubernetes",
+    "image": "ghcr.io/christianlouis/dmarq:docker-stable",
+    "publicBaseUrl": "https://dmarq.example.com",
+    "namespace": "dmarq",
+    "releaseName": "dmarq",
+    "existingSecret": "dmarq",
+    "chartPath": "deploy/helm/dmarq"
+  },
+  "product": {
+    "profile": "single-user",
+    "ownerEmail": "owner@example.com",
+    "appName": "DMARQ",
+    "language": "en",
+    "authentication": {
+      "mode": "oidc"
+    }
+  },
+  "database": {
+    "mode": "bundled",
+    "name": "dmarq",
+    "user": "dmarq"
+  }
+}

@@ -123,6 +123,10 @@ def _initialize(base_url: str, fixture: Path, owner_email: str) -> None:
         },
     )
 
+    _import_fixture(base_url, fixture)
+
+
+def _import_fixture(base_url: str, fixture: Path) -> None:
     uploaded = _upload_fixture(base_url, fixture)
     assert uploaded["success"] is True
     assert uploaded["domain"] == "example.com"
@@ -139,6 +143,7 @@ def main() -> int:
     parser.add_argument("--fixture", type=Path, default=DEFAULT_FIXTURE)
     parser.add_argument("--owner-email", default="greenfield-test@dmarq.org")
     parser.add_argument("--verify-existing", action="store_true")
+    parser.add_argument("--configured", action="store_true")
     args = parser.parse_args()
 
     if not args.verify_existing and not args.fixture.is_file():
@@ -148,6 +153,12 @@ def main() -> int:
         if args.verify_existing:
             _assert_persisted_product_state(args.base_url)
             print("Greenfield product persistence verified.")
+        elif args.configured:
+            status = _request(args.base_url, "/api/v1/setup/status")
+            assert status["is_setup_complete"] is True
+            assert status["total_domains"] == 0
+            _import_fixture(args.base_url, args.fixture)
+            print("Configured greenfield fixture import and totals verified.")
         else:
             _initialize(args.base_url, args.fixture, args.owner_email)
             print("Greenfield setup, fixture import, totals, and duplicate handling verified.")

@@ -1,0 +1,12 @@
+apiVersion: v2
+name: dmarq
+description: Self-hosted DMARC report analysis and remediation
+type: application
+version: 0.1.0
+appVersion: "1.172.4"
+home: https://dmarq.org
+sources:
+  - https://github.com/christianlouis/dmarq
+maintainers:
+  - name: DMARQ maintainers
+    url: https://github.com/christianlouis/dmarq

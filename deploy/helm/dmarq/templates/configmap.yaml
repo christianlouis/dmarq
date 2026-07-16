@@ -1,0 +1,20 @@
+{{- include "dmarq.requirements" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "dmarq.fullname" . }}
+  labels:
+    {{- include "dmarq.labels" . | nindent 4 }}
+data:
+  PROJECT_NAME: {{ .Values.config.projectName | quote }}
+  ENVIRONMENT: {{ .Values.config.environment | quote }}
+  PUBLIC_BASE_URL: {{ .Values.config.publicBaseUrl | quote }}
+  LANGUAGE: {{ .Values.config.language | quote }}
+  AUTH_MODE: {{ .Values.config.authMode | quote }}
+  AUTH_DISABLED: {{ eq .Values.config.authMode "disabled" | quote }}
+  ALLOW_AUTH_DISABLED_IN_PRODUCTION: {{ .Values.config.allowAuthDisabledInProduction | quote }}
+  MULTI_WORKSPACE_UI_ENABLED: {{ ne .Values.config.profile "single-user" | quote }}
+  PROVIDER_BOOTSTRAP_DEFAULT_PLANS: {{ eq .Values.config.profile "provider" | quote }}
+  {{- range $name, $value := .Values.config.extraEnv }}
+  {{ $name }}: {{ $value | quote }}
+  {{- end }}

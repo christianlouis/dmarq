@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dmarq.org/schemas/install-v1.schema.json",
+  "title": "DMARQ agent installation contract v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "deployment", "product"],
+  "properties": {
+    "schemaVersion": {
+      "const": "1"
+    },
+    "deployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "publicBaseUrl"],
+      "properties": {
+        "mode": {
+          "enum": ["compose", "kubernetes"]
+        },
+        "image": {
+          "type": "string",
+          "minLength": 1,
+          "default": "ghcr.io/christianlouis/dmarq:docker-stable"
+        },
+        "bindAddress": {
+          "type": "string",
+          "default": "127.0.0.1"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 8080
+        },
+        "publicBaseUrl": {
+          "type": "string",
+          "format": "uri"
+        },
+        "envFile": {
+          "type": "string",
+          "minLength": 1,
+          "default": ".env"
+        },
+        "namespace": {
+          "type": "string",
+          "minLength": 1,
+          "default": "dmarq"
+        },
+        "releaseName": {
+          "type": "string",
+          "minLength": 1,
+          "default": "dmarq"
+        },
+        "existingSecret": {
+          "type": "string",
+          "minLength": 1
+        },
+        "chartPath": {
+          "type": "string",
+          "minLength": 1,
+          "default": "deploy/helm/dmarq"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"mode": {"const": "kubernetes"}},
+            "required": ["mode"]
+          },
+          "then": {
+            "required": ["existingSecret"]
+          }
+        }
+      ]
+    },
+    "product": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "ownerEmail"],
+      "properties": {
+        "profile": {
+          "enum": ["single-user", "multi-workspace", "provider"]
+        },
+        "ownerEmail": {
+          "type": "string",
+          "format": "email"
+        },
+        "appName": {
+          "type": "string",
+          "minLength": 1,
+          "default": "DMARQ"
+        },
+        "language": {
+          "type": "string",
+          "minLength": 2,
+          "default": "en"
+        },
+        "authentication": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "enum": ["disabled", "logto", "oidc", "authentik", "trusted_proxy"],
+              "default": "disabled"
+            }
+          }
+        }
+      }
+    },
+    "database": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": ["bundled", "external"],
+          "default": "bundled"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "default": "dmarq"
+        },
+        "user": {
+          "type": "string",
+          "minLength": 1,
+          "default": "dmarq"
+        },
+        "urlEnv": {
+          "$ref": "#/$defs/environmentVariable"
+        }
+      }
+    },
+    "secrets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "secretKey": {
+          "$ref": "#/$defs/secretSource"
+        },
+        "adminApiKey": {
+          "$ref": "#/$defs/secretSource"
+        },
+        "databasePassword": {
+          "$ref": "#/$defs/secretSource"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "environmentVariable": {
+      "type": "string",
+      "pattern": "^[A-Z_][A-Z0-9_]*$"
+    },
+    "secretSource": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["generate"],
+          "properties": {
+            "generate": {
+              "const": true
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["env"],
+          "properties": {
+            "env": {
+              "$ref": "#/$defs/environmentVariable"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
