@@ -9,6 +9,7 @@ on an internal network, and publishes DMARQ only on
 
 - Docker Engine 24 or later
 - Docker Compose v2.20 or later (`docker compose version`)
+- Linux AMD64 or ARM64 host
 - OpenSSL
 - Python 3.10 or later for `scripts/verify-docker-compose.sh`
 - 2 GB RAM minimum, 4 GB recommended
@@ -102,7 +103,8 @@ values are present and no source already exists.
 `docker-stable` is the normal installation channel. `docker-latest` tracks a
 successfully built `main` branch for preview testing. Production and Kubernetes
 operators should prefer an immutable release or short-SHA tag when exact
-rollback and auditability matter.
+rollback and auditability matter. Published release, short-SHA, `docker-stable`,
+and `docker-latest` tags include Linux AMD64 and ARM64 manifests.
 
 ### Build The Checkout Instead
 

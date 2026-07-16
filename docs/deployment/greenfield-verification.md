@@ -136,7 +136,8 @@ values and are not required in a Kubernetes application pod.
 Keep the following non-secret evidence with the release or issue:
 
 - tested image reference and digest;
-- clean-host platform versions;
+- clean-host platform versions and architecture;
+- published Linux AMD64 and ARM64 manifest entries;
 - Compose service health;
 - health and release endpoint results;
 - successful setup and fixture-import totals;

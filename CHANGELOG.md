@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Published `docker-stable`, `docker-latest`, immutable release, and short-SHA
+  images for both Linux AMD64 and ARM64, and made the release gate reject an
+  incomplete architecture manifest before promotion.
 - Distinguished active failing DKIM selectors from active passing, recent,
   historical, and manually configured evidence. Only current selector failures
   now enter the primary DNS remediation flow; rotation history remains visible
