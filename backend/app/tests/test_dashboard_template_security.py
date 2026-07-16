@@ -374,10 +374,9 @@ def test_dashboard_and_domain_overview_use_progressive_disclosure_for_dense_work
     assert "Domain health breakdown" in dashboard
     assert "Queue controls and operational metrics" in dashboard
     assert "Evidence and workflow details" in dashboard
-    assert re.search(
-        r"<details\b(?=[^>]*\bopen\b)(?=[^>]*\bdata-dashboard-analytics\b)[^>]*>",
-        dashboard,
-    )
+    analytics_start = dashboard.index("data-dashboard-analytics")
+    analytics_tag = dashboard[dashboard.rfind("<details", 0, analytics_start) : analytics_start]
+    assert " open" not in analytics_tag
     assert (
         dashboard.index('id="dashboard-next-action-heading"')
         < dashboard.index("data-dashboard-analytics")
@@ -598,8 +597,8 @@ def test_dashboard_remediation_cards_show_owner_and_completion_context():
     assert "Show all matching cards" in template
     assert "Show compact cards" in template
     assert "Fresh evidence path" in template
-    assert "evidenceRefreshLabel(workload.primary.evidence_refresh)" in script
-    assert "Evidence: provider value required" in script
+    assert "evidenceRefreshLabel(item.evidence_refresh)" in template
+    assert "evidenceRefreshLabel(refresh)" in script
     assert "remediationRefreshRunning" in script
     assert "dashboardRefreshError" in script
     assert "Showing the previously loaded dashboard data." in script
@@ -1227,7 +1226,7 @@ def test_dashboard_remediation_stale_evidence_links_to_evidence_anchor():
     )
 
 
-def test_domain_list_remediation_cell_shows_provider_workload_summary():
+def test_domain_list_remediation_cell_keeps_provider_workload_summary_compact():
     result = _run_dashboard_expression("""(() => {
             global.document = {
                 createElement: (tagName) => {
@@ -1288,23 +1287,10 @@ def test_domain_list_remediation_cell_shows_provider_workload_summary():
         })()""")
 
     assert "3 open" in result
-    assert "2 provider preview" in result
-    assert "1 apply-ready" in result
-    assert "1 apply blocked" in result
-    assert "2 apply history" in result
-    assert "1 verified" in result
-    assert "3 notify-ready" in result
-    assert "1 approval" in result
-    assert "1 action" in result
-    assert "1 investigate" in result
-    assert "4 profiles" in result
-    assert "1 summary-only" in result
-    assert "1 dispatched" in result
-    assert "1 follow-up" in result
-    assert "1 aging follow-up" in result
-    assert "Dispatch enqueued" in result
-    assert "Open the remediation queue" in result
-    assert "Follow-up waiting since" in result
+    assert "Review provider repair" in result
+    assert "provider preview" not in result
+    assert "notify-ready" not in result
+    assert "aging follow-up" not in result
 
 
 def test_domain_details_remediation_queue_shows_verification_context():
@@ -3356,3 +3342,52 @@ def test_dashboard_poll_summary_uses_fallback_message_without_sources():
         _run_dashboard_poll_summary({"sources_polled": 0, "message": "No mailbox configured."})
         == "No mailbox configured."
     )
+
+
+def test_dashboard_keeps_evidence_folded_and_domain_rows_compact():
+    template = _dashboard_template()
+    script = _dashboard_script()
+    analytics_start = template.index("data-dashboard-analytics")
+    analytics_tag = template[template.rfind("<details", 0, analytics_start) : analytics_start]
+
+    assert " open" not in analytics_tag
+    assert "Analytics and evidence" in template
+    assert "All-time imported evidence" in template
+    assert "All-time volume" in template
+    assert "Failed{% endcall %}" not in template
+    assert "Reports{% endcall %}" not in template
+    assert "createTextCell(this.formatLargeNumber(domain.failed_count" not in script
+    assert "createTextCell(this.formatLargeNumber(domain.report_count" not in script
+    assert "workload?.primary?.title" in script
+
+
+def test_public_demo_marks_mutations_and_disables_them_in_shared_shell():
+    domains = _domains_template()
+    reports = _reports_template()
+    mail_sources = _mail_sources_template()
+    settings = _read_project_file("templates", "settings.html")
+    base_script = _read_project_file("static", "js", "base-layout.js")
+
+    assert domains.count("data-demo-mutation") >= 2
+    assert "data-demo-mutation" in reports
+    assert 'data-demo-readonly-scope="mail-sources"' in mail_sources
+    assert 'data-demo-readonly-scope="settings"' in settings
+    assert "enforcePublicDemoReadOnlyUi" in base_script
+    assert "MutationObserver" in base_script
+    assert "attributeFilter: ['disabled', 'aria-disabled']" in base_script
+    assert "data-demo-readonly-scope" in base_script
+    assert "data-demo-readonly-disabled" not in base_script
+    assert "demoReadonlyDisabled" in base_script
+
+
+def test_reports_and_mobile_navigation_have_compact_small_screen_views():
+    reports = _reports_template()
+    base = _read_project_file("templates", "layouts", "base.html")
+
+    assert '<div class="hidden md:block">' in reports
+    assert 'class="grid gap-3 md:hidden"' in reports
+    assert "View details" in reports
+    assert "'mobile-' + report.report_id" in reports
+    assert "`mobile-${report.report_id}`" not in reports
+    assert "Mail<br>Sources" in base
+    assert base.count("min-w-0 place-items-center overflow-hidden") == 5

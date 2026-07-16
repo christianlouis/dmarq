@@ -47,6 +47,12 @@ Use **Refresh** to reload the aggregate report list from the backend. If the
 backend cannot answer temporarily, DMARQ keeps the last loaded reports visible
 and shows a warning instead of replacing the table with an empty state.
 
+On small screens, reports are shown as compact cards with the domain, report
+date, pass rate, message count, reporter, and one clear detail action. Loading,
+error, and empty states retain the same recovery actions as the desktop list.
+Preset date ranges use inclusive UTC calendar days, so **Last 30 days** covers
+today and the preceding 29 UTC dates consistently across Reports and Dashboard.
+
 ### Aggregate Report Details
 
 To view details of a specific aggregate report:

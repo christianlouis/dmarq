@@ -49,7 +49,7 @@ from app.services.cloudflare_oauth import (
     persist_cloudflare_oauth_tokens,
 )
 from app.services.dane import check_dane_cached
-from app.services.demo_data import DEMO_DAYS, build_demo_health_score_history
+from app.services.demo_data import DEMO_DAYS, DEMO_DOMAINS, build_demo_health_score_history
 from app.services.dns_cache import (
     get_cached_domain_dns_result,
     get_latest_cached_domain_dns_evidence,
@@ -5582,6 +5582,21 @@ async def get_domain_ownership(
     domain_name = normalize_domain_name(domain_id)
     domain = workspace_domain_query(db, workspace).filter(Domain.name == domain_name).first()
     if domain is None:
+        if uses_legacy_demo_fixtures(get_settings()) and domain_name in DEMO_DOMAINS:
+            return DomainOwnershipResponse(
+                domain=domain_name,
+                verified=False,
+                proof_record_name=_ownership_record_name(domain_name),
+                proof_record_value="Not available in the read-only demo",
+                proof_reason=(
+                    "The public demo uses seeded report evidence and cannot verify DNS ownership. "
+                    "A self-hosted installation returns a unique TXT proof before DNS writes."
+                ),
+                next_steps=[
+                    "Install DMARQ with DEMO_MODE=false to create an ownership proof.",
+                    "Publish the generated TXT record, then check ownership after DNS propagation.",
+                ],
+            )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Domain not found",

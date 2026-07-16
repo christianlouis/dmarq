@@ -306,6 +306,24 @@ def test_domain_ownership_endpoint_returns_dns_proof(
     assert db_session.query(Domain).filter(Domain.name == DOMAIN).one().verification_token
 
 
+def test_demo_domain_ownership_endpoint_returns_read_only_context(
+    authed_client: TestClient,
+    monkeypatch,
+):
+    """Seeded demo domains explain ownership instead of returning a broken 404."""
+    monkeypatch.setattr(domains_endpoint, "uses_legacy_demo_fixtures", lambda _settings: True)
+
+    response = authed_client.get("/api/v1/domains/dmarq.com/ownership")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["domain"] == "dmarq.com"
+    assert data["verified"] is False
+    assert data["proof_record_type"] == "TXT"
+    assert data["proof_record_value"] == "Not available in the read-only demo"
+    assert "cannot verify DNS ownership" in data["proof_reason"]
+
+
 def test_domain_ownership_verify_marks_matching_txt_verified(
     seeded_client: TestClient,
     db_session,
