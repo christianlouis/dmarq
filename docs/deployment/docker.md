@@ -57,6 +57,9 @@ identity, and the absence of a published PostgreSQL port.
 
 For a release-grade acceptance test on a new host, follow the
 [Greenfield Deployment Verification](greenfield-verification.md) checklist.
+Maintainers can run `python3 scripts/verify-greenfield-product.py` on a fresh,
+disposable stack to exercise setup, a known DMARC import, exact totals, and
+duplicate handling rather than stopping at container health.
 
 ## Configuration
 

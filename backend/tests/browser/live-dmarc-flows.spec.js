@@ -1051,9 +1051,15 @@ test('dashboard becomes useful before false empty states appear', async ({ page 
 
   await expect(page.getByText('Fix DKIM alignment for owned infrastructure')).toBeVisible();
   await expect(page.getByText('cklnet.com').first()).toBeVisible();
-  await expect(page.getByText('92.6%')).toBeVisible();
-
+  await expect(page.getByText('Traffic-weighted health')).toBeVisible();
   expect(Date.now() - started).toBeLessThan(2_000);
+
+  const analytics = page.locator('details', {
+    has: page.locator('summary', { hasText: 'Analytics and evidence' }),
+  });
+  await analytics.locator(':scope > summary').click();
+  await expect(analytics.getByText('92.6%')).toBeVisible();
+
   await expect(page.getByText('Dashboard could not be loaded')).not.toBeVisible();
   await expect(page.getByText('No reports match this filter')).not.toBeVisible();
   await expect(page.getByText('Publish DMARC')).not.toBeVisible();
@@ -1084,9 +1090,11 @@ test('settings page exposes clear next actions and labeled navigation', async ({
   await page.goto('/settings');
 
   await expect(page.getByRole('heading', { name: 'Finish the next safe setup step' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Review DMARC defaults' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Connect report mailbox' })).toBeVisible();
-  await expect(page.getByRole('navigation', { name: 'Settings sections' })).toContainText('DNS providers');
+  await expect(page.getByRole('link', { name: 'Add or review domains' })).toBeVisible();
+  const settingsNavigation = page.getByLabel('Settings navigation');
+  await expect(settingsNavigation).toContainText('DMARC defaults');
+  await expect(settingsNavigation).toContainText('Domains and DNS');
   await expect(page.getByRole('link', { name: 'Dashboard' }).first()).toBeVisible();
   await expect(page.getByRole('link', { name: 'Settings' }).first()).toBeVisible();
   await expect(page.locator('summary', { hasText: 'Advanced webhook delivery' })).toBeVisible();
@@ -1152,6 +1160,7 @@ test('onboarding page keeps setup controls wired without inline handlers', async
   await page.goto('/onboarding');
 
   await expect(page.getByRole('heading', { name: 'Mail health setup' })).toBeVisible();
+  await page.getByRole('button', { name: 'Reconfigure setup' }).click();
   await page.getByRole('button', { name: 'DNS only' }).click();
   await expect(page.getByText('without storing mailbox credentials')).toBeVisible();
 
@@ -1173,8 +1182,9 @@ test('domain detail shows cached DNS evidence and sender reputation context', as
   await expect(page.getByText('Reputation clean').first()).toBeVisible();
   await expect(page.getByText('Reputation not checked').first()).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Review owned infrastructure DKIM' }).first()).toBeVisible();
-  await page.getByRole('link', { name: 'Review remediation queue' }).click();
-  const acknowledgeButton = page.getByRole('button', { name: 'Acknowledge' }).first();
+  const advancedPosture = page.locator('#posture-dashboard');
+  await advancedPosture.locator(':scope > summary').click();
+  const acknowledgeButton = advancedPosture.getByRole('button', { name: 'Acknowledge' }).first();
   await acknowledgeButton.scrollIntoViewIfNeeded();
   page.once('dialog', async (dialog) => {
     await dialog.accept('');
@@ -1194,17 +1204,25 @@ test('reports list and aggregate detail keep source evidence actionable', async 
 
   await page.getByRole('link', { name: 'View Details' }).first().click();
   await expect(page.getByRole('heading', { name: 'Report: browser-smoke-cklnet' })).toBeVisible();
-  await expect(page.getByText('50.31.205.203')).toBeVisible();
-  await expect(page.getByText('mta203-ab1.mtasv.net')).toBeVisible();
-  await expect(page.getByText('AS23352').first()).toBeVisible();
-  await expect(page.getByText('SERVERCENTRAL - DEFT.COM, US').first()).toBeVisible();
-  await expect(page.getByRole('columnheader', { name: 'Reputation' })).toBeVisible();
-  await expect(page.getByText('Reputation clean').first()).toBeVisible();
-  await expect(page.getByText('risk 0/100').first()).toBeVisible();
-  await expect(page.getByText('No blacklist listings found.').first()).toBeVisible();
-  await expect(page.getByText('Reputation not checked').first()).toBeVisible();
-  await expect(page.getByText('Reputation feeds are disabled.').first()).toBeVisible();
-  await expect(page.getByText('DKIM did not pass for this source.')).toBeVisible();
+  const postmarkCluster = page.getByRole('article').filter({
+    has: page.getByRole('heading', { name: 'ActiveCampaign Postmark' }),
+  });
+  await postmarkCluster.locator('summary', { hasText: 'Show IP evidence' }).click();
+  await expect(postmarkCluster.getByText('50.31.205.203')).toBeVisible();
+
+  await page.locator('select[x-model="recordRiskFilter"]').selectOption('all');
+  const rawEvidence = page.locator('#report-records');
+  await rawEvidence.locator(':scope > summary').click();
+  await expect(rawEvidence.getByText('mta203-ab1.mtasv.net')).toBeVisible();
+  await expect(rawEvidence.getByText('AS23352').first()).toBeVisible();
+  await expect(rawEvidence.getByText('SERVERCENTRAL - DEFT.COM, US').first()).toBeVisible();
+  await expect(rawEvidence.getByRole('columnheader', { name: 'Reputation' })).toBeVisible();
+  await expect(rawEvidence.getByText('Reputation clean').first()).toBeVisible();
+  await expect(rawEvidence.getByText('risk 0/100').first()).toBeVisible();
+  await expect(rawEvidence.getByText('No blacklist listings found.').first()).toBeVisible();
+  await expect(rawEvidence.getByText('Reputation not checked').first()).toBeVisible();
+  await expect(rawEvidence.getByText('Reputation feeds are disabled.').first()).toBeVisible();
+  await expect(rawEvidence.getByText('DKIM did not pass for this source.')).toBeVisible();
   await expect(page.getByText('Failed to load report')).not.toBeVisible();
 });
 

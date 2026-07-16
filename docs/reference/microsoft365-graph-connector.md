@@ -17,9 +17,12 @@ The connector must remain read-only:
 - It must pass supported `.xml`, `.zip`, `.gz`, and `.gzip` attachments through
   the same aggregate DMARC parser used by upload, IMAP, and Gmail imports.
 
-## OAuth Permissions
+## Authentication and Permissions
 
-DMARQ uses delegated Microsoft Graph permissions:
+DMARQ supports delegated and application authentication as explicit, separate
+source modes.
+
+Delegated mode uses:
 
 | Permission | Purpose |
 |------------|---------|
@@ -28,19 +31,32 @@ DMARQ uses delegated Microsoft Graph permissions:
 | `Mail.Read` | List messages and read report attachments from the authorized account. |
 | `Mail.Read.Shared` | Read report messages and attachments in shared or delegated mailboxes. |
 
-Application-wide Graph permissions are outside this contract. If a deployment
-needs application permissions later, it should be designed as a separate
-connector mode with a separate risk review.
+Application mode uses the tenant-specific client-credentials token endpoint,
+the `https://graph.microsoft.com/.default` scope, and the Microsoft Graph
+`Mail.Read` **application permission**. It must not use a redirect URI, user
+sign-in, `/me`, or refresh tokens. A concrete tenant and explicit target mailbox
+are mandatory.
+
+Because Entra `Mail.Read` application permission is tenant-wide by default, the
+operator must limit the service principal to the report mailbox with Exchange
+Online RBAC for Applications and verify the effective scope. DMARQ's mailbox
+field is a request target, not an authorization boundary. New deployments
+should not use legacy Application Access Policies when Exchange RBAC for
+Applications is available.
 
 ## Mailbox and Folder Selection
 
-The connector supports two mailbox targets:
+Delegated mode supports two mailbox targets:
 
 - Blank mailbox or `me`: read the authorized account through `/me`.
 - User principal name: read a delegated or shared mailbox through `/users/{upn}`.
 
 The authorized account must already have Exchange Online read access to any
 shared mailbox or folder. DMARQ does not grant mailbox permissions.
+
+Application mode supports only an explicit user principal name and always uses
+`/users/{upn}`. Blank, `me`, `common`, `organizations`, and `consumers` values
+must fail validation before polling begins.
 
 Folder selection should prefer Microsoft Graph folder ids returned by **Load
 folders**. Folder ids are stable across localized or renamed folders. Manually
@@ -114,6 +130,13 @@ The connector must never store or return:
 - raw message bodies,
 - raw attachment content,
 - full provider errors containing secrets.
+
+Short-lived application access tokens may be persisted in the same encrypted
+column as delegated access tokens for diagnostics and request reuse. Their
+presence is not required for readiness because application mode can acquire a
+new token during test, folder listing, manual import, scheduled polling, and
+backfill. Client secrets and all token values remain encrypted at rest and
+redacted from responses.
 
 Operators should keep Microsoft 365 secrets in 1Password or the deployment
 secret manager and inject them into the authorized deployment process. DMARQ

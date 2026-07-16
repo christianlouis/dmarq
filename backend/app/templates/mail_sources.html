@@ -327,7 +327,7 @@
                             <option value="IMAP">IMAP</option>
                             <option value="POP3">POP3 (coming soon)</option>
                             <option value="GMAIL_API">Gmail API (OAuth2)</option>
-                            <option value="M365_GRAPH">Microsoft 365 (Graph OAuth2)</option>
+                            <option value="M365_GRAPH">Microsoft 365 (Graph)</option>
                         </select>
                     </div>
 
@@ -476,35 +476,74 @@
                     <!-- Microsoft 365 Graph fields -->
                     <template x-if="form.method === 'M365_GRAPH'">
                         <div class="space-y-4">
+                            <fieldset>
+                                <legend class="label-text font-medium mb-2">Authentication</legend>
+                                <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                    <label class="flex cursor-pointer items-start gap-3 rounded-md border border-border p-3"
+                                        :class="form.m365_auth_mode === 'delegated' ? 'border-primary bg-primary/5' : ''">
+                                        <input type="radio" class="radio radio-sm mt-0.5" value="delegated"
+                                            x-model="form.m365_auth_mode" />
+                                        <span>
+                                            <span class="block text-sm font-semibold">User sign-in</span>
+                                            <span class="block text-xs text-muted-foreground">Interactive OAuth with a redirect URL.</span>
+                                        </span>
+                                    </label>
+                                    <label class="flex cursor-pointer items-start gap-3 rounded-md border border-border p-3"
+                                        :class="form.m365_auth_mode === 'application' ? 'border-primary bg-primary/5' : ''">
+                                        <input type="radio" class="radio radio-sm mt-0.5" value="application"
+                                            x-model="form.m365_auth_mode" />
+                                        <span>
+                                            <span class="block text-sm font-semibold">Application access</span>
+                                            <span class="block text-xs text-muted-foreground">Unattended access for a shared mailbox.</span>
+                                        </span>
+                                    </label>
+                                </div>
+                            </fieldset>
+
                             <div class="alert alert-info text-sm p-3">
+                                <div x-show="form.m365_auth_mode === 'delegated'">
+                                    <p class="font-semibold">User sign-in setup</p>
+                                    <p class="mt-1">Create an Entra app with delegated Mail.Read permissions and a Web redirect URI. Save this source, then sign in with a user that can read the mailbox.</p>
+                                </div>
+                                <div x-show="form.m365_auth_mode === 'application'">
+                                    <p class="font-semibold">Unattended application setup</p>
+                                    <p class="mt-1">Create a tenant-specific Entra app with the <strong>Mail.Read application permission</strong> and admin consent. No redirect URI or user sign-in is used.</p>
+                                </div>
+                            </div>
+
+                            <div class="alert alert-warning text-sm p-3"
+                                x-show="form.m365_auth_mode === 'application'">
                                 <div>
-                                    <p class="font-semibold">Microsoft 365 Setup</p>
-                                    <p class="mt-1">Enter an app registration Client ID and client secret from Microsoft Entra admin center. Add this app's callback URL as a Web redirect URI, then save and click <strong>Connect Microsoft 365</strong>.</p>
+                                    <p class="font-semibold">Limit mailbox access in Exchange Online</p>
+                                    <p class="mt-1">Mail.Read application permission can otherwise read every mailbox in the tenant. Restrict this app to the report mailbox with Exchange Online RBAC for Applications. Legacy Application Access Policies may be used only where already required.</p>
                                 </div>
                             </div>
 
                             <div>
-                                <label class="label"><span class="label-text font-medium">Tenant ID</span></label>
+                                <label class="label"><span class="label-text font-medium">Tenant ID <span class="text-error" x-show="form.m365_auth_mode === 'application'">*</span></span></label>
                                 <input type="text" x-model="form.m365_tenant_id"
-                                    placeholder="common, organizations, or tenant GUID"
+                                    :placeholder="form.m365_auth_mode === 'application' ? 'Tenant GUID or verified tenant domain' : 'common, organizations, or tenant GUID'"
+                                    :required="form.m365_auth_mode === 'application'"
                                     class="input input-bordered w-full" />
+                                <p class="text-xs text-muted-foreground mt-1" x-show="form.m365_auth_mode === 'application'">Application access requires a concrete tenant; common and organizations are not accepted.</p>
                             </div>
 
                             <div>
                                 <label class="label"><span class="label-text font-medium">Microsoft Client ID <span class="text-error">*</span></span></label>
                                 <input type="text" x-model="form.m365_client_id"
                                     placeholder="Application (client) ID"
-                                    class="input input-bordered w-full" />
+                                    class="input input-bordered w-full" required />
                             </div>
 
                             <div>
-                                <label class="label">
+                                <label class="label flex-col items-start gap-1 sm:flex-row sm:items-center">
                                     <span class="label-text font-medium">Microsoft Client Secret <span class="text-error">*</span></span>
-                                    <span class="label-text-alt text-muted-foreground" x-show="editingId">Leave blank to keep existing</span>
+                                    <span class="label-text-alt text-muted-foreground sm:ml-auto" x-show="editingId">Leave blank to keep existing</span>
                                 </label>
                                 <div class="relative">
                                     <input :type="showPassword ? 'text' : 'password'"
                                         x-model="form.m365_client_secret"
+                                        :required="!editingId"
                                         class="input input-bordered w-full pr-10" />
                                     <button type="button"
                                         class="absolute right-2 top-3 text-muted-foreground hover:text-foreground"
@@ -527,10 +566,12 @@
                             </div>
 
                             <div>
-                                <label class="label"><span class="label-text font-medium">Mailbox</span></label>
+                                <label class="label"><span class="label-text font-medium">Mailbox <span class="text-error" x-show="form.m365_auth_mode === 'application'">*</span></span></label>
                                 <input type="text" x-model="form.m365_mailbox"
-                                    placeholder="Leave blank for the authorised account"
+                                    :placeholder="form.m365_auth_mode === 'application' ? 'dmarc-reports@example.com' : 'Leave blank for the signed-in account'"
+                                    :required="form.m365_auth_mode === 'application'"
                                     class="input input-bordered w-full" />
+                                <p class="text-xs text-muted-foreground mt-1" x-show="form.m365_auth_mode === 'application'">Every Graph request is scoped to this explicit mailbox; /me is never used.</p>
                             </div>
 
                             <div>
@@ -546,7 +587,7 @@
                                     </select>
                                     <button type="button" class="btn btn-outline"
                                         data-mail-source-m365-load-folders
-                                        :disabled="!editingId || !m365Connected || m365FoldersLoading">
+                                        :disabled="!editingId || !(m365Connected || m365Configured) || m365FoldersLoading">
                                         <span x-text="m365FoldersLoading ? 'Loading…' : 'Load folders'"></span>
                                     </button>
                                 </div>
@@ -559,13 +600,21 @@
 
                             <template x-if="editingId && m365Connected">
                                 <div class="alert alert-success text-sm p-3">
-                                    <span>Connected as <strong x-text="m365Email || 'Microsoft 365 account'"></strong></span>
+                                    <span>Mailbox access verified for <strong x-text="form.m365_mailbox || m365Email || 'Microsoft 365 account'"></strong></span>
                                 </div>
                             </template>
-                            <template x-if="editingId && !m365Connected">
+                            <template x-if="editingId && !m365Connected && form.m365_auth_mode === 'delegated'">
                                 <div class="alert alert-warning text-sm p-3">
                                     <span>Not yet authorised. Save this source first, then click <strong>Connect Microsoft 365</strong>.</span>
                                 </div>
+                            </template>
+                            <template x-if="editingId && !m365Connected && form.m365_auth_mode === 'application' && m365Configured">
+                                <div class="alert alert-info text-sm p-3">
+                                    <span>Application credentials are saved. Use <strong>Test application access</strong> to verify the Exchange mailbox scope.</span>
+                                </div>
+                            </template>
+                            <template x-if="!editingId && form.m365_auth_mode === 'application'">
+                                <p class="text-xs text-muted-foreground">Save the source first, then edit it to test mailbox access and load folders.</p>
                             </template>
                         </div>
                     </template>
@@ -628,11 +677,18 @@
                                     Connect Gmail
                                 </button>
                             </template>
-                            <template x-if="form.method === 'M365_GRAPH' && editingId">
+                            <template x-if="form.method === 'M365_GRAPH' && editingId && form.m365_auth_mode === 'delegated'">
                                 <button type="button" class="btn btn-outline btn-sm"
                                     data-mail-source-connect-m365
                                     :disabled="isTesting || isSaving">
                                     Connect Microsoft 365
+                                </button>
+                            </template>
+                            <template x-if="form.method === 'M365_GRAPH' && editingId && form.m365_auth_mode === 'application'">
+                                <button type="button" class="btn btn-outline btn-sm"
+                                    data-mail-source-test-m365
+                                    :disabled="isTesting || isSaving">
+                                    <span x-text="isTesting ? 'Testing…' : 'Test application access'"></span>
                                 </button>
                             </template>
                         </div>

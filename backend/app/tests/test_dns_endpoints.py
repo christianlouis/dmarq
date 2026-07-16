@@ -469,6 +469,25 @@ def test_dns_endpoint_marks_connected_provider_repair_ready(
 
 
 def test_dns_lint_endpoint_returns_typed_findings_and_targets(authed_client: TestClient):
+    now = datetime.now(timezone.utc)
+    ReportStore.get_instance().add_report(
+        {
+            **MINIMAL_REPORT,
+            "report_id": "current-dkim-failure",
+            "begin_timestamp": int((now - timedelta(days=1)).timestamp()),
+            "end_timestamp": int(now.timestamp()),
+            "records": [
+                {
+                    "source_ip": "203.0.113.20",
+                    "count": 6,
+                    "disposition": "none",
+                    "dkim_result": "fail",
+                    "spf_result": "fail",
+                    "dkim": [{"domain": DOMAIN, "result": "fail", "selector": "google"}],
+                }
+            ],
+        }
+    )
     result = DomainDNSResult(
         dmarc=True,
         dmarc_record="v=DMARC1; p=none; rua=mailto:dmarc@example.com",
@@ -524,6 +543,9 @@ def test_dns_lint_endpoint_returns_typed_findings_and_targets(authed_client: Tes
     assert change_plan["provider_write_available"] is False
     assert change_plan["provider_value_required"] is True
     assert change_plan["manual_steps"]
+    selector = next(item for item in data["selector_evidence"] if item["selector"] == "google")
+    assert selector["classification"] == "active_failing"
+    assert selector["current_failure_count"] == 6
 
 
 def test_dns_lint_endpoint_uses_configured_mail_auth_defaults(
@@ -2470,7 +2492,9 @@ def test_dashboard_remediation_item_exposes_summary_notification_profile():
     assert notification["state"] == "summary_only"
     assert notification["event"] == "dmarq.remediation.summary"
     assert notification["channel"] == "daily_summary"
-    assert notification["reason"] == "Include this lower-risk remediation item in summary reporting."
+    assert (
+        notification["reason"] == "Include this lower-risk remediation item in summary reporting."
+    )
     assert notification["payload_preview"]["schema_version"] == (
         "dmarq.dashboard.remediation.notification_preview.v1"
     )

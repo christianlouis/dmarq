@@ -51,6 +51,14 @@ class MailSource(Base):
     gmail_ingested_ids = Column(Text, nullable=True, default="[]")
 
     # Microsoft 365 / Graph OAuth2 credentials (used by M365_GRAPH method)
+    # ``delegated`` uses the interactive authorization-code flow; ``application``
+    # uses client credentials and always targets an explicit mailbox.
+    m365_auth_mode = Column(
+        String,
+        nullable=False,
+        default="delegated",
+        server_default="delegated",
+    )
     m365_tenant_id = Column(String, nullable=True, default="common")
     m365_client_id = Column(String, nullable=True)
     _m365_client_secret = Column("m365_client_secret", Text, nullable=True)

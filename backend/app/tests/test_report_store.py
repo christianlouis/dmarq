@@ -388,3 +388,58 @@ class TestReportStore:
 
         summary = store.get_domain_summary("test.com")
         assert summary["compliance_rate"] == 80.0
+
+    def test_selector_evidence_separates_active_rotation_from_history(self):
+        store = ReportStore.get_instance()
+        now = 1_800_000_000
+
+        def add_selector_report(report_id, age_days, selector, result, count, signing_domain):
+            report = _sample_report("test.com")
+            report.update(
+                {
+                    "report_id": report_id,
+                    "begin_timestamp": now - age_days * 86_400 - 3600,
+                    "end_timestamp": now - age_days * 86_400,
+                    "records": [
+                        {
+                            "source_ip": "203.0.113.8",
+                            "count": count,
+                            "disposition": "none",
+                            "dkim_result": result,
+                            "spf_result": "fail",
+                            "header_from": "test.com",
+                            "dkim": [
+                                {
+                                    "domain": signing_domain,
+                                    "selector": selector,
+                                    "result": result,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            )
+            store.add_report(report)
+
+        add_selector_report("current-fail", 1, "rotated-2026", "fail", 9, "test.com")
+        add_selector_report("current-pass", 2, "current-pass", "pass", 7, "test.com")
+        add_selector_report("recent", 14, "recent-provider", "pass", 4, "test.com")
+        add_selector_report("historical", 70, "retired-2024", "fail", 3, "test.com")
+        add_selector_report("unaligned", 1, "provider-internal", "fail", 20, "vendor.test")
+
+        rows = store.get_domain_selector_evidence(
+            "test.com",
+            manual_selectors=["manual-only"],
+            now=now,
+        )
+        by_selector = {row["selector"]: row for row in rows}
+
+        assert by_selector["rotated-2026"]["classification"] == "active_failing"
+        assert by_selector["rotated-2026"]["current_failure_count"] == 9
+        assert by_selector["rotated-2026"]["report_count"] == 1
+        assert by_selector["current-pass"]["classification"] == "active_passing"
+        assert by_selector["recent-provider"]["classification"] == "recently_observed"
+        assert by_selector["retired-2024"]["classification"] == "historical"
+        assert by_selector["manual-only"]["classification"] == "manually_configured"
+        assert by_selector["manual-only"]["manual_configured"] is True
+        assert "provider-internal" not in by_selector

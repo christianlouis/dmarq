@@ -44,7 +44,13 @@ from app.services.mail_connector import initial_import_stats
 from app.services.mail_service_imports import mail_service_context_from_domain
 from app.services.mail_source_backfill_worker import run_due_mail_source_backfill_jobs
 from app.services.mailbox_recovery import import_result_diagnostic, import_row_diagnostic
-from app.services.microsoft_graph_client import MicrosoftGraphClient
+from app.services.microsoft_graph_client import (
+    M365_AUTH_MODE_APPLICATION,
+    MicrosoftGraphClient,
+    m365_application_configuration_error,
+    m365_source_can_authenticate,
+    normalize_m365_auth_mode,
+)
 from app.services.provider_access import require_provider_operator_access
 from app.services.release_info import build_release_info
 from app.services.report_persistence import hydrate_report_store_from_db
@@ -218,9 +224,9 @@ def _poll_single_m365_source(source: MailSource) -> None:
     """Fetch DMARC reports for a single M365_GRAPH mail source."""
     global last_check_time  # pylint: disable=global-statement
 
-    if not source.m365_access_token:
+    if not m365_source_can_authenticate(source):
         logger.info(
-            "Microsoft 365 polling (source id=%d): skipped – OAuth2 not yet authorised",
+            "Microsoft 365 polling (source id=%d): skipped - source cannot authenticate",
             source.id,
         )
         return
@@ -236,6 +242,7 @@ def _poll_single_m365_source(source: MailSource) -> None:
             client_secret=poll_source.m365_client_secret or "",
             access_token=poll_source.m365_access_token,
             refresh_token=poll_source.m365_refresh_token or "",
+            auth_mode=normalize_m365_auth_mode(getattr(poll_source, "m365_auth_mode", "delegated")),
             mailbox=poll_source.m365_mailbox,
             folder=poll_source.folder or "INBOX",
             folder_id=getattr(poll_source, "m365_folder_id", None),
@@ -1009,6 +1016,7 @@ def _trigger_poll_m365_source(source: MailSource, db, days: int = 7) -> dict:
         client_secret=source.m365_client_secret or "",
         access_token=source.m365_access_token,
         refresh_token=source.m365_refresh_token or "",
+        auth_mode=normalize_m365_auth_mode(getattr(source, "m365_auth_mode", "delegated")),
         mailbox=source.m365_mailbox,
         folder=source.folder or "INBOX",
         folder_id=getattr(source, "m365_folder_id", None),
@@ -1063,16 +1071,20 @@ def _poll_source_for_trigger(source: MailSource, db, days: int = 7) -> dict:  # 
                 "error": "Failed to poll. Check server logs for details.",
             }
     if source.method == "M365_GRAPH":
-        if not source.m365_access_token:
+        if not m365_source_can_authenticate(source):
+            error = (
+                m365_application_configuration_error(source)
+                or "Microsoft 365 account not yet authorised. Complete OAuth2 flow first."
+            )
             results = {
                 **initial_import_stats(),
                 "success": False,
-                "errors": ["Microsoft 365 account not yet authorised. Complete OAuth2 flow first."],
+                "errors": [error],
             }
             return {
                 **_trigger_poll_result(source, "M365_GRAPH", results),
                 "skipped": True,
-                "reason": "Microsoft 365 account not yet authorised",
+                "reason": error,
             }
         try:
             return _trigger_poll_m365_source(source, db, days=days)
@@ -1237,13 +1249,33 @@ def _mail_source_connection_state(
                 "action_label": "Reconnect Gmail",
                 "diagnostic_category": "auth_expired",
             }
-    if method == "M365_GRAPH" and not source.m365_access_token:
+    if method == "M365_GRAPH" and not m365_source_can_authenticate(source):
+        application_mode = (
+            normalize_m365_auth_mode(getattr(source, "m365_auth_mode", "delegated"))
+            == M365_AUTH_MODE_APPLICATION
+        )
         return {
-            "status": "not_authorized",
+            "status": "missing_config" if application_mode else "not_authorized",
             "attention": True,
-            "message": "Microsoft 365 is not authorised yet.",
-            "action_label": "Connect Microsoft 365",
-            "diagnostic_category": "auth_required",
+            "message": m365_application_configuration_error(source)
+            or "Microsoft 365 is not authorised yet.",
+            "action_label": (
+                "Review application settings" if application_mode else "Connect Microsoft 365"
+            ),
+            "diagnostic_category": "missing_config" if application_mode else "auth_required",
+        }
+    if (
+        method == "M365_GRAPH"
+        and normalize_m365_auth_mode(getattr(source, "m365_auth_mode", "delegated"))
+        == M365_AUTH_MODE_APPLICATION
+        and not source.m365_access_token
+    ):
+        return {
+            "status": "ready_to_test",
+            "attention": False,
+            "message": "Application credentials are saved; test mailbox access.",
+            "action_label": "Test connection",
+            "diagnostic_category": "ok",
         }
 
     diagnostic = import_row_diagnostic(latest_import)

@@ -18,7 +18,12 @@ from app.models.mail_source_backfill import MailSourceBackfillJob
 from app.services.gmail_client import GmailClient
 from app.services.imap_client import IMAPClient
 from app.services.import_history import record_import_attempt
-from app.services.microsoft_graph_client import MicrosoftGraphClient
+from app.services.microsoft_graph_client import (
+    MicrosoftGraphClient,
+    m365_application_configuration_error,
+    m365_source_can_authenticate,
+    normalize_m365_auth_mode,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -440,8 +445,11 @@ def _fetch_m365_backfill_results(
     days: int,
     page_cursor: Optional[str] = None,
 ) -> tuple[Dict[str, Any], Any]:
-    if not source.m365_access_token:
-        raise ValueError("Microsoft 365 account not yet authorised. Complete OAuth2 flow first.")
+    if not m365_source_can_authenticate(source):
+        raise ValueError(
+            m365_application_configuration_error(source)
+            or "Microsoft 365 account not yet authorised. Complete OAuth2 flow first."
+        )
 
     already = MicrosoftGraphClient.load_ingested_ids(source.m365_ingested_ids)
     client = MicrosoftGraphClient(
@@ -450,6 +458,7 @@ def _fetch_m365_backfill_results(
         client_secret=source.m365_client_secret or "",
         access_token=source.m365_access_token,
         refresh_token=source.m365_refresh_token or "",
+        auth_mode=normalize_m365_auth_mode(getattr(source, "m365_auth_mode", "delegated")),
         mailbox=source.m365_mailbox,
         folder=source.folder or "INBOX",
         folder_id=getattr(source, "m365_folder_id", None),

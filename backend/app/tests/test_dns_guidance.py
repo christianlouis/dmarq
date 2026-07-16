@@ -444,17 +444,13 @@ async def test_build_dns_guidance_lints_dkim_selector_health():
     assert "dkim_selector_cname_broken" in findings
     assert "dkim_selector_missing" in findings
     assert findings["dkim_selector_missing"].record_name == "old._domainkey.example.com"
-    assert (
-        findings["dkim_selector_missing"].target_record.name
-        == "old._domainkey.example.com"
-    )
+    assert findings["dkim_selector_missing"].target_record.name == "old._domainkey.example.com"
     assert (
         findings["dkim_selector_cname_broken"].target_record.name
         == "mailchimp._domainkey.example.com"
     )
     assert (
-        findings["dkim_selector_key_too_short"].target_record.name
-        == "short._domainkey.example.com"
+        findings["dkim_selector_key_too_short"].target_record.name == "short._domainkey.example.com"
     )
     assert findings["dkim_selector_cname_broken"].record_type == "CNAME"
     assert findings["dkim_selector_key_too_short"].remediation_steps
@@ -662,3 +658,69 @@ async def test_build_dns_guidance_adds_postmark_dns_change_plans():
     assert missing.operation == "create"
     assert missing.record_type == "CNAME"
     assert missing.proposed_value == "pm.mtasv.net"
+
+
+@pytest.mark.asyncio
+async def test_selector_history_cannot_become_primary_dns_remediation():
+    provider = FakeDNSProvider(
+        {
+            "example.com": ["v=spf1 -all"],
+            "_smtp._tls.example.com": ["v=TLSRPTv1; rua=mailto:tls@example.com"],
+        }
+    )
+    dns = DomainDNSResult(
+        dmarc=True,
+        dmarc_record="v=DMARC1; p=reject; rua=mailto:dmarc@example.com",
+        spf=True,
+        spf_record="v=spf1 -all",
+        dkim=False,
+        selectors_checked=["active", "passing", "retired", "manual"],
+    )
+    selector_evidence = [
+        {
+            "selector": "active",
+            "classification": "active_failing",
+            "current_failure_count": 12,
+        },
+        {
+            "selector": "passing",
+            "classification": "active_passing",
+            "current_pass_count": 8,
+        },
+        {
+            "selector": "retired",
+            "classification": "historical",
+            "current_failure_count": 0,
+        },
+        {
+            "selector": "manual",
+            "classification": "manually_configured",
+            "manual_configured": True,
+        },
+    ]
+
+    guidance = await build_dns_guidance(
+        "example.com",
+        provider,
+        dns,
+        MTAStsResult(status="pass"),
+        BIMIResult(status="pass"),
+        monitored_selectors=["active", "passing", "retired", "manual"],
+        observed_selectors=["active", "passing", "retired"],
+        selector_evidence=selector_evidence,
+    )
+
+    dkim_findings = [finding for finding in guidance.findings if finding.code.startswith("dkim_")]
+    dkim_plans = [plan for plan in guidance.change_plans if plan.finding_code.startswith("dkim_")]
+
+    assert [finding.record_name for finding in dkim_findings] == ["active._domainkey.example.com"]
+    assert [plan.name for plan in dkim_plans] == ["active._domainkey.example.com"]
+    assert dkim_plans[0].provider_value_required is True
+    assert dkim_plans[0].requires_approval is True
+    assert (
+        next(record for record in guidance.target_records if record.code == "target_dkim").name
+        == "active._domainkey.example.com"
+    )
+    evidence = {item["selector"]: item for item in guidance.selector_evidence}
+    assert evidence["active"]["dns_status"] == "missing"
+    assert evidence["retired"]["dns_status"] == "missing"

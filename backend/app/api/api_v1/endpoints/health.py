@@ -10,6 +10,12 @@ from app.models.mail_source import MailSource
 from app.models.mail_source_import import MailSourceImport
 from app.models.report import DMARCReport
 from app.services.mailbox_recovery import import_row_diagnostic, not_configured_guidance
+from app.services.microsoft_graph_client import (
+    M365_AUTH_MODE_APPLICATION,
+    m365_application_configuration_error,
+    m365_source_can_authenticate,
+    normalize_m365_auth_mode,
+)
 from app.services.release_info import build_release_info
 from app.services.runtime_status import get_scheduler_status
 
@@ -100,25 +106,53 @@ def _source_health(source: MailSource, latest_import=None):
             "action_label": "Reconnect Gmail",
             "diagnostic_category": "auth_expired",
         }
-    if method == "M365_GRAPH" and not source.m365_access_token:
+    if method == "M365_GRAPH" and not m365_source_can_authenticate(source):
+        application_mode = (
+            normalize_m365_auth_mode(getattr(source, "m365_auth_mode", "delegated"))
+            == M365_AUTH_MODE_APPLICATION
+        )
         return {
             "source_id": source.id,
             "label": _source_label(source),
             "method": method,
-            "status": "not_authorized",
+            "status": "missing_config" if application_mode else "not_authorized",
             "attention": True,
-            "message": "Microsoft 365 is not authorised yet.",
-            "action_label": "Connect Microsoft 365",
-            "diagnostic_category": "auth_required",
+            "message": m365_application_configuration_error(source)
+            or "Microsoft 365 is not authorised yet.",
+            "action_label": (
+                "Review application settings" if application_mode else "Connect Microsoft 365"
+            ),
+            "diagnostic_category": "missing_config" if application_mode else "auth_required",
+        }
+    if (
+        method == "M365_GRAPH"
+        and normalize_m365_auth_mode(getattr(source, "m365_auth_mode", "delegated"))
+        == M365_AUTH_MODE_APPLICATION
+        and not source.m365_access_token
+    ):
+        return {
+            "source_id": source.id,
+            "label": _source_label(source),
+            "method": method,
+            "status": "ready_to_test",
+            "attention": False,
+            "message": "Application credentials are saved; test mailbox access.",
+            "action_label": "Test connection",
+            "diagnostic_category": "ok",
         }
 
     diagnostic = import_row_diagnostic(latest_import)
     category = (diagnostic or {}).get("category")
-    if latest_import and latest_import.status == "failed" and category in {
-        "auth_expired",
-        "authentication",
-        "permissions",
-    }:
+    if (
+        latest_import
+        and latest_import.status == "failed"
+        and category
+        in {
+            "auth_expired",
+            "authentication",
+            "permissions",
+        }
+    ):
         return {
             "source_id": source.id,
             "label": _source_label(source),
@@ -165,9 +199,7 @@ async def operations_health(  # noqa: C901
         enabled_source_rows = (
             db.query(MailSource).filter(MailSource.enabled == True).all()  # noqa: E712
         )
-        enabled_sources = (
-            len(enabled_source_rows)
-        )
+        enabled_sources = len(enabled_source_rows)
         total_sources = db.query(func.count(MailSource.id)).scalar()
         report_count = db.query(func.count(DMARCReport.id)).scalar()
         latest_report = db.query(func.max(DMARCReport.processed_at)).scalar()
@@ -249,23 +281,27 @@ async def operations_health(  # noqa: C901
             "sources": mail_source_health,
         },
         "imports": {
-            "latest": {
-                "status": latest_import.status,
-                "trigger": latest_import.trigger,
-                "reports_found": latest_import.reports_found,
-                "finished_at": _iso(latest_import.finished_at),
-                "diagnostic": latest_import_diagnostic,
-            }
-            if latest_import
-            else None,
-            "latest_successful": {
-                "status": latest_successful_import.status,
-                "trigger": latest_successful_import.trigger,
-                "reports_found": latest_successful_import.reports_found,
-                "finished_at": _iso(latest_successful_import.finished_at),
-            }
-            if latest_successful_import
-            else None,
+            "latest": (
+                {
+                    "status": latest_import.status,
+                    "trigger": latest_import.trigger,
+                    "reports_found": latest_import.reports_found,
+                    "finished_at": _iso(latest_import.finished_at),
+                    "diagnostic": latest_import_diagnostic,
+                }
+                if latest_import
+                else None
+            ),
+            "latest_successful": (
+                {
+                    "status": latest_successful_import.status,
+                    "trigger": latest_successful_import.trigger,
+                    "reports_found": latest_successful_import.reports_found,
+                    "finished_at": _iso(latest_successful_import.finished_at),
+                }
+                if latest_successful_import
+                else None
+            ),
         },
         "reports": {
             "count": int(report_count or 0),

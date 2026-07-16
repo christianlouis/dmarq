@@ -51,7 +51,13 @@ from app.services.mailbox_recovery import (
     import_row_diagnostic,
     redact_recovery_text,
 )
-from app.services.microsoft_graph_client import MicrosoftGraphClient
+from app.services.microsoft_graph_client import (
+    M365_AUTH_MODE_APPLICATION,
+    MicrosoftGraphClient,
+    m365_application_configuration_error,
+    m365_source_can_authenticate,
+    normalize_m365_auth_mode,
+)
 from app.services.workspace_access import (
     PERMISSION_MAIL_SOURCES_READ,
     PERMISSION_MAIL_SOURCES_WRITE,
@@ -95,6 +101,7 @@ class MailSourceBase(BaseModel):
     gmail_client_id: Optional[str] = None
     gmail_client_secret: Optional[str] = None
     # Microsoft 365 Graph OAuth2 fields (only relevant when method == M365_GRAPH)
+    m365_auth_mode: str = "delegated"
     m365_tenant_id: Optional[str] = "common"
     m365_client_id: Optional[str] = None
     m365_client_secret: Optional[str] = None
@@ -121,6 +128,7 @@ class MailSourceUpdate(BaseModel):
     enabled: Optional[bool] = None
     gmail_client_id: Optional[str] = None
     gmail_client_secret: Optional[str] = None
+    m365_auth_mode: Optional[str] = None
     m365_tenant_id: Optional[str] = None
     m365_client_id: Optional[str] = None
     m365_client_secret: Optional[str] = None
@@ -149,6 +157,7 @@ class MailSourceResponse(MailSourceBase):
     # Microsoft 365: show the authorised account and token state, but not tokens
     m365_email: Optional[str] = None
     m365_connected: bool = False
+    m365_configured: bool = False
 
     class Config:
         from_attributes = True
@@ -469,6 +478,28 @@ def _safe_attr(source: MailSource, name: str, default: Any = None) -> Any:
     return value
 
 
+def _m365_auth_mode(source: MailSource) -> str:
+    return normalize_m365_auth_mode(_safe_attr(source, "m365_auth_mode", "delegated"))
+
+
+def _validate_m365_source_configuration(source: MailSource) -> None:
+    if (source.method or "").upper() != "M365_GRAPH":
+        return
+    try:
+        source.m365_auth_mode = _m365_auth_mode(source)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    error = m365_application_configuration_error(source)
+    if error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=error,
+        )
+
+
 def _latest_import_for_source(db: Session, source_id: int) -> Optional[MailSourceImport]:
     """Return the latest persisted import attempt for one source, if available."""
     return (
@@ -557,6 +588,37 @@ def _connection_state_for_source(
         }
 
     if method == "M365_GRAPH":
+        auth_mode = _m365_auth_mode(source)
+        if auth_mode == M365_AUTH_MODE_APPLICATION:
+            config_error = m365_application_configuration_error(source)
+            if config_error:
+                return {
+                    "connection_status": "missing_config",
+                    "connection_attention": True,
+                    "connection_message": config_error,
+                    "connection_action_label": "Review application settings",
+                    "connection_diagnostic_category": "missing_config",
+                }
+            if not _safe_attr(source, "m365_access_token"):
+                return {
+                    "connection_status": "ready_to_test",
+                    "connection_attention": False,
+                    "connection_message": (
+                        "Microsoft 365 application credentials are saved. Test mailbox "
+                        "access before relying on imports."
+                    ),
+                    "connection_action_label": "Test connection",
+                    "connection_diagnostic_category": "ok",
+                }
+            return {
+                "connection_status": "connected",
+                "connection_attention": False,
+                "connection_message": (
+                    "Microsoft 365 application access is configured for the target mailbox."
+                ),
+                "connection_action_label": None,
+                "connection_diagnostic_category": "ok",
+            }
         if not _safe_attr(source, "m365_access_token"):
             return {
                 "connection_status": "not_authorized",
@@ -609,12 +671,14 @@ def _source_to_response(
         gmail_connected=bool(source.gmail_access_token),
         **connection_state,
         m365_tenant_id=_safe_attr(source, "m365_tenant_id", "common") or "common",
+        m365_auth_mode=_m365_auth_mode(source),
         m365_client_id=_safe_attr(source, "m365_client_id"),
         m365_client_secret=("**redacted**" if _safe_attr(source, "m365_client_secret") else None),
         m365_mailbox=_safe_attr(source, "m365_mailbox"),
         m365_folder_id=_safe_attr(source, "m365_folder_id"),
         m365_email=_safe_attr(source, "m365_email"),
         m365_connected=bool(_safe_attr(source, "m365_access_token")),
+        m365_configured=m365_source_can_authenticate(source),
     )
 
 
@@ -1046,10 +1110,13 @@ def _fetch_gmail_source(source: MailSource, db: Session) -> Dict[str, Any]:
 
 def _fetch_m365_source(source: MailSource, db: Session, days: int = 7) -> Dict[str, Any]:
     """Run one Microsoft 365 Graph import and persist source/import metadata."""
-    if not source.m365_access_token:
+    if not m365_source_can_authenticate(source):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Microsoft 365 account not yet authorised. Complete OAuth2 flow first.",
+            detail=(
+                m365_application_configuration_error(source)
+                or "Microsoft 365 account not yet authorised. Complete OAuth2 flow first."
+            ),
         )
 
     already = MicrosoftGraphClient.load_ingested_ids(source.m365_ingested_ids)
@@ -1059,6 +1126,7 @@ def _fetch_m365_source(source: MailSource, db: Session, days: int = 7) -> Dict[s
         client_secret=source.m365_client_secret or "",
         access_token=source.m365_access_token,
         refresh_token=source.m365_refresh_token or "",
+        auth_mode=_m365_auth_mode(source),
         mailbox=source.m365_mailbox,
         folder=source.folder or "INBOX",
         folder_id=_safe_attr(source, "m365_folder_id"),
@@ -1172,12 +1240,14 @@ async def create_mail_source(
         enabled=payload.enabled,
         gmail_client_id=payload.gmail_client_id,
         gmail_client_secret=payload.gmail_client_secret,
+        m365_auth_mode=payload.m365_auth_mode,
         m365_tenant_id=payload.m365_tenant_id or "common",
         m365_client_id=payload.m365_client_id,
         m365_client_secret=payload.m365_client_secret,
         m365_mailbox=payload.m365_mailbox,
         m365_folder_id=payload.m365_folder_id,
     )
+    _validate_m365_source_configuration(source)
     db.add(source)
     db.commit()
     db.refresh(source)
@@ -1589,13 +1659,37 @@ async def update_mail_source(
     source = _get_source_or_404(source_id, db, workspace)
 
     update_data = payload.model_dump(exclude_unset=True)
+    old_m365_auth_mode = _m365_auth_mode(source)
+    old_m365_tenant_id = source.m365_tenant_id
+    old_m365_client_id = source.m365_client_id
+    m365_secret_replaced = bool(update_data.get("m365_client_secret"))
     for secret_field in ("password", "gmail_client_secret", "m365_client_secret"):
         if update_data.get(secret_field) == "":
             update_data.pop(secret_field)
     if "method" in update_data and update_data["method"]:
         update_data["method"] = update_data["method"].upper()
+    if "m365_auth_mode" in update_data and update_data["m365_auth_mode"]:
+        try:
+            update_data["m365_auth_mode"] = normalize_m365_auth_mode(update_data["m365_auth_mode"])
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(exc),
+            ) from exc
     for field, value in update_data.items():
         setattr(source, field, value)
+
+    _validate_m365_source_configuration(source)
+    token_settings_changed = (
+        old_m365_auth_mode != _m365_auth_mode(source)
+        or old_m365_tenant_id != source.m365_tenant_id
+        or old_m365_client_id != source.m365_client_id
+        or m365_secret_replaced
+    )
+    if token_settings_changed:
+        source.m365_access_token = None
+        source.m365_refresh_token = None
+        source.m365_email = None
 
     source.updated_at = datetime.utcnow()
     db.commit()
@@ -1723,11 +1817,14 @@ async def test_stored_mail_source(  # noqa: C901
             )
 
     if source.method == "M365_GRAPH":
-        if not source.m365_access_token:
+        if not m365_source_can_authenticate(source):
             return _connection_test_response(
                 False,
-                "Microsoft 365 source is not yet authorised. "
-                "Use the Connect Microsoft 365 button to complete OAuth2 authorisation.",
+                m365_application_configuration_error(source)
+                or (
+                    "Microsoft 365 source is not yet authorised. "
+                    "Use the Connect Microsoft 365 button to complete OAuth2 authorisation."
+                ),
             )
         try:
             graph_client = MicrosoftGraphClient(
@@ -1736,6 +1833,7 @@ async def test_stored_mail_source(  # noqa: C901
                 client_secret=source.m365_client_secret or "",
                 access_token=source.m365_access_token,
                 refresh_token=source.m365_refresh_token or "",
+                auth_mode=_m365_auth_mode(source),
                 mailbox=source.m365_mailbox,
                 folder=source.folder or "INBOX",
                 folder_id=_safe_attr(source, "m365_folder_id"),
@@ -1750,7 +1848,8 @@ async def test_stored_mail_source(  # noqa: C901
             db.commit()
             return _connection_test_response(
                 True,
-                f"Microsoft 365 credentials are valid (account: {source.m365_email or 'unknown'}).",
+                "Microsoft 365 credentials are valid "
+                f"(mailbox: {source.m365_mailbox or source.m365_email or 'unknown'}).",
                 stats=stats,
             )
         except Exception as exc:  # pylint: disable=broad-exception-caught
@@ -1843,6 +1942,14 @@ async def m365_authorize_url(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="This endpoint is only available for M365_GRAPH sources.",
         )
+    if _m365_auth_mode(source) == M365_AUTH_MODE_APPLICATION:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Application-permission sources do not use interactive OAuth. "
+                "Test the saved application credentials instead."
+            ),
+        )
     if not source.m365_client_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1878,10 +1985,13 @@ async def m365_list_folders(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="This endpoint is only available for M365_GRAPH sources.",
         )
-    if not source.m365_access_token:
+    if not m365_source_can_authenticate(source):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Microsoft 365 account not yet authorised. Complete OAuth2 flow first.",
+            detail=(
+                m365_application_configuration_error(source)
+                or "Microsoft 365 account not yet authorised. Complete OAuth2 flow first."
+            ),
         )
 
     graph_client = MicrosoftGraphClient(
@@ -1890,6 +2000,7 @@ async def m365_list_folders(
         client_secret=source.m365_client_secret or "",
         access_token=source.m365_access_token,
         refresh_token=source.m365_refresh_token or "",
+        auth_mode=_m365_auth_mode(source),
         mailbox=source.m365_mailbox,
         folder=source.folder or "INBOX",
         folder_id=_safe_attr(source, "m365_folder_id"),
@@ -1962,6 +2073,14 @@ async def m365_oauth_callback(
         return HTMLResponse(
             content="<html><body><p>Mail source not found.</p></body></html>",
             status_code=404,
+        )
+    if _m365_auth_mode(source) == M365_AUTH_MODE_APPLICATION:
+        return HTMLResponse(
+            content=(
+                "<html><body><p>This source uses Microsoft 365 application "
+                "permissions and does not accept an interactive OAuth callback.</p></body></html>"
+            ),
+            status_code=400,
         )
 
     base_url = _public_base_url(request, db)
@@ -2040,6 +2159,11 @@ async def m365_oauth_callback_post(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="This endpoint is only available for M365_GRAPH sources.",
+        )
+    if _m365_auth_mode(source) == M365_AUTH_MODE_APPLICATION:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=("Application-permission sources do not accept an interactive OAuth callback."),
         )
 
     try:

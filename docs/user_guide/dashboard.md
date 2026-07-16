@@ -70,9 +70,11 @@ The report intake card shows whether the background scheduler is running, when a
 mail source last checked for reports, and which sources are enabled. Gmail and
 Microsoft 365 sources also expose authorization attention states. If an OAuth
 connection is missing, expired, revoked, or missing the refresh token required
-for scheduled imports, the dashboard shows **Needs attention** and links to Mail
-Sources so the operator can reconnect the mailbox before relying on automated
-imports.
+for delegated scheduled imports, the dashboard shows **Needs attention** and
+links to Mail Sources. Microsoft 365 application sources instead show a
+configuration problem when tenant, application credentials, or the explicit
+target mailbox are missing; a stored access token is not required because DMARQ
+can obtain one through client credentials while polling.
 
 Manual **Trigger Poll Now** results include the number of sources, processed
 messages, discovered reports, and any recovery summary from the failing source.
