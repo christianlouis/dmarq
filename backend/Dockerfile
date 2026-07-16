@@ -28,6 +28,8 @@ ENV DMARQ_BUILD_SHA="${DMARQ_BUILD_SHA}" \
 # The backend does not need privileged mount helpers. Debian 13 currently has
 # no fixed util-linux package for the reported Snyk mount(8) CVEs, so remove
 # the SUID entry points from the runtime image.
+# Temporary inherited-package decisions are tracked in
+# docs/deployment/security-risk-acceptances.md and reviewed on a deadline.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \

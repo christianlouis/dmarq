@@ -3199,6 +3199,9 @@ def test_provider_demo_is_separate_from_dashboard_controls():
     assert "createAccount" in script
     assert "saveBilling" in script
     assert "addUser" in script
+    assert "data-provider-open-billing-from-limit" in template
+    assert "capturePlanLimitAction" in script
+    assert "openBillingFromPlanLimit" in script
     assert "startSupportSession" in script
     assert "String(user.id)" not in template
     assert ':value="impersonationUserId(user)"' in template
@@ -3234,6 +3237,25 @@ def test_provider_demo_resolves_selected_impersonation_user_by_id_before_stale_e
     )
 
     assert result == "second@example.test|first@example.test"
+
+
+def test_provider_plan_limit_error_opens_selected_account_billing():
+    result = _run_provider_demo_expression(
+        "(() => {"
+        "app.accounts = [{slug: 'limited', name: 'Limited', billing: {}, users: [], "
+        "entitlements: {users: {included: 1}}, domains: [], activity: []}];"
+        "app.plans = [{code: 'starter'}];"
+        "app.selectedAccountSlug = 'limited';"
+        "app.userDialogOpen = true;"
+        "const captured = app.capturePlanLimitAction({detail: {"
+        "code: 'plan_limit_exceeded', metric: 'users', current: 1, limit: 1}});"
+        "app.openBillingFromPlanLimit();"
+        "return [captured, app.viewMode, app.accountTab, app.userDialogOpen, "
+        "app.planLimitAction === null].join('|');"
+        "})()"
+    )
+
+    assert result == "true|account|billing|false|true"
 
 
 def test_dashboard_distinguishes_loading_error_and_empty_states():

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import date, datetime, time, timezone
 from html import escape
 from typing import Any, Dict, Iterable, List, Optional
 
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models.api_token import APIToken
 from app.models.domain import Domain
@@ -953,6 +954,7 @@ def _period_plan_limit_usage(
     workspace_ids: List[int],
     metric_filter: set[str],
     entitlement_map: Dict[str, Entitlement],
+    current_values: Optional[Dict[str, int]] = None,
 ) -> tuple[Dict[str, int], Dict[str, Dict[str, str]]]:
     if "aggregate_messages" not in metric_filter:
         return {}, {}
@@ -962,15 +964,16 @@ def _period_plan_limit_usage(
         return {}, {}
     usage_period = usage_period_for_current_month()
     usage_period_start, usage_period_end = parse_usage_period(usage_period)
+    period_values = {}
+    if "aggregate_messages" not in (current_values or {}):
+        period_values["aggregate_messages"] = _aggregate_messages_for_period(
+            db,
+            workspace_ids,
+            usage_period_start,
+            usage_period_end,
+        )
     return (
-        {
-            "aggregate_messages": _aggregate_messages_for_period(
-                db,
-                workspace_ids,
-                usage_period_start,
-                usage_period_end,
-            )
-        },
+        period_values,
         {
             "aggregate_messages": {
                 "period": usage_period,
@@ -981,52 +984,68 @@ def _period_plan_limit_usage(
     )
 
 
+def _metric_needs_current_value(
+    metric: str,
+    metric_filter: set[str],
+    current_values: Dict[str, int],
+) -> bool:
+    return metric in metric_filter and metric not in current_values
+
+
 def _plan_limits_for_organization(
     db: Session,
     organization: Organization,
     workspaces: List[Workspace],
     entitlements: List[Entitlement],
     metrics: Optional[Iterable[str]] = None,
+    current_values_override: Optional[Dict[str, int]] = None,
 ) -> Dict[str, Dict[str, Any]]:
     entitlement_map = _entitlements_by_key(entitlements)
     workspace_ids = [workspace.id for workspace in workspaces]
     workspace_filter = workspace_ids or [-1]
     metric_filter = set(metrics) if metrics is not None else set(PLAN_LIMIT_ENTITLEMENT_ALIASES)
+    metric_filter &= {
+        metric
+        for metric, aliases in PLAN_LIMIT_ENTITLEMENT_ALIASES.items()
+        if any(alias in entitlement_map for alias in aliases)
+    }
 
-    current_values: Dict[str, int] = {}
+    current_values: Dict[str, int] = dict(current_values_override or {})
+
     period_values, period_contexts = _period_plan_limit_usage(
         db,
         workspace_ids,
         metric_filter,
         entitlement_map,
+        current_values,
     )
     current_values.update(period_values)
-    if "monitored_domains" in metric_filter:
+    if _metric_needs_current_value("monitored_domains", metric_filter, current_values):
         current_values["monitored_domains"] = (
             db.query(func.count(Domain.id))
             .filter(Domain.workspace_id.in_(workspace_filter), Domain.active.is_(True))
             .scalar()
             or 0
         )
-    if "mail_sources" in metric_filter:
+    if _metric_needs_current_value("mail_sources", metric_filter, current_values):
         current_values["mail_sources"] = (
             db.query(func.count(MailSource.id))
             .filter(MailSource.workspace_id.in_(workspace_filter), MailSource.enabled.is_(True))
             .scalar()
             or 0
         )
-    if "users" in metric_filter:
+    if _metric_needs_current_value("users", metric_filter, current_values):
         current_values["users"] = len(
             _active_user_ids_for_organization(db, organization, workspaces)
         )
-    if "api_tokens" in metric_filter:
+    if _metric_needs_current_value("api_tokens", metric_filter, current_values):
         current_values["api_tokens"] = (
             db.query(func.count(APIToken.id))
             .filter(APIToken.workspace_id.in_(workspace_filter), APIToken.active.is_(True))
             .scalar()
             or 0
         )
-    if "webhooks" in metric_filter:
+    if _metric_needs_current_value("webhooks", metric_filter, current_values):
         current_values["webhooks"] = (
             db.query(func.count(WebhookEndpoint.id))
             .filter(
@@ -1036,7 +1055,7 @@ def _plan_limits_for_organization(
             .scalar()
             or 0
         )
-    if "retention_days" in metric_filter:
+    if _metric_needs_current_value("retention_days", metric_filter, current_values):
         current_values["retention_days"] = max(
             [
                 value or 0
@@ -1169,27 +1188,45 @@ def organization_summary(
     *,
     include_plan_limits: bool = True,
     include_plan_limit_metrics: Optional[Iterable[str]] = None,
+    workspaces_override: Optional[List[Workspace]] = None,
+    billing_accounts_override: Optional[List[BillingAccount]] = None,
+    subscriptions_override: Optional[List[Subscription]] = None,
+    entitlements_override: Optional[List[Entitlement]] = None,
+    user_count_override: Optional[int] = None,
+    plan_limit_current_values: Optional[Dict[str, int]] = None,
 ) -> Dict[str, Any]:
     """Return an API-safe organization/account summary."""
-    workspaces = (
-        db.query(Workspace)
-        .filter(Workspace.organization_id == organization.id)
-        .order_by(Workspace.slug.asc())
-        .all()
-    )
-    billing_accounts = (
-        db.query(BillingAccount)
-        .filter(BillingAccount.organization_id == organization.id)
-        .order_by(BillingAccount.id.asc())
-        .all()
-    )
-    subscriptions = (
-        db.query(Subscription)
-        .filter(Subscription.organization_id == organization.id)
-        .order_by(Subscription.created_at.desc())
-        .all()
-    )
-    entitlements = _active_entitlements_query(db, organization).all()
+    workspaces = workspaces_override
+    if workspaces is None:
+        workspaces = (
+            db.query(Workspace)
+            .filter(Workspace.organization_id == organization.id)
+            .order_by(Workspace.slug.asc())
+            .all()
+        )
+    billing_accounts = billing_accounts_override
+    if billing_accounts is None:
+        billing_accounts = (
+            db.query(BillingAccount)
+            .filter(BillingAccount.organization_id == organization.id)
+            .order_by(BillingAccount.id.asc())
+            .all()
+        )
+    subscriptions = subscriptions_override
+    if subscriptions is None:
+        subscriptions = (
+            db.query(Subscription)
+            .options(
+                selectinload(Subscription.plan),
+                selectinload(Subscription.billing_account),
+            )
+            .filter(Subscription.organization_id == organization.id)
+            .order_by(Subscription.created_at.desc())
+            .all()
+        )
+    entitlements = entitlements_override
+    if entitlements is None:
+        entitlements = _active_entitlements_query(db, organization).all()
     entitlements_by_key = _entitlements_by_key(entitlements)
     summary = {
         "id": organization.id,
@@ -1216,10 +1253,16 @@ def organization_summary(
             "workspace_count": len(workspaces),
             "active_workspace_count": sum(1 for workspace in workspaces if workspace.active),
             "user_count": (
-                db.query(func.count(User.id))
-                .filter(User.workspace_id.in_([workspace.id for workspace in workspaces] or [-1]))
-                .scalar()
-                or 0
+                user_count_override
+                if user_count_override is not None
+                else (
+                    db.query(func.count(User.id))
+                    .filter(
+                        User.workspace_id.in_([workspace.id for workspace in workspaces] or [-1])
+                    )
+                    .scalar()
+                    or 0
+                )
             ),
         },
     }
@@ -1230,6 +1273,7 @@ def organization_summary(
             workspaces,
             entitlements,
             metrics=include_plan_limit_metrics,
+            current_values_override=plan_limit_current_values,
         )
     return summary
 
@@ -1550,14 +1594,276 @@ def provision_provider_customer(
     }
 
 
+def _batched_organization_summary_data(
+    db: Session,
+    organizations: List[Organization],
+) -> Dict[str, Dict[int, Any]]:
+    """Load account-summary relationships and seat usage in fixed-size batches."""
+    organization_ids = [organization.id for organization in organizations]
+    if not organization_ids:
+        return {
+            "workspaces": {},
+            "billing_accounts": {},
+            "subscriptions": {},
+            "entitlements": {},
+            "user_counts": {},
+            "seat_counts": {},
+        }
+
+    workspaces_by_organization: Dict[int, List[Workspace]] = defaultdict(list)
+    workspaces = (
+        db.query(Workspace)
+        .filter(Workspace.organization_id.in_(organization_ids))
+        .order_by(Workspace.organization_id.asc(), Workspace.slug.asc())
+        .all()
+    )
+    for workspace in workspaces:
+        workspaces_by_organization[workspace.organization_id].append(workspace)
+
+    billing_accounts_by_organization: Dict[int, List[BillingAccount]] = defaultdict(list)
+    billing_accounts = (
+        db.query(BillingAccount)
+        .filter(BillingAccount.organization_id.in_(organization_ids))
+        .order_by(BillingAccount.organization_id.asc(), BillingAccount.id.asc())
+        .all()
+    )
+    for billing_account in billing_accounts:
+        billing_accounts_by_organization[billing_account.organization_id].append(billing_account)
+
+    subscriptions_by_organization: Dict[int, List[Subscription]] = defaultdict(list)
+    subscriptions = (
+        db.query(Subscription)
+        .options(
+            selectinload(Subscription.plan),
+            selectinload(Subscription.billing_account),
+        )
+        .filter(Subscription.organization_id.in_(organization_ids))
+        .order_by(Subscription.organization_id.asc(), Subscription.created_at.desc())
+        .all()
+    )
+    for subscription in subscriptions:
+        subscriptions_by_organization[subscription.organization_id].append(subscription)
+
+    entitlements_by_organization: Dict[int, List[Entitlement]] = defaultdict(list)
+    entitlements = (
+        db.query(Entitlement)
+        .filter(
+            Entitlement.organization_id.in_(organization_ids),
+            Entitlement.active.is_(True),
+        )
+        .order_by(
+            Entitlement.organization_id.asc(),
+            Entitlement.key.asc(),
+            Entitlement.updated_at.desc().nullslast(),
+            Entitlement.effective_from.desc().nullslast(),
+            Entitlement.created_at.desc().nullslast(),
+            Entitlement.id.desc(),
+        )
+        .all()
+    )
+    for entitlement in entitlements:
+        entitlements_by_organization[entitlement.organization_id].append(entitlement)
+
+    user_counts = {
+        organization_id: int(count or 0)
+        for organization_id, count in (
+            db.query(Workspace.organization_id, func.count(User.id))
+            .join(User, User.workspace_id == Workspace.id)
+            .filter(Workspace.organization_id.in_(organization_ids))
+            .group_by(Workspace.organization_id)
+            .all()
+        )
+    }
+
+    seat_user_ids: Dict[int, set[int]] = defaultdict(set)
+    direct_seats = (
+        db.query(Workspace.organization_id, User.id)
+        .join(User, User.workspace_id == Workspace.id)
+        .filter(
+            Workspace.organization_id.in_(organization_ids),
+            User.is_active.is_(True),
+        )
+        .all()
+    )
+    workspace_seats = (
+        db.query(Workspace.organization_id, WorkspaceMembership.user_id)
+        .join(Workspace, WorkspaceMembership.workspace_id == Workspace.id)
+        .join(User, WorkspaceMembership.user_id == User.id)
+        .filter(
+            Workspace.organization_id.in_(organization_ids),
+            WorkspaceMembership.active.is_(True),
+            User.is_active.is_(True),
+        )
+        .all()
+    )
+    organization_seats = (
+        db.query(OrganizationMembership.organization_id, OrganizationMembership.user_id)
+        .join(User, OrganizationMembership.user_id == User.id)
+        .filter(
+            OrganizationMembership.organization_id.in_(organization_ids),
+            OrganizationMembership.active.is_(True),
+            User.is_active.is_(True),
+        )
+        .all()
+    )
+    for organization_id, user_id in direct_seats + workspace_seats + organization_seats:
+        seat_user_ids[organization_id].add(user_id)
+
+    seat_counts = {
+        organization_id: len(seat_user_ids.get(organization_id, set()))
+        for organization_id in organization_ids
+    }
+    plan_limit_current_values = _batched_plan_limit_current_values(
+        db,
+        organization_ids,
+        workspaces_by_organization,
+        entitlements_by_organization,
+        seat_counts,
+    )
+
+    return {
+        "workspaces": workspaces_by_organization,
+        "billing_accounts": billing_accounts_by_organization,
+        "subscriptions": subscriptions_by_organization,
+        "entitlements": entitlements_by_organization,
+        "user_counts": user_counts,
+        "seat_counts": seat_counts,
+        "plan_limit_current_values": plan_limit_current_values,
+    }
+
+
+def _plan_limit_metric_organization_ids(
+    entitlements_by_organization: Dict[int, List[Entitlement]],
+) -> Dict[str, set[int]]:
+    """Map each configured plan-limit metric to its organizations."""
+    metric_organization_ids: Dict[str, set[int]] = defaultdict(set)
+    for organization_id, entitlements in entitlements_by_organization.items():
+        entitlement_keys = {entitlement.key for entitlement in entitlements}
+        for metric, aliases in PLAN_LIMIT_ENTITLEMENT_ALIASES.items():
+            if any(alias in entitlement_keys for alias in aliases):
+                metric_organization_ids[metric].add(organization_id)
+    return metric_organization_ids
+
+
+def _batched_plan_limit_current_values(
+    db: Session,
+    organization_ids: List[int],
+    workspaces_by_organization: Dict[int, List[Workspace]],
+    entitlements_by_organization: Dict[int, List[Entitlement]],
+    seat_counts: Dict[int, int],
+) -> Dict[int, Dict[str, int]]:
+    """Aggregate configured plan-limit usage without per-organization queries."""
+    metric_organization_ids = _plan_limit_metric_organization_ids(entitlements_by_organization)
+
+    current_values: Dict[int, Dict[str, int]] = defaultdict(dict)
+
+    def assign_counts(metric: str, rows: Iterable[tuple[int, Any]]) -> None:
+        entitled_ids = metric_organization_ids.get(metric, set())
+        for organization_id in entitled_ids:
+            current_values[organization_id][metric] = 0
+        for organization_id, value in rows:
+            if organization_id in entitled_ids:
+                current_values[organization_id][metric] = int(value or 0)
+
+    assign_counts(
+        "users",
+        (
+            (organization_id, seat_counts.get(organization_id, 0))
+            for organization_id in organization_ids
+        ),
+    )
+
+    for metric, model, active_filter in (
+        ("monitored_domains", Domain, Domain.active.is_(True)),
+        ("mail_sources", MailSource, MailSource.enabled.is_(True)),
+        ("api_tokens", APIToken, APIToken.active.is_(True)),
+        ("webhooks", WebhookEndpoint, WebhookEndpoint.enabled.is_(True)),
+    ):
+        entitled_ids = metric_organization_ids.get(metric, set())
+        if not entitled_ids:
+            continue
+        assign_counts(
+            metric,
+            db.query(Workspace.organization_id, func.count(model.id))
+            .join(model, model.workspace_id == Workspace.id)
+            .filter(
+                Workspace.organization_id.in_(entitled_ids),
+                active_filter,
+            )
+            .group_by(Workspace.organization_id)
+            .all(),
+        )
+
+    retention_organization_ids = metric_organization_ids.get("retention_days", set())
+    assign_counts(
+        "retention_days",
+        (
+            (
+                organization_id,
+                max(
+                    [
+                        value or 0
+                        for workspace in workspaces_by_organization.get(organization_id, [])
+                        for value in (
+                            workspace.report_retention_days,
+                            workspace.forensic_retention_days,
+                            workspace.tls_report_retention_days,
+                        )
+                    ]
+                    or [0]
+                ),
+            )
+            for organization_id in retention_organization_ids
+        ),
+    )
+
+    aggregate_organization_ids = metric_organization_ids.get("aggregate_messages", set())
+    if aggregate_organization_ids:
+        usage_period_start, usage_period_end = parse_usage_period(usage_period_for_current_month())
+        assign_counts(
+            "aggregate_messages",
+            db.query(Workspace.organization_id, func.sum(ReportRecord.count))
+            .join(Domain, Domain.workspace_id == Workspace.id)
+            .join(DMARCReport, DMARCReport.domain_id == Domain.id)
+            .join(ReportRecord, ReportRecord.report_id == DMARCReport.id)
+            .filter(
+                Workspace.organization_id.in_(aggregate_organization_ids),
+                DMARCReport.processed_at >= usage_period_start,
+                DMARCReport.processed_at < usage_period_end,
+                ReportRecord.count > 0,
+            )
+            .group_by(Workspace.organization_id)
+            .all(),
+        )
+
+    return dict(current_values)
+
+
+def _organization_summaries(
+    db: Session,
+    organizations: List[Organization],
+) -> List[Dict[str, Any]]:
+    batched = _batched_organization_summary_data(db, organizations)
+    return [
+        organization_summary(
+            db,
+            organization,
+            workspaces_override=batched["workspaces"].get(organization.id, []),
+            billing_accounts_override=batched["billing_accounts"].get(organization.id, []),
+            subscriptions_override=batched["subscriptions"].get(organization.id, []),
+            entitlements_override=batched["entitlements"].get(organization.id, []),
+            user_count_override=batched["user_counts"].get(organization.id, 0),
+            plan_limit_current_values=batched["plan_limit_current_values"].get(organization.id, {}),
+        )
+        for organization in organizations
+    ]
+
+
 def list_organization_summaries(db: Session) -> List[Dict[str, Any]]:
     """Return all organizations with local commercial state materialized."""
     bootstrap_default_commercial_foundation(db)
     organizations = db.query(Organization).order_by(Organization.slug.asc()).all()
-    return [
-        organization_summary(db, organization, include_plan_limit_metrics=("users",))
-        for organization in organizations
-    ]
+    return _organization_summaries(db, organizations)
 
 
 def list_scoped_organization_summaries(
@@ -1571,10 +1877,7 @@ def list_scoped_organization_summaries(
         if not organization_ids:
             return []
         query = query.filter(Organization.id.in_(organization_ids))
-    return [
-        organization_summary(db, organization, include_plan_limit_metrics=("users",))
-        for organization in query.all()
-    ]
+    return _organization_summaries(db, query.all())
 
 
 def parse_usage_period(period: str) -> tuple[datetime, datetime]:

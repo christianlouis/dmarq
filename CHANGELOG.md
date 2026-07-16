@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Removed the provider-console organization-summary N+1 query pattern by
+  batching workspaces, billing, subscriptions, entitlements, and active seat
+  usage, with a query-count regression test across multiple tenants.
+- Added a contextual Billing & Plan action when a provider operator reaches a
+  customer seat limit, including structured `plan_limit_exceeded` API errors.
+- Recorded the inherited Debian `perl-base` CVEs as a time-bounded security risk
+  acceptance with required controls, a review deadline, and explicit exit
+  conditions instead of silently suppressing scanner results.
+- Classified four historical secret-scanner findings as synthetic test fixtures
+  and baselined only their exact fingerprints, leaving all new secret findings
+  visible to GitGuardian and Gitleaks.
+- Enabled `no-new-privileges` in the supported Docker Compose application
+  service so inherited base-image packages cannot gain additional privileges.
 - Published `docker-stable`, `docker-latest`, immutable release, and short-SHA
   images for both Linux AMD64 and ARM64, and made the release gate reject an
   incomplete architecture manifest before promotion.
