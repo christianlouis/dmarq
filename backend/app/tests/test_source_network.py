@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -74,6 +75,65 @@ async def test_lookup_source_network_accepts_team_cymru_dns_without_as_name():
     assert result.bgp_prefix == "50.31.205.0/24"
     assert result.country == "United States"
     assert result.region == "North America"
+    assert result.error is None
+
+
+async def test_lookup_source_network_falls_back_from_failed_primary_resolver(monkeypatch):
+    _ASN_NAME_CACHE.pop("AS23352", None)
+    origin_query = "200.209.245.104.origin.asn.cymru.com"
+    primary = FakeProvider({origin_query: LookupError("Akamai ETP resolver is not configured")})
+    fallback = FakeProvider(
+        {
+            origin_query: ['"23352 | 104.245.208.0/21 | US | arin | 2014-12-16"'],
+            "AS23352.asn.cymru.com": [
+                '"23352 | US | arin | 2002-03-05 | SERVERCENTRAL - DEFT.COM, US"'
+            ],
+        }
+    )
+
+    monkeypatch.setattr(
+        "app.services.source_network._network_lookup_candidates",
+        lambda provider: [primary, fallback] if provider is primary else [provider],
+    )
+
+    result = await lookup_source_network(primary, "104.245.209.200")
+
+    assert primary.queries == [origin_query]
+    assert fallback.queries == [origin_query, "AS23352.asn.cymru.com"]
+    assert result.asn == "AS23352"
+    assert result.as_name == "SERVERCENTRAL - DEFT.COM, US"
+    assert result.bgp_prefix == "104.245.208.0/21"
+    assert result.country_code == "US"
+    assert result.country == "United States"
+    assert result.region == "North America"
+    assert result.error is None
+
+
+async def test_lookup_source_network_falls_back_for_as_name_lookup(monkeypatch):
+    _ASN_NAME_CACHE.pop("AS23352", None)
+    origin_query = "200.209.245.104.origin.asn.cymru.com"
+    as_name_query = "AS23352.asn.cymru.com"
+    primary = FakeProvider(
+        {
+            origin_query: ['"23352 | 104.245.208.0/21 | US | arin | 2014-12-16"'],
+            as_name_query: LookupError("primary resolver blocked the AS query"),
+        }
+    )
+    fallback = FakeProvider(
+        {as_name_query: ['"23352 | US | arin | 2002-03-05 | SERVERCENTRAL - DEFT.COM, US"']}
+    )
+
+    monkeypatch.setattr(
+        "app.services.source_network._network_lookup_candidates",
+        lambda provider: [primary, fallback] if provider is primary else [provider],
+    )
+
+    result = await lookup_source_network(primary, "104.245.209.200")
+
+    assert primary.queries == [origin_query, as_name_query]
+    assert fallback.queries == [as_name_query]
+    assert result.asn == "AS23352"
+    assert result.as_name == "SERVERCENTRAL - DEFT.COM, US"
     assert result.error is None
 
 
@@ -202,6 +262,42 @@ async def test_lookup_source_network_prefers_ipinfo_lite(monkeypatch):
     assert result.country == "United States"
     assert result.region == "North America"
     assert result.error is None
+
+
+async def test_lookup_source_network_preserves_dns_error_with_partial_api_data(monkeypatch):
+    async def partial_ipinfo(_ip):
+        return SourceNetworkIntelligence(
+            ip="104.245.209.200",
+            asn="AS23352",
+            source="ipinfo-lite",
+        )
+
+    async def no_api_data(_ip):
+        return None
+
+    monkeypatch.setattr(
+        "app.services.source_network._lookup_ipinfo_network",
+        partial_ipinfo,
+    )
+    monkeypatch.setattr(
+        "app.services.source_network._lookup_ipgeolocation_network",
+        no_api_data,
+    )
+    monkeypatch.setattr(
+        "app.services.source_network._lookup_cloudflare_radar_network",
+        no_api_data,
+    )
+    provider = FakeProvider(
+        {"200.209.245.104.origin.asn.cymru.com": LookupError("all DNS candidates unavailable")}
+    )
+
+    result = await lookup_source_network(provider, "104.245.209.200")
+
+    assert result.asn == "AS23352"
+    assert result.country_code is None
+    assert result.source == "ipinfo-lite"
+    assert result.error == "ASN lookup failed: LookupError."
+    assert result.dns_retry_pending is True
 
 
 async def test_lookup_source_network_uses_ipgeolocation_when_configured(monkeypatch):
@@ -351,6 +447,108 @@ async def test_lookup_source_network_cached_reuses_fresh_result(db_session):
     assert first.asn == "AS64500"
     assert second.asn == "AS64500"
     assert provider.queries == ["8.8.8.8.origin.asn.cymru.com"]
+
+
+async def test_lookup_source_network_cached_retries_errors_after_short_ttl(db_session, monkeypatch):
+    origin_query = "8.8.8.8.origin.asn.cymru.com"
+    provider = FakeProvider({origin_query: LookupError("resolver unavailable")})
+    first_now = datetime(2026, 7, 16, 20, 0, 0)
+    lookup_times = iter([first_now, first_now + timedelta(seconds=301)])
+    monkeypatch.setattr(
+        "app.services.source_network._utcnow_naive",
+        lambda: next(lookup_times),
+    )
+
+    first, first_cached, _ = await lookup_source_network_cached(
+        db_session,
+        provider,
+        "8.8.8.8",
+    )
+    provider.records = {
+        origin_query: ['"15169 | 8.8.8.0/24 | US | arin | 1992-12-01 | GOOGLE, US"']
+    }
+    second, second_cached, _ = await lookup_source_network_cached(
+        db_session,
+        provider,
+        "8.8.8.8",
+    )
+
+    assert first.error == "ASN lookup failed: LookupError."
+    assert first_cached is False
+    assert second.asn == "AS15169"
+    assert second.error is None
+    assert second_cached is False
+    assert provider.queries == [origin_query, origin_query]
+
+
+async def test_lookup_source_network_cached_retries_only_dns_for_partial_api_data(
+    db_session,
+    monkeypatch,
+):
+    _ASN_NAME_CACHE.pop("AS23352", None)
+    origin_query = "200.209.245.104.origin.asn.cymru.com"
+    provider = FakeProvider({origin_query: LookupError("resolver unavailable")})
+    api_calls = []
+
+    async def partial_ipinfo(ip):
+        api_calls.append(ip)
+        return SourceNetworkIntelligence(
+            ip=ip,
+            asn="AS23352",
+            source="ipinfo-lite",
+        )
+
+    async def no_api_data(_ip):
+        return None
+
+    first_now = datetime(2026, 7, 16, 20, 0, 0)
+    lookup_times = iter([first_now, first_now + timedelta(seconds=301)])
+    monkeypatch.setattr(
+        "app.services.source_network._utcnow_naive",
+        lambda: next(lookup_times),
+    )
+    monkeypatch.setattr(
+        "app.services.source_network._lookup_ipinfo_network",
+        partial_ipinfo,
+    )
+    monkeypatch.setattr(
+        "app.services.source_network._lookup_ipgeolocation_network",
+        no_api_data,
+    )
+    monkeypatch.setattr(
+        "app.services.source_network._lookup_cloudflare_radar_network",
+        no_api_data,
+    )
+
+    first, first_cached, _ = await lookup_source_network_cached(
+        db_session,
+        provider,
+        "104.245.209.200",
+    )
+    provider.records = {
+        origin_query: ['"23352 | 104.245.208.0/21 | US | arin | 2014-12-16"'],
+        "AS23352.asn.cymru.com": [
+            '"23352 | US | arin | 2002-03-05 | SERVERCENTRAL - DEFT.COM, US"'
+        ],
+    }
+    second, second_cached, _ = await lookup_source_network_cached(
+        db_session,
+        provider,
+        "104.245.209.200",
+    )
+
+    assert first_cached is False
+    assert first.asn == "AS23352"
+    assert first.error == "ASN lookup failed: LookupError."
+    assert first.dns_retry_pending is True
+    assert second_cached is False
+    assert second.asn == "AS23352"
+    assert second.as_name == "SERVERCENTRAL - DEFT.COM, US"
+    assert second.country_code == "US"
+    assert second.error is None
+    assert second.dns_retry_pending is False
+    assert api_calls == ["104.245.209.200"]
+    assert provider.queries == [origin_query, origin_query, "AS23352.asn.cymru.com"]
 
 
 async def test_lookup_sources_network_cached_filters_invalid_and_non_global_ips(db_session):

@@ -6,7 +6,7 @@ import asyncio
 import ipaddress
 import json
 import logging
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib.error import HTTPError, URLError
@@ -18,9 +18,12 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.dns_cache import DNSCache
+from app.services.dns_fallbacks import dns_fallback_candidates
+from app.services.dns_resolver import BaseDNSProvider
 
 _CACHE_PROVIDER = "source-network-intelligence-v1"
-_SELECTORS_KEY = "source-network-v3"
+_SELECTORS_KEY = "source-network-v4"
+_ERROR_CACHE_TTL_SECONDS = 300
 _ASN_NAME_CACHE: Dict[str, str] = {}
 _IPINFO_LITE_URL = "https://api.ipinfo.io/lite"
 _IPGEOLOCATION_URL = "https://api.ipgeolocation.io/v3/ipgeo"
@@ -106,6 +109,7 @@ class SourceNetworkIntelligence:  # pylint: disable=too-many-instance-attributes
     source: str = "unknown"
     checked_at: str = ""
     error: Optional[str] = None
+    dns_retry_pending: bool = False
 
 
 def _utcnow_naive() -> datetime:
@@ -157,6 +161,13 @@ def _as_name_from_cymru_txt(txt_records: Iterable[str]) -> Optional[str]:
     return None
 
 
+def _network_lookup_candidates(provider: Any) -> List[Any]:
+    """Return independent DNS candidates for production resolver providers."""
+    if isinstance(provider, BaseDNSProvider):
+        return list(dns_fallback_candidates(provider))
+    return [provider]
+
+
 async def _lookup_as_name(provider: Any, asn: str) -> Optional[str]:
     normalized = _normalize_asn(asn)
     if not normalized:
@@ -166,18 +177,21 @@ async def _lookup_as_name(provider: Any, asn: str) -> Optional[str]:
     query = _asn_name_query(normalized)
     if not query:
         return None
-    try:
-        as_name = _as_name_from_cymru_txt(await provider.lookup_txt(query))
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.debug(
-            "ASN name lookup failed for %s: %s",
-            normalized,
-            type(exc).__name__,
-        )
-        return None
-    if as_name:
-        _ASN_NAME_CACHE[normalized] = as_name
-    return as_name
+    for candidate in _network_lookup_candidates(provider):
+        try:
+            as_name = _as_name_from_cymru_txt(await candidate.lookup_txt(query))
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.debug(
+                "ASN name lookup failed for %s via %s: %s",
+                normalized,
+                candidate.__class__.__name__,
+                type(exc).__name__,
+            )
+            continue
+        if as_name:
+            _ASN_NAME_CACHE[normalized] = as_name
+            return as_name
+    return None
 
 
 def _normalize_global_source_ip(value: Any) -> Optional[str]:
@@ -282,6 +296,45 @@ def _from_cymru_txt(ip: str, txt_records: Iterable[str]) -> SourceNetworkIntelli
         source="team-cymru",
         checked_at=checked_at,
         error="No ASN record returned.",
+    )
+
+
+async def _lookup_cymru_network(
+    provider: Any,
+    ip: str,
+    checked_at: str,
+) -> SourceNetworkIntelligence:
+    query = _query_name(ip)
+    lookup_errors: List[Exception] = []
+    completed_lookup = False
+    for candidate in _network_lookup_candidates(provider):
+        try:
+            records = await candidate.lookup_txt(query)
+            completed_lookup = True
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            lookup_errors.append(exc)
+            logger.debug(
+                "ASN origin lookup failed for %s via %s: %s",
+                ip,
+                candidate.__class__.__name__,
+                type(exc).__name__,
+            )
+            continue
+        result = _from_cymru_txt(ip, records)
+        if result.error:
+            continue
+        if result.asn and not result.as_name:
+            result.as_name = await _lookup_as_name(candidate, result.asn)
+        return result
+
+    error = "No ASN record returned."
+    if lookup_errors and not completed_lookup:
+        error = f"ASN lookup failed: {type(lookup_errors[-1]).__name__}."
+    return SourceNetworkIntelligence(
+        ip=ip,
+        source="team-cymru",
+        checked_at=checked_at,
+        error=error,
     )
 
 
@@ -497,18 +550,7 @@ async def lookup_source_network(
     if api_merged and api_merged.asn and api_merged.country_code:
         return api_merged
 
-    try:
-        records = await provider.lookup_txt(_query_name(ip))
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        return SourceNetworkIntelligence(
-            ip=ip,
-            source="team-cymru",
-            checked_at=checked_at,
-            error=f"ASN lookup failed: {type(exc).__name__}.",
-        )
-    result = _from_cymru_txt(ip, records)
-    if result.asn and not result.as_name:
-        result.as_name = await _lookup_as_name(provider, result.asn)
+    result = await _lookup_cymru_network(provider, ip, checked_at)
     merged = _merge_network_results(
         ip,
         ipinfo_result,
@@ -516,7 +558,30 @@ async def lookup_source_network(
         cloudflare_radar_result,
         result,
     )
+    if merged and result.error:
+        merged.error = result.error
+        merged.dns_retry_pending = True
     return merged or result
+
+
+async def _retry_cached_dns_enrichment(
+    provider: Any,
+    cached_result: SourceNetworkIntelligence,
+) -> SourceNetworkIntelligence:
+    """Retry only Cymru DNS while retaining successful API enrichment."""
+    checked_at = _utcnow_iso()
+    dns_result = await _lookup_cymru_network(provider, cached_result.ip, checked_at)
+    cached_data = replace(
+        cached_result,
+        checked_at=checked_at,
+        error=None,
+        dns_retry_pending=False,
+    )
+    merged = _merge_network_results(cached_result.ip, cached_data, dns_result)
+    if merged and dns_result.error:
+        merged.error = dns_result.error
+        merged.dns_retry_pending = True
+    return merged or dns_result
 
 
 async def lookup_source_network_cached(
@@ -538,10 +603,19 @@ async def lookup_source_network_cached(
         )
         .first()
     )
-    if row and not refresh and _is_fresh(row, ttl_seconds, now):
-        return _from_json(row.result_json), True, row.checked_at
+    cached_result: Optional[SourceNetworkIntelligence] = None
+    if row and not refresh:
+        cached_result = _from_json(row.result_json)
+        cache_ttl = (
+            min(ttl_seconds, _ERROR_CACHE_TTL_SECONDS) if cached_result.error else ttl_seconds
+        )
+        if _is_fresh(row, cache_ttl, now):
+            return cached_result, True, row.checked_at
 
-    result = await lookup_source_network(provider, ip)
+    if cached_result and cached_result.dns_retry_pending:
+        result = await _retry_cached_dns_enrichment(provider, cached_result)
+    else:
+        result = await lookup_source_network(provider, ip)
     payload = json.dumps(asdict(result), sort_keys=True, separators=(",", ":"))
     if row is None:
         row = DNSCache(
