@@ -40,6 +40,8 @@ nav:
     - Settings: user_guide/settings.md
   - Installation:
     - Docker Setup: deployment/docker.md
+    - Agentic Installation: deployment/agentic-installation.md
+    - Kubernetes, Helm, and Terraform: deployment/kubernetes-terraform.md
     - Greenfield Verification: deployment/greenfield-verification.md
     - Manual Installation: deployment/manual.md
     - Configuration: deployment/configuration.md

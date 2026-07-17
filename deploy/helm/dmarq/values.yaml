@@ -1,0 +1,130 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/christianlouis/dmarq
+  tag: docker-stable
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false
+
+existingSecret: ""
+includeExistingSecretEnvFrom: true
+secretKeys:
+  databaseUrl: DATABASE_URL
+  secretKey: SECRET_KEY
+  adminApiKey: ADMIN_API_KEY
+
+config:
+  projectName: DMARQ
+  environment: development
+  publicBaseUrl: http://dmarq.local
+  language: en
+  profile: single-user
+  authMode: disabled
+  allowAuthDisabledInProduction: false
+  extraEnv: {}
+
+extraSecretEnvFrom: []
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: dmarq.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+persistence:
+  enabled: true
+  accessModes:
+    - ReadWriteOnce
+  size: 5Gi
+  storageClass: ""
+  annotations: {}
+
+postgresql:
+  enabled: true
+  image:
+    repository: postgres
+    tag: 14-alpine
+    pullPolicy: IfNotPresent
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop:
+        - ALL
+      add:
+        - CHOWN
+        - DAC_OVERRIDE
+        - FOWNER
+        - SETGID
+        - SETUID
+  secretKeys:
+    database: POSTGRES_DB
+    username: POSTGRES_USER
+    password: POSTGRES_PASSWORD
+  persistence:
+    enabled: true
+    accessModes:
+      - ReadWriteOnce
+    size: 8Gi
+    storageClass: ""
+    annotations: {}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+
+bootstrap:
+  enabled: false
+  ownerEmail: ""
+  backoffLimit: 4
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 1Gi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+
+networkPolicy:
+  enabled: false
+  ingressFrom: []
+
+terminationGracePeriodSeconds: 30

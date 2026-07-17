@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "1",
+  "deployment": {
+    "mode": "compose",
+    "image": "ghcr.io/christianlouis/dmarq:docker-stable",
+    "bindAddress": "127.0.0.1",
+    "port": 8080,
+    "publicBaseUrl": "http://127.0.0.1:8080",
+    "envFile": ".env"
+  },
+  "product": {
+    "profile": "single-user",
+    "ownerEmail": "owner@example.com",
+    "appName": "DMARQ",
+    "language": "en",
+    "authentication": {
+      "mode": "disabled"
+    }
+  },
+  "database": {
+    "mode": "bundled",
+    "name": "dmarq",
+    "user": "dmarq"
+  },
+  "secrets": {
+    "secretKey": {
+      "generate": true
+    },
+    "adminApiKey": {
+      "generate": true
+    },
+    "databasePassword": {
+      "generate": true
+    }
+  }
+}

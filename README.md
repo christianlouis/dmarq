@@ -155,6 +155,21 @@ exposing it publicly. See the [Docker setup guide](docs/deployment/docker.md) fo
 verification, the `docker-stable` and `docker-latest` channels, Gmail IMAP
 ingestion, updates, and production configuration.
 
+Automation agents can use the versioned, non-interactive install contract:
+
+```bash
+python3 scripts/dmarqctl.py \
+  --config docs/deployment/examples/agent-install.compose.json \
+  --json preflight
+python3 scripts/dmarqctl.py --config install.json --json bootstrap
+python3 scripts/dmarqctl.py --config install.json --json status
+```
+
+See [Agentic Installation](docs/deployment/agentic-installation.md) for schema,
+secret-reference, idempotency, and exit-code details. Kubernetes operators can
+use the supported Helm chart or Terraform module described in
+[Kubernetes, Helm, and Terraform](docs/deployment/kubernetes-terraform.md).
+
 ### Development Setup
 
 For development without Docker:

@@ -7,7 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added the versioned DMARQ agent-installation contract and `dmarqctl` control
+  surface for machine-readable host preflight, idempotent Compose environment
+  bootstrap, browserless first-run setup, secret-safe output, and bounded
+  release/intake readiness status.
+- Added a supported Kubernetes Helm chart with existing-Secret references,
+  bundled or external PostgreSQL, persistence, ingress, health probes, safe
+  production defaults, and an idempotent browserless setup Job.
+- Added a provisioner-free Terraform module for declarative Kubernetes install,
+  upgrade, drift detection, and destroy, plus a disposable-cluster CI acceptance
+  path that exercises the complete lifecycle.
+
 ### Fixed
+- Kept the bundled PostgreSQL workload least-privileged but bootable by granting
+  only the five capabilities required by the official Alpine image to prepare
+  its data directory and drop from root to the `postgres` user.
 - Restored sender ASN, network, and country enrichment when a selected private
   DNS resolver is unavailable by falling back to independent public DNS and
   Cloudflare DoH for Team Cymru lookups. Failed enrichments now retry after a

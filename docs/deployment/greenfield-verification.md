@@ -58,6 +58,29 @@ Accept the deployment only when:
 
 ## Product Checks
 
+For the agentic acceptance path, use the contract before starting the stack:
+
+```bash
+python3 scripts/dmarqctl.py \
+  --config docs/deployment/examples/agent-install.compose.json \
+  --json preflight
+python3 scripts/dmarqctl.py \
+  --config docs/deployment/examples/agent-install.compose.json \
+  --json bootstrap --no-start
+docker compose pull
+docker compose up -d --wait
+python3 scripts/dmarqctl.py \
+  --config docs/deployment/examples/agent-install.compose.json \
+  --json bootstrap --setup-existing
+python3 scripts/verify-greenfield-product.py --configured
+python3 scripts/dmarqctl.py \
+  --config docs/deployment/examples/agent-install.compose.json \
+  --json status
+```
+
+This path must finish setup, import the fixture, and report ready without a
+browser or an unpublished setting.
+
 Complete setup in the browser using an owner contact email. This address is not
 a local username: local username/password authentication is not implemented.
 Then:
@@ -130,6 +153,22 @@ variables. Validate that the workload still uses:
 
 `DMARQ_BIND_ADDRESS`, `DMARQ_PORT`, and `POSTGRES_*` are Compose orchestration
 values and are not required in a Kubernetes application pod.
+
+Validate the supported packaging before a cluster apply:
+
+```bash
+helm lint deploy/helm/dmarq -f deploy/helm/dmarq/ci/test-values.yaml
+helm template dmarq deploy/helm/dmarq \
+  --namespace dmarq \
+  -f deploy/helm/dmarq/ci/test-values.yaml >/tmp/dmarq.yaml
+terraform fmt -recursive -check deploy/terraform
+terraform -chdir=deploy/terraform/modules/kubernetes-dmarq init -backend=false
+terraform -chdir=deploy/terraform/modules/kubernetes-dmarq validate
+```
+
+The CI acceptance then applies the Terraform module to a disposable Kubernetes
+cluster, waits for the browserless setup Job, verifies HTTP health and setup,
+performs an upgrade, requires a drift-free plan, and destroys the release.
 
 ## Release Evidence
 
