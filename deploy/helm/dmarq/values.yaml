@@ -76,6 +76,18 @@ postgresql:
     repository: postgres
     tag: 14-alpine
     pullPolicy: IfNotPresent
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop:
+        - ALL
+      add:
+        - CHOWN
+        - DAC_OVERRIDE
+        - FOWNER
+        - SETGID
+        - SETUID
   secretKeys:
     database: POSTGRES_DB
     username: POSTGRES_USER

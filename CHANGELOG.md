@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   path that exercises the complete lifecycle.
 
 ### Fixed
+- Kept the bundled PostgreSQL workload least-privileged but bootable by granting
+  only the five capabilities required by the official Alpine image to prepare
+  its data directory and drop from root to the `postgres` user.
 - Restored sender ASN, network, and country enrichment when a selected private
   DNS resolver is unavailable by falling back to independent public DNS and
   Cloudflare DoH for Team Cymru lookups. Failed enrichments now retry after a
