@@ -810,6 +810,11 @@ class ConfiguredRecursiveDNSProvider(PublicRecursiveDNSProvider):
         self.dot_hostname = dot_hostname
         self.proxy_chaining_url = proxy_chaining_url
 
+    @property
+    def is_ready(self) -> bool:
+        """Whether this profile has a usable DNS or DoH endpoint."""
+        return bool(self.nameservers or self.doh_hostname)
+
     def _resolver(self) -> Any:
         if not self.nameservers:
             if self.doh_hostname:
@@ -936,6 +941,25 @@ class CustomDNSProvider(ConfiguredRecursiveDNSProvider):
     """Operator-defined recursive resolver profile supplied by deployment secrets."""
 
     provider_label = "Custom DNS"
+
+
+class DegradedResolverDNSProvider(PublicRecursiveDNSProvider):
+    """Public DNS fallback for a selected but unavailable resolver profile.
+
+    The selected profile remains visible through ``selected_resolver`` and
+    ``degradation_message``.  This avoids turning a deployment-secret mistake
+    into missing DNS evidence or an HTTP 500 in read-only workflows.
+    """
+
+    provider_label = "Public DNS fallback"
+
+    def __init__(self, *, selected_resolver: str, selected_label: str) -> None:
+        self.selected_resolver = selected_resolver
+        self.selected_label = selected_label
+        self.degradation_message = (
+            f"{selected_label} is selected but is not configured in this deployment; "
+            "using Public DNS (1.1.1.1 and 8.8.8.8)."
+        )
 
 
 class CloudflareDNSProvider(BaseDNSProvider):
@@ -1471,7 +1495,74 @@ def _setting_value(db: Any, key: str) -> Optional[str]:
         return None
 
 
-def get_default_provider(db: Any = None) -> BaseDNSProvider:
+_RESOLVER_PROFILE_LABELS = {
+    "public": "Public DNS",
+    "cloudflare": "Cloudflare DoH",
+    "quad9": "Quad9 secure DNS",
+    "opendns": "OpenDNS / Cisco Umbrella",
+    "dns4eu_unfiltered": "DNS4EU unfiltered",
+    "dns4eu_protective": "DNS4EU protective",
+    "akamai_etp": "Akamai ETP DNS",
+    "infoblox": "Infoblox DNS",
+    "custom": "Custom DNS",
+}
+
+
+def resolver_profile_status(db: Any = None) -> Dict[str, Any]:
+    """Describe the selected resolver and whether deployment config is ready.
+
+    Enterprise profiles are configured by deployment environment variables or
+    Kubernetes Secrets, never from the browser.  A missing profile therefore
+    degrades to Public DNS and is surfaced explicitly to settings and setup.
+    """
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    selected = (_setting_value(db, "dns.resolver") or "public").strip().lower()
+    if selected not in _RESOLVER_PROFILE_LABELS:
+        selected = "public"
+
+    configured = True
+    required_configuration: List[str] = []
+    if selected == "akamai_etp":
+        configured = bool(settings.AKAMAI_ETP_DNS_SERVERS or settings.AKAMAI_ETP_DOH_HOSTNAME)
+        required_configuration = ["AKAMAI_ETP_DNS_SERVERS or AKAMAI_ETP_DOH_HOSTNAME"]
+    elif selected == "infoblox":
+        configured = bool(settings.INFOBLOX_DNS_SERVERS or settings.INFOBLOX_DOH_HOSTNAME)
+        required_configuration = ["INFOBLOX_DNS_SERVERS or INFOBLOX_DOH_HOSTNAME"]
+    elif selected == "custom":
+        configured = bool(
+            settings.DMARQ_DNS_CUSTOM_SERVERS or settings.DMARQ_DNS_CUSTOM_DOH_HOSTNAME
+        )
+        required_configuration = ["DMARQ_DNS_CUSTOM_SERVERS or DMARQ_DNS_CUSTOM_DOH_HOSTNAME"]
+
+    label = _RESOLVER_PROFILE_LABELS[selected]
+    if configured:
+        return {
+            "selected_resolver": selected,
+            "selected_label": label,
+            "status": "ready",
+            "configured": True,
+            "active_resolver": label,
+            "message": f"{label} is ready for DNS lookups.",
+            "required_configuration": required_configuration,
+        }
+
+    return {
+        "selected_resolver": selected,
+        "selected_label": label,
+        "status": "degraded",
+        "configured": False,
+        "active_resolver": "Public DNS (1.1.1.1 and 8.8.8.8)",
+        "message": (
+            f"{label} is selected but this deployment has no resolver endpoint. "
+            "Read-only DNS checks are using Public DNS until the deployment configuration is added."
+        ),
+        "required_configuration": required_configuration,
+    }
+
+
+def get_default_provider(db: Any = None) -> BaseDNSProvider:  # noqa: C901
     """Return the configured default DNS provider."""
     from app.core.config import get_settings
 
@@ -1489,24 +1580,39 @@ def get_default_provider(db: Any = None) -> BaseDNSProvider:
     if resolver == "dns4eu_protective":
         return DNS4EUProtectiveDNSProvider()
     if resolver == "infoblox":
-        return InfobloxDNSProvider(
+        provider = InfobloxDNSProvider(
             nameservers=_parse_csv_setting(settings.INFOBLOX_DNS_SERVERS),
             doh_hostname=settings.INFOBLOX_DOH_HOSTNAME,
             dot_hostname=settings.INFOBLOX_DOT_HOSTNAME,
         )
+        if not provider.is_ready:
+            return DegradedResolverDNSProvider(
+                selected_resolver=resolver, selected_label=_RESOLVER_PROFILE_LABELS[resolver]
+            )
+        return provider
     if resolver == "custom":
-        return CustomDNSProvider(
+        provider = CustomDNSProvider(
             nameservers=_parse_csv_setting(settings.DMARQ_DNS_CUSTOM_SERVERS),
             doh_hostname=settings.DMARQ_DNS_CUSTOM_DOH_HOSTNAME,
             dot_hostname=settings.DMARQ_DNS_CUSTOM_DOT_HOSTNAME,
         )
+        if not provider.is_ready:
+            return DegradedResolverDNSProvider(
+                selected_resolver=resolver, selected_label=_RESOLVER_PROFILE_LABELS[resolver]
+            )
+        return provider
     if resolver == "akamai_etp":
-        return AkamaiETPDNSProvider(
+        provider = AkamaiETPDNSProvider(
             nameservers=_parse_csv_setting(settings.AKAMAI_ETP_DNS_SERVERS),
             doh_hostname=settings.AKAMAI_ETP_DOH_HOSTNAME,
             dot_hostname=settings.AKAMAI_ETP_DOT_HOSTNAME,
             proxy_chaining_url=settings.AKAMAI_ETP_PROXY_CHAINING_URL,
         )
+        if not provider.is_ready:
+            return DegradedResolverDNSProvider(
+                selected_resolver=resolver, selected_label=_RESOLVER_PROFILE_LABELS[resolver]
+            )
+        return provider
     if resolver == "cloudflare":
         api_token = _decrypt_setting_value(_setting_value(db, "cloudflare.api_token"))
         zone_id = _setting_value(db, "cloudflare.zone_id")

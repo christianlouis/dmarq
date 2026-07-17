@@ -318,6 +318,15 @@
                     </select>
                     <label class="label"><span class="label-text-alt text-muted-foreground">All profiles bypass the host resolver. Enterprise and custom profiles use resolver values supplied by environment or secret configuration.</span></label>
                 </div>
+                <div x-show="resolverStatus" x-cloak
+                    class="rounded-md border p-3 text-sm"
+                    :class="resolverStatus?.status === 'degraded' ? 'border-amber-300 bg-amber-50 text-amber-950' : 'border-emerald-200 bg-emerald-50 text-emerald-950'">
+                    <p class="font-medium" x-text="resolverStatus?.status === 'degraded' ? 'Using safe DNS fallback' : 'Resolver ready'"></p>
+                    <p class="mt-1" x-text="resolverStatus?.message"></p>
+                    <p class="mt-2 text-xs" x-show="resolverStatus?.status === 'degraded'">
+                        Add <span class="font-mono" x-text="(resolverStatus?.required_configuration || []).join(', ')"></span> to this deployment, then save or refresh this page to use the selected resolver.
+                    </p>
+                </div>
                 {{ save_footer("Resolver changes affect DNS linting, cache refreshes, and remediation evidence.", "Save DNS Settings") }}
             </form>
         {% endcall %}

@@ -13,6 +13,7 @@ from app.models.mail_source import MailSource
 from app.models.mail_source_import import MailSourceImport
 from app.models.setting import Setting
 from app.services.mailbox_recovery import import_row_diagnostic, not_configured_guidance
+from app.services.dns_resolver import resolver_profile_status
 
 router = APIRouter()
 
@@ -102,6 +103,7 @@ class SetupStatusResponse(BaseModel):
     total_mail_sources: int = 0
     enabled_mail_sources: int = 0
     mailbox_recovery_hint: Optional[Dict[str, Any]] = None
+    dns_resolver: Dict[str, Any]
 
 
 class AdminSetupRequest(BaseModel):
@@ -167,6 +169,7 @@ async def get_setup_status(db: Session = Depends(get_db)):
         total_mail_sources=total_mail_sources,
         enabled_mail_sources=enabled_mail_sources,
         mailbox_recovery_hint=mailbox_recovery_hint,
+        dns_resolver=resolver_profile_status(db),
     )
 
 

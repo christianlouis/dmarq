@@ -136,6 +136,26 @@ class TestSettingsAPI:
         assert "forensics.redaction_mode" in keys
         assert "forensics.redact_long_tokens_enabled" in keys
 
+    def test_resolver_status_marks_missing_enterprise_profile_degraded(
+        self, authed_client: TestClient, db_session: Session, monkeypatch
+    ):
+        monkeypatch.delenv("AKAMAI_ETP_DNS_SERVERS", raising=False)
+        monkeypatch.delenv("AKAMAI_ETP_DOH_HOSTNAME", raising=False)
+        db_session.add(Setting(key="dns.resolver", value="akamai_etp", category="dns"))
+        db_session.commit()
+
+        response = authed_client.get("/api/v1/settings/dns/resolver-status")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["selected_resolver"] == "akamai_etp"
+        assert data["status"] == "degraded"
+        assert data["configured"] is False
+        assert data["active_resolver"] == "Public DNS (1.1.1.1 and 8.8.8.8)"
+        assert data["required_configuration"] == [
+            "AKAMAI_ETP_DNS_SERVERS or AKAMAI_ETP_DOH_HOSTNAME"
+        ]
+
     def test_account_readiness_endpoint_summarizes_milestone_12(
         self,
         authed_client: TestClient,

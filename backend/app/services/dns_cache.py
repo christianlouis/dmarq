@@ -18,7 +18,7 @@ from app.services.dns_fallbacks import dns_fallback_candidates
 from app.services.dns_provider_detection import detection_from_json
 from app.services.dns_resolver import (
     BaseDNSProvider,
-    CloudflareDNSProvider,
+    ConfiguredRecursiveDNSProvider,
     DomainDNSResult,
     PublicRecursiveDNSProvider,
     SystemDNSProvider,
@@ -314,8 +314,14 @@ async def _resolve_with_fallback(  # noqa: C901
 ) -> DomainDNSResult:
     """Resolve DNS, checking independent resolvers before accepting an empty result."""
     provider = _normalize_dns_provider(provider)
-    if not isinstance(provider, (PublicRecursiveDNSProvider, CloudflareDNSProvider)):
+    if not isinstance(
+        provider,
+        (PublicRecursiveDNSProvider, ConfiguredRecursiveDNSProvider),
+    ):
         return await provider.check_domain(domain, selectors=selectors)
+
+    if isinstance(provider, ConfiguredRecursiveDNSProvider):
+        return await _resolve_configured_with_fallback(provider, domain, selectors=selectors)
 
     first_empty_result: Optional[DomainDNSResult] = None
     resolver_errors: List[str] = []
@@ -347,11 +353,16 @@ async def _resolve_with_fallback(  # noqa: C901
                 continue
 
             if _has_dns_evidence(result):
-                return _fallback_result(
+                resolved = _fallback_result(
                     result,
                     task_name=task_name,
                     primary_name=provider.__class__.__name__,
                 )
+                degradation_message = getattr(provider, "degradation_message", None)
+                if degradation_message:
+                    resolved.lookup_status = "fallback"
+                    resolved.lookup_error = degradation_message
+                return resolved
 
             if first_empty_result is None:
                 first_empty_result = result
@@ -362,6 +373,55 @@ async def _resolve_with_fallback(  # noqa: C901
     if empty_result is not None:
         return empty_result
 
+    raise LookupError(
+        "All DNS resolvers failed: " + ", ".join(resolver_errors or ["no resolver attempted"])
+    )
+
+
+async def _resolve_configured_with_fallback(  # noqa: C901
+    provider: ConfiguredRecursiveDNSProvider,
+    domain: str,
+    *,
+    selectors: List[str],
+) -> DomainDNSResult:
+    """Prefer a configured private resolver before trying public evidence."""
+    first_empty_result: Optional[DomainDNSResult] = None
+    resolver_errors: List[str] = []
+
+    try:
+        primary_result = await provider.check_domain(domain, selectors=selectors)
+        if _has_dns_evidence(primary_result):
+            return primary_result
+        first_empty_result = primary_result
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        resolver_errors.append(f"{provider.__class__.__name__}:{exc.__class__.__name__}")
+        logger.debug(
+            "Configured DNS resolver %s failed with %s",
+            provider.__class__.__name__,
+            exc.__class__.__name__,
+        )
+
+    for candidate in _fallback_candidates(provider)[1:]:
+        _name, result, error = await _run_dns_candidate(candidate, domain, selectors=selectors)
+        if error is not None:
+            resolver_errors.append(f"{_name}:{error.__class__.__name__}")
+            continue
+        if result is None:
+            continue
+        if _has_dns_evidence(result):
+            return _fallback_result(
+                result,
+                task_name=_name,
+                primary_name=provider.__class__.__name__,
+            )
+        if first_empty_result is None:
+            first_empty_result = result
+
+    empty_result = _empty_fallback_result(first_empty_result, resolver_errors)
+    if empty_result is not None:
+        return empty_result
     raise LookupError(
         "All DNS resolvers failed: " + ", ".join(resolver_errors or ["no resolver attempted"])
     )

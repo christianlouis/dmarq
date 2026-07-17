@@ -35,6 +35,7 @@ class TestSetupStatus:
         data = response.json()
         assert data["is_setup_complete"] is False
         assert data["app_name"] == "DMARQ"
+        assert data["dns_resolver"]["status"] == "ready"
 
     def test_status_after_system_setup(self, client: TestClient):
         client.post(

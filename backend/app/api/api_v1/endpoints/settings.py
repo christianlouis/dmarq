@@ -30,6 +30,7 @@ from app.core.database import get_db
 from app.core.security import require_admin_auth
 from app.models.setting import Setting
 from app.services.account_milestone import build_account_milestone_readiness
+from app.services.dns_resolver import resolver_profile_status
 from app.services.ai_assistance import AI_DEFAULTS
 from app.services.alert_history import (
     list_alert_config_audit,
@@ -596,6 +597,18 @@ class SettingResponse(BaseModel):
     updated_at: Optional[str]
 
 
+class DNSResolverStatusResponse(BaseModel):
+    """Runtime readiness of the selected DNS resolver profile."""
+
+    selected_resolver: str
+    selected_label: str
+    status: str
+    configured: bool
+    active_resolver: str
+    message: str
+    required_configuration: List[str]
+
+
 class NotificationTestResponse(BaseModel):
     """Sanitized response from a test notification send."""
 
@@ -1053,6 +1066,16 @@ async def get_account_milestone_readiness(
 ) -> AccountReadinessResponse:
     """Return the #12 account/auth/provider milestone readiness summary."""
     return build_account_milestone_readiness(db, get_settings())
+
+
+@router.get("/dns/resolver-status", response_model=DNSResolverStatusResponse)
+async def get_dns_resolver_status(
+    db: Session = Depends(get_db),
+    _auth: dict = Depends(require_admin_auth),
+) -> DNSResolverStatusResponse:
+    """Expose resolver readiness without exposing deployment secret values."""
+    _seed_defaults(db)
+    return DNSResolverStatusResponse(**resolver_profile_status(db))
 
 
 @router.get("/{key:path}", response_model=SettingResponse)
