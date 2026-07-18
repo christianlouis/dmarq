@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import ipaddress
 import json
 import logging
@@ -10,8 +11,8 @@ from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode
-from urllib.request import Request, urlopen
+from urllib.parse import quote, urlencode, urlparse
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -22,8 +23,9 @@ from app.services.dns_fallbacks import dns_fallback_candidates
 from app.services.dns_resolver import BaseDNSProvider
 
 _CACHE_PROVIDER = "source-network-intelligence-v1"
-_SELECTORS_KEY = "source-network-v4"
+_SELECTORS_KEY = "source-network-v5"
 _ERROR_CACHE_TTL_SECONDS = 300
+_CUSTOM_GEOIP_MAX_RESPONSE_BYTES = 65_536
 _ASN_NAME_CACHE: Dict[str, str] = {}
 _IPINFO_LITE_URL = "https://api.ipinfo.io/lite"
 _IPGEOLOCATION_URL = "https://api.ipgeolocation.io/v3/ipgeo"
@@ -216,6 +218,55 @@ def _radar_url(ip: str) -> str:
     return f"https://radar.cloudflare.com/ip/{quote(ip, safe='')}"
 
 
+def _custom_geoip_url_template(settings: Optional[Any] = None) -> str:
+    settings = settings or get_settings()
+    return (getattr(settings, "GEOIP_CUSTOM_URL", None) or "").strip()
+
+
+def _source_network_cache_selectors_key(settings: Optional[Any] = None) -> str:
+    """Separate local-GeoIP cache entries from public-provider evidence."""
+    custom_url = _custom_geoip_url_template(settings)
+    if not custom_url:
+        return f"{_SELECTORS_KEY}:public"
+    digest = hashlib.sha256(custom_url.encode("utf-8")).hexdigest()[:16]
+    return f"{_SELECTORS_KEY}:custom:{digest}"
+
+
+def _custom_geoip_request_url(template: str, ip: str) -> Optional[str]:
+    """Return a safe custom-provider URL for one already validated IP address."""
+    if "{ip}" not in template:
+        return None
+    url = template.replace("{ip}", quote(ip, safe=""))
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return None
+    return url
+
+
+def _custom_geoip_headers(auth_header: str) -> Optional[Dict[str, str]]:
+    """Accept one optional operator-provided HTTP header without header injection."""
+    if not auth_header:
+        return {}
+    if "\n" in auth_header or "\r" in auth_header or ":" not in auth_header:
+        return None
+    name, value = auth_header.split(":", 1)
+    name, value = name.strip(), value.strip()
+    if not name or not value:
+        return None
+    return {name: value}
+
+
+class _NoRedirectHandler(HTTPRedirectHandler):
+    """Reject endpoint redirects so an operator-configured host stays authoritative."""
+
+    def redirect_request(self, *_args: Any, **_kwargs: Any) -> None:
+        return None
+
+
+def _open_custom_geoip_request(request: Request, timeout: float) -> Any:
+    return build_opener(_NoRedirectHandler()).open(request, timeout=timeout)
+
+
 def _first(*values: Optional[str]) -> Optional[str]:
     for value in values:
         if value not in {None, ""}:
@@ -258,6 +309,88 @@ def _merge_network_results(
         source=", ".join(sources),
         checked_at=_utcnow_iso(),
     )
+
+
+def _custom_geoip_network_sync(
+    ip: str,
+    url_template: str,
+    auth_header: str,
+    timeout: float,
+) -> SourceNetworkIntelligence:
+    """Read network context from an operator-controlled GeoIP endpoint."""
+    checked_at = _utcnow_iso()
+    url = _custom_geoip_request_url(url_template, ip)
+    headers = _custom_geoip_headers(auth_header)
+    if not url or headers is None:
+        return SourceNetworkIntelligence(
+            ip=ip,
+            source="custom-geoip",
+            checked_at=checked_at,
+            error="Custom GeoIP provider configuration is invalid.",
+        )
+
+    request = Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "DMARQ source intelligence",
+            **headers,
+        },
+    )
+    try:
+        with _open_custom_geoip_request(
+            request, timeout
+        ) as response:  # nosec B310 - operator-configured endpoint.
+            body = response.read(_CUSTOM_GEOIP_MAX_RESPONSE_BYTES + 1)
+            if len(body) > _CUSTOM_GEOIP_MAX_RESPONSE_BYTES:
+                return SourceNetworkIntelligence(
+                    ip=ip,
+                    source="custom-geoip",
+                    checked_at=checked_at,
+                    error="Custom GeoIP provider response is too large.",
+                )
+            payload = json.loads(body.decode("utf-8"))
+    except (HTTPError, URLError, TimeoutError, ValueError, OSError):
+        return SourceNetworkIntelligence(
+            ip=ip,
+            source="custom-geoip",
+            checked_at=checked_at,
+            error="Custom GeoIP provider did not return usable data.",
+        )
+    if not isinstance(payload, dict):
+        return SourceNetworkIntelligence(
+            ip=ip,
+            source="custom-geoip",
+            checked_at=checked_at,
+            error="Custom GeoIP provider did not return a JSON object.",
+        )
+
+    country_code = str(payload.get("country_code") or payload.get("countryCode") or "").upper()
+    country_code = country_code or None
+    result = SourceNetworkIntelligence(
+        ip=ip,
+        asn=_normalize_asn(str(payload.get("asn") or "")),
+        as_name=str(payload.get("as_name") or payload.get("asn_name") or "").strip() or None,
+        bgp_prefix=str(payload.get("bgp_prefix") or payload.get("network") or "").strip() or None,
+        country_code=country_code,
+        country=str(payload.get("country") or "").strip() or COUNTRY_NAMES.get(country_code or ""),
+        region=str(payload.get("region") or payload.get("continent") or "").strip()
+        or COUNTRY_REGIONS.get(country_code or ""),
+        city=str(payload.get("city") or "").strip() or None,
+        latitude=str(payload.get("latitude") or "").strip() or None,
+        longitude=str(payload.get("longitude") or "").strip() or None,
+        registry=str(payload.get("registry") or "").strip() or None,
+        allocated=str(payload.get("allocated") or "").strip() or None,
+        organization=str(payload.get("organization") or payload.get("as_name") or "").strip()
+        or None,
+        domain=str(payload.get("domain") or "").strip() or None,
+        radar_url=_radar_url(ip),
+        source="custom-geoip",
+        checked_at=checked_at,
+    )
+    if not any((result.asn, result.country_code, result.country, result.as_name)):
+        result.error = "Custom GeoIP provider response contains no network metadata."
+    return result
 
 
 def _set_when_missing(
@@ -485,6 +618,20 @@ async def _lookup_ipinfo_network(ip: str) -> Optional[SourceNetworkIntelligence]
     )
 
 
+async def _lookup_custom_geoip_network(ip: str) -> Optional[SourceNetworkIntelligence]:
+    settings = get_settings()
+    url_template = _custom_geoip_url_template(settings)
+    if not url_template:
+        return None
+    return await asyncio.to_thread(
+        _custom_geoip_network_sync,
+        ip,
+        url_template,
+        (getattr(settings, "GEOIP_CUSTOM_AUTH_HEADER", None) or "").strip(),
+        getattr(settings, "GEOIP_CUSTOM_TIMEOUT_SECONDS", 2.0),
+    )
+
+
 async def _lookup_ipgeolocation_network(ip: str) -> Optional[SourceNetworkIntelligence]:
     settings = get_settings()
     api_key = (getattr(settings, "IPGEOLOCATION_API_KEY", None) or "").strip()
@@ -537,6 +684,12 @@ async def lookup_source_network(
             checked_at=checked_at,
             error="Non-global IP address.",
         )
+
+    custom_result = await _lookup_custom_geoip_network(ip)
+    if custom_result is not None:
+        # Custom mode is deliberately terminal: operators use it to prevent
+        # sender IPs from reaching any public enrichment provider.
+        return custom_result
 
     ipinfo_result = await _lookup_ipinfo_network(ip)
     ipgeolocation_result = await _lookup_ipgeolocation_network(ip)
@@ -594,12 +747,15 @@ async def lookup_source_network_cached(
 ) -> Tuple[SourceNetworkIntelligence, bool, datetime]:
     """Lookup one IP network context with persistent cache semantics."""
     now = _utcnow_naive()
+    settings = get_settings()
+    selectors_key = _source_network_cache_selectors_key(settings)
+    custom_mode = bool(_custom_geoip_url_template(settings))
     row = (
         db.query(DNSCache)
         .filter(
             DNSCache.domain == ip,
             DNSCache.provider == _CACHE_PROVIDER,
-            DNSCache.selectors_key == _SELECTORS_KEY,
+            DNSCache.selectors_key == selectors_key,
         )
         .first()
     )
@@ -612,7 +768,7 @@ async def lookup_source_network_cached(
         if _is_fresh(row, cache_ttl, now):
             return cached_result, True, row.checked_at
 
-    if cached_result and cached_result.dns_retry_pending:
+    if cached_result and cached_result.dns_retry_pending and not custom_mode:
         result = await _retry_cached_dns_enrichment(provider, cached_result)
     else:
         result = await lookup_source_network(provider, ip)
@@ -621,7 +777,7 @@ async def lookup_source_network_cached(
         row = DNSCache(
             domain=ip,
             provider=_CACHE_PROVIDER,
-            selectors_key=_SELECTORS_KEY,
+            selectors_key=selectors_key,
             result_json=payload,
             checked_at=now,
         )
@@ -639,7 +795,7 @@ async def lookup_source_network_cached(
             .filter(
                 DNSCache.domain == ip,
                 DNSCache.provider == _CACHE_PROVIDER,
-                DNSCache.selectors_key == _SELECTORS_KEY,
+                DNSCache.selectors_key == selectors_key,
             )
             .first()
         )
