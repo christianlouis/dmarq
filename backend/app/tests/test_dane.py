@@ -7,6 +7,7 @@ from app.services.dane import (
     _derive_tlsa_suggestions,
     check_dane,
     check_dane_cached,
+    check_dane_with_fallback,
     parse_tlsa_record,
 )
 from app.services.dns_resolver import BaseDNSProvider
@@ -78,6 +79,22 @@ async def test_check_dane_requires_mx_hosts():
     assert result.status == "fail"
     assert result.records == []
     assert result.errors == ["No MX hosts were found for DANE/TLSA evaluation."]
+
+
+@pytest.mark.asyncio
+async def test_check_dane_falls_back_after_selected_resolver_failure(monkeypatch):
+    unavailable = FakeDANEDNSProvider()
+    unavailable.lookup_mx = AsyncMock(side_effect=LookupError("resolver not configured"))
+    fallback = FakeDANEDNSProvider(mx_hosts=["mx.example.com"])
+    monkeypatch.setattr(
+        "app.services.dane.dns_fallback_candidates", lambda _provider: [unavailable, fallback]
+    )
+
+    result = await check_dane_with_fallback("example.com", unavailable)
+
+    assert result.mx_hosts == ["mx.example.com"]
+    unavailable.lookup_mx.assert_awaited_once()
+    fallback.lookup_mx.assert_awaited_once()
 
 
 @pytest.mark.asyncio

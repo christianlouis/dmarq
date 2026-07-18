@@ -213,6 +213,14 @@ matching resolver profile in DMARQ settings and inject the assigned resolver
 values through your secret manager. These values may be account-specific and
 should not be committed.
 
+If an enterprise or custom profile is selected before its deployment values are
+available, DMARQ keeps that selection visible as **degraded** and uses Public
+DNS (`1.1.1.1` and `8.8.8.8`) for read-only checks. The Settings page and
+`GET /api/v1/settings/dns/resolver-status` identify the selected profile, the
+active fallback, and the exact environment variable pair required to restore
+the private resolver. This prevents DNS linting, DANE, and remediation
+evidence from failing solely because a deployment secret is absent.
+
 ### Mail Authentication Defaults
 
 The Settings page includes DMARC defaults used by domain-level DNS guidance and

@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.models.dns_cache import DNSCache
 from app.services.dns_cache import DEFAULT_DNS_CACHE_TTL_SECONDS
+from app.services.dns_fallbacks import dns_fallback_candidates
 from app.services.dns_resolver import BaseDNSProvider
 
 _CACHE_KEY = "dane-v1"
@@ -431,6 +432,33 @@ async def check_dane(
     return result
 
 
+async def check_dane_with_fallback(
+    domain: str,
+    provider: BaseDNSProvider,
+    *,
+    port: int = 25,
+    derive_suggestions: bool = False,
+) -> DANEResult:
+    """Check DANE through independent public DNS if the selected resolver fails."""
+    last_error: Optional[LookupError] = None
+    for candidate in dns_fallback_candidates(provider):
+        try:
+            return await check_dane(
+                domain,
+                candidate,
+                port=port,
+                derive_suggestions=derive_suggestions,
+            )
+        except LookupError as exc:
+            last_error = exc
+    result = DANEResult(port=port)
+    result.errors.append(
+        "DANE/TLSA DNS lookup failed for all configured resolvers"
+        + (f": {last_error}" if last_error else ".")
+    )
+    return result
+
+
 async def check_dane_cached(
     db: Session,
     provider: BaseDNSProvider,
@@ -460,7 +488,7 @@ async def check_dane_cached(
     if row and not refresh and _is_fresh(row, ttl_seconds, now):
         return _result_from_json(row.result_json), True, row.checked_at
 
-    result = await check_dane(
+    result = await check_dane_with_fallback(
         normalized_domain,
         provider,
         port=port,

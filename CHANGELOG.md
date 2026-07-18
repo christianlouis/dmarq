@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   path that exercises the complete lifecycle.
 
 ### Fixed
+- Made a selected but unconfigured Akamai ETP, Infoblox, or custom DNS profile
+  explicitly degrade to Public DNS for read-only lookups. Settings and setup
+  now show the deployment configuration still required, while domain DNS and
+  DANE checks retain fallback evidence instead of failing with HTTP 500.
 - Kept the bundled PostgreSQL workload least-privileged but bootable by granting
   only the five capabilities required by the official Alpine image to prepare
   its data directory and drop from root to the `postgres` user.

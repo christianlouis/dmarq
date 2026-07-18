@@ -13,11 +13,13 @@ import pytest
 from app.core.config import get_settings
 from app.core.credential_encryption import encrypt_secret
 from app.models.setting import Setting
+from app.services.dns_cache import _resolve_with_fallback
 from app.services.dns_provider_detection import detect_dns_provider
 from app.services.dns_resolver import (
     AkamaiETPDNSProvider,
     BaseDNSProvider,
     CloudflareDNSProvider,
+    DegradedResolverDNSProvider,
     ConfiguredRecursiveDNSProvider,
     CustomDNSProvider,
     DemoDNSProvider,
@@ -1064,6 +1066,48 @@ def test_get_default_provider_uses_akamai_etp_env_profile(db_session, monkeypatc
     assert provider.doh_hostname == "resolver.example.test"
     assert provider.dot_hostname == "dot-resolver.example.test"
     assert provider.proxy_chaining_url == "https://proxy.example.test:443"
+
+
+@pytest.mark.anyio
+async def test_get_default_provider_degrades_missing_akamai_profile_to_public_dns(
+    db_session, monkeypatch
+):
+    db_session.add(Setting(key="dns.resolver", value="akamai_etp", category="dns"))
+    db_session.commit()
+    monkeypatch.delenv("AKAMAI_ETP_DNS_SERVERS", raising=False)
+    monkeypatch.delenv("AKAMAI_ETP_DOH_HOSTNAME", raising=False)
+    get_settings.cache_clear()
+    lookup_mx = AsyncMock(return_value=["mx.example.test"])
+    monkeypatch.setattr(PublicRecursiveDNSProvider, "lookup_mx", lookup_mx)
+
+    try:
+        provider = get_default_provider(db_session)
+        result = await provider.lookup_mx("example.test")
+    finally:
+        get_settings.cache_clear()
+
+    assert isinstance(provider, DegradedResolverDNSProvider)
+    assert provider.selected_resolver == "akamai_etp"
+    assert "Akamai ETP" in provider.degradation_message
+    assert result == ["mx.example.test"]
+    lookup_mx.assert_awaited_once_with("example.test")
+
+
+@pytest.mark.anyio
+async def test_configured_resolver_keeps_first_priority_before_public_fallback(monkeypatch):
+    provider = AkamaiETPDNSProvider(nameservers=["192.0.2.53"])
+    provider.check_domain = AsyncMock(
+        return_value=DomainDNSResult(dmarc=True, dmarc_record="v=DMARC1; p=none")
+    )
+    monkeypatch.setattr(
+        "app.services.dns_cache.dns_fallback_candidates",
+        lambda _provider: (_ for _ in ()).throw(AssertionError("fallback should not be called")),
+    )
+
+    result = await _resolve_with_fallback(provider, "example.test", selectors=[])
+
+    assert result.dmarc is True
+    provider.check_domain.assert_awaited_once_with("example.test", selectors=[])
 
 
 def test_get_default_provider_uses_infoblox_env_profile(db_session, monkeypatch):

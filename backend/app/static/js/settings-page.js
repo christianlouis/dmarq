@@ -50,6 +50,7 @@ function settingsApp() {
         testingAIConnection: false,
         loadingAccountReadiness: false,
         accountReadiness: null,
+        resolverStatus: null,
         aiProviderProfiles: [],
         aiConnectionResult: null,
         aiModels: [],
@@ -207,6 +208,7 @@ function settingsApp() {
                 rows.forEach(r => { map[r.key] = r.value ?? ''; });
                 this.s = map;
                 this.applyCloudflareOAuthQueryState();
+                await this.loadResolverStatus(false);
                 await this.loadAlertHistory(false);
                 await this.loadConfigAudit(false);
                 await this.loadWebhooks(false);
@@ -233,6 +235,19 @@ function settingsApp() {
                 if (showFlash) this.showFlash('Error loading account readiness: ' + err.message, false);
             } finally {
                 this.loadingAccountReadiness = false;
+            }
+        },
+
+        async loadResolverStatus(showFlash = true) {
+            try {
+                const res = await fetch('/api/v1/settings/dns/resolver-status', { headers: this.apiHeaders() });
+                if (!res.ok) {
+                    if (showFlash) this.showFlash('Failed to load DNS resolver status: ' + res.statusText, false);
+                    return;
+                }
+                this.resolverStatus = await res.json();
+            } catch (err) {
+                if (showFlash) this.showFlash('Error loading DNS resolver status: ' + err.message, false);
             }
         },
 
@@ -304,6 +319,9 @@ function settingsApp() {
                     rows.forEach(r => { this.s[r.key] = r.value ?? ''; });
                     if (category === 'notifications') {
                         await this.loadConfigAudit(false);
+                    }
+                    if (category === 'dns') {
+                        await this.loadResolverStatus(false);
                     }
                     this.showFlash('Settings saved successfully.', true);
                 }
