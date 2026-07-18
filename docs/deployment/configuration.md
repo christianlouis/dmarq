@@ -302,7 +302,7 @@ answer "is this IP listed or risky according to a configured provider?"
 | `SOURCE_NETWORK_ENRICHMENT_ENABLED` | Enable cached sender-IP network enrichment for ASN, BGP prefix, location, and operator metadata. | `true` | `false` |
 | `SOURCE_NETWORK_ENRICHMENT_CACHE_SECONDS` | Persistent cache TTL for per-IP network metadata. | `86400` | `604800` |
 | `SOURCE_NETWORK_ENRICHMENT_MAX_IPS` | Maximum unique source IPs enriched per domain/report request. | `100` | `250` |
-| `GEOIP_CUSTOM_URL` | Optional operator-controlled GeoIP HTTP URL template. It must contain `{ip}`, for example `http://geoip.internal/v1/lookup?ip={ip}`. When set, DMARQ uses only this endpoint for sender-IP enrichment. | - | `http://geoip.internal/v1/lookup?ip={ip}` |
+| `GEOIP_CUSTOM_URL` | Optional operator-controlled GeoIP HTTP URL template. It must contain `{ip}`, for example `https://geoip.internal/v1/lookup?ip={ip}`. When set, DMARQ uses only this endpoint for sender-IP enrichment. | - | `https://geoip.internal/v1/lookup?ip={ip}` |
 | `GEOIP_CUSTOM_AUTH_HEADER` | Optional single request header for the custom provider, written as `Header-Name: value`. | - | `Authorization: Bearer op://...` |
 | `GEOIP_CUSTOM_TIMEOUT_SECONDS` | Custom GeoIP provider timeout. | `2` | `2` |
 | `IPINFO_TOKEN` | Optional IPinfo Lite token. When set, DMARQ uses IPinfo before the Team Cymru DNS fallback. | - | `op://...` |
@@ -323,6 +323,9 @@ endpoint returns a JSON object with `country_code`, `country`, `asn`, and
 custom provider or API keys, DMARQ falls back to Team Cymru DNS for ASN and
 prefix metadata. Disable enrichment for deployments that do not want observed
 source IPs sent to any metadata service.
+
+Use HTTPS for the custom endpoint by default. Plain HTTP is appropriate only
+for an explicitly trusted, isolated internal network.
 
 ### Demo Mode
 

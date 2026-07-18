@@ -274,7 +274,7 @@ async def test_lookup_source_network_uses_custom_geoip_without_public_fallback(m
             return None
 
         @staticmethod
-        def read():
+        def read(*_args):
             return (
                 b'{"country_code":"DE","country":"Germany","asn":24940,'
                 b'"as_name":"Hetzner Online GmbH","network":"193.138.192.0/19",'
@@ -283,27 +283,42 @@ async def test_lookup_source_network_uses_custom_geoip_without_public_fallback(m
 
     captured = {}
 
-    def fake_urlopen(request, timeout):
+    def fake_open(request, timeout):
         captured["url"] = request.full_url
         captured["authorization"] = request.headers.get("Authorization")
         captured["timeout"] = timeout
         return FakeResponse()
 
+    async def unexpected_public_lookup(*_args, **_kwargs):
+        raise AssertionError("custom GeoIP mode must not call a public provider")
+
     monkeypatch.setattr(
         "app.services.source_network.get_settings",
         lambda: SimpleNamespace(
-            GEOIP_CUSTOM_URL="http://geoip.internal/v1/lookup?ip={ip}",
+            GEOIP_CUSTOM_URL="https://geoip.internal/v1/lookup?ip={ip}",
             GEOIP_CUSTOM_AUTH_HEADER="Authorization: Bearer local-token",
             GEOIP_CUSTOM_TIMEOUT_SECONDS=1.25,
         ),
     )
-    monkeypatch.setattr("app.services.source_network.urlopen", fake_urlopen)
+    monkeypatch.setattr("app.services.source_network._open_custom_geoip_request", fake_open)
+    monkeypatch.setattr(
+        "app.services.source_network._lookup_ipinfo_network", unexpected_public_lookup
+    )
+    monkeypatch.setattr(
+        "app.services.source_network._lookup_ipgeolocation_network", unexpected_public_lookup
+    )
+    monkeypatch.setattr(
+        "app.services.source_network._lookup_cloudflare_radar_network", unexpected_public_lookup
+    )
+    monkeypatch.setattr(
+        "app.services.source_network._lookup_cymru_network", unexpected_public_lookup
+    )
     provider = FakeProvider({})
 
     result = await lookup_source_network(provider, "193.138.195.141")
 
     assert captured == {
-        "url": "http://geoip.internal/v1/lookup?ip=193.138.195.141",
+        "url": "https://geoip.internal/v1/lookup?ip=193.138.195.141",
         "authorization": "Bearer local-token",
         "timeout": 1.25,
     }
@@ -319,6 +334,9 @@ async def test_lookup_source_network_uses_custom_geoip_without_public_fallback(m
 
 
 async def test_lookup_source_network_custom_geoip_failure_does_not_leak_to_dns(monkeypatch):
+    async def unexpected_public_lookup(*_args, **_kwargs):
+        raise AssertionError("custom GeoIP mode must not call a public provider")
+
     monkeypatch.setattr(
         "app.services.source_network.get_settings",
         lambda: SimpleNamespace(
@@ -328,8 +346,20 @@ async def test_lookup_source_network_custom_geoip_failure_does_not_leak_to_dns(m
         ),
     )
     monkeypatch.setattr(
-        "app.services.source_network.urlopen",
+        "app.services.source_network._open_custom_geoip_request",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(URLError("offline")),
+    )
+    monkeypatch.setattr(
+        "app.services.source_network._lookup_ipinfo_network", unexpected_public_lookup
+    )
+    monkeypatch.setattr(
+        "app.services.source_network._lookup_ipgeolocation_network", unexpected_public_lookup
+    )
+    monkeypatch.setattr(
+        "app.services.source_network._lookup_cloudflare_radar_network", unexpected_public_lookup
+    )
+    monkeypatch.setattr(
+        "app.services.source_network._lookup_cymru_network", unexpected_public_lookup
     )
     provider = FakeProvider({})
 
@@ -338,6 +368,83 @@ async def test_lookup_source_network_custom_geoip_failure_does_not_leak_to_dns(m
     assert provider.queries == []
     assert result.source == "custom-geoip"
     assert result.error == "Custom GeoIP provider did not return usable data."
+
+
+async def test_custom_geoip_uses_a_cache_partition_separate_from_public_data(
+    db_session, monkeypatch
+):
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        @staticmethod
+        def read(*_args):
+            return b'{"country_code":"DE","asn":"AS24940","as_name":"Hetzner"}'
+
+    settings = SimpleNamespace(GEOIP_CUSTOM_URL=None)
+    monkeypatch.setattr("app.services.source_network.get_settings", lambda: settings)
+    provider = FakeProvider(
+        {
+            "141.195.138.193.origin.asn.cymru.com": [
+                '"24940 | 193.138.192.0/19 | DE | ripencc | 2004-02-17"'
+            ],
+            "AS24940.asn.cymru.com": ['"24940 | DE | ripencc | 2004-02-17 | Hetzner"'],
+        }
+    )
+
+    public_result, public_cached, _ = await lookup_source_network_cached(
+        db_session, provider, "193.138.195.141"
+    )
+    settings.GEOIP_CUSTOM_URL = "https://geoip.internal/v1/lookup?ip={ip}"
+    settings.GEOIP_CUSTOM_AUTH_HEADER = None
+    settings.GEOIP_CUSTOM_TIMEOUT_SECONDS = 1.0
+    monkeypatch.setattr(
+        "app.services.source_network._open_custom_geoip_request",
+        lambda *_args, **_kwargs: FakeResponse(),
+    )
+
+    custom_result, custom_cached, _ = await lookup_source_network_cached(
+        db_session, provider, "193.138.195.141"
+    )
+
+    assert public_cached is False
+    assert public_result.source == "team-cymru"
+    assert custom_cached is False
+    assert custom_result.source == "custom-geoip"
+
+
+async def test_custom_geoip_rejects_oversized_response(monkeypatch):
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        @staticmethod
+        def read(*_args):
+            return b"x" * 65_537
+
+    monkeypatch.setattr(
+        "app.services.source_network.get_settings",
+        lambda: SimpleNamespace(
+            GEOIP_CUSTOM_URL="https://geoip.internal/v1/lookup?ip={ip}",
+            GEOIP_CUSTOM_AUTH_HEADER=None,
+            GEOIP_CUSTOM_TIMEOUT_SECONDS=1.0,
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.source_network._open_custom_geoip_request",
+        lambda *_args, **_kwargs: FakeResponse(),
+    )
+
+    result = await lookup_source_network(FakeProvider(), "193.138.195.141")
+
+    assert result.source == "custom-geoip"
+    assert result.error == "Custom GeoIP provider response is too large."
 
 
 async def test_lookup_source_network_rejects_custom_geoip_without_ip_placeholder(monkeypatch):
