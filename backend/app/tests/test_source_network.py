@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from types import SimpleNamespace
+from urllib.error import URLError
 
 import pytest
 
@@ -262,6 +263,99 @@ async def test_lookup_source_network_prefers_ipinfo_lite(monkeypatch):
     assert result.country == "United States"
     assert result.region == "North America"
     assert result.error is None
+
+
+async def test_lookup_source_network_uses_custom_geoip_without_public_fallback(monkeypatch):
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        @staticmethod
+        def read():
+            return (
+                b'{"country_code":"DE","country":"Germany","asn":24940,'
+                b'"as_name":"Hetzner Online GmbH","network":"193.138.192.0/19",'
+                b'"region":"Europe","city":"Falkenstein"}'
+            )
+
+    captured = {}
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["authorization"] = request.headers.get("Authorization")
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr(
+        "app.services.source_network.get_settings",
+        lambda: SimpleNamespace(
+            GEOIP_CUSTOM_URL="http://geoip.internal/v1/lookup?ip={ip}",
+            GEOIP_CUSTOM_AUTH_HEADER="Authorization: Bearer local-token",
+            GEOIP_CUSTOM_TIMEOUT_SECONDS=1.25,
+        ),
+    )
+    monkeypatch.setattr("app.services.source_network.urlopen", fake_urlopen)
+    provider = FakeProvider({})
+
+    result = await lookup_source_network(provider, "193.138.195.141")
+
+    assert captured == {
+        "url": "http://geoip.internal/v1/lookup?ip=193.138.195.141",
+        "authorization": "Bearer local-token",
+        "timeout": 1.25,
+    }
+    assert provider.queries == []
+    assert result.source == "custom-geoip"
+    assert result.asn == "AS24940"
+    assert result.as_name == "Hetzner Online GmbH"
+    assert result.country_code == "DE"
+    assert result.country == "Germany"
+    assert result.bgp_prefix == "193.138.192.0/19"
+    assert result.city == "Falkenstein"
+    assert result.error is None
+
+
+async def test_lookup_source_network_custom_geoip_failure_does_not_leak_to_dns(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.source_network.get_settings",
+        lambda: SimpleNamespace(
+            GEOIP_CUSTOM_URL="https://geoip.internal/v1/lookup?ip={ip}",
+            GEOIP_CUSTOM_AUTH_HEADER=None,
+            GEOIP_CUSTOM_TIMEOUT_SECONDS=1.0,
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.source_network.urlopen",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(URLError("offline")),
+    )
+    provider = FakeProvider({})
+
+    result = await lookup_source_network(provider, "193.138.195.141")
+
+    assert provider.queries == []
+    assert result.source == "custom-geoip"
+    assert result.error == "Custom GeoIP provider did not return usable data."
+
+
+async def test_lookup_source_network_rejects_custom_geoip_without_ip_placeholder(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.source_network.get_settings",
+        lambda: SimpleNamespace(
+            GEOIP_CUSTOM_URL="https://geoip.internal/v1/lookup",
+            GEOIP_CUSTOM_AUTH_HEADER=None,
+            GEOIP_CUSTOM_TIMEOUT_SECONDS=1.0,
+        ),
+    )
+    provider = FakeProvider({})
+
+    result = await lookup_source_network(provider, "193.138.195.141")
+
+    assert provider.queries == []
+    assert result.source == "custom-geoip"
+    assert result.error == "Custom GeoIP provider configuration is invalid."
 
 
 async def test_lookup_source_network_preserves_dns_error_with_partial_api_data(monkeypatch):

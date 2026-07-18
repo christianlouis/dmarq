@@ -302,6 +302,9 @@ answer "is this IP listed or risky according to a configured provider?"
 | `SOURCE_NETWORK_ENRICHMENT_ENABLED` | Enable cached sender-IP network enrichment for ASN, BGP prefix, location, and operator metadata. | `true` | `false` |
 | `SOURCE_NETWORK_ENRICHMENT_CACHE_SECONDS` | Persistent cache TTL for per-IP network metadata. | `86400` | `604800` |
 | `SOURCE_NETWORK_ENRICHMENT_MAX_IPS` | Maximum unique source IPs enriched per domain/report request. | `100` | `250` |
+| `GEOIP_CUSTOM_URL` | Optional operator-controlled GeoIP HTTP URL template. It must contain `{ip}`, for example `http://geoip.internal/v1/lookup?ip={ip}`. When set, DMARQ uses only this endpoint for sender-IP enrichment. | - | `http://geoip.internal/v1/lookup?ip={ip}` |
+| `GEOIP_CUSTOM_AUTH_HEADER` | Optional single request header for the custom provider, written as `Header-Name: value`. | - | `Authorization: Bearer op://...` |
+| `GEOIP_CUSTOM_TIMEOUT_SECONDS` | Custom GeoIP provider timeout. | `2` | `2` |
 | `IPINFO_TOKEN` | Optional IPinfo Lite token. When set, DMARQ uses IPinfo before the Team Cymru DNS fallback. | - | `op://...` |
 | `IPINFO_TIMEOUT_SECONDS` | IPinfo lookup timeout. | `2` | `2` |
 | `IPGEOLOCATION_API_KEY` | Optional IPGeolocation.io API key for additional city, ASN, and organization context. | - | `op://...` |
@@ -310,9 +313,16 @@ answer "is this IP listed or risky according to a configured provider?"
 | `CLOUDFLARE_RADAR_TIMEOUT_SECONDS` | Cloudflare Radar lookup timeout. | `2` | `2` |
 
 The lookup is read-only and skips private, reserved, loopback, and otherwise
-non-global IP addresses. Without API keys, DMARQ falls back to Team Cymru DNS
-for ASN and prefix metadata. Disable it for deployments that do not want
-observed source IPs sent to any external metadata service.
+non-global IP addresses. `GEOIP_CUSTOM_URL` is the privacy-preserving choice
+for a local GeoDB or internal GeoIP service: DMARQ sends the observed IP only
+to that configured endpoint and deliberately does not fall back to public
+APIs or Team Cymru when it is unavailable or returns incomplete data. The
+endpoint returns a JSON object with `country_code`, `country`, `asn`, and
+`as_name`; optional fields include `network`, `region`, `city`, `latitude`,
+`longitude`, `registry`, `allocated`, `organization`, and `domain`. Without a
+custom provider or API keys, DMARQ falls back to Team Cymru DNS for ASN and
+prefix metadata. Disable enrichment for deployments that do not want observed
+source IPs sent to any metadata service.
 
 ### Demo Mode
 

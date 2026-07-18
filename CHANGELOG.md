@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added an opt-in custom HTTP GeoIP provider for self-hosted and air-gapped
+  installations. A configured local endpoint receives sender IPs using the
+  documented response contract and suppresses all public enrichment fallbacks.
 - Added the versioned DMARQ agent-installation contract and `dmarqctl` control
   surface for machine-readable host preflight, idempotent Compose environment
   bootstrap, browserless first-run setup, secret-safe output, and bounded
