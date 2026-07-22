@@ -2520,6 +2520,8 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     assert "PTR unavailable" in template or "ptrStatusLabel" in script
     assert "ptrStatusLabel" in script
     assert "sourceGeoSummary(source)" in script
+    assert "geoAvailabilityHint" in script
+    assert "Tokenless ASN/geo" in template or "tokenless-fallback" in template
     assert "String(value).trim().toLowerCase() !== 'unknown'" in script
     assert "Geo unavailable" in script
     assert "pathValue(source, 'geo.country_code', 'ZZ')" in template

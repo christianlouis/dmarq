@@ -112,6 +112,104 @@ class SourceNetworkIntelligence:  # pylint: disable=too-many-instance-attributes
     checked_at: str = ""
     error: Optional[str] = None
     dns_retry_pending: bool = False
+    enrichment_mode: str = "unavailable"
+    field_availability: Optional[Dict[str, str]] = None
+    config_hint: Optional[str] = None
+
+
+def _premium_geo_providers_configured(settings: Any) -> bool:
+    return bool(
+        (getattr(settings, "IPINFO_TOKEN", None) or "").strip()
+        or (getattr(settings, "IPGEOLOCATION_API_KEY", None) or "").strip()
+        or (
+            getattr(settings, "CLOUDFLARE_RADAR_API_TOKEN", None)
+            or getattr(settings, "CLOUDFLARE_API_TOKEN", None)
+            or ""
+        ).strip()
+        or (getattr(settings, "GEOIP_CUSTOM_URL", None) or "").strip()
+    )
+
+
+def _annotate_enrichment_availability(  # noqa: C901
+    result: SourceNetworkIntelligence,
+) -> SourceNetworkIntelligence:
+    """Attach mode/field reasons without dropping tokenless ASN/geo evidence."""
+    settings = get_settings()
+    premium = _premium_geo_providers_configured(settings)
+    sources = {part.strip() for part in str(result.source or "").split(",") if part.strip()}
+    token_sources = {"ipinfo-lite", "ipgeolocation", "cloudflare-radar", "custom-geoip"}
+    has_token_data = bool(sources & token_sources)
+    has_cymru = "team-cymru" in sources or (
+        bool(result.asn or result.bgp_prefix) and not has_token_data
+    )
+
+    if result.error and not (result.asn or result.country_code or result.bgp_prefix):
+        mode = "unavailable"
+    elif has_token_data and premium:
+        mode = "configured"
+    elif has_cymru or (result.asn and not premium):
+        mode = "tokenless-fallback"
+    elif premium:
+        mode = "configured"
+    else:
+        mode = "unavailable"
+
+    field_availability: Dict[str, str] = {}
+    if result.asn:
+        field_availability["asn"] = "available"
+    else:
+        field_availability["asn"] = (
+            "unavailable" if mode == "unavailable" else "pending_or_missing"
+        )
+    if result.as_name:
+        field_availability["network"] = "available"
+    else:
+        field_availability["network"] = (
+            "tokenless_partial"
+            if mode == "tokenless-fallback"
+            else ("unavailable" if mode == "unavailable" else "pending_or_missing")
+        )
+    if result.country_code and result.country_code not in {"", "ZZ"}:
+        field_availability["country"] = (
+            "available" if result.country and result.country != "Unknown" else "code_only"
+        )
+    else:
+        field_availability["country"] = (
+            "requires_optional_provider"
+            if mode == "tokenless-fallback"
+            else "unavailable"
+        )
+    if result.city:
+        field_availability["city"] = "available"
+    else:
+        field_availability["city"] = (
+            "requires_optional_provider"
+            if mode in {"tokenless-fallback", "configured"}
+            else "unavailable"
+        )
+
+    if mode == "tokenless-fallback":
+        hint = (
+            "ASN/network from Team Cymru (no token). "
+            "Optional IPINFO_TOKEN / IPGEOLOCATION_API_KEY / CLOUDFLARE_RADAR_API_TOKEN "
+            "or GEOIP_CUSTOM_URL add city and richer geo."
+        )
+    elif mode == "configured":
+        hint = "Optional geo providers are configured for deeper city/organization detail."
+    elif result.error:
+        hint = "Network enrichment is unavailable for this address; ASN/geo will stay empty until lookup succeeds."
+    else:
+        hint = (
+            "No optional geo tokens configured. Team Cymru still provides ASN when DNS works; "
+            "set IPINFO_TOKEN or GEOIP_CUSTOM_URL for city-level detail."
+        )
+
+    return replace(
+        result,
+        enrichment_mode=mode,
+        field_availability=field_availability,
+        config_hint=hint,
+    )
 
 
 def _utcnow_naive() -> datetime:
@@ -211,7 +309,8 @@ def _normalize_global_source_ip(value: Any) -> Optional[str]:
 
 def _from_json(value: str) -> SourceNetworkIntelligence:
     data = json.loads(value)
-    return SourceNetworkIntelligence(**data)
+    allowed = {field.name for field in SourceNetworkIntelligence.__dataclass_fields__.values()}
+    return SourceNetworkIntelligence(**{key: data[key] for key in data if key in allowed})
 
 
 def _radar_url(ip: str) -> str:
@@ -671,25 +770,29 @@ async def lookup_source_network(
     try:
         address = ipaddress.ip_address(ip)
     except ValueError:
-        return SourceNetworkIntelligence(
-            ip=ip,
-            source="local",
-            checked_at=checked_at,
-            error="Invalid source IP.",
+        return _annotate_enrichment_availability(
+            SourceNetworkIntelligence(
+                ip=ip,
+                source="local",
+                checked_at=checked_at,
+                error="Invalid source IP.",
+            )
         )
     if not address.is_global:
-        return SourceNetworkIntelligence(
-            ip=ip,
-            source="local",
-            checked_at=checked_at,
-            error="Non-global IP address.",
+        return _annotate_enrichment_availability(
+            SourceNetworkIntelligence(
+                ip=ip,
+                source="local",
+                checked_at=checked_at,
+                error="Non-global IP address.",
+            )
         )
 
     custom_result = await _lookup_custom_geoip_network(ip)
     if custom_result is not None:
         # Custom mode is deliberately terminal: operators use it to prevent
         # sender IPs from reaching any public enrichment provider.
-        return custom_result
+        return _annotate_enrichment_availability(custom_result)
 
     ipinfo_result = await _lookup_ipinfo_network(ip)
     ipgeolocation_result = await _lookup_ipgeolocation_network(ip)
@@ -701,7 +804,7 @@ async def lookup_source_network(
         cloudflare_radar_result,
     )
     if api_merged and api_merged.asn and api_merged.country_code:
-        return api_merged
+        return _annotate_enrichment_availability(api_merged)
 
     result = await _lookup_cymru_network(provider, ip, checked_at)
     merged = _merge_network_results(
@@ -714,7 +817,8 @@ async def lookup_source_network(
     if merged and result.error:
         merged.error = result.error
         merged.dns_retry_pending = True
-    return merged or result
+    final = merged or result
+    return _annotate_enrichment_availability(final)
 
 
 async def _retry_cached_dns_enrichment(
@@ -766,7 +870,7 @@ async def lookup_source_network_cached(
             min(ttl_seconds, _ERROR_CACHE_TTL_SECONDS) if cached_result.error else ttl_seconds
         )
         if _is_fresh(row, cache_ttl, now):
-            return cached_result, True, row.checked_at
+            return _annotate_enrichment_availability(cached_result), True, row.checked_at
 
     if cached_result and cached_result.dns_retry_pending and not custom_mode:
         result = await _retry_cached_dns_enrichment(provider, cached_result)
@@ -851,6 +955,8 @@ def merge_network_into_geo(  # noqa: C901 - centralizes source metadata preceden
     if network is None:
         return merged
 
+    network = _annotate_enrichment_availability(network)
+
     empty = {None, ""}
     _set_when_missing(merged, "country_code", network.country_code, missing_values={*empty, "ZZ"})
     _set_when_missing(merged, "country", network.country, missing_values={*empty, "Unknown"})
@@ -872,6 +978,9 @@ def merge_network_into_geo(  # noqa: C901 - centralizes source metadata preceden
     merged["radar_url"] = network.radar_url
     merged["network_source"] = network.source
     merged["network_checked_at"] = network.checked_at
+    merged["enrichment_mode"] = network.enrichment_mode
+    merged["field_availability"] = network.field_availability or {}
+    merged["config_hint"] = network.config_hint
     if network.error:
         merged["network_error"] = network.error
     elif merged.get("source") == "inferred":

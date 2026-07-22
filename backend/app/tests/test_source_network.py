@@ -804,3 +804,104 @@ def test_merge_network_into_geo_preserves_report_metadata_and_adds_prefix():
     assert merged["domain"] == "hetzner.com"
     assert merged["radar_url"] == "https://radar.cloudflare.com/ip/193.138.195.141"
     assert merged["network_source"] == "team-cymru"
+    assert merged["enrichment_mode"] == "tokenless-fallback"
+    assert merged["field_availability"]["asn"] == "available"
+    assert merged["field_availability"]["city"] == "available"
+    assert "Team Cymru" in (merged["config_hint"] or "")
+
+
+def test_enrichment_modes_cover_configured_unavailable_and_tokenless(monkeypatch):
+    from app.services import source_network as source_network_service
+
+    monkeypatch.setattr(
+        source_network_service,
+        "get_settings",
+        lambda: SimpleNamespace(
+            IPINFO_TOKEN="",
+            IPGEOLOCATION_API_KEY="",
+            CLOUDFLARE_RADAR_API_TOKEN="",
+            CLOUDFLARE_API_TOKEN="",
+            GEOIP_CUSTOM_URL="",
+        ),
+    )
+    tokenless = source_network_service._annotate_enrichment_availability(
+        SourceNetworkIntelligence(
+            ip="8.8.8.8",
+            asn="AS15169",
+            as_name="GOOGLE",
+            bgp_prefix="8.8.8.0/24",
+            country_code="US",
+            source="team-cymru",
+        )
+    )
+    assert tokenless.enrichment_mode == "tokenless-fallback"
+    assert tokenless.field_availability["asn"] == "available"
+    assert tokenless.field_availability["city"] == "requires_optional_provider"
+    assert tokenless.asn == "AS15169"
+
+    monkeypatch.setattr(
+        source_network_service,
+        "get_settings",
+        lambda: SimpleNamespace(
+            IPINFO_TOKEN="token",
+            IPGEOLOCATION_API_KEY="",
+            CLOUDFLARE_RADAR_API_TOKEN="",
+            CLOUDFLARE_API_TOKEN="",
+            GEOIP_CUSTOM_URL="",
+        ),
+    )
+    configured = source_network_service._annotate_enrichment_availability(
+        SourceNetworkIntelligence(
+            ip="8.8.8.8",
+            asn="AS15169",
+            country_code="US",
+            city="Mountain View",
+            source="ipinfo-lite",
+        )
+    )
+    assert configured.enrichment_mode == "configured"
+    assert configured.field_availability["city"] == "available"
+
+    unavailable = source_network_service._annotate_enrichment_availability(
+        SourceNetworkIntelligence(
+            ip="10.0.0.1",
+            source="local",
+            error="Non-global IP address.",
+        )
+    )
+    assert unavailable.enrichment_mode == "unavailable"
+    assert unavailable.field_availability["asn"] == "unavailable"
+
+
+def test_merge_preserves_tokenless_asn_when_city_requires_provider(monkeypatch):
+    from app.services import source_network as source_network_service
+
+    monkeypatch.setattr(
+        source_network_service,
+        "get_settings",
+        lambda: SimpleNamespace(
+            IPINFO_TOKEN="",
+            IPGEOLOCATION_API_KEY="",
+            CLOUDFLARE_RADAR_API_TOKEN="",
+            CLOUDFLARE_API_TOKEN="",
+            GEOIP_CUSTOM_URL="",
+        ),
+    )
+    merged = merge_network_into_geo(
+        {"country": "Unknown", "country_code": "ZZ", "region": "Unknown", "source": "inferred"},
+        SourceNetworkIntelligence(
+            ip="193.138.195.141",
+            asn="AS24940",
+            as_name="Hetzner Online GmbH",
+            bgp_prefix="193.138.192.0/19",
+            country_code="DE",
+            country="Germany",
+            source="team-cymru",
+        ),
+    )
+    assert merged["asn"] == "AS24940"
+    assert merged["network"] == "Hetzner Online GmbH"
+    assert merged["country"] == "Germany"
+    assert merged["enrichment_mode"] == "tokenless-fallback"
+    assert merged["field_availability"]["city"] == "requires_optional_provider"
+    assert "optional" in (merged["config_hint"] or "").lower()
