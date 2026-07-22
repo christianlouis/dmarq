@@ -33,6 +33,12 @@ _CLOUDFLARE_RADAR_IP_URL = "https://api.cloudflare.com/client/v4/radar/entities/
 
 logger = logging.getLogger(__name__)
 
+
+def clear_source_network_cache() -> None:
+    """Drop process-local source-network memoization for test isolation."""
+    _ASN_NAME_CACHE.clear()
+
+
 COUNTRY_NAMES = {
     "AT": "Austria",
     "AU": "Australia",
