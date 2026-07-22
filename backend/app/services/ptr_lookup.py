@@ -217,7 +217,39 @@ def _doh_status_result(provider_name: str, status_code: int) -> Optional[PtrLook
     return mapping.get(status_code)
 
 
-async def _cloudflare_ptr(provider: CloudflareDNSProvider, ip: str) -> PtrLookupResult:  # noqa: C901
+def _doh_payload_result(provider_name: str, data: Dict[str, Any]) -> PtrLookupResult:
+    """Convert a DNS-over-HTTPS response payload into a typed PTR result."""
+    status_code = int(data.get("Status", -1) or -1)
+    mapped = _doh_status_result(provider_name, status_code)
+    if mapped is not None:
+        return mapped
+
+    for answer in data.get("Answer", []) or []:
+        if answer.get("type") == 12:
+            hostname = str(answer.get("data") or "").rstrip(".")
+            if hostname:
+                return PtrLookupResult(
+                    hostname=hostname,
+                    status=_STATUS_OK,
+                    detail="PTR record found",
+                    provider=provider_name,
+                )
+
+    if status_code == 0:
+        return PtrLookupResult(
+            status=_STATUS_NXDOMAIN,
+            detail="DoH NOERROR with empty PTR answer",
+            provider=provider_name,
+            authoritative_negative=True,
+        )
+    return PtrLookupResult(
+        status=_STATUS_TRANSIENT,
+        detail=f"DoH status {status_code}",
+        provider=provider_name,
+    )
+
+
+async def _cloudflare_ptr(provider: CloudflareDNSProvider, ip: str) -> PtrLookupResult:
     import httpx  # type: ignore[import]
 
     try:
@@ -251,34 +283,7 @@ async def _cloudflare_ptr(provider: CloudflareDNSProvider, ip: str) -> PtrLookup
             provider=provider_name,
         )
 
-    status_code = int(data.get("Status", -1) or -1)
-    mapped = _doh_status_result(provider_name, status_code)
-    if mapped is not None:
-        return mapped
-
-    for answer in data.get("Answer", []) or []:
-        if answer.get("type") == 12:
-            hostname = str(answer.get("data") or "").rstrip(".")
-            if hostname:
-                return PtrLookupResult(
-                    hostname=hostname,
-                    status=_STATUS_OK,
-                    detail="PTR record found",
-                    provider=provider_name,
-                )
-
-    if status_code == 0:
-        return PtrLookupResult(
-            status=_STATUS_NXDOMAIN,
-            detail="DoH NOERROR with empty PTR answer",
-            provider=provider_name,
-            authoritative_negative=True,
-        )
-    return PtrLookupResult(
-        status=_STATUS_TRANSIENT,
-        detail=f"DoH status {status_code}",
-        provider=provider_name,
-    )
+    return _doh_payload_result(provider_name, data)
 
 
 async def _provider_ptr(provider: Any, ip: str) -> PtrLookupResult:
