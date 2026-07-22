@@ -144,6 +144,7 @@ class Settings(BaseSettings):
     DNS_STARTUP_PREWARM_CONCURRENCY: int = 4
     DNS_SUMMARY_REFRESH_CONCURRENCY: int = 6
     DNS_SUMMARY_REFRESH_TIMEOUT_SECONDS: float = 10.0
+    REMEDIATION_QUEUE_TIMEOUT_SECONDS: float = 8.0
 
     # Optional Stripe Billing integration. Self-hosted and provider-billed
     # deployments work without these values.
