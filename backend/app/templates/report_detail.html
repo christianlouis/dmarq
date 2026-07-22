@@ -413,6 +413,9 @@
                                             <div x-show="record.source_details.hostname">
                                                 PTR: <span class="font-mono" x-text="record.source_details.hostname"></span>
                                             </div>
+                                            <div x-show="!record.source_details.hostname" class="text-muted-foreground">
+                                                <span x-text="ptrStatusLabel(record.source_details)"></span>
+                                            </div>
                                             <div>
                                                 <span x-text="sourceLocation(record)"></span>
                                             </div>

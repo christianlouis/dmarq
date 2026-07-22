@@ -2038,6 +2038,39 @@ function domainDetailsApp(domainId = '') {
             return parts.length ? parts.join(' · ') : 'Geo unavailable';
         },
 
+        ptrStatusLabel(source) {
+            const status = source?.ptr_status || '';
+            const detail = (source?.ptr_detail || '').trim();
+            if (source?.hostname) {
+                return `PTR ${source.hostname}`;
+            }
+            if (status === 'nxdomain') {
+                return 'PTR unavailable — no PTR record (NXDOMAIN)';
+            }
+            if (status === 'timeout') {
+                return 'PTR unavailable — resolver timeout (will retry)';
+            }
+            if (status === 'refused') {
+                return 'PTR unavailable — resolver refused the query (will retry)';
+            }
+            if (status === 'servfail') {
+                return 'PTR unavailable — resolver failure (will retry)';
+            }
+            if (status === 'transient') {
+                return 'PTR unavailable — transient DNS error (will retry)';
+            }
+            if (status === 'skipped') {
+                return 'PTR skipped — address is not a global unicast IP';
+            }
+            if (status === 'invalid') {
+                return 'PTR skipped — invalid IP address';
+            }
+            if (detail) {
+                return `PTR unavailable — ${detail}`;
+            }
+            return 'PTR unavailable';
+        },
+
         formatLargeNumber(value) {
             const number = Number(value || 0);
             return new Intl.NumberFormat().format(number);

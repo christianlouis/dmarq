@@ -24,6 +24,7 @@ from app.services.report_persistence import persisted_report_to_dict, save_parse
 from app.services.report_store import ReportStore
 from app.services.source_reputation import DomainReputation, ReputationEvidence, SourceReputation
 from app.services.source_network import SourceNetworkIntelligence
+from app.services.ptr_lookup import PtrLookupResult
 from app.services.workspace_access import ROLE_ANALYST
 from app.services.workspaces import get_or_create_default_workspace
 from app.tests.test_data import SAMPLE_XML, load_dmarc_fixture
@@ -886,7 +887,12 @@ def test_get_report_by_id_includes_source_intelligence_and_reputation(
     )
 
     async def fake_ptr_lookup(_provider, _ip, timeout=3.0):  # pylint: disable=unused-argument
-        return "mail.example-sender.net"
+        return PtrLookupResult(
+            hostname="mail.example-sender.net",
+            status="ok",
+            detail="PTR record found",
+            provider="FakeProvider",
+        )
 
     async def fake_reputation(*_args, **_kwargs):
         return (
@@ -935,7 +941,7 @@ def test_get_report_by_id_includes_source_intelligence_and_reputation(
             )
         }
 
-    monkeypatch.setattr(reports_endpoint, "_safe_ptr_lookup", fake_ptr_lookup)
+    monkeypatch.setattr(reports_endpoint, "_resolve_ptr_result", fake_ptr_lookup)
     monkeypatch.setattr(reports_endpoint, "build_source_reputation_cached", fake_reputation)
     monkeypatch.setattr(reports_endpoint, "lookup_sources_network_cached", fake_networks)
 
@@ -1110,7 +1116,11 @@ def test_get_report_by_id_refreshes_reputation_cache(
     captured_refresh = []
 
     async def fake_ptr_lookup(_provider, _ip, timeout=3.0):  # pylint: disable=unused-argument
-        return "mail.example-sender.net"
+        return PtrLookupResult(
+            hostname="mail.example-sender.net",
+            status="ok",
+            detail="PTR record found",
+        )
 
     async def fake_reputation(*_args, **kwargs):
         captured_refresh.append(kwargs.get("refresh"))
@@ -1134,7 +1144,7 @@ def test_get_report_by_id_refreshes_reputation_cache(
             None,
         )
 
-    monkeypatch.setattr(reports_endpoint, "_safe_ptr_lookup", fake_ptr_lookup)
+    monkeypatch.setattr(reports_endpoint, "_resolve_ptr_result", fake_ptr_lookup)
     monkeypatch.setattr(reports_endpoint, "build_source_reputation_cached", fake_reputation)
 
     response = authed_client.get(
@@ -1162,9 +1172,9 @@ def test_get_report_by_id_continues_when_reputation_enrichment_fails(
         raise RuntimeError("provider unavailable")
 
     async def fake_ptr_lookup(_provider, _ip, timeout=3.0):  # pylint: disable=unused-argument
-        return None
+        return PtrLookupResult(status="unavailable", detail="stubbed")
 
-    monkeypatch.setattr(reports_endpoint, "_safe_ptr_lookup", fake_ptr_lookup)
+    monkeypatch.setattr(reports_endpoint, "_resolve_ptr_result", fake_ptr_lookup)
     monkeypatch.setattr(reports_endpoint, "build_source_reputation_cached", failing_reputation)
 
     response = authed_client.get("/api/v1/reports/source-intel-fallback-report")
@@ -1192,9 +1202,9 @@ def test_get_report_by_id_surfaces_refresh_reputation_failure(
         raise RuntimeError("provider unavailable")
 
     async def fake_ptr_lookup(_provider, _ip, timeout=3.0):  # pylint: disable=unused-argument
-        return None
+        return PtrLookupResult(status="unavailable", detail="stubbed")
 
-    monkeypatch.setattr(reports_endpoint, "_safe_ptr_lookup", fake_ptr_lookup)
+    monkeypatch.setattr(reports_endpoint, "_resolve_ptr_result", fake_ptr_lookup)
     monkeypatch.setattr(reports_endpoint, "build_source_reputation_cached", failing_reputation)
 
     response = authed_client.get(
@@ -1262,7 +1272,11 @@ def test_get_report_by_id_dedupes_ptr_lookups_for_repeated_source_ips(
     async def counting_ptr(_provider, ip, timeout=3.0):  # pylint: disable=unused-argument
         ptr_calls.append(ip)
         await asyncio.sleep(0.01)
-        return f"host-{ip.replace('.', '-')}.example.net"
+        return PtrLookupResult(
+            hostname=f"host-{ip.replace('.', '-')}.example.net",
+            status="ok",
+            detail="PTR record found",
+        )
 
     async def fake_reputation(*_args, **_kwargs):
         return (
@@ -1277,7 +1291,7 @@ def test_get_report_by_id_dedupes_ptr_lookups_for_repeated_source_ips(
             None,
         )
 
-    monkeypatch.setattr(reports_endpoint, "_safe_ptr_lookup", counting_ptr)
+    monkeypatch.setattr(reports_endpoint, "_resolve_ptr_result", counting_ptr)
     monkeypatch.setattr(reports_endpoint, "build_source_reputation_cached", fake_reputation)
 
     started = time.monotonic()
@@ -1319,7 +1333,7 @@ def test_get_report_by_id_bounds_slow_network_enrichment(
         return {}
 
     async def fake_ptr(_provider, ip, timeout=3.0):  # pylint: disable=unused-argument
-        return None
+        return PtrLookupResult(status="unavailable", detail="stubbed")
 
     async def fake_reputation(*_args, **_kwargs):
         return (
@@ -1335,7 +1349,7 @@ def test_get_report_by_id_bounds_slow_network_enrichment(
         )
 
     monkeypatch.setattr(reports_endpoint, "lookup_sources_network_cached", slow_networks)
-    monkeypatch.setattr(reports_endpoint, "_safe_ptr_lookup", fake_ptr)
+    monkeypatch.setattr(reports_endpoint, "_resolve_ptr_result", fake_ptr)
     monkeypatch.setattr(reports_endpoint, "build_source_reputation_cached", fake_reputation)
 
     class _Settings:

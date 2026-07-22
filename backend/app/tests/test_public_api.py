@@ -33,6 +33,7 @@ from app.services.organizations import (
 )
 from app.services.report_persistence import save_parsed_report
 from app.services.report_store import ReportStore
+from app.services.ptr_lookup import PtrLookupResult
 from app.services.workspace_access import (
     ROLE_ANALYST,
     ROLE_WORKSPACE_OWNER,
@@ -557,8 +558,14 @@ def test_public_source_intelligence_endpoints_use_report_scope(client: TestClien
     created = create_api_token(db_session, name="source bot", scopes=[READ_REPORTS_SCOPE])
 
     with patch(
-        "app.api.api_v1.endpoints.domains._safe_ptr_lookup",
-        new=AsyncMock(return_value="mail.example.net"),
+        "app.api.api_v1.endpoints.domains._safe_ptr_lookup_result",
+        new=AsyncMock(
+            return_value=PtrLookupResult(
+                hostname="mail.example.net",
+                status="ok",
+                detail="PTR record found",
+            )
+        ),
     ):
         sources = client.get(
             f"/api/v1/public/domains/{DOMAIN}/sources?days=30",

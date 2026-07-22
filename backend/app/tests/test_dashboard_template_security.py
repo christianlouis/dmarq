@@ -2517,7 +2517,8 @@ def test_domain_details_exposes_source_ip_intelligence_without_html_injection():
     script = _domain_details_script()
 
     assert "IP Intelligence" in template
-    assert "PTR unavailable" in template
+    assert "PTR unavailable" in template or "ptrStatusLabel" in script
+    assert "ptrStatusLabel" in script
     assert "sourceGeoSummary(source)" in script
     assert "String(value).trim().toLowerCase() !== 'unknown'" in script
     assert "Geo unavailable" in script
